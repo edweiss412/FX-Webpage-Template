@@ -186,7 +186,7 @@ Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → 
 
 The enumeration is still deliberate (a regression pin, not a cover — see the acceptance index), and the file is still deleted when `BL-SYNC-LOG-ATTRIBUTION-METATEST` lands.
 
-<!-- task: red=`pnpm vitest run tests/sync/onboardingScanSyncLogAttribution.test.ts` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/sync/onboardingScanSyncLogAttribution.test.ts tests/sync/syncLogRepairSites.test.ts` ac=AC-1 -->
 
 **This test file is NEW.** a `runOnboardingScan` test file does not exist (an earlier plan draft cited it — corrected by the pre-draft verification pass), and `grep -rn "insert into public.sync_log" tests/` shows no test asserts the onboarding sink's SQL at all. The only production-sink assertion in the repo is `tests/sync/runOfShowSyncLogChannel.test.ts:228`, which covers `insertSyncLog`. So there is no existing RED to extend; the task creates one.
 
@@ -218,7 +218,7 @@ Sites: `lib/sync/runOnboardingScan.ts:740`, `lib/sync/runOnboardingScan.ts:826`,
 
 ## Task 3c — Manual entry points install a sink (with their regression pin) + the two fenced gap markers
 
-<!-- task: red=`pnpm vitest run tests/sync/manualSyncInstallsSink.test.ts` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/sync/manualSyncInstallsSink.test.ts tests/sync/syncLogRepairSites.test.ts` ac=AC-1 -->
 
 **Scope fence, ratified 2026-08-09 (spec §6.2).** This task wires sinks. It does **not** make manual sync observable, and must not claim to. Spec R8 F1 measured `logSyncCalls: 0` on four `runManualStageForFirstSeen` branches even with a sink installed, because those branches return before the sole emission at `lib/sync/runManualStageForFirstSeen.ts:147`; and `runManualSyncForShow` awaits `runOne` with no catch, so a throw escapes unlogged. That gap is filed as `BL-MANUAL-SYNC-UNEMITTED`.
 
@@ -228,13 +228,15 @@ So the RED for this task asserts **the sink is installed and reaches the pipelin
 
 **RED validity.** New test asserting each entry point forwards a sink into the pipeline. The production defect is the absent `logSync` property at each call site; the test cannot pass until they carry it. It is NOT test-local — the existing `tests/sync/runOfShowSyncLogChannel.test.ts:172-185` injects `logSync` itself, which is exactly why it proved a test-only path and missed this for the whole arc.
 
-**The entry-point set is DERIVED, not hand-listed.** My own verification grep missed `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` because its callee is `deps.runManualSyncForShowUnlocked` — a different exported name than the four shapes I pattern-matched. That is the fourth instance in this arc of a hand-list coming up short, this time in the verification method rather than the artifact. **The entry-point set is keyed on the SINK PARAMETER (spec R13 F1), not on transitive reachability.** An export is an entry point iff its own signature accepts a deps object that can carry `logSync`. Transitive reachability had no stopping condition: `unarchiveShow` reaches a writer, so it became an entry point, so ITS caller owed a sink, and so on up the graph — and no marker was truthful there, since once the sink is wired into `unarchiveShow` the attempt does emit. Signature-keyed terminates by construction and is decidable from the callee alone. `unarchiveShow`'s `deps?: { rpc?, runManualSyncForShow? }` carries no `logSync`, so it is a CALLER that must pass one inward — which is this task — and its own callers inherit nothing.
+**The entry-point set is DERIVED, not hand-listed.** My own verification grep missed `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` because its callee is `deps.runManualSyncForShowUnlocked` — a different exported name than the four shapes I pattern-matched. That is the fourth instance in this arc of a hand-list coming up short, this time in the verification method rather than the artifact. **The pin is a FIXED fifteen-site enumeration, NOT a derived cover (plan R2 F1).** An earlier revision described both, which let an implementer build the very derived guard the spec descoped. Spec §3.6 and `BACKLOG.md` are explicit: the derived recognizer is filed work; this change ships a fixed list only, and its file-level rule must be per-CALL so one instrumented call cannot launder a sinkless one in the same file.
+
+**Accept-set reasoning below is BACKGROUND for the filed guard, not an instruction for this task.** It is kept because the filed entry cites it: An export is an entry point iff its own signature accepts a deps object that can carry `logSync`. Transitive reachability had no stopping condition: `unarchiveShow` reaches a writer, so it became an entry point, so ITS caller owed a sink, and so on up the graph — and no marker was truthful there, since once the sink is wired into `unarchiveShow` the attempt does emit. Signature-keyed terminates by construction and is decidable from the callee alone. `unarchiveShow`'s `deps?: { rpc?, runManualSyncForShow? }` carries no `logSync`, so it is a CALLER that must pass one inward — which is this task — and its own callers inherit nothing.
 
 **Key the check on the IMPORT, never the call name.** `lib/showLifecycle/unarchiveShow.ts:7` imports `runManualSyncForShow as defaultRunManualSyncForShow` and calls it at `lib/showLifecycle/unarchiveShow.ts:32` through a local alias (`catchUp = deps?.runManualSyncForShow ?? default…`); `app/api/admin/show/pull-sheet-override/route.ts` binds the same import as `runSync`. Three distinct local names for one import — a callee-name match finds none of them, and both renames are ordinary authoring, squarely inside the threat model rather than the fenced-out obfuscation limit.
 
 The rule is therefore: **a file importing an exported sync entry point must supply a sink at some call, or carry a site exemption.** Import presence is file-local, so no interprocedural analysis is needed — the indirection through `app/admin/show/[slug]/_actions/unarchive.ts:34` never has to be traced, because the direct caller is itself in a scanned root and is the right site to name.
 
-Census — exactly **two of seven** production entry points install a sink today (`app/api/cron/sync/route.ts:21` and `app/api/drive/webhook/route.ts:230`); the six below do not.
+Census — **two of ten** production entry points install a sink today (`app/api/cron/sync/route.ts:21` and `app/api/drive/webhook/route.ts:230`); the eight below do not.
 
 **No type widening is needed.** `RunManualStageForFirstSeenDeps` already carries `logSync?: ProcessOneFileDeps["logSync"]` (`lib/sync/runManualStageForFirstSeen.ts:63`). An earlier revision of this plan mandated adding it, from a grep window that stopped one line short (plan R1 F18). Callers can pass a sink today; the defect is only that they do not.
 
@@ -336,6 +338,10 @@ const EXECUTES_PRUNE = /\bselect\s+public\.prune_(?:sync_log|app_events)\s*\(/i;
 **Edit C — close the three name-match holes (spec R4 F3).** Extending discovery is necessary but not sufficient: `CALLS_LOCAL_GUARD` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:42-43`) matches a *call whose name looks right*. It does not establish (a) that the guarded value is the URL actually passed to `postgres`, (b) that the call precedes the connection, or (c) that the callee is the imported guard rather than a local same-named function. A prune test can call `assertLocalDbUrl` on an unrelated loopback literal, or after pruning, and pass.
 
 Close (c) the way `_metaLocalDbUrlGuard` already does — resolve the callee to the guard module's export (that file's own whole-diff finding 1b). Close (a) and (b) by asserting, in the discovered file's AST, that the identifier passed to `postgres(...)` is the same binding returned by the guard call. 
+
+**Edit B-pre — repair the LIVE hit the new pattern discovers (plan R2 F6).** `EXECUTES_PRUNE` folds in `prune_app_events`, and `tests/log/appEventsSchema.test.ts` executes it at `tests/log/appEventsSchema.test.ts:66` while resolving its URL from `process.env.TEST_DATABASE_URL` with **no loopback guard** (`tests/log/appEventsSchema.test.ts:5`). That is a real, present hazard — the validation project's `app_events` can be pruned by an existing test today, independent of this change — and it means Task 5b **cannot reach green** until that file calls `assertLocalDbUrl`. Repair it in this task and name it in the anti-vacuity list.
+
+**Mutation-family closure (plan R2 F6).** The anti-vacuity list must name BOTH discovered prune tests, not just the new sync-log one: deleting `|app_events` from the regex would otherwise make the existing unsafe test vanish from discovery while every planned assertion still passes. That is the mutation this guard most needs to fail on, and the closure set for this task is exactly the two operators — drop `sync_log`, drop `app_events` — each of which must break an assertion.
 
 **Edit B** — extend the anti-vacuity list at `tests/db/_metaDestructiveDbTargetGuard.test.ts:66-72` with the new prune test file, so the pattern is proven to match something. Without it the extension can rot into a silent no-op, which is precisely what that test's own comment warns about: *"If this fails, the regexes drifted and every assertion below is vacuous."*
 

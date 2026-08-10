@@ -815,6 +815,18 @@ A working draft exists in the shipping session's scratchpad; the design above is
 
 **Interim coverage:** `fix/sync-log-show-id-duration` ships `tests/sync/syncLogRepairSites.test.ts`, an enumerated pin over the fifteen sites it repairs. Delete it when this guard lands.
 
+### BL-APPEVENTS-PRUNE-TEST-UNGUARDED-TARGET — an existing test can prune the validation project
+
+**Status:** OPEN · **Severity:** HIGH (data loss on a shared project; live today) · **Class:** test safety · **Effort:** S · **Filed:** 2026-08-09
+
+**Probe.** `tests/log/appEventsSchema.test.ts:5` resolves its connection as `process.env.TEST_DATABASE_URL ?? <loopback default>` with **no `assertLocalDbUrl` guard**, and `:66` executes `select public.prune_app_events(interval '60 days')`. `TEST_DATABASE_URL` on the shipping machine is the persistent validation project (`AGENTS.md:218`), so running that suite with the ambient env deletes 60 days of validation telemetry.
+
+**Why it is invisible today.** `tests/db/_metaDestructiveDbTargetGuard.test.ts:35-41` discovers destructive tests by two literal patterns — `reset_validation_data` and the `destructive_reset_gate` update. Neither matches a prune, so this file has never been in the guard's `destructive` set and its missing loopback assertion has never been checked.
+
+**Found by** cross-model plan review R2 F6 on `fix/sync-log-show-id-duration`, which extends that guard's discovery to `prune_(sync_log|app_events)`. That arc repairs this file as part of its Task 5b — the guard cannot reach green while a discovered test lacks the assertion — so this entry exists to record the hazard and its independence: it predates that change and would remain if the change were abandoned.
+
+**Fix:** route the URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`), matching every other destructive DB test.
+
 ### BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches
 
 **Status:** OPEN · **Severity:** HIGH (Doug's deliberate actions are invisible to `observe synclog`) · **Class:** sync observability · **Effort:** M · **Filed:** 2026-08-09
