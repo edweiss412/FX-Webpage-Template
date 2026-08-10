@@ -106,13 +106,6 @@ export const STANDING_ALLOWLIST: StandingRow[] = [
     reason: "A1 compat re-export delegating to shared (old arity, TSX-bound)",
   },
   {
-    file: "tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts",
-    family: "name-family",
-    marker: "stripYamlComments",
-    reason:
-      "D1: YAML # stripper — different grammar, quote-aware, block-safe (renamed from stripComments in A16)",
-  },
-  {
     file: "tests/drive/watch.test.ts",
     family: "name-family",
     marker: "codeOf",

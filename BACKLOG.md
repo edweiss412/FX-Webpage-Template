@@ -53,6 +53,18 @@ The **nineteen** isolating mutants, as an operator list ready to enrol — every
 
 **First scheduled step:** add the registry row and run the gate, then triage survivors — the nineteen above should all be killed already, so any survivor is new information.
 
+## BL-SPECLINT-RED-EXECUTABILITY-ARM — spec:lint arm that observes each declared red=/gate command
+
+**Filed:** 2026-08-09 (round-economy followups-2, promotion P1; spec `docs/superpowers/specs/ci/2026-08-09-round-economy-followups-2.md` §3.1). **Severity:** LOW (tooling; no product surface). **Class:** review-round reduction (tooling). **Effort:** M. **Reachability:** PROBED via three merged filings — quick-wins-2 plan R1 (four of fourteen findings were `red=` commands that already exit 0: `docs/review-rounds/docs/quick-wins-2-specs/97e179d831aa.md`), classname plan R3-F5/R4-F1/R5-F1 (cycle-breaker markers across three rounds — two never observably red, one whose command never goes green: `docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md`), resurrect-mobile-safari plan (three rounds of gate commands exiting 0 on the failure they name: `docs/review-rounds/test/resurrect-mobile-safari-e2e/9bd0a8456151.md`).
+
+Extend `spec:lint`'s declared-task-contract arm (`pnpm spec:lint`, `scripts/spec-lint.ts`; task-region grammar per `docs/agents/spec-self-review.md`). For an enrolled plan, validating the same-command red-then-green cycle: (a) an execution mode that RUNS each `red=` the plan asserts is red NOW (its failing case exists at plan time) and reports a new code (e.g. `RED_ALREADY_GREEN`) when it exits 0 — opt-in per invocation, since a `red=` may be expensive; a `red=` whose failing case the task itself writes (a new test file OR a new case in an existing suite) is the ordinary invariant-1 shape, exempt from execution but not from validation: the arm instead checks the task names a production line verifiable as absent or defective on the live tree; (b) static cycle-breaker shapes needing no execution: a guard test green at authoring, a command whose target the GREEN step deletes or renames (the SAME command never passes), an `&&` conjunct behind an expected failure, and a task body with no one-line "what is red and why" statement; (c) an advisory listing declared gate commands that carry no "probed against a constructed failing input" annotation. The rule half binds immediately via the promoted writing-plans bullet; this row is the mechanical enforcement. Design and thresholds belong to the implementing arc, not this row.
+
+## BL-SPECLINT-PROSE-COUNT-PARITY — numeric-sweep extension: prose cardinalities against executable declarations
+
+**Filed:** 2026-08-09 (round-economy followups-2, promotion P3; spec `docs/superpowers/specs/ci/2026-08-09-round-economy-followups-2.md` §3.2). **Severity:** LOW (docs drift; nothing renders differently). **Class:** review-round reduction (tooling). **Effort:** S. **Reachability:** PROBED via merged filings — classname delta arc: five findings across four rounds plus one CI cycle, all one class (`docs/review-rounds/refactor/classname-array-join-cn/b2aca7b02547.md`); wedge-remeasure: quantity drift across quoted disposition templates (spec §) and a stale cardinality over a grown sibling list (diff §) (`docs/review-rounds/chore/next-1630-wedge-remeasure/9bec2e11ab11.md`).
+
+Extend `lib/specLint/numerics.ts` beyond `NUMERIC_NOUN_MISMATCH` with the three measured shapes: (a) when a doc names a script that declares a count constant (the `EXPECTED_SITE_TOTAL` pattern in `scripts/verify-cn-operand-parity.mjs` — a module-local `const`, so the arm reads the declaration textually rather than importing it), compare the doc's PRESENT-TENSE prose cardinalities against the constant's live value — prose carrying the dated "at authoring time" qualifier, and dated historical records (probe transcripts, execution records: the filing's own boundary is that historical measurements are never corrected), are EXCLUDED from the comparison, not flagged; (b) count the sibling list items directly beneath an "N shapes/items" claim and compare; (c) compare quantities repeated across quoted disposition templates within one doc. Advisory-first is acceptable; the rule half binds immediately via the promoted spec-self-review numeric-sweep extension. Design and opt-in mechanics belong to the implementing arc.
+
 ## BL-TAP-TARGET-INLINE-TEXT-CONTROLS — eight inline text controls sit under the 44px floor pending a per-site prose-vs-chrome call
 
 **Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §9.1). **Class:** accessibility (tap-target floor). **Effort:** S-M (the judgment, then a mechanical repair for whatever it classifies as chrome). **Class-sweep exception:** (a) — needs a product decision the filing branch cannot settle. **Reachability:** PROBED — every site and its computed height is in the spec's §2.6 corpus baseline (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
@@ -582,11 +594,11 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 32 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 25 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
-**32 standalone-allowlist e2e specs are named by no CI workflow** — the `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
+**The `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts` are e2e specs named by no CI workflow** — that allowlist is the population, and the count is whatever it holds (the table below records the measured figures; it was 43, then 32 after PR #743, and 25 after this batch). No number is restated in this sentence, because a narrative copy of a machine-held count is exactly what went stale here. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
 
 **Census, RESTATED 2026-08-09 by counting the allowlist rather than by arithmetic** (the "~60" this
 entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated;
@@ -594,12 +606,12 @@ the 2026-08-06 counts are kept alongside so the delta is auditable):
 
 | Allowlist rows                                                          | 2026-08-06 | 2026-08-09 |
 | ----------------------------------------------------------------------- | ---------- | ---------- |
-| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **32**     |
+| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **25**     |
 | `PATH_GATED` — named by a workflow, runs when its filter matches        | 13         | 13         |
 | `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only | 6          | 8          |
 | `LOCAL_ONLY` — local artifact by design                                 | 1          | 1          |
 | custom-reason rows                                                      | 3          | 3          |
-| **Total rows**                                                          | 66         | **57**     |
+| **Total rows**                                                          | 66         | **50**     |
 
 The 11-row drop in `UNSEEN` and the 9-row drop in the total are `BL-RESURRECT-MOBILE-SAFARI-E2E`
 (archived 2026-08-09): NINE rows removed with their deleted spec files, and TWO reclassified
@@ -615,17 +627,78 @@ rather than asserted.
 
 Path-gated rows are NOT this entry's scope: a workflow does name them, and "not PR-blocking-capable" is a different property from "runs nowhere". Conflating the two is what produced the original overcount.
 
-**The blocker is not uniform, and promoting the cheap ones first is the obvious first batch.** Most of the 32 need a dev server AND a seeded database, which is why the cluster excluded them — but not all do: `sample.spec.ts`, for instance, requests `/` and asserts the title. Sorting the 32 by what they actually require, and wiring the no-seed ones first, is a cheaper opening move than the entry's original all-or-nothing framing implied.
+**The blocker is not uniform, and promoting the cheap ones first is the obvious first batch.** Most of the remaining rows need a dev server AND a seeded database, which is why the cluster excluded them — but not all do. Sorting them by what they actually require, and wiring the cheapest first, is a cheaper opening move than the entry's original all-or-nothing framing implied. Batch 1 did exactly that; **read the current population off the allowlist rather than off this paragraph**, which is how the figure went stale here in the first place.
 
 **This entry replaces a row whose heading premise had gone false.** Its predecessor was named for two `admin-lifecycle` specs being invoked by no workflow; both have been wired since 2026-07-27 and run on `mobile-safari` on every `pull_request` (`.github/workflows/lifecycle-layout-e2e.yml:110,130,132`, re-verified 2026-08-06). The full wiring history is preserved in `BACKLOG-archive.md` § `BL-E2E-LIFECYCLE-SPECS-CI-DARK`. Only the app-dependent residual survives here, and the scope has not changed — only the name now matches it.
 
-**Promotion path — the entry's own, and it is incremental by design:** land green batches one at a time rather than attempting all 32. `crew-e2e.yml`'s `CREW_E2E_ONLY` + `pnpm db:seed` pattern is the working template for an app-dependent job, and `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar a batch must clear: **five consecutive green normal-dispatch runs** before a spec is considered wired (spec §6.1 / AC-6). That bar is what took the transitions spec from "one flaky case" to wired, and it is the reason batches must be small.
+**Promotion path — the entry's own, and it is incremental by design:** land green batches one at a time rather than attempting the whole residual at once. `crew-e2e.yml`'s `CREW_E2E_ONLY` + `pnpm db:seed` pattern is the working template for an app-dependent job, and `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar a batch must clear: **five consecutive green normal-dispatch runs** before a spec is considered wired (spec §6.1 / AC-6). That bar is what took the transitions spec from "one flaky case" to wired, and it is the reason batches must be small.
 
 **Owner action that no branch can close.** Promoting e2e jobs into the branch-protection required set — so a red e2e blocks merge at the GitHub layer — is a GitHub-settings action, not repo code. Measured 2026-07-26: the live required set holds TWELVE contexts, and no e2e job is among them, which is why every e2e job is advisory. Until an owner changes that, enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
+
+**Batch 1 — SEVEN specs wired, census 32 → 25** (this entry is restated in the same PR that wires them, so it describes that PR's content, not a merge that has already happened) (PR #753, `.github/workflows/app-e2e.yml`, an always-on bare-`pull_request` job running both projects with `--retries=0` behind a per-spec executed-count oracle, `scripts/check-app-e2e-executed.mjs`). Wired: `sample`, `root-landing`, `admin-layout`, `admin-phase2-surfaces`, `notify-toggles`, `me-page`, `report-modal`. Their `UNSEEN` rows are deleted, which is what moves both the population and the total by seven. Spec: `docs/superpowers/specs/ci/2026-08-09-app-e2e-batch1-design.md`.
+
+Five of the nine specced members were RED when first run — the spec had verified them by full-file read, and a read is not a run. Four were repaired in-branch as test-only staleness (a Next 16 streamed `redirect()` answering 200 where two specs asserted a 3xx first hop; a `/show/<slug>` href predating the M11.5 picker pivot; a Phase-2 dev-link guard whose telemetry exemption matched the raw href and so failed on its own sanctioned link once that link grew a `#health` fragment). Recorded here because the same read-not-run gap will otherwise be repeated by batch 2: **derive a batch's membership from a real run, not from reading the files.**
+
+**Ninth member deferred, not wired — `help-pages.spec.ts`.** It stays `UNSEEN` with its allowlist row intact. Its blocker is an APP defect, not a wiring gap: `/help/tour` throws a React hydration mismatch (13 page errors) under `pnpm dev` and the production build alike. The fix lands in `app/help/tour/page.mdx`, a UI surface under invariant 8, so repairing it drags the impeccable dual gate into what is otherwise a CI-wiring arc — its own arc, filed as `BL-HELP-TOUR-HYDRATION-MISMATCH`. The spec's route-coverage guard WAS repaired in that PR (it now derives from the `_nav.ts` export and covers `/help/admin/settings`), so promoting it later costs one allowlist-row deletion.
+
+**A second member was dropped mid-acceptance under AC-4 — `admin-changes-feed-layout.spec.ts`.** It stays `UNSEEN` with its allowlist row restored. Unlike help-pages this one is a genuine FLAKE, and it was caught by exactly the bar that exists to catch it: it passed the first two `pull_request` runs of the five-green loop and then failed two of the next three, on a DIFFERENT width band each time (`@720`, then `@1280`, both mobile-safari), with `published-show-review-modal` never appearing inside a 30s wait after `/admin?show=<slug>`. It passes standalone (6/6 locally, repeatedly) and fails only inside the batch, which points at a cross-spec interaction rather than a slow render. Filed as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`. Recorded because the local signal was misleading in BOTH directions here: the same spec's local reds were correctly attributed to a shared-database collision with a concurrent agent session, and that correct diagnosis then masked a real CI-reproducible flake underneath. **Only CI settles a flake question — AC-4 exists so an admitted flake never rides in.**
+
+**`onboarding-wizard-step1.spec.ts` is excluded from every batch until a seed-state redesign, and the reason is recorded so batch 2 does not re-derive it:** it asserts `[data-testid=onboarding-wizard]` on `/admin`, but `supabase/seed.ts` sets `app_settings.watched_folder_id` and `app/admin/page.tsx` then renders the dashboard — a deterministic failure on any seeded DB, and a required state mutually exclusive with `admin-changes-feed-layout.spec.ts`'s.
 
 **Structural guard already in place:** the workflow-coverage meta-test with its reasoned allowlist (`tests/ci/_metaE2eWorkflowCoverage.test.ts`) shipped with the archive-row-menu-idiom branch. Wiring work here is moving a spec OFF that allowlist by adding it to a workflow — the guard makes each removal explicit rather than silent.
 
 **Related, filed separately:** `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` (three fixed waits the 2026-08-03 class sweep found in the layout spec).
+
+## BL-CHANGES-FEED-MODAL-BATCH-FLAKE — admin-changes-feed-layout's review modal intermittently never mounts inside a batch run
+
+**Status:** OPEN · **Severity:** MEDIUM (blocks wiring the spec into CI; no known product impact) · **Class:** e2e flake · **Effort:** M · **Filed:** 2026-08-09
+
+`tests/e2e/admin-changes-feed-layout.spec.ts` fails intermittently when run as part of a multi-spec batch: after `page.goto('/admin?show=<slug>')` the locator
+
+```
+[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])
+```
+
+never becomes visible inside its 30s wait — "element(s) not found", not a slow render.
+
+**Measured 2026-08-09 on real CI**, in the five-green acceptance loop for `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` batch 1, where the database is freshly bootstrapped and seeded per job and no other session can touch it:
+
+| run                                                                                       | head       | outcome                         |
+| ----------------------------------------------------------------------------------------- | ---------- | ------------------------------- |
+| [31335519416](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335519416) | `d07330a0` | green                           |
+| [31335770085](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335770085) | `5c7a0704` | green                           |
+| [31335985584](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335985584) | `7089ec9e` | **failed @720, mobile-safari**  |
+| [31337109375](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31337109375) | `434d753f` | **failed @1280, mobile-safari** |
+
+The failing WIDTH BAND differs between runs, and locally the same spec failed at `@390` under desktop-chromium — so it is not band- or project-specific.
+
+**It passes standalone.** `pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium` was 6/6 green on repeated local runs against a freshly seeded database. The defect appears only when other specs run first, which points at a cross-spec interaction — the spec resolves the seeded Waldorf show by `drive_file_id` and seeds `show_change_log` / `sync_holds` marker rows in `beforeAll`, and `report-modal.spec.ts` pins the SAME show.
+
+**First thing to check:** whether the show's state (published / archived, or the presence of the feed rows the modal renders from) is disturbed by a spec that runs earlier in the batch, and whether the modal's mount condition depends on it. A per-test re-seed, or resolving a show of its own rather than sharing the Waldorf fixture, are the obvious candidate repairs — but confirm the mechanism before choosing.
+
+**Not a product bug as far as anything shows** — no user-facing report, and the surface passes every other run. The cost is coverage: the spec stays `UNSEEN` until it is stable enough to clear five consecutive green runs.
+
+## BL-HELP-TOUR-HYDRATION-MISMATCH — /help/tour throws a React hydration mismatch on every visit
+
+**Status:** OPEN · **Severity:** MEDIUM (a real user-visible page re-renders client-side after a failed hydration) · **Class:** app defect (UI surface) · **Effort:** S · **Filed:** 2026-08-09
+
+`/help/tour` emits a React hydration mismatch — "the server rendered HTML didn't match the client" — plus twelve further page errors, on every admin visit. Probed 2026-08-09 under BOTH server postures this repo runs, so it is not a dev-only artifact:
+
+```
+BASELINE_SERVER_ONLY=1 pnpm exec playwright test tests/e2e/help-pages.spec.ts --project=mobile-safari
+  ✘ /help/tour → 200, H1 "Tour", sidebar mounted, no console errors
+    Error: /help/tour: page errors observed
+    - Array []
+    + Array [ "Hydration failed because the server rendered HTML didn't match the client…" ] (13 entries)
+```
+
+Same failure against `pnpm build && pnpm start`. Every other one of the fourteen `/help/*` routes passes the identical assertions, so the defect is local to this page, not to the help layout.
+
+**Likely cause, not yet confirmed:** `app/help/tour/page.mdx` interleaves raw JSX blocks with markdown — several `<a>` elements begin at column 0 inside a `<div>` block, which MDX can wrap in a `<p>`, and a block element inside a paragraph is invalid nesting, one of the named causes in React's own mismatch message. Confirm before fixing.
+
+**Why it is filed rather than repaired in the arc that found it.** `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` batch 1 (PR #753) is a CI-wiring arc carrying `impeccable-gate: N/A — no UI surface`. The fix lands under `app/`, which is a UI surface under AGENTS.md invariant 8 and therefore owes the impeccable critique + audit dual gate — a different arc with a different gate, which is exception (c) of the class-sweep disposition rule (the repair is a change to a surface the PR does not otherwise touch). That arc dropped `help-pages.spec.ts` from its batch under AC-4 rather than wire a permanently-red job.
+
+**Closing this unblocks a one-line follow-up:** delete the `help-pages.spec.ts` row from `LOCAL_ONLY_ALLOWLIST` and add the spec to `.github/workflows/app-e2e.yml`'s run step. Its route-coverage guard is already repaired (derives from `app/help/_nav.ts`, covers all fourteen NAV routes including `/help/admin/settings`), so no other work is owed.
 
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
@@ -824,42 +897,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-### BL-TWO-WAY-SHEET-SYNC — Write corrections back to the source Google Sheet
-
-**Filed:** 2026-06-08, during the "sync changes feed + identity-only gate" brainstorming (`docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md`). Surfaced when evaluating whether **undo** could write the old value back to the sheet to keep app and sheet consistent (instead of the chosen "revert + per-entity hold" approach).
-
-**Effort:** L
-
-**Description:** Today the app is strictly one-directional — Doug's Google Sheet is the source of truth, the app reflects it. A two-way-sync feature would let an admin correction made in the app (e.g. an undo, or a future inline edit) write back into the source sheet, so the sheet and the live pages stay consistent without the app having to "hold/override" the sheet's value across syncs. It would obviate the per-entity `sync_holds` override mechanism for the undo path (the conflict simply wouldn't exist if the sheet were corrected too).
-
-**Why backlog, not deferred — three hard walls (all verified 2026-06-08):**
-
-- **Read-only OAuth scopes.** The app uses `auth/drive.readonly` + `auth/spreadsheets.readonly` (`lib/drive/client.ts`). Write-back needs `auth/spreadsheets` (write) + re-consent + **edit** access to Doug's sheets — a real permission/security/trust escalation.
-- **No source-cell provenance.** The parser abstracts the messy human sheet into structured `parse_result` and discards cell/row/range coordinates (`lib/parser/types.ts` `CrewMemberRow` etc. carry no provenance). Writing "Bob" back to "the name cell" requires a reverse field→cell mapping the parser doesn't retain — a significant parser change, brittle against merged cells/formulas/free-form layout.
-- **Inverts the product model + new hazards.** "App edits Doug's source data" flips the one-directional trust model and introduces formatting-clobber risk, concurrent-edit races with Doug, and a modified-time feedback loop (app writes → sheet mtime advances → sync re-triggers; needs app-origin-write guards).
-
-**Promotion prerequisite:** Doug (or the operator) explicitly wants genuine two-way sync (e.g. "fixing it in the app should fix my sheet"). It's its own project — scope expansion (write scope + consent), a parser change to retain cell provenance, conflict/feedback-loop handling, and a trust/relationship decision about the app editing source-of-truth sheets. The chosen v1 reconciliation (human fixes the sheet; the app holds the overridden item steady until then) keeps the app in its read-only lane; this entry exists only so the idea isn't lost.
-
----
-
-### BL-NON-CREW-UNDO — Undo for non-crew feed rows (section shrinkage / field degradation / asset drift)
-
-**Effort:** L
-**l-wave-screen 2026-08-06:** PREREQ — waits on the operator explicitly wanting non-crew undo; the capture-widening cost is judged then, not now.
-**park-review 2026-08-07:** trigger re-checked with the owner — unfired. No operator has wanted to un-apply a non-crew change in-app; "edit the sheet to change this" remains the intended path (the feed spec's §6.2 rationale — sheet stays the source of truth, and even crew undo is only a temporary `undo_override` pin that releases when the sheet reconciles or moves on, §4.3). Stays PREREQ-fenced. The gate field below was split out of the compound "Technical home + promotion prerequisite" label in this pass so the ledger viewer classifies the row as gated (watch) rather than open.
-
-**Filed:** 2026-06-10 from the shipped "sync changes feed + identity-only gate" milestone (PR #19, `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md` §1 non-goals / §7 / finding F6).
-
-**Description:** v1 undo covers **crew-identity** changes only (`crew_added` / `crew_removed` / `crew_renamed`). Non-crew auto-applied changes — MI-7 section shrinkage, MI-8/8b/8c field degradation, asset drift (DIAGRAMS\_\*/REEL_DRIFT) — render as **notification-only** feed rows (`action='none'`, null `before_image`, "edit the sheet to change this" pointer). This entry would extend per-item undo to those rows.
-
-**Why backlog, not deferred — F6 showed it's "not cheap" + no committed trigger:** the undo restore path needs the **pre-apply state** in `before_image`, but the Phase-2 snapshot (`applyShowSnapshot` → `previousCrewMembers`, `lib/sync/runScheduledCronSync.ts:913-932,1088-1100`) captures **prior crew rows ONLY**. It does NOT snapshot prior hotel/room/contact rows, show fields, diagrams, or reel state. Backing non-crew undo requires **widening that prior-state capture** per domain (a real Phase-2 change), plus a domain-specific restore in `undo_change` and the feed's undoable predicate. The approved scope call (#9) was "crew-identity undo first, non-crew only if cheap"; F6 determined non-crew is not cheap.
-
-**Technical home:** widen `applyShowSnapshot`/`before_image` to capture the relevant prior non-crew rows → add the domain to `undo_change`'s direction handling + the feed's `isCrewDomainChangeKind`-style predicate (it currently single-sources `{crew_added,crew_removed,crew_renamed}`).
-
-**Promotion prerequisite:** an operator explicitly wants to undo a non-crew change in-app (rather than re-editing the sheet), and the capture-widening cost is judged worth it.
-
----
-
 ### BL-SHADOW-TILE-ARROW-SYNTAX — `shadow-(--shadow-tile)` is not canonicalized, and globals.css claims it is
 
 **Severity:** LOW (documented inconsistency, nothing renders differently) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.1 / R5, class-sweep exception (c)) · **Effort:** S · **Reachability:** PROBED 2026-08-07 — 24 textual matches across 18 files (21 class-string sites; 3 are doc comments), all live under a passing `pnpm lint`.
@@ -1010,22 +1047,6 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 **Why backlog, not now:** intentional per the ratified spec decision to render the raw `" | "`-split legs WITHOUT deep-structuring (the split is positional — for a round-trip the first leg is arrival, second is departure, but a one-way leg cannot be disambiguated, and deep-parsing route/airline/time/conf from the space-separated string is fragile/YAGNI). Adding labels/structure is only sound once a structured-leg source exists. The cleanest enabler is `DEF-FLIGHT-1` (the TRAVEL-tab parser), which could normalize into a structured shape; alternatively a TECH-path post-parser that splits arrival vs departure deterministically.
 
 **Promotion prerequisite:** EITHER (a) `DEF-FLIGHT-1` lands a structured flight shape this card can label, OR (b) operator feedback that the unlabeled legs are a real readability friction. Until then the unlabeled raw-leg render is truthful and passes the impeccable gate.
-
-### BL-CI-UNIT-GATE-EXCLUSIONS — gate the two files excluded from the full-suite job
-
-**Effort:** M
-
-> **UPDATED 2026-07-26 (PR3 of the CI-dark coverage cluster).** This entry described THREE excluded files and repeated the false premise that the local-bootstrap runner cannot provide pg_cron. `scripts/ci/supabase-local-bootstrap.sh` holds the guarded migrations aside for the INITIAL boot only, then applies them with `supabase migration up --include-all`, so that runner has always had them. `pg-cron-coverage` is no longer excluded and now runs in `unit-suite-db`; TWO files remain excluded. The promotion work this entry proposed for pg-cron-coverage is DONE — do not redo it.
-
-**Filed:** 2026-06-22 (alongside the `unit-suite.yml` full-vitest CI gate that closed the "no gate runs `pnpm test`" gap). The new gate runs the whole vitest suite minus two files that need environments the local-bootstrap runner can't provide:
-
-- `tests/cross-cutting/pg-cron-coverage.test.ts` — live-DB introspection of `cron.job` rows. The shared `supabase-local-bootstrap.sh` deliberately HOLDS ASIDE the two GUC-guarded `pg_cron` migrations (`app.fxav_vercel_url`), so no cron jobs exist locally → the test expects 9, gets 0. It is designed for the validation project (`TEST_DATABASE_URL` + `VALIDATION_SUPABASE_PROJECT_REF`), like `validation-schema-parity`.
-- `tests/admin/test-auth-gate.test.ts` — the 3 Layer-2 "HTTP positive-path" tests drive a real Supabase `auth.admin.createUser → signInWithPassword` chain that returns 501 without the running instance's matching service-role key + a working GoTrue. They do NOT skip-when-unreachable by design (Codex M3 R2: "opportunistic skip is the wrong default for security tests"), so they fail rather than skip locally.
-- `tests/cross-cutting/email-canonicalization.test.ts` — three tests set an EXPLICIT 15s per-test timeout while doc-scanning the large master spec + plan. Under full-suite concurrency on the 2-core CI runner they starve and time out, but pass STANDALONE (isolated resources) in the `x5-email-canonicalization` gate that already covers this file. (Surfaced on the gate's first real-CI run — the local-passes-CI-fails class the gate exists to catch, applied to itself.)
-
-**Why backlog, not now:** both were ALREADY ungated before `unit-suite.yml`, so excluding them is not a regression — the gate's job was to cover the 6800+ tests that had NO gate at all. Wiring the two excluded files needs either a remote-validation job variant (TEST_DATABASE_URL pointed at the validation project, mirroring `validation-schema-parity`/`postgrest-dml-lockdown`) or a live-auth setup that provisions the matching service-role key. The `test-auth-gate` 501 may also indicate the Layer-2 tests have drifted since a route change — investigate before gating (don't freeze a possibly-broken security test green).
-
-**Promotion prerequisite:** a CI pass that adds (a) a remote-validation matrix leg for `pg-cron-coverage` + (b) a live-auth setup (or a root-cause fix) for `test-auth-gate` Layer 2, each verified green in real CI before being added to the gate's run set.
 
 ### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
 
