@@ -21,10 +21,9 @@
 // free space and `max-w` never applied — nothing in a browser could discriminate a wrong
 // `--spacing-confirm-box` when the box was zero wide either way.
 //
-// That premise is now FALSE, and deliberately so. The nav carries `flex-1 min-w-0`
-// (components/admin/OnboardingWizard.tsx), the connectors are real boxes, and the e2e
-// spec measures them at every step and both widths — clamped to exactly 60px at 390px,
-// which is this token. So the two proofs are now genuinely complementary: this file
+// That premise is now FALSE, and deliberately so. The connector sets `w-confirm-box`
+// (components/admin/OnboardingWizard.tsx) — a fixed 60px, which is this token — and the
+// e2e spec measures it at every step and both widths. So the two proofs are now genuinely complementary: this file
 // answers "does the utility resolve to the value the bracket form encoded", which is a
 // token question with no browser in it, and the e2e spec answers "does the rendered box
 // obey it", which cannot be answered anywhere else. Neither subsumes the other.

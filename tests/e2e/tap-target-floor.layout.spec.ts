@@ -1160,12 +1160,11 @@ test.describe("DI-3/DI-4/DI-5 — the step pills grow their target without movin
         //
         // The ORIGINAL reason this held was that the connectors were 0px wide at
         // 320px (probe P3), so the row had no slack at all. That is no longer
-        // true: the nav now carries `flex-1 min-w-0`, so its `flex-1` connectors
-        // claim the free space up to `max-w-confirm-box`. The assertion is
-        // unaffected, for a different and stronger reason — the pill carries
-        // `shrink-0` (components/admin/OnboardingWizard.tsx `base`), so it is
-        // excluded from flex distribution entirely and no amount of connector
-        // slack can move its box.
+        // true: the connectors are a fixed 60px (`w-confirm-box`). The
+        // assertion is unaffected, for a different and stronger reason — the
+        // pill carries `shrink-0` (components/admin/OnboardingWizard.tsx
+        // `base`), so it is excluded from flex distribution entirely and no
+        // connector width can move its box.
         expect(
           measured.w + measured.marginLeft + measured.marginRight,
           `pill ${n} horizontal margin box`,
