@@ -31,47 +31,34 @@ import postgres from "postgres";
 import { FIELD_UNREADABLE } from "@/lib/parser/warnings";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { admin } from "./supabaseAdmin";
+import { psqlChildEnv, resolvePsqlTarget } from "./psqlTarget";
 
 // Locked-fixture transport (helpers/lockedCrewRestriction.ts pattern): every
 // pending_syncs mutation runs in a psql transaction holding the per-show
 // advisory lock — tests/help/walker-routes.test.ts forbids unlocked PostgREST
 // DML on locked tables under tests/e2e/.
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+//
+// The module-level `databaseUrl` constant this file used to carry is GONE: it
+// captured `TEST_DATABASE_URL ?? DATABASE_URL ?? default` at import, which is
+// BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB. Every DSN entry point below —
+// the `runLockedSql` default, an explicit `seedStagedRow({ dsn })` argument,
+// and the postgres-js probe transport — now resolves through the ONE shared
+// resolver in ./psqlTarget, so no caller can route around it.
 
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
-
-/** The local Supabase database port (`supabase/config.toml:29`). The gallery pins
- *  to it so the SQL transport and the `supabaseAdmin` client (loopback API on
- *  54321) can only ever be two doors onto the SAME instance. */
-const LOCAL_SUPABASE_DB_PORT = "54322";
-
-/** The database every other gallery consumer reads through `supabaseAdmin`. */
-const LOCAL_SUPABASE_DB_NAME = "postgres";
-
-/** libpq connection parameters that OVERRIDE the URI's own authority.
- *  `psql "postgresql://…@127.0.0.1:54322/postgres?host=192.0.2.1"` connects to
- *  192.0.2.1: the authority a URL parser reads is NOT the effective target, so a
- *  hostname-only guard is bypassable. `service` is worse — it pulls host, port,
- *  and database from an external service file the guard never sees.
+/**
+ * The query-parameter contract now lives in the shared resolver as a true
+ * ACCEPT-SET (`PSQL_QUERY_PARAM_ACCEPT_SET`), not as the seven-name denylist
+ * that used to live here.
  *
- *  `user` and `password` belong to the same class even though they do not move
- *  the target (whole-diff review R4): libpq resolves them over the authority's
- *  credentials while postgres.js — the lock probe's transport — keeps the
- *  authority's, so the seed and the probe would authenticate as DIFFERENT roles
- *  against the same database, and any role-dependent behavior would diverge
- *  between them silently. */
-const LIBPQ_AUTHORITY_OVERRIDE_PARAMS = [
-  "host",
-  "hostaddr",
-  "service",
-  "port",
-  "dbname",
-  "user",
-  "password",
-];
+ * The denylist was correct about every name it held — a live probe drove
+ * `?host=` and `?hostaddr=` past a hostname-only guard, and `?service=` steered
+ * a loopback authority to 192.0.2.3 out of an external service file — but a
+ * denylist accepts whatever it did not model, and libpq keeps adding
+ * parameters. The accept-set refuses every parameter outside
+ * `connect_timeout` / `application_name` / `sslmode` BY NAME, which is strictly
+ * tighter: each of those seven is still refused, and so is the eighth nobody
+ * has written down yet.
+ */
 
 /**
  * The ONE database the state-gallery path binds to — seed, cleanup, lock probe,
@@ -104,71 +91,22 @@ const LIBPQ_AUTHORITY_OVERRIDE_PARAMS = [
  * PG* variable, and psql runs with `-X`. A validated DSN is necessary but not
  * sufficient — libpq also reads the environment and startup files.
  */
-export function galleryDatabaseUrl(): string {
-  const url = process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(`devCaptureStaged: DATABASE_URL is not a parseable URL`);
-  }
-
-  const overrides = LIBPQ_AUTHORITY_OVERRIDE_PARAMS.filter((p) => parsed.searchParams.has(p));
-  if (overrides.length > 0) {
-    throw new Error(
-      `devCaptureStaged: the Step-3 state gallery refuses a DATABASE_URL carrying libpq ` +
-        `authority-override parameter(s) (${overrides.join(", ")}). libpq resolves these OVER the ` +
-        `URI's own authority — host, port, database, or role — so every check below would be ` +
-        `inspecting something other than the connection psql actually makes. ` +
-        `Remove them, or unset DATABASE_URL to use the 127.0.0.1:${LOCAL_SUPABASE_DB_PORT} default.`,
-    );
-  }
-
-  if (!LOOPBACK_HOSTS.has(parsed.hostname)) {
-    throw new Error(
-      `devCaptureStaged: the Step-3 state gallery refuses a non-loopback database host (${parsed.hostname}). ` +
-        `Point DATABASE_URL at the local Supabase instance, or unset it to use the 127.0.0.1:${LOCAL_SUPABASE_DB_PORT} default.`,
-    );
-  }
-
-  if (parsed.port !== LOCAL_SUPABASE_DB_PORT) {
-    throw new Error(
-      `devCaptureStaged: the Step-3 state gallery refuses a loopback database on port ` +
-        `${parsed.port || "(default)"}; it must be the local Supabase database on ` +
-        `${LOCAL_SUPABASE_DB_PORT}. Seeding another local Postgres would split the gallery: the ` +
-        `rows land there while the wizard session, the readback, and the rendered page stay on ` +
-        `Supabase.`,
-    );
-  }
-
-  // The URI PATH is the database name. Distinct from the closed `?dbname=`
-  // override — this is the ordinary component, and `…:54322/template1` is
-  // host-correct, port-correct, and still the wrong database: SQL would land in
-  // `template1` while `supabaseAdmin`, the readback, and the render stay on
-  // `postgres` (whole-diff review R3).
-  const database = parsed.pathname.replace(/^\//, "");
-  if (database !== LOCAL_SUPABASE_DB_NAME) {
-    throw new Error(
-      `devCaptureStaged: the Step-3 state gallery refuses database "${database || "(none)"}"; ` +
-        `it must be "${LOCAL_SUPABASE_DB_NAME}", the database every other gallery consumer reads.`,
-    );
-  }
-
-  // Self-containment. `galleryPsqlEnv()` strips PGPASSWORD along with the rest
-  // of PG*, so a DSN that relied on the ambient password would be ACCEPTED here
-  // and then fail at connect time with an authentication error that points
-  // nowhere near this guard. Require the DSN to carry its own credentials, and
-  // say so now (whole-diff review R3).
-  if (parsed.username === "" || parsed.password === "") {
-    throw new Error(
-      `devCaptureStaged: the Step-3 state gallery requires a DATABASE_URL carrying BOTH a user ` +
-        `and a password. The gallery runs psql with every PG* variable stripped (PGPASSWORD ` +
-        `included), so an ambient-credential DSN would be accepted here and then fail to ` +
-        `authenticate. Use the 127.0.0.1:${LOCAL_SUPABASE_DB_PORT} default, or supply credentials inline.`,
-    );
-  }
-
-  return url;
+export function galleryDatabaseUrl(dsn?: string): string {
+  return resolvePsqlTarget({
+    caller: "devCaptureStaged",
+    ...(dsn === undefined ? {} : { dsn }),
+    // Deliberately NOT TEST_DATABASE_URL. The gallery's hazard is a SPLIT
+    // TARGET, not only a remote one: `supabaseAdmin`, the readback and the
+    // rendered page all resolve the loopback `SUPABASE_URL`, so honoring the
+    // validation pooler here would seed one database and read another.
+    envVars: ["DATABASE_URL"],
+    requireLocalSupabase: true,
+    // …and for the same reason the remote opt-in does not apply. Deliberately
+    // targeting a remote database does not make the split safe, so migrating
+    // onto the shared resolver turns nothing this file refused into an
+    // acceptance.
+    honorRemoteOptIn: false,
+  });
 }
 
 /**
@@ -192,11 +130,7 @@ export function galleryDatabaseUrl(): string {
  * `galleryDatabaseUrl()` validated.
  */
 export function galleryPsqlEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const env = { ...source };
-  for (const key of Object.keys(env)) {
-    if (key.toUpperCase().startsWith("PG")) delete env[key];
-  }
-  return env;
+  return psqlChildEnv({ source, honorRemoteOptIn: false });
 }
 
 function sqlString(value: string): string {
@@ -207,12 +141,11 @@ function lockStatement(driveFileId: string): string {
   return `select pg_advisory_xact_lock(hashtext('show:' || ${sqlString(driveFileId)}));`;
 }
 
-function runLockedSql(
-  driveFileId: string,
-  body: string,
-  label: string,
-  dsn: string = databaseUrl,
-): void {
+function runLockedSql(driveFileId: string, body: string, label: string, dsn?: string): void {
+  // An explicit dsn argument is validated exactly like the env-derived default.
+  // An argument path that skipped the resolver would reopen the whole class
+  // through the caller (spec §2.6).
+  const target = galleryDatabaseUrl(dsn);
   const sql = `
     begin;
     ${lockStatement(driveFileId)}
@@ -227,7 +160,7 @@ function runLockedSql(
     // session after the validated local connection is made, so the seed or
     // cleanup would execute remotely with the guard none the wiser (whole-diff
     // review R3). Stripping PG* cannot close this: PSQLRC and HOME are not PG*.
-    execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
+    execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", target], {
       input: sql,
       encoding: "utf8",
       // NOT the ambient environment: PG* variables retarget libpq behind the
@@ -255,7 +188,10 @@ async function runLockedSqlWithProbe(
   dsn: string,
   probe: (driveFileId: string) => Promise<void>,
 ): Promise<void> {
-  const sql = postgres(dsn, { max: 1 });
+  // The postgres-js transport is a DIFFERENT door onto the same target, so it
+  // gets the same validation — a resolver that only guarded the psql spawn
+  // would leave this one open.
+  const sql = postgres(galleryDatabaseUrl(dsn), { max: 1 });
   try {
     await sql.begin(async (tx) => {
       await tx.unsafe(lockStatement(driveFileId));
@@ -535,7 +471,7 @@ export async function seedStagedRow(options: SeedStagedRowOptions = {}): Promise
   const sessionId = options.sessionId ?? randomUUID();
   const variant = options.variant;
   const driveFileId = variant ? galleryDriveFileId(variant) : `e2e-devcapture:${randomUUID()}`;
-  const dsn = options.dsn ?? databaseUrl;
+  const dsn = galleryDatabaseUrl(options.dsn);
 
   if (!options.skipSettings) {
     const { data, error } = await admin
@@ -605,7 +541,7 @@ function deleteSeededRow(driveFileId: string, dsn: string): string[] {
 export async function cleanupStagedRow(driveFileId: string): Promise<void> {
   // Failure-safe teardown: run EVERY step, collect failures, throw at the end -
   // an early throw must not strand the settings row in wizard-pending state.
-  const errors = deleteSeededRow(driveFileId, databaseUrl);
+  const errors = deleteSeededRow(driveFileId, galleryDatabaseUrl());
 
   // Restore the SETTLED dashboard state rather than the captured prior: under
   // sibling-worktree pollution the prior snapshot may itself be a foreign

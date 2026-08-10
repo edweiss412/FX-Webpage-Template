@@ -1,12 +1,13 @@
 // components/admin/telemetry/EventLevelBadge.tsx
 import type { AppEventLevel } from "@/lib/admin/telemetryTypes";
+import { cn } from "@/lib/ui/cn";
 
 const BADGE: Record<AppEventLevel, { label: string; className: string }> = {
-  info: { label: "Info", className: "bg-surface-sunken text-text-subtle" },
-  warn: { label: "Warn", className: "bg-warning-bg text-warning-text" },
+  info: { label: "Info", className: cn("bg-surface-sunken text-text-subtle") },
+  warn: { label: "Warn", className: cn("bg-warning-bg text-warning-text") },
   error: {
     label: "Error",
-    className: "bg-status-degraded text-status-degraded-text font-semibold",
+    className: cn("bg-status-degraded text-status-degraded-text font-semibold"),
   },
 };
 

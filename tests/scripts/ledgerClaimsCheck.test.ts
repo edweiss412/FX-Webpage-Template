@@ -587,7 +587,15 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     expect(Array.isArray(payload.claims)).toBe(true);
     // A healthy-empty run and a degraded run must be distinguishable.
     expect(payload.degraded).toContain("no-fetch-cached-refs");
-  });
+    // 120 s explicit, against a 30 s default that sat BELOW the 90 s budget this
+    // test grants its own child. A cold tsx spawn measured 20.5 s idle and 55 s
+    // under load; inside the mutation harness's per-mutant child runs, the
+    // 30 s cap flaked, the child exited 1, and the runner scored the mutant
+    // KILLED -- which read every ledgerGit accepted row as stale at once (all
+    // twelve, including the three timeout constants no test can kill) on the
+    // 2026-08-09 PR run of the nightly gate. A test must not time out before
+    // the child it is waiting on.
+  }, 120_000);
 
   it("resolves every claim past the display limit at the core", () => {
     // M8, half one: the cap is a display concern, and a machine consumer given a
@@ -1023,6 +1031,34 @@ describe("the git adapter, against a constructed checkout (guard-premise Task 8)
       repo.g("diff", "--unified=0", base, tip, "--", "BACKLOG.md").includes("@@ -2 +2 @@"),
     );
     expect(hunks).toEqual([{ file: "BACKLOG.md", start: 2, count: 1 }]);
+  });
+
+  it("parses a multi-line hunk's explicit count, not a collapsed 1", () => {
+    // Kills `hm[2] === undefined ? …` -> `hm[3] === undefined ? …` (group 3
+    // never exists, so every counted hunk collapses to 1) and `Number(hm[2])`
+    // -> `Number(hm[3])` (NaN, so the hunk overlaps no span). Only a hunk whose
+    // count group is PRESENT separates group 2 from the always-undefined group
+    // 3 — the single-line case above cannot, because there the group is absent
+    // on clean and mutant alike. Until this case existed the pair died only
+    // when the suite ran somewhere a multi-line hunk happened to arise, which
+    // is what let it survive CI's zero-ref checkout while dying on a full
+    // clone; a constructed repo makes the kill environment-independent.
+    const repo = throwawayRepo();
+    writeFileSync(join(repo.dir, "BACKLOG.md"), "a\nb\nc\nd\ne\n");
+    repo.g("add", "BACKLOG.md");
+    repo.g("commit", "--quiet", "-m", "one");
+    const base = repo.g("rev-parse", "HEAD").trim();
+    writeFileSync(join(repo.dir, "BACKLOG.md"), "a\nB\nC\nD\ne\n");
+    repo.g("commit", "--quiet", "-a", "-m", "two");
+    const tip = repo.g("rev-parse", "HEAD").trim();
+
+    const hunks = atRepo(repo.dir, (git) => git.diffHunks(base, tip, ["BACKLOG.md"]));
+
+    premiseHolds(
+      "the diff really is one counted three-line hunk",
+      repo.g("diff", "--unified=0", base, tip, "--", "BACKLOG.md").includes("@@ -2,3 +2,3 @@"),
+    );
+    expect(hunks).toEqual([{ file: "BACKLOG.md", start: 2, count: 3 }]);
   });
 
   it("refuses a tip date it cannot use, at the epoch and one second past it", () => {

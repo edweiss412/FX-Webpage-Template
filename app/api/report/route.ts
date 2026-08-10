@@ -34,10 +34,23 @@ async function readRequestBody(req: Request): Promise<RequestBody | null> {
     const body = (await req.json()) as Partial<RequestBody>;
     if (!isUuidV4(body.idempotency_key)) return null;
     if (body.show_id === null) {
-      // Spec §D4: staged wizard rows have no shows record — null is allowed
-      // ONLY for the admin surface; crew always has a show (unchanged 400).
-      if (body.surface !== "admin") return null;
+      // Spec §D4 (staged wizard rows have no shows record) + the 2026-08-09
+      // help surface: null is allowed ONLY for admin and help; crew always has
+      // a show (unchanged 400). Enumerated deliberately rather than written as
+      // `!== "crew"` — an unknown surface string must keep taking today's
+      // non-admin path (picker first, then the admin fallback below).
+      if (body.surface !== "admin" && body.surface !== "help") return null;
     } else if (!isUuidV4(body.show_id)) {
+      return null;
+    }
+    // help is non-show by contract (2026-08-09 spec §2.3). Reject the complete
+    // show-identity field set `showLine` consults: each of these renders AHEAD
+    // of the null-show fallback, so a help body carrying one would print
+    // show-scoped Summary/Show lines while staying database-unscoped.
+    if (
+      body.surface === "help" &&
+      (body.show_id !== null || body.showTitle != null || body.showSlug != null)
+    ) {
       return null;
     }
     return body as RequestBody;
@@ -118,7 +131,10 @@ async function authenticateReportRequest(
   | { ok: true; auth: ReportAuthContext }
   | { ok: false; status: number; body: Record<string, unknown> }
 > {
-  if (body.surface === "admin") {
+  // help authenticates through the SAME admin gate as admin (2026-08-09 spec
+  // §2.3): same AdminInfraError handling, same { kind: "admin" } context, so
+  // reported_by_kind and the admin rate-limit bucket apply unchanged.
+  if (body.surface === "admin" || body.surface === "help") {
     try {
       const admin = await deps.requireAdminIdentity();
       return { ok: true, auth: { kind: "admin", email: admin.email } };

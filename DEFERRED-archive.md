@@ -1764,3 +1764,14 @@ premise.
 - **The compound rows are executable, not narrated.** Double-bump-before-frame collapses to exactly one scroll; close-before-frame yields none and no throw; a flash clear neither cancels a delivered scroll nor re-fires one. All three were RED cases written before the implementation, which is what makes the rAF bookkeeping they pin real rather than reverse-engineered.
 - **Anti-vacuity:** the e2e case carries its own PUBLISHED seed (the URL row needs `linkActive`, which neither the archived nor the held fixture satisfies), joins the suite teardown, and asserts its geometry premise BEFORE the scroll assertion — the popover overflows and the URL row is genuinely out of view — so it cannot pass by the layout quietly ceasing to overflow. The scroll's effect is read from a `toPass` poll rather than the value captured synchronously inside the patched method, because production glides `smooth` and the synchronous read is the pre-animation position.
 - **Sibling NOT closed:** `SHARELINK-CUE-FORCED-COLORS-1` stays open. Under `forced-colors` the highlight is still invisible; that is systemic (the repo has zero `forced-colors` handling anywhere) and wants a repo-wide pass that sets the pattern once.
+
+### UNDO-UNCATALOGUED-CODE-CARD-1 — impeccable critique P2: an uncatalogued error code renders an empty card and announces nothing (2026-08-03)
+
+**Resolution (2026-08-09, M-wave 2 W-DOCS — filing-bar demotion):** archived per the wave spec §2.1 (`docs/superpowers/specs/2026-08-09-m-wave-2-design.md`). No live surface: every code reachable from the feed call sites has a catalog row today (the entry's own citations), so the empty-card render needs a future code addition to become reachable. The fix shape (resolve the code before deciding to render) is preserved below for that pickup. **Un-defer trigger (preserved):** any new code reachable from a feed action, or the next `lib/messages` pass.
+**Effort:** M
+
+`ErrorExplainer` returns `null` when a code has no catalog row (`components/messages/ErrorExplainer.tsx:82`), so the wrapper paints its bordered warning chrome with no text inside and the live region fires empty.
+
+**Accepted, not fixed.** Behavior is unchanged from before this branch — the conditional wrapper rendered the same empty card. What the branch changes is the promise: an always-mounted live region reads as a commitment to speak. Fixing it properly means resolving the code before deciding to render, which touches the message layer rather than these three components, and every code reachable from these call sites has a catalog row today (`lib/messages/catalog.ts:902`, `:939`, `:952`, `:3275`).
+
+**Un-defer trigger:** any new code reachable from a feed action, or the next `lib/messages` pass.

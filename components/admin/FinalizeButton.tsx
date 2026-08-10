@@ -803,7 +803,7 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
       <div
         ref={panelRef}
         data-testid="wizard-finalize-blocker-panel"
-        className="relative flex max-h-[85vh] w-full max-w-md flex-col items-stretch gap-3 overflow-y-auto rounded-t-md bg-bg p-tile-pad text-text shadow-(--shadow-tile) sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none"
+        className="relative flex max-h-[85vh] w-full max-w-md flex-col items-stretch gap-3 overflow-y-auto rounded-t-md bg-bg p-tile-pad text-text shadow-tile sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none"
       >
         {/* Dismiss control — a muted corner ✕ (spec §4.3 exit). Same handleDismiss
             wiring as before; aria-label carries the Close/Back semantics. Absolutely

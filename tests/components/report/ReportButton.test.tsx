@@ -134,6 +134,36 @@ describe("ReportButton", () => {
     expect(btn.className).not.toContain("focus-visible:ring-offset-bg");
   });
 
+  test("help surface defaults: label, accent variant, info-bg ring offset", () => {
+    render(
+      <ReportButton
+        surface="help"
+        surfaceId="help-errors-none"
+        showId={null}
+        ringOffset="info-bg"
+      />,
+    );
+    const button = screen.getByTestId("report-button-trigger");
+    // Accessible name comes from DEFAULT_LABEL.help — no `label` override here,
+    // so an absent/blank record row fails by name.
+    expect(button.textContent).toBe("Report a recurring error");
+    // Full literal class (Tailwind v4 JIT) — a missing RING_OFFSET_CLASS row
+    // would render `undefined` in the class string.
+    expect(button.className).toContain("focus-visible:ring-offset-info-bg");
+    // The accent fill proves DEFAULT_VARIANT.help = "accent"; without it a
+    // "text" default would still pass the name + ring assertions (R2 F3).
+    expect(button.className).toContain("bg-accent");
+  });
+
+  test("trigger announces that it opens a dialog", () => {
+    render(<ReportButton surface="crew" surfaceId="footer-crew" showId={SHOW_ID} />);
+    // Without this, a screen-reader user hears a plain button and gets no cue
+    // that activation moves them into a dialog.
+    expect(screen.getByTestId("report-button-trigger").getAttribute("aria-haspopup")).toBe(
+      "dialog",
+    );
+  });
+
   test("messageOptional flows to the modal (Submit enabled with an empty note)", () => {
     render(
       <ReportButton

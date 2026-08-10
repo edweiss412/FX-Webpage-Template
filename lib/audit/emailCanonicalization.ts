@@ -1,3 +1,4 @@
+// build-time-only: static-analysis helper run by audit scripts and tests, never by a request
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import {

@@ -237,3 +237,44 @@ export function stripCommentsForFile(src: string, filePath: string): string {
       throw new Error(`stripCommentsForFile: unknown extension "${ext}" for ${filePath}`);
   }
 }
+
+/**
+ * Strip YAML comments — WHOLE-LINE and TRAILING, quote-aware.
+ *
+ * Promoted here from tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts, which carried the
+ * only copy behind a STANDING_ALLOWLIST row. A second workflow-wiring guard (app-e2e) needed the
+ * same grammar, and a second copy is exactly what _metaStripCommentsSingleSource.test.ts exists
+ * to prevent — so the function moved rather than multiplied, and the allowlist row went with it.
+ *
+ * Why trailing comments too, in the guards' own words: review found three assertions passing
+ * against commented-out wiring, twice. Removing only full-line comments still accepted
+ * `run: echo ok # playwright test …picker-flow.spec.ts`,
+ * `FOO: bar # PICKER_COOKIE_SIGNING_KEY: "<64hex>"` and `- "other" # - "app/auth/**"`.
+ * A guard that greens on disabled wiring is worse than no guard.
+ *
+ * Quote-aware because a `#` inside a quoted scalar is DATA, not a comment — the app-e2e job's
+ * `PICKER_COOKIE_SIGNING_KEY` and the demo Supabase keys are quoted scalars, and a naive stripper
+ * would truncate them mid-value. A `#` counts as a comment opener only at line start or after
+ * whitespace, which is YAML's own rule.
+ */
+export function stripYamlComments(yaml: string): string {
+  return yaml
+    .split("\n")
+    .map((line) => {
+      let quote: string | null = null;
+      for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i]!;
+        if (quote !== null) {
+          if (ch === quote) quote = null;
+          continue;
+        }
+        if (ch === '"' || ch === "'") {
+          quote = ch;
+          continue;
+        }
+        if (ch === "#" && (i === 0 || /\s/.test(line[i - 1]!))) return line.slice(0, i);
+      }
+      return line;
+    })
+    .join("\n");
+}
