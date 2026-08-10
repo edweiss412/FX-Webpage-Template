@@ -12,7 +12,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, render, waitFor, within } from "@testing-library/react";
 
 const refreshMock = vi.fn();
 let mockSearchParams = new URLSearchParams();
@@ -20,6 +20,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: refreshMock, push: vi.fn() }),
   usePathname: () => "/admin",
   useSearchParams: () => mockSearchParams,
+}));
+
+const archiveActionMock = vi.fn();
+vi.mock("@/app/admin/show/[slug]/_actions/archive", () => ({
+  archiveShowAction: (slug: string) => archiveActionMock(slug),
 }));
 
 import { ShowRowActions } from "@/components/admin/ShowRowActions";
@@ -35,6 +40,8 @@ const fetchMock = vi.fn<typeof fetch>();
 beforeEach(() => {
   refreshMock.mockReset();
   fetchMock.mockReset();
+  archiveActionMock.mockReset();
+  archiveActionMock.mockResolvedValue({ ok: true });
   mockSearchParams = new URLSearchParams();
   global.fetch = fetchMock as unknown as typeof fetch;
 });
@@ -477,13 +484,29 @@ describe("Re-sync — every reachable failure speaks, and a request owns the sur
     fireEvent.click(q("row-action-resync-hold")!);
     await waitFor(() => expect(q("row-action-resync-hold")!.textContent).toContain("Syncing…"));
 
-    // Escape, Tab, the backdrop and a page scroll all funnel through the same
-    // gate; each would otherwise unmount the menu the answer is about to land in.
+    // Escape …
     fireEvent.keyDown(menu, { key: "Escape" });
     expect(q("row-actions-menu-hold")).not.toBeNull();
-    fireEvent.keyDown(menu, { key: "Tab" });
+
+    // … Tab, which must ALSO be prevented: refusing to close while letting the
+    // native Tab through walks focus out of a menu that deliberately stayed
+    // open. `fireEvent.keyDown` performs no native focus move, so the contract
+    // is read off the event itself.
+    const tab = createEvent.keyDown(menu, { key: "Tab" });
+    fireEvent(menu, tab);
+    expect(tab.defaultPrevented, "the native Tab must be refused too").toBe(true);
     expect(q("row-actions-menu-hold")).not.toBeNull();
+
+    // … the backdrop …
     fireEvent.click(q("row-actions-backdrop-hold")!);
+    expect(q("row-actions-menu-hold")).not.toBeNull();
+
+    // … a real page scroll (the dismiss the portal wires to `onDismiss`) …
+    fireEvent.scroll(document);
+    expect(q("row-actions-menu-hold")).not.toBeNull();
+
+    // … and the trigger itself, which is a dismissal when the menu is open.
+    fireEvent.click(q("row-actions-trigger-hold")!);
     expect(q("row-actions-menu-hold")).not.toBeNull();
 
     // …and the failure it was holding open for is visible.
@@ -492,6 +515,59 @@ describe("Re-sync — every reachable failure speaks, and a request owns the sur
     expect(q("row-actions-error-hold")!.textContent ?? "").toContain(
       MESSAGE_CATALOG.SHOW_BUSY_RETRY.dougFacing!,
     );
+  });
+
+  test("a pending request also holds a SUB-PANEL open: Escape there cancels nothing", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(HELD_PAYLOAD));
+    let release: (r: Response) => void = () => {};
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((res) => {
+        release = res;
+      }),
+    );
+    render(<ShowRowActions row={row({ slug: "sub" })} />);
+    const menu = openMenu("sub");
+    fireEvent.click(q("row-action-resync-sub")!);
+    const accept = await waitFor(() => {
+      const el = q<HTMLElement>("row-actions-accept-shrink-sub");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.click(accept); // second, version-bound POST — now in flight
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    fireEvent.keyDown(menu, { key: "Escape" });
+    // Cancelling here would unmount the region the outcome is about to land in.
+    expect(q("row-actions-shrink-confirm-sub")).not.toBeNull();
+
+    release(jsonResponse({ ok: false, error: "SHOW_BUSY_RETRY" }));
+    await waitFor(() => expect(q("row-actions-error-sub")).not.toBeNull());
+  });
+
+  test("the Re-sync item never claims a request it did not fire", async () => {
+    // One shared `pending` boolean made the Re-sync item announce aria-busy and
+    // swap to "Syncing…" while the ARCHIVE confirm said "Archiving…" beside it.
+    let release: (v: unknown) => void = () => {};
+    archiveActionMock.mockReturnValue(
+      new Promise((res) => {
+        release = res;
+      }),
+    );
+    render(<ShowRowActions row={row({ slug: "kinds" })} />);
+    openMenu("kinds");
+    fireEvent.click(q("row-action-archive-kinds")!);
+    fireEvent.click(q("row-actions-archive-go-kinds")!);
+    await waitFor(() =>
+      expect(q("row-actions-archive-go-kinds")!.textContent).toContain("Archiving…"),
+    );
+    const resync = q("row-action-resync-kinds")!;
+    expect(resync.textContent).toContain("Re-sync");
+    expect(resync.textContent).not.toContain("Syncing…");
+    expect(resync.getAttribute("aria-busy")).toBe("false");
+    // No sync request was ever fired.
+    expect(fetchMock).not.toHaveBeenCalled();
+    release({ ok: true });
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
   });
 
   test("a FAILED Accept returns focus to the Re-sync item rather than dropping it on <body>", async () => {

@@ -32,6 +32,7 @@
 import Link from "next/link";
 import { Archive, ChevronRight, EllipsisVertical, Eye, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 
 import { useRouter } from "next/navigation";
 
@@ -83,7 +84,15 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const { openHref } = useShowModalNav();
   const [open, setOpen] = useState(false);
   const [submenuOpen, setSubmenuOpen] = useState(false);
-  const [pending, setPending] = useState(false);
+  /**
+   * WHICH action is in flight, not merely whether one is. A shared boolean made
+   * the Re-sync item announce `aria-busy` and swap to "Syncing…" while the
+   * ARCHIVE confirm said "Archiving…" beside it — the surface reporting a
+   * request it never fired. `pending` stays derived so every gate that only
+   * cares "is the row busy" reads the same way it did.
+   */
+  const [pendingAction, setPendingAction] = useState<"sync" | "archive" | null>(null);
+  const pending = pendingAction !== null;
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [heldShrink, setHeldShrink] = useState<HeldShrink | null>(null);
   const [confirmingArchive, setConfirmingArchive] = useState(false);
@@ -100,6 +109,8 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // is not re-announced, so a second identical outcome (two "Nothing new from
   // Drive." in a row) would be silent. The seq alternates one trailing no-break
   // space, which changes the node's text without changing what is read aloud.
+  // Portals need a DOM; the first client render is the earliest safe moment.
+  const [mounted, setMounted] = useState(false);
   const [announcement, setAnnouncement] = useState<{ text: string; seq: number }>({
     text: "",
     seq: 0,
@@ -169,6 +180,9 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     setSubmenuOpen(false);
     previewItemRef.current?.focus({ preventScroll: true });
   };
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing second render: the backdrop portal cannot exist during the server render or the hydrating one, so the flip to `mounted` IS the mechanism (the HoverHelp / AnchoredPortal precedent carries the same waiver).
+  useEffect(() => setMounted(true), []);
 
   // APG: opening a menu button moves focus to the first item.
   useEffect(() => {
@@ -245,7 +259,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const runSync = async (accept?: { expectedModifiedTime: string }) => {
     if (pending) return;
     setErrorCode(null);
-    setPending(true);
+    setPendingAction("sync");
     try {
       const outcome = await requestShowSync(slug, accept);
       if (outcome.kind === "held") {
@@ -272,14 +286,14 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         setErrorCode(outcome.code);
       }
     } finally {
-      setPending(false);
+      setPendingAction(null);
     }
   };
 
   const runArchive = async () => {
     if (pending) return;
     setArchiveFailure(null);
-    setPending(true);
+    setPendingAction("archive");
     try {
       // The SHIPPED action takes a SLUG and resolves the show itself; passing
       // row.id would return show_not_found without archiving anything.
@@ -301,7 +315,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       // a show that may already be archived.
       setArchiveFailure({ kind: "generic" });
     } finally {
-      setPending(false);
+      setPendingAction(null);
     }
   };
 
@@ -333,6 +347,9 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();
+      // A request in flight owns the sub-panel too: cancelling here would
+      // unmount the region its outcome is about to land in.
+      if (pending) return;
       if (confirmingArchive) {
         restoreArchiveFocusRef.current = true;
         setConfirmingArchive(false);
@@ -356,6 +373,14 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     } else if (e.key === "Tab") {
       // APG menu-button: Tab closes. Focusing the trigger BEFORE the default
       // Tab action lets focus continue in document order from the trigger.
+      // While a request is in flight the close is refused, and the NATIVE Tab
+      // has to be refused with it — otherwise focus walks out of a menu that
+      // deliberately stayed open, and the outcome lands somewhere the admin is
+      // no longer looking.
+      if (pending) {
+        e.preventDefault();
+        return;
+      }
       triggerRef.current?.focus({ preventScroll: true });
       dismissMenu(false);
     } else if (e.key === "ArrowRight") {
@@ -430,16 +455,25 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         {announcement.seq % 2 === 0 ? announcement.text : `${announcement.text}\u00A0`}
       </span>
 
-      {open ? (
-        <button
-          type="button"
-          aria-hidden="true"
-          tabIndex={-1}
-          data-testid={`row-actions-backdrop-${slug}`}
-          onClick={() => dismissMenu(false)}
-          className="fixed inset-0 z-20 cursor-default"
-        />
-      ) : null}
+      {open && mounted
+        ? createPortal(
+            // PORTALED, not rendered in place: the row's menu seat is a
+            // positioned `z-10` span, so a backdrop inside it is trapped in
+            // that stacking context and paints BELOW the mobile bottom tab bar
+            // (`z-30`) — the admin could navigate away mid-request, unmounting
+            // the row before its outcome was ever shown. As a body child it
+            // sits above the nav and below the menu panel (`z-50`).
+            <button
+              type="button"
+              aria-hidden="true"
+              tabIndex={-1}
+              data-testid={`row-actions-backdrop-${slug}`}
+              onClick={() => dismissMenu(false)}
+              className="fixed inset-0 z-40 cursor-default"
+            />,
+            document.body,
+          )
+        : null}
 
       <button
         type="button"
@@ -449,7 +483,12 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         aria-expanded={open}
         aria-label={`Actions for ${label}`}
         data-testid={`row-actions-trigger-${slug}`}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          // Toggling CLOSED is a dismissal, and dismissal is refused while a
+          // request is in flight; toggling open is always allowed.
+          if (open) dismissMenu(false);
+          else setOpen(true);
+        }}
         className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
       >
         <span
@@ -560,7 +599,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                   tabIndex={-1}
                   ref={resyncItemRef}
                   data-testid={`row-action-resync-${slug}`}
-                  aria-busy={pending}
+                  aria-busy={pendingAction === "sync"}
                   {...itemDisabledProps}
                   onClick={() => {
                     if (busy) return;
@@ -570,9 +609,9 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                 >
                   <RefreshCw
                     aria-hidden="true"
-                    className={`${ICON_CLASS} ${pending ? "animate-spin motion-reduce:animate-none" : ""}`}
+                    className={`${ICON_CLASS} ${pendingAction === "sync" ? "animate-spin motion-reduce:animate-none" : ""}`}
                   />
-                  {pending ? RESYNC_PENDING_LABEL : RESYNC_IDLE_LABEL}
+                  {pendingAction === "sync" ? RESYNC_PENDING_LABEL : RESYNC_IDLE_LABEL}
                 </button>
 
                 {confirmingArchive ? null : (
@@ -638,11 +677,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                   data-testid={`row-actions-archive-go-${slug}`}
                   aria-describedby={archiveWarnId}
                   disabled={pending}
-                  aria-busy={pending}
+                  aria-busy={pendingAction === "archive"}
                   onClick={() => void runArchive()}
                   className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-3.5 py-2 text-[13px] font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {pending ? "Archiving…" : "Confirm archive"}
+                  {pendingAction === "archive" ? "Archiving…" : "Confirm archive"}
                 </button>
               </div>
             </div>
@@ -726,13 +765,13 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                   ref={acceptShrinkRef}
                   data-testid={`row-actions-accept-shrink-${slug}`}
                   disabled={pending}
-                  aria-busy={pending}
+                  aria-busy={pendingAction === "sync"}
                   onClick={() =>
                     void runSync({ expectedModifiedTime: heldShrink.heldModifiedTime })
                   }
                   className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-3.5 py-2 text-[13px] font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {pending ? "Applying…" : "Apply reduced version"}
+                  {pendingAction === "sync" ? "Applying…" : "Apply reduced version"}
                 </button>
               </div>
             </div>

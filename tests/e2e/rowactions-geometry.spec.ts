@@ -43,6 +43,14 @@ const CREW_PER_SHOW = 3;
 const TITLE_PREFIX = "RowActions Geometry";
 const DRIVE_FILE_ID = (i: number) => `rowactions-geometry-e2e:${i}`;
 const VIEWPORT = { width: 1280, height: 720 };
+/**
+ * How much room to leave beneath the trigger when constructing the flip case.
+ * Smaller than any reachable menu height: the menu carries four items at the
+ * 44px tap floor, so 176px is its floor and 80 is comfortably under it. The
+ * premise below re-derives the comparison from the MEASURED menu, so this
+ * constant can never quietly stop constructing the condition.
+ */
+const FLIP_GAP_PX = 80;
 
 type Rect = {
   top: number;
@@ -200,23 +208,53 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
         "below it and containment is trivially satisfied",
     ).toBeGreaterThan(scroll.innerHeight);
 
-    // Bring the last row into view, then open its menu.
+    // Bring the last row into view — LOW in the viewport, not centred. This is
+    // the difference between a flip assertion and a decoration: after a plain
+    // `scrollIntoViewIfNeeded` the trigger sat with 337px of room beneath it and
+    // opening DOWNWARD was the correct answer, so the old "flip pin" could not
+    // have failed. Parking the trigger a menu-height short of the bottom edge
+    // constructs the condition instead of hoping for it. Scrolling happens
+    // BEFORE the menu opens because a page scroll dismisses an open one.
     await trigger.scrollIntoViewIfNeeded();
+    await page.evaluate((gap) => {
+      const el = document.querySelector<HTMLElement>(
+        '[data-testid^="row-actions-trigger-"]:last-of-type',
+      );
+      const triggers = document.querySelectorAll<HTMLElement>(
+        '[data-testid^="row-actions-trigger-"]',
+      );
+      const last = triggers[triggers.length - 1] ?? el;
+      if (!last) return;
+      const docBottom = last.getBoundingClientRect().bottom + window.scrollY;
+      window.scrollTo(0, Math.max(0, docBottom - (window.innerHeight - gap)));
+    }, FLIP_GAP_PX);
     await trigger.click();
     const vp = await viewportSize(page);
 
     const menu = page.locator('[data-testid^="row-actions-menu-"]');
     await expect(menu).toBeVisible();
     expectContained(await rectOf(menu), vp, "the open menu");
-    // Flip PIN (not a RED — the composed placement core already provides it):
-    // a trigger this low must not open downward off the bottom edge.
+    // Flip PIN, with a premise that makes it discriminate. The earlier form
+    // asserted `menu.bottom <= max(trigger.bottom, viewport.height)`, which
+    // containment already implies once the trigger is scrolled into view — an
+    // implementation that opened DOWNWARD and merely height-capped passed it.
+    // The real question is which SIDE of the trigger the panel took, so the
+    // premise proves there is not room below (post-scroll, on this case's own
+    // measured numbers) and the assertion then requires the panel to sit
+    // entirely ABOVE the trigger.
     const menuRect = await rectOf(menu);
     const triggerRect = await rectOf(trigger);
+    const spaceBelow = vp.height - triggerRect.bottom;
+    expect(
+      spaceBelow,
+      "premise not met: after scrolling, the trigger must have LESS room below it than the menu " +
+        `needs (${menuRect.height}px), or opening downward is the correct answer and this ` +
+        "assertion proves nothing about flipping",
+    ).toBeLessThan(menuRect.height);
     expect(
       menuRect.bottom,
-      "a menu on the last row must not extend past its own trigger's bottom edge " +
-        "(it opened downward off-screen instead of flipping)",
-    ).toBeLessThanOrEqual(Math.max(triggerRect.bottom, vp.height) + TOL);
+      "the menu must open ABOVE a trigger with no room below it (it did not flip)",
+    ).toBeLessThanOrEqual(triggerRect.top + TOL);
 
     // Submenu: the deepest surface, and the one most likely to overflow.
     await page.locator('[data-testid^="row-action-preview-"]').first().click();
