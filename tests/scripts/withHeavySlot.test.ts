@@ -1144,3 +1144,28 @@ describe("spec §7 case 12 — nested pass-through and stale marker", () => {
     expect(remarkedPid).not.toBe(parent.pid);
   }, 120_000);
 });
+
+describe("spec §7 case 10 — pnpm forwarding", () => {
+  it("`pnpm heavy -- <cmd>` reaches the wrapper with the command intact", async () => {
+    const dir = slotDir();
+    const run = spawnRun("pnpm", ["heavy", "--", process.execPath, "-e", "process.exit(0)"], {
+      FX_HEAVY_SLOT_DIR: dir,
+      FX_HEAVY_SLOTS: "1",
+    });
+    const { code } = await run.exited;
+    expect(code).toBe(0);
+    // The acquisition line proves the wrapper actually ran rather than pnpm
+    // shrugging the command through.
+    expect(run.stderr()).toContain("acquired slot-0 (slots=1)");
+  }, 60_000);
+
+  it("forwards the bare `pnpm heavy <cmd>` form the AGENTS.md rule documents", async () => {
+    const dir = slotDir();
+    const run = spawnRun("pnpm", ["heavy", process.execPath, "-e", "process.exit(0)"], {
+      FX_HEAVY_SLOT_DIR: dir,
+      FX_HEAVY_SLOTS: "1",
+    });
+    expect((await run.exited).code).toBe(0);
+    expect(run.stderr()).toContain("acquired slot-0 (slots=1)");
+  }, 60_000);
+});

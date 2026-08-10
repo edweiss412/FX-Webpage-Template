@@ -65,7 +65,15 @@ def split_argv(argv: list[str]) -> tuple[list[str], list[str]]:
     """
     for i, token in enumerate(argv):
         if token == "--":
-            return argv[:i], argv[i + 1 :]
+            command = argv[i + 1 :]
+            # `pnpm run` forwards a user-supplied `--` VERBATIM after the script
+            # body's own, so `pnpm heavy -- node ...` arrives here as `-- -- node
+            # ...`. Bare leading separators are dropped; an argument that merely
+            # begins with dashes, including a literal `"-- literal"` string, is
+            # not a bare `--` and survives untouched.
+            while command and command[0] == "--":
+                command = command[1:]
+            return argv[:i], command
     return argv, []
 
 
