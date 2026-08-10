@@ -403,7 +403,7 @@ The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts
 
 Deleting one interior pipe — which is exactly how a merged cell exports to markdown — fuses two adjacent cells with no signal. Cell-fusion class: two columns become one value, and every downstream column index shifts within that row.
 
-**Ledgered blast radius: 2404 holes** (2271 `wrong` / 133 `signal_loss`), the second-largest class — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["merged-cell"] = "BL-MUTATION-MERGED-CELL"` (`tests/parser/mutation/knownHoles.ts:87`), pinned by `knownHoles.test.ts`.
+**Ledgered blast radius: 2407 holes** (2271 `wrong` / 132 `text_drift` / 4 `signal_loss`) — the second-largest class. The 2026-08-06 derivation read 2404 as 2271/133 because it predated the `text_drift` split, which re-kinded most of that signal-loss group; the figures here are the checked baseline. **CLOSED 2285, RESIDUE 122** by the `ROW_CELLS_FUSED` width discriminator (`feat/mutation-merged-cell`). Linkage: `OPERATOR_FINDING_MAP["merged-cell"] = "BL-MUTATION-MERGED-CELL"` (`tests/parser/mutation/knownHoles.ts:87`), pinned by `knownHoles.test.ts`.
 
 **Shape (M):** the discriminator is a row whose cell count is short by one against its section's established width, which needs corpus calibration — genuinely ragged rows are normal sheet authoring, so the heuristic must separate "merged cell" from "author left a trailing cell blank". Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
 
