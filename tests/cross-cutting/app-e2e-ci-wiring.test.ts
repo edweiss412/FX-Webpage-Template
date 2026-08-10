@@ -134,6 +134,31 @@ describe("app-e2e.yml CI wiring", () => {
     ).toEqual([]);
   });
 
+  it("pins the exact project set the floors are calibrated against", () => {
+    // Diff review R11: the flag allowlist accepted ANY `--project=` value, and the floors are
+    // derived from whatever the command resolves — so dropping `--project=desktop-chromium` and
+    // recalibrating REQUIRED to the new live numbers satisfied every other assertion here
+    // (positive resolutions 2/4/7/7/4/4/1, no disallowed flag, all seven specs still scanner-
+    // covered) while silently deleting 25 desktop executions. Derivation cannot catch this on its
+    // own: it faithfully re-derives the floors for the narrowed command. The project set is a
+    // DECISION, so it is pinned as a literal.
+    //
+    // The converse — dropping mobile-safari — was already caught, but only by accident:
+    // admin-phase2-surfaces resolves zero tests under desktop-chromium, so its floor goes to 0 and
+    // the positive-premise assertion fires. Relying on one spec's testMatch for that is luck, not
+    // a guard.
+    const [argv] = playwrightTestSegments(read(WORKFLOW));
+    const projects = (argv ?? [])
+      .filter((w) => w.startsWith("--project="))
+      .map((w) => w.slice("--project=".length))
+      .sort();
+    expect(
+      projects,
+      "app-e2e.yml must run BOTH projects. The executed-count floors are calibrated against this " +
+        "exact set; narrowing it and recalibrating produces a green job that proves strictly less.",
+    ).toEqual(["desktop-chromium", "mobile-safari"]);
+  });
+
   it("pins --retries=0 and a json reporter", () => {
     const [argv] = playwrightTestSegments(read(WORKFLOW));
     expect(
