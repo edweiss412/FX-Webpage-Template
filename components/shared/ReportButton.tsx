@@ -36,6 +36,7 @@ import {
   type ReportAutocapture,
   type ReportSurface,
 } from "@/components/shared/ReportModal";
+import { FlagGlyph } from "@/components/shared/FlagGlyph";
 
 export type ReportButtonProps = {
   surface: ReportSurface;
@@ -45,8 +46,19 @@ export type ReportButtonProps = {
   autocapture?: ReportAutocapture;
   /** Override the default label for this surface. */
   label?: string;
-  /** Visual variant; defaults derived from surface. */
-  variant?: "text" | "accent";
+  /**
+   * Visual variant; defaults derived from surface.
+   *
+   * `icon` is the crew footer's symbol-only form (UI spec §2.2, user-ratified
+   * 2026-08-09): the visible copy is dropped and the glyph carries the
+   * affordance. Both existing variants are untouched — a caller that does not
+   * ask for `icon` renders exactly what it rendered before. The ACCESSIBLE NAME
+   * is unchanged in every variant, so locators by role+name survive the switch
+   * and a screen-reader user still hears the full invitation; the ratified
+   * tradeoff is discoverability for sighted users, and it is a documented limit
+   * (UI spec §4 limit 2), not an oversight.
+   */
+  variant?: "text" | "accent" | "icon";
   /**
    * Focus ring-offset color — MUST match the background this button renders on,
    * or the focus ring's 2px gap shows the wrong color. Defaults to the per-variant
@@ -59,14 +71,18 @@ export type ReportButtonProps = {
   messageOptional?: boolean;
 };
 
-type RingOffset = "bg" | "surface" | "warning-bg" | "surface-sunken";
+// `surface-raised` joined the set when the crew footer became a raised band
+// (UI spec §2.2): the ring offset is a 2px GAP that paints the container's
+// background, so an offset that does not match the container shows the wrong
+// colour — the defect `tests/styles/noBareRingOffset.test.ts` exists to stop.
+type RingOffset = "bg" | "surface" | "surface-raised" | "warning-bg" | "surface-sunken";
 
 const DEFAULT_LABEL: Record<ReportSurface, string> = {
   crew: "Something looks wrong?",
   admin: "Report this",
 };
 
-const DEFAULT_VARIANT: Record<ReportSurface, "text" | "accent"> = {
+const DEFAULT_VARIANT: Record<ReportSurface, "text" | "accent" | "icon"> = {
   crew: "text",
   admin: "accent",
 };
@@ -75,6 +91,7 @@ const DEFAULT_VARIANT: Record<ReportSurface, "text" | "accent"> = {
 const RING_OFFSET_CLASS: Record<RingOffset, string> = {
   bg: "focus-visible:ring-offset-bg",
   surface: "focus-visible:ring-offset-surface",
+  "surface-raised": "focus-visible:ring-offset-surface-raised",
   "warning-bg": "focus-visible:ring-offset-warning-bg",
   "surface-sunken": "focus-visible:ring-offset-surface-sunken",
 };
@@ -95,10 +112,19 @@ export function ReportButton(props: ReportButtonProps) {
   // primary hierarchy intact while remaining discoverable. Accent
   // variant is the admin-side prominent CTA — Doug should see it as a
   // first-class control on the staged-review card.
+  // Full literal per branch so the Tailwind v4 JIT sees complete class names.
+  // The `icon` run is the shipped ThemeToggle recipe (`ThemeToggle.tsx`, the
+  // bordered 44x44 icon button) rather than a new treatment — the two controls
+  // sat side by side in the footer until this arc moved the toggle to the
+  // header, and a second icon-button vocabulary for the one that stayed is the
+  // "same action looks different in two places" defect the product register
+  // names.
   const className =
     effectiveVariant === "accent"
       ? `inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 text-sm font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`
-      : `inline-flex min-h-tap-min items-center rounded-sm px-3 py-2 text-sm font-medium text-text-subtle underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:no-underline focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`;
+      : effectiveVariant === "icon"
+        ? `inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm border border-border bg-surface text-text-subtle transition-colors duration-fast hover:border-border-strong hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`
+        : `inline-flex min-h-tap-min items-center rounded-sm px-3 py-2 text-sm font-medium text-text-subtle underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:no-underline focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`;
 
   return (
     <>
@@ -117,8 +143,13 @@ export function ReportButton(props: ReportButtonProps) {
         data-surface-id={surfaceId}
         onClick={() => setOpen(true)}
         className={className}
+        // The accessible name is the label in EVERY variant. In `icon` the label
+        // is not rendered, so it has to arrive as `aria-label` or the control
+        // would be nameless — and the existing e2e locators find this button by
+        // role+name, so they keep resolving across the switch.
+        {...(effectiveVariant === "icon" ? { "aria-label": effectiveLabel } : {})}
       >
-        {effectiveLabel}
+        {effectiveVariant === "icon" ? <FlagGlyph className="size-4" /> : effectiveLabel}
       </button>
       {open ? (
         <ReportModal

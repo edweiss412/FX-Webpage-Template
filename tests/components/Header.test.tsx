@@ -135,10 +135,19 @@ describe("Header rebalance (M4-D3)", () => {
 });
 
 describe("Header identityChip slot (M11.5 §B Task C4)", () => {
-  it("renders the FXAV wordmark when no identityChip is provided", () => {
+  it("renders the FXAV wordmark AND a reachable theme toggle when no identityChip is provided", () => {
     const { queryByTestId } = render(<Header show={baseShow} />);
     expect(queryByTestId("page-header-fxav-wordmark")).not.toBeNull();
-    expect(queryByTestId("page-header-right-slot")).toBeNull();
+    // CHANGED 2026-08-09 (UI spec §2.3). The right slot used to be ABSENT
+    // without an identity. It is present now and carries the STANDALONE theme
+    // toggle: the switch left the footer at every width, so an identity-less
+    // page would otherwise have no way to change theme at all. The slot is
+    // marked `data-identity="none"` so this state stays distinguishable from
+    // the avatar-menu one rather than the two collapsing into "slot exists".
+    const slot = queryByTestId("page-header-right-slot");
+    expect(slot).not.toBeNull();
+    expect(slot?.getAttribute("data-identity")).toBe("none");
+    expect(queryByTestId("theme-toggle")).not.toBeNull();
   });
 
   it("replaces the FXAV wordmark with the identityChip slot when provided", () => {

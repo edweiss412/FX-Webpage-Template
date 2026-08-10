@@ -2,29 +2,43 @@
  * components/layout/Footer.tsx — page-chrome footer for /show/[slug] (Task
  * 4.2 layout shell, plan lines 188-194).
  *
- * Quiet hairline. Three slots, left-to-right on desktop, stacked on mobile:
- *   1. "as of …" timestamp slot — placeholder for Task 4.16's stale-data
- *      UX. The element renders even with no asOf prop so Task 4.13's
- *      footer-presence assertion (data-testid="page-footer") passes.
- *   2. FXAV wordmark + copyright — small, neutral.
- *   3. Theme toggle — small `'use client'` island (`ThemeToggle`) that
- *      flips `<html data-theme>` and persists the choice in
- *      localStorage['fxav-theme']. The Footer itself stays a Server
- *      Component; only the toggle is a client island, per the impeccable
- *      v3 critique Finding 4 wire-up. PRODUCT.md commits to a "clearly
- *      discoverable theme toggle [that] respects `prefers-color-scheme`
- *      on first paint" — the no-FOUC inline script in `app/layout.tsx`
- *      handles the first-paint fallback; this slot carries the
- *      user-override.
+ * THE ONE-ROW BAND (UI spec §2.2, ratified 2026-08-09 over three mockup rounds).
+ * A raised band on `--color-surface-raised` — the token whose DESIGN.md §1.1
+ * role literally includes "footer pinned-to-bottom variant" — carrying ONE row
+ * at every width:
  *
- * `mt-auto` is applied here so the footer pins to the viewport bottom on
- * short pages and flows on long pages (DESIGN.md §3 spacing rhythm + plan
- * line 191 sticky-vs-flow rule). The parent flex container (in layout.tsx)
- * declares `min-h-screen flex flex-col` to make `mt-auto` actually anchor.
+ *   [ fine-print text cell, min-w-0 flex-1 ] [ report symbol, shrink-0 ]
  *
- * Server Component — interactivity is delegated to the ThemeToggle island.
+ * "One row" describes the DEFAULT state's look, not a promise long copy can
+ * keep at 390px. The text cell WRAPS internally and never truncates: the
+ * stale-warning copy ("This page hasn't updated recently. Text Doug to check on
+ * it.") has to stay fully readable, which is the whole point of showing it.
+ *
+ * WHAT LEFT, AND WHY. The theme toggle is gone from here at every width —
+ * ratified: "theme toggle doesn't belong in this grouping". It now lives in the
+ * crew page header behind the avatar menu (`components/layout/Header.tsx`). The
+ * report control lost its visible copy and kept its accessible name, so a
+ * screen-reader user still hears the full invitation; the discoverability cost
+ * of a symbol was surfaced on the mockup and ratified anyway (UI spec §4 limit 2).
+ *
+ * WHAT THE BAND DOES NOT OWN: bar clearance. That has exactly one owner,
+ * `crew-shell`'s bottom padding, because padding INSIDE the footer moves the
+ * footer's CONTENT up while the footer's own box still ends under the fixed bar.
+ * A band that also carried clearance would ship silently oversized while the
+ * geometry assertion still passed (UI spec §2.2).
+ *
+ * `mt-auto` is applied here so the footer pins to the viewport bottom on short
+ * pages and flows on long pages (DESIGN.md §3 + the sticky-vs-flow rule). It
+ * needs an unbroken flex chain to do anything: `page-shell` is
+ * `flex min-h-screen flex-col` and `crew-shell` joins it as
+ * `flex min-h-0 flex-1 flex-col`. It was a classless div until 2026-08-09, which
+ * is why `mt-auto` silently did nothing (BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT).
+ *
+ * The band still SCROLLS with the page — it is the page's end, not a second
+ * fixed bar. Only clearance and layout changed.
+ *
+ * Server Component — no client island remains in this file.
  */
-import { ThemeToggle } from "./ThemeToggle";
 import { ReportButton } from "@/components/shared/ReportButton";
 import { StaleFooter } from "@/components/shared/StaleFooter";
 import { nowDate } from "@/lib/time/now";
@@ -115,52 +129,64 @@ export async function Footer({
   const reportSurfaceId =
     reportSurfaceIdOverride ?? (showSlug ? `footer-crew-${showSlug}` : "footer-crew");
   return (
-    <footer data-testid="page-footer" className="mt-auto border-t border-border bg-bg">
-      <div className="mx-auto flex w-full max-w-300 flex-col items-start gap-3 px-4 py-6 text-xs text-text-subtle sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-8 sm:py-7">
-        <div data-testid="page-footer-as-of" className="min-w-0">
-          {lastCheckedAt ? (
-            <StaleFooter
-              lastCheckedAt={lastCheckedAt}
-              lastSyncStatus={lastSyncStatus ?? null}
-              now={currentNow}
-            />
-          ) : asOf ? (
-            <p>
-              <span className="text-text-faint">as of </span>
-              <time dateTime={asOf} className="font-medium text-text">
-                {formatAsOf(asOf)}
-              </time>
-            </p>
-          ) : (
-            <p>
-              <span className="text-text-faint">syncing…</span>
-            </p>
-          )}
-        </div>
-        <p className="font-semibold uppercase tracking-eyebrow-strong text-text-subtle">
-          FXAV{" "}
-          <span aria-hidden="true" className="font-regular text-text-faint">
+    <footer data-testid="page-footer" className="mt-auto border-t border-border bg-surface-raised">
+      <div className="mx-auto flex w-full max-w-300 items-center gap-3 p-4 text-xs text-text-subtle sm:gap-6 sm:px-8 sm:py-5">
+        {/*
+          The wrapping text cell. `min-w-0` is load-bearing on a flex child: a
+          flex item's default `min-width: auto` refuses to shrink below its
+          content, so without it the longest stale string pushes the row wider
+          than the viewport instead of wrapping inside the cell.
+        */}
+        <div
+          data-testid="page-footer-fine-print"
+          className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5 gap-y-1"
+        >
+          <p className="font-semibold uppercase tracking-eyebrow-strong text-text-subtle">
+            FXAV{" "}
+            <span aria-hidden="true" className="font-regular text-text-faint">
+              ·
+            </span>{" "}
+            <span className="font-regular tabular-nums">{year}</span>
+          </p>
+          <span aria-hidden="true" className="text-text-faint">
             ·
-          </span>{" "}
-          <span className="font-regular tabular-nums">{year}</span>
-        </p>
+          </span>
+          {/*
+            The freshness slot, three states kept VERBATIM from the stacked
+            layout that preceded the band — this arc changed where they sit, not
+            what they say or when they say it.
+          */}
+          <div data-testid="page-footer-as-of" className="min-w-0">
+            {lastCheckedAt ? (
+              <StaleFooter
+                lastCheckedAt={lastCheckedAt}
+                lastSyncStatus={lastSyncStatus ?? null}
+                now={currentNow}
+              />
+            ) : asOf ? (
+              <p>
+                <span className="text-text-faint">as of </span>
+                <time dateTime={asOf} className="font-medium text-text">
+                  {formatAsOf(asOf)}
+                </time>
+              </p>
+            ) : (
+              <p>
+                <span className="text-text-faint">syncing…</span>
+              </p>
+            )}
+          </div>
+        </div>
         {showId ? (
           <ReportButton
             surface={reportSurface}
             surfaceId={reportSurfaceId}
             showId={showId}
+            variant="icon"
+            ringOffset="surface-raised"
             {...(reportAutocapture ? { autocapture: reportAutocapture } : {})}
           />
         ) : null}
-        {/*
-          Theme toggle. Client island — see ThemeToggle.tsx for the
-          dataset/localStorage handshake and the no-FOUC contract with
-          app/layout.tsx. The slot still satisfies the §3 ≥44px tap
-          target via tokens; the icon glyph (Sun/Moon, lucide-react)
-          shows the OPPOSITE of the current theme so the affordance
-          reads "this is what you'll get if you tap."
-        */}
-        <ThemeToggle />
       </div>
     </footer>
   );
