@@ -1040,7 +1040,7 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
 
-**Status:** IN PROGRESS · **Branch:** feat/admin-nav-badge-suspense · **Effort:** M
+**Status:** OPEN · **Effort:** M
 
 **Filed:** 2026-06-23 (nav-perf Phase 2 — the descoped half of E). Phase 2's E-lite parallelized the admin layout's two badge reads (`Promise.all`), so first `/admin` entry blocks on one wall-time instead of three sequential round-trips. The further win is to stream the badges entirely OUT of the blocking layout path via `<Suspense>` so the nav chrome paints immediately and the counts arrive after.
 
