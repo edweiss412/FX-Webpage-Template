@@ -980,6 +980,8 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ### BL-CREW-FIELD-ENRICHMENT — Surface already-captured-but-unprojected crew-page fields (flights, Wi-Fi SSID/PW split, room-within-venue)
 
+**Status:** IN PROGRESS · **Branch:** feat/crew-field-enrichment
+
 **Filed:** 2026-06-18, during the crew-page redesign Phase 2 spec adversarial review (R16-MEDIUM). The Phase-1 spec's prose originally lumped several field-enrichments into "Phase 2," but the Phase-2 spec was scoped to **AGENDA run-of-show only**. To single-source the phase boundary (so an implementer can't read Phase-1 as promising Travel-flight work that Phase-2 doesn't deliver), these three field-enrichments are split out here and the Phase-1 references were corrected to point at this item.
 
 **Effort:** M
@@ -1013,6 +1015,8 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 ---
 
 ### BL-FLIGHT-LEG-ORIENTATION — arrival/departure labels + richer flight-leg layout
+
+**Status:** IN PROGRESS · **Branch:** feat/crew-field-enrichment
 
 **Filed:** 2026-06-19 (crew-page Phase 3 per-crew flight info, impeccable v3 dual-gate LOW/MED note). The "Your flight" card renders each `flight_info` leg (split on the TECH-path `" | "`) as an unlabeled text line. The impeccable critique noted there is no arrival/departure orientation cue between the two legs, the confirmation code is buried mid-string, and the raw passthrough is slightly spreadsheet-flavored.
 
