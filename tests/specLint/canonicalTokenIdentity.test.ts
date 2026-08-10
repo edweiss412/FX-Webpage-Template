@@ -15,12 +15,19 @@
 // to the value the form it replaced encoded? So it is answered here — no browser, no
 // clock, no flake — rather than in the e2e dimension spec.
 //
-// THIS IS THE DISCRIMINATING PROOF FOR C1, not a redundant second opinion. Measured
-// 2026-08-08, the step-indicator connector is 0x1 at every viewport: StepIndicator's
-// <nav> is a content-sized flex item inside a row flex container, so its `flex-1`
-// connectors receive no free space and `max-w` never applies. The e2e spec keeps those
-// two keys as a regression tripwire and says so explicitly; the assertion that actually
-// discriminates a wrong `--spacing-confirm-box` is the one below.
+// THIS IS THE TOKEN HALF OF C1'S PROOF. It was once the WHOLE of it: measured 2026-08-08
+// the connector was 0x1 at every viewport, because StepIndicator's <nav> was a
+// content-sized flex item inside a row flex container, so its `flex-1` connectors got no
+// free space and `max-w` never applied — nothing in a browser could discriminate a wrong
+// `--spacing-confirm-box` when the box was zero wide either way.
+//
+// That premise is now FALSE, and deliberately so. The nav carries `flex-1 min-w-0`
+// (components/admin/OnboardingWizard.tsx), the connectors are real boxes, and the e2e
+// spec measures them at every step and both widths — clamped to exactly 60px at 390px,
+// which is this token. So the two proofs are now genuinely complementary: this file
+// answers "does the utility resolve to the value the bracket form encoded", which is a
+// token question with no browser in it, and the e2e spec answers "does the rendered box
+// obey it", which cannot be answered anywhere else. Neither subsumes the other.
 //
 // It replaces the mid-crossfade sampler the plan descoped for the same reason: three
 // consecutive review rounds on that sampler were all about driving framer-motion
@@ -46,9 +53,11 @@ const GLOBALS = path.join(process.cwd(), "app/globals.css");
  * The two production sites whose class token this file's token assertions are supposed to
  * prove. Without binding them, the proof is answering a question nobody asked: a rebase
  * changing the connector to `max-w-16` (64px, canonical, so ESLint stays silent) leaves
- * `--spacing-confirm-box: 60px` intact, and the C1 rect keys are 0-width, so every C1
- * assertion passed while the rendered constraint changed. The token identity and the
- * SITE THAT USES IT are two halves of one claim.
+ * `--spacing-confirm-box: 60px` intact while the rendered constraint changes. That swap
+ * was invisible to EVERY C1 assertion when the rect keys were 0-width; the e2e band now
+ * catches it too (64 > 60 fails the upper bound), but this binding is still what ties the
+ * token to the site rather than to nothing. The token identity and the SITE THAT USES IT
+ * are two halves of one claim.
  */
 const CANONICAL_USE_SITES = [
   {

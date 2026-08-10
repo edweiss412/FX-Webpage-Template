@@ -192,7 +192,16 @@ export function StepIndicator({
     <nav
       aria-label="Onboarding progress"
       data-testid="wizard-step-indicator"
-      className="flex items-center gap-2 sm:gap-3"
+      // `flex-1 min-w-0` is what makes the connectors real. Without it this
+      // <nav> is a flex ITEM at the default `flex: 0 1 auto` inside the row
+      // below, so it sizes to its content, has no free space to distribute, and
+      // every `flex-1` connector inside it resolves to 0 — which also made
+      // `max-w-confirm-box` inert, since an upper bound never binds on a 0-width
+      // box. It is the SOLE child of that row (see the wizard's top chrome), so
+      // stretching it takes width from nothing else. `min-w-0` because a flex
+      // item's default `min-width: auto` floors it at content width, which would
+      // re-create the same no-free-space condition at narrow viewports.
+      className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3"
     >
       {([1, 2, 3] as const).map((n) => {
         const isActive = n === step;

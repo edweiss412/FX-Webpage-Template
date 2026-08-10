@@ -54,6 +54,7 @@ import path from "node:path";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { premiseHolds } from "../_shared/premise";
 import { enterWizardAdminState } from "./helpers/dashboardState";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
@@ -241,11 +242,41 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
    * at every width, and 176px is its whole contract.
    */
   const PROJECT_VIEWPORT = { width: 390, height: 844 };
+  /** `--spacing-confirm-box`, the token `max-w-confirm-box` resolves to. */
+  const CONFIRM_BOX_PX = 60;
+  /** Both widths the band is proven at: the project's own, and a wide one. */
+  const BAND_VIEWPORTS = [390, 900] as const;
 
-  async function measureConnectors(page: Page): Promise<Record<string, Rect>> {
-    await page.setViewportSize(PROJECT_VIEWPORT);
-    const response = await page.goto("/admin", { waitUntil: "domcontentloaded" });
-    expect(response?.status(), "/admin must render").toBe(200);
+  /**
+   * A CSS custom property's value, NORMALISED THROUGH THE ENGINE rather than
+   * string-compared. `getPropertyValue("--color-border")` returns the token's
+   * authored text (`oklch(…)`), and `getComputedStyle(el).backgroundColor`
+   * returns a resolved `rgb(…)` — comparing those two as strings fails on a
+   * correct implementation. Painting the token onto a probe and reading the
+   * computed value back puts both sides in the same space.
+   */
+  async function resolvedToken(page: Page, token: string): Promise<string> {
+    return page.evaluate((name) => {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      const probe = document.createElement("div");
+      probe.style.backgroundColor = raw;
+      document.body.appendChild(probe);
+      const out = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return out;
+    }, token);
+  }
+
+  type ConnectorSample = { rect: Rect; background: string };
+
+  async function sampleConnectors(
+    page: Page,
+    step: 1 | 2 | 3,
+    width: number,
+  ): Promise<[ConnectorSample, ConnectorSample]> {
+    await page.setViewportSize({ width, height: PROJECT_VIEWPORT.height });
+    const response = await page.goto(`/admin?step=${step}`, { waitUntil: "domcontentloaded" });
+    expect(response?.status(), `/admin?step=${step} must render`).toBe(200);
     await expect(page.getByTestId("onboarding-wizard")).toBeVisible();
 
     const connectors = page.getByTestId("wizard-step-connector");
@@ -257,29 +288,114 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
         "must be present. Zero means /admin did not take the wizard branch — check that " +
         "enterWizardAdminState() ran and that app_settings.watched_folder_id is NULL.",
     ).toHaveCount(2);
-    // Attached, NOT visible: a 0-width box is `hidden` to Playwright, which is itself the
-    // measured limit documented above rather than a defect in this locator.
-    await expect(connectors.nth(0)).toBeAttached();
 
-    const first = await rectOf(connectors.nth(0));
-    const second = await rectOf(connectors.nth(1));
+    const read = async (n: 0 | 1): Promise<ConnectorSample> => ({
+      rect: await rectOf(connectors.nth(n)),
+      background: await connectors.nth(n).evaluate((el) => getComputedStyle(el).backgroundColor),
+    });
+    return [await read(0), await read(1)];
+  }
 
-    // THE LIMIT, STATED EXECUTABLY AND IN THE DIRECTION IT IS ACTUALLY TRUE. This is not a
-    // premise the rect comparison needs — it is the reason that comparison cannot
-    // discriminate, pinned so it cannot rot into a silent tautology. If the connector ever
-    // becomes non-degenerate, `max-w` has gone live, this target upgrades from tripwire to
-    // real check, and spec §9.4 needs revisiting — which is what this failure says.
+  /**
+   * C1 — the step-indicator connector. TWO elements, both measured, at every
+   * step and at both widths.
+   *
+   * WHAT CHANGED, AND WHY THIS IS NO LONGER A TRIPWIRE. Until C1 the connectors
+   * were 0×1 at every viewport and the rect comparison was a documented
+   * non-discriminating check: `StepIndicator`'s `<nav>` was a content-sized flex
+   * item (`flex: 0 1 auto`) inside a row flex container, so a `flex-1` child had
+   * no free space to claim and `max-w` never applied. C1 gives the nav
+   * `flex-1 min-w-0` — it is the SOLE child of that row (OnboardingWizard.tsx),
+   * so stretching it takes space from nothing else — and the connectors become
+   * real boxes bounded by the token.
+   *
+   * THE BAND, NOT AN EQUALITY. `> 0` alone would pass on a 1px hairline that
+   * never grew; `≤ 60` alone would pass on the 0-width box this replaces. Both
+   * bounds together are what "the flex child claims free space, up to the token"
+   * means, and the pair is asserted at 390px AND 900px because a width that
+   * tracks the viewport is the whole point — a connector pinned to one constant
+   * would satisfy the band at one width and fail it at the other.
+   */
+  for (const step of [1, 2, 3] as const) {
+    for (const width of BAND_VIEWPORTS) {
+      test(`C1 — both step connectors occupy a bounded band at ?step=${step}, ${width}px`, async ({
+        page,
+      }) => {
+        const [first, second] = await sampleConnectors(page, step, width);
+        const band = ([first, second] as const).map((s, i) => ({
+          connector: i,
+          width: s.rect.width,
+          height: s.rect.height,
+          inBand: s.rect.width > 0 && s.rect.width <= CONFIRM_BOX_PX && s.rect.height === 1,
+        }));
+        expect(
+          band.filter((b) => !b.inBand),
+          `each connector must be a hairline claiming free space up to ` +
+            `--spacing-confirm-box (${CONFIRM_BOX_PX}px): width > 0 ∧ ≤ ${CONFIRM_BOX_PX}, ` +
+            `height exactly 1. A 0 width means the nav is still content-sized and ` +
+            `\`max-w-confirm-box\` is inert; a width above the token means the cap stopped ` +
+            `applying. Measured: ${JSON.stringify(band)}`,
+        ).toEqual([]);
+      });
+    }
+  }
+
+  /**
+   * THE STATE ORACLE — the half the geometry cannot see.
+   *
+   * `isDone = n < step`, and connectors render for n = 1 and 2, so `?step=2` is
+   * the ONLY step where the two differ: connector 1 is behind the cursor
+   * (`bg-border-strong`) and connector 2 is ahead of it (`bg-border`). At
+   * `?step=3` both are behind it. Geometry is identical in every one of those
+   * cases, so a rect-only check would pass with the two colors swapped, both
+   * stuck on one token, or the conditional deleted outright.
+   *
+   * The two tokens are REQUIRED TO DIFFER before the comparison is trusted: if
+   * `--color-border` and `--color-border-strong` ever resolved to the same
+   * color, every assertion below would pass on any implementation at all.
+   */
+  test("C1 — at ?step=2 the done connector and the ahead connector carry DIFFERENT tokens", async ({
+    page,
+  }) => {
+    const [first, second] = await sampleConnectors(page, 2, PROJECT_VIEWPORT.width);
+    const strong = await resolvedToken(page, "--color-border-strong");
+    const plain = await resolvedToken(page, "--color-border");
+    premiseHolds(
+      `--color-border-strong (${strong}) and --color-border (${plain}) resolve to DIFFERENT ` +
+        `colors; if they were equal this assertion would pass on any implementation`,
+      strong !== plain && strong.length > 0,
+    );
     expect(
-      { first: first.width, second: second.width },
-      "the step connectors are no longer 0-width. `max-w-[60px]` was INERT when this spec " +
-        "was written — StepIndicator's <nav> is a content-sized flex item inside a row flex " +
-        "container, so its `flex-1` connectors get no free space and the max-width upper " +
-        "bound never applies. A non-zero width means that layout changed and `max-w` is now " +
-        "live: re-derive spec §9.4, and turn these two keys back into a discriminating check " +
-        "for C1 instead of the regression tripwire they are today.",
-    ).toEqual({ first: 0, second: 0 });
+      { connector1: first.background, connector2: second.background },
+      `at step 2 the FIRST connector is behind the cursor (isDone, --color-border-strong) and ` +
+        `the SECOND is ahead of it (--color-border). Equal values mean the isDone conditional ` +
+        `is gone or inverted — geometry cannot see this.`,
+    ).toEqual({ connector1: strong, connector2: plain });
+  });
 
-    return { "wizard-step-connector-0": first, "wizard-step-connector-1": second };
+  test("C1 — at ?step=3 BOTH connectors are done and carry the strong token", async ({ page }) => {
+    const [first, second] = await sampleConnectors(page, 3, PROJECT_VIEWPORT.width);
+    const strong = await resolvedToken(page, "--color-border-strong");
+    const plain = await resolvedToken(page, "--color-border");
+    premiseHolds(
+      `--color-border-strong (${strong}) and --color-border (${plain}) resolve to DIFFERENT ` +
+        `colors`,
+      strong !== plain && strong.length > 0,
+    );
+    expect(
+      { connector1: first.background, connector2: second.background },
+      `at step 3 both connectors are behind the cursor (n < 3), so both carry ` +
+        `--color-border-strong. A --color-border here means isDone is computed against the ` +
+        `wrong step.`,
+    ).toEqual({ connector1: strong, connector2: strong });
+  });
+
+  async function measureConnectors(page: Page): Promise<Record<string, Rect>> {
+    const [first, second] = await sampleConnectors(page, 1, PROJECT_VIEWPORT.width);
+    return {
+      "wizard-step-connector-0": first.rect,
+      "wizard-step-connector-1": second.rect,
+    };
   }
 
   /** C5 — the RightNowHero card on the seeded crew route, at the project's own viewport. */
