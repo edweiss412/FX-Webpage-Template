@@ -245,19 +245,89 @@ From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07
 
 ---
 
-## Undo announcement channel — impeccable critique deferrals (2026-08-03)
+## /help/errors report surface — impeccable dual-gate deferrals (2026-08-09)
 
-From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique's detector ran clean (0 findings) and contrast, tokens, tap targets, em-dash and ARIA all passed. Three findings are accepted and deferred rather than fixed, each with its reason and un-defer trigger.
+Filed from the invariant-8 dual gate on `feat/help-report-surface`. Dispositions and the refuted
+findings are recorded in §12 of `docs/superpowers/plans/2026-08-09-help-report-surface.md`.
 
-### UNDO-UNCATALOGUED-CODE-CARD-1 — impeccable critique P2: an uncatalogued error code renders an empty card and announces nothing (2026-08-03)
+### HELPREPORT-MODAL-STATIC-IMPORT-CATALOG-1 — [P1] every route with a report button downloads the whole message catalog
 
 **Effort:** M
 
-`ErrorExplainer` returns `null` when a code has no catalog row (`components/messages/ErrorExplainer.tsx:82`), so the wrapper paints its bordered warning chrome with no text inside and the live region fires empty.
+From the impeccable audit. The import chain is static and unconditional, so the modal, its help
+affordance, and the full §12.4 catalog land in the route bundle whether or not the modal is ever
+opened:
 
-**Accepted, not fixed.** Behavior is unchanged from before this branch — the conditional wrapper rendered the same empty card. What the branch changes is the promise: an always-mounted live region reads as a commitment to speak. Fixing it properly means resolving the code before deciding to render, which touches the message layer rather than these three components, and every code reachable from these call sites has a catalog row today (`lib/messages/catalog.ts:902`, `:939`, `:952`, `:3275`).
+```
+components/shared/ReportButton.tsx:34   import { ReportModal, ... }
+components/shared/ReportModal.tsx:37    import { HelpAffordance } from "@/components/admin/HelpAffordance"
+components/admin/HelpAffordance.tsx:41  import { MESSAGE_CATALOG, ... } from "@/lib/messages/catalog"
+$ wc -l lib/messages/catalog.ts
+4052 lib/messages/catalog.ts
+```
 
-**Un-defer trigger:** any new code reachable from a feed action, or the next `lib/messages` pass.
+`ReportButton` already mounts the modal only when open, so nothing renders early — but a static
+import is a download either way. This branch made `/help/errors` the newest instance: the page
+server-renders every catalog entry as HTML and now also ships that prose a second time as JS, to a
+venue-floor phone, to render one button. The crew footer and the admin surfaces have carried the same
+weight since M8.
+
+**Accepted, not fixed.** The repair is `next/dynamic` on the modal inside `ReportButton`, which wins
+on every surface at once — and changes the mount contract for all four existing ones: the modal would
+stop appearing synchronously on click, which is what the hardened M8 suites assert. The 2026-08-09
+spec §1.1 item 9 fences existing-surface behavior as byte-identical for this PR, so the change
+belongs in its own PR with those suites as the net.
+
+**Un-defer trigger:** any page-weight budget on `/help/**` or the crew page, or the next milestone
+that touches `ReportButton`'s mount path for another reason.
+
+### HELPREPORT-CTA-REMOUNT-FOCUS-1 — [P1] a mid-open fragment change closes the dialog with no cue and drops focus to `<body>`
+
+**Effort:** M
+
+From the impeccable critique and audit. `app/help/errors/_components/HelpReportCta.tsx` keys
+`ReportButton` by the live fragment, so a `hashchange` while the modal is open remounts the button
+and unmounts the modal. That unmount is the ratified mechanism, not an accident (2026-08-09 spec
+§2.1, repaired at plan R5): it is what stops a live attempt from being re-pointed at another code,
+and `tests/help/helpReportCta.test.tsx` case 6 pins it. The unaddressed consequence is what happens
+next — `lib/a11y/dialogFocus.ts` restores focus to the trigger, which that same remount just removed,
+so focus falls to `document.body` and a screen reader gets no dialog-closed cue. The realistic path
+is the phone back gesture between two fragment history entries. The typed draft survives under the
+old `surfaceId`, but nothing says so.
+
+**Accepted, not fixed.** Both candidate repairs are decisions this PR cannot settle. Freezing the
+hash for the lifetime of an open attempt removes the unmount entirely and preserves
+key/draft/`helpCode` co-variance — but it contradicts the remount the spec ratified and the test that
+pins it, so it is a spec amendment. Restoring focus to the NEW trigger keeps the ratified mechanism
+but needs a rule for when focus may move during ordinary reading: every jump-list click on this page
+is a `hashchange`, and stealing focus to the page-foot CTA on each one is worse than the defect.
+
+Same failure shape as [[ATTENTION-INDEX-JUMP-FOCUS-1]] above (focus to `<body>` after a
+trigger-removing transition); if a focus-orchestration spec is written for that, this belongs in it.
+
+**Un-defer trigger:** any keyboard or screen-reader report of losing place on `/help/errors`, or the
+focus-orchestration spec that closes the sibling entry.
+
+### HELPREPORT-MODAL-NO-ESCAPE-1 — [P2] the report dialog cannot be dismissed with Esc
+
+**Effort:** S
+
+From the impeccable audit. `grep -c 'Escape' components/shared/ReportModal.tsx` returns `0`; the only
+key handling in the modal is Cmd/Ctrl+Enter to submit. `lib/a11y/dialogFocus.ts:13-14` states
+explicitly that "Esc handling is the dialog's responsibility (typically already wired in the dialog
+component)", and it never was. Not an SC failure — Close is Tab-reachable and inside the focus trap —
+but it breaks the APG dialog pattern, and this branch extends the gap to a fifth surface.
+
+**Accepted, not fixed.** Pre-existing since M8 on all four existing surfaces; adding a dismissal path
+is a behavior change to every one of them, which spec §1.1 item 9 fences for this PR. It is a
+one-place fix that should ship with the modal's own suite as its net.
+
+**Un-defer trigger:** the next PR that touches `ReportModal`'s keyboard handling, or any
+keyboard-a11y sweep.
+
+## Undo announcement channel — impeccable critique deferrals (2026-08-03)
+
+From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique's detector ran clean (0 findings) and contrast, tokens, tap targets, em-dash and ARIA all passed. Three findings are accepted and deferred rather than fixed, each with its reason and un-defer trigger.
 
 ### UNDO-DIALOG-LABEL-CONSTANT-1 — impeccable critique P3: the dialog region's `aria-label` is a constant while its `data-testid` is derived (2026-08-03)
 

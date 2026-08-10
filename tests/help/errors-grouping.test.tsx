@@ -62,11 +62,13 @@ describe("Chunk 4 — /help/errors family grouping", () => {
     expect(container.querySelectorAll("h3[id]").length).toBe(codes.length);
   });
 
-  it("renders the 'tell Eric' CTA exactly once (not once per entry)", () => {
+  it("renders the report CTA exactly once (not once per entry)", () => {
     const { container } = render(<ErrorsPage />);
-    const mailtos = container.querySelectorAll('a[href^="mailto:edweiss412@gmail.com"]');
-    expect(mailtos.length).toBe(1);
-    expect(mailtos[0]?.textContent).toContain("tell Eric");
+    const triggers = container.querySelectorAll('[data-testid="report-button-trigger"]');
+    expect(triggers.length).toBe(1);
+    expect(triggers[0]?.textContent).toBe("Report a recurring error");
+    // AC-11.11 r12: the mailto stopgap is retired, not merely duplicated.
+    expect(container.querySelectorAll('a[href^="mailto:"]').length).toBe(0);
   });
 
   it("renders an h2 group heading + a jump-list link for each non-empty family", () => {
