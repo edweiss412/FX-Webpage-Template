@@ -13,7 +13,7 @@
  * PROVENANCE assertion instead of quietly testing a value the corpus no longer
  * contains.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, it, expect } from "vitest";
@@ -43,83 +43,112 @@ const PROSE_RPAS = "Wifi from Encore";
 const PROSE_WALDORF = "Wifi";
 const PROSE_REDEFINING_FI = "Wifi for Polling from Encore";
 
-/** Each fixture-derived corpus value and the fixture it was transcribed from. */
-const PROVENANCE: ReadonlyArray<{ label: string; file: string; value: string }> = [
-  {
-    label: "Fixed Income (raw family)",
-    file: "fixtures/shows/raw/2025-10-fixed-income-trading-summit.md",
-    value: FIXTURE_FIXED_INCOME,
-  },
-  {
-    label: "Fixed Income (exporter family)",
-    file: "fixtures/shows/exporter-xlsx/fixed-income.md",
-    value: FIXTURE_FIXED_INCOME,
-  },
-  {
-    label: "FinTech (raw family)",
-    file: "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md",
-    value: FIXTURE_FINTECH,
-  },
-  {
-    label: "FinTech (exporter family)",
-    file: "fixtures/shows/exporter-xlsx/fintech.md",
-    value: FIXTURE_FINTECH,
-  },
-  {
-    label: "Consultants (exporter family)",
-    file: "fixtures/shows/exporter-xlsx/consultants.md",
-    value: FIXTURE_CONSULTANTS,
-  },
-  {
-    label: "RIA (exporter family)",
-    file: "fixtures/shows/exporter-xlsx/ria.md",
-    value: FIXTURE_RIA,
-  },
-  {
-    label: "East Coast prose",
-    file: "fixtures/shows/raw/2024-05-east-coast-family-office.md",
-    value: PROSE_EAST_COAST,
-  },
-  {
-    label: "RPAS prose",
-    file: "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md",
-    value: PROSE_RPAS,
-  },
-  {
-    label: "Waldorf prose",
-    file: "fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md",
-    value: PROSE_WALDORF,
-  },
-  {
-    label: "Redefining FI prose (exporter mirror)",
-    file: "fixtures/shows/exporter-xlsx/redefining-fi.md",
-    value: PROSE_REDEFINING_FI,
-  },
-];
+/**
+ * The corpus cover, DERIVED FROM DISK rather than listed.
+ *
+ * An enumerated list of ten files claimed to guard a seventeen-file corpus, so
+ * the seven it omitted could change freely under a "full-corpus" guard (review
+ * S6 R1). The inventory now walks both fixture families, so a fixture ADDED to
+ * the corpus is covered by default and a fixture whose Internet cell starts
+ * splitting must be declared below or fail.
+ */
+const FIXTURE_DIRS = ["fixtures/shows/raw", "fixtures/shows/exporter-xlsx"] as const;
 
-const escapeRe = (value: string): string => value.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
+function fixtureFiles(): string[] {
+  return FIXTURE_DIRS.flatMap((dir) =>
+    readdirSync(path.join(REPO_ROOT, dir))
+      .filter((name) => name.endsWith(".md") && name !== "README.md")
+      .map((name) => `${dir}/${name}`),
+  ).sort();
+}
 
 /**
- * The value must be the WHOLE `Internet` cell, not merely a substring of the
- * file: horizontal padding only, delimited by the row's pipes, with `Internet`
- * as the exact label cell. Plain containment would survive both a suffix
- * appended to the real cell and the value appearing somewhere else in the sheet
- * (every fixture also carries an `Internet Requirements` row), so it would stop
- * detecting the drift this check exists to catch.
+ * The FIRST `| Internet |` row's cell. First, deliberately: several fixtures
+ * carry a later `| Internet | FALSE |` checklist row, and five raw fixtures have
+ * an EMPTY event-details cell whose row ends after the label — reading "the row
+ * that has a value" would silently promote the checklist row into the corpus.
+ * Trailing pipes from the wider raw tables are stripped.
  */
-const internetCellRe = (value: string): RegExp =>
-  new RegExp(`\\|[ \\t]*Internet[ \\t]*\\|[ \\t]*${escapeRe(value)}[ \\t]*\\|`);
+function internetCellOf(file: string): string | null {
+  for (const line of read(file).split("\n")) {
+    if (!/^\|\s*Internet\s*\|/.test(line)) continue;
+    const afterLabel = line.slice(line.indexOf("|", 1) + 1);
+    return afterLabel.replace(/\|.*$/, "").trim();
+  }
+  return null;
+}
 
-describe("corpus provenance", () => {
-  it("every fixture-derived corpus value is still the verbatim Internet cell", () => {
-    // Premise: the loop below proves nothing if the table is empty. Asserted
-    // outside any per-case callback so a zero-length table is loud, not silent.
-    premise("fixture-derived corpus cases", PROVENANCE.length, 0);
-    for (const row of PROVENANCE) {
+/**
+ * Every cell in the corpus that SPLITS, with its exact expected parse. A fixture
+ * whose cell splits and is absent here fails the cover test below, so this map
+ * is the closure the spec §4 accounting refers to — not a sample of it.
+ */
+const EXPECTED_SPLITS: ReadonlyMap<
+  string,
+  { ssid: string; password: string | null; notes: string | null }
+> = new Map([
+  [
+    FIXTURE_FIXED_INCOME,
+    { ssid: "Hyatt_Meeting", password: "FITS2025", notes: "Hardline from Encore" },
+  ],
+  [
+    FIXTURE_FINTECH,
+    {
+      ssid: "IHGWifi.com",
+      password: "ORDTG.",
+      notes: "Encore to provide hardline for streaming",
+    },
+  ],
+  [
+    FIXTURE_CONSULTANTS,
+    { ssid: "Institutional Investor", password: "Investor2025", notes: "Wifi for Polling" },
+  ],
+  [FIXTURE_RIA, { ssid: "Hyatt_Meeting", password: "PHC2025", notes: null }],
+]);
+
+describe("corpus cover (filesystem-derived)", () => {
+  it("every fixture's Internet cell is classified, and every splitting cell is pinned", () => {
+    const files = fixtureFiles();
+    premise("fixture files discovered on disk", files.length, 10);
+
+    let split = 0;
+    let prose = 0;
+    let empty = 0;
+    for (const file of files) {
+      const cell = internetCellOf(file);
+      expect(cell, `${file}: no Internet row found`).not.toBeNull();
+      if (cell!.length === 0) {
+        empty += 1;
+        continue;
+      }
+      const parsed = parseWifiValue(cell!);
+      if (parsed === null) {
+        prose += 1;
+        continue;
+      }
+      split += 1;
+      const expected = EXPECTED_SPLITS.get(cell!);
       expect(
-        internetCellRe(row.value).test(read(row.file)),
-        `${row.label}: not the verbatim Internet cell in ${row.file}`,
-      ).toBe(true);
+        expected,
+        `${file}: its Internet cell splits but is not pinned in EXPECTED_SPLITS — ` +
+          `add it with its exact expected parse, or explain why it may split unpinned`,
+      ).toBeDefined();
+      expect(parsed, file).toEqual(expected);
+    }
+
+    // The §4 accounting, asserted over the whole corpus rather than a sample.
+    expect({ split, prose, empty }).toEqual({ split: 6, prose: 6, empty: 5 });
+  });
+
+  it("every pinned split value is actually present in the corpus", () => {
+    // The other direction: a pinned value that no fixture carries is a stale
+    // literal testing nothing.
+    const cells = new Set(fixtureFiles().map((file) => internetCellOf(file) ?? ""));
+    premise("cells collected", cells.size, 0);
+    for (const value of EXPECTED_SPLITS.keys()) {
+      expect(cells.has(value), `${JSON.stringify(value)} is pinned but no fixture carries it`).toBe(
+        true,
+      );
     }
   });
 });
