@@ -232,17 +232,70 @@ describe("parseWifiValue — raw fallback (AC-1 / AC-2)", () => {
 
 describe("parseWifiValue — label anchoring (spec §4 calibration)", () => {
   // `code` and `pw` as unanchored substrings are the documented hazard. A label
-  // only counts at a word boundary, so "Barcode:" is not a password label.
+  // only counts at a word boundary, so "Barcode:" is not a password label — and
+  // because it is nonetheless unknown vocabulary sitting inside the captured
+  // value, the whole cell falls back raw rather than naming the network
+  // "Foo Barcode: 12345".
   it("does not treat an embedded 'code' substring as a password label", () => {
-    const parsed = parseWifiValue("SSID: Foo Barcode: 12345");
     premiseHolds(
       "the anchoring case carries an embedded code substring",
       "Barcode:".includes("code"),
     );
-    expect(parsed?.password).toBeNull();
+    expect(parseWifiValue("SSID: Foo Barcode: 12345")).toBeNull();
   });
 
   it("a bare label with no value does not produce an empty field", () => {
     expect(parseWifiValue("SSID:")).toBeNull();
+  });
+});
+
+/**
+ * The split is all-or-nothing. A PARTIALLY understood cell is more dangerous
+ * than an unrecognized one: it renders confident, wrong credentials instead of
+ * the truth. Every case here is an ordinary spreadsheet input (not adversarial
+ * content, which the threat-model fence puts out of scope), and each was
+ * demonstrated against the shipped parser during whole-diff review R1 F1.
+ */
+describe("parseWifiValue — partial recognition falls back raw (review R1 F1)", () => {
+  it("unknown vocabulary swallowed into a value rejects the whole parse", () => {
+    // Would otherwise render the network name as "Guest WPA: secret".
+    expect(parseWifiValue("SSID: Guest WPA: secret")).toBeNull();
+    expect(parseWifiValue("SSID: Guest Login: secret")).toBeNull();
+  });
+
+  it("a repeated network label rejects rather than picking the first", () => {
+    // The real SSID here is "Conference Network - 5G": the second network label
+    // is part of it, and capturing "Conference" is silent corruption.
+    expect(parseWifiValue("SSID: Conference Network - 5G Password: secret")).toBeNull();
+  });
+
+  it("a repeated password label rejects rather than picking the first", () => {
+    expect(parseWifiValue("SSID: A Code: x Code: y")).toBeNull();
+  });
+
+  it("two complete pairs reject rather than silently dropping the second", () => {
+    expect(parseWifiValue("SSID: A Code: x SSID: B Code: y")).toBeNull();
+  });
+
+  it("a recognized label with an empty value rejects rather than dropping it", () => {
+    // "Code:" would otherwise vanish from the render entirely.
+    expect(parseWifiValue("SSID: Foo Code:")).toBeNull();
+  });
+
+  it("the corpus values are unaffected by the all-or-nothing rule", () => {
+    // The rule only earns its place if every real observed value still splits.
+    // Asserted on the corpus itself, not on a proxy.
+    const corpus = [
+      LIVE_FIXED_INCOME,
+      LIVE_FINTECH,
+      FIXTURE_FIXED_INCOME,
+      FIXTURE_FINTECH,
+      FIXTURE_CONSULTANTS,
+      FIXTURE_RIA,
+    ];
+    premise("corpus values that must still split", corpus.length, 0);
+    for (const value of corpus) {
+      expect(parseWifiValue(value), value).not.toBeNull();
+    }
   });
 });

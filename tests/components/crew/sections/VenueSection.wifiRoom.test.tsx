@@ -5,7 +5,7 @@
  * Two display-time enrichments to the Venue Facilities card:
  *
  *   - the `event_details.internet` cell splits into "Wi-Fi network" /
- *     "Wi-Fi password" / retained "Crew Wi-Fi" notes rows when it carries the
+ *     "Wi-Fi password" / "Internet notes" rows when it carries the
  *     observed label vocabulary, and renders BYTE-IDENTICALLY to the pre-split
  *     component when it does not (the fail-soft regression pin);
  *   - the general-session room's already-parsed name surfaces as a "Room" row,
@@ -221,6 +221,14 @@ describe("Room row", () => {
     const rooms = roomsFromFixture(REAL_NAME_FIXTURE).map((room) =>
       room.kind === "gs" ? { ...room, name: "   " } : room,
     );
+    // Premise on THIS case's own inputs: the transform must still leave a GS
+    // room, and that room's name must actually be blank. Without it a mis-typed
+    // `kind` or a fixture with no GS room would suppress the row for the wrong
+    // reason and the test would still pass (review R1 F3).
+    const gs = rooms.filter((room) => room.kind === "gs");
+    premise("the transformed rooms still carry a general-session room", gs.length, 0);
+    premiseHolds("that room's name is blank", gs[0]!.name.trim().length === 0);
+
     expect(renderVenue(withRooms(rooms)).querySelector('[data-testid="venue-room"]')).toBeNull();
   });
 
@@ -287,6 +295,22 @@ describe("Room row", () => {
  * room row present ↔ absent. No compound transitions exist because the section
  * holds no client state.
  */
+/**
+ * The documented Facilities row inventory, in render order. Both halves of the
+ * audit below key off it: the guard list AND the push count, so neither a new
+ * condition nor an unconditional push can slip in unlisted.
+ */
+const DOCUMENTED_ROW_GUARDS = [
+  "loadingDock",
+  "parking",
+  "roomName",
+  "internet && wifi",
+  "wifi.password",
+  "wifi.notes",
+  "internet",
+  "power",
+] as const;
+
 describe("transition audit — the new rows are instant by construction", () => {
   const source = readFileSync("components/crew/sections/VenueSection.tsx", "utf8");
 
@@ -321,25 +345,58 @@ describe("transition audit — the new rows are instant by construction", () => 
     const conditions = [...factRowSection.matchAll(/^\s*(?:} else )?if \((.+?)\) \{$/gm)].map((m) =>
       m[1]!.trim(),
     );
-    expect(conditions).toEqual([
-      "loadingDock",
-      "parking",
-      "roomName",
-      "internet && wifi",
-      "wifi.password",
-      "wifi.notes",
-      "internet",
-      "power",
-    ]);
+    expect(conditions).toEqual(DOCUMENTED_ROW_GUARDS);
+
+    // Counting CONDITIONS alone does not detect every new row (review R1 F2): an
+    // unconditional push, or a second push inside an existing condition, leaves
+    // the condition list untouched. Pin the push count to the documented
+    // inventory as well, so both shapes of addition fail this audit.
+    const pushes = factRowSection.match(/factRows\.push\(/g) ?? [];
+    expect(pushes.length).toBe(DOCUMENTED_ROW_GUARDS.length);
   });
 
   test("both Wi-Fi branches and both room states render without any client boundary", () => {
-    for (const internet of [
-      "Hardline from Encore\n\nSSID: Hyatt_Meeting\nCode: FITS2025",
-      RAW_WIFI_VALUE,
-      "",
-    ]) {
+    // Each case proves on its OWN inputs that it reached the state it names —
+    // otherwise a case that silently rendered nothing would still "pass" the
+    // no-client-boundary assertion (review R1 F3).
+    const wifiStates: ReadonlyArray<[string, string, (c: HTMLElement) => boolean]> = [
+      [
+        "split",
+        "Hardline from Encore\n\nSSID: Hyatt_Meeting\nCode: FITS2025",
+        (c) => c.querySelector('[data-testid="venue-wifi-ssid"]') !== null,
+      ],
+      [
+        "raw",
+        RAW_WIFI_VALUE,
+        (c) =>
+          c.querySelector('[data-testid="venue-wifi-ssid"]') === null &&
+          (c.textContent ?? "").includes(RAW_WIFI_VALUE),
+      ],
+      ["absent", "", (c) => !(c.textContent ?? "").includes("Wi-Fi")],
+    ];
+    premise("Wi-Fi states exercised", wifiStates.length, 0);
+
+    for (const [name, internet, reached] of wifiStates) {
       const container = renderVenue(withInternet(internet));
+      premiseHolds(`the ${name} case actually reached the ${name} state`, reached(container));
+      expect(container.querySelector("[data-framer-appear-id]")).toBeNull();
+      expect(container.querySelector('[style*="opacity"]')).toBeNull();
+      cleanup();
+    }
+
+    // The title claims both ROOM states too, and the room-present case was
+    // missing entirely (review R1 F3).
+    const rooms = roomsFromFixture(REAL_NAME_FIXTURE);
+    const roomStates: ReadonlyArray<[string, ProjectedRoomRow[], boolean]> = [
+      ["present", rooms, true],
+      ["absent", [], false],
+    ];
+    for (const [name, roomRows, shouldRender] of roomStates) {
+      const container = renderVenue(withRooms(roomRows));
+      premiseHolds(
+        `the room-${name} case actually reached that state`,
+        (container.querySelector('[data-testid="venue-room"]') !== null) === shouldRender,
+      );
       expect(container.querySelector("[data-framer-appear-id]")).toBeNull();
       expect(container.querySelector('[style*="opacity"]')).toBeNull();
       cleanup();

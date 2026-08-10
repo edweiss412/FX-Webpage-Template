@@ -10,9 +10,13 @@
  *   - Facilities — the mock `.kvrow` FactRows fact list with 28px sunken
  *     mini-icons: Loading dock (DockIcon, sentinel-guarded), Parking (CarIcon,
  *     gated by `transportTileVisible` so a non-assigned crew member never sees
- *     the lot/permit details — the parking half of §9 test 17), Crew Wi-Fi
- *     (WifiIcon, `event_details.internet`), and Power (`event_details.power`).
- *     Every value routes through `shouldHideGenericOptional`.
+ *     the lot/permit details — the parking half of §9 test 17), the Room (the
+ *     general-session room's parsed name, suppressed when it is the parser's
+ *     synthesized fallback), the connectivity rows derived from
+ *     `event_details.internet` (either "Wi-Fi network" + "Wi-Fi password" +
+ *     "Internet notes" when the cell splits, or the single raw "Crew Wi-Fi" row
+ *     when it does not), and Power (`event_details.power`). Every value routes
+ *     through `shouldHideGenericOptional`.
  *   - COI status — the AC-4.1 `data-testid="coi-status"` surface, ported from
  *     ShowStatusTile. Sentinel-guarded: when the value is a sentinel/empty the
  *     `<span data-testid="coi-status">` is OMITTED entirely (no empty span).
@@ -203,7 +207,9 @@ export function VenueSection({
     : venue!.loadingDock!.trim();
 
   // The mock `.kvrow` fact list: each row gets a 28px sunken mini-icon. Dock →
-  // DockIcon, Parking → CarIcon, Crew Wi-Fi → WifiIcon. FactRows omits any row
+  // DockIcon, Parking → CarIcon, the first connectivity row → WifiIcon (whether
+  // that is the split "Wi-Fi network" row or the raw "Crew Wi-Fi" fallback).
+  // FactRows omits any row
   // whose `v` is empty/sentinel, so we still gate each value above and only
   // push rows we want; empty strings here would also reflow out inside FactRows.
   const factRows: FactRow[] = [];
@@ -222,7 +228,7 @@ export function VenueSection({
   }
   if (internet && wifi) {
     // Split: labeled network + password rows, with any surrounding prose kept as
-    // the value of the retained "Crew Wi-Fi" row. The prose is operationally
+    // the value of an "Internet notes" row. The prose is operationally
     // load-bearing (hardline vs Wi-Fi for streaming) and is never dropped.
     factRows.push({
       k: "Wi-Fi network",

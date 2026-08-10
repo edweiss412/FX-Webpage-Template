@@ -13,6 +13,16 @@
  * and the caller renders today's raw string verbatim — handled correctly or
  * surfaced unchanged, never silently wrong. Widening the set requires a probe.
  *
+ * The split is ALL-OR-NOTHING, because a PARTIALLY understood cell is the
+ * dangerous case: it yields confident-looking credentials that are wrong. Three
+ * signals reject the whole parse (diff review R1 F1, each probe-demonstrated):
+ * unknown `Word:` vocabulary swallowed into a captured value (`SSID: Guest WPA:
+ * secret` would otherwise name the network "Guest WPA: secret"); a repeated
+ * network or password label, where picking the first is a coin flip presented as
+ * fact (`SSID: Conference Network - 5G Password: x` — the second "Network -" is
+ * part of the real SSID); and a recognized label with an empty value, where
+ * dropping the bare label would silently lose text. All three render raw.
+ *
  * Line-oriented, because live cells are multi-line (`\n\n` after the prose, `\n`
  * between label pairs) while the markdown fixtures flatten the same content onto
  * one line. Both shapes parse. Within a line, a label's value runs to the NEXT
@@ -47,6 +57,15 @@ const LABEL_RE = new RegExp(`\\b(${NET}|${PWD})${SEP}`, "gi");
 /** Which half of the pair a matched label belongs to. */
 const NET_ONLY_RE = new RegExp(`^(?:${NET})$`, "i");
 
+/**
+ * A `Word:` token that is NOT one of the accepted labels. Finding one INSIDE a
+ * captured value means the cell carries vocabulary this splitter does not know,
+ * so the value it captured is a guess — `SSID: Guest WPA: secret` would
+ * otherwise render "Guest WPA: secret" as the network name. Letter-initial by
+ * construction, so a time (`9:00`) is not label-shaped.
+ */
+const LABEL_SHAPED_RE = /\b[A-Za-z][A-Za-z0-9]{1,15}\s*:/;
+
 type Label = { isNetwork: boolean; start: number; end: number };
 
 function labelsOn(line: string): Label[] {
@@ -70,19 +89,36 @@ export function parseWifiValue(raw: string | null | undefined): WifiInfo | null 
   let ssid: string | null = null;
   let password: string | null = null;
   const residues: string[] = [];
+  let networkLabels = 0;
+  let passwordLabels = 0;
+  // Any sign that this cell is not fully understood. The split is ALL-OR-NOTHING:
+  // a partially recognized cell renders raw, because a half-understood cell
+  // produces confident-looking WRONG credentials, which is the one outcome the
+  // fail-soft contract exists to prevent.
+  let ambiguous = false;
 
   for (const line of raw.split("\n")) {
     const labels = labelsOn(line);
-    // Prose is whatever precedes the first label that actually carries a value;
-    // once a pair starts, the rest of the line belongs to label values.
+    // Prose is whatever precedes the first label; once a pair starts, the rest
+    // of the line belongs to label values.
     let proseEnd: number | null = null;
 
     for (let i = 0; i < labels.length; i += 1) {
       const label = labels[i]!;
       const value = line.slice(label.end, labels[i + 1]?.start ?? line.length).trim();
-      // A label with nothing after it is not a pair — `SSID:` alone is text.
-      if (value.length === 0) continue;
+      if (label.isNetwork) networkLabels += 1;
+      else passwordLabels += 1;
       if (proseEnd === null) proseEnd = label.start;
+
+      // A recognized label with nothing after it: the cell says something this
+      // splitter cannot represent, and dropping the bare label would lose text.
+      if (value.length === 0) {
+        ambiguous = true;
+        continue;
+      }
+      // Unknown vocabulary swallowed into a value — the capture is a guess.
+      if (LABEL_SHAPED_RE.test(value)) ambiguous = true;
+
       if (label.isNetwork) {
         if (ssid === null) ssid = value;
       } else if (password === null) {
@@ -94,9 +130,13 @@ export function parseWifiValue(raw: string | null | undefined): WifiInfo | null 
     if (residue.length > 0) residues.push(residue);
   }
 
-  // A network name is required: a password-only match is ambiguous, so the whole
-  // parse is rejected and the raw value renders.
-  if (ssid === null) return null;
+  // Repeated labels mean two candidate networks or two candidate passwords, and
+  // picking the first is a coin flip presented as fact.
+  if (networkLabels > 1 || passwordLabels > 1) ambiguous = true;
+
+  // A network name is required: a password-only match is ambiguous without one,
+  // so the whole parse is rejected and the raw value renders.
+  if (ambiguous || ssid === null) return null;
 
   return { ssid, password, notes: residues.length > 0 ? residues.join(" ") : null };
 }
