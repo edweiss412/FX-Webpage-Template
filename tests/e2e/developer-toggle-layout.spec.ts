@@ -58,9 +58,9 @@ const TRACK_ON =
 const TRACK_OFF =
   "relative inline-flex h-7 w-12 items-center rounded-full border transition-colors duration-fast border-border-strong bg-surface-sunken";
 const THUMB_ON =
-  "inline-block h-5 w-5 rounded-full bg-bg shadow-(--shadow-tile) transition-transform duration-fast translate-x-6";
+  "inline-block size-5 rounded-full bg-bg shadow-tile transition-transform duration-fast translate-x-6";
 const THUMB_OFF =
-  "inline-block h-5 w-5 rounded-full bg-bg shadow-(--shadow-tile) transition-transform duration-fast translate-x-1";
+  "inline-block size-5 rounded-full bg-bg shadow-tile transition-transform duration-fast translate-x-1";
 
 /** Interactive toggle DOM (verbatim from InteractiveDeveloperToggle). */
 function interactiveToggle(on: boolean): string {

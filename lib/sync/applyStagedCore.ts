@@ -15,6 +15,7 @@ import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import type { PullSheetOverride } from "@/lib/sync/pullSheetOverride";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
 
 /**
  * F1 — the shared "apply a staged parse_result with reviewer choices under an ALREADY-HELD
@@ -477,6 +478,9 @@ export type ApplyStagedCoreResult =
       // its post-commit forensic emit. OPTIONAL, mirroring roleFlagsNotice? — absent and [] both
       // mean "nothing unlanded"; consumers default with `?? []`.
       unlandedRenames?: UnlandedRename[];
+      // Census hop 3a (spec §3): variant failures on their way to applyStaged's
+      // post-commit reconcile sink. Emitted there, never here (invariant 10).
+      variantFailures?: DiagramVariantFailureRow[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 / R16/R17): surface the apply outcome's parse warnings so the staged tail caller
       // (applyStaged.ts) can source sync_log's parse_warnings from coreResult.parseWarnings — the
@@ -687,6 +691,9 @@ export async function applyStagedCore(
   // emit is NOT here; this function still runs inside the held show lock). Set only when non-empty.
   if (phase2.unlandedRenames && phase2.unlandedRenames.length > 0) {
     applied.unlandedRenames = phase2.unlandedRenames;
+  }
+  if (phase2.variantFailures && phase2.variantFailures.length > 0) {
+    applied.variantFailures = phase2.variantFailures;
   }
   if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
   return applied;

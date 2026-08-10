@@ -1,18 +1,19 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/ui/cn";
 
 const VARIANTS = {
   note: {
-    bg: "bg-info-bg",
-    border: "border-border",
-    text: "text-text-strong",
+    bg: cn("bg-info-bg"),
+    border: cn("border-border"),
+    text: cn("text-text-strong"),
     role: "note" as const,
     icon: "ℹ",
     iconTestid: "callout-icon-note",
   },
   warning: {
-    bg: "bg-warning-bg",
-    border: "border-warning-text",
-    text: "text-warning-text",
+    bg: cn("bg-warning-bg"),
+    border: cn("border-warning-text"),
+    text: cn("text-warning-text"),
     // Was role="alert" — overreach for static MDX content per ARIA Authoring
     // Practices (alert is for dynamic time-sensitive messages; forces SR to
     // interrupt reading order on every render). "note" matches the other two
@@ -30,9 +31,9 @@ const VARIANTS = {
     // it for a positive callout leaked domain language; bg-info-bg shares the
     // same warm-cream neutral and the orange `border-accent` carries the tip
     // identity. (Impeccable critique minor finding — Task I.1.)
-    bg: "bg-info-bg",
-    border: "border-accent",
-    text: "text-text-strong",
+    bg: cn("bg-info-bg"),
+    border: cn("border-accent"),
+    text: cn("text-text-strong"),
     role: "note" as const,
     icon: "✓",
     iconTestid: "callout-icon-tip",

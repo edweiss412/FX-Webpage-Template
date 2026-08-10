@@ -91,7 +91,7 @@ export function SignInOrSkipGate({ slug, shareToken, showId, reason, s }: SignIn
               <a
                 data-testid="sign-in-or-skip-gate-sign-in-cta"
                 href={`/api/auth/google/start?next=${encodedNext}`}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-base font-semibold text-accent-text shadow-tile transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               >
                 Sign in with a different account
               </a>
@@ -114,7 +114,7 @@ export function SignInOrSkipGate({ slug, shareToken, showId, reason, s }: SignIn
               <a
                 data-testid="sign-in-or-skip-gate-skip-cta"
                 href={skipUrl}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-base font-semibold text-accent-text shadow-tile transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               >
                 Skip and pick your name
               </a>

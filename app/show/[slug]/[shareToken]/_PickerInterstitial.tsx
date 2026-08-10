@@ -181,7 +181,7 @@ export function PickerInterstitial({
                   : "bg-surface text-text hover:bg-surface-sunken",
               );
 
-              const chipBase = "shrink-0 rounded-pill px-2 py-0.5 text-xs font-semibold";
+              const chipBase = cn("shrink-0 rounded-pill px-2 py-0.5 text-xs font-semibold");
               const chipClasses = isLead
                 ? `${chipBase} bg-accent text-accent-text`
                 : `${chipBase} bg-surface-sunken text-text-subtle`;

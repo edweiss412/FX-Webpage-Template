@@ -36,6 +36,8 @@ import { emitRoleFlagsNotice, ROLE_FLAGS_EMIT_SOURCE } from "@/lib/sync/emitRole
 import { serializeError } from "@/lib/log/serializeError";
 import type { RoleFlagsNotice } from "@/lib/sync/phase2";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
+import { emitDiagramVariantFailures } from "@/lib/log/emitDiagramVariantFailures";
+import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
 
 export type LivePendingIngestionRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -390,6 +392,11 @@ export async function handleLivePendingIngestionRetry(
     // neither can emit where it obtains the notice, because both run inside withRowTryLock
     // (invariant 10). Captured here, emitted once the lock resolves.
     let roleFlagsNotice: RoleFlagsNotice | null = null;
+    // Census hop 4 (spec §3): this route bypasses processOneFile's post-commit tail on the
+    // existing-show branch, and runManualStageForFirstSeen carries its rows out on the
+    // first-seen branch — so BOTH branches capture here, inside withRowTryLock, and the
+    // single emit below runs once that lock resolves (invariant 10).
+    let variantFailures: { rows: DiagramVariantFailureRow[]; showId: string } | null = null;
     const result = await deps.withRowTryLock(driveFileId, async (tx) => {
       const row = await readLockedPendingIngestion(tx, id);
       if (!row) return transitioned();
@@ -460,6 +467,10 @@ export async function handleLivePendingIngestionRetry(
           }
           // Unit C: same narrowing, same post-commit emit site below. Absent → stays null.
           if (syncResult.roleFlagsNotice) roleFlagsNotice = syncResult.roleFlagsNotice;
+          // Census hop 4: same narrowing, same post-commit emit site. Absent / empty → stays null.
+          if (syncResult.variantFailures?.length) {
+            variantFailures = { rows: syncResult.variantFailures, showId: syncResult.showId };
+          }
         }
         return await manualSyncResponse(tx, row.drive_file_id, syncResult);
       }
@@ -497,6 +508,11 @@ export async function handleLivePendingIngestionRetry(
         appliedShowId = stageResult.showId;
         // Unit C: the notice runManualStageForFirstSeen now carries out of its own lock.
         if (stageResult.roleFlagsNotice) roleFlagsNotice = stageResult.roleFlagsNotice;
+        // Census hop 5's sink: the first-seen stage carries its variant failures out the
+        // same way, and this route is its only caller — dark here means dark everywhere.
+        if (stageResult.variantFailures?.length) {
+          variantFailures = { rows: stageResult.variantFailures, showId: stageResult.showId };
+        }
         outcome = {
           source: "api.admin.pending-ingestions.retry",
           actorEmail: adminEmail,
@@ -585,6 +601,28 @@ export async function handleLivePendingIngestionRetry(
           code: "IDENTITY_LINK_RENAME_UNLANDED_EMIT_FAILED",
           showId: unlandedRef.showId,
           driveFileId: unlandedRef.driveFileId,
+          error: serializeError(error),
+        });
+        await escalation.catch(() => {
+          /* best-effort: the escalation itself must never change the route's outcome */
+        });
+      }
+    }
+    // Census hop 4/5 sink: DIAGRAM_VARIANT_GENERATION_FAILED, POST-COMMIT on the same
+    // resolved-lock site. Independently isolated per the tail contract above — a throwing
+    // emit must neither suppress the capability emit below nor turn a committed retry into
+    // a 500. Only a committed applied outcome ever populates this ref.
+    if (variantFailures) {
+      // Same TS closure-narrowing workaround as outcomeRef above.
+      const variantRef: { rows: DiagramVariantFailureRow[]; showId: string } = variantFailures;
+      try {
+        await emitDiagramVariantFailures(variantRef.rows, { showId: variantRef.showId });
+      } catch (error) {
+        // Unchained for the same stripLogEmissionCalls reason as the escalations above.
+        const escalation = log.error("pending-ingestion retry variant-failure emit failed", {
+          source: "api.admin.pending-ingestions.retry",
+          code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
+          showId: variantRef.showId,
           error: serializeError(error),
         });
         await escalation.catch(() => {

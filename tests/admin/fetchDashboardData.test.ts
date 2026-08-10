@@ -5,6 +5,7 @@
 // is asserted, not just the returned data.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkDataGaps } from "../helpers/dataGapsFixture";
+import { premise, premiseHolds } from "../_shared/premise";
 
 // ── recording mock ────────────────────────────────────────────────────────
 type Seed = {
@@ -924,5 +925,135 @@ describe("fetchDashboardData — recently auto-applied strip wiring (Flow-4 Task
     expect("kind" in r).toBe(false); // dashboard NOT aborted for a strip infra fault
     expect(r.recentAutoApplied.kind).toBe("infra_error");
     expect("rosterShift" in r.rows.find((x) => x.id === "pub1")!).toBe(false);
+  });
+});
+
+// ── admin-dashboard-row-actions Task 1 (spec §3.2, AC-3) ─────────────────────
+// The dashboard row's "Preview as…" submenu lists the show's crew, so the row
+// must carry the crew IDENTITY, not just the count. The widening lands on the
+// EXISTING paginated crew read (one query, not a second one); crewCount is then
+// derived from the same result. Held rows hide Preview-as (spec §1.3) and so
+// carry no crew list at all.
+describe("fetchDashboardData crew identity (row actions Preview-as source)", () => {
+  type CrewSeedRow = { show_id: string; id: string; name: string | null };
+  type Row = {
+    slug: string;
+    published: boolean;
+    crewCount: number | null;
+    crew?: Array<{ id: string; name: string | null }>;
+  };
+
+  const seedShow = (id: string, slug: string, published: boolean) => ({
+    id,
+    slug,
+    title: slug.toUpperCase(),
+    drive_file_id: `d${id}`,
+    dates: FULL_DATES,
+    venue: null,
+    published,
+  });
+
+  const expectedCrewFor = (crewRows: readonly CrewSeedRow[], showId: string) =>
+    crewRows.filter((c) => c.show_id === showId).map(({ id, name }) => ({ id, name }));
+
+  it("published rows carry per-show crew {id,name}; a Held row omits crew entirely", async () => {
+    const crewRows: CrewSeedRow[] = [
+      { show_id: "1", id: "c1", name: "Ada Lovelace" },
+      { show_id: "1", id: "c2", name: null },
+      { show_id: "2", id: "c3", name: "Grace Hopper" },
+      { show_id: "3", id: "c4", name: "Katherine Johnson" },
+    ];
+    // PREMISE (executed on THIS case's own inputs): the assertions below can
+    // only discriminate a per-show attribution bug if the fixture spreads crew
+    // across more than one show; the null-name assertion needs a null in the
+    // fixture; the omission assertion needs an unpublished show that HAS crew
+    // (an empty crew set would make `undefined` and `[]` indistinguishable).
+    premise(
+      "fixture spreads crew across >1 show (per-show attribution is discriminable)",
+      new Set(crewRows.map((c) => c.show_id)).size,
+      1,
+    );
+    premiseHolds(
+      "fixture carries a null crew name",
+      crewRows.some((c) => c.name === null),
+    );
+    premise(
+      "the unpublished show has crew rows (so omission is distinguishable from empty)",
+      expectedCrewFor(crewRows, "3").length,
+      0,
+    );
+
+    state.seed = {
+      showsList: [seedShow("1", "a", true), seedShow("2", "b", true), seedShow("3", "held", false)],
+      showsActiveCount: 3,
+      crewTotal: crewRows.length,
+      crewRows,
+    };
+
+    const r = (await run()) as { rows: Row[] };
+    const a = r.rows.find((x) => x.slug === "a")!;
+    const b = r.rows.find((x) => x.slug === "b")!;
+    const held = r.rows.find((x) => x.slug === "held")!;
+
+    // Expected values derive from the fixture, never hardcoded.
+    expect(a.crew).toEqual(expectedCrewFor(crewRows, "1"));
+    expect(b.crew).toEqual(expectedCrewFor(crewRows, "2"));
+    // Null name survives to the row (the submenu renders its own fallback).
+    expect(a.crew!.some((c) => c.name === null)).toBe(true);
+    // Held row: the key is ABSENT (exactOptional), not an empty array.
+    expect("crew" in held).toBe(false);
+    // crewCount stays derived from the same rows for EVERY active row.
+    expect(a.crewCount).toBe(expectedCrewFor(crewRows, "1").length);
+    expect(b.crewCount).toBe(expectedCrewFor(crewRows, "2").length);
+    expect(held.crewCount).toBe(expectedCrewFor(crewRows, "3").length);
+  });
+
+  it("widens the EXISTING crew read — id+name+show_id selected, still one row read", async () => {
+    const crewRows: CrewSeedRow[] = [{ show_id: "1", id: "c1", name: "Ada Lovelace" }];
+    state.seed = {
+      showsList: [seedShow("1", "a", true)],
+      showsActiveCount: 1,
+      crewTotal: 1,
+      crewRows,
+    };
+    await run();
+
+    const crewRowReads = state.calls.filter((c) => c.table === "crew_members" && !c.head);
+    // PREMISE: a selectCols assertion proves nothing if no row read was recorded.
+    premise("a crew_members row read was recorded", crewRowReads.length, 0);
+    // One page of fixture -> exactly one row read: the count and the identity
+    // list come from the SAME query, not from a second one bolted alongside.
+    expect(crewRowReads.length).toBe(1);
+    const cols = crewRowReads[0]!.selectCols ?? "";
+    expect(cols).toMatch(/\bshow_id\b/);
+    expect(cols).toMatch(/\bid\b/);
+    expect(cols).toMatch(/\bname\b/);
+  });
+
+  it("crew accumulates across pagination pages (no truncation at the page cap)", async () => {
+    const { CREW_PAGE_SIZE } = await import("@/components/admin/Dashboard");
+    const crewRows: CrewSeedRow[] = [
+      ...Array.from({ length: CREW_PAGE_SIZE }, (_unused, i) => ({
+        show_id: "1",
+        id: `c${i}`,
+        name: `Crew ${i}`,
+      })),
+      { show_id: "1", id: "tail", name: "Tail Member" },
+    ];
+    // PREMISE: the fixture must EXCEED one page, or a truncating implementation
+    // passes this test unchanged.
+    premise("fixture exceeds one crew page", crewRows.length, CREW_PAGE_SIZE);
+
+    state.seed = {
+      showsList: [seedShow("1", "a", true)],
+      showsActiveCount: 1,
+      crewTotal: crewRows.length,
+      crewRows,
+    };
+    const r = (await run()) as { rows: Row[] };
+    const a = r.rows.find((x) => x.slug === "a")!;
+    expect(a.crew).toHaveLength(crewRows.length);
+    expect(a.crew!.at(-1)).toEqual({ id: "tail", name: "Tail Member" });
+    expect(a.crewCount).toBe(crewRows.length);
   });
 });

@@ -714,10 +714,29 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
         // Playwright, and by the executed-count oracle — not by this row.
         governs: [],
       },
+      {
+        text: "test-results/app-e2e-report.json",
+        // app-e2e.yml is UNfiltered pull_request, so unlike the crew value
+        // above this one derives real governance: it sits step-level on the
+        // claiming run step for every batch-1 spec. A DISTINCT path from the
+        // crew value by design — two jobs writing one report path is exactly
+        // the artifact confusion the "oracle reads the run's own report" rule
+        // exists to prevent.
+        governs: [
+          "tests/e2e/admin-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
+        ],
+      },
     ],
     reason:
-      "Destination for the crew-e2e run's own json report, which the post-run executed-count " +
-      "oracle (scripts/check-crew-e2e-executed.mjs) reads. Inert with respect to what runs: it " +
+      "Destination for a Playwright run's own json report, which that job's post-run " +
+      "executed-count oracle (scripts/check-crew-e2e-executed.mjs, " +
+      "scripts/check-app-e2e-executed.mjs) reads. Inert with respect to what runs: it " +
       "names a Playwright OUTPUT path only — it cannot select, skip or redirect a test, and a " +
       "wrong value makes the oracle fail closed on a missing report rather than pass.",
   },
@@ -727,8 +746,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "http://127.0.0.1:54321",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -739,8 +765,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "http://127.0.0.1:54321",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -752,8 +785,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_SERVICE_JWT,
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -764,8 +804,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_ANON_JWT,
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -776,8 +823,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_SERVICE_JWT,
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -788,8 +842,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_ANON_JWT,
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -800,8 +861,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_ANON_JWT,
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -812,8 +880,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "super-secret-jwt-token-with-at-least-32-characters-long",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -824,8 +899,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "supabase-demo",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -856,8 +938,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "fxav-r41-test-pepper-32-chars-min-deterministic",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -868,8 +957,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "true",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -880,8 +976,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "fxav-m3-test-auth-2026-DO-NOT-SHIP",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
       { text: "test-secret-fixture", governs: [] },
@@ -893,8 +996,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "redeem-link-test-secret-32-bytes-min",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -905,8 +1015,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -917,8 +1034,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}',
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],
@@ -929,8 +1053,15 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "1",
         governs: [
+          "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/me-page.spec.ts",
+          "tests/e2e/notify-toggles.spec.ts",
+          "tests/e2e/report-modal.spec.ts",
+          "tests/e2e/root-landing.spec.ts",
+          "tests/e2e/sample.spec.ts",
         ],
       },
     ],

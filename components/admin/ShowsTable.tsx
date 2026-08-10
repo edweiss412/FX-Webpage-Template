@@ -36,6 +36,8 @@ import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
 import { formatAutoFixBreakdown, type AutoFixSummary } from "@/lib/parser/dataGaps";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 import { ShowReviewModalSkeleton } from "@/components/admin/showpage/ShowReviewModalSkeleton";
+import { ShowRowActions } from "@/components/admin/ShowRowActions";
+import { cn } from "@/lib/ui/cn";
 
 type ShowsTableProps = {
   rows: ActiveShowRow[];
@@ -58,6 +60,12 @@ type ShowsTableProps = {
   // gains a small action bar under the Link; when omitted (the dashboard's
   // default), the row is unchanged.
   rowAction?: (row: ActiveShowRow) => ReactNode;
+  // admin-dashboard-row-actions (spec §1.6) — a BOOLEAN, not a render function:
+  // Dashboard is an async SERVER component and this file is "use client", so a
+  // `rowAction={(row) => ...}` callback cannot cross that boundary. When set,
+  // the table mounts <ShowRowActions row={row}/> itself at the same slot
+  // position. `rowAction` stays for CLIENT callers and is untouched.
+  showRowActions?: boolean;
 };
 
 // Shared column tracks (header + every row) so the columns line up (spec §9).
@@ -82,8 +90,9 @@ type ShowsTableProps = {
 // track resolves to ~106px, below the 120px band-sweep floor (a wide data table needs to stack
 // earlier than the nav). Below 768px the row is flex-col stacked (mobile sub-line). Status
 // stays gated at 960 so the extra column never worsens the 768–959 band.
-const ROW_GRID =
-  "min-[768px]:grid min-[768px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_1.25rem] min-[960px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_6rem_1.25rem] min-[768px]:items-center min-[768px]:gap-4";
+const ROW_GRID = cn(
+  "min-[768px]:grid min-[768px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_1.25rem] min-[960px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_6rem_1.25rem] min-[768px]:items-center min-[768px]:gap-4",
+);
 
 // M12.10 — sortable columns. `null` = the server's incoming order (live-first),
 // preserved until the user picks a column. Nulls (no dates / never-synced)
@@ -166,18 +175,26 @@ function statusState(row: ActiveShowRow): StatusState {
 // `held` deliberately uses the neutral `status-idle` tone (§3). Color is never the sole
 // carrier — every pill pairs its dot with a text label (DESIGN color-blind floor).
 const PILL_TONE: Record<StatusState, { border: string; text: string; dot: string }> = {
-  live: { border: "border-status-live", text: "text-status-live-text", dot: "bg-status-live" },
+  live: {
+    border: cn("border-status-live"),
+    text: cn("text-status-live-text"),
+    dot: cn("bg-status-live"),
+  },
   published: {
-    border: "border-status-positive",
-    text: "text-status-positive-text",
-    dot: "bg-status-positive",
+    border: cn("border-status-positive"),
+    text: cn("text-status-positive-text"),
+    dot: cn("bg-status-positive"),
   },
   publishing: {
-    border: "border-status-warn",
-    text: "text-status-warn-text",
-    dot: "bg-status-warn",
+    border: cn("border-status-warn"),
+    text: cn("text-status-warn-text"),
+    dot: cn("bg-status-warn"),
   },
-  held: { border: "border-status-idle", text: "text-status-idle-text", dot: "bg-status-idle" },
+  held: {
+    border: cn("border-status-idle"),
+    text: cn("text-status-idle-text"),
+    dot: cn("bg-status-idle"),
+  },
 };
 
 // Per-place testid namespace (§4.1): the INLINE pill keeps the EXISTING testids every
@@ -288,6 +305,7 @@ export function ShowsTable({
   heading,
   bucketControl,
   rowAction,
+  showRowActions = false,
 }: ShowsTableProps) {
   // Param-preserving modal hrefs (spec §3.1 / D9) — this client island reads
   // the CURRENT search params so e.g. bucket=archived survives opening a show.
@@ -524,7 +542,7 @@ export function ShowsTable({
               const endText = formatShortDate(row.showDateEnd);
               const crewLabel = `${row.crewCount ?? 0} crew`;
               return (
-                <li key={row.id}>
+                <li key={row.id} className={showRowActions ? "relative" : undefined}>
                   <Link
                     href={openHref(row.slug)}
                     // Full viewport prefetch (spec 2026-07-19-show-modal-prefetch):
@@ -534,7 +552,7 @@ export function ShowsTable({
                     scroll={false}
                     onClick={handleRowClick(row.slug)}
                     data-testid={`shows-table-row-${row.slug}`}
-                    className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken active:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
+                    className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken active:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${showRowActions ? "pe-14" : ""} ${ROW_GRID}`}
                   >
                     {/* Show cell — title + state pill (always visible) */}
                     <div className="flex min-w-0 flex-col gap-1">
@@ -608,13 +626,19 @@ export function ShowsTable({
                     >
                       <StatePill row={row} place="column" />
                     </span>
-                    <span
-                      data-testid={`shows-chevron-${row.slug}`}
-                      aria-hidden="true"
-                      className="hidden text-text-faint min-[768px]:block"
-                    >
-                      <ChevronRight size={16} />
-                    </span>
+                    {/* The chevron and the ⋮ menu occupy the SAME trailing cell:
+                        with row actions on, the menu is the trailing affordance
+                        and its first item IS Open, so the row's "this opens"
+                        cue is not lost — two glyphs stacked there would be. */}
+                    {showRowActions ? null : (
+                      <span
+                        data-testid={`shows-chevron-${row.slug}`}
+                        aria-hidden="true"
+                        className="hidden text-text-faint min-[768px]:block"
+                      >
+                        <ChevronRight size={16} />
+                      </span>
+                    )}
                   </Link>
                   {/* Task E1 — per-row action bar (Held-shows Publish). Sibling
                       of the Link (NOT nested) so the interactive control is
@@ -631,6 +655,30 @@ export function ShowsTable({
                     >
                       {rowAction(row)}
                     </div>
+                  ) : null}
+                  {/* admin-dashboard-row-actions: the ⋮ menu is a SIBLING of the
+                      Link (an interactive control inside an <a> is invalid HTML
+                      and steals the row's own click target) but must not read as
+                      a second row: an in-flow bar under every row nearly doubles
+                      the table's height for one button. It is absolutely
+                      positioned into the row's trailing cell instead — the seat
+                      the chevron vacates above — so the row keeps its height and
+                      the menu sits where the help page says it does.
+                      `end-2` not `right-2`: the admin surface is LTR today, and
+                      a logical inset keeps it correct if that ever changes.
+                      NO TRANSFORM here, deliberately: `-translate-y-1/2` would
+                      make this span the containing block for `position: fixed`
+                      DESCENDANTS, which collapses the menu's full-viewport
+                      outside-click backdrop down to this 44px button — the menu
+                      would then never close on an outside click. `inset-y-0` +
+                      `items-center` centers it with no transform. */}
+                  {showRowActions ? (
+                    <span
+                      data-testid={`shows-row-menu-${row.slug}`}
+                      className="absolute inset-y-0 inset-e-2 z-10 flex items-center"
+                    >
+                      <ShowRowActions row={row} />
+                    </span>
                   ) : null}
                 </li>
               );

@@ -131,7 +131,10 @@ describe("present-but-inapplicable domains cannot be silently excused (plan-R10)
         ).toEqual(expectedSkipped(md, op));
       }
     }
-  }, 120_000);
+    // Same full-corpus sweep shape as the coverage-legibility case below, which
+    // breached its 120 s cap when the corpus grew; measured 65 259 ms on the
+    // 2026-08-09 nightly, i.e. already past half the old cap. Raised with it.
+  }, 360_000);
   it("a present zero-site domain IS surfaced by both sides (merged-cell on a 2-col HOTEL section)", () => {
     const md = "| HOTEL | Kimpton |\n|  | 122 W Monroe |"; // 2-col → no merged-cell site; hotel present
     expect(skippedInapplicable(md, "merged-cell")).toContain("hotel");
@@ -167,7 +170,12 @@ describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () =>
       MUTANT_BUDGET,
     );
     expect(domains.size).toBeGreaterThan(3);
-  }, 120_000);
+    // 360 s, not 120: the full-corpus stream outgrew the cap it was written
+    // under. Measured 126 237 ms on the 2026-08-09 nightly (run 31301985038)
+    // and it timed out on every nightly 2026-08-05 through 2026-08-09 while
+    // passing same-day dispatches just under the wire -- a coin-flip red on a
+    // gate is worse than a slow one.
+  }, 360_000);
 
   it("skippedInapplicable is a pure function of the fixture (deterministic, surfaced not silent)", () => {
     // A present risk-critical domain with no applicable site must appear — merged-cell on a

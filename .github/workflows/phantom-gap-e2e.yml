@@ -45,6 +45,12 @@ on:
       - "components/**"
       - "app/admin/**"
       - "app/show/**"
+      # The private diagram asset route. The gallery cases added below assert what
+      # the BROWSER fetched, so this route's accept-set decides whether every
+      # thumbnail resolves or 410s — and `app/**` here is subtree globs, so a
+      # route-only change matched none of the other entries and would have left
+      # this job dark on exactly the surface those cases measure.
+      - "app/api/asset/**"
       - "app/globals.css"
       # The ROOT layout wraps every measured page, so inherited typography or
       # sizing set there can crowd a gapped row until a spacer reaches zero width
@@ -187,6 +193,19 @@ jobs:
       # tracks the FILE rather than the filters, so it cannot see that gap.
       - name: Freshness cue geometry (real route)
         run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-FRESHNESS-GEOMETRY"
+      # Its OWN step, for the same reason as the two above: the private-image-pipeline
+      # cases live in crew-layout-dimensions.spec.ts but match NEITHER
+      # `-g "T-NOPHANTOM-CREW"` nor any other filter this job runs, so without this
+      # step they would be matched by a project and invoked by nothing — the
+      # BL-E2E-APP-DEPENDENT-SPECS-CI-DARK shape this workflow exists to end.
+      # They measure `next/image` `fill` geometry (image box vs its containing
+      # block, thumbnails + BOTH lightbox tiers) and the network contract (every
+      # thumbnail request is a manifest-listed variant; zero `/_next/image`), so
+      # they need the seeded `diagram-snapshots` bucket this job already provisions
+      # via `pnpm db:seed`. Spec: docs/superpowers/specs/crew/
+      # 2026-08-09-private-image-pipeline-design.md §6/§9, AC-2 / AC-3 / AC-12.
+      - name: Diagram gallery variant geometry + network gate (real route)
+        run: pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-DIAGRAM-VARIANTS"
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

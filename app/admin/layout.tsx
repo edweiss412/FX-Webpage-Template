@@ -139,21 +139,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     }
   }
 
-  // nav-perf Phase 2 (E-lite): the two badge reads are independent — run them in
-  // parallel so first /admin entry blocks on one wall-time, not two sequential
-  // round-trips. bellCount comes from loadBellUnseenCount (bell notification
-  // center §6.4 — the SAME pipeline the panel feed reads, so the badge and the
-  // open panel can never disagree). It is computed BEFORE the onboarding branch
-  // because the bell REPLACES the retired AlertBanner and now rides BOTH chromes
-  // (§7.1/§8): the slim onboarding bar and the full nav. The "Needs attention"
-  // tab badge seed (spec §4.2) maps infra_error → null → badge hidden
-  // (fail-quiet, ratified D-4); it is only shown in the full nav, but reading it
-  // here keeps the two independent reads on one parallel wall-time.
-  const [bellCount, needsAttentionCount] = await Promise.all([
-    loadBellUnseenCount(adminEmail, viewerIsDeveloper),
-    loadNeedsAttentionCount(),
-  ]);
-
   if (inOnboarding) {
     return (
       <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
@@ -179,6 +164,37 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     );
   }
 
+  // nav-perf Phase 2 (E-lite): the two badge reads are independent — run them in
+  // parallel so first /admin entry blocks on one wall-time, not two sequential
+  // round-trips. bellCount comes from loadBellUnseenCount (bell notification
+  // center §6.4 — the SAME pipeline the panel feed reads, so the badge and the
+  // open panel can never disagree). The "Needs attention" tab badge seed (spec
+  // §4.2) maps infra_error → null → badge hidden (fail-quiet, ratified D-4).
+  //
+  // admin-nav-badge-streaming §3.1 (AC-1): issued AFTER the onboarding
+  // early-return, not before it. The slim onboarding bar consumes NEITHER value
+  // (OnboardingTopBar takes email/healthRollup/isDeveloper), so reading them on
+  // that branch bought two Supabase round-trips and discarded both. The bell
+  // rides both chromes in the SETTLED case only — the onboarding bar dropped its
+  // <NotifBell> in the 2026-07-06 owner decision, which is what makes this
+  // reorder behavior-preserving.
+  //
+  // §3.2 (AC-2): NOT awaited. The reads are issued here and their PROMISES are
+  // handed to the client tree, so the nav chrome flushes on the identity/health
+  // wall-time instead of also paying two badge queries; each hook commits the
+  // resolved value through its existing prop-ingestion path when it arrives.
+  // The `.catch` wrappers are belt, not braces: both loaders RETURN
+  // `{kind:"infra_error"}` by contract (invariant 9), but an unawaited promise
+  // that REJECTS crosses the RSC boundary with no owner — the wrap converts a
+  // thrown infra fault into the same discriminated result the hooks already
+  // handle (attention chip hidden per D-4; bell degraded per its own contract).
+  const bellCountPromise = loadBellUnseenCount(adminEmail, viewerIsDeveloper).catch(() => ({
+    kind: "infra_error" as const,
+  }));
+  const attentionCountPromise = loadNeedsAttentionCount().catch(() => ({
+    kind: "infra_error" as const,
+  }));
+
   return (
     // §3.5.1: the provider is the OUTERMOST element of each return, so its
     // region is a SIBLING of [data-inert-root], never a descendant. Nesting it
@@ -203,8 +219,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       >
         <AdminNav
           email={adminEmail}
-          bellCount={bellCount}
-          initialBadgeCount={needsAttentionCount.kind === "ok" ? needsAttentionCount.count : null}
+          bellCountPromise={bellCountPromise}
+          attentionCountPromise={attentionCountPromise}
           viewerIsDeveloper={viewerIsDeveloper}
           healthRollup={healthRollup}
         />

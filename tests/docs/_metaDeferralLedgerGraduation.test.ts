@@ -93,6 +93,16 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // ci/unit-gate-exclusions (2026-08-09): closed on verification, no new code —
+  // pg-cron-coverage and test-auth-gate were promoted back into the unit suite
+  // by the ci-dark cluster (PR3 2026-07-26, PR-B 2026-07-31); the one remaining
+  // exclusion (email-canonicalization) is execution-proven via the run-excluded
+  // oracle registry, so every exclusion is gated elsewhere by construction.
+  { id: "BL-CI-UNIT-GATE-EXCLUSIONS", provenance: "ci/unit-gate-exclusions" },
+  {
+    id: "BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST",
+    provenance: "test/libdata-call-boundary-metatest",
+  },
   // chore/next-1630-wedge-remeasure (2026-08-09): upstream React replay-loss fix
   // confirmed by measurement: 0/20 wedged samples on next 16.3.0's vendored canary
   // cbb046ab-20260731 vs the 7/10 baseline on 3f0b9e61-20260317. Graduated by the
@@ -435,6 +445,17 @@ const BACKLOG_GRADUATED = [
   {
     id: "BL-VERSION-AMBIGUOUS-V1-OVERRIDE",
     provenance: "docs/close-v1-override-wont-build",
+  },
+  // feat/help-report-surface (2026-08-09): the non-show recurrence-report
+  // surface shipped as Option A of the owner-ratified design — the /help/errors
+  // trailing mailto is replaced by the M8 report flow at surface "help",
+  // show_id null. The entry's "API + storage. Decision needed" block was stale,
+  // not open: reports.show_id has been nullable since the founding migration,
+  // so no endpoint, table, or migration was needed and the effort resized L to S
+  // (spec 2026-08-09-help-report-surface-design.md).
+  {
+    id: "BL-HELP-NON-SHOW-REPORT-SURFACE",
+    provenance: "feat/help-report-surface",
   },
 ] as const;
 

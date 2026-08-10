@@ -25,6 +25,9 @@ import {
   SYNC_INFRA_ERROR,
 } from "@/lib/sync/runScheduledCronSync";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
+import { resetLogSink, setLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 // Mock the hybrid-lifecycle resolve helper so the ambient-DB-guard test can
 // assert the DEFAULT (un-injected) helper is never invoked when a test-injected
@@ -985,6 +988,124 @@ describe("processOneFile", () => {
     await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
 
     expect(mockEmitUnlandedRenames).not.toHaveBeenCalled();
+  });
+
+  // Task 2 hop 2 of 5 (spec 2026-08-09-private-image-pipeline §3). snapshotAssets records a variant
+  // failure INSIDE the show-lock tx, so it cannot log there (invariant 10 — a durable warn inside a
+  // tx that later rolls back persists a failure for an apply that never happened). The rows ride
+  // Phase2Result → ProcessOneFileResult and THIS tail emits them once the lock resolves.
+  //
+  // The emit is asserted through the LOG SINK, not by spying the emit helper: a helper spy passes
+  // with the carrier hop broken at either end, and a missing helper import would fail this row for
+  // the wrong reason. Failure mode caught: rows produced, carried nowhere, every sink dark.
+  test("diagram variant failures emit DIAGRAM_VARIANT_GENERATION_FAILED from the processOneFile tail", async () => {
+    const fakeTx = tx();
+    const events: string[] = [];
+    // TWO rows with distinct keys/reasons/messages so a constant-payload emit cannot pass.
+    const variantFailures = [
+      {
+        assetKey: "folder-linked-1.png",
+        reason: "sharp_error" as const,
+        message: "sharp pipeline threw: unsupported input",
+      },
+      {
+        assetKey: "embedded-obj-1.png",
+        reason: "blur_oversize" as const,
+        message: "blur 24x18 exceeds the 16px cap",
+      },
+    ];
+    const records: LogRecord[] = [];
+    setLogSink((record) => {
+      if (record.code === "DIAGRAM_VARIANT_GENERATION_FAILED") {
+        records.push(record);
+        events.push(`emit:${String(record.context.assetKey)}`);
+      }
+    });
+    const withShowLock = vi.fn(async (driveFileId, fn) => {
+      events.push("lock:start");
+      const locked = await fn(fakeTx as LockedShowTx<PipelineTx>);
+      events.push("lock:commit");
+      return locked;
+    });
+    const syncDeps = deps({
+      withShowLock,
+      upsertAdminAlert: vi.fn(async () => "alert-1"),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          parseWarnings: [],
+          variantFailures,
+        };
+      }),
+    });
+
+    try {
+      await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+    } finally {
+      resetLogSink();
+    }
+
+    // Exactly one record per row, payload derived from the fixture rows themselves (spec §3): a
+    // constant emit, a dropped field, or a collapsed list all fail here.
+    expect(
+      records.map((record) => ({
+        level: record.level,
+        message: record.message,
+        source: record.source,
+        code: record.code,
+        showId: record.showId,
+        assetKey: record.context.assetKey,
+        reason: record.context.reason,
+        error: record.context.error,
+      })),
+    ).toEqual(
+      variantFailures.map((failure) => ({
+        level: "warn",
+        message: "diagram variant generation failed",
+        source: "sync.diagramVariants",
+        code: "DIAGRAM_VARIANT_GENERATION_FAILED",
+        showId: "show-1",
+        assetKey: failure.assetKey,
+        reason: failure.reason,
+        error: failure.message,
+      })),
+    );
+    // POST-COMMIT, outside the advisory-lock tx (invariant 10) — never inside the held lock.
+    expect(events).toEqual([
+      "lock:start",
+      "lock:commit",
+      ...variantFailures.map((failure) => `emit:${failure.assetKey}`),
+    ]);
+  });
+
+  test("an apply with NO diagram variant failures emits DIAGRAM_VARIANT_GENERATION_FAILED zero times", async () => {
+    const fakeTx = tx();
+    const records: LogRecord[] = [];
+    setLogSink((record) => {
+      if (record.code === "DIAGRAM_VARIANT_GENERATION_FAILED") records.push(record);
+    });
+    const syncDeps = deps({
+      withShowLock: vi.fn(async (_driveFileId, fn) => fn(fakeTx as LockedShowTx<PipelineTx>)),
+      upsertAdminAlert: vi.fn(async () => "alert-1"),
+    });
+
+    let result: Awaited<ReturnType<typeof processOneFile>>;
+    try {
+      result = await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+    } finally {
+      resetLogSink();
+    }
+
+    // "Zero emits" only discriminates if the tail actually ran — a fixture that never reaches a
+    // committed apply would satisfy it against a surface that emits unconditionally.
+    premiseHolds(
+      "the fixture reached the committed applied tail",
+      !("skipped" in result) && result.outcome === "applied",
+    );
+    expect(records).toEqual([]);
   });
 
   test("first-seen auto-publish stamps 24h unpublish token, alerts, and invalidates under the show lock", async () => {

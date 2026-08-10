@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import sharp from "sharp";
 import { describe, expect, test } from "vitest";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
 import type { PersistedDiagrams } from "@/lib/parser/types";
@@ -9,6 +10,10 @@ import {
   runAssetRecoveryCron,
   type AssetRecoveryStorage,
 } from "@/lib/sync/assetRecovery";
+import { DIAGRAM_VARIANT_WIDTHS } from "@/lib/sync/diagramVariants";
+import { resetLogSink, setLogSink } from "@/lib/log/logger";
+import type { LogRecord } from "@/lib/log/types";
+import { premise } from "@/tests/_shared/premise";
 
 const showId = "11111111-1111-4111-8111-111111111111";
 const driveFileId = "sheet-file-1";
@@ -88,7 +93,22 @@ describe("assetRecovery", () => {
       },
     });
 
-    expect(result).toEqual({ outcome: "recovered", snapshotRevisionId });
+    // These fixtures feed non-image bytes, so the variant stage legitimately fails
+    // per asset and signals it as data — the recovery itself is unaffected, which is
+    // the failure-isolation contract (spec §3). Real-image parity is pinned in the
+    // "variant stage parity" block below.
+    expect(result).toEqual({
+      outcome: "recovered",
+      snapshotRevisionId,
+      variantFailures: [
+        {
+          assetKey: "embedded-embedded-1.png",
+          reason: "sharp_error",
+          message: expect.any(String),
+        },
+        { assetKey: "folder-linked-1.jpg", reason: "sharp_error", message: expect.any(String) },
+      ],
+    });
     // S3: the 'complete' branch resolves the full asset-recovery family inside the locked tx.
     expect(resolveCalls).toEqual([[showId, [...ASSET_RECOVERY_ALERT_FAMILY]]]);
     expect(uploads.map((upload) => upload.path)).toEqual([
@@ -407,7 +427,14 @@ describe("assetRecovery", () => {
       },
     });
 
-    expect(result).toEqual({ outcome: "partial_failure", snapshotRevisionId });
+    // Same non-image fixture bytes as above: the stage signals, the outcome does not change.
+    expect(result).toEqual({
+      outcome: "partial_failure",
+      snapshotRevisionId,
+      variantFailures: [
+        { assetKey: "folder-linked-1.jpg", reason: "sharp_error", message: expect.any(String) },
+      ],
+    });
     expect(resolveCalls).toEqual([]);
   });
 
@@ -446,5 +473,173 @@ describe("assetRecovery", () => {
       { showId: "show-a", result: { outcome: "infra_error", code: "SYNC_INFRA_ERROR" } },
       { showId: "show-b", result: { outcome: "no_op" } },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Variant parity on the recovery path (spec §3 wiring site 2, AC-7).
+//
+// Recovery is the second place original bytes enter storage. If it skipped the
+// variant stage, a recovered diagram would render from its original at every
+// tier forever — the exact silent degradation the census guard exists to stop.
+// ---------------------------------------------------------------------------
+
+describe("assetRecovery — variant stage parity", () => {
+  const canonical = `diagram-snapshots/shows/${showId}/${snapshotRevisionId}/`;
+
+  async function realPng(width: number, height: number): Promise<Uint8Array> {
+    const buffer = await sharp({
+      create: { width, height, channels: 3, background: { r: 90, g: 30, b: 140 } },
+    })
+      .png()
+      .toBuffer();
+    return new Uint8Array(buffer);
+  }
+
+  function diagramsForBytes(embedded: Uint8Array): PersistedDiagrams {
+    return {
+      snapshot_revision_id: snapshotRevisionId,
+      snapshot_status: "partial_failure",
+      linkedFolder: null,
+      embeddedImages: [
+        {
+          sheetTab: "DIAGRAMS",
+          objectId: "embedded-1",
+          mimeType: "image/png",
+          sheetsRevisionId: "sheet-rev-1",
+          embeddedFingerprint: sha256Base64Url(embedded),
+          recovery_disposition: "normal",
+          snapshotPath: null,
+        },
+      ],
+      linkedFolderItems: [],
+    };
+  }
+
+  async function runRecovery(bytes: Uint8Array) {
+    const { storagePort, uploads } = storage();
+    let persisted: PersistedDiagrams | null = null;
+    const diagrams = diagramsForBytes(bytes);
+    const result = await assetRecovery(showId, {
+      readPreviewShow: async () => ({ showId, driveFileId, diagrams }),
+      withShowLock: async (_driveFileId, fn) =>
+        await fn({
+          readLockedShow: async () => ({ showId, driveFileId, diagrams }),
+          updateRecoveredDiagrams: async (_showId, next) => {
+            persisted = next;
+            return true;
+          },
+          upsertRecoveryCooldown: async () => undefined,
+          deleteRecoveryCooldown: async () => undefined,
+          upsertAdminAlert: async () => undefined,
+          resolveAdminAlerts: async () => undefined,
+        }),
+      storage: storagePort,
+      drive: {
+        fetchEmbeddedImageBytes: async () => bytes,
+        fetchLinkedRevisionBytes: async () => null,
+      },
+    });
+    return { result, uploads, persisted: persisted as PersistedDiagrams | null };
+  }
+
+  test("a recovered original uploads its variants beside it and records the §4 fields", async () => {
+    const width = 1200;
+    premise(
+      "fixture width exceeds the smallest ladder tier",
+      width,
+      Math.min(...DIAGRAM_VARIANT_WIDTHS),
+    );
+    const bytes = await realPng(width, 800);
+
+    const { result, uploads, persisted } = await runRecovery(bytes);
+
+    expect(result.outcome).toBe("recovered");
+    const assetKey = "embedded-embedded-1.png";
+    const expectedWidths = DIAGRAM_VARIANT_WIDTHS.filter((w) => w < width);
+    premise("the ladder earns tiers for this fixture", expectedWidths.length, 0);
+    // Variants land in the SAME canonical directory as the original, so the route's
+    // dirname(snapshotPath) + "/" + key reconstruction resolves them (spec §5).
+    expect(uploads.map((upload) => upload.path)).toEqual([
+      ...expectedWidths.map((w) => `${canonical}${assetKey}@${w}.webp`),
+      `${canonical}${assetKey}`,
+    ]);
+
+    const entry = persisted!.embeddedImages[0]!;
+    expect(entry.variants).toEqual(
+      expectedWidths.map((w) => ({ width: w, key: `${assetKey}@${w}.webp` })),
+    );
+    expect(entry.blurDataURL?.startsWith("data:image/webp;base64,")).toBe(true);
+    expect(entry.intrinsicWidth).toBe(width);
+    expect(entry.intrinsicHeight).toBe(800);
+  });
+
+  test("a corrupt recovered asset still recovers, records no §4 fields, and signals as data", async () => {
+    const corrupt = new TextEncoder().encode("not an image at all");
+
+    const { result, uploads, persisted } = await runRecovery(corrupt);
+
+    // The original still recovers — the variant stage never degrades the snapshot.
+    expect(result.outcome).toBe("recovered");
+    expect(uploads.map((upload) => upload.path)).toEqual([`${canonical}embedded-embedded-1.png`]);
+    const entry = persisted!.embeddedImages[0]!;
+    expect("variants" in entry).toBe(false);
+    expect("blurDataURL" in entry).toBe(false);
+    // Narrowed via the whole result: `variantFailures` lives only on the three
+    // snapshot-writing arms, so a bare member access does not typecheck.
+    expect(result).toMatchObject({
+      outcome: "recovered",
+      variantFailures: [
+        {
+          assetKey: "embedded-embedded-1.png",
+          reason: "sharp_error",
+          message: expect.any(String),
+        },
+      ],
+    });
+  });
+
+  test("the recovery cron sink emits DIAGRAM_VARIANT_GENERATION_FAILED once per row, post-commit", async () => {
+    const rows = [
+      { assetKey: "embedded-a.png", reason: "sharp_error" as const, message: "sharp threw" },
+      { assetKey: "folder-b.png", reason: "blur_oversize" as const, message: "blur too big" },
+    ];
+    const records: LogRecord[] = [];
+    setLogSink((record) => {
+      records.push(record);
+    });
+    try {
+      await runAssetRecoveryCron({
+        listRecoverableShows: async () => [showId],
+        recover: async () => ({
+          outcome: "recovered" as const,
+          snapshotRevisionId,
+          variantFailures: rows,
+        }),
+      });
+    } finally {
+      resetLogSink();
+    }
+
+    premise("the fixture carries rows to emit", rows.length, 0);
+    expect(
+      records
+        .filter((record) => record.code === "DIAGRAM_VARIANT_GENERATION_FAILED")
+        .map((record) => ({
+          level: record.level,
+          showId: record.showId,
+          assetKey: (record.context as { assetKey?: unknown }).assetKey,
+          reason: (record.context as { reason?: unknown }).reason,
+          error: (record.context as { error?: unknown }).error,
+        })),
+    ).toEqual(
+      rows.map((row) => ({
+        level: "warn",
+        showId,
+        assetKey: row.assetKey,
+        reason: row.reason,
+        error: row.message,
+      })),
+    );
   });
 });

@@ -4,6 +4,10 @@ name: Admin layout e2e (desktop-chromium)
 #   - tests/e2e/bell-panel-layout.spec.ts          (alert bell geometry + transitions)
 #   - tests/e2e/admin-nav-layout-dimensions.spec.ts (nav chrome across the breakpoint)
 #   - tests/e2e/nojs-loading-notice.spec.ts        (LoadingShell's no-JavaScript branch)
+#   - tests/e2e/rowactions-geometry.spec.ts        (dashboard row ⋮ menu: portal
+#     containment on the last row, vertical flip, window-scroll dismiss, and the
+#     no-orphaned-portal compound row — all invisible to jsdom, which computes
+#     no layout at all)
 #
 # Why this job exists: the spec ran in NO workflow. `desktop-chromium` is invoked
 # only by step3-live-bundle.yml, and only for its own spec, so this gate has been
@@ -51,6 +55,31 @@ on:
       - "components/layout/Skeleton.tsx"
       - "tests/e2e/nojs-loading-notice.spec.ts"
       - "tests/e2e/needs-attention-holds.spec.ts"
+      - "tests/e2e/rowactions-geometry.spec.ts"
+      # Every production surface the row-actions geometry depends on. A menu
+      # that stops flipping, stops being contained, or stops dismissing on
+      # scroll is a change to ONE of these; naming only the spec would leave
+      # this gate dark against the exact files it guards.
+      - "components/admin/ShowRowActions.tsx"
+      - "components/admin/AnchoredPortal.tsx"
+      - "components/admin/ShowsTable.tsx"
+      # The composed placement core: the flip, the bounds and the visual-viewport
+      # gate all live here, not in the component.
+      - "lib/popover/place.ts"
+      - "lib/popover/position.ts"
+      - "lib/popover/viewport.ts"
+      - "lib/popover/rafCoalescer.ts"
+      # The geometry spec measures the Archive confirm and the held decision,
+      # and BOTH panels are sized by their copy. A copy-only edit can therefore
+      # break containment, so the modules that spell those sentences trigger the
+      # gate too — naming only the components would leave that path dark.
+      - "lib/admin/archiveCopy.ts"
+      - "lib/admin/syncRequest.ts"
+      # Row geometry consumes --spacing-tap-min directly: the 44px floor sizes
+      # the trigger, every menu item and therefore the panels the geometry spec
+      # measures. A token edit can break containment, so the file that DEFINES
+      # the token triggers the gate too.
+      - "app/globals.css"
       # Every production surface the needs-attention holds rollup touches: a
       # later regression in any of them must not leave the holds spec dark.
       - "lib/admin/identityHolds.ts"
@@ -141,7 +170,7 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run admin layout e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts tests/e2e/needs-attention-holds.spec.ts
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts tests/e2e/needs-attention-holds.spec.ts tests/e2e/rowactions-geometry.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
