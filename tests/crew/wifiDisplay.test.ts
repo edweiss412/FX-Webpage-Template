@@ -19,6 +19,7 @@ import path from "node:path";
 import { describe, it, expect } from "vitest";
 
 import { parseWifiValue } from "@/lib/crew/wifiDisplay";
+import { CORPUS_TEMP_PREFIX } from "@/tests/helpers/corpusTemp";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -57,7 +58,14 @@ const FIXTURE_DIRS = ["fixtures/shows/raw", "fixtures/shows/exporter-xlsx"] as c
 function fixtureFiles(): string[] {
   return FIXTURE_DIRS.flatMap((dir) =>
     readdirSync(path.join(REPO_ROOT, dir))
-      .filter((name) => name.endsWith(".md") && name !== "README.md")
+      // The temp prefix is EXCLUDED because this suite runs in the parallel
+      // project: a serial test writes synthetic fixtures into the same corpus,
+      // and an unfiltered listing would parse one mid-overlap. Pinned by
+      // tests/cross-cutting/corpus-temp-prefix.test.ts.
+      .filter(
+        (name) =>
+          name.endsWith(".md") && name !== "README.md" && !name.startsWith(CORPUS_TEMP_PREFIX),
+      )
       .map((name) => `${dir}/${name}`),
   ).sort();
 }
