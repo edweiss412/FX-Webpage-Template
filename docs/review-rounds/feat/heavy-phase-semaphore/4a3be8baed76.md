@@ -1,8 +1,8 @@
 # Round-economy filing — feat/heavy-phase-semaphore
 
-## spec — 4 rounds
+## spec — 13 rounds
 
-**Examined:** R1 BLOCKING/10, R2 BLOCKING/6, R3 BLOCKING/3, R4 BLOCKING/5 on
+**Examined:** thirteen rounds to APPROVE/0 (10/6/3/5/3/3/4/5/2/3/1/1/0; one SIGTERM'd dispatch and one usage-limit dispatch not counted) on
 `docs/superpowers/specs/2026-08-10-heavy-phase-semaphore-design.md`. The train's
 dominant class is behavior-asserted-without-probe on OS/tool semantics: R1 landed
 node-spawn fd non-inheritance and the vitest env-over-serial-pin layering; R2 landed
