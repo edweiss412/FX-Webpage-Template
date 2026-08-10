@@ -1,6 +1,6 @@
 # feat/crew-field-enrichment — review rounds at merge base `4a3be8baed76`
 
-This arc's diff review spans three corpus segments because two merges with `origin/main` moved the merge base mid-arc; each segment numbers its rounds from 1. The pre-merge segment is `7e04cd6f04e9` (diff R1, plus the spec and plan filings), the middle one is `bdcd336f3f9c` (diff R1-R2), and this file covers the final segment.
+This arc's diff review is split across several corpus segments because each merge with `origin/main` moves the merge base, and the corpus is keyed by it; every segment numbers its rounds from 1. In arrival order: `7e04cd6f04e9` (diff R1, plus this arc's spec and plan filings), `bdcd336f3f9c` (diff R1-R2), this file, and `ec06b825aba8` after the merge that followed R7. The count here therefore describes THIS segment, not the arc — the arc's total is the sum across segment files.
 
 ## diff — 7 rounds
 

@@ -13,7 +13,10 @@
  *   - a present row renders k-label + value + sub;
  *   - the mini-icon square renders ONLY when an `icon` is passed;
  *   - a sentinel/empty value omits the entire row (label included);
- *   - the present-row count is derived from the fixture, never hardcoded.
+ *   - the present-row count is derived from the fixture, never hardcoded;
+ *   - an optional `testId` reaches the ROW element, and a row without one emits
+ *     no `data-testid` at all (including for a sentinel-valued row, which is
+ *     omitted testid and all).
  */
 import { afterEach, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";

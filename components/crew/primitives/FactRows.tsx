@@ -17,7 +17,7 @@
  * walks components/crew/primitives/ stays green: FactRows reads `row.v` and
  * routes it through `shouldHideGenericOptional` at the read site.
  *
- * Props (binding contract): {rows: {k, v, sub?, icon?}[]}.
+ * Props (binding contract): {rows: {k, v, sub?, icon?, testId?}[]}.
  *
  * Uses the <dl>/<dt>/<dd> idiom (label-before-value for screen readers).
  * Pure synchronous Server Component (no `'use client'`).
