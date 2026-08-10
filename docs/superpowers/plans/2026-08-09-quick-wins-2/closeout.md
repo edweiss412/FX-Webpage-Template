@@ -235,3 +235,108 @@ are indistinguishable from a single-direction probe.
 | 2 | `has-[:hover]:[gap:0px]` on the Step3Review pin | refused | `premise not met … (unexercisable: has-[:hover]:[gap:0px])` |
 | 3 | `md:gap-3` on the same pin | NOT refused | `1 passed` |
 | 4 | `hover:gap-0` on the mounted HelpSheet header | refused | `premise not met … (unexercisable: hover:gap-0)`, all 4 viewports |
+
+> Branch A's block lands on `fix/quick-wins-2-mech` and branch C's on `feat/wizard-step-connector`; whichever merges second resolves the overlap. Same file, disjoint sections, by design.
+
+Plan: `docs/superpowers/plans/2026-08-09-quick-wins-2/plan.md` · Specs: `docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md`, `docs/superpowers/specs/2026-08-09-crew-chrome-wizard-connector.md`
+
+## Branch B — feat/crew-chrome-footer-avatar
+
+### §12.1 Design gate
+
+Both halves ran on the branch diff (`git diff origin/main...HEAD` restricted to `app/**/*.tsx`, `components/**/*.tsx`, `app/globals.css`) with the canonical v3 setup: `context.mjs` context load, then the product-register read. Critique and audit ran as isolated passes.
+
+**Critique 28/40 (Good) · Audit 17/20 (Good) · P0: 0 · P1: 2** (one per half, and they agree on the surrounding P2s). Both independently verified the parts that could have gone wrong quietly: the `avatarColor` palette is AA against white initials (`#9A4A00` 6.26:1, `#515763` 7.26:1), the form boundary keeps `slug`/`shareToken`/`showId` with the typed wrapper, all four partial-identity labels are non-empty, `menuitemcheckbox` + `aria-checked` (never `aria-pressed`), Escape restores focus, Tab closes without trapping, the open-focus effect is post-commit and sound, 44px holds on the trigger, both rows and the report button, every `ring-offset-2` is container-matched, the pointerdown listener is removed, `z-20` clears the bar's `z-10` with no intervening stacking context, and no em dashes reached user-visible copy. `noBareRingOffset` + `_metaEmDashCopy`: 32/32.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| B-1 | P1 | **The theme row contradicted itself.** It rendered a Sun beside the label "Dark mode" while `aria-checked` was true, and gave sighted users no visible checked state at all. The Sun/Moon swap is correct for the STANDALONE toggle — an action button whose affordance is "this is what you'll get if you tap" — and wrong for a `menuitemcheckbox`, which shows whether it IS on. | **FIXED** — glyph pinned to Moon, state carried by a trailing check. |
+| B-2 | P1 | **Faint copy fell below AA on the re-grounded band.** Moving the footer from `bg-bg` to `bg-surface-raised` dropped `text-text-faint` to 3.35:1 light / 3.53:1 dark, under the 4.5:1 floor — and it is the ONLY copy in the `syncing…` state. `text-text-faint` has no DESIGN §1.2 row, which is why nothing caught it. | **FIXED** — `text-text-subtle` (5.97:1 dark) for the two copy spans; the `aria-hidden` separator dots stay faint, being decoration. |
+| B-3 | P2 | **The popover was unbounded.** `w-max` is `width: max-content`, which the containing block does not clamp, so a long name plus a long role (roles like "A1 / V1 / BO / GAV" are real) runs off the left edge at 390px with no scroll recovery. | **FIXED** — `max-w-[calc(100vw-2rem)]`. |
+| B-4 | P2 | **The icon button's hover was a no-op, then an inversion.** Its recipe was copied from a `bg-bg` container: on the band, light `surface` and `surface-raised` are both `#ffffff` (no visible change) and dark hover matched the band exactly, flattening the button into it. | **FIXED** — `hover:bg-surface-sunken` for the icon variant. |
+| B-5 | P2 | **`role="menu"` owned a generic child.** The identity header was correctly hoisted out, but the person row's `<form>` (no accessible name → `generic`) sat directly inside. axe walks through null-role wrappers, so the suite's own containment assertions could not see it. | **FIXED** — `role="none"` on the form; the submit remains the menu item and the server-action boundary is untouched. |
+| B-6 | P3 | Escape stopped closing the menu after a click on the identity header — focus fell to `<body>`, outside the popover's `onKeyDown`. | **FIXED** — `tabIndex={-1}` on the header, script-focusable only, never in the tab order. |
+| B-7 | P3 | `aria-label="FXAV"` on a `<p>` is prohibited on `role=paragraph` and redundant with its own text. | **FIXED**; the Header suite's locator moved to the testid, since its subject is the color token. |
+| B-8 | P3 | No exit transition — the popover unmounts hard while spec §2.3's inventory says "same, reversed". | **ACCEPTED.** The jsdom suite pins the unmount deliberately, so a future refactor that hides instead of unmounting fails and owes a real exit entry. Adding an exit animation means keeping the node mounted through it, which is the branch-stability hazard DESIGN §15 warns about for announced regions. Not worth that trade for a 120ms fade. |
+| B-9 | P2 | The band's surface reads differently per theme: in light, `surface-raised` equals `surface` (an invisible lift with no shadow); in dark it is lighter than both the cards and the fixed bar. | **DEFERRED** — a DESIGN.md token question (whether `--color-surface-raised` earns a shadow in light, and whether the band should sit below the bar in dark), not a code fix, and §1.2 is missing `text-subtle`/`text-faint`-on-`surface-raised` rows entirely. Filed rather than guessed at inside a UI branch. |
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
+
+### §12.2 Observed-RED transcripts
+
+| Task | RED observed | Restored |
+| --- | --- | --- |
+| B1 | `footer.bottom=843.91` vs `barTop=790.70` (the box ends 53px UNDER the bar); short page `footer.bottom=212.86` vs `viewport.bottom=900` (687px of dead space, unanchored) | both green after the flex chain + clearance |
+| B3 | the four identity-chip suites failed against the new component — 10 cases pinning the text-chip rendering | all four retargeted in the same commit; 21-case menu suite added |
+
+## Branch C — feat/wizard-step-connector
+
+### §12.1 — invariant-8 dual gate
+
+Both halves ran on the C1 diff (`components/admin/OnboardingWizard.tsx`, the
+StepIndicator connector). Critique ran dual-agent: Assessment A (design review)
+and Assessment B (detector + measured browser evidence) as isolated parallel
+sub-agents, per the command's hard invariant — not inline, so no degraded
+banner applies.
+
+**Design health: 27/40.** P0 = 0. P1 = 2. Deterministic scan
+(`detect.mjs`) on the component: **clean, zero findings, exit 0.**
+
+**The two assessments agreed to the second decimal**, which is what makes the
+findings actionable rather than a matter of taste. A computed the ratios from
+tokens; B measured them in a real browser at every step, at 390px and 900px, in
+both themes. Both landed on:
+
+| Comparison | Light | Dark | Floor | |
+| --- | --- | --- | --- | --- |
+| hairline vs page (`--color-border`) | 1.22:1 | 1.35:1 | 3:1 | invisible |
+| done vs ahead (`border-strong` vs `border`) | 1.25:1 | 1.26:1 | 3:1 | indistinguishable |
+| connector width, all 12 cells | 60.00px | 60.00px | — | `flex-1` never grew |
+| trailing dead space, 900px step 3 | 257.77px | — | — | unused |
+
+**P1-1 — the connector's state colour was imperceptible.** The done/ahead split
+the spec prescribes measured 1.25:1. Not a §1.4.1 violation (the element is
+`aria-hidden` and the done pill carries a Check glyph), which is precisely the
+finding: the colour branch was both invisible AND redundant.
+
+**P1-2 — `flex-1` on the nav was inert and cost layout.** The connectors cap at
+60px, so the grow never fired; the leftover collected as trailing space and the
+rail resized between steps 2 and 3 as `containerMaxWidth` changed.
+
+**Disposition: BOTH FIXED**, owner-decided (Option B plus a contrast repair,
+chosen over three alternatives rendered at true scale in both themes). The
+connector sets `w-confirm-box` directly and both colours moved from the border
+ramp to the text ramp — `text-faint` ahead (3.16:1 / 4.22:1), `text-subtle`
+done (6.5:1 / 6.8:1). The state distinction the spec asks for is preserved and
+now perceivable, rather than dropped.
+
+**P2 — DESIGN.md had no stepper entry at all**, which is why a border token was
+paired with a standalone rule unquestioned. FIXED: new §1.2a records the
+measured ratios and names the faint/subtle pair as the sanctioned hairline
+ramp, so the next 1px rule does not re-derive this.
+
+**P2 — token coupling** (`--spacing-confirm-box` is a confirm-BUTTON dimension,
+so resizing that button silently resizes the stepper): NOT fixed, and not
+deferred silently — it is the same token the C1 canonicalization pinned, and
+retargeting it is a token-taxonomy change beyond this arc's scope. The coupling
+is now at least documented in §1.2a's neighbourhood rather than implicit.
+
+**P3 — `justify-between` on the parent row is inert with a single child:**
+accepted. Harmless, and removing it would touch a row this arc does not
+otherwise own.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
+
+### §12.2 — observed RED
+
+`C1` RED was observed only after four harness faults were cleared, each of
+which would have produced a red run for the wrong reason: a sibling worktree
+owning port 3000 (Playwright's `reuseExistingServer` would have measured
+another branch's code), four booted webServers where one was needed
+(`BASELINE_SERVER_ONLY`), a hand-started dev server missing the config's
+test-auth env (`signInAs` 404, nine tests red for a reason unrelated to
+connectors), and a shared-DB strand from another session's crashed run
+(`enterWizardAdminState` refusing to capture all-null `app_settings`).
+
+Genuine RED: 6 band cases failed with `width: 0, height: 1, inBand: false` on
+both connectors. GREEN after the nav fix: 9/9.

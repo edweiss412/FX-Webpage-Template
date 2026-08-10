@@ -435,6 +435,58 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 **Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
 
+### BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES — two deliberate-authoring bypasses of the crew-e2e wiring guard
+
+**Severity:** LOW (both require deliberately writing a gate that looks like a declaration but is not; accidental cases are caught loudly) · **Class:** guard coverage · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 4, owner-ratified as a documented limit) · **Effort:** M
+
+**Both probed, with the mutants recorded so a future round starts from evidence:**
+
+1. `expectRegistryRowsAreLive` accepts any `test.skip(...)` as live without proving its condition can exclude the registered projects. `test.skip(false, "…")` binds a row while gating nothing.
+2. One `PROJECT_GATED` row relaxes the identifier ban for the entire FILE, and the body scans deliberately skip nested callbacks — so a gate inside a `test.step` in another test of the same file is unscanned.
+
+**Why it is a limit, not an open bug.** The guard's threat model is ordinary authoring mistakes by a contributor adding or gating a test; both bypasses require deliberately constructing a fake declaration. Four review rounds each produced a narrower bypass with no product-code change, which is the recognizer ratchet the round-economy rule names: "no bypass exists" ranges over an open class and does not terminate. Owner ratified shipping with the limit documented in the guard's own header.
+
+**Promotion trigger:** a real contributor hits one of these by accident, or the guard is extended to a surface where a fake declaration is plausible.
+
+---
+
+### BL-IDENTITY-CLEAR-FAILURE-IS-SILENT — a failed "switch person" reports success
+
+**Severity:** MEDIUM (the crew member believes they signed out of an identity they are still in) · **Class:** correctness / UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 2) · **Effort:** M
+
+**Probed, not theorized.** `clearIdentity` resolves a typed result, and the failure branch is reachable:
+
+```
+clearIdentity failure branch: {"ok":false,"code":"PICKER_RESOLVER_LOOKUP_FAILED"}
+```
+
+`clearIdentityFormAction` in `components/auth/IdentityChip.tsx` awaits it and returns `void`, so the avatar menu closes and the page proceeds as though the identity were cleared.
+
+**Why it is filed rather than fixed in this arc.** The fix is not the discard — it is that the menu has NO failure state to render into. That needs: where the message appears (inside the popover, which closes on submit; or a page-level region), what it says (a §12.4 catalog code, per the no-raw-codes contract), and whether the menu stays open on failure. Those are design decisions, not implementation details. Class-sweep disposition exception (a).
+
+**Note:** the code comment that previously called this "harmless to discard at the form boundary" has been corrected in place — the premise was false, and leaving it would have made the next reader believe the gap was considered and dismissed.
+
+---
+
+### BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal
+
+**Severity:** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S
+
+**Probed, not theorized.** With `localStorage.setItem` throwing (restrictive in-app browser, private mode, third-party-storage block):
+
+```
+after-toggle-with-storage-blocked: dark:dark  stored null
+next-load/os-light:                light
+```
+
+The user picks dark, the page turns dark, and the next load is light again with nothing said.
+
+**Why it is filed rather than fixed here.** `components/layout/useAppliedTheme.ts` absorbs the write failure deliberately — throwing would take the whole control down over a preference, and the fallback (follow the OS) is the conservative answer. What is missing is the SIGNAL, and what the signal should say is a product-copy decision this arc cannot settle: a toast is heavy for a preference, an inline note next to a toggle inside a popover has nowhere to live, and "your browser will not remember this" is the kind of technical explanation `PRODUCT.md` §5 rules out of the UI. Class-sweep disposition exception (a): needs a product decision.
+
+**Reachability:** PROBED — the failure mode is reachable in any embedded webview with storage partitioning, which is exactly where crew open a link from a group thread.
+
+---
+
 ### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
 
 **Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** low · **Class:** FEATURE REACH · **Effort:** S
@@ -947,22 +999,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-### BL-WIZARD-CONNECTOR-MAXW-INERT — the wizard step connector renders 0-width, so its `max-w` is a dead constraint
-
-**Severity:** LOW (cosmetic; an intended hairline separator never renders) · **Class:** UI correctness · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** S · **Reachability:** PROBED 2026-08-08 — measured `getBoundingClientRect()` in mobile-safari at 390px AND at 900px: both connectors are `0 × 1` at both widths.
-
-**Description:** `components/admin/OnboardingWizard.tsx` renders a step-indicator connector after steps 1 and 2 as `<span className={cn("h-px max-w-confirm-box flex-1 rounded-full", …)} />` — evidently intended as a hairline rule between the step pills. It never renders: measured 0px wide at every viewport.
-
-**Cause is structural, not a viewport threshold.** `StepIndicator`'s `<nav>` is `flex items-center gap-2`, and it sits inside `<div className="flex items-center justify-between gap-3">` — a ROW flex container, in which the nav is a flex ITEM with the default `flex: 0 1 auto` and therefore sizes to its CONTENT. A content-sized flex container has no free space to distribute, so the connector's `flex-1` resolves to 0 and its `max-w` upper bound never applies. Widening the viewport does not help; the nav simply stays as wide as its pills and labels.
-
-**Consequence for the cn arc, recorded so it is not rediscovered as a finding:** C1 (`max-w-[60px]` → `max-w-confirm-box`) cannot be verified by measuring this element — a rect equality there is `0 == 0` before and after. `tests/e2e/canonical-class-dimensions.spec.ts` keeps both connector keys as a REGRESSION TRIPWIRE and asserts the 0-width state explicitly, so the day the layout changes the spec says so; C1's discriminating proof is the deterministic token assertion in `tests/specLint/canonicalTokenIdentity.test.ts`.
-
-**Why not fixed in the arc that found it:** class-sweep exception (a) — it needs a design decision the cn arc could not settle. Making the connector visible is a deliberate visual change to the wizard's step indicator (spec §9.4 of that arc states no dimensional invariant may change), and whether the hairline should render at all — and at what width on a 390px viewport — is an impeccable/design call, not a mechanical repair.
-
-**Work:** decide whether the connector should render; if yes, let the nav stretch (`w-full` on the nav, or `flex-1` on its wrapper) and re-baseline `tests/e2e/__baselines__/canonical-dimensions.json`, which will then measure a real 60px clamp.
-
----
-
 ### BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK — a leg with no displayable content beyond its date renders as an unlabeled raw line
 
 **Effort:** M
@@ -1098,6 +1134,143 @@ have been red on arrival against the current tree. Filed under exception (a) rat
 trigger the invariant-8 impeccable dual gate.
 
 **Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
+
+### BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 35 ids appear twice in BACKLOG-archive.md, and no gate notices
+
+**Severity:** LOW (the archive is a record, not a queue; nothing reads it for scheduling) · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, found while resolving an archive merge) · **Effort:** S
+
+**Probed, not theorized.** On `origin/main`, and on main BEFORE the quick-wins-2 mech branch merged (so this is not that arc's doing):
+
+```
+$ git show origin/main:BACKLOG-archive.md \
+    | grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' | sed -E 's/^#+ //' | sort | uniq -d | wc -l
+35
+$ git show ec06b825a^1:BACKLOG-archive.md | ... same pipeline ...
+35
+```
+
+**Why nothing caught it.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` asserts no id is both ACTIVE and ARCHIVED — a cross-file check. Nothing asserts an id appears at most once WITHIN the archive. A union-style merge resolution on the archive (the natural resolution, since two branches usually only append) silently duplicates any entry both sides carry, and every existing gate stays green.
+
+**Two traps for whoever picks this up**, both hit while resolving the merge that found it:
+
+- The active ledger uses `### ` headings and the archive uses `## `. A duplicate check anchored to one level reports clean while every collision hides in the other. Match `^#{2,3}`.
+- Archive PROSE cross-references entry ids, so a substring test (the bare id as a substring) reports an id as archived when only a mention is present. Anchor to the heading.
+
+**Fix:** de-duplicate the 35, then add the within-file uniqueness assertion to the graduation meta-test so the class cannot come back.
+
+---
+
+### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
+
+**Status:** OPEN · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M
+
+**Not caused by the branch that measured it** — the same test fails the same way on an unrelated
+branch in the same window:
+
+```
+test/resurrect-mobile-safari-e2e   run 31310546822   1 failed, 2 flaky, 140 passed
+  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
+    › every mono manifest entry still matches something on its route
+
+refactor/classname-array-join-cn   run 31310136900   1 failed, 1 flaky, 118 passed
+  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
+    › every mono manifest entry still matches something on its route
+```
+
+Both fail inside the auto-fixture with the same message, on both the pre- and post-navigate sample:
+
+```
+Error: font oracle: the registered-face query failed on a document the element walk could read
+       (via pre-navigate). The guard cannot judge a document it cannot read, and passing on one
+       would make every other test's green meaningless.
+  at enforce (tests/e2e/helpers/fontFidelityFixture.ts:400:11)
+```
+
+`font-rendering-census.spec.ts:157` (`/admin/onboarding @ mobile renders the expected families`)
+flakes in the same runs, sometimes recovering on retry and sometimes not. Other branches DO go green
+in the same window (`chore/next-1630-wedge-remeasure`, `fix/step3-a11y-cluster`), so this is
+intermittent rather than a hard break.
+
+**Why it matters beyond one arc:** the guard is written to fail loud rather than pass on a document
+it cannot read, which is the right posture — but it means a transient read failure is indistinguishable
+from a real font regression, and it takes the whole job down with it. Any acceptance bar of the form
+"N consecutive green crew-e2e runs" is then a coin flip rather than a measurement.
+
+**First step if picked up:** determine WHY the registered-face query fails on a document the element
+walk could already read — a closed/navigating page during the fixture's sample, or a document whose
+`document.fonts` is not yet queryable. The message already distinguishes pre- from post-navigate,
+which should localise it.
+
+---
+
+### BL-RIGHTNOW-SECTION57-FIXTURE-INERT — the §5.7 suite's run_of_show fixture does not drive the hero it asserts
+
+**Status:** OPEN · **Severity:** MEDIUM (the suite asserts nothing it claims to; it is now statically skipped so it cannot read as coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` §3.5 WHOLE-FILE valve, exception (c)) · **Effort:** M
+
+**Probed, not theorized** (TZ=UTC, to match the CI runner). `tests/e2e/right-now-transitions.spec.ts`
+seeds `shows_internal.run_of_show` in `beforeAll` and asserts the RightNowHero renders that day's
+anchor. Changing the fixture's Day-1 entry from `7:30am` to `7:13am` left the rendered hero
+UNCHANGED:
+
+```
+Expected pattern: /7:13\s*am/i
+Received string:  "Today: Show day 1 of 2Show7:30 AM"
+```
+
+The write lands (the `afterAll` restore reads the prior value back; `psql` confirms the column
+round-trips and returns to its seeded NULL). The hero simply does not source its RightNow anchor from
+`run_of_show` on this route — it renders a show-level anchor.
+
+**Two coincidences hid this**, and either alone kept the suite green for the wrong reason:
+
+1. Day 1's `7:30am` equals the seed's own show-start anchor.
+2. Day 2's `8:00am` equals noon-UTC rendered in America/New_York — so on a developer Mac the
+   assertion matched the pinned CLOCK, not any anchor. CI (UTC) renders the same instant as
+   `12:00 PM`, which is what exposed it: `"Today: Show day 2 of 2Strike4/22 @ 12:00 PM"`.
+
+This is why the file is NOT wired into `crew-e2e.yml` and is statically skipped: wiring it would pin
+a suite whose assertions pass off seed-derived values, which is precisely the "credited as coverage it
+does not provide" failure the executed-count registry exists to prevent.
+
+**What it needs:** identify the hero's ACTUAL anchor source under a real crew viewer, then re-point
+the fixture at it — the same per-test crew row + email-matched session harness
+[[BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER]] needs. Both rows are one piece of work.
+
+**Retained from the attempt** (they are improvements independent of the valve): the invariant-9
+call-boundary repairs on the file's five Supabase call sites, and the rendered-state assertion added
+to `driveToState`, which is what made the recovery case's state-entry failure loud instead of silent.
+
+---
+
+### BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER — the §5.7 recovery case cannot be driven by an admin viewer
+
+**Status:** OPEN · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M
+
+**Probed, not theorized.** `tests/e2e/right-now-transitions.spec.ts`'s recovery case enters
+`viewer_off_day` by mutating the VIEWER's `date_restriction`. Admin resolution ignores
+`crew_members.date_restriction` by design, so an admin viewer never enters that state. With the
+rendered-state assertion this arc added to `driveToState`, the attempt now fails loudly instead of
+passing on coincident anchor text:
+
+```
+Error: RightNow hero must render state kind "viewer_off_day"
+Expected: "viewer_off_day"
+Received: "show_day_n"          (transiently "post_show" during hydration)
+```
+
+Under the previous helper — which checked only HTTP 200 — this case would have "entered" a state it
+was never in and asserted against whatever rendered.
+
+**What it needs:** a restricted crew viewer through REAL resolution — a per-test `crew_members` row
+plus an email-matched test-auth session, the pattern
+`tests/e2e/stage-restricted-crew-schedule.spec.ts` uses (its header explains why an email-matched
+Google session, not a picker cookie: WebKit will not store the `__Host-` Secure picker cookie over
+plain http, and this file runs under mobile-safari). That is a new harness, not a URL swap.
+
+**Superseded in scope by [[BL-RIGHTNOW-SECTION57-FIXTURE-INERT]]** — the WHOLE file's fixture turned
+out not to drive the hero, so the entire suite is now statically skipped and unwired, this case
+included. The two rows are one piece of work: find the hero's real anchor source under a crew viewer
+and the recovery case's restricted-viewer harness together.
 
 ---
 

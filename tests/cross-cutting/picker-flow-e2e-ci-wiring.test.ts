@@ -187,6 +187,80 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
 };
 
 /**
+ * RUNTIME project gates — cases a DECLARED `test.skip(...)` keeps from EXECUTING
+ * under some of the projects that still COLLECT them.
+ *
+ * EXPECTED_SKIPS above cannot express this and must not be stretched to: it
+ * registers STATIC skips, which `--list` reports as `expectedStatus: "skipped"`
+ * and which therefore drop out of both sides of the count comparison on their
+ * own. A `test.skip(<condition>, <reason>)` in a test BODY is invisible to
+ * `--list` — measured on this tree: theme-toggle collects 10 across the two
+ * projects and can only ever pass 9 — so without a declaration the oracle's
+ * threshold would demand an execution that can never happen, and pinning the
+ * threshold to collection would make CI permanently red on a correct tree.
+ *
+ * This is the theme-toggle MATRIX (plan 2026-08-09-quick-wins-2, "e2e harness
+ * readiness"): arm (a) runs under both projects, arm (b) under desktop-chromium
+ * alone, because the picker identity it drives cannot exist under WebKit over
+ * plain http (the `__Host-`-prefixed Secure envelope is never stored — the same
+ * measured limit that puts picker-flow.spec.ts on desktop-chromium).
+ *
+ * The registry is an EXCEPTION LIST, not the cover. The count itself stays
+ * derived: the parity case below resolves each project separately through
+ * Playwright and subtracts only the (title, project) pairs registered here, then
+ * requires every row to have actually subtracted something — so a stale row
+ * fails as loudly as a missing one, and a NEW gate with no row fails twice over
+ * (parity, and the declared-gate scan in expectNoUndeclaredProjectGate).
+ */
+/**
+ * DOCUMENTED LIMITS of this guard, owner-ratified 2026-08-10 after four review
+ * rounds each surfaced a narrower bypass and no product code changed.
+ *
+ * WHAT IT CLOSES. An UNDECLARED spec may not consult the environment at all
+ * (`project` / `testInfo` / `test.info()` / `browserName` are banned outright).
+ * A DECLARED one must bind each `PROJECT_GATED` row to a live `test.skip` in the
+ * callback of the test it names, and no test body may return early or hide every
+ * assertion behind a conditional. Each of those was probed with a surviving
+ * mutant before and after.
+ *
+ * WHAT IT DOES NOT CLOSE, stated rather than left to be rediscovered:
+ *
+ * - A `test.skip(...)` is accepted as live without proving its CONDITION can
+ *   actually exclude the registered projects. `test.skip(false, "...")` binds a
+ *   row while gating nothing.
+ * - A row relaxes the identifier ban for the WHOLE FILE, and the body scans skip
+ *   nested callbacks. A gate placed inside a `test.step` in a different test of
+ *   the same file is therefore unscanned.
+ *
+ * WHY THEY ARE LIMITS AND NOT BUGS. Both require deliberately writing a gate
+ * that looks like a declaration but is not — outside this guard's threat model,
+ * which is ordinary authoring mistakes by a contributor adding or gating a test.
+ * The consequence bound still holds for the accidental cases: they are caught,
+ * loudly, with the offending file and line. Chasing the deliberate ones is the
+ * recognizer ratchet this repo's round-economy rule names explicitly: "no bypass
+ * exists" ranges over an open class and does not terminate.
+ *
+ * Filed as BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES with both mutants recorded, so a
+ * future round starts from the probe rather than from scratch.
+ */
+
+/**
+ * A row must point at a test that ACTUALLY carries a runtime gate. Review R2
+ * removed the `test.skip` and the row went on "subtracting" a gate that no
+ * longer existed — the derived count still came to 9, and the guard reported
+ * clean. "A stale row fails as loudly as a missing one" was the claim; it was
+ * not true until `expectRegistryRowsAreLive` below made it so.
+ */
+const PROJECT_GATED: Record<string, { title: string; runsUnder: string[] }[]> = {
+  "tests/e2e/theme-toggle.spec.ts": [
+    {
+      title: "opens the menu, flips the theme, and every target clears the tap floor at 390px",
+      runsUnder: ["desktop-chromium"],
+    },
+  ],
+};
+
+/**
  * Specs the crew-e2e.yml run command names that are ENROLLED in expectWired, and
  * the pre-contract specs deliberately exempt from it.
  *
@@ -318,42 +392,359 @@ function countTests(json: string, spec: string): number {
 }
 
 /**
- * No spec guarded here may carry a project-name guard clause.
+ * Non-skipped test identities per spec BASENAME, resolved under ONE project.
+ *
+ * The parity case needs a per-project view because a runtime project gate is invisible to a
+ * combined resolution: `--project=a --project=b <spec> --list` reports one flat set and cannot
+ * say which project would actually execute which case. Resolving each project separately is
+ * what makes the matrix derivable — the registry then only has to name the exceptions, never
+ * the counts.
+ *
+ * ONE invocation per project for the WHOLE named spec set, not one per (spec, project): the
+ * previous shape paid a `--list` boot per REQUIRED row, which is what pushed this case toward
+ * its timeout as the job grew specs. Fail-closed — an unloadable command yields an empty map,
+ * which drives every count to 0 and fails the callers.
+ */
+function listByProject(specs: string[], project: string): Map<string, [Set<string>, Set<string>]> {
+  const byFile = new Map<string, [Set<string>, Set<string>]>();
+  let out: string;
+  try {
+    out = execFileSync(
+      "pnpm",
+      [
+        "exec",
+        "playwright",
+        "test",
+        `--project=${project}`,
+        ...specs,
+        "--list",
+        "--forbid-only",
+        "--reporter=json",
+      ],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 300_000, maxBuffer: 64 * 1024 * 1024 },
+    );
+  } catch {
+    return byFile;
+  }
+  const parsed = JSON.parse(out.slice(out.indexOf("{"))) as { suites?: unknown[] };
+  // [ids, titles-of-those-ids] per file, kept in step so a gate row can be matched by TITLE
+  // while the count stays keyed on `spec.id` (R13: `repeatEach` must not inflate it).
+  const walk = (suites: unknown[]): void => {
+    for (const suite of suites) {
+      const s = suite as {
+        suites?: unknown[];
+        specs?: {
+          file?: string;
+          id?: string;
+          line?: number;
+          title?: string;
+          tests?: { expectedStatus?: string }[];
+        }[];
+      };
+      for (const sp of s.specs ?? []) {
+        const base = String(sp.file ?? "")
+          .split("/")
+          .pop();
+        if (base === undefined) continue;
+        if (!(sp.tests ?? []).some((t) => t.expectedStatus !== "skipped")) continue;
+        if (!byFile.has(base)) byFile.set(base, [new Set<string>(), new Set<string>()]);
+        const [ids, titles] = byFile.get(base)!;
+        const id = sp.id ?? `${sp.file}:${sp.line}:${sp.title}`;
+        if (!ids.has(id)) {
+          ids.add(id);
+          titles.add(sp.title ?? "");
+        }
+      }
+      if (s.suites) walk(s.suites);
+    }
+  };
+  walk(parsed.suites ?? []);
+  return byFile;
+}
+
+/**
+ * A project gate may exist only where it is DECLARED, and only as a `test.skip(...)`.
  *
  * Whole-diff review R4 (HIGH): the file used to open every hook and case with
  * `if (testInfo.project.name !== "desktop-chromium") return;`. An earlier version of this guard
  * read that literal and required collection under it, which the reviewer defeated by respelling
  * ONE of the nine sites (`if (!["mobile-safari"].includes(testInfo.project.name)) return;`) —
  * eight literals still answered "desktop-chromium", all six tests still collected, and two cases
- * silently asserted nothing. Parsing gate SPELLINGS is unwinnable; banning the property access is
- * not, because every project-based gate must read `project.name` to exist. These files are matched
- * by exactly one project, so the clause has no purpose here beyond creating that silent-pass class.
+ * silently asserted nothing. Parsing gate SPELLINGS is unwinnable, so this does not parse them.
+ *
+ * The rule is POSITION plus DECLARATION, and it splits the two forms by what they report:
+ *   - `if (<project condition>) return;` reports PASSED having asserted nothing — the R4/R5
+ *     defect, which the executed-count oracle then credits as real coverage;
+ *   - `test.skip(<project condition>, <reason>)` reports SKIPPED, which the oracle (PASSED only)
+ *     refuses to credit, and which the PROJECT_GATED registry accounts for exactly.
+ * So a spec with no registry row keeps the flat identifier ban, and a spec with one may read the
+ * project ONLY inside a `test.skip(...)` condition. Both directions fail loudly.
  */
-function expectNoProjectGate(spec: string): void {
+/**
+ * Every PROJECT_GATED row points at a test that ACTUALLY carries a runtime
+ * `test.skip` in its own callback. Without this the registry subtracts on the
+ * strength of a title alone: review R2 deleted the `test.skip` and the row went
+ * on subtracting, the derived count still came to 9, and nothing complained.
+ */
+function expectRegistryRowsAreLive(spec: string): void {
+  const rows = PROJECT_GATED[spec];
+  if (!rows || rows.length === 0) return;
+  // Same idiom the rest of this file uses: `join` + `readFileSync` from the
+  // module's existing imports. A missing spec is a different guard's business.
+  const sf = ts.createSourceFile(
+    spec,
+    readFileSync(join(process.cwd(), spec), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+
+  const titlesWithSkip = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "test" &&
+      node.arguments.length >= 2
+    ) {
+      const titleNode = node.arguments[0];
+      const body = node.arguments[1];
+      const title =
+        titleNode &&
+        (ts.isStringLiteral(titleNode) || ts.isNoSubstitutionTemplateLiteral(titleNode))
+          ? titleNode.text
+          : null;
+      if (title && body && (ts.isArrowFunction(body) || ts.isFunctionExpression(body))) {
+        let hasSkip = false;
+        const scanSkip = (n: ts.Node): void => {
+          if (
+            ts.isCallExpression(n) &&
+            ts.isPropertyAccessExpression(n.expression) &&
+            ts.isIdentifier(n.expression.expression) &&
+            n.expression.expression.text === "test" &&
+            n.expression.name.text === "skip" &&
+            n.arguments.length >= 1
+          ) {
+            hasSkip = true;
+          }
+          ts.forEachChild(n, scanSkip);
+        };
+        scanSkip(body);
+        if (hasSkip) titlesWithSkip.add(title);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+
+  const stale = rows
+    .filter((row) => !titlesWithSkip.has(row.title))
+    .map((row) => `"${row.title}"`)
+    .sort();
+  expect(
+    stale,
+    `${spec}: these PROJECT_GATED rows name a test with NO runtime \`test.skip(...)\` in its ` +
+      "callback. A row that subtracts an execution the spec no longer gates makes the derived " +
+      "count wrong in the permissive direction — the registry keeps crediting a skip that is " +
+      "not there. Delete the row, or restore the gate.",
+  ).toEqual([]);
+}
+
+function expectNoUndeclaredProjectGate(spec: string): void {
+  const source = readFileSync(join(process.cwd(), spec), "utf8");
   // Shared stripper, not a local idiom (tests/cross-cutting/_metaStripCommentsSingleSource):
   // the header comment below the ban DISCUSSES `project.name`, so comments must come out before
   // the scan or the guard fails on its own documentation.
-  const code = stripCommentsSafely(
-    readFileSync(join(process.cwd(), spec), "utf8"),
-    ts.ScriptKind.TS,
-  );
-  // The IDENTIFIERS, not a spelling. R5 (HIGH) defeated a `/project\.name/` scan with
-  // `test.info().project["name"]`, and destructuring (`const { project } = testInfo`) or aliasing
-  // would defeat any bracket-aware successor. Every project-based gate must name `project` or
-  // reach it through `testInfo`/`test.info()`, and neither spec uses either identifier for
-  // anything else (verified 2026-08-02: zero occurrences in code, comments excluded).
-  // `.fail(` joins the list for the quarantine class (R11 HIGH). Resolution cannot catch it:
-  // MEASURED 2026-08-02, `--list --reporter=json` reports expectedStatus "passed" even for a
+  const code = stripCommentsSafely(source, ts.ScriptKind.TS);
+
+  // `.fail(` is banned OUTRIGHT, in every spec, gated or not (R11 HIGH). Resolution cannot catch
+  // it: MEASURED 2026-08-02, `--list --reporter=json` reports expectedStatus "passed" even for a
   // `test.fail(...)` declaration — the expectation is applied at RUN time. The executed-count
   // oracle catches it in CI (it counts only PASSED results); this ban is the cheap local twin.
-  const banned = [/\bproject\b/, /\btestInfo\b/, /test\.info\s*\(/, /\.fail\s*\(/].filter((re) =>
-    re.test(code),
-  );
   expect(
-    banned.map(String),
-    `${spec} names project/testInfo/.fail() in code. A project guard clause makes every case a ` +
-      "silent assertion-free PASS under any other project; a test.fail() quarantine makes it run, " +
-      "fail before its real assertions, and still report expected. Neither may appear here.",
+    /\.fail\s*\(/.test(code) ? [".fail("] : [],
+    `${spec} quarantines a case with test.fail(): it runs, fails before its real assertions, and ` +
+      "still reports `expected`, so a suite that proves nothing exits green.",
+  ).toEqual([]);
+
+  const gated = PROJECT_GATED[spec] ?? [];
+  if (gated.length === 0) {
+    // The IDENTIFIERS, not a spelling. R5 (HIGH) defeated a `/project\.name/` scan with
+    // `test.info().project["name"]`, and destructuring (`const { project } = testInfo`) or
+    // aliasing would defeat any bracket-aware successor. Every project-based gate must name
+    // `project` or reach it through `testInfo`/`test.info()`, so banning the access closes the
+    // class for any spec that has declared no gate at all.
+    // `browserName` JOINS THE BAN. Review R3's mutant: `crew-page.spec.ts` has
+    // no row, so the body scans below never reached it, and
+    // `if (browserName === "webkit") return;` left an assertion-free PASS still
+    // counted toward its required 16. Hoisting the body scans over every spec
+    // was tried and OVER-REFUSED — four real specs branch legitimately — so the
+    // closure for UNDECLARED specs stays where it belongs: naming ANY
+    // environment-identifying fixture without declaring a gate is the error.
+    // That is a different rule from the body scans, and a closed one: an
+    // undeclared spec may not consult the environment at all.
+    const banned = [/\bproject\b/, /\btestInfo\b/, /test\.info\s*\(/, /\bbrowserName\b/].filter(
+      (re) => re.test(code),
+    );
+    expect(
+      banned.map(String),
+      `${spec} names project/testInfo in code but registers no PROJECT_GATED row. A project ` +
+        "guard clause makes every case a silent assertion-free PASS under any other project. " +
+        "Either remove it, or DECLARE it: a `test.skip(<project condition>, <reason>)` plus a " +
+        "PROJECT_GATED row, which the executed-count parity case then subtracts and verifies.",
+    ).toEqual([]);
+    return;
+  }
+
+  // A spec WITH a declared gate keeps the class closed by POSITION rather than by spelling —
+  // the same move the run-scalar helpers above make with command position. `test.skip(...)`
+  // reports the case as SKIPPED, which the oracle (PASSED only) refuses to credit; an
+  // `if (…) return;` reports it as PASSED having asserted nothing, which is the R4/R5 defect.
+  // So every read of `project` / `testInfo` / `test.info()` must sit inside the FIRST ARGUMENT
+  // of a `test.skip(...)` call. Parameter declarations are exempt (binding the fixture is not a
+  // gate); every other position — early return, ternary, a `const { project } = testInfo`
+  // destructure — lands outside those ranges and fails.
+  const sf = ts.createSourceFile(spec, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const skipArgRanges: [number, number][] = [];
+  const collectSkipArgs = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "test" &&
+      node.expression.name.text === "skip" &&
+      node.arguments.length > 0
+    ) {
+      skipArgRanges.push([node.arguments[0]!.getStart(sf), node.arguments[0]!.getEnd()]);
+    }
+    ts.forEachChild(node, collectSkipArgs);
+  };
+  collectSkipArgs(sf);
+  const insideSkipArg = (node: ts.Node): boolean =>
+    skipArgRanges.some(([s, e]) => node.getStart(sf) >= s && node.getEnd() <= e);
+
+  const offenders: string[] = [];
+  const record = (node: ts.Node, what: string): void => {
+    const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+    offenders.push(`${what} at ${spec}:${line + 1}`);
+  };
+  // A BARE `return` IN A TEST BODY IS THE DEFECT, whatever drove it — and that
+  // is the check, because naming the drivers does not terminate. The first
+  // version banned the identifiers `project` and `testInfo` plus `test.info()`,
+  // and review R1 walked straight past it with Playwright's `browserName`
+  // fixture: destructure it, `if (browserName === "chromium") return;`, and the
+  // case is an assertion-free PASS that the guard reports clean and the
+  // executed-count oracle credits as coverage. Adding `browserName` to the list
+  // would just move the hole to the next fixture (`test.info()`, `process.env`,
+  // `page.context().browser()`, whatever ships next).
+  //
+  // "Which name identifies the environment" is an open question about
+  // Playwright's API. "Does this test callback return before asserting" is a
+  // closed question about one function's control flow, so that is what is asked.
+  // Nested functions are exempt: a `return` inside a `.filter(...)` callback is
+  // ordinary code, not an early exit from the test.
+  const testCallbackBodies: ts.Node[] = [];
+  const collectTestBodies = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      (ts.isIdentifier(node.expression) ? node.expression.text === "test" : false) &&
+      node.arguments.length >= 2
+    ) {
+      const body = node.arguments[1];
+      if (body && (ts.isArrowFunction(body) || ts.isFunctionExpression(body)) && body.body) {
+        testCallbackBodies.push(body.body);
+      }
+    }
+    ts.forEachChild(node, collectTestBodies);
+  };
+  collectTestBodies(sf);
+
+  for (const body of testCallbackBodies) {
+    const walk = (node: ts.Node): void => {
+      // Do not descend into a nested function: its `return` belongs to it.
+      if (
+        node !== body &&
+        (ts.isArrowFunction(node) ||
+          ts.isFunctionExpression(node) ||
+          ts.isFunctionDeclaration(node))
+      ) {
+        return;
+      }
+      if (ts.isReturnStatement(node)) record(node, "early return in a test body");
+      ts.forEachChild(node, walk);
+    };
+    walk(body);
+
+    // AND: CAN THIS BODY COMPLETE WITHOUT ASSERTING? Banning `return` was still
+    // too narrow — review R2 wrapped the whole body in
+    // `if (browserName === "chromium") { …assertions… }`, which returns
+    // nowhere, passes every check, and leaves mobile with `assertions: 0`.
+    //
+    // The closed property is not "which statement skips" but "is there a path
+    // through this body that asserts nothing". A body whose every `expect(`
+    // sits inside a conditional has one, so at least one assertion must be
+    // unconditional. Conservative on purpose: a test that genuinely branches
+    // both ways can hoist one shared assertion, and a test that means to run
+    // under one project says so with `test.skip`, which is what the registry
+    // is for.
+    let expectsTotal = 0;
+    let expectsUnconditional = 0;
+    const countExpects = (node: ts.Node, guarded: boolean): void => {
+      if (
+        node !== body &&
+        (ts.isArrowFunction(node) ||
+          ts.isFunctionExpression(node) ||
+          ts.isFunctionDeclaration(node))
+      ) {
+        return;
+      }
+      if (
+        ts.isCallExpression(node) &&
+        ((ts.isIdentifier(node.expression) && node.expression.text === "expect") ||
+          (ts.isPropertyAccessExpression(node.expression) &&
+            ts.isCallExpression(node.expression.expression) &&
+            ts.isIdentifier(node.expression.expression.expression) &&
+            node.expression.expression.expression.text === "expect"))
+      ) {
+        expectsTotal += 1;
+        if (!guarded) expectsUnconditional += 1;
+      }
+      const nowGuarded =
+        guarded ||
+        ts.isIfStatement(node) ||
+        ts.isSwitchStatement(node) ||
+        ts.isConditionalExpression(node);
+      ts.forEachChild(node, (child) => countExpects(child, nowGuarded));
+    };
+    countExpects(body, false);
+    if (expectsTotal > 0 && expectsUnconditional === 0) {
+      record(body, "every assertion in this test body is inside a conditional");
+    }
+  }
+
+  const scan = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && (node.text === "project" || node.text === "testInfo")) {
+      const isParamName = ts.isParameter(node.parent) && node.parent.name === node;
+      if (!isParamName && !insideSkipArg(node)) record(node, node.text);
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "test" &&
+      node.expression.name.text === "info" &&
+      !insideSkipArg(node)
+    ) {
+      record(node, "test.info()");
+    }
+    ts.forEachChild(node, scan);
+  };
+  scan(sf);
+  expect(
+    offenders.sort(),
+    `${spec} reads the project outside a declared \`test.skip(...)\` condition. A gate that ` +
+      "early-returns leaves the case PASSING with nothing asserted, which the executed-count " +
+      "oracle then credits as coverage; only a declared skip reports the case as skipped. Move " +
+      "the condition into test.skip(), or delete the gate.",
   ).toEqual([]);
 }
 
@@ -369,7 +760,8 @@ function expectWired(segments: string[][], spec: string, what: string): void {
       `${what} that no workflow runs are dark: CI would report green without executing them.`,
   ).toBeGreaterThan(0);
 
-  expectNoProjectGate(spec);
+  expectNoUndeclaredProjectGate(spec);
+  expectRegistryRowsAreLive(spec);
 
   for (const segment of naming) {
     const projects = segment
@@ -577,15 +969,60 @@ describe("picker-flow e2e CI wiring", () => {
           "row means that spec may go dark unnoticed; an extra row means the oracle guards a spec " +
           "this job never runs.",
       ).toEqual(named);
+
+      // The EXECUTABLE count, per project, minus the declared runtime gates. Collection alone is
+      // the wrong baseline once any case carries a `test.skip(<project condition>)`: `--list`
+      // still collects it under every matching project, so a collection-pinned threshold would
+      // demand an execution that cannot happen and hold CI red on a correct tree. Subtracting
+      // ONLY registered (title, project) pairs keeps the number derived — the registry names
+      // exceptions, Playwright supplies every count.
+      const specPaths = named.map((b) => `tests/e2e/${b}`);
+      const perProject = new Map(projects.map((p) => [p, listByProject(specPaths, p)]));
+      for (const p of projects) {
+        expect(
+          perProject.get(p)!.size,
+          `--list resolved NO specs under --project=${p}; the resolution is broken, so every ` +
+            "count below would be vacuously 0",
+        ).toBeGreaterThan(0);
+      }
+      // Every registry row must actually bite. A stale row silently lowers a threshold, which is
+      // R14's defect wearing the registry's clothes, so it fails exactly like a missing one.
+      const subtracted = new Set<string>();
       for (const [base, threshold] of Object.entries(REQUIRED)) {
         const spec = `tests/e2e/${base}`;
+        const gated = PROJECT_GATED[spec] ?? [];
+        let executable = 0;
+        for (const p of projects) {
+          const entry = perProject.get(p)!.get(base);
+          if (entry === undefined) continue;
+          const [ids, titles] = entry;
+          const gatedAwayHere = gated.filter(
+            (g) => titles.has(g.title) && !g.runsUnder.includes(p),
+          );
+          for (const g of gatedAwayHere) subtracted.add(`${spec} :: ${g.title} :: ${p}`);
+          executable += ids.size - gatedAwayHere.length;
+        }
         expect(
           threshold,
-          `${base}: the oracle demands ${threshold} executed, but Playwright resolves a different ` +
-            "number of unique non-skipped tests for it. A threshold below the real count is an " +
-            "oracle calibrated to a partially dark run.",
-        ).toBe(definedResolution(spec, projects).count);
+          `${base}: the oracle demands ${threshold} executed, but Playwright resolves ${executable} ` +
+            "executable tests for it across the job's projects (unique non-skipped cases, minus " +
+            "the PROJECT_GATED rows). A threshold below the real count is an oracle calibrated to " +
+            "a partially dark run; one above it can never be met.",
+        ).toBe(executable);
       }
+      const rows = Object.entries(PROJECT_GATED).flatMap(([spec, gs]) =>
+        gs.flatMap((g) =>
+          projects
+            .filter((p) => !g.runsUnder.includes(p))
+            .map((p) => `${spec} :: ${g.title} :: ${p}`),
+        ),
+      );
+      expect(
+        rows.filter((r) => !subtracted.has(r)).sort(),
+        "these PROJECT_GATED rows subtracted nothing — the title no longer resolves under the " +
+          "project they exclude (renamed, deleted, or the project stopped matching the file). A " +
+          "stale row lowers a threshold for a case that is not really gated.",
+      ).toEqual([]);
     },
     PLAYWRIGHT_RESOLUTION_TIMEOUT_MS,
   );

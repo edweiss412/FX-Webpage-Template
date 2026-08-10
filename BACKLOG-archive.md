@@ -7135,6 +7135,97 @@ days: [Day2]}`, the clock says Day 1, and the hero's rendered `data-state` must
 resolve `viewer_off_day` through real resolution — with the discriminating negative
 that no prior day's call time renders.
 
+---
+
+## BL-WIZARD-CONNECTOR-MAXW-INERT — the wizard step connector renders 0-width, so its `max-w` is a dead constraint — CLOSED 2026-08-10 (`feat/wizard-step-connector`)
+
+**Status:** CLOSED · **Severity:** LOW (cosmetic; an intended hairline separator never renders) · **Class:** UI correctness · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** S · **Reachability:** PROBED 2026-08-08 — measured `getBoundingClientRect()` in mobile-safari at 390px AND at 900px: both connectors are `0 × 1` at both widths.
+
+**Description:** `components/admin/OnboardingWizard.tsx` renders a step-indicator connector after steps 1 and 2 as `<span className={cn("h-px max-w-confirm-box flex-1 rounded-full", …)} />` — evidently intended as a hairline rule between the step pills. It never renders: measured 0px wide at every viewport.
+
+**Cause is structural, not a viewport threshold.** `StepIndicator`'s `<nav>` is `flex items-center gap-2`, and it sits inside `<div className="flex items-center justify-between gap-3">` — a ROW flex container, in which the nav is a flex ITEM with the default `flex: 0 1 auto` and therefore sizes to its CONTENT. A content-sized flex container has no free space to distribute, so the connector's `flex-1` resolves to 0 and its `max-w` upper bound never applies. Widening the viewport does not help; the nav simply stays as wide as its pills and labels.
+
+**Consequence for the cn arc, recorded so it is not rediscovered as a finding:** C1 (`max-w-[60px]` → `max-w-confirm-box`) cannot be verified by measuring this element — a rect equality there is `0 == 0` before and after. `tests/e2e/canonical-class-dimensions.spec.ts` keeps both connector keys as a REGRESSION TRIPWIRE and asserts the 0-width state explicitly, so the day the layout changes the spec says so; C1's discriminating proof is the deterministic token assertion in `tests/specLint/canonicalTokenIdentity.test.ts`.
+
+**Why not fixed in the arc that found it:** class-sweep exception (a) — it needs a design decision the cn arc could not settle. Making the connector visible is a deliberate visual change to the wizard's step indicator (spec §9.4 of that arc states no dimensional invariant may change), and whether the hairline should render at all — and at what width on a 390px viewport — is an impeccable/design call, not a mechanical repair.
+
+**Work:** decide whether the connector should render; if yes, let the nav stretch (`w-full` on the nav, or `flex-1` on its wrapper) and re-baseline `tests/e2e/__baselines__/canonical-dimensions.json`, which will then measure a real 60px clamp.
+
+# **Closed by measurement, not by assumption.** The connector renders at a fixed 60px (`w-confirm-box`) instead of `flex-1 max-w-confirm-box`: the flex-grow was measured at exactly 60px in all twelve step x viewport x theme cells, so it grew nothing and only displaced dead space. The same measurement pass found the hairline was invisible even once rendered (1.22:1 on the page, and a 1.25:1 done/ahead split), so both colours moved to the text ramp — see DESIGN.md §1.2a, which generalizes the rule.
+
+## BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer — CLOSED 2026-08-10 (`feat/crew-chrome-footer-avatar`)
+
+**Status:** CLOSED · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844, scrolled fully to the bottom):
+
+```
+toggle  top 775.6  bottom 819.6  (44x44)
+bar     top 790.7  bottom 844    (height 53.3)   overlaps: true
+footer  top 637.0  bottom 843.6
+document.elementFromPoint(toggle centre) -> the BAR's <svg>
+getComputedStyle(document.body).paddingBottom -> "0px"
+```
+
+The crew sub-nav's fixed bottom bar (`min-[720px]:hidden fixed inset-x-0 bottom-0 z-10`,
+`components/crew/CrewSubNav.tsx:155`) sits over the last ~53px of the footer, and nothing pads the
+page to clear it. The toggle's centre point belongs to the nav bar, so Playwright refuses the click
+with "intercepts pointer events" — and a real thumb lands on the nav tab, not the toggle. Only a
+~15px sliver of the toggle is reachable.
+
+**Why it was invisible until now:** every spec that touched the footer at mobile width was
+`test.describe.skip` against a 404ing route. `crew-page.spec.ts`'s inv8 asserts that the last SECTION
+block clears the fixed bar; the FOOTER is outside `page-container` and no invariant covered it.
+
+**Not fixed in-arc** — exception (a): how the footer should clear the mobile bar (page padding vs
+moving the toggle into the sub-nav vs hiding the footer chrome behind the bar) is a design call this
+arc does not settle. `tests/e2e/theme-toggle.spec.ts` therefore drives its interaction cases at 760px,
+where the bar does not render (`min-[720px]:hidden`), and still asserts the 44px tap floor at 390px.
+
+**Probably one fix with [[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]]:** both symptoms point at
+`crew-shell` being a plain block that breaks the `page-shell` flex chain the footer is written for.
+
+---
+
+---
+
+---
+
+---
+
+## BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT — `mt-auto` on the crew footer is inert, so a short page leaves it mid-viewport — CLOSED 2026-08-10 (`feat/crew-chrome-footer-avatar`)
+
+**Status:** CLOSED · **Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844):
+
+```
+topology  page-shell (display:flex, flex-direction:column)
+            > crew-shell (display:block)          <- breaks the flex chain
+              > page-footer (class mt-auto)
+getComputedStyle(page-footer).marginTop -> "0px"   <- mt-auto resolves to ZERO
+
+every seeded section is taller than the viewport, so the case never occurs on this seed:
+  today 1985 · venue 1539 · travel 1459 · gear 1391 · crew 1329 · schedule 1083   (viewport 844)
+
+constructed short case (section body collapsed; docH 844 == viewport):
+  footer top 135.9  bottom 342.5   gapBelowFooter 501.5px
+```
+
+`mt-auto` only pushes an element when its PARENT is a flex container. The footer's parent is
+`crew-shell`, a plain block, so the declaration does nothing and the footer sits in natural flow. On a
+page shorter than the viewport it floats mid-screen with dead space beneath it.
+
+**Consequence today is nil and the signal is surfaced, not silent** — no seeded show is short enough
+to hit it, which is exactly why the residue test the spec proposed (§3.3.2) was NOT landed: it would
+have been red on arrival against the current tree. Filed under exception (a) rather than fixed: making
+`crew-shell` participate in the flex chain is a layout change to a shipped surface, and it would
+trigger the invariant-8 impeccable dual gate.
+
+**Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
+
+---
+
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
 **Decision:** 2026-08-10, closed by `fix/sync-log-show-id-duration` (PR #767).
@@ -7179,3 +7270,5 @@ Both surfaces need a schema decision (new table vs derived view vs append-only c
 **Found by** cross-model plan review R2 F6 on `fix/sync-log-show-id-duration`, which extends that guard's discovery to `prune_(sync_log|app_events)`. That arc repairs this file as part of its Task 5b — the guard cannot reach green while a discovered test lacks the assertion — so this entry exists to record the hazard and its independence: it predates that change and would remain if the change were abandoned.
 
 **Fix:** route the URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`), matching every other destructive DB test.
+
+> > > > > > > origin/main

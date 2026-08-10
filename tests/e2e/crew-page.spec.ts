@@ -937,6 +937,131 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       lastBottomAfter,
       `at max scroll the last Today block must clear the fixed bottom bar (not occluded); lastBottom=${lastBottomAfter} barTop=${barTopAfter} (pre-scroll lastBottom=${lastBottom} barTop=${barTop})`,
     ).toBeLessThanOrEqual(barTopAfter + TOL);
+
+    // ── (c) The FOOTER's own box clears the bar ────────────────────────────
+    //
+    // Distinct from (b), and that distinction is the whole defect
+    // (BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR). (b) measures the last
+    // block inside <main>, which the main element's own bottom padding lifts.
+    // The FOOTER is a sibling of <main>, below it, and nothing padded the page
+    // beneath the footer — so the fixed bar (`min-[720px]:hidden fixed
+    // inset-x-0 bottom-0`, components/crew/CrewSubNav.tsx) sat on top of the
+    // footer's controls while (b) stayed green.
+    //
+    // Padding INSIDE the footer cannot fix this: it moves the footer's CONTENT
+    // up while the footer's own box still ends under the bar. The clearance has
+    // to be UNDER the footer, which is why it lives on `crew-shell` (UI spec
+    // §2.1 dimensional invariants).
+    const pageFooter = page.getByTestId("page-footer");
+    await expect(pageFooter).toBeVisible();
+    const footerRect = await rectOf(pageFooter);
+    expect(
+      footerRect.bottom,
+      `@390px scrolled to end, the page-footer BOX must end at or above the fixed bar's top ` +
+        `(padding inside the footer does not lift its own box); footer.bottom=${footerRect.bottom} ` +
+        `barTop=${barTopAfter}`,
+    ).toBeLessThanOrEqual(barTopAfter + TOL);
+
+    // …and the report control is actually hit-testable, not merely positioned.
+    // A footer whose box clears the bar but whose trigger sits under some other
+    // overlay would satisfy the rect assertion and still be untappable.
+    const reportTrigger = pageFooter.getByTestId("report-button-trigger");
+    if ((await reportTrigger.count()) > 0) {
+      const t = await rectOf(reportTrigger);
+      const hit = await page.evaluate(
+        ([x, y]) => {
+          const el = document.elementFromPoint(x as number, y as number);
+          const trigger = el?.closest('[data-testid="report-button-trigger"]');
+          return {
+            hitsTrigger: trigger !== null && trigger !== undefined,
+            actual: el
+              ? `${el.tagName.toLowerCase()}${el.getAttribute("data-testid") ? `[${el.getAttribute("data-testid")}]` : ""}`
+              : "null",
+          };
+        },
+        [t.left + t.width / 2, t.top + t.height / 2],
+      );
+      expect(
+        hit.hitsTrigger,
+        `elementFromPoint at the footer report trigger's centre must hit the trigger; hit ${hit.actual}`,
+      ).toBe(true);
+    }
+  });
+
+  // ── The anchored-footer geometry on a SHORT page (AC-U2) ─────────────────
+  //
+  // BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT, the second entry sharing the
+  // broken-flex-chain root cause. `page-shell` is `flex min-h-screen flex-col`
+  // precisely so the footer's `mt-auto` anchors; the crew route interposes a
+  // CLASSLESS `crew-shell` div, so `mt-auto` resolves against a block parent
+  // and does nothing. On a page shorter than the viewport the footer therefore
+  // floats directly under the content with dead space beneath it.
+  //
+  // THE CLEARANCE CONSTANT IS A LITERAL HERE, DELIBERATELY. It is
+  // `--spacing-tap-min` (44px) + 1rem = 60px, the same arithmetic the <main>
+  // recipe uses, and it clears the measured 53.3px bar with 6.7px to spare.
+  // Reading it back off the implemented padding would make this assertion
+  // tautological — it would pass for whatever the shell happens to declare,
+  // including 0. `env(safe-area-inset-bottom)` is 0 in the harness browsers
+  // (UI spec §4 limit 5), so the non-inset floor is what is asserted.
+  const SHELL_BAR_CLEARANCE_PX = 60;
+
+  test("the footer anchors to the viewport bottom on a short page, in both width regimes", async ({
+    page,
+  }) => {
+    for (const { width, expectedGapFromBottom } of [
+      { width: 390, expectedGapFromBottom: SHELL_BAR_CLEARANCE_PX },
+      { width: 900, expectedGapFromBottom: 0 },
+    ]) {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoSection(page, "today");
+
+      // Construct the short page rather than hoping a seeded show is short:
+      // collapse <main> to nothing so the shell is provably shorter than the
+      // viewport. A fixture-dependent short page would silently stop testing
+      // anchoring the day the seed grows.
+      await page.getByTestId("page-container").evaluate((el) => {
+        (el as HTMLElement).style.display = "none";
+      });
+
+      // Wait on the rect PREDICATE, never a sleep: the shell has to re-lay-out
+      // before the footer's anchored position is meaningful.
+      await page.getByTestId("page-footer").evaluate(
+        (el, vh) =>
+          new Promise<void>((resolve) => {
+            const check = (): void => {
+              if (el.getBoundingClientRect().bottom <= vh + 1) resolve();
+              else requestAnimationFrame(check);
+            };
+            check();
+          }),
+        900,
+      );
+
+      const footer = await rectOf(page.getByTestId("page-footer"));
+      const viewportBottom = page.viewportSize()!.height;
+      expect(
+        viewportBottom - footer.bottom,
+        `@${width}px on a short page the footer must anchor at viewport.bottom - ${expectedGapFromBottom} ` +
+          `(the clearance strip below it shows page background behind the opaque bar); ` +
+          `footer.bottom=${footer.bottom} viewport.bottom=${viewportBottom}`,
+      ).toBeCloseTo(expectedGapFromBottom, 1);
+
+      // Below 720px the bar exists, so the anchored footer must ALSO clear it —
+      // the two clauses together are what "anchored AND not occluded" means.
+      if (width < 720) {
+        const bar = page
+          .getByTestId("crew-sub-nav")
+          .locator("nav")
+          .filter({ has: page.locator("[data-section]") })
+          .last();
+        const barTop = (await rectOf(bar)).top;
+        expect(
+          footer.bottom,
+          `@${width}px the anchored footer must still clear the fixed bar; footer.bottom=${footer.bottom} barTop=${barTop}`,
+        ).toBeLessThanOrEqual(barTop + TOL);
+      }
+    }
   });
 });
 
