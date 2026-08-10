@@ -10,6 +10,8 @@
  * lock first, statements after, one commit, and no caller statement may carry
  * its own transaction control.
  */
+import { readFileSync } from "node:fs";
+
 import { describe, expect, test } from "vitest";
 
 import { lockedSeedTxSql } from "./seedShowWithCrew";
@@ -54,7 +56,6 @@ describe("lockedSeedTxSql — the locked seed transaction shape", () => {
     // rationale, so the child env must be scrubbed UNCONDITIONALLY — with the
     // opt-in honored, LOCKED_FIXTURE_ALLOW_REMOTE=1 keeps ambient PG* variables
     // and libpq can retarget behind the validated loopback DSN.
-    const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const src = readFileSync(new URL("./seedShowWithCrew.ts", import.meta.url), "utf8");
     const calls = src.match(/psqlChildEnv\(\{[^}]*\}\)/g) ?? [];
     expect(calls.length, "exactly one psqlChildEnv call in the module").toBe(1);
