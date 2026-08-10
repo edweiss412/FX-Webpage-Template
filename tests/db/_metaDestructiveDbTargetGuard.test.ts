@@ -29,6 +29,8 @@ import { describe, expect, test } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
+
 const TESTS_ROOT = join(process.cwd(), "tests");
 
 /** Executes the whole-DB wipe RPC. */
@@ -39,7 +41,17 @@ const EXECUTES_WIPE = /\bselect\s+public\.reset_validation_data\s*\(\s*\)/i;
 const ENABLES_WIPE_GATE =
   /update\s+public\.destructive_reset_gate\s+set\s+enabled\s*=\s*(?:true|\$\{?\s*true)/i;
 
-/** Any of the sanctioned loopback asserts, called (not merely imported). */
+/** Executes a retention prune. Deletes by time window against whatever DB it is
+ *  pointed at, so it is destructive in exactly the sense this guard exists for.
+ *  `prune_app_events` is folded in deliberately: identical hazard, no coverage
+ *  before 2026-08-09, one alternation to fix. That is the class-sweep default -
+ *  repair every instance of the shape in the same PR - rather than filing a peer
+ *  for something free to fix here. */
+const EXECUTES_PRUNE = /\bselect\s+public\.prune_(?:sync_log|app_events)\s*\(/i;
+
+/** Any of the sanctioned loopback asserts, called (not merely imported).
+ *  Retained for the message it powers; the ADMISSION decision now runs through
+ *  analyseDestructiveFile, which closes the three holes a name match leaves open. */
 const CALLS_LOCAL_GUARD = /\b(?:assertLocalDbUrl|assertSafeDestructiveTarget)\s*\(/;
 
 /** Opt-out for a file that provably cannot reach a remote (documented inline). */
@@ -57,9 +69,23 @@ function walk(dir: string, out: string[] = []): string[] {
 
 const files = walk(TESTS_ROOT).map((path) => ({ path, source: readFileSync(path, "utf8") }));
 
-const destructive = files.filter(
-  ({ source }) => EXECUTES_WIPE.test(source) || ENABLES_WIPE_GATE.test(source),
-);
+/**
+ * Discovery runs on source with COMMENTS STRIPPED. A file that merely NAMES a
+ * destructive statement in prose does not execute it, and matching prose makes the
+ * guard a false-positive generator — demonstrated on itself: adding EXECUTES_PRUNE
+ * flagged tests/cross-cutting/pg-cron-coverage.test.ts, whose only prune mentions are
+ * two comments explaining which cron jobs exist. A false positive is not the safe
+ * direction here; it pushes authors toward blanket exemptions, which is how the guard
+ * stops guarding.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+}
+
+const destructive = files.filter(({ source }) => {
+  const code = stripComments(source);
+  return EXECUTES_WIPE.test(code) || ENABLES_WIPE_GATE.test(code) || EXECUTES_PRUNE.test(code);
+});
 
 describe("destructive DB target guard", () => {
   test("the discovery patterns actually match the known wipe surface (anti-vacuity)", () => {
@@ -67,6 +93,12 @@ describe("destructive DB target guard", () => {
     const rel = destructive.map((f) => f.path.replace(process.cwd() + "/", ""));
     expect(rel).toContain("tests/db/resetValidationDataDriveKeyedAudit.test.ts");
     expect(rel).toContain("tests/db/destructiveResetGate.test.ts");
+    // BOTH prune tests, not just the new one. Deleting `|app_events` from
+    // EXECUTES_PRUNE would otherwise make an EXISTING unsafe test vanish from
+    // discovery while every assertion below still passed - the mutation this
+    // guard most needs to fail on.
+    expect(rel).toContain("tests/db/syncLogIndexesAndPrune.db.test.ts");
+    expect(rel).toContain("tests/log/appEventsSchema.test.ts");
   });
 
   test.each(destructive.length ? destructive : [{ path: "<none discovered>", source: "" }])(
@@ -75,6 +107,15 @@ describe("destructive DB target guard", () => {
       if (path === "<none discovered>") return; // covered by the anti-vacuity test above
       const rel = path.replace(process.cwd() + "/", "");
       if (EXEMPTION.test(source)) return;
+      const verdict = analyseDestructiveFile(path, source);
+      expect(
+        verdict.ok,
+        `${rel}: ${verdict.ok ? "" : verdict.reason}. ` +
+          "A loopback guard must be called on the SAME value that is connected, BEFORE " +
+          "the connection opens, and must resolve to the imported guard rather than a " +
+          "local same-named function. TEST_DATABASE_URL is the VALIDATION project in " +
+          "this repo's .env.local.",
+      ).toBe(true);
       expect(
         CALLS_LOCAL_GUARD.test(source),
         `${rel} executes public.reset_validation_data() (or enables destructive_reset_gate) but ` +
