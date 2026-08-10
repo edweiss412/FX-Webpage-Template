@@ -10,7 +10,7 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
 
-**Effort:** M (remaining: item (d) only) · **Status:** IN PROGRESS · **Branch:** docs/m-wave-2-spec
+**Effort:** M (remaining: item (d) only)
 
 Surfaced by the invariant-8 dual gate on branch `test/step3-live-render-cluster`, run against the
 six-variant seeded Step-3 gallery — the first time all six card states rendered together. Findings
@@ -196,7 +196,7 @@ once rather than have this one surface invent it.
 
 ### SHARELINK-CONSTANTS-INVENTORY-1 — impeccable critique P2 (2026-07-25, share-link-chrome-backlog)
 
-**Effort:** M · **Status:** IN PROGRESS · **Branch:** docs/m-wave-2-spec
+**Effort:** M
 
 `DESIGN.md` section 5.5 claims to be the single source of truth for interaction
 constants but omits at least two: `ARM_REVERT_MS` (4000, the destructive-confirm
@@ -235,7 +235,7 @@ From the same audit. A needs-you row's accessible name is now `"needs review —
 
 ### SHEETLINK-SUBTLE-ACTION-CLASS-1 — [P1] `text-text-subtle` survives on four sibling icon-only action targets
 
-**Effort:** M · **Status:** IN PROGRESS · **Branch:** docs/m-wave-2-spec
+**Effort:** M
 
 From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07-26). The diff fixed the DESIGN.md "never an action target" violation on the three icon-only SHEET links, but the same bug shape lives on at `ModalCloseButton.tsx:20`, `RescanSheetButton.tsx:207`, `BellPanel.tsx:1294` (the `bell-panel-close` icon-only dismiss), and `HelpSheet.tsx:145` — and the close button sits in the SAME modal header, so post-merge the secondary sheet link renders DARKER at rest than the primary dismiss beside it (a deliberate-looking inversion that is actually drift).
 
