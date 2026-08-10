@@ -8,6 +8,18 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-MUTATION-LEDGERGIT-SITE-DRIFT — the `ledgerGit` source-mutation gate is red on main: relocated sites, an uncovered new constant, and a CI-only survivor pair — CLOSED 2026-08-09 (`fix/mutation-ledgergit-site-drift`)
+
+**Status:** CLOSED · **Filed:** 2026-08-08 (parser mutation-hardening wave; PRE-EXISTING on `main`, not introduced by that wave) · **Severity:** medium · **Class:** CI / GUARD SURFACE · **Effort:** M
+
+`tests/mutation/guardSurfaces.gate.test.ts` failed for the `ledgerGit` surface (`tests/mutation/source/registry.ts`, source `scripts/lib/ledger-git.ts`) from the 2026-08-05 nightly onward. Three distinct causes, resolved as one class-sweep:
+
+1. **Relocated sites (6 rows, mechanical) — RE-KEYED.** `229563b76` ("fix(scripts): CLIs set exitCode instead of exit()") inserted ~16-19 lines into `scripts/lib/ledger-git.ts` without re-pointing the registry's `accepted` rows, which key on line numbers. Every one of the six was verified byte-identical at its new line (`git show 229563b76~1:scripts/lib/ledger-git.ts`), so each `reason` survived verbatim: `67:12`→`83:12`, `114:18`→`130:18`, `176:32`→`192:32`, `202:17`→`219:17`, `261:11`→`280:11`, `306:14`→`325:14` (cited intra-reason refs updated `:88`→`:104`, `:89`→`:105`, `:177`→`:193`).
+2. **The uncovered `MAX_GIT_STDOUT` constant (3 mutants) — LEDGERED accepted-gap.** The same commit added `const MAX_GIT_STDOUT = 64 * 1024 * 1024;`, handed straight to `spawnSync`'s `maxBuffer` — the same unassertable-through-surface spawn-bound family as `BL-LEDGER-GIT-TIMEOUT-CONSTANTS`, which was extended to cover it as its fourth constant; the injectable spawn seam described there closes all four at once. Not killed with a 64 MiB-emitting child on a merge-gating suite, for the same reason the timeouts are not waited out.
+3. **The CI-only survivor pair (`integer-literal:284:60:2>3`, `284:93:2>3`) — KILLED deterministically.** The pair mutates `diffHunks`' hunk-count group (`hm[2]`) to the never-present group 3; the suite had no case that deterministically produced a hunk with an explicit count, so the kill depended on the environment — falsifying the surface's L-6 environment-independence claim (CI 11 survivors / 0.8333, full clone 9 / 0.8571). A constructed-repo multi-line hunk case in `tests/scripts/ledgerClaimsCheck.test.ts` now kills both everywhere (each mutant verified red by hand before landing), re-establishing the claim, which the registry comment records.
+
+Post-fix measurement: 72/78 counted (84 mutants, 6 equivalent, 6 accepted-gap), score ≈ 0.923 ≥ floor 0.9. The parser-shard half of the same nightly red (drifted fingerprints) was healed separately by the wave itself (PR #736: zero-width strip + ledger re-bless `cdab19a29`).
+
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
 **Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
@@ -6257,7 +6269,73 @@ This is the dark-spec class already recorded for this repo (`feedback_dark_spec_
 > job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
 > `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.
 
+## BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT — `cleanupStaleEntry` revalidates a path the picker is rarely on
+
+**Resolution (2026-08-09, M-wave 2 W-DOCS — filing-bar demotion):** archived per the wave spec §2.1 (`docs/superpowers/specs/2026-08-09-m-wave-2-design.md`). The entry's own 2026-08-03 correction refutes its stated mechanism (`revalidatePath` tags are pathname-only on the installed Next 16.2.10 — probe preserved below), and the worst observable outcome is a cleared stale-entry hint lingering until the next navigation. The three recorded obstacles and the measure-first re-attempt rule are preserved verbatim below. **Re-open trigger:** the next change to the stale-cleanup path, or any report of a stale hint persisting.
+**Effort:** M
+
+> **PREMISE REFUTED — 2026-08-03.** This entry's stated cause is wrong, and the correction is the
+> most important thing on it. Probed against the installed Next 16.2.10 during review of
+> `fix/picker-signin-flow-cluster`:
+>
+> ```text
+> getImplicitTags(page, pathname) → ["_N_T_/show/demo/<token>"]
+> revalidatePath(originalPath)    → "_N_T_" + removeTrailingSlash(originalPath)
+> ```
+>
+> Both the tag written at render and the tag `revalidatePath` invalidates are **pathname-only**.
+> The query is not a separate cache tag, so there is no `?gate=skip` variant being "missed". The
+> prose below reasons from a mechanism that does not exist; do not act on it as written.
+>
+> **Descoped from that branch by the owner**, after the item generated three consecutive rounds of
+> review findings while the two shipped fixes converged. Obstacles found and worth knowing before
+> a second attempt:
+>
+> - The redirect cannot live in `cleanupStaleEntryCoreImpl`: `cleanupStaleEntryCore`'s bare `catch`
+>   converts Next's `NEXT_REDIRECT` sentinel into `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }`,
+>   so no navigation ever reaches the browser.
+> - A bare-canonical redirect lands on the WRONG SCREEN. `page.tsx` gates `allowGateSkip` on
+>   `gate === "skip"`, so without it the cleanup re-resolves as `no_auth: first_contact` and renders
+>   `<SignInOrSkipGate>`, not the picker. Carrying `gate` needs a seven-hop threading path that does
+>   not exist today.
+> - Its e2e needs a `shows.picker_epoch` mutation, which would be an **unlocked write in violation
+>   of plan-wide invariant 2**, and trips the frozen-DML guard pinning `picker-flow.spec.ts`.
+>
+> **Any future attempt starts by MEASURING what screen actually renders after a stale cleanup**,
+> rather than reasoning from cache-tag behaviour. Full rationale:
+> `docs/superpowers/specs/2026-08-03-picker-signin-flow-cluster-design.md` §1.3.
+
+**Severity:** low · **Surfaced:** class-sweep of the `?gate=skip` revalidate defect (2026-07-25)
+
+`lib/auth/picker/cleanupStaleEntry.ts:107` calls `revalidatePath('/show/<slug>/<shareToken>')`. `revalidatePath` takes a path and ignores the query string, and the picker is commonly reached at `?gate=skip`, so that variant's entry is not invalidated. This is the same defect fixed in `_PickerInterstitial`'s select-identity form action, where a roster tap set the cookie and then re-served the picker, leaving the person exactly where they were until a reload.
+
+**Why it is low here, not the same severity.** The intended screen after a stale-entry cleanup IS the picker, so the user is already looking at the right thing — unlike the select case, where the intended screen was the resolved show. `_StaleCleanupAutoSubmit`'s effect has an empty dependency array, so a stale render cannot re-submit in a loop. The worst observable outcome is a cleared stale-entry hint lingering until the next navigation.
+
+**Why it was not fixed alongside the select case:** the fix there is verified by a prod-build e2e (`CI=1` picker-flow, the guest case). The stale path has no equivalent, and shipping an unverified change to a second Server Action to claim a complete sweep would be worse than recording the instance. The comment in `_StaleCleanupAutoSubmit.tsx` now states the caveat rather than the old claim that the user "sees the fresh picker on next render."
+
+**What remains:** decide whether the cleanup action should redirect to the canonical URL like the select action now does, and write a prod-build e2e for one of `epoch_stale | removed_from_roster | identity_invalidated` first so the change is provable. **Trigger:** the next change to the stale-cleanup path, or any report of a stale hint persisting.
+
 ---
+
+---
+
+## BL-CI-UNIT-GATE-EXCLUSIONS — gate the two files excluded from the full-suite job — ✅ RESOLVED (2026-08-09, closed on verification: the work landed under the CI-dark cluster; no new code)
+
+**Resolved by:** PR3 of the CI-dark coverage cluster (2026-07-26: `pg-cron-coverage` promoted into `unit-suite-db`) and `feat/ci-dark-vitest-exclusion` (PR-B of the ci-dark descoped close-out, 2026-07-31: `tests/admin/test-auth-gate.test.ts` returned to the unit suite — 24 passed / 3 skipped, 5x stability-looped before its exclusion row came out). The single remaining exclusion, `tests/cross-cutting/email-canonicalization.test.ts`, is deliberate and structurally gated: execution is proven by the x5 job's verbatim `pnpm run-excluded` step (`ENV_BOUND_COVERAGE_REGISTRY`, verified by `tests/ci/_metaEnvBoundExclusionCoverage.test.ts`), so "excluded from the full-suite job" no longer means "ungated". Verified 2026-08-09 against `unit-suite.yml`'s header comment (ONE file excluded, each excluded file gated elsewhere) and the coverage meta-test. Both halves of this entry's promotion prerequisite are therefore discharged — (a) by promotion into `unit-suite-db` rather than a remote-validation leg, (b) by the PR-B root-cause and stability work — and the entry closes with no new code. Recorded by `ci/unit-gate-exclusions`.
+
+**Original entry (filed 2026-06-22; UPDATED 2026-07-26; both stale states preserved verbatim as history):**
+
+> **UPDATED 2026-07-26 (PR3 of the CI-dark coverage cluster).** This entry described THREE excluded files and repeated the false premise that the local-bootstrap runner cannot provide pg_cron. `scripts/ci/supabase-local-bootstrap.sh` holds the guarded migrations aside for the INITIAL boot only, then applies them with `supabase migration up --include-all`, so that runner has always had them. `pg-cron-coverage` is no longer excluded and now runs in `unit-suite-db`; TWO files remain excluded. The promotion work this entry proposed for pg-cron-coverage is DONE — do not redo it.
+
+**Filed:** 2026-06-22 (alongside the `unit-suite.yml` full-vitest CI gate that closed the "no gate runs `pnpm test`" gap). The new gate runs the whole vitest suite minus two files that need environments the local-bootstrap runner can't provide:
+
+- `tests/cross-cutting/pg-cron-coverage.test.ts` — live-DB introspection of `cron.job` rows. The shared `supabase-local-bootstrap.sh` deliberately HOLDS ASIDE the two GUC-guarded `pg_cron` migrations (`app.fxav_vercel_url`), so no cron jobs exist locally → the test expects 9, gets 0. It is designed for the validation project (`TEST_DATABASE_URL` + `VALIDATION_SUPABASE_PROJECT_REF`), like `validation-schema-parity`.
+- `tests/admin/test-auth-gate.test.ts` — the 3 Layer-2 "HTTP positive-path" tests drive a real Supabase `auth.admin.createUser → signInWithPassword` chain that returns 501 without the running instance's matching service-role key + a working GoTrue. They do NOT skip-when-unreachable by design (Codex M3 R2: "opportunistic skip is the wrong default for security tests"), so they fail rather than skip locally.
+- `tests/cross-cutting/email-canonicalization.test.ts` — three tests set an EXPLICIT 15s per-test timeout while doc-scanning the large master spec + plan. Under full-suite concurrency on the 2-core CI runner they starve and time out, but pass STANDALONE (isolated resources) in the `x5-email-canonicalization` gate that already covers this file. (Surfaced on the gate's first real-CI run — the local-passes-CI-fails class the gate exists to catch, applied to itself.)
+
+**Why backlog, not now:** both were ALREADY ungated before `unit-suite.yml`, so excluding them is not a regression — the gate's job was to cover the 6800+ tests that had NO gate at all. Wiring the two excluded files needs either a remote-validation job variant (TEST_DATABASE_URL pointed at the validation project, mirroring `validation-schema-parity`/`postgrest-dml-lockdown`) or a live-auth setup that provisions the matching service-role key. The `test-auth-gate` 501 may also indicate the Layer-2 tests have drifted since a route change — investigate before gating (don't freeze a possibly-broken security test green).
+
+## **Promotion prerequisite:** a CI pass that adds (a) a remote-validation matrix leg for `pg-cron-coverage` + (b) a live-auth setup (or a root-cause fix) for `test-auth-gate` Layer 2, each verified green in real CI before being added to the gate's run set.
 
 ### BL-CREW-FIELD-ENRICHMENT — Surface already-captured-but-unprojected crew-page fields (flights, Wi-Fi SSID/PW split, room-within-venue)
 
