@@ -191,6 +191,14 @@ export function useBellBadge(
     let current = true;
     void seedPromise.then((value) => {
       if (!current) return; // superseded by a newer promise
+      if (claimedRef.current && value.kind !== "ok") {
+        // A KNOWN failed read: apply the bell's ratified posture at once (keep
+        // the last-known count, mark it degraded) instead of deferring the
+        // signal to a demoted fetch that can hang. `ingestPropValue` is the same
+        // path a synchronous infra_error prop takes.
+        ingestPropValue(value);
+        return;
+      }
       if (claimedRef.current) {
         // Non-virgin: the seed is stale by the time it arrives. The bell's
         // stale-value posture is DEMOTE-to-fresh-fetch (never a direct paint),

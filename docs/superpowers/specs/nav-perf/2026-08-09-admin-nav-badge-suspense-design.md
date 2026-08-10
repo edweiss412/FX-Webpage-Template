@@ -122,6 +122,10 @@ Attention chip states: pending (null, hidden), hidden (resolved 0 or infra_error
 3. **The other layout barriers remain** (§3.4). First-paint is bounded below by identity+health, by design.
 4. **Promise-prop streaming is Next-version-coupled.** The spike (§3.5) is the ratification gate; the spec deliberately does not assert the framework contract from memory, and the no-framework fallback (client-side first-fetch seeding) is recorded in §3.5.
 
+5. **A KNOWN-failed seed applies its posture immediately; only an `ok` value demotes** (diff review R1 F2). A non-virgin seed resolving `infra_error` does NOT ride the demote-to-fetch path — the demoted fetch can hang, and until it lands the badge would show a count the server has just said it cannot stand behind. The attention chip hides (D-4) and the bell degrades at the instant the seed resolves; only a successful-but-stale count demotes. Pinned by the two "non-virgin seed resolving infra_error" cases.
+
+6. **The last-known-good count is RETAINED while a newer read is in flight, and this is deliberate** (diff review R1 F1, refuted as a defect and recorded here so it is not re-derived). Two orderings were probed: (a) a seed commits 5, a newer promise arrives and HANGS — the badge keeps showing 5; (b) a seed commits, a newer promise demotes to fetch F2, a third promise arrives and hangs, and F2 then resolves and paints. Neither is a stale paint. In (a) no newer value exists — 5 was true as of the last completed read, and blanking to the pending shape on every layout re-render would flicker the badge empty on every `router.refresh` while telling the user strictly less. In (b) F2 is a LIVE client fetch issued after its seed resolved, so its result is the freshest thing the client can obtain; if the third promise later resolves it demotes to its own fetch, whose newer monotonic token supersedes F2's. The general rule: **arrival of a newer promise invalidates the older SUBSCRIPTION, not the committed STATE** — state is only ever replaced by a value, never by the absence of one. Every case repopulates on the next pathname change.
+
 ## §6 Out of scope
 
 - Caching/tagging either loader (§1.5).

@@ -316,6 +316,25 @@ describe("useNeedsAttentionBadge — async seed arm (AC-3, AC-5)", () => {
     expect(attentionFetches).toHaveLength(1);
   });
 
+  // A seed carries its own KIND, and a failure is information the client already
+  // has. Demoting an infra_error to "go fetch instead" defers the signal to a
+  // request that can hang — and then a read the server told us FAILED is painted
+  // as a healthy count, with nothing marking it. The failure posture applies
+  // immediately; only an `ok` value (stale number, healthy read) demotes.
+  it("non-virgin seed resolving infra_error applies the fail-quiet posture immediately", async () => {
+    attentionCountsInOrder(); // any fetch would hang — the posture must not depend on one
+    const first = deferred<NeedsAttentionCountResult>();
+    const probe = renderAttention(first.promise);
+    await settle(() => first.resolve({ kind: "ok", count: 5 }));
+    expect(probe.paints.at(-1)).toBe(5);
+
+    const failed = deferred<NeedsAttentionCountResult>();
+    probe.rerender({ seed: failed.promise });
+    await settle(() => failed.resolve({ kind: "infra_error" }));
+
+    expect(probe.paints.at(-1)).toBeNull(); // chip hidden, ratified D-4
+  });
+
   it("§3.7 compound: P1 resolves AFTER P2 arrives → P1 is ignored, only P2 reaches the hook", async () => {
     const p1 = deferred<NeedsAttentionCountResult>();
     const p2 = deferred<NeedsAttentionCountResult>();
@@ -437,6 +456,23 @@ describe("useBellBadge — async seed arm (AC-4, AC-5)", () => {
     mockPathname = "/admin/settings";
     probe.rerender({ seed: hung });
     await waitFor(() => expect(probe.paints.at(-1)?.count).toBe(7));
+  });
+
+  // Twin of the attention case: an infra_error seed is a KNOWN failed read, so
+  // the bell's ratified posture (keep the last-known count, mark it degraded)
+  // applies at once rather than waiting on a demoted fetch that can hang.
+  it("non-virgin seed resolving infra_error degrades immediately, keeping the last-known count", async () => {
+    bellCountsInOrder(); // any demoted fetch would hang
+    const first = deferred<BellCountResult>();
+    const probe = renderBell(first.promise);
+    await settle(() => first.resolve({ kind: "ok", count: 4 }));
+    expect(probe.paints.at(-1)).toEqual({ count: 4, degraded: false });
+
+    const failed = deferred<BellCountResult>();
+    probe.rerender({ seed: failed.promise });
+    await settle(() => failed.resolve({ kind: "infra_error" }));
+
+    expect(probe.paints.at(-1)).toEqual({ count: 4, degraded: true });
   });
 
   it("§3.7 compound: P1 resolves AFTER P2 arrives → P1 is ignored, only P2 reaches the hook", async () => {

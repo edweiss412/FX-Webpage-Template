@@ -102,6 +102,15 @@ export function useNeedsAttentionBadge(
     let current = true;
     void seedPromise.then((value) => {
       if (!current) return; // superseded by a newer promise
+      if (claimedRef.current && value.kind !== "ok") {
+        // A failed read is information we ALREADY have. Demoting it to "fetch
+        // instead" defers the signal to a request that can hang, and until that
+        // request lands the badge shows a count the server just told us it could
+        // not stand behind. The fail-quiet posture (ratified D-4) applies now —
+        // the same treatment every other failed read on this hook gets.
+        ingestPropValue(null);
+        return;
+      }
       if (claimedRef.current) {
         // Non-virgin: the seed is a snapshot of the instant the LAYOUT rendered,
         // so it is stale by arrival and must never be painted directly. DEMOTE
