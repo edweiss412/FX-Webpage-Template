@@ -6959,8 +6959,6 @@ resolves.
 
 ---
 
-<<<<<<< HEAD
-
 ## BL-WIZARD-CONNECTOR-MAXW-INERT — the wizard step connector renders 0-width, so its `max-w` is a dead constraint — CLOSED 2026-08-10 (`feat/wizard-step-connector`)
 
 **Status:** CLOSED · **Severity:** LOW (cosmetic; an intended hairline separator never renders) · **Class:** UI correctness · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** S · **Reachability:** PROBED 2026-08-08 — measured `getBoundingClientRect()` in mobile-safari at 390px AND at 900px: both connectors are `0 × 1` at both widths.
