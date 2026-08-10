@@ -136,6 +136,22 @@ Three findings. Two were exact holes in assertions I had already written; the th
 
 **The use-site rewrite immediately found two sites the nine-name enumeration never covered**, both genuinely dark under the lint rule: `pillState` (a nested per-state ternary behind `cn(base, pillState)` — the rule follows a callee's arguments but does not enter a ternary) and `containerMaxWidth` (a ternary interpolated into a template-literal className). Both are now wrapped per BRANCH, because wrapping a ternary as a whole exposes neither branch. That is the derived cover paying for itself on the first run — the enumeration had been complete against its own list and wrong about the world.
 
+### §12.1g Round 6 BLOCKING, and the decision to delete the guard
+
+Round 6 returned BLOCKING with two findings, both on `canonicalClassConstWrap`: the hand-written identifier resolver does not follow TypeScript scoping (an out-of-scope block binding shadows it; two declarations sharing a label overwrite each other) and the bounded walk prunes valid paths (`seen` keyed only by declaration skips a later `SIZE_CLASS.sm` after `SIZE_CLASS.md`; the six-hop cap silently truncates composer chains). The prescribed repair was a checker-backed symbol graph keyed by `(symbol, property-key)` with cycle detection.
+
+Both findings are correct, and the reviewer named them for what they were: the SIXTH recurrence of "a name is not an identity" and another "the recognizer does not recognize enough".
+
+**Six rounds landed on this one file, and the last four were one question asked four ways** — *is THIS declaration the one the row means?* A name was not an identity, so uniqueness was added; uniqueness was not, so enclosing scope was added; scope was not, so use-site discovery was added; and use-site discovery needed a resolver, which round 6 showed does not match TypeScript's own scoping. The prescribed fix would have made the model agree with the rule by REBUILDING the rule's resolution — a static-analysis engine, inside a test, to pin nine constants.
+
+**Owner decision (2026-08-10): delete the guard.** The reasoning it rests on:
+
+- **The lint rule is the cover.** The nine constants are `cn(...)`-wrapped, which is the entire product change. `better-tailwindcss/enforce-canonical-classes` now traverses them, `pnpm lint` runs it, and `quality` (which runs lint) is a required CI context. Drift inside any of them fails CI on its own, with no guard at all.
+- **The wrap is already evidenced.** A3's commit records both halves of the behavioral proof: a planted `min-h-[44px]` was SILENT under `pnpm lint` pre-wrap in all three files and REPORTED post-wrap in each, with the AccentButton pair re-run after the first plant proved non-discriminating. That observation is what the guard was a proxy for.
+- **What is lost is a regression pin** whose subject the rule already covers. A future const that dodges the rule files as a NEW instance under spec §4 limit 2, exactly as that limit says.
+
+An intermediate design was built and rejected on measurement rather than taste: a behavioral probe that plants into each declaration IN MEMORY and asks the REAL eslint through `--stdin --stdin-filename`. It models nothing, so renames, scoping and composition cannot fool it — but each invocation took ~219s under this machine's load and still tripped synckit's `Atomics.wait` timeout, so nine of them is not a per-CI-run unit test. Its first form was worse and is worth recording: it wrote the plants into the real source files and restored them afterwards, and it left three production files modified when the run failed. A test that can corrupt the tree it is testing is a worse defect than the one it was written to catch.
+
 ### §12.2 Observed-RED transcripts index
 
 Every RED in this branch was observed against the live tree, and both observations recorded in the task's own commit message.
