@@ -52,7 +52,7 @@
  * stealing focus.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Moon, Sun, UserRoundCog } from "lucide-react";
+import { Check, Moon, UserRoundCog } from "lucide-react";
 
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { avatarColor } from "@/lib/crew/avatarColor";
@@ -250,7 +250,11 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
           data-testid="avatar-menu-popover"
           onKeyDown={onMenuKeyDown}
           className={cn(
-            "absolute right-0 top-[calc(100%+8px)] z-20 w-max min-w-56 origin-top-right",
+            // `max-w` is load-bearing: `w-max` is `width: max-content`, which the
+            // containing block does NOT clamp, so a long name plus a long role
+            // (roles like "A1 / V1 / BO / GAV" are real) runs off the left edge at
+            // 390px with no scroll recovery (impeccable P2).
+            "absolute right-0 top-[calc(100%+8px)] z-20 w-max min-w-56 max-w-[calc(100vw-2rem)] origin-top-right",
             "rounded-md border border-border bg-surface-raised p-1.5 shadow-popover",
             // Enter treatment per DESIGN §5; `motion-reduce` renders it instant
             // rather than removing it, so the reduced-motion path is a real
@@ -264,6 +268,10 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
             // traversal order, and the menu's accessible name derives from it.
             <div
               id={headerId}
+              // Focusable by script only, never in the tab order. Clicking the
+              // header used to drop focus to <body>, outside the popover's
+              // `onKeyDown`, so Escape stopped closing the menu (audit P3).
+              tabIndex={-1}
               data-testid="avatar-menu-identity"
               data-identity-chip-identity=""
               className="px-3 pb-2 pt-1.5 text-sm"
@@ -296,13 +304,37 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
               onClick={() => setTheme(isDark ? "light" : "dark")}
               className={itemClass}
             >
-              <span aria-hidden="true" suppressHydrationWarning className="inline-flex">
-                {mounted && isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              {/*
+                The glyph is FIXED (Moon) and the state is carried by a CHECK, not
+                by swapping the icon. The standalone ThemeToggle swaps Sun/Moon
+                because it is an ACTION button whose affordance is "this is what
+                you'll get if you tap" — but this row is a `menuitemcheckbox`
+                LABELLED "Dark mode", and a Sun beside that label reads as a
+                contradiction while leaving sighted users no visible checked state
+                at all (impeccable critique P1). A menu checkbox shows whether it
+                IS on; an action button shows what it WILL do. This is the former,
+                and `aria-checked` already said so to assistive tech.
+              */}
+              <Moon aria-hidden="true" className="size-4" />
+              <span className="flex-1">Dark mode</span>
+              <span
+                aria-hidden="true"
+                suppressHydrationWarning
+                data-testid="avatar-menu-theme-check"
+                className={cn("text-accent-on-bg", mounted && isDark ? "visible" : "invisible")}
+              >
+                <Check className="size-4" />
               </span>
-              Dark mode
             </button>
 
-            <form action={clearAction}>
+            {/*
+            `role="none"`: a `<form>` with no accessible name maps to `generic`,
+            and a generic child inside `role="menu"` violates ARIA 1.2's
+            required-owned-elements (impeccable audit P2). Removing the form is
+            not an option — it IS the server-action boundary carrying the route
+            inputs — so its role is removed and the submit stays the menu item.
+          */}
+            <form action={clearAction} role="none">
               <input type="hidden" name="slug" value={slug} />
               <input type="hidden" name="shareToken" value={shareToken} />
               <input type="hidden" name="showId" value={showId} />

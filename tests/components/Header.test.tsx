@@ -67,7 +67,11 @@ describe("Header rebalance (M4-D3)", () => {
 
   it("renders the FXAV wordmark at text-text-faint (was text-text-subtle)", () => {
     const { container } = render(<Header show={baseShow} />);
-    const wordmark = container.querySelector('p[aria-label="FXAV"]');
+    // Located by TESTID, not by `aria-label`: that attribute is prohibited on
+    // `role=paragraph` (ARIA 1.2) and was redundant with the element's own text,
+    // so it was removed (impeccable audit P3). The subject of this case is the
+    // wordmark's COLOR token, which is unchanged.
+    const wordmark = container.querySelector('[data-testid="page-header-fxav-wordmark"]');
     expect(wordmark).not.toBeNull();
     const cls = wordmark?.className ?? "";
     expect(cls).toContain("text-text-faint");

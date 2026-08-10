@@ -152,6 +152,12 @@ export async function Footer({
             ·
           </span>
           {/*
+            `text-text-subtle`, not `text-text-faint`, and the band is why: moving
+            this row from `bg-bg` to `bg-surface-raised` dropped faint copy to
+            3.35:1 light / 3.53:1 dark, under the WCAG AA 4.5:1 floor (impeccable
+            audit P1). Subtle measures 5.97:1 dark on this surface. The
+            `aria-hidden` separator dots stay faint — they are decoration, not copy.
+
             The freshness slot, three states kept VERBATIM from the stacked
             layout that preceded the band — this arc changed where they sit, not
             what they say or when they say it.
@@ -165,14 +171,14 @@ export async function Footer({
               />
             ) : asOf ? (
               <p>
-                <span className="text-text-faint">as of </span>
+                <span className="text-text-subtle">as of </span>
                 <time dateTime={asOf} className="font-medium text-text">
                   {formatAsOf(asOf)}
                 </time>
               </p>
             ) : (
               <p>
-                <span className="text-text-faint">syncing…</span>
+                <span className="text-text-subtle">syncing…</span>
               </p>
             )}
           </div>

@@ -130,8 +130,9 @@ export function Header({ show, identityChip, statusPill }: HeaderProps) {
             data-testid="page-header-right-slot"
             data-identity="none"
           >
+            {/* No `aria-label`: it is prohibited on `role=paragraph` (ARIA 1.2)
+                and redundant with the element's own text (audit P3). */}
             <p
-              aria-label="FXAV"
               className="hidden text-xs font-semibold uppercase tracking-eyebrow-strong text-text-faint sm:block"
               data-testid="page-header-fxav-wordmark"
             >
