@@ -6841,7 +6841,6 @@ converging to APPROVE. Two behavior-preserving extractions (`lib/admin/syncReque
 
 The id and its stale `ActiveShowsPanel` title are preserved verbatim so every cross-reference still
 resolves.
-<<<<<<< HEAD
 
 ### BL-CREW-FIELD-ENRICHMENT — Surface already-captured-but-unprojected crew-page fields (flights, Wi-Fi SSID/PW split, room-within-venue)
 
@@ -6890,5 +6889,3 @@ resolves.
 **Two live successors are filed separately**, so nothing is lost by closing this: `BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK` (the raw-fallback legs described in the correction above) and `DEFERRED.md` `TRAVEL-FLIGHT-SUPPRESSED-LEGIBILITY-1` (undated segments losing their only delimiter — a legibility concern on the structured card).
 
 **Un-archive contract:** if the structured card is ever rolled back to a raw `|`-split render — i.e. the DEFAULT path becomes unlabeled again, not merely the fallback — this entry's design question returns and the row should come back. Absent that rollback, re-filing it is re-litigating a shipped surface; the fallback path belongs to its successor row. Recorded by feat/crew-field-enrichment.
-=======
->>>>>>> origin/main
