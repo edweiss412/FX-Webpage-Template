@@ -1046,6 +1046,9 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "tests/components/admin/showpage/publishedReviewModal.test.tsx": 2,
         "tests/components/admin/wizard/Step2Verify.test.tsx": 1,
         "tests/components/step3SheetCard.test.tsx": 1,
+        // Anchor-freshness integration pair (spec 2026-08-09-m-wave-2 §2.3):
+        // three href assertions against the crew-page projection seam.
+        "tests/data/sourceAnchorFreshness.db.test.ts": 3,
         "tests/dev/fullSplitComposite.test.ts": 1,
         "tests/e2e/_pillFocusLiveEntry.tsx": 1,
         "tests/e2e/_publishedReviewModalHarness.tsx": 1,

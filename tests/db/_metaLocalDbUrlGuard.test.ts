@@ -394,7 +394,7 @@ describe(
       const scanned = scanTree();
       expect(
         scanned.length,
-        "expected 71 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
+        "expected 67 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
           "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts " +
           "+ tests/db/tileAlertResolution.db.test.ts " +
           "+ tests/db/watchRenewalDue.test.ts (watch lease slack; deletes rows, local-only) " +
@@ -418,6 +418,8 @@ describe(
           "test, 2026-08-09; runs promoteSettings's GLOBALLY-scoped channel statements and " +
           "captures/restores drive_watch_channels, app_settings and the orphan alert, " +
           "local-only) " +
+          "+ tests/sync/backfillAnchorsToctou.db.test.ts (the anchor-backfill TOCTOU rows, " +
+          "2026-08-10; seeds and deletes one fixture shows row, local-only) " +
           "+ tests/db/syncLogAttribution.db.test.ts + tests/db/syncLogIndexesAndPrune.db.test.ts " +
           "(the sync-log attribution oracle and its migration suite, 2026-08-10; both write and " +
           "prune sync_log rows, local-only) " +
@@ -427,7 +429,7 @@ describe(
           "+ tests/db/resetValidationDataPostgrest.test.ts (the fifth whole-DB-wipe suite, swept " +
           "2026-08-10; it wipes over PostgREST rather than a postgres connection, so its REST " +
           "endpoint is asserted loopback too)",
-      ).toBe(71);
+      ).toBe(72);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {

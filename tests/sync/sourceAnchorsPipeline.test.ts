@@ -12,6 +12,7 @@
  *     as the raw JS object (not double-stringified). Concrete failure mode: the UPDATE arm
  *     omits source_anchors = $N::jsonb → the column stays '{}' even when sourceAnchors is set.
  */
+import { readFileSync } from "node:fs";
 import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
 import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
@@ -875,4 +876,127 @@ describe("sourceAnchors staged-wipe regression (Task 6 regression)", () => {
       ).toEqual(T6R_REPLACEMENT_ANCHORS);
     },
   );
+});
+
+// ── Anchor revision stamp (spec 2026-08-09-m-wave-2 §2.3) ────────────────────
+//
+// Every fresh anchor write stamps source_anchors_modified_time with the
+// modifiedTime the anchors were computed from; the preserve arm keeps the old
+// stamp WITH the old map. The preserve row is the entry's original bug made
+// detectable: anchors survive a degraded pass while last_seen advances, so the
+// stamp now disagrees with the data revision and readers demote to #gid=0.
+describe("source_anchors_modified_time stamping (spec §2.3)", () => {
+  test.skipIf(!t6DbUp)("a fresh anchor write stamps the processed revision", async () => {
+    await t6Sql!.unsafe(
+      `insert into public.shows (drive_file_id, slug, title, client_label, template_version,
+         last_seen_modified_time, last_synced_at, last_sync_status, last_sync_error)
+       values ($1, $2, 'Stamp Fixture Show', 'Stamp Corp', 'v4', $3::timestamptz, now(), 'ok', null)`,
+      [T6R_DRIVE_FILE_ID, T6R_SLUG, T6R_MODIFIED_TIME_1],
+    );
+
+    await withPostgresSyncPipelineLock(T6R_DRIVE_FILE_ID, async (lockedTx) =>
+      lockedTx.applyShowSnapshot({
+        driveFileId: T6R_DRIVE_FILE_ID,
+        modifiedTime: T6R_MODIFIED_TIME_2,
+        staleGuard: "less_than_or_equal",
+        parseResult: T6_PARSE_RESULT,
+        slug: T6R_SLUG,
+        sourceAnchors: T6R_INITIAL_ANCHORS,
+      }),
+    );
+
+    const rows = (await t6Sql!.unsafe(
+      `select source_anchors_modified_time, last_seen_modified_time
+         from public.shows where drive_file_id = $1`,
+      [T6R_DRIVE_FILE_ID],
+    )) as Array<{ source_anchors_modified_time: string; last_seen_modified_time: string }>;
+    expect(new Date(rows[0]!.source_anchors_modified_time).toISOString()).toBe(T6R_MODIFIED_TIME_2);
+    // Fresh write: stamp equals the data revision → readers serve the deep link.
+    expect(new Date(rows[0]!.source_anchors_modified_time).toISOString()).toBe(
+      new Date(rows[0]!.last_seen_modified_time).toISOString(),
+    );
+  });
+
+  test.skipIf(!t6DbUp)(
+    "the preserve arm keeps the OLD stamp while last_seen advances (stale becomes detectable)",
+    async () => {
+      await t6Sql!.unsafe(
+        `insert into public.shows (drive_file_id, slug, title, client_label, template_version,
+           last_seen_modified_time, last_synced_at, last_sync_status, last_sync_error,
+           source_anchors, source_anchors_modified_time)
+         values ($1, $2, 'Stamp Fixture Show', 'Stamp Corp', 'v4', $3::timestamptz, now(), 'ok', null,
+                 $4::jsonb, $3::timestamptz)`,
+        [T6R_DRIVE_FILE_ID, T6R_SLUG, T6R_MODIFIED_TIME_1, T6R_INITIAL_ANCHORS],
+      );
+
+      // Degraded pass (gid fetch failed): no sourceAnchors, data advances to T3.
+      await withPostgresSyncPipelineLock(T6R_DRIVE_FILE_ID, async (lockedTx) =>
+        lockedTx.applyShowSnapshot({
+          driveFileId: T6R_DRIVE_FILE_ID,
+          modifiedTime: T6R_MODIFIED_TIME_3,
+          staleGuard: "less_than_or_equal",
+          parseResult: T6_PARSE_RESULT,
+          slug: T6R_SLUG,
+          // sourceAnchors omitted — the preserve arm
+        }),
+      );
+
+      const rows = (await t6Sql!.unsafe(
+        `select source_anchors, source_anchors_modified_time, last_seen_modified_time
+           from public.shows where drive_file_id = $1`,
+        [T6R_DRIVE_FILE_ID],
+      )) as Array<{
+        source_anchors: unknown;
+        source_anchors_modified_time: string;
+        last_seen_modified_time: string;
+      }>;
+      // Map preserved with its ORIGINAL stamp; data revision moved on.
+      expect(rows[0]!.source_anchors).toEqual(T6R_INITIAL_ANCHORS);
+      expect(new Date(rows[0]!.source_anchors_modified_time).toISOString()).toBe(
+        T6R_MODIFIED_TIME_1,
+      );
+      expect(new Date(rows[0]!.source_anchors_modified_time).toISOString()).not.toBe(
+        new Date(rows[0]!.last_seen_modified_time).toISOString(),
+      );
+    },
+  );
+});
+
+// ── Legacy backfill proof (spec AC-M3): a pre-migration populated-anchor row is
+// grandfathered — stamp initialized to its own last_seen_modified_time, so the
+// deep link renders identically post-migration. Runs the REAL migration file
+// (idempotent: the DO block only touches rows whose stamp is NULL).
+describe("legacy anchor-stamp backfill (migration 20260810150000)", () => {
+  test.skipIf(!t6DbUp)("a populated legacy row is stamped with its own watermark", async () => {
+    await t6Sql!.unsafe(
+      `insert into public.shows (drive_file_id, slug, title, client_label, template_version,
+         last_seen_modified_time, last_synced_at, last_sync_status, last_sync_error,
+         source_anchors, source_anchors_modified_time)
+       values ($1, $2, 'Legacy Backfill Show', 'Legacy Corp', 'v4', $3::timestamptz, now(), 'ok', null,
+               $4::jsonb, null)`,
+      [T6R_DRIVE_FILE_ID, T6R_SLUG, T6R_MODIFIED_TIME_1, T6R_INITIAL_ANCHORS],
+    );
+
+    const migrationSql = readFileSync(
+      "supabase/migrations/20260810150000_source_anchors_modified_time.sql",
+      "utf8",
+    );
+    await t6Sql!.unsafe(migrationSql);
+
+    const rows = (await t6Sql!.unsafe(
+      `select source_anchors, source_anchors_modified_time, last_seen_modified_time
+         from public.shows where drive_file_id = $1`,
+      [T6R_DRIVE_FILE_ID],
+    )) as Array<{
+      source_anchors: unknown;
+      source_anchors_modified_time: string;
+      last_seen_modified_time: string;
+    }>;
+    expect(rows[0]!.source_anchors).toEqual(T6R_INITIAL_ANCHORS);
+    // Grandfathered: stamp === own watermark → freshSourceAnchors serves the map,
+    // so the pre-migration deep link renders identically post-migration.
+    expect(new Date(rows[0]!.source_anchors_modified_time).toISOString()).toBe(
+      new Date(rows[0]!.last_seen_modified_time).toISOString(),
+    );
+  });
 });

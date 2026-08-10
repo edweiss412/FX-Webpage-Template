@@ -1,3 +1,4 @@
+import { freshSourceAnchors } from "@/lib/sheet-links/freshSourceAnchors";
 import type {
   ClientContact,
   ContactKind,
@@ -98,7 +99,15 @@ export function buildPublishedSectionData(
     warnings: (internal?.parse_warnings as ParseWarning[] | undefined) ?? [],
     useRawDecisions: (internal?.use_raw_decisions as UseRawDecision[] | undefined) ?? [],
     rawUnrecognized: (internal?.raw_unrecognized as ParseResult["raw_unrecognized"] | null) ?? null,
-    sourceAnchors: (show.source_anchors as PublishedSectionData["sourceAnchors"] | undefined) ?? {},
+    // Anchor freshness gate (spec 2026-08-09-m-wave-2 §2.3): the snapshot RPC hands
+    // over the full shows row (to_jsonb), so both stamps ride along; anchors from an
+    // older revision demote to the builder's #gid=0 fallback here exactly as on the
+    // crew path.
+    sourceAnchors: freshSourceAnchors(
+      show.source_anchors as PublishedSectionData["sourceAnchors"] | null | undefined,
+      str(show.source_anchors_modified_time),
+      str(show.last_seen_modified_time),
+    ),
     driveFileId: str(show.drive_file_id) ?? null,
   };
 }

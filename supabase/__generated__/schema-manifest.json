@@ -439,6 +439,7 @@
     "requires_resync",
     "slug",
     "source_anchors",
+    "source_anchors_modified_time",
     "template_version",
     "title",
     "unpublish_token",

@@ -4119,7 +4119,7 @@ Nothing shipped depends on that atomicity today, which is why this is not urgent
 
 `WATCH_CHANNEL_ORPHANED` is global — one unresolved row for the whole system (`show_id IS NULL`, `admin_alerts_one_unresolved_idx`, `supabase/migrations/20260501001000_internal_and_admin.sql:279-280`) — and carries no folder identity. Meanwhile `refreshWatchSubscriptions` renews **every** active channel without consulting `app_settings` (`lib/drive/watch.ts:196-210`), and folder promotion supersedes nothing (`app/api/admin/onboarding/finalize-cas/route.ts:779-804`). So after a folder switch, an old folder's renewal failure raises an alert that describes the _current_ folder, and escalation reports the current folder's name for a failure that happened elsewhere.
 
-## **Fix direction:** either scope the alert per folder (context key plus dedup change) or have refresh skip channels whose folder is not the configured one, letting old-folder channels expire naturally.
+**Fix direction:** either scope the alert per folder (context key plus dedup change) or have refresh skip channels whose folder is not the configured one, letting old-folder channels expire naturally.
 
 ## BL-STANDALONE-CONFIG-CI-DARK — the standalone real-browser specs run in no CI job — ✅ RESOLVED (2026-07-26)
 
@@ -4409,7 +4409,7 @@ A sweep of every Drive/Sheets API call — `grep -rnE '\.(files|channels|revisio
 
 Each can stall its request indefinitely, the same class `BL-WATCH-DRIVE-CALL-TIMEOUT` closed for the watch surface. Out of scope there because they are route-level asset paths with their own budgets and no backlog entry claimed them.
 
-## **Method note for whoever picks this up:** sweep by API CALL, not by `getDriveClient()`. A construction-site grep misclassifies at least four already-bounded `lib/` sites, and `rg -E` is `--encoding` in this repo, so use `grep -rnE`.
+**Method note for whoever picks this up:** sweep by API CALL, not by `getDriveClient()`. A construction-site grep misclassifies at least four already-bounded `lib/` sites, and `rg -E` is `--encoding` in this repo, so use `grep -rnE`.
 
 ---
 
@@ -4472,7 +4472,7 @@ Scenario: the archive RPC's show invalidation publishes before the server action
 
 **The gap:** an armed Archive can still race a refresh triggered from another source (realtime, a sibling tab, a server action completing), and nothing now covers that. The old case exercised it via a route the UI no longer permits.
 
-## **If picked up:** drive the concurrent refresh from something other than a second user gesture — e.g. dispatch a realtime event or navigate the router directly while the popover is open — rather than trying to click a control the backdrop covers.
+**If picked up:** drive the concurrent refresh from something other than a second user gesture — e.g. dispatch a realtime event or navigate the router directly while the popover is open — rather than trying to click a control the backdrop covers.
 
 ## BL-CI-VITEST-EXCLUSION-COVERAGE — prove an `ENV_BOUND_EXCLUDES` entry runs somewhere — ✅ RESOLVED (2026-07-31, ci-dark descoped close-out PR-B)
 
@@ -6794,6 +6794,73 @@ the migration marker; zero `re-kinded by classifier` markers remain (grep-provab
 marker. The 35 rows that stayed `signal_loss` are untouched (out of scope by this entry's
 own text).
 
+## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link — RESOLVED 2026-08-10 (`feat/m2-sync-fault-codes`)
+
+**Filed:** 2026-08-03 (surfaced by the cross-model review of the `fix/onboarding-cas-source-anchors` spec). **Class:** data fidelity. **Effort:** M (needs a schema decision first).
+
+Every writer of `shows.source_anchors` preserves the stored map rather than clearing it when a scan could not compute anchors: the cron path emits `undefined` on a genuine sheets-list failure so the coalesce keeps the old value (`lib/sync/runScheduledCronSync.ts:3073`, `lib/sync/runScheduledCronSync.ts:1527`), the wizard scan degrades to `{}` on a gid-fetch failure (`lib/sync/runOnboardingScan.ts:1350`), and both finalize flows omit the arg rather than passing a defined `{}`. That is the right trade — the alternative wipes every good anchor on a transient Drive hiccup — but it has a blind spot: the same apply advances `shows.last_seen_modified_time`, so the show now carries data from revision R2 alongside anchors computed for R1.
+
+`lib/sheet-links/buildSheetDeepLink.ts:22` cannot detect this. It guards structure only (allowlisted title, numeric gid), so an R1 anchor is accepted and the "In sheet" link opens the old range instead of falling back to `#gid=0`. The mis-link persists until a later anchor-writer run over that sheet either produces a non-empty map or clears the stale one — and nothing schedules such a run. Below the watermark an automatic pass skips the file entirely (`lib/sync/perFileProcessor.ts:337`). The wizard re-onboard path is the one that can hold a stale map indefinitely: it preserves on ANY empty scan because `pending_syncs.source_anchors` cannot distinguish a transient Drive failure from a workbook with no recognized regions, whereas a sync pass distinguishes exactly one cause and clears on the rest (`lib/sync/runScheduledCronSync.ts:3073`).
+
+**Work:** store the revision the anchors were computed from (a `source_anchors_modified_time` column, or a stamp inside the jsonb) and have the deep-link builder fall back to `#gid=0` when it does not match `last_seen_modified_time`. The schema decision is the gate — a sibling column is simplest but adds a write to every anchor-writing path; an in-jsonb stamp keeps it to one column and one coalesce but changes the map's shape for every reader.
+
+**Why backlog, not deferred:** the failure needs an empty-anchor scan AND a row-moving sheet edit in the same window, and the visible symptom is a deep link that opens the wrong range — not data loss. No trigger scheduled. Documented as an accepted limit at `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md` §4.1.
+
+**Status:** RESOLVED 2026-08-10
+
+---
+
+**Resolution (2026-08-10, `feat/m2-sync-fault-codes`, M-wave 2 W-SYNC).** Fixed as
+ratified (sibling column `shows.source_anchors_modified_time`, spec §2.3). Migration
+`20260810150000` adds the nullable stamp + the per-show-locked legacy backfill (stamp
+= own `last_seen_modified_time` where anchors are non-empty — the entry's accepted
+staleness window, now bounded per-show; wave spec §4 limit 9). Every
+`shows.source_anchors` write funnels through the ONE `applyShowSnapshot` surface,
+whose three statements stamp fresh writes with the processed revision and preserve
+the old stamp with the preserved map — the entry's degrade path (gid fetch failed,
+anchors preserved, data advanced) is now DETECTABLE as stamp ≠ watermark. Readers
+demote through the ONE shared `freshSourceAnchors` helper at both shows-row
+projections (`getShowForViewer`, `publishedAdapter`) to the builder's existing
+`#gid=0` fallback arm; NULL stamp = mismatch. The validation backfill script gained
+the W1/W2 TOCTOU guard (raced → NULL stamp + surfaced re-run warning). Validation
+project: column applied surgically + manifest regenerated (three-step checklist).
+
+### BL-PREPARE-INTERNAL-FAULT-KIND — a third fault kind for post-parse internal helpers — RESOLVED 2026-08-10 (`feat/m2-sync-fault-codes`)
+
+**Status:** RESOLVED (2026-08-10; filed 2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
+
+`PrepareOnboardingFileError` has two kinds, `drive_fetch` and `parse`, and the post-parse internal helpers (`finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun`'s fix-up, `applyRoleTokenMappings`) currently fall to `drive_fetch` — today's unchanged behavior. Neither code is right for them: a bug in the role-mapping overlay is not a Drive failure, and it is not something Doug fixes by editing his sheet either, so `STAGED_PARSE_FAILED` ("fix its structure", `warn` severity) would be a new wrong instruction. **Fix (when prioritized):** a third `internal` kind mapped to a code that tells the operator to contact the developer, with the finalize severity staying `error`. Needs a new §12.4 row and the full four-gate CI fan-out, which is why it was not folded into the batch that surfaced it.
+
+screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is deterministic rather than hypothetical. Verified 2026-08-04: `PrepareOnboardingFileError.kind` is the two-member union `"drive_fetch" | "parse"` at `lib/sync/runOnboardingScan.ts:1164-1172` (repeated in `asPrepareError` at `:1177`), there is no `"internal"` anywhere under `lib/sync/`, and the doc comment at `:1154` states outright that `drive_fetch` is "everything else, deliberately including the post-parse" helpers. All four helpers the entry names exist and are reachable: `applyRoleTokenMappings` (`lib/sync/roleMappingOverlay.ts:62`), `reconcileIncludedTab` (`lib/sync/pullSheetOverride.ts:157`), `discardAndRerun` (`:199`), `finalizeArchivedTabs` (`:229`). A precedent for the operator-facing code already exists at `lib/messages/catalog.ts:812` (`ONBOARDING_FINALIZE_INTERNAL_ERROR`). Every one of those faults reports today as a Drive failure.
+
+**Resolution (2026-08-10, `feat/m2-sync-fault-codes`, M-wave 2 W-SYNC).** Fixed as ratified
+(spec 2026-08-09-m-wave-2-design §2.3). `PrepareOnboardingFileError.kind` gained
+`"internal"`, raised via call-site wraps around the four post-parse helpers in
+`prepareOne` (covering every consumer of the shared prepare path); identity still beats
+site (WorkbookSynthesisError → parse, DriveFetchError → drive_fetch, including through
+the wraps). Consumers map it to the NEW §12.4 code `ONBOARDING_INTERNAL_ERROR`
+(contact-the-developer copy; full lockstep triple + helpfulContext appendix + catalog
+row; the ONBOARDING prefix already families it on /help/errors); finalize per-row
+severity stays `error` (`lib/onboarding/finalizeRowSeverity.ts`). RED observed on all
+four helper faults (previously drive_fetch) and both consumer mappings.
+
+### BL-CRON-WORKBOOK-FAULT-CODE — a corrupt workbook on the cron path reports SYNC_FILE_FAILED — RESOLVED 2026-08-10 (`feat/m2-sync-fault-codes`)
+
+**Status:** RESOLVED (2026-08-10; filed 2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
+
+The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
+
+**Resolution (2026-08-10, `feat/m2-sync-fault-codes`, M-wave 2 W-SYNC).** Fixed as
+ratified: `classifySyncFailure` keys on the `WorkbookSynthesisError` type and returns
+`PARSE_ERROR_LAST_GOOD` (existing code + copy, NO new §12.4 row). The RED's family
+assertion decided the wrapper arm the entry left open: `handleFetchFailure_unlocked`
+now presents an existing show's synthesis fault parse-family (status `parse_error`
+via `updateShowParseError`, PARSE_ERROR_LAST_GOOD alert, last-good payload untouched)
+instead of `drive_error` + a DRIVE_FETCH_FAILED alert. First-seen carve (deliberate,
+documented in the test): no show row = no last-good, so the pending_ingestions row
+keeps SYNC_FILE_FAILED — PARSE_ERROR_LAST_GOOD's copy would promise a previous
+version that does not exist. Producer-wiring pin extended to both producers.
+
 ---
 
 ---
@@ -6841,6 +6908,54 @@ converging to APPROVE. Two behavior-preserving extractions (`lib/admin/syncReque
 
 The id and its stale `ActiveShowsPanel` title are preserved verbatim so every cross-reference still
 resolves.
+
+### BL-CREW-FIELD-ENRICHMENT — Surface already-captured-but-unprojected crew-page fields (flights, Wi-Fi SSID/PW split, room-within-venue)
+
+**Filed:** 2026-06-18, during the crew-page redesign Phase 2 spec adversarial review (R16-MEDIUM). The Phase-1 spec's prose originally lumped several field-enrichments into "Phase 2," but the Phase-2 spec was scoped to **AGENDA run-of-show only**. To single-source the phase boundary (so an implementer can't read Phase-1 as promising Travel-flight work that Phase-2 doesn't deliver), these three field-enrichments are split out here and the Phase-1 references were corrected to point at this item.
+
+**Effort:** M
+
+**Distinction from `BL-CREW-SHEET-TEMPLATE-V2`:** that entry is about a NEW standardized _source_ sheet (making genuinely-absent fields reliably present). THIS entry is about _surfacing fields that the organic sheets already carry_ (and the parser already captures or trivially could) but the projection/UI never exposes — no new source needed, just projection + UI + tests.
+
+**Scope (each upgrades a Phase-1 section/empty-state in place):**
+
+- **Per-crew flight surfacing.** `crew_members.flight_info` is already parsed (`lib/parser/types.ts:71`, `lib/parser/blocks/crew.ts:248`) but is **not** in the `ShowForViewer` projection and renders no UI. Add: the projection field, the Travel-section "flights" block (gated like ground transport — only the assigned crew member / admin sees their own flight PII), and a non-null flight test. Filled in ~1 of 7 organic sheets today, so it ships behind an honest empty state.
+- **Wi-Fi SSID/PW structured split.** Phase 1 shows the raw `event_details.internet` string in Venue (raw display IS in scope and ships in v1). This item adds a structured SSID/PW parse so the two render as discrete labeled fields. Reliable in only 2 of 7 organic sheets — fail-soft to the raw string when unsplittable.
+- **Room-within-venue name** structured capture (lives in EVENT DETAILS / section headers today, not a clean field).
+
+**Why backlog, not deferred:** no committed v1 trigger; these are honest-empty-state enrichments, not gaps that block launch (Phase 1 + Phase 2 ship complete without them). Each needs a small spec/plan (projection + UI + gating + tests). The flight block in particular needs a trust-boundary decision (per-crew flight PII visibility) mirroring `transportTileVisible`.
+
+**Promotion prerequisite:** owner prioritization OR post-launch operator feedback that a specific field (most likely flights) is a real friction point. Promotion starts with a brainstorming session per field (the flight trust boundary is the load-bearing design question).
+
+**RESOLVED 2026-08-09** — branch `feat/crew-field-enrichment`. All three bullets are closed. ONE of them — the flight bullet — was already closed when this arc opened, and the entry still described it as unshipped; that stale claim is itself part of the record below. The Wi-Fi and Room bullets shipped on this branch.
+
+- **Per-crew flight surfacing — SHIPPED EARLIER, and the bullet above was STALE.** Its claim that `crew_members.flight_info` is "not in the `ShowForViewer` projection and renders no UI" stopped being true before this arc: the projection reads it as `viewerFlightInfo` via an own-row read (`lib/data/getShowForViewer.ts`, `.eq("id", viewer.crewMemberId).eq("show_id", showId)`), `components/crew/sections/TravelSection.tsx` renders the "Your flight" card (`data-card-id="travel-flight"`), and `tests/data/getShowForViewerFlight.test.ts` pins it. The trust-boundary decision this bullet called load-bearing was made there, mirroring `transportTileVisible` as the bullet proposed. The stale claim is recorded rather than quietly deleted, because a reader who trusted it would have re-implemented shipped work.
+- **Wi-Fi SSID/PW structured split — SHIPPED HERE.** `lib/crew/wifiDisplay.ts` (`parseWifiValue`) splits the raw `event_details.internet` cell at display time, mirroring the `flightDisplay.ts` precedent — no parser, schema, or projection change. `VenueSection` renders "Wi-Fi network" / "Wi-Fi password" / "Internet notes" rows on a successful split and today's raw row byte-identically otherwise, pinned by a captured pre-change render. The bullet's "reliable in only 2 of 7 organic sheets — fail-soft to the raw string when unsplittable" survived the full-corpus re-probe with a corrected count: 4 of 10 fixture shows and 2 of 4 live sheets split; the rest fall back.
+- **Room-within-venue name — SHIPPED HERE, and needed NO new capture.** The bullet's premise ("lives in EVENT DETAILS / section headers today, not a clean field") was half wrong: the probe found the room on ROOMS header line 2, never in EVENT DETAILS, and the parser already captures it as `rooms[].name` with the section prefix stripped. The enrichment was therefore one Venue fact row over existing data, suppressed for a parser-synthesized `General Session` fallback name, an empty name, zero rooms, and a rooms fetch failure.
+
+**Design + acceptance:** `docs/superpowers/specs/crew/2026-08-09-crew-wifi-room-enrichment-design.md` (§6 carries the documented limits, including the two suppression rules that will look like bugs to anyone who has not read them, and the ambiguity limits added during whole-diff review; the list is the spec's, deliberately not restated with a count here — a number in this record has to be re-synced every time §6 grows, and has twice been found stale). Recorded by feat/crew-field-enrichment.
+
+---
+
+### BL-FLIGHT-LEG-ORIENTATION — arrival/departure labels + richer flight-leg layout
+
+**Filed:** 2026-06-19 (crew-page Phase 3 per-crew flight info, impeccable v3 dual-gate LOW/MED note). The "Your flight" card renders each `flight_info` leg (split on the TECH-path `" | "`) as an unlabeled text line. The impeccable critique noted there is no arrival/departure orientation cue between the two legs, the confirmation code is buried mid-string, and the raw passthrough is slightly spreadsheet-flavored.
+
+**Effort:** M
+
+**Why backlog, not now:** intentional per the ratified spec decision to render the raw `" | "`-split legs WITHOUT deep-structuring (the split is positional — for a round-trip the first leg is arrival, second is departure, but a one-way leg cannot be disambiguated, and deep-parsing route/airline/time/conf from the space-separated string is fragile/YAGNI). Adding labels/structure is only sound once a structured-leg source exists. The cleanest enabler is `DEF-FLIGHT-1` (the TRAVEL-tab parser), which could normalize into a structured shape; alternatively a TECH-path post-parser that splits arrival vs departure deterministically.
+
+**Promotion prerequisite:** EITHER (a) `DEF-FLIGHT-1` lands a structured flight shape this card can label, OR (b) operator feedback that the unlabeled legs are a real readability friction. Until then the unlabeled raw-leg render is truthful and passes the impeccable gate.
+
+**OBSOLETE 2026-08-09** — branch `feat/crew-field-enrichment`. Not deferred, not descoped: the entry's own promotion prerequisite fired, and firing it dissolved the entry instead of enabling it.
+
+**The prerequisite fired, and firing it retired the entry's scope.** The prerequisite named `DEF-FLIGHT-1` landing "a structured flight shape this card can label" — that shape shipped as `lib/crew/flightDisplay.ts` (`FlightSegment` carrying `date` / `flightNo` / `airline` / `origin` / `dest` / `depTime` / `arrTime` / `conf`, plus `parseFlightItinerary` / `sortSegmentsByDate` / `pickUpcomingIndex`), fed by the TRAVEL-tab parser `lib/parser/blocks/travelFlights.ts`, and `components/crew/sections/TravelSection.tsx` renders it as the structured "Your flight" card with labeled fields and the confirmation code on its own line. The PR-38-217 audit recorded the supersession at the time: "PR #46's UI rendering (the `|` split + stripAgendaUrls card in TravelSection.tsx) was fully superseded on main by the structured flight card" (`docs/audits/pr-38-217-bug-audit-2026-07-02.md:666`).
+
+**Correction, and the reason this does NOT close as "the render no longer exists"** — diff review R2 F3 refuted that wording before it merged. The unlabeled raw line is still REACHABLE: `TravelSection.tsx` deliberately falls back to `seg.raw` under `data-testid="travel-flight-leg"` for any segment with no content beyond a bare date, so the operator's text is never dropped; `tests/components/crew/sections/TravelSection.flight.test.tsx` pins that branch, and an itinerary like `3/22 Charter pending | 3/24 Return pending` produces two unlabeled legs today. What retired is this entry's SCOPE — "add labels once a structured source exists", which is done and is now the DEFAULT render — not every instance of an unlabeled leg. The residual is a narrower, differently-shaped problem — segments that parse, with dates, but carry no displayable field beyond the date, so the structured card has nothing to lay out — and is filed as its own row, `BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK`, rather than left implicit inside a closed entry.
+
+**Two live successors are filed separately**, so nothing is lost by closing this: `BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK` (the raw-fallback legs described in the correction above) and `DEFERRED.md` `TRAVEL-FLIGHT-SUPPRESSED-LEGIBILITY-1` (undated segments losing their only delimiter — a legibility concern on the structured card).
+
+**Un-archive contract:** if the structured card is ever rolled back to a raw `|`-split render — i.e. the DEFAULT path becomes unlabeled again, not merely the fallback — this entry's design question returns and the row should come back. Absent that rollback, re-filing it is re-litigating a shipped surface; the fallback path belongs to its successor row. Recorded by feat/crew-field-enrichment.
 
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 

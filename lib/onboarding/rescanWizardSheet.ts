@@ -75,6 +75,10 @@ const DRIVE_FETCH_FAILED = "DRIVE_FETCH_FAILED" as const;
 // §12.4-cataloged (lib/messages/catalog.ts STAGED_PARSE_FAILED) — reused for the
 // sheet-content branch of a prepare fault, no new catalog row.
 const STAGED_PARSE_FAILED = "STAGED_PARSE_FAILED" as const;
+// §12.4-cataloged: a post-parse internal-helper fault (BL-PREPARE-INTERNAL-FAULT-KIND,
+// spec 2026-08-09-m-wave-2-design §2.3) — contact-the-developer copy, not a Drive or
+// fix-your-sheet instruction.
+const ONBOARDING_INTERNAL_ERROR = "ONBOARDING_INTERNAL_ERROR" as const;
 
 /** §5.7 snapshot equality: both null, or same tabName+fingerprint. null↔set differs. */
 function pullSheetOverrideSnapshotsEqual(a: OverrideSnapshot, b: OverrideSnapshot): boolean {
@@ -168,7 +172,9 @@ export async function rescanWizardSheet(
     const code =
       err instanceof PrepareOnboardingFileError && err.kind === "parse"
         ? STAGED_PARSE_FAILED
-        : DRIVE_FETCH_FAILED;
+        : err instanceof PrepareOnboardingFileError && err.kind === "internal"
+          ? ONBOARDING_INTERNAL_ERROR
+          : DRIVE_FETCH_FAILED;
     return { status: "needs_attention", code };
   }
   if (!prepared) return { status: "not_found" };

@@ -91,18 +91,18 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     optionalContextKeys: ["error_code"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
-    note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3414",
+    note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3547",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:379",
+    site: "lib/sync/runScheduledCronSync.ts:386",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     code: "RESYNC_QUALITY_REGRESSED",
     scope: "per-show",
-    note: "context forwarded as a shorthand variable (lib/sync/runScheduledCronSync.ts:377)",
+    note: "context forwarded as a shorthand variable (lib/sync/runScheduledCronSync.ts:386)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2411",
+    site: "lib/sync/runScheduledCronSync.ts:2441",
     contextKeys: [
       "crew_count",
       "drive_file_id",
@@ -115,13 +115,26 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2617",
+    site: "lib/sync/runScheduledCronSync.ts:2653",
     contextKeys: ["drive_file_id", "previous_last_seen_modified_time", "sheet_name"],
     code: "SHEET_UNAVAILABLE",
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2674",
+    // BL-CRON-WORKBOOK-FAULT-CODE (spec 2026-08-09-m-wave-2 §2.3): the workbook-
+    // synthesis fetch-failure arm — parse-family producer for an EXISTING show.
+    site: "lib/sync/runScheduledCronSync.ts:2723",
+    computedContext: true,
+    contextKeys: ["drive_file_id", "sheet_name"],
+    // error_code is spread-conditional on the failure code being allowlisted
+    // (lib/sync/parseErrorContext.ts:16-23), so it is optional, not guaranteed.
+    optionalContextKeys: ["error_code"],
+    code: "PARSE_ERROR_LAST_GOOD",
+    scope: "per-show",
+    note: "context built by buildParseErrorContext (workbook-synthesis arm; twin of the hard_fail producer)",
+  },
+  {
+    site: "lib/sync/runScheduledCronSync.ts:2760",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -132,7 +145,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2693",
+    site: "lib/sync/runScheduledCronSync.ts:2779",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -143,7 +156,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3465",
+    site: "lib/sync/runScheduledCronSync.ts:3567",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     // error_code is spread-conditional on the failure code being allowlisted
@@ -151,10 +164,10 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     optionalContextKeys: ["error_code"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
-    note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3414)",
+    note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3547)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3500",
+    site: "lib/sync/runScheduledCronSync.ts:3602",
     contextKeys: ["detail", "drive_file_id", "held_modified_time", "sheet_name"],
     code: "RESYNC_SHRINK_HELD",
     scope: "per-show",

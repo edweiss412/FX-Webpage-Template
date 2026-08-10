@@ -710,6 +710,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → retry in a moment",
     "helpfulContext": "Before scanning, the wizard asks Google Drive to confirm the folder exists and is really a folder. Drive did not answer within the time limit, so the check was abandoned before any scanning started. Nothing was changed. This is usually a temporary Drive or network hiccup; wait a moment and click Verify again.",
   },
+  "ONBOARDING_INTERNAL_ERROR": {
+    "crewFacing": null,
+    "dougFacing": "Something went wrong on our side while preparing this sheet. It isn't a problem with the sheet or with Google Drive. Try again once, and contact the developer if it keeps happening.",
+    "followUp": "Eric → investigate",
+    "helpfulContext": "A step that runs after your sheet is read hit a bug on our side. Nothing is wrong with the sheet's content or its sharing, and retrying may work, but a repeat means the app needs a code fix. Contact the developer with the time this happened.",
+  },
   "ONBOARDING_LEGACY_ROW_AMBIGUOUS": {
     "crewFacing": null,
     "dougFacing": "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",
