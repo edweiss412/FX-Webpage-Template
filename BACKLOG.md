@@ -787,6 +787,16 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 
 **Promotion prerequisite:** Either (a) FXAV operator feedback surfaces dashboard-level friction (Doug actively wants to triage multiple shows from the dashboard without drilling in), OR (b) a v1.x admin-UX polish milestone. `Archive` may need a separate spec amendment if `shows.archived_at` semantics need definition (idempotency, side effects on `crew_member_auth`, etc.).
 
+### BL-SPEC-LINT-CITATION-INTENT — spec:lint checks that a citation resolves, never that it resolves to the right file
+
+**Status:** OPEN · **Severity:** MEDIUM (silent wrong-anchor citations in specs and plans) · **Class:** tooling gate · **Effort:** M · **Filed:** 2026-08-09
+
+**Probe evidence, measured on this arc.** `pnpm spec:lint` reports `CITATION_FILE_MISSING` when a path does not exist and `CITATION_SYMBOL_UNMATCHED` as an ADVISORY when no identifier sits on the cited line. Neither fires when a citation resolves to the WRONG file at a line that happens to exist. Measured: the plan for `fix/sync-log-show-id-duration` carried mis-filed anchors through two adversarial rounds at `0 hard` — plan R1 F4/F5 and R2 F11 between them named eleven citations pointing at `lib/sync/runScheduledCronSync.ts` whose subjects live in `runManualSyncForShow.ts`, `runOnboardingScan.ts`, `runManualStageForFirstSeen.ts`, `supabase/migrations/20260629000002_app_events.sql`, and `tests/db/_metaDestructiveDbTargetGuard.test.ts`. Every one resolved. `runScheduledCronSync.ts:224` and `runManualSyncForShow.ts:224` are both real lines, so existence cannot discriminate them.
+
+**Live surface.** `scripts/spec-lint.ts`, run on every spec and plan in `docs/superpowers/`.
+
+**Sketch, not a design.** Compare the cited line's enclosing symbol against the identifiers named in the citing sentence, and demote to advisory when the sentence names none. The prior art is the advisory `CITATION_SYMBOL_UNMATCHED` already computes the enclosing-line identifier set; what is missing is the comparison against the prose. Note the trap this arc hit twice: a verifier written by the same author who made the mistake tends to inherit its blind spot — the first one I wrote checked resolution, which is exactly what already passed. Any implementation must be validated against the eleven known-bad citations above as a fixture, not against the corrected plan.
+
 ### BL-SYNC-LOG-ATTRIBUTION-METATEST — structural guard that every sync_log writer names its show
 
 **Status:** OPEN · **Severity:** MEDIUM (regression prevention; the defects it guards are repaired in `fix/sync-log-show-id-duration`) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-09
