@@ -72,7 +72,7 @@ New DB-backed tests go in `tests/db/` with the `*.db.test.ts` suffix (template: 
 
 ## DB target safety (load-bearing)
 
-**`TEST_DATABASE_URL` is the VALIDATION project**, not a local database — `postgres.vzakgrxqwcalbmagufjh@aws-1-us-east-2.pooler.supabase.com` (`BACKLOG.md:1101`, `AGENTS.md:218`). The preflight non-loopback warning is expected, not a misconfiguration.
+**`TEST_DATABASE_URL` is the VALIDATION project**, not a local database — `postgres.vzakgrxqwcalbmagufjh@aws-1-us-east-2.pooler.supabase.com` (`AGENTS.md:218`, `AGENTS.md:218`). The preflight non-loopback warning is expected, not a misconfiguration.
 
 Every new DB test resolves its URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`) and never reads `TEST_DATABASE_URL` directly; otherwise its fixtures mutate the validation project. `tests/db/_metaDestructiveDbTargetGuard.test.ts` and `_metaLocalDbUrlGuard.test.ts` already enforce this class.
 
@@ -147,18 +147,18 @@ values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::
 
 **RED validity — the claimed existing RED was false (plan R1 F3).** `tests/sync/runScheduledCronSync.test.ts:2662` observes the dependency object handed to a MOCKED `processOneFile`, not the `SyncLogEntry` built inside the real `logSync`, so adding a field to that entry cannot fail it; the later sink assertion is `expect.objectContaining`, not exact. This task therefore WRITES its RED: a new duration assertion against the entry the real helper constructs, with an injected clock and a known delta. The production line is the entry construction inside `logSync` (`lib/sync/runScheduledCronSync.ts:2241-2249`).
 
-Add `durationMs?: number` to `SyncLogEntry` — **not** `showId` (plan R1 F2: an explicit show-id channel is the design the spec rejected in §3.1.1, and Task 1's own text forbids it) (`tests/sync/runScheduledCronSync.test.ts:446-456`); add **both** `attemptStartedAtMs?: number` **and** `now?: () => Date` to `SyncLogDeps` (plan R1 F2: `logSync` computes `now() - start`, so a widening carrying only the start cannot read `deps.now` under the declared parameter type and would fall back to ambient time, defeating the injected-delta oracle) (`tests/sync/runScheduledCronSync.test.ts:2218-2220`).
+Add `durationMs?: number` to `SyncLogEntry` — **not** `showId` (plan R1 F2: an explicit show-id channel is the design the spec rejected in §3.1.1, and Task 1's own text forbids it) (`lib/sync/runScheduledCronSync.ts:446-456`); add **both** `attemptStartedAtMs?: number` **and** `now?: () => Date` to `SyncLogDeps` (plan R1 F2: `logSync` computes `now() - start`, so a widening carrying only the start cannot read `deps.now` under the declared parameter type and would fall back to ambient time, defeating the injected-delta oracle) (`lib/sync/runScheduledCronSync.ts:2218-2220`).
 
-**Exact injection point.** `processOneFile(driveFileId, mode, fileMeta, deps: ProcessOneFileDeps = {})` (`tests/sync/runScheduledCronSync.test.ts:2707-2712`). Capture at the top, before `prepareProcessOneFile`, then bind once:
+**Exact injection point.** `processOneFile(driveFileId, mode, fileMeta, deps: ProcessOneFileDeps = {})` (`lib/sync/runScheduledCronSync.ts:2707-2712`). Capture at the top, before `prepareProcessOneFile`, then bind once:
 
 ```ts
 const attemptStartedAtMs = (deps.now?.() ?? new Date()).getTime();
 const depsWithStart: ProcessOneFileDeps = { ...deps, attemptStartedAtMs };
 ```
 
-**Both call sites must use `depsWithStart`, not `deps`** — this is the easy miss. The archived/skip branch calls `logSync(deps, ...)` with the RAW deps at `tests/sync/runScheduledCronSync.test.ts:2742`, while the main branch routes through `txBoundProcessDeps(lockedTx, deps, txDeps)` at `tests/sync/runScheduledCronSync.test.ts:2755`. Substituting only the second leaves every skip-path row with a NULL duration while the tests (which mostly exercise the main path) stay green. Propagation past `tests/sync/runScheduledCronSync.test.ts:2755` is then free, since `txBoundProcessDeps` returns a `ProcessOneFileDeps` (`tests/sync/runScheduledCronSync.test.ts:2301-2306`).
+**Both call sites must use `depsWithStart`, not `deps`** — this is the easy miss. The archived/skip branch calls `logSync(deps, ...)` with the RAW deps at `lib/sync/runScheduledCronSync.ts:2742`, while the main branch routes through `txBoundProcessDeps(lockedTx, deps, txDeps)` at `lib/sync/runScheduledCronSync.ts:2755`. Substituting only the second leaves every skip-path row with a NULL duration while the tests (which mostly exercise the main path) stay green. Propagation past `lib/sync/runScheduledCronSync.ts:2755` is then free, since `txBoundProcessDeps` returns a `ProcessOneFileDeps` (`lib/sync/runScheduledCronSync.ts:2301-2306`).
 
-**Do not** confuse this with the outer `SyncPipelineTxBoundDeps` param (`tests/sync/runScheduledCronSync.test.ts:457-459`) — it carries no `logSync`, and since `logSync?` is optional, a change routed there typechecks and silently no-ops.
+**Do not** confuse this with the outer `SyncPipelineTxBoundDeps` param (`lib/sync/runScheduledCronSync.ts:457-459`) — it carries no `logSync`, and since `logSync?` is optional, a change routed there typechecks and silently no-ops.
 
 Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → clamp at 0.
 
@@ -169,7 +169,7 @@ Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → 
 | 1 | Prepared skip (`lib/sync/runScheduledCronSync.ts:2742`) | row carries the injected delta, not NULL |
 | 2 | Lock-contended skip (`lib/sync/runScheduledCronSync.ts:2761`) | same |
 | 3 | Manual first-seen apply (`lib/sync/runManualStageForFirstSeen.ts:147-158`) | same, via its own capture site |
-| 4 | Reuse hazard (`lib/sync/runScheduledCronSync.ts:3877-3942`) | **Assert the shared object is NOT mutated**, not merely that two rows differ. Plan R1 F14: the file loop is sequential, so an implementation assigning `deps.attemptStartedAtMs = freshStart` on every invocation mutates the shared `processDeps` and STILL gives both rows correct durations — a two-file duration comparison cannot distinguish it. Snapshot the deps object's own keys before the run and assert it is unchanged after, or assert the per-file object is not reference-identical to the shared one. |
+| 4 | Reuse hazard (`lib/sync/runScheduledCronSync.ts:3877-3942`) | **Assert the shared object is NOT mutated**, not merely that two rows differ. Plan R1 F14: the file loop is sequential, so an implementation assigning `deps.attemptStartedAtMs = freshStart` on every invocation mutates the shared `processDeps` and STILL gives both rows correct durations — a two-file duration comparison cannot distinguish it. Snapshot the deps object's own keys before the run and assert it is unchanged after — reference-identity is NOT an acceptable alternative (plan R2 F3): the mutant `deps.attemptStartedAtMs = freshStart; const depsWithStart = { ...deps }` mutates the shared object AND yields a non-identical per-file object AND gives both rows correct durations. |
 | 5 | Missing start / backward clock | NULL and 0 respectively — never NaN, never negative |
 
 ## Task 3 — Recovery sink resolves by subselect; explicit parameter retired
@@ -178,7 +178,7 @@ Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → 
 
 **RED validity.** `tests/sync/runOfShowSyncLogChannel.test.ts:199-250` structurally pins `insertSyncLog`'s insert. Production line: `lib/sync/runScheduledCronSync.ts:1216-1219`.
 
-`insertSyncLog(entry, showId?)` currently takes an explicit id (`lib/sync/runScheduledCronSync.ts:490`). **Retire that parameter** and resolve by the same subselect, so the recovery sink cannot reintroduce the uncommitted-reference hazard from a future caller. Update the four call sites (`lib/sync/runScheduledCronSync.ts:2581`, `lib/sync/runScheduledCronSync.ts:2636`; `lib/sync/runManualSyncForShow.ts:175`, `lib/sync/runManualSyncForShow.ts:224`).
+`insertSyncLog(entry, showId?)` currently takes an explicit id (`lib/sync/runScheduledCronSync.ts:490`). **Retire that parameter** and resolve by the same subselect, so the recovery sink cannot reintroduce the uncommitted-reference hazard from a future caller. Update the four call sites (`lib/sync/runScheduledCronSync.ts:2581`, `lib/sync/runScheduledCronSync.ts:2636`; `lib/sync/runManualSyncForShow.ts:175`, `lib/sync/runManualSyncForShow.ts:224`) **and the duplicate declaration on `ManualRecoveryTx` at `lib/sync/runManualSyncForShow.ts:88-99` (plan R2 F13)** — leaving that one advertises the rejected explicit-ID channel in the type while the implementation has dropped it.
 
 ## Task 3b — Onboarding-scan sink + its seven callers (with their regression pin)
 
@@ -220,7 +220,7 @@ Sites: `lib/sync/runOnboardingScan.ts:740`, `lib/sync/runOnboardingScan.ts:826`,
 
 <!-- task: red=`pnpm vitest run tests/sync/manualSyncInstallsSink.test.ts` ac=AC-1 -->
 
-**Scope fence, ratified 2026-08-09 (spec §6.2).** This task wires sinks. It does **not** make manual sync observable, and must not claim to. Spec R8 F1 measured `logSyncCalls: 0` on four `runManualStageForFirstSeen` branches even with a sink installed, because those branches return before the sole emission at `lib/sync/runOnboardingScan.ts:147`; and `runManualSyncForShow` awaits `runOne` with no catch, so a throw escapes unlogged. That gap is filed as `BL-MANUAL-SYNC-UNEMITTED`.
+**Scope fence, ratified 2026-08-09 (spec §6.2).** This task wires sinks. It does **not** make manual sync observable, and must not claim to. Spec R8 F1 measured `logSyncCalls: 0` on four `runManualStageForFirstSeen` branches even with a sink installed, because those branches return before the sole emission at `lib/sync/runManualStageForFirstSeen.ts:147`; and `runManualSyncForShow` awaits `runOne` with no catch, so a throw escapes unlogged. That gap is filed as `BL-MANUAL-SYNC-UNEMITTED`.
 
 So the RED for this task asserts **the sink is installed and reaches the pipeline**, not that a row appears for every manual outcome. A test asserting rows-per-outcome would fail for reasons this task does not own, and "fixing" it would silently pull the filed work back in.
 
@@ -238,7 +238,9 @@ Census — exactly **two of seven** production entry points install a sink today
 
 **No type widening is needed.** `RunManualStageForFirstSeenDeps` already carries `logSync?: ProcessOneFileDeps["logSync"]` (`lib/sync/runManualStageForFirstSeen.ts:63`). An earlier revision of this plan mandated adding it, from a grep window that stopped one line short (plan R1 F18). Callers can pass a sink today; the defect is only that they do not.
 
-**Eight known call sites**, one property each (`logSync: writeSyncLog`) — and the count is illustrative, not the contract. The derived assertion above is the cover; two of these eight were found only after the six-site list was published, which is the fifth hand-list to come up short in this arc.
+**The shape differs per site — "one property each" was wrong (plan R2 F2).** `RunManualSyncForShowDeps` exposes `processDeps?: ProcessOneFileDeps` (`lib/sync/runManualSyncForShow.ts:48-71`), NOT a top-level `logSync`, so six direct/manual-unlocked sites and pull-sheet override need the **nested** form `{ processDeps: { logSync: writeSyncLog } }`. `lib/showLifecycle/unarchiveShow.ts:11` types `CatchUpSync` as a **two-argument** function, so its call cannot forward a third argument at all without widening that alias or wrapping the default. Only the pending first-seen call takes top-level `logSync`, via the already-widened `RunManualStageForFirstSeenDeps`. Following a uniform "one property" instruction would fail typecheck or leave calls sinkless.
+
+**Eight known call sites** — and the count is illustrative, not the contract. The derived assertion above is the cover; two of these eight were found only after the six-site list was published, which is the fifth hand-list to come up short in this arc.
 
 | Site | Current shape |
 | --- | --- |
@@ -248,7 +250,7 @@ Census — exactly **two of seven** production entry points install a sink today
 | `app/admin/show/[slug]/_actions/useRaw.ts:168` | no `processDeps` |
 | `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` | `deps.runManualSyncForShowUnlocked(..., {})` — note the DIFFERENT callee name |
 | `app/api/admin/pending-ingestions/[id]/retry/route.ts:480-488` | first-seen `stageDeps`, no logger |
-| `lib/showLifecycle/unarchiveShow.ts:24` | two-arg call through a local alias (`catchUp`); reached from `app/admin/show/[slug]/_actions/unarchive.ts:34` (spec R6 F1) |
+| `lib/showLifecycle/unarchiveShow.ts:32` | two-arg call through a local alias (`catchUp`); reached from `app/admin/show/[slug]/_actions/unarchive.ts:34` (spec R6 F1) |
 | `app/api/admin/show/pull-sheet-override/route.ts:213` | two-arg call through a local alias (`runSync`, defaulting to the real function) (spec R6 F1) |
 
 **Also fix the two lying comments** at `app/admin/show/[slug]/_actions/useRaw.ts:162` and `app/admin/show/[slug]/_actions/useRaw.ts:173`, which assert that logging already happens here. They are false today and they are part of why this went unnoticed — a comment claiming a mechanism is the same defect class as a spec claiming one.
@@ -291,7 +293,7 @@ Fail loudly when the probe fails and EITHER condition holds:
 
 Only a completely unconfigured local dev environment may skip clean.
 
-**Test-file template.** Follow `tests/db/driveFileIdNonblank.db.test.ts`: `postgres` driver, `assertLocalDbUrl` from `@/tests/db/_localDbUrl`, and every mutating probe inside a transaction that is always rolled back so the suite leaves zero residue even while red.
+**Test-file template — with one deliberate divergence (plan R2 F4).** Follow `tests/db/driveFileIdNonblank.db.test.ts` for the driver and `assertLocalDbUrl` usage. **Do NOT apply its always-rollback rule to the `querySyncLog` assertions**: that reader opens a separate connection and cannot see an uncommitted row, so rollback would leave Task 4 permanently red for the wrong reason. Rollback applies only to assertions that never cross the connection boundary (the direct `select … from sync_log` readbacks); the `querySyncLog` case commits its fixture and cleans it in a `finally`.
 
 **`sinceHours` trap (verified at `lib/observe/query/syncLog.ts:28`).** `querySyncLog` defaults `sinceHours` to **24** when the field is `undefined`; only an explicit `null` removes the time bound. A fixture whose rows are older than 24h therefore yields `rows: []` — an empty result that looks exactly like the bug under test, inside the very test meant to prove the bug is fixed. The test MUST pass `sinceHours: null` explicitly, and must additionally assert a **negative control**: the same query against a different show's id returns zero rows, so a green result cannot come from the filter being ignored.
 
@@ -299,7 +301,7 @@ Only a completely unconfigured local dev environment may skip clean.
 
 ## Task 5 — Migration: indexes, prune function, cron schedule
 
-<!-- task: red=`pnpm vitest run tests/db/syncLogIndexesAndPrune.test.ts` ac=AC-7,AC-8 -->
+<!-- task: red=`pnpm vitest run tests/db/syncLogIndexesAndPrune.db.test.ts tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-7,AC-8 -->
 
 **New DB assertions are required — none exist today.** `rg "sync_log_show_id_idx|sync_log_drive_file_id_idx|prune_sync_log|sync_log_prune" tests` returns nothing, and `tests/db/schema.test.ts:293-303` inspects CHECK syntax, not indexes. Per spec §5, assert: both public indexes in `pg_indexes` with column order and DESC; both dev indexes when `to_regclass('dev.sync_log')` is non-null, plus a migration-text assertion that the `to_regclass` guard is present so an ungated form cannot ship; `prune_sync_log` in `pg_proc` with `prosecdef` and `search_path`; `has_function_privilege` positive for `service_role` and negative for `anon`/`authenticated`; prune behavior across the cutoff asserting BOTH the returned count and that newer rows survive; and the `cron.job` row's command and schedule.
 
@@ -333,26 +335,17 @@ const EXECUTES_PRUNE = /\bselect\s+public\.prune_(?:sync_log|app_events)\s*\(/i;
 
 **Edit C — close the three name-match holes (spec R4 F3).** Extending discovery is necessary but not sufficient: `CALLS_LOCAL_GUARD` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:42-43`) matches a *call whose name looks right*. It does not establish (a) that the guarded value is the URL actually passed to `postgres`, (b) that the call precedes the connection, or (c) that the callee is the imported guard rather than a local same-named function. A prune test can call `assertLocalDbUrl` on an unrelated loopback literal, or after pruning, and pass.
 
-Close (c) the way `_metaLocalDbUrlGuard` already does — resolve the callee to the guard module's export (that file's own whole-diff finding 1b). Close (a) and (b) by asserting, in the discovered file's AST, that the identifier passed to `postgres(...)` is the same binding returned by the guard call. If (a)/(b) prove disproportionate, they are a DOCUMENTED LIMIT recorded in the guard's header with a `BL-` filing — not silence, and not a claim of coverage the guard does not have. That distinction is the whole lesson of R3 F6.
+Close (c) the way `_metaLocalDbUrlGuard` already does — resolve the callee to the guard module's export (that file's own whole-diff finding 1b). Close (a) and (b) by asserting, in the discovered file's AST, that the identifier passed to `postgres(...)` is the same binding returned by the guard call. 
 
 **Edit B** — extend the anti-vacuity list at `tests/db/_metaDestructiveDbTargetGuard.test.ts:66-72` with the new prune test file, so the pattern is proven to match something. Without it the extension can rot into a silent no-op, which is precisely what that test's own comment warns about: *"If this fails, the regexes drifted and every assertion below is vacuous."*
 
 The existing inline exemption (`tests/db/_metaDestructiveDbTargetGuard.test.ts:46`, `// not-subject-to-destructive-target-guard:`) remains the escape hatch for a genuinely local-only helper.
 
-## Task 6 — (MERGED INTO TASK 5)
-
-Plan R1 F7: this task's registry row must land in the same commit as Task 5's migration — the `pg-cron-coverage` assertion is exact array equality over the live job set, so a migration without the row fails it and a row without the migration fails it. Declaring them separate tasks while requiring one commit contradicted the one-commit-per-task rule. **Merged into Task 5**, whose body now carries the registry edit and whose RED covers both.
-
-
-<!-- task: red=`pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-8 -->
-
-
-
-Note `cleanup-bootstrap-nonces` is excluded by name in the query as a known orphan — not evidence the registry is optional.
-
 ## Task 6b — `observe-cli.md` note on sink-derived `--show`
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaSpecsReadmeIndex.test.ts` ac=AC-2 -->
+<!-- task: red=`grep -q 'resolved at the sink' docs/agents/observe-cli.md` ac=AC-2 -->
+
+**RED validity (plan R2 F8).** An earlier revision named a nonexistent suite; the real `tests/docs/specsReadmeIndexParity.test.ts` indexes spec READMEs, not this doc, and would already be green. This is a documentation deliverable with no behavioural test, so its RED is an explicit grep for the sentence the task must add — honest about being a presence check rather than dressed as test-driven.
 
 The approved spec's tier × layer matrix requires a note in `docs/agents/observe-cli.md` explaining that `--show` attribution is derived at the sink; no task owned it (plan R1 F16). One paragraph under the `synclog` row: the flag filters `show_id`, which the sink resolves from `drive_file_id` at write time, so rows written before a show existed stay NULL and are reachable by `--file`.
 
@@ -372,7 +365,9 @@ Apply the migration surgically to the validation project (`supabase db push` is 
 
 ## Task 9 — Archive the backlog entry
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-9 -->
+<!-- task: red=`pnpm vitest run tests/docs/backlogArchiveIntegrity.test.ts` ac=AC-9 -->
+
+**RED validity (plan R2 F9).** `_metaLedgerInProgress` is already green and stays green if the archive is skipped — it validates marker shape and origin references, not that this entry moved. The RED is a new assertion that `BL-ADMIN-PER-SHOW-HISTORY` appears in `BACKLOG-archive.md` and no longer in `BACKLOG.md`, which fails until the archive happens.
 
 Archive `BL-ADMIN-PER-SHOW-HISTORY` to `BACKLOG-archive.md` with the UI half recorded as a decision, not a debt. The `IN PROGRESS` marker comes off in the **same commit** that archives it — archives categorically reject in-flight entries (invariant 12), and this must be the PR's last commit so the marker never reaches main.
 
