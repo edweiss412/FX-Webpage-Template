@@ -94,13 +94,22 @@ function unwrap(node: ts.Expression): ts.Expression {
   }
 }
 
-/** `sb.from(…)`, `sb?.from(…)`, `sb!.from(…)`, `(sb).from(…)`, `sb["from"](…)`. */
-function calleeMemberName(node: ts.Expression): string | undefined {
+/**
+ * The member being called and the object it is called on, for both access
+ * forms. One extractor, so a rule that reads the member name and a rule that
+ * reads the receiver can never disagree about what the call IS — they did
+ * twice, and both times the exclusion below was the one left behind
+ * (whole-diff R6 F2 on `(Array).from`, R9 F1 on `Array["from"]`).
+ */
+function calleeParts(node: ts.Expression): { receiver: ts.Expression; member: string } | undefined {
   const expr = unwrap(node);
-  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+  if (ts.isPropertyAccessExpression(expr)) {
+    return { receiver: unwrap(expr.expression), member: expr.name.text };
+  }
   if (ts.isElementAccessExpression(expr)) {
-    const arg = unwrap(expr.argumentExpression);
-    return ts.isStringLiteralLike(arg) ? arg.text : undefined;
+    const key = unwrap(expr.argumentExpression);
+    if (!ts.isStringLiteralLike(key)) return undefined;
+    return { receiver: unwrap(expr.expression), member: key.text };
   }
   return undefined;
 }
@@ -122,12 +131,7 @@ function calleeMemberName(node: ts.Expression): string | undefined {
  * for a SILENT miss on a client held in a capitalized binding, and that trade is
  * the one the consequence bound forbids.
  */
-function isStandardLibraryFrom(callee: ts.Expression): boolean {
-  const expr = unwrap(callee);
-  if (!ts.isPropertyAccessExpression(expr)) return false;
-  // Unwrap the RECEIVER too, so `(Array).from(…)` is the same call as
-  // `Array.from(…)` — the exclusion was not even internally consistent (R6 F2).
-  const receiver = unwrap(expr.expression);
+function isStandardLibraryFrom(receiver: ts.Expression): boolean {
   return ts.isIdentifier(receiver) && receiver.text === "Array";
 }
 
@@ -137,7 +141,7 @@ function extractSites(source: string, file = "planted.ts"): Site[] {
   const sites: Site[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
-      const method = calleeMemberName(node.expression);
+      const parts = calleeParts(node.expression);
       const first = node.arguments[0];
       const arg = first === undefined ? undefined : unwrap(first);
       // `isStringLiteralLike` is a string literal OR a no-substitution template
@@ -147,12 +151,13 @@ function extractSites(source: string, file = "planted.ts"): Site[] {
       // otherwise-static template is simply part of the name. `.text` is the
       // COOKED value: the name Postgres would see.
       if (
-        (method === "from" || method === "rpc") &&
+        parts !== undefined &&
+        (parts.member === "from" || parts.member === "rpc") &&
         arg !== undefined &&
         ts.isStringLiteralLike(arg) &&
-        !isStandardLibraryFrom(node.expression)
+        !isStandardLibraryFrom(parts.receiver)
       ) {
-        sites.push({ kind: method, literal: arg.text });
+        sites.push({ kind: parts.member, literal: arg.text });
       }
     }
     ts.forEachChild(node, visit);
@@ -771,9 +776,17 @@ describe("META lib/data Supabase call boundary", () => {
       expect(plantSites('const chars = Array.from("abc");')).toEqual([]);
       expect(plantSites('const chars = Array.from("abc", (c) => c);')).toEqual([]);
       expect(plantSites('const chars = (Array).from("abc");')).toEqual([]);
+      // Element access is the same call, and the exclusion must read the
+      // receiver the same way the member name is read — twice it did not
+      // (whole-diff R9 F1).
+      expect(plantSites('const chars = Array["from"]("abc");')).toEqual([]);
+      expect(plantSites('const chars = Array[`from`]("abc");')).toEqual([]);
+      expect(plantSites('const chars = Array?.["from"]?.("abc");')).toEqual([]);
+      expect(plantSites('const chars = (Array)["from"]("abc");')).toEqual([]);
       // …and the exclusion is by RECEIVER, so a real boundary with the same
       // argument still counts.
       expect(plantSites('await sb.from("abc");')).toEqual([{ kind: "from", literal: "abc" }]);
+      expect(plantSites('await sb["from"]("abc");')).toEqual([{ kind: "from", literal: "abc" }]);
     });
 
     // Documented limit §6.8, made executable rather than left as prose. Other
