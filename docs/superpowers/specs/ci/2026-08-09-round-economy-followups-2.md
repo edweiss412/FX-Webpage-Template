@@ -1,6 +1,6 @@
 # Round-economy followups 2: post-#732 filing promotions
 
-**Date:** 2026-08-09 · **Authoring branch:** `docs/round-economy-followups-2-specs` · **Implementation branch:** `feat/round-economy-followups-2` (Opus pane) · **Status:** DRAFT
+**Date:** 2026-08-09 · **Authoring branch:** `docs/round-economy-followups-2-specs` · **Implementation branch:** `feat/round-economy-followups-2` (Opus pane) · **Status:** spec-APPROVED (codex-guard R10 2026-08-09; R1-R9 findings repaired in-branch)
 
 ## §0 Why this arc exists, and its scope
 
