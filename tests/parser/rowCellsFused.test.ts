@@ -162,21 +162,22 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     // shape. Measured as one section, the four 5-cell rows set the modal and all three
     // 4-cell rows report as fused: three false positives on well-formed input.
     //
-    // The second table opens with NOTES, which is NOT a registered section header
-    // (probed), so the opener boundary cannot rescue this fixture — the prose flush is the
-    // only thing that can, which is what keeps the arm discriminating rather than
-    // incidental. Re-verified after the boundary moved to `isKnownSectionHeader`.
+    // Re-verified after the boundary became structural.
+    // The trailing run deliberately has NO alignment row of its own. With one, the
+    // structural boundary would split it and the arm would pass whatever the prose rule
+    // did -- measured: it survived the blank-line-only mutant that way. Stripped of its
+    // alignment row, the prose flush is the only thing that can separate these.
     const md = [
       "| CREW | Role | Call | Out | Note |",
       "| --- | --- | --- | --- | --- |",
       "| Alice | A1 | 08:00 | 17:00 | x |",
       "| Bob | A2 | 08:00 | 17:00 | x |",
       "| Carla | A2 | 09:00 | 17:00 | x |",
+      "| Dan | A3 | 09:00 | 17:00 | x |",
       "Note: load-in moved to the dock entrance.",
-      "| NOTES | Start | End | Note |",
-      "| --- | --- | --- | --- |",
       "| Load in | 3/1 | 3/1 | x |",
       "| Show | 3/2 | 3/3 | x |",
+      "| Out | 3/4 | 3/4 | x |",
       "",
     ].join("\n");
     expect(fused(md, "calibration.md")).toEqual([]);
@@ -199,18 +200,18 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     expect(fused(md, "calibration.md")).toEqual([]);
   });
 
-  it("treats EVERY known section header as a boundary, derived from the registry", () => {
-    // KILLS: asking `canonicalSectionKind(...) !== null` instead of `isKnownSectionHeader`.
-    // Those answer different questions -- "what routing key does this get?" versus "does a
-    // section start here?" -- and the routing table is deliberately conservative, so three
-    // real headers (IN HOUSE AV, COI, DOCUMENT FOLDER LINK) were known sections it does not
-    // route. A section opening with one of them merged into whatever preceded it and every
-    // row of the narrower half reported as fused. Found by cross-model review, then probed:
-    // 3 of the 33 registered headers.
+  it("separates adjacent tables by STRUCTURE, whatever the heading says", () => {
+    // KILLS: any LEXICAL boundary test. Cross-model review probed the previous one and it
+    // was wrong in both directions at once:
     //
-    // DERIVED, NOT ENUMERATED (AGENTS.md class-sweep). Listing the three would re-open the
-    // moment someone registers a fourth. This walks the registry, so a new header is
-    // covered the day it lands and the two sets cannot drift apart again.
+    //   NOT SUFFICIENT — an unregistered heading (NOTES) merged into the table above it,
+    //   and so did a registered heading written with the colon real sheets use (DATES
+    //   split, DATES: did not; all 27 exact-match headers shared that).
+    //   NOT NECESSARY — see the data-position arm below.
+    //
+    // The heading set here is DERIVED from the registry and then EXTENDED with the two
+    // forms no registry can cover: an unregistered word, and a colon suffix. A boundary
+    // rule that consults labels fails on the extension; a structural one cannot.
     const wide = [
       "| CREW | Role | Call | Out | Note |",
       "| --- | --- | --- | --- | --- |",
@@ -220,14 +221,14 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
       "| Dan | A3 | 09:00 | 17:00 | x |",
     ];
     premise("registry is populated", KNOWN_SECTION_HEADERS.size, 20);
-    const offenders = [...KNOWN_SECTION_HEADERS].filter((header) => {
-      // The narrower section is butted straight against the wider one with no blank line,
-      // so ONLY the opener rule can separate them. Its three rows all share width 4
-      // against the leading block's 5: if the boundary is missed they are three rows at
-      // modal-1 and all three are reported.
+    const headings = [...KNOWN_SECTION_HEADERS, "NOTES", "DATES:", "Site notes"];
+    const offenders = headings.filter((heading) => {
+      // Butted straight against the wider block with no blank line, so ONLY the boundary
+      // rule can separate them. The trailing table's three rows are all width 4 against
+      // the leading block's 5: miss the boundary and all three sit at modal-1.
       const md = [
         ...wide,
-        `| ${header} | Start | End | Note |`,
+        `| ${heading} | Start | End | Note |`,
         "| --- | --- | --- | --- |",
         "| one | 3/1 | 3/1 | x |",
         "| two | 3/2 | 3/3 | x |",
@@ -236,6 +237,44 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
       return fused(md, "calibration.md").length > 0;
     });
     expect(offenders).toEqual([]);
+  });
+
+  it("does not treat a registered word in a DATA cell as a new section", () => {
+    // KILLS: the lexical boundary in its "not necessary" direction. TRANSPORTATION rows
+    // legitimately hold a `Driver` cell, and `Driver` is a registered heading. Splitting
+    // there cut this section in two and turned a tied, skipped width distribution into a
+    // reported warning — a false positive produced by ordinary sheet content.
+    const md = [
+      "| TRANSPORTATION | Vehicle | Notes |",
+      "| --- | --- | --- |",
+      "| Driver | Van 1 | am run |",
+      "| Driver | Van 2 |",
+      "| Greeter | Lobby |",
+      "",
+    ].join("\n");
+    expect(fused(md, "calibration.md")).toEqual([]);
+  });
+
+  it("counts an escaped in-cell pipe as text, not as a column divider", () => {
+    // KILLS: counting cells with the escape-blind `splitRow`. The exporter writes a
+    // literal pipe inside a cell as `\|`; counted as a delimiter it inflates that row by
+    // one, so a section where only SOME rows carry one goes bimodal and the rows WITHOUT
+    // one land at modal-1. Probed by cross-model review against the shipped detector: the
+    // perfectly ordinary `| Carla | A3 | Local | 17:00 |` was reported as fused.
+    //
+    // The HEADER carries an escaped pipe too, and that is load-bearing: with escaped
+    // pipes only on the data rows the counts split 3-2 and the §5.3 tie-guard skips the
+    // section, so the bug hides for a reason unrelated to escaping. Measured on the first
+    // version of this arm, which passed against the escape-blind mutant.
+    const md = [
+      "| CREW | Role | Route \\| notes | Out |",
+      "| --- | --- | --- | --- |",
+      "| Alice | A1 | JFK \\| LAX | 17:00 |",
+      "| Bob | A2 | EWR \\| ORD | 17:00 |",
+      "| Carla | A3 | Local | 17:00 |",
+      "",
+    ].join("\n");
+    expect(fused(md, "calibration.md")).toEqual([]);
   });
 
   it("DOCUMENTED EQUIVALENCE: the 3-row floor is redundant with the tie-guard", () => {
@@ -247,6 +286,11 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     // modal-1. A section with TWO either shares a width (same argument) or splits 1-1,
     // which the tie-guard skips. So no input separates the two settings; the constant is
     // an explicit restatement of the spec §5.3 floor, deliberately kept for that reason.
+    //
+    // The equivalence is about the VALUE, not the check. Measured: 3 -> 2 and 3 -> 1 both
+    // leave every arm green, while DELETING the guard outright fails all of them, because
+    // an empty section then reaches `sorted[0]!` and throws. The comparison is redundant;
+    // the non-null guard underneath it is not.
     const oneRow = "| CREW | Role | Call |\n| --- | --- | --- |\n";
     const twoRowsRagged = "| CREW | Role | Call |\n| --- | --- | --- |\n| Alice | A1 |\n";
     expect(fused(oneRow, "calibration.md")).toEqual([]);

@@ -17,23 +17,82 @@
  * this reports it. Correcting would mean guessing which of the fused values belongs in
  * which column, and a wrong guess is worse than a flagged row an operator can look at.
  *
+ * SECTION BOUNDARIES ARE STRUCTURAL: an alignment row starts a table, and the row above
+ * it is that table's header. No label registry is consulted, so no heading spelling, colon
+ * suffix, or registered word sitting in a data cell can move a boundary.
+ *
  * SKIPPED, deliberately, and recorded as §5.3 residue rather than papered over:
  *   - sections with fewer than 3 data rows (no meaningful modal)
  *   - sections whose width distribution TIES (no single modal to be short of)
  */
-import { clean, splitRow } from "./blocks/_helpers";
-import { isKnownSectionHeader } from "./knownSections";
+import { clean } from "./blocks/_helpers";
 import { GENERIC_SECTION_KIND, canonicalSectionKind } from "./sectionKind";
 import type { ParseWarning } from "./types";
 
 /** The minimum data rows for a modal to mean anything. Below this the section is skipped. */
 const MIN_DATA_ROWS_FOR_MODAL = 3;
 
-/** A true markdown delimiter row: EVERY cell is a dash run with optional colons. */
-function isAlignmentRow(line: string): boolean {
-  const cells = splitRow(line);
-  if (cells.length === 0) return false;
-  return cells.every((c) => /^:?-+:?$/.test(c.trim()));
+/**
+ * Split a row on UNESCAPED pipes only.
+ *
+ * `splitRow` (blocks/_helpers) splits on every `|`, which is right for its callers but
+ * wrong for counting COLUMNS: the exporter writes a literal in-cell pipe as `\|`, and
+ * counting that as a delimiter inflates the row by one. A section where some rows carry an
+ * escaped pipe and others do not then has a bimodal width, and the rows WITHOUT one land
+ * at modal-1 and are reported as fused -- a false positive on well-formed input. Probed by
+ * cross-model review with a route cell reading `JFK \| LAX`.
+ *
+ * Deliberately local rather than a fix to `splitRow`: that function has many callers whose
+ * behavior is not in this branch's scope, and widening the blast radius to fix a counting
+ * bug here would be the wrong trade.
+ */
+function analyzeRow(line: string): { cells: number; alignment: boolean } {
+  // ONE PASS, NO ALLOCATION. This runs for every row of every sheet on the parse path, and
+  // the obvious shape -- split into an array, then re-split again inside flush() to
+  // re-decide alignment -- measured 3x slower on the typo-generator suites, which call
+  // parseSheet tens of thousands of times. Cell boundaries and the alignment verdict come
+  // out of the same scan, and the caller stores both.
+  let cells = 0;
+  let alignment = true;
+  // Per-cell alignment state: a cell is a dash run with optional leading/trailing colon.
+  let dashes = 0;
+  let sawTrailingColon = false;
+  let cellEmptyOrValid = true;
+  const endCell = (): void => {
+    if (cells > 0 && (dashes === 0 || !cellEmptyOrValid)) alignment = false;
+    dashes = 0;
+    sawTrailingColon = false;
+    cellEmptyOrValid = true;
+  };
+  let started = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    if (ch === "\\" && i + 1 < line.length) {
+      // An escaped pipe is TEXT, not a divider. Counting it as one inflates the row and
+      // makes a section bimodal, so rows without one land at modal-1 and read as fused.
+      i++;
+      cellEmptyOrValid = false;
+      continue;
+    }
+    if (ch === "|") {
+      if (started) {
+        endCell();
+        cells++;
+      }
+      started = true;
+      // The fragment after the LAST pipe is not a cell; `cells` is decremented below.
+      continue;
+    }
+    if (!started) continue;
+    if (ch === " " || ch === "\t" || ch === "\r") continue;
+    if (ch === "-") dashes++;
+    else if (ch === ":" && dashes === 0) continue;
+    else if (ch === ":" && !sawTrailingColon) sawTrailingColon = true;
+    else cellEmptyOrValid = false;
+  }
+  // `cells` counted one per closing pipe, which is exactly the number of real cells.
+  if (cells === 0) alignment = false;
+  return { cells, alignment };
 }
 
 /** Index of the first non-whitespace character, or -1 when the line is blank. */
@@ -65,7 +124,7 @@ function kindOfFirstCell(rawCol0: string): string | null {
   return resolved;
 }
 
-type Row = { line: string; cells: number };
+type Row = { line: string; cells: number; alignment: boolean };
 
 export function detectFusedRows(markdown: string): ParseWarning[] {
   const warnings: ParseWarning[] = [];
@@ -75,7 +134,7 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
   let sectionKind: string = GENERIC_SECTION_KIND;
 
   const flush = (): void => {
-    const data = section.filter((r) => !isAlignmentRow(r.line));
+    const data = section.filter((r) => !r.alignment);
     if (data.length < MIN_DATA_ROWS_FOR_MODAL) return;
 
     const freq = new Map<number, number>();
@@ -104,31 +163,34 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
     const isRow = start !== -1 && line.charCodeAt(start) === 124; /* "|" */
 
     if (isRow) {
-      const col0 = firstCell(line);
-      // TWO SEPARATE QUESTIONS, and fusing them was a bug.
+      // THE BOUNDARY IS STRUCTURAL, NOT LEXICAL.
       //
-      //   "Does a section START here?"  -> isKnownSectionHeader, the parser's OWN
-      //                                    recognizer for the very same headers.
-      //   "What routing key does it get?" -> canonicalSectionKind, which is deliberately
-      //                                    conservative and returns null for anything it
-      //                                    cannot route.
+      // An alignment row is markdown's own statement that a table starts here, and the row
+      // immediately above it is that table's header. Splitting on it needs no registry, so
+      // it cannot be wrong about a label -- which every lexical formulation of this test
+      // was, in both directions (cross-model review, probed):
       //
-      // Asking the second question in place of the first inherits its conservatism as a
-      // MISSED BOUNDARY: three real headers -- IN HOUSE AV, COI, DOCUMENT FOLDER LINK --
-      // are known sections that canonicalSectionKind does not route, so a section opening
-      // with one of them was merged into whatever preceded it, and every row of the
-      // narrower half reported as fused. Probed: 3 of the 33 KNOWN_SECTION_HEADERS.
+      //   NOT SUFFICIENT. An adjacent table whose heading is not registered (`NOTES`) was
+      //   merged into the one before it; so was a registered heading written with the
+      //   colon real sheets use (`DATES` split, `DATES:` did not -- all 27 exact-match
+      //   headers shared that).
+      //   NOT NECESSARY. A registered token sitting in an ordinary DATA cell (a `Driver`
+      //   row) was read as an opener, turning a tied, skipped distribution into a warning.
       //
-      // The repair is a DERIVATION rather than three more table rows: the boundary now
-      // asks the recognizer that owns the header list, so a header added there is a
-      // boundary here for free, and the two can no longer drift.
-      const isOpener = isKnownSectionHeader(clean(col0));
-      if (section.length > 0 && isOpener) {
+      // Both directions vanish here: no label is consulted at all. `canonicalSectionKind`
+      // stays, but only for the ROUTING KEY on the warning, which is what it is for.
+      const info = analyzeRow(line);
+      if (info.alignment && section.length > 0) {
+        // The last row pushed is this table's header, so it belongs to the NEW section.
+        const header = section[section.length - 1]!;
+        section = section.slice(0, -1);
         flush();
-        section = [];
+        section = [header];
+        sectionKind = kindOfFirstCell(firstCell(header.line)) ?? GENERIC_SECTION_KIND;
       }
-      if (section.length === 0) sectionKind = kindOfFirstCell(col0) ?? GENERIC_SECTION_KIND;
-      section.push({ line, cells: splitRow(line).length });
+      if (section.length === 0)
+        sectionKind = kindOfFirstCell(firstCell(line)) ?? GENERIC_SECTION_KIND;
+      section.push({ line, cells: info.cells, alignment: info.alignment });
       continue;
     }
 
