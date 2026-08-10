@@ -178,10 +178,22 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   // rides both chromes in the SETTLED case only — the onboarding bar dropped its
   // <NotifBell> in the 2026-07-06 owner decision, which is what makes this
   // reorder behavior-preserving.
-  const [bellCount, needsAttentionCount] = await Promise.all([
-    loadBellUnseenCount(adminEmail, viewerIsDeveloper),
-    loadNeedsAttentionCount(),
-  ]);
+  //
+  // §3.2 (AC-2): NOT awaited. The reads are issued here and their PROMISES are
+  // handed to the client tree, so the nav chrome flushes on the identity/health
+  // wall-time instead of also paying two badge queries; each hook commits the
+  // resolved value through its existing prop-ingestion path when it arrives.
+  // The `.catch` wrappers are belt, not braces: both loaders RETURN
+  // `{kind:"infra_error"}` by contract (invariant 9), but an unawaited promise
+  // that REJECTS crosses the RSC boundary with no owner — the wrap converts a
+  // thrown infra fault into the same discriminated result the hooks already
+  // handle (attention chip hidden per D-4; bell degraded per its own contract).
+  const bellCountPromise = loadBellUnseenCount(adminEmail, viewerIsDeveloper).catch(() => ({
+    kind: "infra_error" as const,
+  }));
+  const attentionCountPromise = loadNeedsAttentionCount().catch(() => ({
+    kind: "infra_error" as const,
+  }));
 
   return (
     // §3.5.1: the provider is the OUTERMOST element of each return, so its
@@ -207,8 +219,8 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       >
         <AdminNav
           email={adminEmail}
-          bellCount={bellCount}
-          initialBadgeCount={needsAttentionCount.kind === "ok" ? needsAttentionCount.count : null}
+          bellCountPromise={bellCountPromise}
+          attentionCountPromise={attentionCountPromise}
           viewerIsDeveloper={viewerIsDeveloper}
           healthRollup={healthRollup}
         />
