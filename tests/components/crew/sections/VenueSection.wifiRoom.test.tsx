@@ -506,6 +506,48 @@ describe("transition audit — the new rows are instant by construction", () => 
     expect(pushes.length).toBe(DOCUMENTED_ROW_GUARDS.length);
   });
 
+  /**
+   * The static scan reads a SLICE of one file, so motion added to the Facilities
+   * wrapper below it — or to FactRows, which renders every one of these rows —
+   * was invisible to it, and the DOM assertions ignored class names entirely
+   * (review S5 R1: an `animate-pulse` mutant in either place passed everything).
+   *
+   * This asserts the rendered truth instead: nothing inside the Facilities card
+   * carries a motion class, wherever in the component tree it was applied.
+   */
+  test("no rendered element in the Facilities card carries a motion class", () => {
+    const MOTION = /(^|\s)(animate-|transition-|motion-|duration-|ease-)/;
+    const states = [
+      ["split", "Hardline from Encore\n\nSSID: Hyatt_Meeting\nCode: FITS2025"],
+      ["raw", RAW_WIFI_VALUE],
+    ] as const;
+    premise("states swept", states.length, 1);
+
+    for (const [name, internet] of states) {
+      const container = renderVenue(withInternet(internet));
+      const card = container.querySelector('[data-testid="venue-facilities"]');
+      premiseHolds(`the ${name} case actually rendered a Facilities card`, card !== null);
+      const rows = card!.querySelectorAll('[data-testid="fact-rows"] > div');
+      premise(`${name}: fact rows to audit`, rows.length, 0);
+
+      // Interactive controls are excluded: the card header's report button
+      // carries a pre-existing hover `transition-colors`, which is a colour
+      // treatment on a control, not an appear/disappear animation on a row. The
+      // §3.5 inventory covers the static fact list and its chrome.
+      const isInteractive = (element: Element): boolean => element.closest("button, a") !== null;
+      const audited = [card!, ...card!.querySelectorAll("*")].filter(
+        (element) => !isInteractive(element),
+      );
+      premise(`${name}: static elements audited`, audited.length, rows.length);
+
+      for (const element of audited) {
+        const className = element.getAttribute("class") ?? "";
+        expect(className, `${name}: ${element.tagName} carries motion`).not.toMatch(MOTION);
+      }
+      cleanup();
+    }
+  });
+
   test("both Wi-Fi branches and both room states render without any client boundary", () => {
     // Each case proves on its OWN inputs that it reached the state it names —
     // otherwise a case that silently rendered nothing would still "pass" the
