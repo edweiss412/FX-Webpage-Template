@@ -641,13 +641,33 @@ describe("parseWifiValue — qualified password labels reject (review S6 R2)", (
   const QUALIFIERS = ["Door", "Dress", "Gate", "Alarm"];
   const PASSWORD_LABELS = ["Code", "PW", "Passcode", "Password"];
 
-  it("a qualified password label on a network-free line rejects the whole cell", () => {
+  const NETWORK_LABELS = ["SSID", "Network"];
+  const SEPARATORS = [": ", " - "];
+
+  it("a qualified password label rejects wherever the network label sits", () => {
+    // Swept across BOTH placements, because the first repair tested only the
+    // newline form and a network label LATER ON THE SAME LINE legitimized the
+    // qualified one — 128 of 128 cases split silently (review S6 R3). What makes
+    // a password label real is a network name already to its LEFT, or nothing to
+    // its left at all.
     premise("qualifiers swept", QUALIFIERS.length, 0);
     premise("password labels swept", PASSWORD_LABELS.length, 3);
+    premise("network labels swept", NETWORK_LABELS.length, 1);
+    premise("separators swept", SEPARATORS.length, 1);
+
     for (const qualifier of QUALIFIERS) {
       for (const label of PASSWORD_LABELS) {
-        const value = `${qualifier} ${label}: 2468\nSSID: Guest`;
-        expect(parseWifiValue(value), value).toBeNull();
+        // The network label on a LATER line.
+        const newlineForm = `${qualifier} ${label}: 2468\nSSID: Guest`;
+        expect(parseWifiValue(newlineForm), newlineForm).toBeNull();
+
+        // ...and on the SAME line, after the qualified label.
+        for (const network of NETWORK_LABELS) {
+          for (const separator of SEPARATORS) {
+            const sameLine = `${qualifier} ${label}: 2468 ${network}${separator}Guest`;
+            expect(parseWifiValue(sameLine), sameLine).toBeNull();
+          }
+        }
       }
     }
   });

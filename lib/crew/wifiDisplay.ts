@@ -141,7 +141,6 @@ export function parseWifiValue(raw: string | null | undefined): WifiInfo | null 
     // cannot apply to network labels; and every observed password label is
     // either line-initial (`Code: FITS2025`, `PW: ORDTG.`) or follows a network
     // pair on the same line, which this rule still allows.
-    const lineHasNetwork = labels.some((candidate) => candidate.isNetwork);
     const lineStart = line.length - line.trimStart().length;
 
     for (let i = 0; i < labels.length; i += 1) {
@@ -151,7 +150,15 @@ export function parseWifiValue(raw: string | null | undefined): WifiInfo | null 
       else passwordLabels += 1;
       if (proseEnd === null) proseEnd = label.start;
 
-      if (!label.isNetwork && !lineHasNetwork && label.start > lineStart) {
+      // The network label must come EARLIER on the line, not merely somewhere on
+      // it: `Door Code: 2468 SSID: Guest` put one AFTER the qualified label and
+      // a whole-line test read that as legitimizing it (review S6 R3, 128/128
+      // escapes). What makes `Code:` a Wi-Fi password is a network name already
+      // named to its left, or nothing at all to its left.
+      const networkPrecedes = labels
+        .slice(0, i)
+        .some((candidate) => candidate.isNetwork && candidate.start < label.start);
+      if (!label.isNetwork && !networkPrecedes && label.start > lineStart) {
         ambiguous = true;
       }
 
