@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 9 rounds
+## diff — 10 rounds
 
-**Examined:** nine counted rounds on the implementation diff, dispatched as two
+**Examined:** ten counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3/5/3/2 findings across rounds 1-9 — twenty-one in total.
+string-presence guard, 4/1/1/1/1/3/5/3/2/2 findings across rounds 1-10 — twenty-three in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned eight is a paragraph of
+spec rounds had probed each one. The half that burned nine is a paragraph of
 English and a regex list.
 
-**Judgment:** eight of the twenty-one diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the twenty-three diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -213,12 +213,31 @@ That is the pin and the operator table working exactly as intended on their auth
 one round after being written, and it is the clearest evidence in this arc that the
 mechanism is load-bearing rather than decorative.
 
+Round 10's two findings are the sharpest small pair in the arc. The first: a
+non-breaking space pasted into `` `pnpm test` `` produces a command that does not
+exist (`zsh: command not found: pnpm test`) and read as IDENTICAL to every check
+including the verbatim pin, because `normalize()` collapsed all of `\s`. Twenty-five
+space-bearing code spans were exposed at once. The fix is a character class —
+reflow inserts spaces, tabs, and newlines, and never inserts U+00A0, so collapsing
+only ASCII whitespace closes every span together and a named check reports the
+codepoint rather than leaving the pin to say "4 kB of text differs somewhere". It
+is worth noticing that a verbatim pin does NOT subsume normalization bugs: the pin
+is only as strict as the normalizer in front of it, and this one had a hole in it
+from the round-5 commit that introduced it.
+
+The second: requiring the heading to read "cross-cutting discipline" turned an
+ordinary rename to "Cross-cutting rules" into a failure. The load-bearing word is
+the TIER — `cross-cutting` — which is what spec §5 makes normative; whether the
+heading calls it discipline, rules, or notes is an organizational choice with
+nothing to do with this rule.
+
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
 registry catches a shape added to §4.6, block structure comes from `remark` rather
-than from a regex over syntax, and 52 cases — 33 `OPERATORS` rows plus seventeen
-stays-quiet rows — run on every suite, so no repair can silently regress an earlier
-one in either direction. What
+than from a regex over syntax, normalization collapses only ASCII whitespace so a
+smuggled U+00A0 cannot read as a space, and 54 cases — 34 `OPERATORS` rows plus
+eighteen stays-quiet rows — run on every suite, so no repair can silently regress
+an earlier one in either direction. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
 than a pattern list when the guard's subject is prose. That has no static signature;
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and

@@ -291,8 +291,33 @@ export function polarityProblems(mustRegion: string, mustNotRegion: string): str
 function normalize(text: string): string {
   return text
     .replace(/\s*-{3,}\s*$/, "")
-    .replace(/\s+/g, " ")
+    // ASCII whitespace ONLY. Reflowing markdown inserts spaces, tabs, and
+    // newlines; it never inserts U+00A0. Collapsing all of `\s` let a
+    // rich-text paste turn `pnpm test` into `pnpm\u00a0test` — a command that
+    // does not exist (`zsh: command not found: pnpm test`) — and read as
+    // identical to every check including the pin. That applied to all 25
+    // space-bearing code spans in the rule at once.
+    .replace(/[ \t\r\n]+/g, " ")
     .trim();
+}
+
+/**
+ * Named separately from the pin, because "somewhere in 4 kB a byte moved" is a
+ * useless failure message for a defect whose whole nature is being invisible.
+ */
+const EXOTIC_SPACE =
+  /[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\u2028\u2029\ufeff]/;
+
+function exoticSpaceProblems(rule: string): string[] {
+  const at = rule.search(EXOTIC_SPACE);
+  if (at === -1) return [];
+  const code = rule.codePointAt(at) ?? 0;
+  return [
+    `the rule contains a non-ASCII space (U+${code.toString(16).toUpperCase().padStart(4, "0")}) ` +
+      `near "${rule.slice(Math.max(0, at - 30), at + 20).replace(/\s+/g, " ")}". ` +
+      "Inside a code span it silently breaks the command it documents; it is almost " +
+      "always a rich-text paste.",
+  ];
 }
 
 /**
@@ -380,8 +405,12 @@ export function locateRule(agents: string): Located {
   // EVERY heading whose text matches, not the first. Taking the first made an
   // unrelated "## Cross-cutting discipline background" inserted above the real
   // section report the rule missing while it sat untouched one section down.
+  // "cross-cutting" is the TIER, and the tier is what spec §5 makes load-bearing;
+  // whether the heading calls it discipline, rules, or notes is an organizational
+  // choice that has nothing to do with this rule. Requiring the full phrase turned
+  // a heading rename into a failure here.
   const headings = blocks.filter(
-    (node) => node.type === "heading" && /cross-cutting discipline/i.test(plainText(node)),
+    (node) => node.type === "heading" && /cross-cutting/i.test(plainText(node)),
   );
   if (headings.length === 0) return { problem: "AGENTS.md has no cross-cutting-discipline section" };
 
@@ -496,6 +525,7 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   for (const [label, pattern] of TAIL_CLAUSES) {
     if (!pattern.test(tailRegion)) problems.push(`missing clause: ${label}`);
   }
+  problems.push(...exoticSpaceProblems(raw));
   problems.push(...polarityProblems(mustRegion, mustNotRegion));
   problems.push(...pinProblems(raw, readFileSync(PINNED_PATH, "utf8")));
   return problems;
@@ -549,6 +579,10 @@ describe("AGENTS.md heavy-phase rule", () => {
 
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
+    [
+      "smuggle a non-breaking space into a command",
+      editRule("`pnpm test`", "`pnpm\u00a0test`"),
+    ],
     [
       "over-indent a continuation paragraph into a code block",
       (text) =>
@@ -776,6 +810,14 @@ describe("AGENTS.md heavy-phase rule", () => {
         text.replace(
           "## Cross-cutting discipline (from milestone retrospectives)",
           "Cross-cutting discipline (from milestone retrospectives)\n" + "-".repeat(58),
+        ),
+    ],
+    [
+      "the section heading is renamed within the same cross-cutting tier",
+      (text) =>
+        text.replace(
+          "## Cross-cutting discipline (from milestone retrospectives)",
+          "## Cross-cutting rules (from milestone retrospectives)",
         ),
     ],
     [
