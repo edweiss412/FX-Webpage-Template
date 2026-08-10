@@ -183,6 +183,33 @@ describe("every renderable region is actionable-and-gated or read-only-and-visib
     expect(q(`row-actions-error-${SLUG}`)).toBeNull();
   });
 
+  test("a mutation CLOSES every actionable surface, including one that navigates away", async () => {
+    // `busy` disables the parent items, but the submenu is its own surface and
+    // its links NAVIGATE. A submenu left open beside a running request lets the
+    // admin leave the page that is about to receive the answer — the same
+    // silent-outcome defect reached by a different door.
+    let release: (r: Response) => void = () => {};
+    fetchMock.mockReturnValue(
+      new Promise<Response>((res) => {
+        release = res;
+      }),
+    );
+    render(<ShowRowActions row={base} />);
+    fireEvent.click(q(`row-actions-trigger-${SLUG}`)!);
+    fireEvent.click(q(`row-action-preview-${SLUG}`)!);
+    premiseHolds(
+      "the submenu is open before the mutation starts",
+      q(`row-action-preview-menu-${SLUG}`) !== null,
+    );
+
+    fireEvent.click(q(`row-action-resync-${SLUG}`)!);
+    await waitFor(() => expect(q(`row-action-resync-${SLUG}`)!.textContent).toContain("Syncing…"));
+    expect(q(`row-action-preview-menu-${SLUG}`)).toBeNull();
+
+    release(jsonResponse({ ok: false, error: "SHOW_BUSY_RETRY" }));
+    await waitFor(() => expect(q(`row-actions-error-${SLUG}`)).not.toBeNull());
+  });
+
   test("losing eligibility under an open menu does not strand focus on a removed node", async () => {
     const { rerender } = render(<ShowRowActions row={base} />);
     fireEvent.click(q(`row-actions-trigger-${SLUG}`)!);

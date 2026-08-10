@@ -134,6 +134,14 @@ The Archive confirm step implements the DESIGN.md destructive-action rules (the 
 2. **Crew list staleness.** `row.crew` is loader-time data; a roster change after dashboard render shows a stale submenu until refresh. The preview page itself re-validates the crewId — a stale click lands on the preview route's own guard, never a wrong crew page.
 3. **A background refresh does NOT close the menu** (§3.5 compound row, corrected at whole-diff R3). `router.refresh()` merges the RSC payload without losing React state and the row keeps its `row.id` key, so the same menu instance survives. What the surface owes is ELIGIBILITY, not closure: if the refresh flips the row to unpublished, every mutating surface closes and an answer already in flight is SIGNALED rather than dropped. The earlier entry claimed the opposite and called it cosmetic.
 4. **Archived bucket unchanged** (§1.4).
+5. **A post-commit archive fault is indistinguishable from a pre-commit one** (recorded at whole-diff
+   R8, which named it as a limit rather than a finding). `archiveShowAction` awaits its telemetry
+   write after the RPC has committed, so a fault there rejects the action even though the show IS
+   archived. The caller cannot tell that state apart from a transport failure and surfaces the
+   generic retry copy either way. The consequence is bounded and conservative: the admin is told to
+   retry, the retry is idempotent (the RPC's discriminator is false on the no-op arm), and the row
+   relocates on the next refresh regardless. Distinguishing the two would require the action to
+   report post-commit faults separately, which is a change to a surface this arc freezes (§1.5).
 
 ## §7 Out of scope
 

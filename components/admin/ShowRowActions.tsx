@@ -346,6 +346,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
 
   const runSync = async (accept?: { expectedModifiedTime: string }) => {
     if (pending) return;
+    // The submenu is ACTIONABLE — its links navigate — and `busy` only disables
+    // the PARENT items, so a submenu flipped above its parent stays clickable
+    // beside a running request. Navigating away unmounts the surface the answer
+    // is about to land in, which is the silent-outcome defect again.
+    setSubmenuOpen(false);
     setErrorCode(null);
     setPendingAction("sync");
     try {
@@ -387,6 +392,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
 
   const runArchive = async () => {
     if (pending) return;
+    setSubmenuOpen(false);
     setArchiveFailure(null);
     setPendingAction("archive");
     try {
@@ -930,7 +936,14 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               tabIndex={-1}
               data-testid={`row-action-preview-crew-${member.id}`}
               href={`/admin/show/${encodeURIComponent(slug)}/preview/${encodeURIComponent(member.id)}`}
-              onClick={() => dismissMenu(false)}
+              {...itemDisabledProps}
+              onClick={(e) => {
+                if (busy) {
+                  e.preventDefault();
+                  return;
+                }
+                dismissMenu(false);
+              }}
               className={MENU_ITEM_CLASS}
             >
               {member.name === null || member.name === "" ? UNNAMED_CREW : member.name}
@@ -943,7 +956,14 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               data-testid={`row-action-preview-more-${slug}`}
               href={openHref(slug)}
               scroll={false}
-              onClick={() => dismissMenu(false)}
+              {...itemDisabledProps}
+              onClick={(e) => {
+                if (busy) {
+                  e.preventDefault();
+                  return;
+                }
+                dismissMenu(false);
+              }}
               className={`${MENU_ITEM_CLASS} text-text-subtle`}
             >
               {`… and ${overflowCrewCount} more (open the show)`}
