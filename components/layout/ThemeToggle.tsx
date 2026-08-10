@@ -49,7 +49,7 @@
 
 import { Moon, Sun } from "lucide-react";
 
-import { useAppliedTheme } from "./useAppliedTheme";
+import { readAppliedTheme, useAppliedTheme } from "./useAppliedTheme";
 
 /**
  * The standalone theme control.
@@ -65,7 +65,16 @@ export function ThemeToggle() {
   void theme;
 
   function flip() {
-    setTheme(isDark ? "light" : "dark");
+    // READ THE DOM AT CLICK TIME when the mount effect has not run yet. Round 1
+    // stopped this control from CLAIMING a state pre-mount; review R3 found it
+    // still ACTING on one. The placeholder is `light`, so on an OS-dark first
+    // paint a tap landing between hydration and the effect called
+    // `setTheme("dark")` on a page that was already dark: nothing changed, and
+    // nothing was said. `readAppliedTheme()` is the same resolver the effect
+    // uses, and the `data-theme` it reads is written pre-hydration by the
+    // no-FOUC script, so it is authoritative at every instant this can run.
+    const current = mounted ? (isDark ? "dark" : "light") : readAppliedTheme();
+    setTheme(current === "dark" ? "light" : "dark");
   }
 
   return (

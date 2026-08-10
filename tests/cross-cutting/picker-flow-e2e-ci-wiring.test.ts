@@ -534,7 +534,18 @@ function expectNoUndeclaredProjectGate(spec: string): void {
     // aliasing would defeat any bracket-aware successor. Every project-based gate must name
     // `project` or reach it through `testInfo`/`test.info()`, so banning the access closes the
     // class for any spec that has declared no gate at all.
-    const banned = [/\bproject\b/, /\btestInfo\b/, /test\.info\s*\(/].filter((re) => re.test(code));
+    // `browserName` JOINS THE BAN. Review R3's mutant: `crew-page.spec.ts` has
+    // no row, so the body scans below never reached it, and
+    // `if (browserName === "webkit") return;` left an assertion-free PASS still
+    // counted toward its required 16. Hoisting the body scans over every spec
+    // was tried and OVER-REFUSED — four real specs branch legitimately — so the
+    // closure for UNDECLARED specs stays where it belongs: naming ANY
+    // environment-identifying fixture without declaring a gate is the error.
+    // That is a different rule from the body scans, and a closed one: an
+    // undeclared spec may not consult the environment at all.
+    const banned = [/\bproject\b/, /\btestInfo\b/, /test\.info\s*\(/, /\bbrowserName\b/].filter(
+      (re) => re.test(code),
+    );
     expect(
       banned.map(String),
       `${spec} names project/testInfo in code but registers no PROJECT_GATED row. A project ` +
