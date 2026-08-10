@@ -22,6 +22,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
+import { admin } from "./helpers/supabaseAdmin";
 
 const TOL = 0.5;
 const BREAKPOINT = 720;
@@ -59,6 +60,37 @@ async function horizontalOverflow(page: Page): Promise<number> {
 }
 
 test.describe("notify toggles — layout + dispatch (real browser, §7.4/.5)", () => {
+  // The dispatch test below flips alert_on_sync_problems through the real
+  // Server Action and the spec runs under BOTH projects, so without a
+  // restore the global value's final state depends on execution parity,
+  // an ordering hazard for any later same-job reader (spec §4.1).
+  let savedAlertOnSyncProblems: boolean | null = null;
+
+  test.beforeAll(async () => {
+    const { data, error } = await admin
+      .from("app_settings")
+      .select("alert_on_sync_problems")
+      .eq("id", "default")
+      .single();
+    if (error) throw new Error(`app_settings snapshot failed: ${error.message}`);
+    savedAlertOnSyncProblems = Boolean(data.alert_on_sync_problems);
+  });
+
+  test.afterAll(async () => {
+    if (savedAlertOnSyncProblems === null) return;
+    // not-subject-to-meta: e2e fixture teardown on a test-only path; the
+    // invariant-9 registry (tests/auth/_metaInfraContract.test.ts) covers
+    // runtime helpers, not spec cleanup. Both paths still discriminate:
+    // returned error throws, and an empty match set throws loudly.
+    const { data, error } = await admin
+      .from("app_settings")
+      .update({ alert_on_sync_problems: savedAlertOnSyncProblems })
+      .eq("id", "default")
+      .select("alert_on_sync_problems");
+    if (error) throw new Error(`app_settings restore failed: ${error.message}`);
+    if (!data || data.length === 0) throw new Error("app_settings restore matched no row");
+  });
+
   test.beforeEach(async ({ page }) => {
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);

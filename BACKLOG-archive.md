@@ -545,6 +545,50 @@ deliberately does not have.
 
 ---
 
+## BL-NON-CREW-UNDO — Undo for non-crew feed rows (section shrinkage / field degradation / asset drift) — CLOSED 2026-08-09 (`docs/demote-non-crew-undo`, DEMOTED: accepted limit)
+
+**Resolution: DEMOTED to an accepted limit, by owner call 2026-08-09.** Notification-only rows for
+non-crew auto-applied changes are the designed behavior, not a gap awaiting work: the sheet stays
+the source of truth, the feed row carries the "edit the sheet to change this" pointer, and even crew
+undo is only a temporary `undo_override` pin that releases when the sheet reconciles or moves on
+(the feed spec's §6.2 rationale / §4.3). Under the ledger filing bar (AGENTS.md;
+`docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2), a limit whose worst case is
+the designed conservative behavior plus a surfaced signal belongs in a limits record, not the open
+queue. This archive entry is that record; grep the id to reach it.
+
+**Revisit trigger, carried from the entry's promotion prerequisite:** an operator explicitly wants
+to undo a non-crew change in-app (rather than re-editing the sheet), and the capture-widening cost
+is judged worth it. If that fires, re-file starting from the original technical home below — widen
+`applyShowSnapshot`/`before_image` beyond crew rows, then add the domain to `undo_change`'s
+direction handling and the feed's undoable predicate. F6's "not cheap" finding stands; the demotion
+refutes nothing in the original body.
+
+**Supersedes:** the 2026-08-06 L-wave screen's PREREQ stamp
+(`docs/superpowers/specs/2026-08-06-l-wave-design.md` §1.1: "PREREQ (operator explicitly wants
+non-crew undo; capture-widening cost judged then)") and the 2026-08-07 park-review's "stays
+PREREQ-fenced" disposition, both of which kept the row open on the same trigger. Nothing about the
+trigger changed — only its queue residency: the trigger was re-checked with the owner 2026-08-07 and
+had never fired, so the row was a prerequisite-fenced feature idea sitting in the open queue for a
+flow the product deliberately does not have.
+
+**Original entry, preserved in full:**
+
+**Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ — waits on the operator explicitly wanting non-crew undo; the capture-widening cost is judged then, not now.
+**park-review 2026-08-07:** trigger re-checked with the owner — unfired. No operator has wanted to un-apply a non-crew change in-app; "edit the sheet to change this" remains the intended path (the feed spec's §6.2 rationale — sheet stays the source of truth, and even crew undo is only a temporary `undo_override` pin that releases when the sheet reconciles or moves on, §4.3). Stays PREREQ-fenced. The gate field below was split out of the compound "Technical home + promotion prerequisite" label in this pass so the ledger viewer classifies the row as gated (watch) rather than open.
+
+**Filed:** 2026-06-10 from the shipped "sync changes feed + identity-only gate" milestone (PR #19, `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md` §1 non-goals / §7 / finding F6).
+
+**Description:** v1 undo covers **crew-identity** changes only (`crew_added` / `crew_removed` / `crew_renamed`). Non-crew auto-applied changes — MI-7 section shrinkage, MI-8/8b/8c field degradation, asset drift (DIAGRAMS\_\*/REEL_DRIFT) — render as **notification-only** feed rows (`action='none'`, null `before_image`, "edit the sheet to change this" pointer). This entry would extend per-item undo to those rows.
+
+**Why backlog, not deferred — F6 showed it's "not cheap" + no committed trigger:** the undo restore path needs the **pre-apply state** in `before_image`, but the Phase-2 snapshot (`applyShowSnapshot` → `previousCrewMembers`, `lib/sync/runScheduledCronSync.ts:913-932,1088-1100`) captures **prior crew rows ONLY**. It does NOT snapshot prior hotel/room/contact rows, show fields, diagrams, or reel state. Backing non-crew undo requires **widening that prior-state capture** per domain (a real Phase-2 change), plus a domain-specific restore in `undo_change` and the feed's undoable predicate. The approved scope call (#9) was "crew-identity undo first, non-crew only if cheap"; F6 determined non-crew is not cheap.
+
+**Technical home:** widen `applyShowSnapshot`/`before_image` to capture the relevant prior non-crew rows → add the domain to `undo_change`'s direction handling + the feed's `isCrewDomainChangeKind`-style predicate (it currently single-sources `{crew_added,crew_removed,crew_renamed}`).
+
+**Promotion prerequisite:** an operator explicitly wants to undo a non-crew change in-app (rather than re-editing the sheet), and the capture-widening cost is judged worth it.
+
+---
+
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
 **Resolution: DEMOTED and archived. This is a DOCUMENTED LIMIT filed as open work, and the entry says
@@ -6212,3 +6256,23 @@ This is the dark-spec class already recorded for this repo (`feedback_dark_spec_
 > bound instead of an 11-minute job on every admin PR. NOT a required context: a path-filtered
 > job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
 > `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.
+
+---
+
+## BL-CI-UNIT-GATE-EXCLUSIONS — gate the two files excluded from the full-suite job — ✅ RESOLVED (2026-08-09, closed on verification: the work landed under the CI-dark cluster; no new code)
+
+**Resolved by:** PR3 of the CI-dark coverage cluster (2026-07-26: `pg-cron-coverage` promoted into `unit-suite-db`) and `feat/ci-dark-vitest-exclusion` (PR-B of the ci-dark descoped close-out, 2026-07-31: `tests/admin/test-auth-gate.test.ts` returned to the unit suite — 24 passed / 3 skipped, 5x stability-looped before its exclusion row came out). The single remaining exclusion, `tests/cross-cutting/email-canonicalization.test.ts`, is deliberate and structurally gated: execution is proven by the x5 job's verbatim `pnpm run-excluded` step (`ENV_BOUND_COVERAGE_REGISTRY`, verified by `tests/ci/_metaEnvBoundExclusionCoverage.test.ts`), so "excluded from the full-suite job" no longer means "ungated". Verified 2026-08-09 against `unit-suite.yml`'s header comment (ONE file excluded, each excluded file gated elsewhere) and the coverage meta-test. Both halves of this entry's promotion prerequisite are therefore discharged — (a) by promotion into `unit-suite-db` rather than a remote-validation leg, (b) by the PR-B root-cause and stability work — and the entry closes with no new code. Recorded by `ci/unit-gate-exclusions`.
+
+**Original entry (filed 2026-06-22; UPDATED 2026-07-26; both stale states preserved verbatim as history):**
+
+> **UPDATED 2026-07-26 (PR3 of the CI-dark coverage cluster).** This entry described THREE excluded files and repeated the false premise that the local-bootstrap runner cannot provide pg_cron. `scripts/ci/supabase-local-bootstrap.sh` holds the guarded migrations aside for the INITIAL boot only, then applies them with `supabase migration up --include-all`, so that runner has always had them. `pg-cron-coverage` is no longer excluded and now runs in `unit-suite-db`; TWO files remain excluded. The promotion work this entry proposed for pg-cron-coverage is DONE — do not redo it.
+
+**Filed:** 2026-06-22 (alongside the `unit-suite.yml` full-vitest CI gate that closed the "no gate runs `pnpm test`" gap). The new gate runs the whole vitest suite minus two files that need environments the local-bootstrap runner can't provide:
+
+- `tests/cross-cutting/pg-cron-coverage.test.ts` — live-DB introspection of `cron.job` rows. The shared `supabase-local-bootstrap.sh` deliberately HOLDS ASIDE the two GUC-guarded `pg_cron` migrations (`app.fxav_vercel_url`), so no cron jobs exist locally → the test expects 9, gets 0. It is designed for the validation project (`TEST_DATABASE_URL` + `VALIDATION_SUPABASE_PROJECT_REF`), like `validation-schema-parity`.
+- `tests/admin/test-auth-gate.test.ts` — the 3 Layer-2 "HTTP positive-path" tests drive a real Supabase `auth.admin.createUser → signInWithPassword` chain that returns 501 without the running instance's matching service-role key + a working GoTrue. They do NOT skip-when-unreachable by design (Codex M3 R2: "opportunistic skip is the wrong default for security tests"), so they fail rather than skip locally.
+- `tests/cross-cutting/email-canonicalization.test.ts` — three tests set an EXPLICIT 15s per-test timeout while doc-scanning the large master spec + plan. Under full-suite concurrency on the 2-core CI runner they starve and time out, but pass STANDALONE (isolated resources) in the `x5-email-canonicalization` gate that already covers this file. (Surfaced on the gate's first real-CI run — the local-passes-CI-fails class the gate exists to catch, applied to itself.)
+
+**Why backlog, not now:** both were ALREADY ungated before `unit-suite.yml`, so excluding them is not a regression — the gate's job was to cover the 6800+ tests that had NO gate at all. Wiring the two excluded files needs either a remote-validation job variant (TEST_DATABASE_URL pointed at the validation project, mirroring `validation-schema-parity`/`postgrest-dml-lockdown`) or a live-auth setup that provisions the matching service-role key. The `test-auth-gate` 501 may also indicate the Layer-2 tests have drifted since a route change — investigate before gating (don't freeze a possibly-broken security test green).
+
+**Promotion prerequisite:** a CI pass that adds (a) a remote-validation matrix leg for `pg-cron-coverage` + (b) a live-auth setup (or a root-cause fix) for `test-auth-gate` Layer 2, each verified green in real CI before being added to the gate's run set.

@@ -8,9 +8,11 @@
  * renders cards.
  *
  * Spec contract (Task 5.10 §B prompt):
- *   1. Unsigned + clean URL → 302/redirect to /auth/sign-in?next=/me.
+ *   1. Unsigned + clean URL → put in front of /auth/sign-in?next=/me
+ *      (the page-level redirect() streams in-band, so the HTTP status is
+ *      200 and the landing URL is the observable contract).
  *   2. Signed-in crew with shows → 200; cards render; each card link
- *      points to /show/<slug>.
+ *      points to /show/<slug>/<shareToken>.
  *   3. Signed-in crew with multiple shows → both render in
  *      dates.set DESC order (per listShowsForCrew sort contract).
  *   4. Signed-in crew with NO shows → empty-state copy renders;
@@ -41,21 +43,28 @@ const TEST_BASE_URL = "http://127.0.0.1:3000";
 // key (DESC), so the OLDER show.set deliberately precedes the NEWER one
 // in seed declaration to prove the helper sorts (rather than echoing
 // insert order).
+// Clock-derived so the past/future partition holds on ANY run date; the
+// previous hardcoded pair went stale the day the wall clock passed the
+// newer literal (spec section 4.2's date-bomb repair). No concrete date
+// belongs in this file, including in comments.
+const isoDay = (offsetDays: number) =>
+  new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
 const olderShowId = randomUUID();
 const olderSlug = `me-older-${olderShowId.slice(0, 8)}`;
 const olderTitle = "Older Show — Anti-Tautology Sentinel A";
-const olderSetDate = "2026-04-10";
+const olderSetDate = isoDay(-35); // firmly past on every run date
 
 const newerShowId = randomUUID();
 const newerSlug = `me-newer-${newerShowId.slice(0, 8)}`;
 const newerTitle = "Newer Show — Anti-Tautology Sentinel B";
-const newerSetDate = "2026-09-15";
+const newerSetDate = isoDay(+35); // firmly future on every run date
 
 // Lone show used by the single-show test.
 const soloShowId = randomUUID();
 const soloSlug = `me-solo-${soloShowId.slice(0, 8)}`;
 const soloTitle = "Solo Show — Anti-Tautology Sentinel C";
-const soloSetDate = "2026-06-01";
+const soloSetDate = isoDay(-7);
 
 // Crew row IDs — one per (show × non-admin viewer) combination since
 // crew_members.show_id is mandatory and listShowsForCrew joins on
@@ -148,21 +157,34 @@ test.describe("/me — unsigned baseline", () => {
     await signOut(page);
   });
 
-  test("unsigned + GET /me → 302/redirect to /auth/sign-in?next=/me", async ({ request }) => {
-    const firstHop = await request.get(`${TEST_BASE_URL}/me`, {
-      maxRedirects: 0,
-    });
-    expect([302, 303, 307, 308]).toContain(firstHop.status());
-    const location = firstHop.headers()["location"];
-    expect(location).toBeTruthy();
-    const url = new URL(location ?? "", TEST_BASE_URL);
+  test("unsigned + GET /me → lands on /auth/sign-in?next=/me", async ({ page }) => {
+    // /me's gate is a redirect() inside the PAGE's Server Component
+    // (app/me/page.tsx, the `result.kind === "continue"` arm), not in a
+    // layout or middleware. Next 16 has already flushed the response head
+    // by the time it runs, so the redirect ships in-band in the RSC payload
+    // and the HTTP status is 200 — measured 2026-08-09 against BOTH server
+    // postures this repo runs (`pnpm dev` and the CI-equivalent
+    // `pnpm build && pnpm start`):
+    //
+    //   curl -sD- http://127.0.0.1:3000/me  ->  HTTP/1.1 200 OK
+    //   body carries: auth/sign-in?next=/me;307
+    //
+    // The old assertion read the first hop's status and expected 3xx, which
+    // no longer describes a streamed redirect at all. The guarantee that
+    // actually matters — an unsigned visitor cannot see /me and is put in
+    // front of the sign-in form with a `next` that returns them — is
+    // observable either way, so assert THAT. If the gate regressed and /me
+    // rendered, the URL would stay on /me and waitForURL would time out.
+    await page.goto(`${TEST_BASE_URL}/me`);
+    await page.waitForURL(/\/auth\/sign-in\b/);
+    const url = new URL(page.url());
     expect(url.pathname).toBe("/auth/sign-in");
     expect(url.searchParams.get("next")).toBe("/me");
   });
 });
 
 test.describe("/me — signed-in crew with shows", () => {
-  test("signed-in crew with one show → 200; card visible; link to /show/<slug>", async ({
+  test("signed-in crew with one show → 200; card visible; link to /show/<slug>/<shareToken>", async ({
     page,
   }) => {
     // Seed one crew row matching the fixture's email.
@@ -194,7 +216,25 @@ test.describe("/me — signed-in crew with shows", () => {
     // M9 C3 / M5-D1: the card IS the anchor (the testid moved from a
     // wrapping <li> onto the inner <Link> when the partition layout
     // shipped). Assert href directly on the card locator.
-    await expect(card).toHaveAttribute("href", `/show/${soloSlug}`);
+    //
+    // The crew route is /show/[slug]/[shareToken] — the slug-only mirror was
+    // retired at the M11.5 picker pivot (playwright.config.ts's mobile-safari
+    // comment records the same retirement), and app/me/meShowSections.tsx:215
+    // builds the href as `/show/${show.slug}/${show.shareToken}`. The token is
+    // read back from show_share_tokens — the SAME table listShowsForCrew
+    // sources it from (lib/data/listShowsForCrew.ts:98) — rather than matched
+    // against a 64-hex shape, so a card pointing at some OTHER show's valid
+    // token still fails.
+    const { data: tokenRow, error: tokenErr } = await admin
+      .from("show_share_tokens")
+      .select("share_token")
+      .eq("show_id", soloShowId)
+      .single();
+    if (tokenErr) throw new Error(`solo show share token lookup failed: ${tokenErr.message}`);
+    await expect(card).toHaveAttribute(
+      "href",
+      `/show/${soloSlug}/${tokenRow.share_token as string}`,
+    );
   });
 
   test("signed-in crew with multiple shows → both cards render in dates.set DESC order", async ({
@@ -224,10 +264,14 @@ test.describe("/me — signed-in crew with shows", () => {
     expect(response?.status()).toBe(200);
 
     // M9 C3 / M5-D1: the rendered shape is now partitioned (Next up /
-    // Upcoming / Past collapsed) per shape brief 2026-05-14-auth-flow-
-    // polish.md §5.1. Today is 2026-05-15 (relative to the test's wall-
-    // clock); olderSetDate (2026-04-10) is past and newerSetDate
-    // (2026-09-15) is future — so featured = newer, past = [older].
+    // Upcoming / Past collapsed) per the auth-flow-polish shape brief
+    // §5.1 (docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/
+    // shape-sessions/2026-05-14-auth-flow-polish.md — the only dated
+    // literals left in this file are in that PATH, which is a filename,
+    // not a fixture date, so it cannot rot the past/future partition).
+    // olderSetDate is now-35d (past) and newerSetDate is
+    // now+35d (future) by construction, so featured = newer and
+    // past = [older] on every run date.
     const newerCard = page.getByTestId(`me-show-card-${newerSlug}`);
     await expect(newerCard).toBeVisible();
     // Featured anchor renders inside the me-next-up section (newest first
