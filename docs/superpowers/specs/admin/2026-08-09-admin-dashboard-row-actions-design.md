@@ -41,8 +41,8 @@ Menu items (44px rows, icons + labels, canonical tokens):
 | --- | --- | --- | --- |
 | Open | ✓ | ✓ | `<Link href>` to `/admin/show/[slug]` (same target as the row Link; explicit affordance per §9.1) |
 | Preview as… | ✓ (disabled when no crew) | HIDDEN | submenu/section listing crew members → `/admin/show/[slug]/preview/[crewId]` |
-| Re-sync | ✓ | HIDDEN | POST `/api/admin/sync/${slug}`; pending state in the menu item; result surfaced per §3.4 |
-| Archive | ✓ | HIDDEN | two-step confirm inside the menu (item → confirm row), then `archiveShowAction(showId)` |
+| Re-sync | ✓ | HIDDEN | POST `/api/admin/sync/${slug}`; pending state in the menu item; result surfaced per §3.4 — INCLUDING the two-phase `shrink_held` decision flow (§3.4a) |
+| Archive | ✓ | HIDDEN | two-step confirm inside the menu (item → confirm row), then `archiveShowAction(row.slug)` — the shipped action takes a SLUG and resolves it internally via `resolveShowBySlug` (spec R1 F1; passing `row.id` would return `show_not_found` without archiving) |
 
 Guard conditions: `crewCount === 0` or missing crew list → "Preview as…" renders disabled with helper text "No crew on this show yet." `row.title === null` → aria-label falls back to the slug. Any action while a previous action is pending → menu items disabled (single in-flight action per row).
 
@@ -53,11 +53,23 @@ Guard conditions: `crewCount === 0` or missing crew list → "Preview as…" ren
 ### 3.3 Published=false and race behavior
 
 UI: `row.published === false` → menu contains Open only (§1.3). No second badge — the existing pill communicates state.
-Race (row flips to finalize-owned after render, admin fires Re-sync/Archive): the server returns 409 `FINALIZE_OWNED_SHOW`; the UI surfaces the catalog copy for that code via `lib/messages/lookup.ts` (invariant 5 — no raw codes). No optimistic UI: rows re-render from the server refresh after action completion (`router.refresh()`, matching `ReSyncButton`'s established completion contract; plan verifies).
+Race (row flips to finalize-owned after render, admin fires Re-sync/Archive): the sync ROUTE returns HTTP 409 with `FINALIZE_OWNED_SHOW`; the archive SERVER ACTION returns a typed `LifecycleResult` carrying the same code — a server action has no HTTP status (spec R1 F4). Either way the UI surfaces the catalog copy for `FINALIZE_OWNED_SHOW` via `lib/messages/lookup.ts` (invariant 5 — no raw codes). No optimistic UI: rows re-render from the server refresh after action completion (`router.refresh()`, matching `ReSyncButton`'s established completion contract; plan verifies).
 
 ### 3.4 Result surfacing
 
-Re-sync and Archive reuse the semantics their per-show buttons established: pending spinner in place, success → `router.refresh()` (row's sync cell / bucket updates), failure → inline error line inside the menu region reading catalog copy by code, `role="status"` announcement (a11y announce pattern per the feed-buttons precedent; the plan runs the announce-region checklist). The menu stays open on failure (the admin reads the error), closes on success.
+Re-sync and Archive reuse the semantics their per-show buttons established: pending spinner in place, success → `router.refresh()` (row's sync cell / bucket updates), failure → inline error line inside the menu region, `role="status"` announcement (a11y announce pattern per the feed-buttons precedent; the plan runs the announce-region checklist). The menu stays open on failure (the admin reads the error), closes on success.
+
+Error copy resolution (spec R1 F3): catalog-coded outcomes read `lib/messages/lookup.ts`; the two NON-catalog archive sentinels — `show_not_found` and `infra_error` (`app/admin/show/[slug]/_actions/shared.ts`) — get the same generic-copy branches `ArchiveShowButton.tsx` ships (its explicit handling outside the catalog is the reference; the plan reuses its exact strings or extracts them to a shared constant). An empty error region is a bug by specification: every reachable failure value renders SOME copy.
+
+### 3.4a Re-sync `shrink_held` decision (spec R1 F2)
+
+The sync route can return `ok: true` with a `shrink_held` decision payload (`detail` + `heldModifiedTime`) instead of a plain success. `ReSyncButton` keeps that decision open and performs a SECOND, version-bound POST when the admin accepts the reduced version. The dashboard menu item mirrors that contract, not a generic success close:
+
+- plain success → close + refresh (one POST total);
+- `shrink_held` → the menu region swaps to the held prompt (same copy contract as `ReSyncButton`'s held state): Accept issues the second version-bound POST (carrying `heldModifiedTime`), Keep dismisses with no further request;
+- treating `shrink_held` as success (closing while the old version is silently retained) is specified as WRONG — it is the exact silent-outcome class the consequence bound forbids.
+
+The plan enumerates the held-flow branch at `components/admin/ReSyncButton.tsx:148-196` and either extracts the request/decision logic into a shared hook or reimplements it against the same route contract with the same tests — extraction preferred; duplication requires justification in the plan body.
 
 ### 3.5 Transition inventory (component states)
 
@@ -70,8 +82,11 @@ States: closed / open / open+pending / open+error / confirm-step (Archive). Pair
 | open → open+pending | instant swap of item content to spinner; other items disable |
 | open+pending → open+error | instant; error line appears, `role="status"` announces |
 | open+pending → closed (success) | close after `router.refresh()` resolves |
-| open → confirm-step (Archive) | instant in-place swap of the Archive row |
-| confirm-step → open (cancel) | instant |
+| open → confirm-step (Archive) | instant in-place swap of the Archive row; initial focus lands on the SAFE control (Cancel) per the destructive-action contract |
+| confirm-step → open (cancel) | instant; focus restores to the Archive item (cancel focus restoration per DESIGN.md destructive contract) |
+| open+pending → held-decision (Re-sync `shrink_held`) | instant swap to the held prompt (§3.4a); other items stay disabled |
+| held-decision → open+pending (Accept, second POST) | instant; pending spinner returns |
+| held-decision → open (Keep) | instant dismiss, no request |
 | compound: row unmounts (bucket flip after archive) while menu open | menu unmounts with row — acceptable, the action that caused it succeeded; no orphaned portal (plan asserts the popover is row-scoped, not body-portal, OR is dismissed before refresh) |
 | compound: server refresh re-renders row while menu open (background revalidate) | menu closes (row identity re-mounts) — accepted; noted so the e2e doesn't flake on it |
 
@@ -99,13 +114,17 @@ New code in this feature performs ZERO Supabase calls except the widened crew re
 - **AC-1** Active published rows render the ⋮ menu with all four items; `data-testid` per item (`row-action-open|preview|resync|archive-<slug>`).
 - **AC-2** Held/Publishing rows (`published === false`) render Open only — asserted for both `finalizeOwned` values (the pill differs; the menu rule doesn't).
 - **AC-3** Preview-as lists crew from `row.crew`, caps at 12 + overflow link, disables on empty, and each item links `/admin/show/[slug]/preview/[crewId]`.
-- **AC-4** Re-sync fires exactly one POST to `/api/admin/sync/[slug]`; pending disables sibling items; failure renders catalog copy (no raw code anywhere in the DOM — negative assertion included); success refreshes.
+- **AC-4** Re-sync's plain path fires exactly one POST to `/api/admin/sync/[slug]`; the `shrink_held` path renders the held prompt and fires the second version-bound POST ONLY on Accept (asserted: zero further requests on Keep); pending disables sibling items; failure renders copy for EVERY reachable failure value including the non-catalog sentinels (no raw code and no empty error region — both negative assertions included); success refreshes.
 - **AC-5** Archive requires the in-menu confirm step; cancel restores; confirm calls `archiveShowAction` once; success moves the row out of the active bucket on refresh.
 - **AC-6** 409 `FINALIZE_OWNED_SHOW` from either mutation renders the catalog message (anti-tautology: asserted against the catalog entry text from `lib/messages/catalog.ts`, not a hardcoded copy of it).
 - **AC-7** Tap targets: menu trigger and every item ≥44px (`min-h-tap-min` companions); real-browser assertion not required (no fixed-dimension invariant), RTL class assertions suffice per the mechanical checklist.
 - **AC-8** Help page documents the four actions + Held rule; archive sentence names both paths.
 - **AC-9** Impeccable dual-gate (`/impeccable critique` + `/impeccable audit`) run on the diff; P0/P1 fixed or DEFERRED.md'd; closeout carries the `impeccable-gate:` marker line.
 - **AC-10** Full suite + real CI green; whole-diff cross-model review APPROVE.
+
+### 3.8 Destructive-action contract (spec R1 F5)
+
+The Archive confirm step implements the DESIGN.md destructive-action rules (the `DESIGN.md` §~478-497 block; `components/admin/ArchiveShowButton.tsx` is the shipped reference at its confirm/focus regions): consequence prose that names the show being archived, the inverted-amber confirm recipe with its style-registry entry, initial focus on the safe (Cancel) control when the confirm appears, and focus restoration to the invoking control on cancel. These are ACs, not suggestions (AC-5).
 
 ## §6 Documented limits
 
