@@ -749,6 +749,10 @@ export async function Dashboard(
               now={now}
               activeCount={result.activeCount}
               overflowCount={result.overflowCount}
+              // admin-dashboard-row-actions (spec §1.6, AC-1): the ACTIVE
+              // bucket only. The archived branch above renders ArchivedShowRow
+              // (its own Unarchive affordance) and is out of scope (§1.4).
+              showRowActions
               heading={<ShowsTableHeading folderName={folderName} fallbackLabel="Active shows" />}
               bucketControl={
                 <DashboardBucketSegmentedControl

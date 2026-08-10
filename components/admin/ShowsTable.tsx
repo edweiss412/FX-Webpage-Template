@@ -36,6 +36,7 @@ import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
 import { formatAutoFixBreakdown, type AutoFixSummary } from "@/lib/parser/dataGaps";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 import { ShowReviewModalSkeleton } from "@/components/admin/showpage/ShowReviewModalSkeleton";
+import { ShowRowActions } from "@/components/admin/ShowRowActions";
 
 type ShowsTableProps = {
   rows: ActiveShowRow[];
@@ -58,6 +59,12 @@ type ShowsTableProps = {
   // gains a small action bar under the Link; when omitted (the dashboard's
   // default), the row is unchanged.
   rowAction?: (row: ActiveShowRow) => ReactNode;
+  // admin-dashboard-row-actions (spec §1.6) — a BOOLEAN, not a render function:
+  // Dashboard is an async SERVER component and this file is "use client", so a
+  // `rowAction={(row) => ...}` callback cannot cross that boundary. When set,
+  // the table mounts <ShowRowActions row={row}/> itself at the same slot
+  // position. `rowAction` stays for CLIENT callers and is untouched.
+  showRowActions?: boolean;
 };
 
 // Shared column tracks (header + every row) so the columns line up (spec §9).
@@ -288,6 +295,7 @@ export function ShowsTable({
   heading,
   bucketControl,
   rowAction,
+  showRowActions = false,
 }: ShowsTableProps) {
   // Param-preserving modal hrefs (spec §3.1 / D9) — this client island reads
   // the CURRENT search params so e.g. bucket=archived survives opening a show.
@@ -624,12 +632,21 @@ export function ShowsTable({
                       chip rides here, BEFORE the Publish action, when this row's
                       summary has total>0 (items-center keeps it baseline-aligned
                       with the action; Tailwind v4 has no default stretch). */}
-                  {rowAction ? (
+                  {rowAction || showRowActions ? (
                     <div
                       data-testid={`shows-row-action-${row.slug}`}
                       className="flex flex-wrap items-center gap-3 border-t border-border bg-surface-sunken px-4 py-3"
                     >
-                      {rowAction(row)}
+                      {rowAction ? rowAction(row) : null}
+                      {/* admin-dashboard-row-actions: the ⋮ menu rides the SAME
+                          slot, still a sibling of the row Link. ml-auto parks it
+                          at the row end when it shares the bar with a caller's
+                          own action (the Held-shows Publish control). */}
+                      {showRowActions ? (
+                        <span className="ml-auto flex items-center">
+                          <ShowRowActions row={row} />
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </li>
