@@ -15,8 +15,14 @@
  * flip mid-crossfade, and tests/help/header.test.tsx mocks the component.
  *
  * RESOLUTION RECIPE IS PART OF THE TEST (spec §3.2, review R2 F2). The toggle
- * exists ONLY in the CrewShell's Footer (components/layout/Footer.tsx, rendered
- * via _CrewShell). An UNAUTHENTICATED share-token request renders
+ * moved to the crew page HEADER on 2026-08-09 (UI spec §2.3) and now has two
+ * forms: an identity-less page renders the STANDALONE toggle in the header's
+ * right slot, and a page with a resolved crew identity carries the switch inside
+ * the avatar menu. This suite's admin-fixture recipe resolves `identityChip=null`
+ * — the admin arm of resolveShowPageAccess renders the CrewShell without a
+ * picker identity — so it drives the STANDALONE form, which is the one whose
+ * persistence and no-FOUC contract this file has always been about. The
+ * avatar-menu form is driven by its own arm below. An UNAUTHENTICATED share-token request renders
  * SignInOrSkipGate/PickerInterstitial instead, which has no footer and no
  * toggle — so a test that merely navigated would fail on a missing locator and
  * read as a product defect. Hence lookupSeededShow + share token +
@@ -170,31 +176,23 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
   }
 
   /**
-   * Land on the crew route with the CrewShell (and therefore the Footer) up.
+   * Land on the crew route with the header chrome up.
    *
-   * Width 760 is load-bearing, and NOT a convenience. At 390px the crew
-   * sub-nav's fixed bottom bar (`min-[720px]:hidden fixed inset-x-0 bottom-0`,
-   * components/crew/CrewSubNav.tsx:155) overlaps the footer's theme toggle, and
-   * the page is not padded to clear it. Measured on the seeded route at 390x844,
-   * scrolled fully to the bottom:
+   * AT 390px, the mobile width this product is designed for. The previous
+   * version ran at 760 and said why: at 390 the crew sub-nav's fixed bottom bar
+   * overlapped the FOOTER's theme toggle, `document.elementFromPoint` at the
+   * toggle's centre returned the BAR's svg, and no amount of scrolling cleared
+   * it. That obstruction was real and it was filed, with that probe attached, as
+   * BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR.
    *
-   *   toggle top 775.6 bottom 819.6 · bar top 790.7 bottom 844 · overlaps true
-   *   document.elementFromPoint(toggle centre) -> the BAR's <svg>
-   *   getComputedStyle(document.body).paddingBottom -> "0px"
-   *
-   * so the toggle's centre is genuinely un-tappable there and no amount of
-   * scrolling clears it (the document bottom is already at the viewport bottom).
-   * That obstruction is a PRODUCT defect, filed as
-   * BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR with this probe attached — it is
-   * a design call (how the footer should clear the mobile bar) this arc does not
-   * settle. It is NOT worked around by clicking a sliver or hiding product
-   * chrome: the bar is `min-[720px]:hidden`, so at >=720px it does not render and
-   * the toggle is reachable exactly as a real user finds it. The theme contract
-   * under test (write, persist, restore, announce) is viewport-independent; the
-   * mobile tap floor is asserted separately, at 390px, by the tap-target case.
+   * BOTH halves of the workaround's premise are now gone. The shell pads below
+   * the footer so its box clears the bar (UI spec §2.1), and the toggle itself
+   * left the footer for the header (§2.3), where nothing has ever overlapped it.
+   * Running at 760 would now be testing a width no crew member uses, to dodge a
+   * defect that no longer exists.
    */
   async function gotoCrewShell(page: Page): Promise<void> {
-    await page.setViewportSize({ width: 760, height: 1000 });
+    await page.setViewportSize({ width: 390, height: 844 });
     // Retried, because two things here are slow rather than wrong: the admin
     // session set by signInAs has to be visible to the SSR request (until it is,
     // resolveShowPageAccess renders SignInOrSkipGate and `crew-shell` never
@@ -408,27 +406,35 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     const named = (name: string) => page.getByRole("button", { name });
 
     // Light: the name states the ACTION a tap performs, and it is not pressed.
-    await expect(named("Switch to dark theme")).toBeVisible();
-    await expect(named("Switch to dark theme")).toHaveAttribute("aria-pressed", "false");
+    // ONE MODEL: the name is the thing ("Dark mode"), aria-pressed is whether it
+    // is on. The old contract paired a next-action name with a current-state
+    // aria-pressed, so dark mode announced "Switch to light theme, pressed" —
+    // the two halves contradicting each other (review R4).
+    await expect(named("Dark mode")).toBeVisible();
+    await expect(named("Dark mode")).toHaveAttribute("aria-pressed", "false");
 
     await tapToggle(page, "dark");
-    await expect(named("Switch to light theme")).toBeVisible();
-    await expect(named("Switch to light theme")).toHaveAttribute("aria-pressed", "true");
-    // The old name must be GONE, not merely joined by the new one.
+    await expect(named("Dark mode")).toBeVisible();
+    await expect(named("Dark mode")).toHaveAttribute("aria-pressed", "true");
+    // The NEXT-ACTION names must be gone entirely — under the toggle model the
+    // control is named for the thing, not the transition, so either of the old
+    // names appearing means both models are live again.
     await expect(named("Switch to dark theme")).toHaveCount(0);
+    await expect(named("Switch to light theme")).toHaveCount(0);
 
-    // …and the restored theme drives them after a reload, not just the click.
+    // …and the restored theme drives the state after a reload, not just the click.
     await reloadCrewShell(page);
-    await expect(named("Switch to light theme")).toBeVisible();
-    await expect(named("Switch to light theme")).toHaveAttribute("aria-pressed", "true");
+    await expect(named("Dark mode")).toBeVisible();
+    await expect(named("Dark mode")).toHaveAttribute("aria-pressed", "true");
   });
 
   test(`tap target: the toggle is at least ${TAP_MIN}x${TAP_MIN}px`, async ({ page }) => {
     await gotoCrewShell(page);
-    // Asserted at the MOBILE width under both projects — the tap floor is a
-    // mobile contract, and measuring it only at 760px would let a
-    // narrow-viewport regression through. Measuring needs no click, so the
-    // bottom-bar obstruction above does not apply here.
+    // The tap floor is a MOBILE contract and `gotoCrewShell` now lands at 390px,
+    // so this case no longer has to re-set the viewport to escape a workaround
+    // width. Kept explicit anyway: the assertion is about 390 specifically, and
+    // a future change to the helper's default must not silently move what this
+    // measures.
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByTestId("theme-toggle")).toBeVisible();
     const box = await page.getByTestId("theme-toggle").boundingBox();
@@ -441,5 +447,142 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
       box!.height,
       `toggle height must clear the ${TAP_MIN}px tap floor; got ${box!.height}`,
     ).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+  });
+});
+
+/**
+ * ARM (b) — the theme switch inside the header AVATAR MENU.
+ *
+ * Spec: docs/superpowers/specs/2026-08-09-crew-chrome-wizard-connector.md §2.3
+ * Plan: docs/superpowers/plans/2026-08-09-quick-wins-2/plan.md, Task B4
+ *
+ * The suite above drives the STANDALONE toggle, because its admin-fixture recipe
+ * resolves `identityChip=null`. A crew member with a resolved identity gets a
+ * different control entirely — the switch lives behind the avatar — and that
+ * form has no coverage anywhere else. So this arm establishes a real crew
+ * identity through the picker and drives the menu.
+ *
+ * CHROMIUM-GATED, and the reason is a measured browser limit rather than a
+ * preference: over plain http WebKit refuses to STORE the server's own
+ * Set-Cookie for the `__Host-`-prefixed, Secure picker envelope, so a selection
+ * never persists and a correct implementation reads as broken. That is why
+ * `picker-flow.spec.ts` lives in desktop-chromium too. Skipping is declared out
+ * loud rather than silently returning early, so this never counts as coverage it
+ * does not provide.
+ *
+ * THE 44px FLOOR IS MEASURED HERE, NOT ASSERTED AS CLASSES. The jsdom suite
+ * (tests/components/auth/avatarMenu.test.tsx) pins that the trigger and both
+ * rows carry the tap-floor TOKENS; jsdom computes no layout, so a control the
+ * cascade had collapsed would pass there. Real geometry is this file's job.
+ */
+test.describe("crew avatar menu — theme switch behind a resolved identity", () => {
+  // SAME 120s ALLOWANCE AS ARM (a), and it was missing. Review R2 measured this
+  // case at the config default of 60s while its own body waits up to 90s on the
+  // crew-shell retry plus 30s on the menu — so the cold-runner allowance the
+  // helper advertises was unreachable and a slow CI boot would fail the case on
+  // the clock rather than on the assertion. The budget has to exceed the waits
+  // inside it.
+  test.setTimeout(120_000);
+
+  test("opens the menu, flips the theme, and every target clears the tap floor at 390px", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop-chromium",
+      "picker identity does not persist under WebKit over plain http (__Host- cookie); " +
+        "picker-flow.spec.ts is desktop-chromium for the same reason",
+    );
+
+    const { slug, shareToken } = await lookupSeededShow();
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    // Establish a crew identity the way a crew member does: land unauthenticated,
+    // take the first-contact gate's skip path, meet the picker, tap a name.
+    // `?gate=skip` is load-bearing: an unauthenticated first contact WITHOUT it
+    // renders SignInOrSkipGate, not the picker (page.tsx honors gateSkip only
+    // for reason === 'first_contact'), and this arm would wait out its whole
+    // budget on an interstitial that is never coming. Same recipe as
+    // picker-flow.spec.ts's "first_contact -> picker directly" cases.
+    await signOut(page);
+    await expect(async () => {
+      const res = await page.goto(`/show/${slug}/${shareToken}?gate=skip`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status(), `crew route must render`).toBe(200);
+      await expect(page.getByTestId("picker-interstitial-root")).toBeVisible({ timeout: 15_000 });
+    }).toPass({ timeout: 90_000 });
+
+    const firstRow = page.locator('[data-testid="picker-roster-row"]').first();
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    await expect(page.getByTestId("crew-shell")).toBeVisible({ timeout: 30_000 });
+
+    // HYDRATION GATE on the island itself, not `networkidle`: the picker recipe's
+    // own gates prove the crew shell rendered, which is a SERVER fact and says
+    // nothing about whether this client island has hydrated. The bounded
+    // open-retry is the actual readiness signal — a menu that never opens fails
+    // on the outer timeout naming this locator, rather than on a click that
+    // silently did nothing.
+    const trigger = page.getByTestId("avatar-menu-trigger");
+    await expect(trigger).toBeVisible({ timeout: 15_000 });
+    await expect(async () => {
+      await trigger.click();
+      await expect(page.getByRole("menu")).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+
+    const themeRow = page.getByTestId("avatar-menu-theme");
+    const personRow = page.getByTestId("avatar-menu-switch-person");
+    await expect(themeRow).toBeVisible();
+
+    // Let the popover's enter animation finish before measuring: `avatar-menu-in`
+    // scales from 0.96, so a boundingBox read inside its 120ms window reports
+    // 44 x 0.96..1 (measured 43.06 mid-flight) and fails the floor on a row whose
+    // at-rest height is compliant. Waiting on the element's own animations is
+    // exact and self-derived (same idiom as tap-target-floor.layout.spec.ts),
+    // and resolves immediately under `motion-reduce:animate-none`.
+    await page
+      .getByTestId("avatar-menu-popover")
+      .evaluate(async (el) =>
+        Promise.all(
+          el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => undefined)),
+        ).then(() => undefined),
+      );
+
+    // Geometry, at the mobile width, on all three targets — the half jsdom cannot do.
+    for (const [label, locator] of [
+      ["avatar trigger", trigger],
+      ["theme row", themeRow],
+      ["switch-person row", personRow],
+    ] as const) {
+      const box = await locator.boundingBox();
+      expect(box, `${label} must have a laid-out box`).not.toBeNull();
+      expect(
+        box!.height,
+        `${label} height must clear the ${TAP_MIN}px tap floor; got ${box!.height}`,
+      ).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+    }
+    // The trigger is a circular target, so its WIDTH is a floor too; the rows are
+    // full-width menu items and their width is not the constraint.
+    const triggerBox = await trigger.boundingBox();
+    expect(
+      triggerBox!.width,
+      `avatar trigger width must clear the ${TAP_MIN}px tap floor; got ${triggerBox!.width}`,
+    ).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+
+    // The switch itself: activating the row flips the applied theme and does NOT
+    // close the menu.
+    const before = await page.evaluate(() => document.documentElement.dataset.theme ?? null);
+    await themeRow.click();
+    await expect
+      .poll(async () => page.evaluate(() => document.documentElement.dataset.theme ?? null))
+      .not.toBe(before);
+    await expect(
+      page.getByRole("menu"),
+      "the menu must stay open across a theme flip",
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => window.localStorage.getItem("fxav-theme")),
+      "the flip must persist through the same localStorage key the standalone toggle uses",
+    ).toBe(await page.evaluate(() => document.documentElement.dataset.theme ?? null));
   });
 });

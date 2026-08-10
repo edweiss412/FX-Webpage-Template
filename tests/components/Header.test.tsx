@@ -67,7 +67,11 @@ describe("Header rebalance (M4-D3)", () => {
 
   it("renders the FXAV wordmark at text-text-faint (was text-text-subtle)", () => {
     const { container } = render(<Header show={baseShow} />);
-    const wordmark = container.querySelector('p[aria-label="FXAV"]');
+    // Located by TESTID, not by `aria-label`: that attribute is prohibited on
+    // `role=paragraph` (ARIA 1.2) and was redundant with the element's own text,
+    // so it was removed (impeccable audit P3). The subject of this case is the
+    // wordmark's COLOR token, which is unchanged.
+    const wordmark = container.querySelector('[data-testid="page-header-fxav-wordmark"]');
     expect(wordmark).not.toBeNull();
     const cls = wordmark?.className ?? "";
     expect(cls).toContain("text-text-faint");
@@ -135,10 +139,19 @@ describe("Header rebalance (M4-D3)", () => {
 });
 
 describe("Header identityChip slot (M11.5 §B Task C4)", () => {
-  it("renders the FXAV wordmark when no identityChip is provided", () => {
+  it("renders the FXAV wordmark AND a reachable theme toggle when no identityChip is provided", () => {
     const { queryByTestId } = render(<Header show={baseShow} />);
     expect(queryByTestId("page-header-fxav-wordmark")).not.toBeNull();
-    expect(queryByTestId("page-header-right-slot")).toBeNull();
+    // CHANGED 2026-08-09 (UI spec §2.3). The right slot used to be ABSENT
+    // without an identity. It is present now and carries the STANDALONE theme
+    // toggle: the switch left the footer at every width, so an identity-less
+    // page would otherwise have no way to change theme at all. The slot is
+    // marked `data-identity="none"` so this state stays distinguishable from
+    // the avatar-menu one rather than the two collapsing into "slot exists".
+    const slot = queryByTestId("page-header-right-slot");
+    expect(slot).not.toBeNull();
+    expect(slot?.getAttribute("data-identity")).toBe("none");
+    expect(queryByTestId("theme-toggle")).not.toBeNull();
   });
 
   it("replaces the FXAV wordmark with the identityChip slot when provided", () => {

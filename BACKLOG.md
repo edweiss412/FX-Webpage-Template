@@ -454,6 +454,58 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 **Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
 
+### BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES — two deliberate-authoring bypasses of the crew-e2e wiring guard
+
+**Severity:** LOW (both require deliberately writing a gate that looks like a declaration but is not; accidental cases are caught loudly) · **Class:** guard coverage · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 4, owner-ratified as a documented limit) · **Effort:** M
+
+**Both probed, with the mutants recorded so a future round starts from evidence:**
+
+1. `expectRegistryRowsAreLive` accepts any `test.skip(...)` as live without proving its condition can exclude the registered projects. `test.skip(false, "…")` binds a row while gating nothing.
+2. One `PROJECT_GATED` row relaxes the identifier ban for the entire FILE, and the body scans deliberately skip nested callbacks — so a gate inside a `test.step` in another test of the same file is unscanned.
+
+**Why it is a limit, not an open bug.** The guard's threat model is ordinary authoring mistakes by a contributor adding or gating a test; both bypasses require deliberately constructing a fake declaration. Four review rounds each produced a narrower bypass with no product-code change, which is the recognizer ratchet the round-economy rule names: "no bypass exists" ranges over an open class and does not terminate. Owner ratified shipping with the limit documented in the guard's own header.
+
+**Promotion trigger:** a real contributor hits one of these by accident, or the guard is extended to a surface where a fake declaration is plausible.
+
+---
+
+### BL-IDENTITY-CLEAR-FAILURE-IS-SILENT — a failed "switch person" reports success
+
+**Severity:** MEDIUM (the crew member believes they signed out of an identity they are still in) · **Class:** correctness / UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 2) · **Effort:** M
+
+**Probed, not theorized.** `clearIdentity` resolves a typed result, and the failure branch is reachable:
+
+```
+clearIdentity failure branch: {"ok":false,"code":"PICKER_RESOLVER_LOOKUP_FAILED"}
+```
+
+`clearIdentityFormAction` in `components/auth/IdentityChip.tsx` awaits it and returns `void`, so the avatar menu closes and the page proceeds as though the identity were cleared.
+
+**Why it is filed rather than fixed in this arc.** The fix is not the discard — it is that the menu has NO failure state to render into. That needs: where the message appears (inside the popover, which closes on submit; or a page-level region), what it says (a §12.4 catalog code, per the no-raw-codes contract), and whether the menu stays open on failure. Those are design decisions, not implementation details. Class-sweep disposition exception (a).
+
+**Note:** the code comment that previously called this "harmless to discard at the form boundary" has been corrected in place — the premise was false, and leaving it would have made the next reader believe the gap was considered and dismissed.
+
+---
+
+### BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal
+
+**Severity:** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S
+
+**Probed, not theorized.** With `localStorage.setItem` throwing (restrictive in-app browser, private mode, third-party-storage block):
+
+```
+after-toggle-with-storage-blocked: dark:dark  stored null
+next-load/os-light:                light
+```
+
+The user picks dark, the page turns dark, and the next load is light again with nothing said.
+
+**Why it is filed rather than fixed here.** `components/layout/useAppliedTheme.ts` absorbs the write failure deliberately — throwing would take the whole control down over a preference, and the fallback (follow the OS) is the conservative answer. What is missing is the SIGNAL, and what the signal should say is a product-copy decision this arc cannot settle: a toast is heavy for a preference, an inline note next to a toggle inside a popover has nowhere to live, and "your browser will not remember this" is the kind of technical explanation `PRODUCT.md` §5 rules out of the UI. Class-sweep disposition exception (a): needs a product decision.
+
+**Reachability:** PROBED — the failure mode is reachable in any embedded webview with storage partitioning, which is exactly where crew open a link from a group thread.
+
+---
+
 ### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
 
 **Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** low · **Class:** FEATURE REACH · **Effort:** S
@@ -1049,6 +1101,31 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Promotion prerequisite:** EITHER (a) owner decides to formalize the downloadable template as a real v2 feature (template design + adoption plan), OR (b) the v1 redesign ships and operator feedback shows the empty-state surfaces (timeline, wifi, flights, contacts) are a real friction point worth closing at the source. Promotion starts with a brainstorming session on the template shape + the parser contract for any new structured tabs (the AGENDA run-of-show grid contract is already partially mapped in the redesign milestone's deep-read notes).
 
+### BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 35 ids appear twice in BACKLOG-archive.md, and no gate notices
+
+**Severity:** LOW (the archive is a record, not a queue; nothing reads it for scheduling) · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, found while resolving an archive merge) · **Effort:** S
+
+**Probed, not theorized.** On `origin/main`, and on main BEFORE the quick-wins-2 mech branch merged (so this is not that arc's doing):
+
+```
+$ git show origin/main:BACKLOG-archive.md \
+    | grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' | sed -E 's/^#+ //' | sort | uniq -d | wc -l
+35
+$ git show ec06b825a^1:BACKLOG-archive.md | ... same pipeline ...
+35
+```
+
+**Why nothing caught it.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` asserts no id is both ACTIVE and ARCHIVED — a cross-file check. Nothing asserts an id appears at most once WITHIN the archive. A union-style merge resolution on the archive (the natural resolution, since two branches usually only append) silently duplicates any entry both sides carry, and every existing gate stays green.
+
+**Two traps for whoever picks this up**, both hit while resolving the merge that found it:
+
+- The active ledger uses `### ` headings and the archive uses `## `. A duplicate check anchored to one level reports clean while every collision hides in the other. Match `^#{2,3}`.
+- Archive PROSE cross-references entry ids, so a substring test (the bare id as a substring) reports an id as archived when only a mention is present. Anchor to the heading.
+
+**Fix:** de-duplicate the 35, then add the within-file uniqueness assertion to the graduation meta-test so the class cannot come back.
+
+---
+
 ### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
 
 **Status:** OPEN · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M
@@ -1089,73 +1166,6 @@ from a real font regression, and it takes the whole job down with it. Any accept
 walk could already read — a closed/navigating page during the fixture's sample, or a document whose
 `document.fonts` is not yet queryable. The message already distinguishes pre- from post-navigate,
 which should localise it.
-
----
-
-### BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer
-
-**Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
-
-**Probed, not theorized** (seeded crew route, mobile-safari, 390x844, scrolled fully to the bottom):
-
-```
-toggle  top 775.6  bottom 819.6  (44x44)
-bar     top 790.7  bottom 844    (height 53.3)   overlaps: true
-footer  top 637.0  bottom 843.6
-document.elementFromPoint(toggle centre) -> the BAR's <svg>
-getComputedStyle(document.body).paddingBottom -> "0px"
-```
-
-The crew sub-nav's fixed bottom bar (`min-[720px]:hidden fixed inset-x-0 bottom-0 z-10`,
-`components/crew/CrewSubNav.tsx:155`) sits over the last ~53px of the footer, and nothing pads the
-page to clear it. The toggle's centre point belongs to the nav bar, so Playwright refuses the click
-with "intercepts pointer events" — and a real thumb lands on the nav tab, not the toggle. Only a
-~15px sliver of the toggle is reachable.
-
-**Why it was invisible until now:** every spec that touched the footer at mobile width was
-`test.describe.skip` against a 404ing route. `crew-page.spec.ts`'s inv8 asserts that the last SECTION
-block clears the fixed bar; the FOOTER is outside `page-container` and no invariant covered it.
-
-**Not fixed in-arc** — exception (a): how the footer should clear the mobile bar (page padding vs
-moving the toggle into the sub-nav vs hiding the footer chrome behind the bar) is a design call this
-arc does not settle. `tests/e2e/theme-toggle.spec.ts` therefore drives its interaction cases at 760px,
-where the bar does not render (`min-[720px]:hidden`), and still asserts the 44px tap floor at 390px.
-
-**Probably one fix with [[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]]:** both symptoms point at
-`crew-shell` being a plain block that breaks the `page-shell` flex chain the footer is written for.
-
----
-
-### BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT — `mt-auto` on the crew footer is inert, so a short page leaves it mid-viewport
-
-**Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
-
-**Probed, not theorized** (seeded crew route, mobile-safari, 390x844):
-
-```
-topology  page-shell (display:flex, flex-direction:column)
-            > crew-shell (display:block)          <- breaks the flex chain
-              > page-footer (class mt-auto)
-getComputedStyle(page-footer).marginTop -> "0px"   <- mt-auto resolves to ZERO
-
-every seeded section is taller than the viewport, so the case never occurs on this seed:
-  today 1985 · venue 1539 · travel 1459 · gear 1391 · crew 1329 · schedule 1083   (viewport 844)
-
-constructed short case (section body collapsed; docH 844 == viewport):
-  footer top 135.9  bottom 342.5   gapBelowFooter 501.5px
-```
-
-`mt-auto` only pushes an element when its PARENT is a flex container. The footer's parent is
-`crew-shell`, a plain block, so the declaration does nothing and the footer sits in natural flow. On a
-page shorter than the viewport it floats mid-screen with dead space beneath it.
-
-**Consequence today is nil and the signal is surfaced, not silent** — no seeded show is short enough
-to hit it, which is exactly why the residue test the spec proposed (§3.3.2) was NOT landed: it would
-have been red on arrival against the current tree. Filed under exception (a) rather than fixed: making
-`crew-shell` participate in the flex chain is a layout change to a shipped surface, and it would
-trigger the invariant-8 impeccable dual gate.
-
-**Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
 
 ---
 

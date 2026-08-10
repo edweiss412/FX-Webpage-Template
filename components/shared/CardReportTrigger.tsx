@@ -23,23 +23,7 @@ import { useState, type ReactNode } from "react";
 import { ReportModal, type ReportAutocapture } from "@/components/shared/ReportModal";
 import type { CardId, RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
-
-/** Thin-stroke flag glyph — same icon family as SheetIcon; rendered ~14px. */
-function FlagIcon(): ReactNode {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M4 21V4M4 4h11l-2 4 2 4H4" />
-    </svg>
-  );
-}
+import { FlagGlyph } from "@/components/shared/FlagGlyph";
 
 export function CardReportTrigger({
   cardId,
@@ -89,7 +73,7 @@ export function CardReportTrigger({
         onClick={() => setOpen(true)}
         className={`inline-flex h-fit shrink-0 items-center text-text-faint transition-colors hover:text-text-subtle focus-visible:text-text-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring [&_svg]:size-3.5 [&_svg]:opacity-70 ${overlay}`}
       >
-        <FlagIcon />
+        <FlagGlyph />
       </button>
       {open ? (
         <ReportModal

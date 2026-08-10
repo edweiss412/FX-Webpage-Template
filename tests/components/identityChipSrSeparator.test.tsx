@@ -2,7 +2,7 @@
 //
 // BL-IDENTITYCHIP-SR-SEPARATOR — the chip reads as one run-on phrase.
 //
-// `IdentityChip` renders name, an `aria-hidden` middle dot, and role as flat
+// The identity header renders name, an `aria-hidden` middle dot, and role as flat
 // siblings of one span. Hiding the punctuation is correct — nobody wants "middle
 // dot" spoken — but it leaves the accessible name as "Eric Weiss Lead A2", with
 // no boundary between the person and their job. The entry's promotion mechanics
@@ -22,20 +22,38 @@
 // the entry's own example, so a naive join cannot pass by collapsing whitespace.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { IdentityChip } from "@/components/auth/IdentityChip";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { AvatarMenu } from "@/components/auth/AvatarMenu";
 
 afterEach(cleanup);
 
-const props = { slug: "east-coast", shareToken: "tok", showId: "s1" };
+const props = {
+  slug: "east-coast",
+  shareToken: "tok",
+  showId: "s1",
+  clearAction: (): void => {},
+};
+
+/**
+ * RETARGETED 2026-08-09 onto `<AvatarMenu>` (UI spec §2.3). The identity moved
+ * from an always-visible header chip into the menu's identity header; the
+ * SEPARATOR CONTRACT below did not change one character, and neither did the
+ * reasoning under it. Rendering opens the menu first, because that is where the
+ * identity now lives.
+ */
+function renderIdentity(name: string, role: string): void {
+  render(<AvatarMenu name={name} role={role} {...props} />);
+  act(() => {
+    fireEvent.click(screen.getByTestId("avatar-menu-trigger"));
+  });
+}
 
 function chipLabelSpan(): HTMLElement {
-  // The identity span is the labelled one; scope by testid so the "Not you?"
-  // button's own text can never satisfy an assertion meant for the chip.
-  const chip = screen.getByTestId("identity-chip");
-  const span = chip.querySelector("[data-testid='identity-chip-identity']");
-  if (!span) throw new Error("identity span not found");
-  return span as HTMLElement;
+  // Scoped to the identity HEADER, not the menu root: the person row's own
+  // "Not you? Switch person" text sits in the same popover, and an assertion
+  // that read the whole menu could be satisfied by it. Same discipline as
+  // before, one level in.
+  return screen.getByTestId("avatar-menu-identity");
 }
 
 /** What a SIGHTED reader sees: the chip with sr-only nodes removed. */
@@ -62,13 +80,13 @@ it("carries the separator as REAL sr-only text, not a prohibited aria-label", ()
   // So the assertion is now on the DOM the reader actually gets: a real text node
   // in the accessibility tree. `sr-only` is already the repo's idiom for this
   // (components/layout/Skeleton.tsx:87, components/diagrams/Gallery.tsx:158).
-  render(<IdentityChip name="Eric Weiss" role="Lead A2" {...props} />);
+  renderIdentity("Eric Weiss", "Lead A2");
   const span = chipLabelSpan();
   // No prohibited attribute anywhere on the chip.
   expect(span).not.toHaveAttribute("aria-label");
   expect(span.querySelector("[aria-label]")).toBeNull();
   // The separator is a real, unhidden element carrying the comma.
-  const sep = span.querySelector("[data-testid='identity-chip-sr-separator']");
+  const sep = span.querySelector("[data-testid='avatar-menu-sr-separator']");
   expect(sep, "no sr-only separator element").not.toBeNull();
   expect(sep).toHaveClass("sr-only");
   expect(sep).not.toHaveAttribute("aria-hidden");
@@ -81,7 +99,7 @@ it("carries the separator as REAL sr-only text, not a prohibited aria-label", ()
 });
 
 it("changes nothing a sighted user sees — the comma is SR-only", () => {
-  render(<IdentityChip name="Eric Weiss" role="Lead A2" {...props} />);
+  renderIdentity("Eric Weiss", "Lead A2");
   // Computed by REMOVING sr-only nodes, not by reading raw textContent: the
   // separator is real text now, so raw textContent legitimately contains it.
   // Stripping is what actually models the sighted view.
@@ -90,13 +108,13 @@ it("changes nothing a sighted user sees — the comma is SR-only", () => {
 });
 
 it("keeps the middle dot hidden from assistive technology", () => {
-  render(<IdentityChip name="Eric Weiss" role="Lead A2" {...props} />);
+  renderIdentity("Eric Weiss", "Lead A2");
   const dot = within(chipLabelSpan()).getByText("·", { exact: false });
   expect(dot).toHaveAttribute("aria-hidden", "true");
 });
 
 it("separates any name/role pair, not one hardcoded shape", () => {
-  render(<IdentityChip name="Dana Ruiz-Okafor" role="A1" {...props} />);
+  renderIdentity("Dana Ruiz-Okafor", "A1");
   const text = chipLabelSpan().textContent ?? "";
   expect(text.indexOf("Dana Ruiz-Okafor")).toBeLessThan(text.indexOf(", "));
   expect(text.indexOf(", ")).toBeLessThan(text.indexOf("A1"));
@@ -106,13 +124,13 @@ it("separates any name/role pair, not one hardcoded shape", () => {
 it("emits NO separator when the role is empty", () => {
   // Partial data reaches this component during a picker round-trip. A trailing
   // ", " would be spoken as a dangling comma — worse than the run-on it fixes.
-  render(<IdentityChip name="Eric Weiss" role="" {...props} />);
-  expect(chipLabelSpan().querySelector("[data-testid='identity-chip-sr-separator']")).toBeNull();
+  renderIdentity("Eric Weiss", "");
+  expect(chipLabelSpan().querySelector("[data-testid='avatar-menu-sr-separator']")).toBeNull();
   expect(chipLabelSpan().textContent).not.toContain(",");
 });
 
 it("emits NO separator when the name is empty", () => {
-  render(<IdentityChip name="" role="Lead A2" {...props} />);
-  expect(chipLabelSpan().querySelector("[data-testid='identity-chip-sr-separator']")).toBeNull();
+  renderIdentity("", "Lead A2");
+  expect(chipLabelSpan().querySelector("[data-testid='avatar-menu-sr-separator']")).toBeNull();
   expect(chipLabelSpan().textContent).not.toContain(",");
 });
