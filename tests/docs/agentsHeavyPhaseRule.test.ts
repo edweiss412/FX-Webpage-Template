@@ -21,6 +21,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { remark } from "remark";
 import { describe, expect, it } from "vitest";
 
 import { premiseHolds } from "@/tests/_shared/premise";
@@ -330,55 +331,109 @@ export function pinProblems(rule: string, pinned: string): string[] {
 }
 
 /**
- * Commented-out text is not the contract. Without this, wrapping the whole rule
- * in `<!-- ... -->` left the extractor starting INSIDE the comment and matching
- * its pin perfectly, while the document a reader follows had no rule at all.
+ * Block structure comes from a real markdown parser, not from a regex over
+ * syntax.
+ *
+ * Rounds 6, 7, and 8 all found the same thing from different angles: a boundary
+ * regex that recognizes "selected block openers" is wrong for every opener it
+ * has not been taught, and each omission turns somebody else's unrelated edit
+ * red. The enumeration those rounds were walking into is CommonMark's block
+ * grammar — `*`/`+`/`1.`/`1)` items, the three thematic-break spellings and their
+ * spaced variants, ATX and Setext headings, paragraphs, fenced and indented code,
+ * blockquotes, footnote definitions, HTML blocks. That does not belong in a test,
+ * and `remark` is already a direct dependency (package.json), so the grammar is
+ * available for free.
+ *
+ * With the AST, sibling blocks are outside the rule BY CONSTRUCTION rather than
+ * by a pattern that has to anticipate them, a commented-out rule is an `html`
+ * node and simply is not a list item, and a Setext heading is the same `heading`
+ * node an ATX one is.
  */
-function stripComments(text: string): string {
-  return text.replace(/<!--[\s\S]*?-->/g, "");
+type MdNode = {
+  type: string;
+  depth?: number;
+  value?: string;
+  children?: MdNode[];
+  position?: { start: { offset?: number }; end: { offset?: number } };
+};
+
+function plainText(node: MdNode): string {
+  let out = "";
+  const walk = (n: MdNode): void => {
+    if (typeof n.value === "string") out += n.value;
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(node);
+  return out;
 }
 
-/** The opener, tolerant of a line break anywhere a space appears. */
-const RULE_OPENER_RE = new RegExp(
-  RULE_OPENER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"),
-);
+function containsType(node: MdNode, type: string): boolean {
+  if (node.type === type) return true;
+  return (node.children ?? []).some((child) => containsType(child, type));
+}
 
-/**
- * Any column-0 sibling block ends the rule: a bullet in any of markdown's three
- * marker syntaxes, an ordered item, a heading, or a thematic break in any of its
- * three. The rule's own continuation paragraphs are indented, so they are never
- * boundaries. Every syntax this misses becomes a red on somebody else's
- * unrelated edit, which is the cost a verbatim pin attaches to this regex.
- */
-const SIBLING_BOUNDARY = /\n(?:[-*+] |\d+[.)] |#{1,6} |(?:-{3,}|_{3,}|\*{3,})\s*$)/m;
+const OPENER_TEXT = "Heavy local phases run under the machine-wide slot semaphore.";
+
+type Located = { source: string; item: MdNode } | { problem: string };
+
+/** Locate the rule's list item through the markdown AST. */
+export function locateRule(agents: string): Located {
+  const tree = remark().parse(agents) as unknown as MdNode;
+  const blocks = tree.children ?? [];
+
+  const heading = blocks.find(
+    (node) => node.type === "heading" && /cross-cutting discipline/i.test(plainText(node)),
+  );
+  if (!heading) return { problem: "AGENTS.md has no cross-cutting-discipline section" };
+
+  const headingEnd = heading.position?.end.offset ?? 0;
+  const depth = heading.depth ?? 2;
+  const after = blocks.filter((node) => (node.position?.start.offset ?? 0) > headingEnd);
+  const next = after.find((node) => node.type === "heading" && (node.depth ?? 6) <= depth);
+  const nextAt = next?.position?.start.offset ?? Number.POSITIVE_INFINITY;
+  const section = after.filter((node) => (node.position?.start.offset ?? 0) < nextAt);
+
+  for (const list of section.filter((node) => node.type === "list")) {
+    for (const item of list.children ?? []) {
+      // Normalized, because a reflowed bold opener carries a newline inside its
+      // own text and a raw startsWith would fail to find a rule that is right there.
+      if (!normalize(plainText(item)).startsWith(OPENER_TEXT)) continue;
+      const from = item.position?.start.offset;
+      const to = item.position?.end.offset;
+      if (from === undefined || to === undefined) {
+        return { problem: "the heavy-phase rule item has no source position" };
+      }
+      return { source: agents.slice(from, to), item };
+    }
+  }
+  return { problem: "the heavy-phase rule bullet is absent from the cross-cutting section" };
+}
 
 export function extractRule(agents: string): string | null {
-  const source = stripComments(agents);
-  const opener = RULE_OPENER_RE.exec(source);
-  if (opener === null) return null;
-  const start = opener.index;
-  const rest = source.slice(start + 1);
-  const next = rest.search(SIBLING_BOUNDARY);
-  return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next);
+  const located = locateRule(agents);
+  return "source" in located ? located.source : null;
 }
 
 /** Returns one string per violation; empty means the rule is intact. */
 export function checkHeavyPhaseRule(agents: string): string[] {
   const problems: string[] = [];
 
-  // The bullet must live in the cross-cutting-discipline section it claims. The
-  // heading is matched loosely: renaming it around those words is an ordinary
-  // edit that has nothing to do with this rule, and an exact match turns that
-  // edit into a failure here.
-  const source = stripComments(agents);
-  const heading = /^#{1,6}[^\n]*cross-cutting discipline/im.exec(source);
-  if (heading === null) return ["AGENTS.md has no cross-cutting-discipline section"];
-  const sectionStart = heading.index;
-  const sectionEnd = source.indexOf("\n## ", sectionStart + 1);
-  const section = source.slice(sectionStart, sectionEnd === -1 ? undefined : sectionEnd);
+  // Locating is the AST's job: the rule must be a list item inside the
+  // cross-cutting-discipline section, which is what "lives at that tier" means.
+  const located = locateRule(agents);
+  if ("problem" in located) return [located.problem];
+  const raw = located.source;
 
-  const raw = extractRule(section);
-  if (raw === null) return ["the heavy-phase rule bullet is absent from the cross-cutting section"];
+  // An indented block inside the item is prose that stopped rendering as prose:
+  // four extra spaces on a continuation paragraph turns the whole MUST-NOT
+  // contract into an indented code block, which normalize() cannot see because
+  // it erases exactly the indentation that carried the meaning.
+  if (containsType(located.item, "code")) {
+    problems.push(
+      "the rule contains a code block — an over-indented continuation paragraph " +
+        "stops rendering as normative prose while its words survive verbatim",
+    );
+  }
 
   // Everything below reads the NORMALIZED rule. `normalize()` declares whitespace
   // irrelevant, and a check that still requires a literal space contradicts it —
@@ -493,6 +548,14 @@ describe("AGENTS.md heavy-phase rule", () => {
 
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
+    [
+      "over-indent a continuation paragraph into a code block",
+      (text) =>
+        text.replace(
+          "\n  **MUST NOT wrap** — any INTERACTIVE playwright invocation",
+          "\n      **MUST NOT wrap** — any INTERACTIVE playwright invocation",
+        ),
+    ],
     [
       "comment the whole rule out of the normative document",
       (text) =>
@@ -650,6 +713,14 @@ describe("AGENTS.md heavy-phase rule", () => {
     ["an ordered sibling item", "\n1. A new valid cross-cutting rule.\n"],
     ["an underscore thematic break", "\n___\n"],
     ["an asterisk thematic break", "\n***\n"],
+    ["a spaced thematic break", "\n_ _ _\n"],
+    // A blank line first: with only one newline a column-0 paragraph is a LAZY
+    // CONTINUATION of the list item and genuinely is part of the rule, so a row
+    // without the blank line would be asserting the wrong markdown.
+    ["a plain neighbouring paragraph", "\n\nA neighbouring note with no effect on the rule.\n"],
+    ["a blockquote", "\n\n> A neighbouring aside.\n"],
+    ["a fenced code block", "\n\n```sh\necho neighbouring\n```\n"],
+    ["an ordered item with a paren delimiter", "\n1) A new valid cross-cutting rule.\n"],
   ];
 
   it.each(SIBLINGS)("stays quiet when %s is appended after the rule", (_label, sibling) => {
@@ -678,6 +749,14 @@ describe("AGENTS.md heavy-phase rule", () => {
       "body text is reflowed",
       (text) =>
         text.replace("Any non-interactive playwright run:", "Any non-interactive\n  playwright run:"),
+    ],
+    [
+      "the section heading is written as a Setext heading",
+      (text) =>
+        text.replace(
+          "## Cross-cutting discipline (from milestone retrospectives)",
+          "Cross-cutting discipline (from milestone retrospectives)\n" + "-".repeat(58),
+        ),
     ],
     [
       "the section heading is reworded around the same words",

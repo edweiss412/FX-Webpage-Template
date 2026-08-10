@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 7 rounds
+## diff — 8 rounds
 
-**Examined:** seven counted rounds on the implementation diff, dispatched as two
+**Examined:** eight counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3/5 findings across rounds 1-7 — sixteen in total.
+string-presence guard, 4/1/1/1/1/3/5/3 findings across rounds 1-8 — nineteen in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned six is a paragraph of
+spec rounds had probed each one. The half that burned seven is a paragraph of
 English and a regex list.
 
-**Judgment:** eight of the sixteen diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the nineteen diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -169,12 +169,37 @@ strength of the round-5 lesson above should read this paragraph as the other hal
 of that advice: budget a round for false positives, and write the stays-quiet rows
 in the same commit as the pin, not after a reviewer finds them.
 
+Round 8 then made the deeper point, and it is the one that should have been made at
+authoring time. Its three findings — a four-space indent turning the entire MUST-NOT
+block into an indented code block that `normalize()` cannot see; four more block
+syntaxes (`_ _ _`, a plain paragraph, a blockquote, a fenced block, `1)`) swallowed
+by the boundary regex; a Setext heading unrecognized — are all the same statement:
+**the guard was parsing markdown by hand, and the enumeration it kept walking into
+is CommonMark's block grammar.** Rounds 6, 7, and 8 each paid for one more slice of
+that grammar. It does not terminate in a regex, and re-implementing it in a test is
+the recognizer-ratchet this repo has measured before.
+
+`remark` is a direct dependency of this repo and always was. The repair replaces
+the hand-rolled block detection with the AST: the section is a `heading` node
+whatever its syntax, the rule is a `listItem`, sibling blocks are outside it by
+construction rather than by anticipation, a commented-out rule is an `html` node
+and simply is not a list item, and an over-indented paragraph is a `code` node the
+guard now names explicitly. All three findings closed at once, and so did every
+future member of the class — which is the difference between a derivation and the
+five preceding patches.
+
+**The rule to carry: when a guard's subject is a structured document, parse it with
+the parser the ecosystem already ships, and reach for that on round one.** Three
+rounds went to discovering that a regex cannot enumerate a grammar. The check for
+whether you are in this situation is short — if the guard is matching on syntax
+rather than on content, and the document has a parser, use it.
+
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
-registry catches a shape added to §4.6, comment-stripping keeps a commented-out
-copy from standing in for the contract, and 43 cases — 31 `OPERATORS` rows plus
-ten stays-quiet rows — run on every suite, so no repair can silently regress an
-earlier one in either direction. What
+registry catches a shape added to §4.6, block structure comes from `remark` rather
+than from a regex over syntax, and 50 cases — 32 `OPERATORS` rows plus sixteen
+stays-quiet rows — run on every suite, so no repair can silently regress an earlier
+one in either direction. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
 than a pattern list when the guard's subject is prose. That has no static signature;
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and
