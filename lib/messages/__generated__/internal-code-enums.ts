@@ -191,6 +191,9 @@ export const INTERNAL_CODE_ENUMS = {
   ONBOARDING_FOLDER_VERIFY_UNAVAILABLE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  ONBOARDING_INTERNAL_ERROR: {
+    source: "pending_ingestions.last_error_code"
+  },
   ONBOARDING_LEGACY_ROW_AMBIGUOUS: {
     source: "pending_ingestions.last_error_code"
   },
@@ -294,6 +297,9 @@ export const INTERNAL_CODE_ENUMS = {
     source: "parse_warnings.code"
   },
   ROOM_HEADER_SPLIT_AMBIGUOUS: {
+    source: "parse_warnings.code"
+  },
+  ROW_CELLS_FUSED: {
     source: "parse_warnings.code"
   },
   SCHEDULE_STRIKE_DATE_OFF_SCHEDULE: {

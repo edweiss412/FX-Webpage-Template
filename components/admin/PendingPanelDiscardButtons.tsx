@@ -16,6 +16,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { cn } from "@/lib/ui/cn";
 
 type DiscardKind = "defer_until_modified" | "permanent_ignore";
 type Props = { pendingIngestionId: string };
@@ -45,10 +46,12 @@ const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try
  * proves the armed ROW's geometry, which those two cannot affect — not the whole tree. */
 /* Worn by BOTH buttons at rest — Defer renders with it too, which is why it is not
  * called IGNORE_*. */
-export const DISCARD_RESTING_CLASS =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
-export const IGNORE_ARMED_CLASS =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+export const DISCARD_RESTING_CLASS = cn(
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+);
+export const IGNORE_ARMED_CLASS = cn(
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+);
 export const IGNORE_IDLE_LABEL = "Permanently ignore";
 /* Shortened from "Confirm stop tracking this sheet permanently" (328.51px), which is
  * what let the armed row stop wrapping at the Needs-attention page (316px of content).

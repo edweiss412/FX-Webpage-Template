@@ -10,6 +10,7 @@
  */
 
 import { classifyVersion } from "./schema";
+import { stripZeroWidth } from "./zeroWidth";
 import { isAgendaLinkRow } from "./agendaLinkRow";
 import { HTTP_URL_PREFIX } from "./httpUrlPrefix";
 import { newAggregator, emitUnknownSection, emitOrphanedCrewRows } from "./warnings";
@@ -27,6 +28,7 @@ import { parseDates } from "./blocks/dates";
 import { parseCrew } from "./blocks/crew";
 import { normalizeSectionHeaders } from "./sectionHeaderNormalize";
 import { detectRefErrorLiterals } from "./refErrorDetector";
+import { detectFusedRows } from "./rowWidthDiscriminator";
 import { parseTravelFlights } from "./blocks/travelFlights";
 import { parseHotels } from "./blocks/hotels";
 import { parseRooms } from "./blocks/rooms";
@@ -551,13 +553,6 @@ export function buildThrownParsedSheet(message: string): ParsedSheet {
   return buildMinimalParsedSheet("v4", [{ code: "MI-1_VERSION_DETECTION_FAILED", message }]);
 }
 
-/**
- * Remove zero-width characters: ZWSP U+200B - ZWJ U+200D, plus BOM U+FEFF. The same
- * class `clean()` strips at the cell boundary (blocks/_helpers.ts:50), kept identical
- * on purpose so the two boundaries can never disagree about what "invisible" means.
- */
-const stripZeroWidth = (s: string): string => s.replace(/[\u200B-\u200D\uFEFF]/g, "");
-
 export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   // Spec 2026-08-07-parser-mutation-wave §3.1: strip zero-width characters from the
   // whole document before ANY read - including classifyVersion's label reads
@@ -624,6 +619,7 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   // section-opening labels to anchor their warnings, so they must see the NORMALIZED
   // headers a typo'd sheet would otherwise hide from them.
   agg.warnings.push(...detectRefErrorLiterals(markdown));
+  agg.warnings.push(...detectFusedRows(markdown));
 
   // Step 3: Call each block parser.
   const { client_label, client_contact } = parseClient(markdown, version, agg);

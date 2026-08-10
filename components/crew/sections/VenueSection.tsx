@@ -10,9 +10,13 @@
  *   - Facilities — the mock `.kvrow` FactRows fact list with 28px sunken
  *     mini-icons: Loading dock (DockIcon, sentinel-guarded), Parking (CarIcon,
  *     gated by `transportTileVisible` so a non-assigned crew member never sees
- *     the lot/permit details — the parking half of §9 test 17), Crew Wi-Fi
- *     (WifiIcon, `event_details.internet`), and Power (`event_details.power`).
- *     Every value routes through `shouldHideGenericOptional`.
+ *     the lot/permit details — the parking half of §9 test 17), the Room (the
+ *     general-session room's parsed name, suppressed when it is the parser's
+ *     synthesized fallback), the connectivity rows derived from
+ *     `event_details.internet` (either "Wi-Fi network" + "Wi-Fi password" +
+ *     "Internet notes" when the cell splits, or the single raw "Crew Wi-Fi" row
+ *     when it does not), and Power (`event_details.power`). Every value routes
+ *     through `shouldHideGenericOptional`.
  *   - COI status — the AC-4.1 `data-testid="coi-status"` surface, ported from
  *     ShowStatusTile. Sentinel-guarded: when the value is a sentinel/empty the
  *     `<span data-testid="coi-status">` is OMITTED entirely (no empty span).
@@ -58,6 +62,8 @@ import {
 } from "@/components/crew/icons/sectionIcons";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
+import { compareRooms } from "@/lib/crew/resolveKeyTimes";
+import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
@@ -72,6 +78,18 @@ type VenueSectionProps = {
   ledger: TileRenderLedger;
   cardReport?: CardReportContext;
 };
+
+/**
+ * The name the parser synthesizes when a v1 / metadata-trimmed sheet heads its
+ * general-session block with nothing nameable (`lib/parser/blocks/rooms.ts` —
+ * "fall back to 'General Session' rather than mis-naming the GS room"). Five of
+ * the ten raw fixtures parse to exactly this. A row reading "Room: General
+ * Session" restates the block heading and tells a crew member nothing, so it is
+ * suppressed. Held locally rather than imported because the parser is out of
+ * scope for this change; the suppression test is fixture-derived (it runs the
+ * real parser) so a renamed fallback fails loudly instead of passing vacuously.
+ */
+const SYNTHESIZED_GS_ROOM_NAME = "General Session";
 
 /**
  * URL-validity guard for the Maps anchor. Byte-identical to VenueTile's
@@ -146,8 +164,53 @@ export function VenueSection({
   // --- Connectivity: Wi-Fi (internet) + power --------------------------------
   const rawInternet = data.show.event_details["internet"] ?? null;
   const internet = shouldHideGenericOptional(rawInternet) ? null : rawInternet!.trim();
+  // Display-time split into SSID / password / notes. `null` means the value is
+  // outside the observed label vocabulary, and the raw row below renders it
+  // verbatim — the value is never silently reshaped.
+  //
+  // The DERIVED ssid is re-checked against the sentinel predicate (diff review
+  // R2 F2). `SSID: TBD` is not a sentinel as a whole cell, so it reaches the
+  // split branch, but its ssid IS one — and FactRows drops sentinel rows, so the
+  // component committed to the split branch and then rendered nothing at all,
+  // losing the cell entirely. Rejecting the split here returns it to the raw row,
+  // which renders "SSID: TBD" verbatim.
+  const splitWifi = internet !== null ? parseWifiValue(internet) : null;
+  // EVERY derived field is re-checked, not just the ssid. FactRows drops a
+  // sentinel row, so a sentinel `password` or `notes` used to be suppressed
+  // AFTER the component had committed to the split — the raw row was gone too,
+  // and that text left the page entirely. One sentinel anywhere returns the
+  // whole cell to the raw row, where it renders verbatim.
+  const splitHasSentinel =
+    splitWifi !== null &&
+    [splitWifi.ssid, splitWifi.password, splitWifi.notes].some(
+      (value) => value !== null && shouldHideGenericOptional(value),
+    );
+  const wifi = splitWifi !== null && !splitHasSentinel ? splitWifi : null;
   const rawPower = data.show.event_details["power"] ?? null;
   const power = shouldHideGenericOptional(rawPower) ? null : rawPower!.trim();
+
+  // --- Room: the general-session room's name ---------------------------------
+  // Already parsed (ROOMS header line 2, section prefix stripped) — surfaced
+  // here, never re-derived. Suppressed on a rooms fetch failure: `readRooms`
+  // fail-softs to `[]` with `tileErrors.rooms`, so the array alone cannot tell
+  // "no rooms" from "we could not read them", and the failure is already
+  // surfaced by the rooms-consuming tiles' SectionTileError. Suppressed for the
+  // parser's synthesized fallback name too: a v1 sheet that never named its room
+  // gets the literal "General Session" from the parser, and echoing that back is
+  // noise, not information.
+  const roomsFetchFailed = Boolean(data.tileErrors["rooms"]);
+  const gsRoom = roomsFetchFailed
+    ? null
+    : (data.rooms.filter((room) => room.kind === "gs").sort(compareRooms)[0] ?? null);
+  // Sentinel-gated at the READ SITE like every other value in this component: a
+  // room literally named "TBD" would otherwise be pushed as a row, counted by
+  // `hasFacts`, and then dropped by FactRows — rendering an empty Facilities
+  // card when Room is the only fact (diff review R2 F2).
+  const gsRoomName = shouldHideGenericOptional(gsRoom?.name ?? null) ? "" : gsRoom!.name.trim();
+  const roomName =
+    gsRoomName.length > 0 && gsRoomName.toLowerCase() !== SYNTHESIZED_GS_ROOM_NAME.toLowerCase()
+      ? gsRoomName
+      : null;
 
   // --- COI status — sentinel-guarded; span omitted entirely when hidden ------
   const rawCoi = data.show.coi_status ?? null;
@@ -166,7 +229,9 @@ export function VenueSection({
     : venue!.loadingDock!.trim();
 
   // The mock `.kvrow` fact list: each row gets a 28px sunken mini-icon. Dock →
-  // DockIcon, Parking → CarIcon, Crew Wi-Fi → WifiIcon. FactRows omits any row
+  // DockIcon, Parking → CarIcon, the first connectivity row → WifiIcon (whether
+  // that is the split "Wi-Fi network" row or the raw "Crew Wi-Fi" fallback).
+  // FactRows omits any row
   // whose `v` is empty/sentinel, so we still gate each value above and only
   // push rows we want; empty strings here would also reflow out inside FactRows.
   const factRows: FactRow[] = [];
@@ -180,7 +245,33 @@ export function VenueSection({
   if (parking) {
     factRows.push({ k: "Parking", v: parking, icon: <CarIcon /> });
   }
-  if (internet) {
+  if (roomName) {
+    factRows.push({ k: "Room", v: roomName, testId: "venue-room" });
+  }
+  if (internet && wifi) {
+    // Split: labeled network + password rows, with any surrounding prose kept as
+    // the value of an "Internet notes" row. The prose is operationally
+    // load-bearing (hardline vs Wi-Fi for streaming) and is never dropped.
+    factRows.push({
+      k: "Wi-Fi network",
+      v: wifi.ssid,
+      icon: <WifiIcon />,
+      testId: "venue-wifi-ssid",
+    });
+    if (wifi.password) {
+      factRows.push({ k: "Wi-Fi password", v: wifi.password, testId: "venue-wifi-password" });
+    }
+    if (wifi.notes) {
+      // Labeled "Internet notes", NOT "Crew Wi-Fi" (impeccable critique P1): four
+      // of the five corpus values that produce notes describe a HARDLINE, so
+      // "Crew Wi-Fi: Hardline from Encore" tells a crew member the opposite of
+      // what the sheet says. The raw-fallback row keeps "Crew Wi-Fi" because
+      // there the value IS the whole internet cell.
+      factRows.push({ k: "Internet notes", v: wifi.notes, testId: "venue-wifi-notes" });
+    }
+  } else if (internet) {
+    // Fail-soft: byte-identical to the pre-split row (no testId — adding one
+    // would change the markup this branch exists to preserve).
     factRows.push({ k: "Crew Wi-Fi", v: internet, icon: <WifiIcon /> });
   }
   if (power) {
@@ -345,6 +436,16 @@ export function VenueSection({
           DiagramsTile({
             showId,
             diagrams: data.diagrams,
+            // Only this component knows which branch rendered: in the split the
+            // gallery sits in the narrow 1fr column (~92px thumbnails at 1440px),
+            // so declaring the full-width default would make every thumbnail
+            // fetch a 1024 variant where 256 suffices.
+            ...(useSplit
+              ? {
+                  thumbnailSizes:
+                    "(min-width: 1200px) 92px, (min-width: 720px) 8vw, (min-width: 640px) 21vw, 29vw",
+                }
+              : {}),
           })
         }
       />

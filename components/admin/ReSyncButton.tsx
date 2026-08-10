@@ -25,6 +25,8 @@ import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
+import { requestShowSync } from "@/lib/admin/syncRequest";
+import { cn } from "@/lib/ui/cn";
 
 export type ReSyncButtonProps = {
   slug: string;
@@ -67,45 +69,17 @@ const PENDING_LABEL = "Syncing…";
  * carries `mt-1`; that gap is wrong here, and T-OVERLAY pins the abut to within
  * 1px.)
  */
-const OVERLAY_PANEL =
-  "absolute inset-x-0 top-full z-50 max-h-[min(50vh,20rem)] overflow-y-auto rounded-sm border p-3 shadow-tile";
+const OVERLAY_PANEL = cn(
+  "absolute inset-x-0 top-full z-50 max-h-[min(50vh,20rem)] overflow-y-auto rounded-sm border p-3 shadow-tile",
+);
 
 /** A real interactive control, not a glyph: 44px floor + a visible focus ring.
  *  Its accessible name is always branch-specific ("Dismiss sync error" /
  *  "Dismiss sync result") — a bare "Dismiss" is ambiguous once two overlay
  *  types exist. */
-const DISMISS_BUTTON =
-  "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-lg leading-none transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
-
-// Friendly summary of `runManualSyncForShow`'s ProcessOneFileResult shapes
-// (handoff §0 Pin-stop 2 contract). Plain-language so Doug doesn't read
-// the raw enum on success.
-function summarizeResult(result: unknown): string {
-  if (!result || typeof result !== "object") return "Sync complete.";
-  const outcome = (result as { outcome?: unknown }).outcome;
-  switch (outcome) {
-    case "applied":
-      return "Synced. Changes applied.";
-    case "stage":
-      return "Synced. A change is waiting for your review on this page.";
-    case "skipped":
-      return "Synced. Nothing new from Drive.";
-    case "asset_recovery":
-      return "Synced. Fetching linked files in the background.";
-    case "hard_fail":
-      return "Synced, but the latest edit couldn't be applied automatically. Review it on this page.";
-    case "stale":
-      return "Synced. A newer sync already finished; nothing changed.";
-    case "revision_race":
-      return "Synced, but the sheet changed mid-sync. We'll retry on the next sync.";
-    case "source_gone":
-      return "Sheet is no longer available in Drive.";
-    case "parse_error":
-      return "Synced, but part of the sheet couldn't be applied. Review the details on this page.";
-    default:
-      return "Sync complete.";
-  }
-}
+const DISMISS_BUTTON = cn(
+  "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-lg leading-none transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+);
 
 export function ReSyncButton({ slug }: ReSyncButtonProps) {
   const router = useRouter();
@@ -154,54 +128,32 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
     setSuccessMessage(null);
     setPending(true);
     try {
-      const res = await fetch(`/api/admin/sync/${encodeURIComponent(slug)}`, {
-        method: "POST",
-        ...(accept
-          ? {
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                acceptShrink: true,
-                expectedModifiedTime: accept.expectedModifiedTime,
-              }),
-            }
-          : {}),
-      });
-      const json = (await res.json()) as {
-        ok: boolean;
-        error?: string;
-        result?: unknown;
-      };
-      if (json.ok) {
-        const result = json.result as
-          | { outcome?: string; detail?: string; heldModifiedTime?: string }
-          | undefined;
-        if (result?.outcome === "shrink_held" && result.detail && result.heldModifiedTime) {
-          setHeldShrink({ detail: result.detail, heldModifiedTime: result.heldModifiedTime });
-          // BL-ANNOUNCE-REGION-UNMOUNT-CLASS. The panel below is interactive —
-          // it holds this decision's own buttons and takes focus — so it must
-          // stay conditional AND must not be a live region: a reader would
-          // otherwise hear the controls as part of the announcement. The
-          // arrival is announced on the branch-stable channel instead.
-          announce(`Sync paused for a decision. ${result.detail}`);
-        } else {
-          setHeldShrink(null);
-          // BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS. ONE summary string feeds
-          // both the card and the announcement, so the two cannot drift. The
-          // card's own `role="status"` announced nothing — it is inserted
-          // together with this text — which left the most common outcome of the
-          // most common admin action silent for AT.
-          const summary = summarizeResult(json.result);
-          setSuccessMessage(summary);
-          announce(summary);
-          router.refresh();
-        }
+      // The request + branch classification live in lib/admin/syncRequest.ts so
+      // the dashboard row menu decides `shrink_held` identically; the state,
+      // focus and announcement choices below stay here.
+      const outcome = await requestShowSync(slug, accept);
+      if (outcome.kind === "held") {
+        setHeldShrink({ detail: outcome.detail, heldModifiedTime: outcome.heldModifiedTime });
+        // BL-ANNOUNCE-REGION-UNMOUNT-CLASS. The panel below is interactive —
+        // it holds this decision's own buttons and takes focus — so it must
+        // stay conditional AND must not be a live region: a reader would
+        // otherwise hear the controls as part of the announcement. The
+        // arrival is announced on the branch-stable channel instead.
+        announce(`Sync paused for a decision. ${outcome.detail}`);
+      } else if (outcome.kind === "success") {
+        setHeldShrink(null);
+        // BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS. ONE summary string feeds
+        // both the card and the announcement, so the two cannot drift. The
+        // card's own `role="status"` announced nothing — it is inserted
+        // together with this text — which left the most common outcome of the
+        // most common admin action silent for AT.
+        setSuccessMessage(outcome.summary);
+        announce(outcome.summary);
+        router.refresh();
       } else {
         setHeldShrink(null);
-        setErrorCode(typeof json.error === "string" ? json.error : "SYNC_INFRA_ERROR");
+        setErrorCode(outcome.code);
       }
-    } catch {
-      setHeldShrink(null);
-      setErrorCode("SYNC_INFRA_ERROR");
     } finally {
       setPending(false);
     }

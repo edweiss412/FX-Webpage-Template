@@ -710,6 +710,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → retry in a moment",
     "helpfulContext": "Before scanning, the wizard asks Google Drive to confirm the folder exists and is really a folder. Drive did not answer within the time limit, so the check was abandoned before any scanning started. Nothing was changed. This is usually a temporary Drive or network hiccup; wait a moment and click Verify again.",
   },
+  "ONBOARDING_INTERNAL_ERROR": {
+    "crewFacing": null,
+    "dougFacing": "Something went wrong on our side while preparing this sheet. It isn't a problem with the sheet or with Google Drive. Try again once, and contact the developer if it keeps happening.",
+    "followUp": "Eric → investigate",
+    "helpfulContext": "A step that runs after your sheet is read hit a bug on our side. Nothing is wrong with the sheet's content or its sharing, and retrying may work, but a repeat means the app needs a code fix. Contact the developer with the time this happened.",
+  },
   "ONBOARDING_LEGACY_ROW_AMBIGUOUS": {
     "crewFacing": null,
     "dougFacing": "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",
@@ -1099,6 +1105,12 @@ export const SPEC_CODES = {
     "dougFacing": "We had to make a judgment call splitting a room line in _<sheet-name>_ into name and dimensions; check the rooms section against your sheet.",
     "followUp": "Doug → spot-check rooms",
     "helpfulContext": "A room line could split into name and dimensions more than one way, so we picked the most likely reading. Check the rooms section; the name or dimensions might be slightly off.",
+  },
+  "ROW_CELLS_FUSED": {
+    "crewFacing": null,
+    "dougFacing": "A row in this sheet has one fewer column than its neighbors, which is how a merged cell exports. Values to the right of the merge may appear under the wrong headings until the merge is removed in the sheet.",
+    "followUp": "Doug → fix in sheet",
+    "helpfulContext": "A row here has one fewer column than the rows around it. That is what a merged cell looks like once the sheet is exported, and it can push values under the wrong headings.",
   },
   "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE": {
     "crewFacing": null,

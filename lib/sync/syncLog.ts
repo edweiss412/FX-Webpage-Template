@@ -40,10 +40,24 @@ export function makePostgresSyncLogSink(sql: SyncLogSql): (entry: SyncLogEntry) 
   return async (entry) => {
     await sql.unsafe(
       `
-        insert into public.sync_log (drive_file_id, status, message, parse_warnings)
-        values ($1, $2, $3, $4::jsonb)
+        insert into public.sync_log (show_id, drive_file_id, status, message, parse_warnings, duration_ms)
+        values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::jsonb, $5)
       `,
-      [entry.driveFileId, statusFor(entry), messageFor(entry), warningsFor(entry)],
+      // §3.1: show_id is DERIVED from drive_file_id inside the statement. There is no
+      // explicit show-id parameter — an explicit one lets a caller pass an id from an
+      // uncommitted `shows` insert, and the FK check would then block on that row's
+      // transaction from this sink's separate connection. No match yields NULL, which
+      // is the documented outcome for a file with no show yet, not an error.
+      // §3.3.1: `?? null` is load-bearing. postgres.js raises UNDEFINED_VALUE for an
+      // undefined bind parameter, so a bare `entry.durationMs` would make every
+      // NULL-duration writer throw instead of persisting its row.
+      [
+        entry.driveFileId,
+        statusFor(entry),
+        messageFor(entry),
+        warningsFor(entry),
+        entry.durationMs ?? null,
+      ],
     );
   };
 }

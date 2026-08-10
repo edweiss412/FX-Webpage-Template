@@ -164,7 +164,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           <div className="ml-9 flex flex-col gap-3">
             <div
               data-testid="wizard-step1-email-card"
-              className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile) sm:flex-row sm:items-center sm:gap-4"
+              className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-tile sm:flex-row sm:items-center sm:gap-4"
             >
               <code
                 data-testid="wizard-step1-service-account-email"
@@ -229,7 +229,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           <Link
             data-testid="wizard-step1-advance"
             href="/admin?step=2"
-            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-tile transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           >
             I&rsquo;ve shared the folder
           </Link>

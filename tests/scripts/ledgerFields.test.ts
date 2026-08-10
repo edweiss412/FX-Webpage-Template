@@ -96,7 +96,7 @@ describe("ledgerItems", () => {
     // no guard can hold, which is why the ids are asserted here rather than the
     // section's prose.
     const ids = ledgerItems("DEFERRED.md", read("DEFERRED.md")).map((i) => i.id);
-    for (const id of ["UNDO-UNCATALOGUED-CODE-CARD-1", "UNDO-DIALOG-LABEL-CONSTANT-1"]) {
+    for (const id of ["UNDO-DIALOG-LABEL-CONSTANT-1"]) {
       expect(ids, `${id} is invisible to the DEFERRED.md walker`).toContain(id);
     }
 
@@ -116,6 +116,13 @@ describe("ledgerItems", () => {
       archived,
       "UNDO-FAILURE-REANNOUNCE-1 is invisible to the DEFERRED-archive.md walker",
     ).toContain("UNDO-FAILURE-REANNOUNCE-1");
+    // UNDO-UNCATALOGUED-CODE-CARD-1 graduated to DEFERRED-archive.md on
+    // 2026-08-10 (M-wave 2 W-DOCS filing-bar demotion) — same move-not-delete
+    // treatment as the row above, for the same reason.
+    expect(
+      archived,
+      "UNDO-UNCATALOGUED-CODE-CARD-1 is invisible to the DEFERRED-archive.md walker",
+    ).toContain("UNDO-UNCATALOGUED-CODE-CARD-1");
   });
 
   it("gives every entry a span ending before the next entry starts", () => {

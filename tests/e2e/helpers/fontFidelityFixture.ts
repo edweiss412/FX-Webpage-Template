@@ -176,38 +176,84 @@ const WALK = (): string | null => {
  * stylesheet parses, so this vantage sees an impostor face the instant the
  * document loads, before anything renders.
  */
-/** Distinguishes "the face query threw" from "this document has no faces". */
-const FACES_UNREADABLE: string[] = [];
+/**
+ * ONE atomic sample: the element walk AND the registered-face query run in the
+ * SAME evaluate, i.e. the same execution context of the same document.
+ *
+ * BL-FONT-CENSUS-ORACLE-FLAKE (M-wave 2 W-E2E Task E2): the two used to be two
+ * sequential `frame.evaluate` calls, and a frame that navigated (or was
+ * removed) BETWEEN them produced walk-ok/faces-dead — recorded as
+ * `facesUnreadable`, which `enforce()` rightly refuses, so a document that was
+ * merely MID-NAVIGATION failed the run with "the registered-face query failed
+ * on a document the element walk could read". Atomically there is no
+ * "between": a dying document fails the WHOLE sample (→ not recorded, the
+ * pre-existing gone-document behavior), while a LIVE document whose
+ * `document.fonts` API genuinely fails still lands on the in-page sentinel and
+ * still fails loud (the Codex R2 vacuous-guard defense is preserved — the
+ * sentinel is produced by an in-page try/catch, never by collapsing an
+ * evaluate rejection into "no faces").
+ *
+ * Serialized via `WALK.toString()` (the harness-fonts.ts precedent below) so
+ * the walk logic exists once.
+ */
+const SAMPLE_SRC = `(() => {
+  const __walk = ${WALK.toString()};
+  const families = __walk();
+  let faces;
+  try {
+    const seen = new Set();
+    document.fonts.forEach((f) => seen.add(f.family.replace(/^["']|["']$/g, "")));
+    faces = [...seen];
+  } catch {
+    faces = "FACES_UNREADABLE";
+  }
+  return { families, faces };
+})()`;
 
-const FACES = (): string[] => {
-  const seen = new Set<string>();
-  document.fonts.forEach((f) => seen.add(f.family.replace(/^["']|["']$/g, "")));
-  return [...seen];
+/** The atomic sample's shape. Exported for the E2 reproduction spec. */
+export type FrameSample = {
+  families: string | null;
+  faces: string[] | "FACES_UNREADABLE";
 };
+
+/**
+ * Atomically sample one frame. `null` = the document died under the sample
+ * (navigation/removal) — nothing to judge. Exported for the E2 reproduction
+ * spec, which drives it against a removed iframe and a sabotaged fonts API.
+ */
+export async function sampleFrame(frame: Frame | Page): Promise<FrameSample | null> {
+  return (await frame.evaluate(SAMPLE_SRC).catch(() => null)) as FrameSample | null;
+}
+
+/**
+ * Judge a sample into an Observation (or nothing-to-record). Exported so the
+ * reproduction spec exercises the SAME judgement the vantages use.
+ */
+export function judgeSample(sample: FrameSample | null, via: string): Observation | null {
+  if (sample === null) return null;
+  const { families } = sample;
+  const unreadable = sample.faces === "FACES_UNREADABLE";
+  const faces = unreadable ? [] : (sample.faces as string[]);
+  // Record when EITHER half saw something. Gating on `families` alone dropped
+  // every document that had registered a face but not yet painted text.
+  if (!families && !unreadable && faces.length === 0) return null;
+  return {
+    via,
+    families: families ? families.split(" ~ ") : [],
+    faces,
+    // A LIVE document whose face query failed in-page is a broken oracle, not
+    // a document without faces — still flagged, still fails loud in enforce().
+    // NOT gated on `families`: the atomic sample RESOLVING proves the document
+    // was live, and a textless live document is no licence to swallow the
+    // sentinel (review r3 F1 — the gated form recorded it as benign-empty).
+    ...(unreadable ? { facesUnreadable: true as const } : {}),
+  };
+}
 
 /** Record an observation from a frame, tolerating a document already gone. */
 async function observe(frame: Frame | Page, via: string): Promise<void> {
-  const families = await frame.evaluate(WALK).catch(() => null);
-  // FACES is evaluated separately and its failure is NOT collapsed into "no
-  // faces". Both used to land on `[]`, and `enforce()` only searches observed
-  // faces for UNEXPECTED ones — so an empty set passes. A serialization or
-  // API regression that made this evaluate throw would therefore have silenced
-  // the whole guard while every test stayed green, which is precisely the
-  // vacuous-guard shape this fixture exists to prevent (Codex R2 HIGH).
-  const faces = await frame.evaluate(FACES).catch(() => FACES_UNREADABLE);
-  // Record when EITHER half saw something. Gating on `families` alone dropped
-  // every document that had registered a face but not yet painted text.
-  const unreadable = faces === FACES_UNREADABLE;
-  if (!families && !unreadable && faces.length === 0) return;
-  const observation: Observation = {
-    via,
-    families: families ? families.split(" ~ ") : [],
-    faces: unreadable ? [] : faces,
-    // A document the WALK could read but the face query could not is a broken
-    // oracle, not a document without faces. Only that combination is flagged:
-    // a document already gone fails both, and is simply not recorded.
-    ...(unreadable && families ? { facesUnreadable: true as const } : {}),
-  };
+  const observation = judgeSample(await sampleFrame(frame), via);
+  if (observation === null) return;
   collected.push(observation);
   currentTest?.push(observation);
 }
@@ -263,11 +309,21 @@ export const test = base.extend<{ fontOracle: void }>({
         },
       );
       await ctx.addInitScript({
+        // In-page and single-document by construction (pagehide runs inside the
+        // dying document, so the two reads cannot split across documents the way
+        // the old two-evaluate observe() could). The face read stays try/caught
+        // so a broken fonts API degrades to an empty list here — this vantage
+        // feeds the last-document backstop, and the atomic sampler's sentinel
+        // path (sampleFrame) is where fail-loud lives.
         content: `const __walk = ${WALK.toString()};
-          const __faces = ${FACES.toString()};
           addEventListener("pagehide", () => {
             const f = __walk();
-            const faces = __faces();
+            let faces = [];
+            try {
+              const seen = new Set();
+              document.fonts.forEach((ff) => seen.add(ff.family.replace(/^["']|["']$/g, "")));
+              faces = [...seen];
+            } catch {}
             if ((f || faces.length) && window.__fontOracle) window.__fontOracle({ families: f, faces });
           });`,
       });

@@ -96,6 +96,7 @@ import {
   type SupabaseLike,
 } from "@/lib/dev/materialize/run";
 import { runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 
 export type ParseAndStageResult = {
   filename: string;
@@ -615,11 +616,17 @@ export async function clearAttentionScenario(
       //
       // The OUTCOME is interpreted, not discarded. runManualSyncForShow RESOLVES
       // with non-success outcomes rather than throwing - `blocked` on an archived
-      // show, `skipped` under a concurrent sync, `hard_fail`, `parse_error`. Only
+      // show, `skipped` under a concurrent sync, `hard_fail`, `parse_error`.
+      // ONE exception since 2026-08-09: the sync_log sink installed below opens
+      // its own connection, so a transient DB fault at emit time DOES throw
+      // through. Contained by this call's own catch; filed as
+      // BL-SYNC-LOG-EMIT-UNGUARDED. Only
       // an applied/stage outcome actually regenerates authentic warnings, so
       // anything else must surface as a partial Clear rather than a silent ok.
       resync: async (driveFileId) => {
-        const result = await runManualSyncForShow(driveFileId, "manual");
+        const result = await runManualSyncForShow(driveFileId, "manual", {
+          processDeps: { logSync: writeSyncLog },
+        });
         const outcome = (result as { outcome?: string }).outcome ?? "unknown";
         const ok = outcome === "applied" || outcome === "stage";
         return { ok, detail: ok ? outcome : `re-sync did not regenerate warnings: ${outcome}` };

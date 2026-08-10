@@ -650,4 +650,73 @@ test.describe("admin nav + settings layout dimensions (real browser, §6)", () =
       await cleanupBadgeFixture();
     }
   });
+
+  // ── admin-nav-badge-streaming §3.6 / AC-2: the badge now ARRIVES after the
+  // nav has painted, so "the chip is additive" stopped being a static claim and
+  // became a layout-stability one — if the chip participated in flow, every
+  // sibling would jump at the moment the streamed count landed, which is a
+  // visible shift on the surface an admin looks at first.
+  //
+  // Proven with this file's ESTABLISHED mechanism (DB state across reloads,
+  // the badge height-neutrality test above): there is no mid-flight delay hook
+  // for a direct server call, so latency is not simulated — instead the two
+  // ENDPOINTS of the transition are rendered and compared. If no sibling moves
+  // between badge-absent and badge-present, no arrival ordering can move one.
+  //
+  // Positions, not just heights: the height-neutrality test already pins that
+  // the tabs keep their height. A chip that pushed its siblings sideways (or
+  // pushed the topbar cluster down) leaves every height intact.
+  test("streamed badge arrival shifts no nav sibling @ 600px (positions, not just heights)", async ({
+    page,
+  }) => {
+    const SIBLINGS = [
+      "admin-bottom-tab-dashboard",
+      "admin-bottom-tab-attention",
+      "admin-bottom-tab-settings",
+      "admin-nav-topbar",
+      "admin-nav-brand",
+      "admin-notif-bell",
+      "admin-user-avatar",
+    ] as const;
+
+    await cleanupBadgeFixture();
+    try {
+      await page.setViewportSize({ width: 600, height: 900 });
+      await page.goto("/admin");
+      await expect(page.getByTestId("admin-bottom-tabs")).toBeVisible();
+
+      // Premise for this case, on its own inputs: run 1 must genuinely have NO
+      // badge and run 2 must genuinely have one. Comparing badge-absent to
+      // badge-absent would report "nothing moved" no matter what the chip does.
+      await expect(
+        page.getByTestId("admin-attention-badge"),
+        "run 1 premise: badge absent (clean seed: 0 pending rows)",
+      ).toHaveCount(0);
+
+      const before: Record<string, Awaited<ReturnType<typeof rect>>> = {};
+      for (const id of SIBLINGS) before[id] = await rect(page, id);
+
+      await seedBadgeFixture();
+      await page.reload();
+      await expect(page.getByTestId("admin-bottom-tabs")).toBeVisible();
+      await expect(
+        page.getByTestId("admin-attention-badge"),
+        "run 2 premise: badge present after seeding a pending row",
+      ).toBeVisible();
+
+      const after: Record<string, Awaited<ReturnType<typeof rect>>> = {};
+      for (const id of SIBLINGS) after[id] = await rect(page, id);
+
+      for (const id of SIBLINGS) {
+        for (const edge of ["top", "left", "right", "bottom", "width", "height"] as const) {
+          expect(
+            Math.abs(after[id]![edge] - before[id]![edge]),
+            `${id}.${edge} moved when the badge appeared (streamed arrival must cause zero shift)`,
+          ).toBeLessThanOrEqual(TOL);
+        }
+      }
+    } finally {
+      await cleanupBadgeFixture();
+    }
+  });
 });

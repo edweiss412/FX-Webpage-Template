@@ -93,6 +93,30 @@ test.afterEach(async () => {
 });
 
 // Slug-only URL with no share-token segment. Active today (C1).
+/**
+ * The resolved identity, asserted on the CLOSED control.
+ *
+ * RETARGETED 2026-08-09 (UI spec §2.3). The header used to render a text chip,
+ * so `toContainText(name)` read the identity straight off the page. It is an
+ * avatar menu now: at rest the name is not on screen at all — it is the
+ * trigger's ACCESSIBLE NAME. Keeping the text assertion would have failed on a
+ * CORRECT implementation, and loosening it to "a trigger exists" would assert
+ * nothing about WHO the picker resolved, which is this suite's whole subject.
+ *
+ * So the assertion follows the identity to where it went, which is also what a
+ * screen-reader user actually receives. Anchored at the START of the name so a
+ * different person whose name merely CONTAINS this one cannot satisfy it.
+ */
+async function expectResolvedIdentity(
+  page: Page,
+  name: string,
+  opts?: { timeout: number },
+): Promise<void> {
+  const trigger = page.getByTestId("avatar-menu-trigger");
+  await expect(trigger).toBeVisible(opts);
+  await expect(trigger).toHaveAttribute("aria-label", new RegExp(`^${name},`), opts);
+}
+
 test("slug-only show URL returns 404 (R35; relies only on C1 route move)", async ({ page }) => {
   const res = await page.goto("/show/sample-slug-with-no-token");
   expect(res?.status()).toBe(404);
@@ -148,9 +172,7 @@ test("first-contact gate -> sign-in CTA href -> authed revisit bootstraps and re
     // Same cold-runner exposure: this render follows the picker-bootstrap redirect
     // and its claim RPC.
     await expect(authed.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
-    const chip = authed.getByTestId("identity-chip");
-    await expect(chip).toBeVisible();
-    await expect(chip).toContainText("Alice Cooper");
+    await expectResolvedIdentity(authed, "Alice Cooper");
   } finally {
     await authedCtx.close();
   }
@@ -228,10 +250,7 @@ test("Mode B 'Continue as guest' atomically clears the stale entry and lands on 
       .locator(`[data-testid="picker-roster-row"][data-crew-member-id="${aliceId}"]`)
       .click();
     await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
-    await expect(page.getByTestId("identity-chip")).toContainText(
-      "Alice Cooper",
-      AFTER_SERVER_ACTION,
-    );
+    await expectResolvedIdentity(page, "Alice Cooper", AFTER_SERVER_ACTION);
 
     // Mode B premise: now sign in as the fixture that is NOT on show A's roster,
     // so the browser carries Alice's picker entry AND a non-roster Google session.
@@ -291,19 +310,13 @@ test("Mode B 'Continue as guest' atomically clears the stale entry and lands on 
     );
     await bobRow.click();
     await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
-    await expect(page.getByTestId("identity-chip")).toContainText(
-      "Bob Marley",
-      AFTER_SERVER_ACTION,
-    );
+    await expectResolvedIdentity(page, "Bob Marley", AFTER_SERVER_ACTION);
 
     // ...and survive a reload carrying NO ?gate=skip. A one-request-only fix
     // fails here, which is the whole point.
     await page.goto(urlA, { waitUntil: "networkidle" });
     await expect(page.getByTestId("crew-shell")).toBeVisible(AFTER_SERVER_ACTION);
-    await expect(page.getByTestId("identity-chip")).toContainText(
-      "Bob Marley",
-      AFTER_SERVER_ACTION,
-    );
+    await expectResolvedIdentity(page, "Bob Marley", AFTER_SERVER_ACTION);
   } finally {
     await ctx.close();
   }

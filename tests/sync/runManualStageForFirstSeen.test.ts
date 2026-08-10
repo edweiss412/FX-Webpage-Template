@@ -20,6 +20,7 @@ vi.mock("@/lib/sync/defaultSnapshotAssetsForApply", () => ({
         snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         runUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         tempPrefix: `diagram-snapshots/shows/${showId}/_pending/run-1/`,
+        variantFailures: [],
         warnings: [],
         pending: {
           revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -577,6 +578,46 @@ describe("runManualStageForFirstSeen", () => {
     ]);
   });
 
+  // Task 2 hop 5 of 5 (spec 2026-08-09-private-image-pipeline §3). Same shape as the roleFlagsNotice
+  // carry above and for the same reason: snapshotAssets records variant failures INSIDE this
+  // function's caller-held lock (the retry route's withRowTryLock), so emitting here would put a
+  // durable warn inside a tx a rollback could still erase (invariant 10). The rows are therefore
+  // CARRIED OUT on the applied arm and the route emits once that lock resolves. Failure mode
+  // caught: a first-seen retry that generates degraded assets and reports nothing anywhere.
+  test("carries the diagram variant failures on its applied return instead of dropping them", async () => {
+    const tx = new FakeManualStageTx();
+    // TWO rows with distinct keys/reasons/messages so a carrier that keeps only the head, or
+    // substitutes a constant, cannot pass the verbatim comparison below.
+    const variantFailures = [
+      {
+        assetKey: "folder-linked-1.png",
+        reason: "sharp_error" as const,
+        message: "sharp pipeline threw: unsupported input",
+      },
+      {
+        assetKey: "embedded-obj-1.png",
+        reason: "blur_oversize" as const,
+        message: "blur 24x18 exceeds the 16px cap",
+      },
+    ];
+
+    const result = await runManualStageForFirstSeen(tx as never, "file-1", {
+      ...firstSeenStageDeps(),
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        appliedRoleMappings: [],
+        parseWarnings: [],
+        variantFailures,
+      })) as unknown as NonNullable<RunManualStageForFirstSeenDeps["runPhase2"]>,
+    });
+
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", variantFailures });
+    // ...and NOT emitted here: this whole function runs inside the caller's held lock, so the only
+    // alert this path may raise is the first-published one.
+    expect(tx.alerts.map((alert) => alert.code)).toEqual(["SHOW_FIRST_PUBLISHED"]);
+  });
+
   test("an applied first-seen with no role-flags notice returns no notice key", async () => {
     const tx = new FakeManualStageTx();
 
@@ -592,6 +633,38 @@ describe("runManualStageForFirstSeen", () => {
 
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });
     expect(result).not.toHaveProperty("roleFlagsNotice");
+  });
+
+  test("branch 3 — the applied first-seen row carries this path's own attempt duration", async () => {
+    // Spec §3.3 branch 3, absent until whole-diff r1 finding 1. This path owns its own
+    // attempt boundary: it never routes through processOneFile, so nothing else can
+    // capture a start for it. Without the capture the row persists duration_ms = NULL,
+    // and the missing assertion is what let that ship.
+    const tx = new FakeManualStageTx();
+    const logged: Array<{ durationMs?: number | null; outcome?: string }> = [];
+    // Two instants: the capture at entry, then the emit. 320ms apart.
+    const queue = [new Date("2026-05-08T12:00:00.000Z"), new Date("2026-05-08T12:00:00.320Z")];
+    const now = () => (queue.length > 1 ? queue.shift()! : queue[0]!);
+
+    await runManualStageForFirstSeen(tx as never, "file-1", {
+      ...firstSeenStageDeps(),
+      now,
+      logSync: async (entry: unknown) => {
+        logged.push(entry as { durationMs?: number | null; outcome?: string });
+      },
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        appliedRoleMappings: [],
+        parseWarnings: [],
+      })) as unknown as NonNullable<RunManualStageForFirstSeenDeps["runPhase2"]>,
+    });
+
+    const applied = logged.find((e) => e.outcome === "applied");
+    expect(applied, "the applied first-seen emitted no sync_log entry").toBeDefined();
+    // A known delta, not `> 0`: `> 0` passes for any positive number, including an
+    // epoch-sized one from a missing start.
+    expect(applied!.durationMs).toBe(320);
   });
 });
 

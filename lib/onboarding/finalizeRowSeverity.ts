@@ -11,6 +11,10 @@
 // the parser cannot read is recovered by Doug editing the sheet and re-applying, exactly like
 // the staleness codes. It reached this map as an `error` only because that fault used to be
 // reported as `DRIVE_FETCH_FAILED`; splitting the codes puts it in its correct severity.
+// `ONBOARDING_INTERNAL_ERROR` (BL-PREPARE-INTERNAL-FAULT-KIND, spec
+// 2026-08-09-m-wave-2-design §2.3) is a post-parse internal-helper bug: not
+// operator-recoverable by re-apply, and it reported as `DRIVE_FETCH_FAILED`
+// (error) before the kind existed — the split must not silently downgrade it.
 export function severityForFinalizeRowCode(code: string): "error" | "warn" {
-  return code === "DRIVE_FETCH_FAILED" ? "error" : "warn";
+  return code === "DRIVE_FETCH_FAILED" || code === "ONBOARDING_INTERNAL_ERROR" ? "error" : "warn";
 }

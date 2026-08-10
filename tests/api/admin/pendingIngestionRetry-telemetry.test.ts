@@ -1,7 +1,12 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { setLogSink, resetLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
+import type {
+  LivePendingIngestionRouteDeps,
+  LivePendingIngestionRouteTx,
+} from "@/app/api/admin/pending-ingestions/[id]/retry/route";
 import { handleLivePendingIngestionRetry } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 // P1 dark-path telemetry — the live pending-ingestion RETRY handler previously had NO
 // try/catch around the risky region (readDriveFileIdForPendingIngestion → withRowTryLock +
@@ -148,5 +153,135 @@ describe("live pending-ingestion retry telemetry", () => {
     expect(rec[0]!.level).toBe("warn");
     expect(rec[0]!.driveFileId).toBe("df-2");
     expect(sink.some((r) => r.code === "PENDING_INGESTION_RETRY_FAILED")).toBe(false);
+  });
+});
+
+// Task 2 hop 4 of 5 (spec 2026-08-09-private-image-pipeline §3). This route's existing-show branch
+// calls runManualSyncForShowUnlocked, which routes AROUND processOneFile's post-commit tail — the
+// site where cron and manual emit. So the route must capture the variant-failure rows INSIDE
+// withRowTryLock (logging there would persist a failure record for an apply a rollback could still
+// erase — invariant 10) and emit them once that lock RESOLVES, exactly as it already does for
+// unlandedRenames. Failure mode caught: the cron sink wired, this bypass sink left dark.
+//
+// Ordering is asserted with the mechanism from pendingIngestionRetryPostCommitIsolation.test.ts —
+// the lock wrapper brackets the callback, and the emit must land strictly after `lock:commit`.
+const RETRY_ID = "44444444-4444-4444-8444-444444444444";
+
+class FakeLivePendingTx {
+  row = {
+    id: RETRY_ID,
+    drive_file_id: "file-1",
+    wizard_session_id: null,
+    last_seen_modified_time: "2026-05-08T12:00:00.000Z",
+  };
+  showExists = true;
+
+  async queryOne<T>(sql: string): Promise<T> {
+    const normalized = sql.replace(/\s+/g, " ").trim();
+    if (/pg_locks/i.test(normalized)) return { held: true } as T;
+    if (normalized.startsWith("select id, drive_file_id")) return this.row as T;
+    if (normalized.startsWith("select exists")) return { exists: this.showExists } as T;
+    if (normalized.startsWith("select archived from public.shows")) return { archived: false } as T;
+    if (normalized.startsWith("select watched_folder_id")) {
+      return { watched_folder_id: "folder-1" } as T;
+    }
+    if (normalized.startsWith("select slug")) return { slug: "show-slug" } as T;
+    throw new Error(`Unhandled live pending SQL: ${normalized}`);
+  }
+}
+
+describe("live pending-ingestion retry: diagram variant failure telemetry", () => {
+  test("existing-show retry emits DIAGRAM_VARIANT_GENERATION_FAILED per row, after the lock resolves", async () => {
+    const events: string[] = [];
+    const records: LogRecord[] = [];
+    setLogSink((record) => {
+      if (record.code === "DIAGRAM_VARIANT_GENERATION_FAILED") {
+        records.push(record);
+        events.push(`emit:${String(record.context.assetKey)}`);
+      }
+    });
+    // TWO rows with distinct keys/reasons/messages so a constant-payload emit cannot pass.
+    const variantFailures = [
+      {
+        assetKey: "folder-linked-1.png",
+        reason: "sharp_error" as const,
+        message: "sharp pipeline threw: unsupported input",
+      },
+      {
+        assetKey: "embedded-obj-1.png",
+        reason: "blur_oversize" as const,
+        message: "blur 24x18 exceeds the 16px cap",
+      },
+    ];
+    const tx = new FakeLivePendingTx();
+    const runManualSyncForShowUnlocked = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+      variantFailures,
+    }));
+    const deps = {
+      requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
+      readDriveFileIdForPendingIngestion: vi.fn(async () => tx.row.drive_file_id),
+      withRowTryLock: vi.fn(async (_driveFileId: string, fn: (t: unknown) => unknown) => {
+        events.push("lock:start");
+        const result = await fn(tx as unknown as LivePendingIngestionRouteTx);
+        events.push("lock:commit");
+        return result;
+      }),
+      fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
+        driveFileId,
+        name: `${driveFileId}.xlsx`,
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["folder-1"],
+      })),
+      runManualSyncForShowUnlocked,
+      readFinalizeOwnershipGuardUnlocked: vi.fn(async () => false),
+    } as unknown as LivePendingIngestionRouteDeps;
+
+    const response = await handleLivePendingIngestionRetry(
+      new Request("http://x", { method: "POST" }),
+      { params: Promise.resolve({ id: RETRY_ID }) },
+      deps,
+    );
+
+    // The apply COMMITTED — a variant failure is a degraded-asset signal, never a failed retry.
+    expect(response.status).toBe(200);
+    premiseHolds(
+      "the retry ran the bypass sync and carried at least one variant-failure row",
+      runManualSyncForShowUnlocked.mock.calls.length > 0 && variantFailures.length > 0,
+    );
+    // Exactly one record per row, payload derived from the fixture rows themselves (spec §3).
+    expect(
+      records.map((record) => ({
+        level: record.level,
+        message: record.message,
+        source: record.source,
+        code: record.code,
+        showId: record.showId,
+        assetKey: record.context.assetKey,
+        reason: record.context.reason,
+        error: record.context.error,
+      })),
+    ).toEqual(
+      variantFailures.map((failure) => ({
+        level: "warn",
+        message: "diagram variant generation failed",
+        source: "sync.diagramVariants",
+        code: "DIAGRAM_VARIANT_GENERATION_FAILED",
+        showId: "show-1",
+        assetKey: failure.assetKey,
+        reason: failure.reason,
+        error: failure.message,
+      })),
+    );
+    // POST-COMMIT ISOLATION: every emit lands strictly after the lock callback resolved.
+    expect(events).toEqual([
+      "lock:start",
+      "lock:commit",
+      ...variantFailures.map((failure) => `emit:${failure.assetKey}`),
+    ]);
   });
 });

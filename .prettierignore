@@ -85,3 +85,10 @@ supabase/.temp/
 # Prettier would re-flow the captured markup and break the comparison; the
 # generator (scripts/captureStep3HeaderBaseline.ts) owns this file’s formatting.
 tests/components/admin/review/__fixtures__/
+
+# The captured VenueSection raw-Wi-Fi baseline is byte-compared against a live
+# render (tests/components/crew/sections/VenueSection.wifiRoom.test.tsx, the
+# fail-soft regression pin). Prettier would re-flow the captured markup and the
+# comparison would then assert against reformatted bytes rather than the bytes
+# the component actually emitted.
+tests/fixtures/venueSectionRawWifi.html

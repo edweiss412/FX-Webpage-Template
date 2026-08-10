@@ -5,10 +5,19 @@ import {
   type LifecycleResult,
 } from "@/lib/showLifecycle/_shared";
 import { runManualSyncForShow as defaultRunManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 
 export type { LifecycleResult } from "@/lib/showLifecycle/_shared";
 
-type CatchUpSync = (driveFileId: string, mode?: "manual") => Promise<unknown>;
+// Widened 2026-08-09 to forward a deps object, so the catch-up sync writes a
+// sync_log row. The alternative - a default wrapper preserving the two-argument
+// call - would hide the sink behind a default, which is the indirection the
+// fixed-site pin exists to make visible (plan R9 F5).
+type CatchUpSync = (
+  driveFileId: string,
+  mode?: "manual",
+  deps?: { processDeps?: { logSync?: typeof writeSyncLog } },
+) => Promise<unknown>;
 
 /**
  * Admin server-action backing for unarchive_show. The RPC self-locks (revival-sanitization chokepoint);
@@ -29,7 +38,8 @@ export async function unarchiveShow(
   // ONLY on a real transition — otherwise a stale button click would re-sync (and clear live deferrals on)
   // a show that was never archived in this call.
   if (data === true) {
-    await catchUp(driveFileId, "manual"); // best-effort catch-up; separate self-locked txn
+    // best-effort catch-up; separate self-locked txn
+    await catchUp(driveFileId, "manual", { processDeps: { logSync: writeSyncLog } });
   }
   return result;
 }

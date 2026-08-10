@@ -14,14 +14,15 @@ import type {
 } from "@/lib/admin/telemetryTypes";
 import { EventVolumeSparkline } from "./EventVolumeSparkline";
 import { summarizeCronHealth } from "./cronHealthSummary";
+import { cn } from "@/lib/ui/cn";
 
 type StatDotStatus = "positive" | "review" | "degraded" | "idle";
 
 const DOT_CLASS: Record<StatDotStatus, string> = {
-  positive: "bg-status-positive",
-  review: "bg-status-review",
-  degraded: "bg-status-degraded",
-  idle: "bg-status-idle",
+  positive: cn("bg-status-positive"),
+  review: cn("bg-status-review"),
+  degraded: cn("bg-status-degraded"),
+  idle: cn("bg-status-idle"),
 };
 
 function StatDot({ status }: { status: StatDotStatus }) {

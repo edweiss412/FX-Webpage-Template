@@ -1,3 +1,4 @@
+// build-time-only: static-analysis helper run by audit scripts and tests, never by a request
 import { existsSync, readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { Node, Project, ScriptKind, SourceFile, SyntaxKind, type BinaryExpression } from "ts-morph";

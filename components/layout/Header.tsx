@@ -16,6 +16,7 @@
  * crew sees in the URL is the date the crew sees in the header.
  */
 import type { ReactNode } from "react";
+import { ThemeToggle } from "./ThemeToggle";
 
 import type { ShowRow } from "@/lib/parser/types";
 
@@ -119,13 +120,26 @@ export function Header({ show, identityChip, statusPill }: HeaderProps) {
             {identityChip}
           </div>
         ) : (
-          <p
-            aria-label="FXAV"
-            className="hidden shrink-0 self-start text-xs font-semibold uppercase tracking-eyebrow-strong text-text-faint sm:block"
-            data-testid="page-header-fxav-wordmark"
+          // No resolved identity — so no avatar and no menu, and the theme
+          // switch would otherwise become unreachable on this page (it left the
+          // footer at every width, UI spec §2.3). The right slot carries the
+          // STANDALONE toggle instead, with the decorative wordmark beside it at
+          // >=sm where there is room for both.
+          <div
+            className="flex shrink-0 items-center gap-3 self-start"
+            data-testid="page-header-right-slot"
+            data-identity="none"
           >
-            FXAV
-          </p>
+            {/* No `aria-label`: it is prohibited on `role=paragraph` (ARIA 1.2)
+                and redundant with the element's own text (audit P3). */}
+            <p
+              className="hidden text-xs font-semibold uppercase tracking-eyebrow-strong text-text-faint sm:block"
+              data-testid="page-header-fxav-wordmark"
+            >
+              FXAV
+            </p>
+            <ThemeToggle />
+          </div>
         )}
       </div>
     </header>

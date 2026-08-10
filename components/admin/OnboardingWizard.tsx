@@ -162,15 +162,19 @@ export function StepIndicator({
 }) {
   // Pill (circle) shape shared by all states; focus ring shared by the two link
   // states (a plain span is not focusable, so it does not carry the ring).
-  const base =
-    "flex size-7 shrink-0 items-center justify-center rounded-pill border text-xs font-semibold tabular-nums transition-colors duration-fast";
-  const focusRing =
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  const base = cn(
+    "flex size-7 shrink-0 items-center justify-center rounded-pill border text-xs font-semibold tabular-nums transition-colors duration-fast",
+  );
+  const focusRing = cn(
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+  );
   // The 44px TAP TARGET a reachable pill exposes (spec 2026-08-07-step3-a11y-cluster
   // §2.2). The painted 28px pill moves to an inner <span> and this anchor becomes
   // the hit box; `-m-2` cancels the growth exactly, so the pill's margin box stays
-  // 28×28 and the stepper's layout is untouched — required, not incidental, because
-  // the connectors measure 0px wide at 320 and 390 (probe P3) and there is no slack.
+  // 28×28 and the stepper's layout is untouched — required, not incidental. The
+  // original reason was that the connectors measured 0px (probe P3), leaving no
+  // slack; they are a fixed 60px now, and the reason is stronger: the pill is
+  // `shrink-0`, so it is out of flex distribution entirely.
   //
   // `group` is mandatory, not stylistic: the visual span's hover utilities are
   // rewritten `group-hover:*`, which Tailwind emits as `:is(:where(.group):hover *)`.
@@ -183,13 +187,32 @@ export function StepIndicator({
   // radius). `cursor-pointer` is on the target so the cursor changes across the
   // whole band. The focus ring stays on the anchor — a non-focusable inner span
   // can never match `focus-visible`.
-  const tapTarget =
-    "group -m-2 flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill";
+  const tapTarget = cn(
+    "group -m-2 flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill",
+  );
   return (
     <nav
       aria-label="Onboarding progress"
       data-testid="wizard-step-indicator"
-      className="flex items-center gap-2 sm:gap-3"
+      // CONTENT WIDTH, and that is the measured answer rather than the original
+      // one. Stretching this nav (`flex-1 min-w-0`) did make the connectors
+      // render — they had been 0px since the wizard shipped, because a
+      // content-sized flex parent has no free space for a `flex-1` child — but
+      // measurement showed the connectors land at EXACTLY 60px in all twelve
+      // step x viewport x theme cells, so the stretch grew nothing and the
+      // leftover collected as trailing dead space: 16-80px at 390px, 258px at
+      // 900px, with the rail's width jumping between steps 2 and 3 as the page
+      // container's max-width changed. Sizing the connector directly (below)
+      // renders identically with none of that.
+      //
+      // `min-w-0` STAYS, and dropping it was a regression CI caught that no
+      // local run did: a flex item's default `min-width: auto` floors it at
+      // content width, so a content-sized nav carrying two FIXED 60px
+      // connectors could no longer shrink to fit a narrow container and
+      // overflowed it (step3-review-page.layout.spec.ts:216, `navScrollW <=
+      // contClientW`). Removing `flex-1` was right; removing `min-w-0` with it
+      // was not — the two do different jobs, and only the growth was inert.
+      className="flex min-w-0 items-center gap-2 sm:gap-3"
     >
       {([1, 2, 3] as const).map((n) => {
         const isActive = n === step;
@@ -207,15 +230,21 @@ export function StepIndicator({
         // No success/green token exists (DESIGN.md) — a completed pill is neutral
         // (surface + strong border + a check glyph), NOT green. Accent is reserved
         // for the single active pill (≤10% accent budget).
+        // EVERY branch is `cn(...)`-wrapped, not the ternary as a whole: the
+        // canonical-class rule follows a recognized callee's ARGUMENTS, and a
+        // ternary handed to `cn` is one argument whose branches it does not
+        // enter. Wrapping each branch is what puts these strings in reach.
         const pillState = isActive
-          ? "border-accent-edge bg-accent text-accent-text"
+          ? cn("border-accent-edge bg-accent text-accent-text")
           : isDone
-            ? "border-border-strong bg-surface text-text-subtle"
+            ? cn("border-border-strong bg-surface text-text-subtle")
             : isVisited
               ? // `group-hover:`, not `hover:` — the visual span is no longer the
                 // element the pointer is over across the 8px expansion band.
-                "border-transparent bg-surface-sunken text-text-subtle group-hover:text-text-strong"
-              : "border-transparent bg-surface-sunken text-text-faint";
+                cn(
+                  "border-transparent bg-surface-sunken text-text-subtle group-hover:text-text-strong",
+                )
+              : cn("border-transparent bg-surface-sunken text-text-faint");
         // The check replaces the number on done pills; label sits beside the pill.
         const glyph = isDone ? <Check aria-hidden="true" className="size-3.5" /> : n;
         const pill = isVisited ? (
@@ -259,9 +288,27 @@ export function StepIndicator({
               <span
                 data-testid="wizard-step-connector"
                 aria-hidden="true"
+                // WIDTH IS SET DIRECTLY, not competed for. `flex-1` +
+                // `max-w-confirm-box` resolved to the same 60px in every
+                // measured case, so the cap was doing all the work and the
+                // flex-grow only shifted dead space around (see the <nav>).
+                //
+                // COLOURS ARE TEXT TOKENS, not border tokens, and that is a
+                // contrast fix rather than a taste change. Measured against the
+                // page in a real browser: `border` read 1.22:1 and
+                // `border-strong` 1.52:1 — a 1px line nobody can see — and the
+                // two differed from EACH OTHER by 1.25:1, so the done/ahead
+                // state the branch encodes was not perceivable either. Border
+                // tokens are sized for a hairline BESIDE a filled surface;
+                // this line sits alone on the page and needs text-grade
+                // contrast. `text-faint` clears the 3:1 non-text floor (3.16:1
+                // light, 4.22:1 dark) and `text-subtle` doubles it (6.5:1,
+                // 6.8:1), so the completed run reads heavier at a glance.
+                // State is still never colour-ALONE: the done pill carries a
+                // Check glyph (§1 colour-blind floor).
                 className={cn(
-                  "h-px max-w-confirm-box flex-1 rounded-full",
-                  isDone ? "bg-border-strong" : "bg-border",
+                  "h-px w-confirm-box rounded-full",
+                  isDone ? "bg-text-subtle" : "bg-text-faint",
                 )}
               />
             ) : null}
@@ -453,6 +500,9 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     // Bug #316 item 3: coerce the source_anchors jsonb with the SAME defensive guard
     // as parse_result (non-object/absent → `{}`) so the modal's per-section "In sheet"
     // links can resolve each region's sheet range from the staged preview.
+    // Anchor freshness (spec 2026-08-09-m-wave-2 §2.3): fresh-by-construction — these
+    // are pending_syncs anchors computed by the scan that staged THIS parse (same
+    // revision by construction), so the shows-row freshness helper does not apply.
     const rawAnchors = ps.source_anchors;
     const sourceAnchors =
       rawAnchors !== null && typeof rawAnchors === "object"
@@ -723,7 +773,7 @@ export async function OnboardingWizard({
   // it holds a 768px base (max-w-3xl) on laptops/tablets and widens to 1024px
   // (xl:max-w-5xl, ≥1280px) so the list stops looking lost in the max-w-[1600px]
   // admin shell on large desktops.
-  const containerMaxWidth = step === 3 ? "max-w-3xl xl:max-w-5xl" : "max-w-2xl";
+  const containerMaxWidth = step === 3 ? cn("max-w-3xl xl:max-w-5xl") : cn("max-w-2xl");
 
   return (
     // `pb-32` reserves space for the fixed full-width <WizardFooter> each step

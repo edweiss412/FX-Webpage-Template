@@ -132,8 +132,12 @@ describe("POST /api/admin/sync/[slug]", () => {
     expect(supabaseMock.state.calls).toEqual([
       { table: "shows", filters: [{ column: "slug", value: "test-show" }] },
     ]);
-    // Generic re-sync (no body) → empty accept payload as the 3rd deps arg (audit #3 threading).
-    expect(syncMock.runManualSyncForShow).toHaveBeenCalledWith("drive-file-1", "manual", {});
+    // Generic re-sync (no body) → the 3rd deps arg carries no accept payload (audit #3
+    // threading) but DOES carry the sync_log sink as of 2026-08-09. Before that this
+    // route ran with no sink at all, so a manual re-sync produced no row to attribute.
+    expect(syncMock.runManualSyncForShow).toHaveBeenCalledWith("drive-file-1", "manual", {
+      processDeps: { logSync: expect.any(Function) },
+    });
   });
 
   test("first POST on a shrunk sheet → HTTP 200 {ok:true, result:{shrink_held, detail, heldModifiedTime}}", async () => {

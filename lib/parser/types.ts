@@ -421,13 +421,35 @@ export type OpeningReelPinned = {
 // to `string | null` so PersistedDiagrams can represent both incomplete (null path) AND
 // complete (string path) state without ad-hoc `as any` casts.
 
-export type PersistedEmbeddedImage = Omit<EmbeddedImageStub, "snapshotPath"> & {
-  snapshotPath: string | null; // populated by Apply; null indicates incomplete entry
+/**
+ * Private-image-pipeline §4 fields, on BOTH persisted entry types.
+ *
+ * Optionality IS the migration: `isPersistedDiagrams` duck-types on
+ * `snapshot_revision_id` alone (lib/data/diagrams.ts), so a manifest written
+ * before this feature and one written after both parse. No DDL, no backfill.
+ *
+ * Serialization rule: persisted JSONB uses OMISSION, never null — a failed or
+ * absent value writes NO field, which is why no arm here carries `| null`.
+ * `DiagramVariantResult`'s nulls are the in-memory form; the wiring sites map
+ * null → omitted. Every consumer (loader §6, route accept-set §5, Gallery and
+ * lightbox) treats a malformed value as absent rather than throwing.
+ */
+export type PersistedDiagramFields = {
+  variants?: Array<{ width: number; key: string }>; // key = LAST PATH SEGMENT, not a full path
+  blurDataURL?: string;
+  intrinsicWidth?: number;
+  intrinsicHeight?: number;
 };
 
-export type PersistedLinkedFolderItem = Omit<LinkedFolderItemStub, "snapshotPath"> & {
-  snapshotPath: string | null;
-};
+export type PersistedEmbeddedImage = Omit<EmbeddedImageStub, "snapshotPath"> &
+  PersistedDiagramFields & {
+    snapshotPath: string | null; // populated by Apply; null indicates incomplete entry
+  };
+
+export type PersistedLinkedFolderItem = Omit<LinkedFolderItemStub, "snapshotPath"> &
+  PersistedDiagramFields & {
+    snapshotPath: string | null;
+  };
 
 // Persisted shows.diagrams JSONB shape — the source of truth that asset_recovery
 // and asset routes read from. Includes per-Apply snapshot revision + status flag.

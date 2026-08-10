@@ -295,7 +295,10 @@ describe("PublishedToggle — inline variant", () => {
       "top-full",
       "z-40",
       "mt-1",
-      "break-words",
+      // `wrap-break-word` is Tailwind v4's canonical spelling of the old
+      // `break-words`; the rule reported the rename once the const moved inside
+      // `cn(...)` and became visible to it (quick-wins-2 §2.3).
+      "wrap-break-word",
       // The banner is a capped SCROLL REGION now (spec §4.3): useFitWithinClip
       // writes its max-height, so the overflow has to be scrollable rather than
       // clipped away. The x axis is pinned explicitly because `overflow-y: auto`

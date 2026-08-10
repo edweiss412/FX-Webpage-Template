@@ -888,6 +888,20 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  ONBOARDING_INTERNAL_ERROR: {
+    code: "ONBOARDING_INTERNAL_ERROR",
+    warningClass: "general",
+    dougFacing:
+      "Something went wrong on our side while preparing this sheet. It isn't a problem with the sheet or with Google Drive. Try again once, and contact the developer if it keeps happening.",
+    crewFacing: null,
+    followUp: "Eric → investigate",
+    helpfulContext:
+      "A step that runs after your sheet is read hit a bug on our side. Nothing is wrong with the sheet's content or its sharing, and retrying may work, but a repeat means the app needs a code fix. Contact the developer with the time this happened.",
+    title: "Internal error while preparing a sheet",
+    longExplanation:
+      "A step that runs after your sheet is read hit a bug on our side. Nothing is wrong with the sheet's content or its sharing, and retrying may work, but a repeat means the app needs a code fix. Contact the developer with the time this happened.",
+    helpHref: "/help/errors#ONBOARDING_INTERNAL_ERROR",
+  },
   ONBOARDING_FINALIZE_INTERNAL_ERROR: {
     code: "ONBOARDING_FINALIZE_INTERNAL_ERROR",
     warningClass: "general",
@@ -1394,6 +1408,22 @@ export const MESSAGE_CATALOG = {
     longExplanation:
       "Sheets writes '#REF!' into a cell when the reference its formula depended on was deleted. We show the cell exactly as the sheet has it rather than guessing at the value that belongs there, so the page will keep displaying '#REF!' until the formula is repaired in the sheet.",
     helpHref: "/help/errors#REF_ERROR_LITERAL",
+  },
+  ROW_CELLS_FUSED: {
+    code: "ROW_CELLS_FUSED",
+    warningClass: "parse_warning",
+    dougFacing:
+      "A row in this sheet has one fewer column than its neighbors, which is how a merged cell exports. Values to the right of the merge may appear under the wrong headings until the merge is removed in the sheet.",
+    crewFacing: null,
+    followUp: "Doug → fix in sheet",
+    helpfulContext:
+      "A row here has one fewer column than the rows around it. That is what a merged cell looks like once the sheet is exported, and it can push values under the wrong headings.",
+    triggerContext:
+      "Appears when a row in a section is exactly one cell short of the width its neighboring rows share.",
+    title: "Two columns ran together in the sheet",
+    longExplanation:
+      "Unmerge the cells in that row and it will line up again. Merging two cells makes the export write that row one column short, so the joined values and everything to their right land one column over, and a call time can end up under a role heading. We show the row exactly as the sheet has it rather than guess which value belongs where.",
+    helpHref: "/help/errors#ROW_CELLS_FUSED",
   },
   STAGE_WORD_AUTOCORRECTED: {
     code: "STAGE_WORD_AUTOCORRECTED",
