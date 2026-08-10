@@ -6,7 +6,22 @@
 
 **Layout-dimensions task:** N/A — the spec's Dimensional Invariants section declares none new; the existing geometry gate keeps pinning the cells (no re-baseline).
 
-**Transition-audit task:** REQUIRED (the spec carries a Transition Inventory) — folded into Tasks 1 and 3, whose test lists carry the inventory's rows verbatim; Task 3 additionally audits the `AnimatePresence` exit path (`Gallery.tsx:236`) against the buffer/flush design.
+**Transition-audit task:** REQUIRED — folded into Tasks 1 and 3 with the spec's inventory table VERBATIM (R1 F3):
+
+| pair | treatment |
+| --- | --- |
+| active slide, `wantsOriginal` false → true | instant loader swap; bitmap keeps painting until the original loads (silent sharpen) |
+| sharpening in flight → slide becomes inactive (Embla) | clamped tier as today; fetch may complete unobserved. Instant |
+| inactive slide with `wantsOriginal=true` → active again | `pinOriginal` immediately, no new gesture. Instant |
+| sharpening in flight → lightbox closes | unmount; existing teardown guards. Tested (R1 F3) |
+| thumbnail available → failed (had focus) | swap + relocation + one announcement. Instant |
+| thumbnail available → failed (no focus) | swap + announcement only |
+| fails WHILE lightbox open | lightbox-local announcement; restore-target closure |
+| fails DURING the 220 ms exit window | buffered, flushed on `onExitComplete`; closure via ref bridge |
+
+Compound rows tested too: zoom gesture mid-sharpen (transform layer src-agnostic — asserted no gesture interruption on src swap); multiple failures mid-announcement (log appends). The audit step enumerates EVERY `AnimatePresence`, ternary render, and conditional block in `Gallery.tsx` and `GalleryLightbox.tsx` and disposes each (animated or deliberately instant).
+
+**Plan-time red transcript (run 2026-08-10, this worktree):** Task 4's line-anchored marker grep → exit 1; Task 5's negated entry-heading grep → exit 1; both new suite files absent (`ls` → No such file); `grep -n wantsOriginal components/diagrams/GalleryLightbox.tsx` → no matches (Task 1's red basis); Task 2's red is deliberately post-Task-1 (the wired case is green today by design).
 
 **e2e harness readiness:** boots via the existing playwright port-3000 webServer used by the wired diagram cases; readiness gates are the existing `T-DIAGRAM-VARIANTS` seed + hydration helpers; detach-safety: the new failure-injection cases locate elements fresh after each `onError` (no held locators across unmounts).
 
@@ -21,7 +36,8 @@ Red is written by this task (invariant-1 shape): the new component suite fails a
 1. Per-slide `wantsOriginal` map keyed by slide identity; flips on the FOUR path classes (committed pinch via the existing 1.01 commitment detection around `GalleryLightbox.tsx:79`, Ctrl/Meta-wheel + trackpad pinch via `GalleryLightbox.tsx:549`/`GalleryLightbox.tsx:608`, keyboard `+`/zoom control, double-tap), derived from scale crossing the 1.01 bound so future paths cannot bypass; never resets within the lightbox session.
 2. Active slide's loader gets `pinOriginal: wantsOriginal[slide]`; variant-less entries unchanged (URL equality both states).
 3. Tests (spec §6 list): four intent paths; de-zoom persistence; **isolation + session persistence** (zoom A → B clamped → return A pins WITHOUT new gesture — a global or reset-on-selection boolean fails); URL oracles read off the LOADER's return (anti-tautology), tiers derived from fixture ladders.
-4. Green: suite passes; existing lightbox suites untouched-green.
+4. UPDATE the existing suite's superseded assertions (R1 F1): `tests/components/diagrams/GalleryLightbox.test.tsx:209` region, `tests/components/diagrams/GalleryLightbox.test.tsx:400`, and the `tests/components/diagrams/GalleryLightbox.test.tsx:427` region assert the unzoomed active slide uses the ORIGINAL — the amended contract flips them; rewrite to the clamped-tier expectations, and refresh the stale inventory prose near the top of that file (its lines 11 and 39).
+5. Green: both suites pass.
 
 ## Task 2 — E2E contract update + CI binding
 
@@ -31,7 +47,7 @@ Red is OBSERVED after Task 1 lands (same command, currently green): the wired mo
 
 1. Update the three superseded URL oracles to the clamped-tier contract (geometry assertions byte-untouched; no re-baseline).
 2. Add the two new cases as `T-DIAGRAM-VARIANTS` members: desktop-chromium network-order gate (no original request before programmatic zoom; original fires + `currentSrc` upgrades after), mobile-safari tier assertion. DECLARED `test.skip(project !== …)` per project — bare early returns prohibited for the new cases.
-3. `phantom-gap-e2e.yml` diagram step: add `--project=desktop-chromium`; add `--reporter=list,json` + `PLAYWRIGHT_JSON_OUTPUT_NAME` + a post-run per-case×project executed-count oracle (floors from a real run; a runtime-skip or bare-return no-op fails it). Register any governance pairs the coverage scan attributes (verify against the meta-test's own output).
+3. `phantom-gap-e2e.yml` diagram step (R1 F2, concrete): add `--project=desktop-chromium`; `--reporter=list,json` with the reporter env var set to the new report path test-results/phantom-gap-diagrams-report.json (value registered in the `governs` allowlist, reconciled against `tests/ci/_workflowCoverageScan.ts:703` region using the meta-test's own failure output); a NEW checker script (basename check-phantom-gap-executed.mjs under scripts/) that parses the JSON report's suites with BOTH `projectName` and case title (the existing `check-crew-e2e-executed.mjs` collapses to a per-file Set and cannot express case×project — this checker keys on `(title, project)` pairs), REQUIRED pairs derived from a real run; the checker gets its own constructed RED (a doctored report with a skipped/no-op case fails it) recorded in the task; add the checker to the workflow step, update the workflow's path-filter triggers (`phantom-gap-e2e.yml:27` region) so checker/spec changes re-run the job, and refresh the header comments (`phantom-gap-e2e.yml:23` region) that become false once a crew-file case runs under desktop-chromium.
 4. Pipeline-spec §6 back-reference commit (`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md:146` region gains the amendment pointer; no other contract line changes — AC-5).
 5. Green: the red command passes with the updated oracles; the new cases execute under their projects per the oracle.
 
@@ -42,8 +58,8 @@ Red is OBSERVED after Task 1 lands (same command, currently green): the wired mo
 Red is written by this task (invariant-1 shape): the new suite fails against the live tree because `components/diagrams/Gallery.tsx:198` swaps the failed cell to a non-interactive div with NO focus relocation, NO announce region (`gallery-announce-log` absent from the tree), and no restore-target ref (verified on the live tree 2026-08-10).
 
 1. Two `AnnounceLogRegion`s: Gallery root (`label="Diagram updates"`, `testId="gallery-announce-log"`), lightbox-internal (`label="Diagram viewer updates"`, `testId="lightbox-announce-log"`); three-state routing (open → lightbox channel; exiting → Gallery-owned buffer flushed on `AnimatePresence` `onExitComplete`; browse → gallery channel); messages follow the alt-else-`Diagram <n>` scheme (`Gallery.tsx:156`).
-2. Focus: relocation order (next / prev / show-more / list `tabIndex={-1}`); `restoreTargetRef` (stable mutable ref) passed to the lightbox, read by `useDialogFocus` at restore; retarget CLOSURE on every failure that removes the current restore target, in open and exit states alike.
-3. Tests (spec §6 + Transition Inventory rows verbatim in the suite): both channels' before/after oracles (exists-empty → same-node keyed child → other channel untouched); the THREE-phase exit-buffer oracle (empty before; both untouched while exiting; exactly one gallery addition after flush); focus relocation per availability configuration; the detached-trigger probe sequence; the succession closure (A→B→C); no-focus failure relocates nothing; per-case premises asserted before measuring.
+2. Focus: relocation order (next / prev / show-more / list `tabIndex={-1}`); `restoreTargetRef` (stable mutable ref) passed to the lightbox and into `useDialogFocus` as a NEW OPTIONAL options parameter — `lib/a11y/dialogFocus.ts:46` region changes, signature BACKWARD-COMPATIBLE (the existing third positional `reattachKey` is NOT repurposed; all existing call sites compile unchanged — R1 F5); retarget CLOSURE on every failure that removes the current restore target, in open and exit states alike. Regression: `pnpm vitest run tests/components/a11y/dialogFocusReattach.test.tsx` plus the suites of the helper's other consumers (enumerated by grep at implementation time) run green.
+3. Tests (spec §6 + Transition Inventory rows verbatim in the suite): both channels' before/after oracles (exists-empty → same-node keyed child → other channel untouched); the THREE-phase exit-buffer oracle (empty before; both untouched while exiting; exactly one gallery addition after flush); focus relocation per availability configuration; the detached-trigger probe sequence; the succession closure (A→B→C); no-focus failure relocates nothing; **stale-`onError` guard (R1 F4): a delayed handler firing after the item is no longer rendered announces NOTHING (tested with a collapsed/unmounted item);** per-case premises asserted before measuring.
 4. Green: suite passes; existing Gallery/lightbox suites green.
 
 ## Task 4 — Impeccable dual gate (invariant 8)
@@ -58,9 +74,9 @@ Red now (line-anchored grep exits 1 — the only occurrence is this marker comme
 
 Red now (the entry heading exists; the negated grep exits 1; green when all three rows graduate — same command on the first row as the representative, with step-level greps for the other two).
 
-1. Graduate all three rows to the archive with their dispositions (amendment / probe closure / repair); markers come off in the graduation commit (invariant 12's sanctioned shape — no end-of-PR marker step); add graduation-registry rows per `tests/docs/_metaDeferralLedgerGraduation.test.ts`.
-2. `pnpm vitest run tests/docs` green as the belt.
-3. Whole-diff cross-model review to APPROVE. If any post-gate repair touches a UI surface, RERUN both halves of the invariant-8 gate on the amended diff and refresh the §12 record + marker (the gated diff must be the merged diff), then rerun `pnpm vitest run tests/docs`. Real CI green (including the phantom-gap run exercising the new oracle); `gh pr merge --merge`; fast-forward main; `0  0` check.
+1. ORDERING (R1 F6 — the graduation commit must be the PR's LAST commit so the marker removal lands per invariant 12): whole-diff cross-model review FIRST, then any repairs (with the invariant-8 re-gate + §12 refresh if a UI surface is touched), and only THEN the graduation commit as the final commit before merge.
+2. The graduation commit: all three rows to the archive with their dispositions (amendment / probe closure / repair), markers off in the same commit, and three `BACKLOG_GRADUATED` registry rows (`BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE`, `BL-DIAGRAM-BLUR-EDGE-SIZE`, `BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE`) in `tests/docs/_metaDeferralLedgerGraduation.test.ts` — the registry diff is exactly these three additions, reconciled in the commit body (the authored-AND-run registry rule). Completion checks: all three headings present in `BACKLOG-archive.md` and absent from `BACKLOG.md`; `pnpm vitest run tests/docs` green.
+3. Real CI green (including the phantom-gap run exercising the new oracle); `gh pr merge --merge`; fast-forward main; `0  0` check.
 
 <!-- tasks: end -->
 
