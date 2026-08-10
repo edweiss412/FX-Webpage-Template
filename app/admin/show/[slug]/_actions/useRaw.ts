@@ -162,7 +162,10 @@ export async function setUseRawDecisionAction(
   // parity with the previous inline call: returned sync failures are logged
   // inside runManualSyncForShow (logSync under the pipeline lock) — which is true
   // only because this call site now INSTALLS that sink. Until 2026-08-09 it did
-  // not, so the claim was false and these failures were written nowhere. And a THROWN
+  // not. Precisely: the RECOVERY outcomes were already written by
+  // recoveryTx.insertSyncLog (markManualDriveError_unlocked and
+  // markManualSheetUnavailable_unlocked); what was written nowhere were the
+  // processOneFile outcomes, which had no sink to write to. And a THROWN
   // fault is contained in the task body so it can never crash the invocation
   // post-response.
   try {
