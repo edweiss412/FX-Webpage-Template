@@ -533,7 +533,7 @@ describe("parseWifiValue — credential-ish prose without syntax (documented lim
     "SSID: Guest\nAccess key=secret",
   ];
 
-  it("renders every character of the cell, losing nothing", () => {
+  it("renders every character of the cell, in order, losing nothing", () => {
     premise("cases swept", CASES.length, 0);
     for (const value of CASES) {
       const parsed = parseWifiValue(value);
@@ -542,12 +542,24 @@ describe("parseWifiValue — credential-ish prose without syntax (documented lim
         parsed === null
           ? value
           : [parsed.ssid, parsed.password, parsed.notes].filter(Boolean).join(" ");
-      const carried = value
-        .split(/\s+/)
-        .filter((word) => !/^(?:SSID|Network|Code|PW|Passcode|Password)[:-]?$/i.test(word));
-      premise(`${JSON.stringify(value)}: words to account for`, carried.length, 0);
-      for (const word of carried) {
-        expect(rendered, `${JSON.stringify(value)} dropped ${word}`).toContain(word);
+
+      // Each LINE's non-label content must survive as one CONTIGUOUS run, not as
+      // a bag of words. A per-word `toContain` loop passes on silently reordered
+      // output — probed: "secret is WPA Guest" satisfied every word check — so it
+      // proved presence, never preservation. Rows may be attributed differently
+      // (that is limit §6.7); the text inside a row may not be rewritten.
+      const segments = value
+        .split("\n")
+        .map((line) =>
+          line.replace(/\b(?:SSID|Network|Code|PW|Passcode|Password)\s*[:-]?\s*/gi, "").trim(),
+        )
+        .filter((segment) => segment.length > 0);
+      premise(`${JSON.stringify(value)}: segments to account for`, segments.length, 0);
+      for (const segment of segments) {
+        expect(
+          rendered,
+          `${JSON.stringify(value)} did not preserve ${JSON.stringify(segment)}`,
+        ).toContain(segment);
       }
     }
   });
