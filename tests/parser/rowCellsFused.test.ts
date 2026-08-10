@@ -251,12 +251,21 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     // legitimately hold a `Driver` cell, and `Driver` is a registered heading. Splitting
     // there cut this section in two and turned a tied, skipped width distribution into a
     // reported warning — a false positive produced by ordinary sheet content.
+    //
+    // The fixture must make the split CHANGE THE ANSWER, and an earlier version did not:
+    // it returned [] both ways, for unrelated reasons, so it pinned nothing. Cross-model
+    // review caught that. Here the widths tie 3-3 across the whole section, so the correct
+    // reading skips it; splitting at the `Driver` row leaves 5,5,4 in the leading half,
+    // where the 4 is modal-1 and is reported.
     const md = [
-      "| TRANSPORTATION | Vehicle | Notes |",
-      "| --- | --- | --- |",
-      "| Driver | Van 1 | am run |",
-      "| Driver | Van 2 |",
-      "| Greeter | Lobby |",
+      "| TRANSPORTATION | A | B | C | D |",
+      "| --- | --- | --- | --- | --- |",
+      "| Greeter | 1 | 2 | 3 | 4 |",
+      "| Greeter | 1 | 2 | 3 | 4 |",
+      "| Shorty | 1 | 2 | 3 |",
+      "| Driver | 1 | 2 | 3 | 4 |",
+      "| Runner | 1 | 2 | 3 |",
+      "| Helper | 1 | 2 | 3 |",
       "",
     ].join("\n");
     expect(fused(md, "calibration.md")).toEqual([]);
