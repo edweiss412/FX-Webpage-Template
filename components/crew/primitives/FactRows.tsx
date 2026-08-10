@@ -17,7 +17,7 @@
  * walks components/crew/primitives/ stays green: FactRows reads `row.v` and
  * routes it through `shouldHideGenericOptional` at the read site.
  *
- * Props (binding contract): {rows: {k, v, sub?, icon?}[]}.
+ * Props (binding contract): {rows: {k, v, sub?, icon?, testId?}[]}.
  *
  * Uses the <dl>/<dt>/<dd> idiom (label-before-value for screen readers).
  * Pure synchronous Server Component (no `'use client'`).
@@ -34,6 +34,12 @@ export type FactRow = {
   sub?: string;
   /** Optional glyph rendered inside the 28px sunken mini-icon square left of `k`. */
   icon?: ReactNode;
+  /**
+   * Optional `data-testid` for the ROW element. Callers pass data, not JSX, so
+   * this is the only place a per-row hook can be declared; a sentinel/empty `v`
+   * still omits the row, testid and all.
+   */
+  testId?: string;
 };
 
 type FactRowsProps = {
@@ -53,6 +59,7 @@ export function FactRows({ rows }: FactRowsProps) {
         // bottom padding so the list sits flush in its card.
         <div
           key={`${row.k}-${i}`}
+          data-testid={row.testId}
           className="flex items-center justify-between gap-3.5 border-b border-border py-3 first:pt-0 last:border-b-0 last:pb-0"
         >
           {/* `.k` — mini-icon square (optional) + subtle label, on the left.

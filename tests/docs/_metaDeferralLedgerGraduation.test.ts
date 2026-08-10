@@ -93,6 +93,25 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/crew-field-enrichment (2026-08-09): the two entries the corpus probe
+  // closed together. The field-enrichment row graduates RESOLVED — its flight
+  // bullet had already shipped (the entry's "not in the ShowForViewer
+  // projection and renders no UI" claim was stale), and its Wi-Fi and room
+  // bullets ship on this branch. The flight-leg row graduates OBSOLETE because
+  // its own promotion prerequisite (a structured flight shape) shipped and made
+  // the structured card the DEFAULT render, retiring the entry's scope. The
+  // narrower raw-fallback path that stays reachable for date-only legs — which
+  // DO parse, but carry no displayable field for the card to lay out — is
+  // filed as its successor, BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK, rather than
+  // left implicit inside a closed entry (diff review R2 F3).
+  {
+    id: "BL-CREW-FIELD-ENRICHMENT",
+    provenance: "feat/crew-field-enrichment",
+  },
+  {
+    id: "BL-FLIGHT-LEG-ORIENTATION",
+    provenance: "feat/crew-field-enrichment",
+  },
   // ci/unit-gate-exclusions (2026-08-09): closed on verification, no new code —
   // pg-cron-coverage and test-auth-gate were promoted back into the unit suite
   // by the ci-dark cluster (PR3 2026-07-26, PR-B 2026-07-31); the one remaining
@@ -1135,10 +1154,18 @@ describe("graduated entries carry no in-flight marker", () => {
     // has to REPLACE it rather than delete it — deleting breaks provenance.
     const archive = read("BACKLOG-archive.md");
     for (const { id, provenance } of BACKLOG_GRADUATED) {
-      const start = archive.indexOf(`## ${id}`);
-      expect(start, `${id} missing from the archive`).toBeGreaterThan(-1);
-      const next = archive.indexOf("\n## ", start + 1);
-      const section = archive.slice(start, next === -1 ? undefined : next);
+      // Anchor on the HEADING at either level, and terminate on the next heading
+      // at either level. Terminating only on `\n## ` ran the slice straight
+      // through following `### BL-*` entries, so two adjacent graduations from
+      // one branch satisfied each other's provenance and a section that had lost
+      // its own mention still passed (probed: removing the provenance from
+      // BL-CREW-FIELD-ENRICHMENT alone left this assertion green).
+      const heading = new RegExp(`^#{2,3} ~{0,2}${id}\\b`, "m").exec(archive);
+      expect(heading, `${id} missing from the archive`).not.toBeNull();
+      const start = heading!.index;
+      const rest = archive.slice(start);
+      const next = rest.slice(1).search(/\n#{2,3} /);
+      const section = next === -1 ? rest : rest.slice(0, next + 1);
       expect(section, `${id}'s section does not name ${provenance}`).toContain(provenance);
     }
   });

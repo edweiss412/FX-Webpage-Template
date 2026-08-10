@@ -492,6 +492,9 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     // Bug #316 item 3: coerce the source_anchors jsonb with the SAME defensive guard
     // as parse_result (non-object/absent → `{}`) so the modal's per-section "In sheet"
     // links can resolve each region's sheet range from the staged preview.
+    // Anchor freshness (spec 2026-08-09-m-wave-2 §2.3): fresh-by-construction — these
+    // are pending_syncs anchors computed by the scan that staged THIS parse (same
+    // revision by construction), so the shows-row freshness helper does not apply.
     const rawAnchors = ps.source_anchors;
     const sourceAnchors =
       rawAnchors !== null && typeof rawAnchors === "object"

@@ -278,22 +278,6 @@ So "retain the live row" is not obviously right at `:337`: the fallback runs whe
 
 **Promotion prerequisite:** the ruling above. If it lands as "defect", the fix mirrors arc C's: thread the live row and prefer it, with no-match falling back to today's behaviour.
 
-## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link
-
-**Filed:** 2026-08-03 (surfaced by the cross-model review of the `fix/onboarding-cas-source-anchors` spec). **Class:** data fidelity. **Effort:** M (needs a schema decision first).
-
-Every writer of `shows.source_anchors` preserves the stored map rather than clearing it when a scan could not compute anchors: the cron path emits `undefined` on a genuine sheets-list failure so the coalesce keeps the old value (`lib/sync/runScheduledCronSync.ts:3073`, `lib/sync/runScheduledCronSync.ts:1527`), the wizard scan degrades to `{}` on a gid-fetch failure (`lib/sync/runOnboardingScan.ts:1350`), and both finalize flows omit the arg rather than passing a defined `{}`. That is the right trade — the alternative wipes every good anchor on a transient Drive hiccup — but it has a blind spot: the same apply advances `shows.last_seen_modified_time`, so the show now carries data from revision R2 alongside anchors computed for R1.
-
-`lib/sheet-links/buildSheetDeepLink.ts:22` cannot detect this. It guards structure only (allowlisted title, numeric gid), so an R1 anchor is accepted and the "In sheet" link opens the old range instead of falling back to `#gid=0`. The mis-link persists until a later anchor-writer run over that sheet either produces a non-empty map or clears the stale one — and nothing schedules such a run. Below the watermark an automatic pass skips the file entirely (`lib/sync/perFileProcessor.ts:337`). The wizard re-onboard path is the one that can hold a stale map indefinitely: it preserves on ANY empty scan because `pending_syncs.source_anchors` cannot distinguish a transient Drive failure from a workbook with no recognized regions, whereas a sync pass distinguishes exactly one cause and clears on the rest (`lib/sync/runScheduledCronSync.ts:3073`).
-
-**Work:** store the revision the anchors were computed from (a `source_anchors_modified_time` column, or a stamp inside the jsonb) and have the deep-link builder fall back to `#gid=0` when it does not match `last_seen_modified_time`. The schema decision is the gate — a sibling column is simplest but adds a write to every anchor-writing path; an in-jsonb stamp keeps it to one column and one coalesce but changes the map's shape for every reader.
-
-**Why backlog, not deferred:** the failure needs an empty-anchor scan AND a row-moving sheet edit in the same window, and the visible symptom is a deep link that opens the wrong range — not data loss. No trigger scheduled. Documented as an accepted limit at `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md` §4.1.
-
-**Status:** OPEN
-
----
-
 ## BL-PG-CRON-HOST-ASSERTION — the pg-cron suite asserts route paths only, never the host it dispatches to
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:295` files it by name, and §10.4 scopes it out, with no row anywhere). **Class:** CI guard completeness. **Effort:** M (needs a sound oracle first).
@@ -522,20 +506,6 @@ viewer reports seeing the whole show expanded when they expected their day marke
 **Re-verified 2026-07-24:** the grant is still live — `supabase/migrations/20260501002000_rls_policies.sql:147` reads `grant select, insert, update, delete on table public.admin_alerts to anon, authenticated;`. The acceptance below is unchanged, and this item was explicitly reviewed and left open during the 2026-07-24 residual sweep rather than overlooked. Do not re-raise it as a finding on an unrelated diff; it closes only as part of `BL-ADMIN-POSTGREST-DML-LOCKDOWN`.
 
 alert-audience-split (spec §6.7) makes health-alert resolution developer-gated at every PRODUCT surface (the dev-gated `resolveHealthAlertFormAction` plus HEALTH_CODES rejects on the three legacy user-facing resolve surfaces: `resolveAdminAlertFormAction`, `app/api/admin/admin-alerts/[id]/resolve`, `app/api/admin/show/[slug]/alerts/[id]/resolve`). This is app-surface defense-in-depth + UI coherence, NOT a DB-enforced trust boundary: `admin_alerts` still GRANTs UPDATE to `authenticated` and its RLS policy allows any `public.is_admin()` caller to update rows (`supabase/migrations/20260501002000_rls_policies.sql`), so a non-developer admin could in principle `PATCH admin_alerts.resolved_at` directly through PostgREST, bypassing the app layer. We ACCEPT this (Doug is the trusted business owner, not an adversary; role filtering is UX not security). **Fix (when prioritized):** revoke direct `admin_alerts` UPDATE from `authenticated`/`anon` and route ALL resolution — doug alerts included — through `SECURITY DEFINER` RPCs with an `is_developer()` check for health codes. Materially larger, whole-resolve-path change; deferred as a cross-reference of the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` admin_alerts-class DML lockdown item.
-
-### BL-PREPARE-INTERNAL-FAULT-KIND — a third fault kind for post-parse internal helpers
-
-**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
-
-`PrepareOnboardingFileError` has two kinds, `drive_fetch` and `parse`, and the post-parse internal helpers (`finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun`'s fix-up, `applyRoleTokenMappings`) currently fall to `drive_fetch` — today's unchanged behavior. Neither code is right for them: a bug in the role-mapping overlay is not a Drive failure, and it is not something Doug fixes by editing his sheet either, so `STAGED_PARSE_FAILED` ("fix its structure", `warn` severity) would be a new wrong instruction. **Fix (when prioritized):** a third `internal` kind mapped to a code that tells the operator to contact the developer, with the finalize severity staying `error`. Needs a new §12.4 row and the full four-gate CI fan-out, which is why it was not folded into the batch that surfaced it.
-
-screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is deterministic rather than hypothetical. Verified 2026-08-04: `PrepareOnboardingFileError.kind` is the two-member union `"drive_fetch" | "parse"` at `lib/sync/runOnboardingScan.ts:1164-1172` (repeated in `asPrepareError` at `:1177`), there is no `"internal"` anywhere under `lib/sync/`, and the doc comment at `:1154` states outright that `drive_fetch` is "everything else, deliberately including the post-parse" helpers. All four helpers the entry names exist and are reachable: `applyRoleTokenMappings` (`lib/sync/roleMappingOverlay.ts:62`), `reconcileIncludedTab` (`lib/sync/pullSheetOverride.ts:157`), `discardAndRerun` (`:199`), `finalizeArchivedTabs` (`:229`). A precedent for the operator-facing code already exists at `lib/messages/catalog.ts:812` (`ONBOARDING_FINALIZE_INTERNAL_ERROR`). Every one of those faults reports today as a Drive failure.
-
-### BL-CRON-WORKBOOK-FAULT-CODE — a corrupt workbook on the cron path reports SYNC_FILE_FAILED
-
-**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
-
-The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
 
 ### BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells
 
@@ -906,6 +876,50 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
+### BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK — a leg with no displayable content beyond its date renders as an unlabeled raw line
+
+**Effort:** M
+
+**Filed:** 2026-08-10, whole-diff review R2 F3 on `feat/crew-field-enrichment`, which refuted the claim that the unlabeled-leg render "no longer exists" while `BL-FLIGHT-LEG-ORIENTATION` was being archived. This row is that entry's successor: the archived one closed because the structured card became the DEFAULT render, and this one carries the residual it did not cover.
+
+**Corrected diagnosis (review S5 R4, probed).** An earlier draft of this entry called these legs "unstructurable". That is wrong, and the distinction changes the repair direction: `parseFlightItinerary("3/22 Charter pending | 3/24 Return pending", 2026)` returns two segments with `structured: true` and both dates parsed (`2026-03-22`, `2026-03-24`). They take the raw branch because the segment carries no DISPLAYABLE content beyond the date — no flight number, route, times, or confirmation — so the structured renderer has nothing but a date to show and falls back to the operator's text. The parser is not failing; the card has nothing to lay out.
+
+**Reachable live surface, with the branch already pinned by a test.** `components/crew/sections/TravelSection.tsx` renders structured fields only when a leg carries content beyond a bare date; otherwise it falls back to `seg.raw` under `data-testid="travel-flight-leg"`, deliberately, so an operator's text is never dropped. `tests/components/crew/sections/TravelSection.flight.test.tsx` pins that branch. An itinerary such as `3/22 Charter pending | 3/24 Return pending` produces TWO such legs, and a crew member then sees two unlabeled lines with no arrival/departure orientation — the shape the archived entry described, surviving in the narrow case.
+
+**Why this is a different problem from the entry it succeeds.** That entry asked for labels once a structured source existed; the source exists and the labels ship. This one is about segments that ARE structured — `structured: true`, date parsed — but carry no other displayable field, so the structured card has only a date to lay out and hands them to the raw branch. Layout work on the card's populated fields therefore never reaches them: the gap is what to render when every field except the date is empty. The candidate direction is a RENDERER one — give the date-only segment a labeled treatment of its own — not parser widening, which an earlier draft of this row wrongly implied and which would find nothing to fix.
+
+**Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation in a case whose real-world frequency has not been measured. **Promotion prerequisite:** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date. Because the segments ARE structured, the cheap direction is a renderer question — give the date-only segment a labeled treatment of its own — rather than the parser widening an earlier draft implied.
+
+### BL-WIFI-FLATTENED-TRAILING-PROSE — prose after a credential on one flattened line is absorbed into it
+
+**Effort:** S
+
+**Filed:** 2026-08-10, whole-diff review of `feat/crew-field-enrichment` (post-merge segment, F1), probe-demonstrated against the shipped `lib/crew/wifiDisplay.ts`.
+
+**Reachability: INFERRED, NOT PROBED against live data.** The behavior is proven — `"SSID: Guest Hardline from Encore"` yields the network name `Guest Hardline from Encore`, and `"SSID: Guest Password: secret Hardline from Encore"` yields the password `secret Hardline from Encore` — but NO corpus value has this shape. The full-corpus probe (10 fixture shows across both families, 4 live sheets) found prose only BEFORE the labels on flattened lines, or on its own line in the multi-line live cells, where it is correctly recovered as notes. **The probe that would settle it:** re-run the §4 corpus sweep looking specifically for a flattened `event_details.internet` value with text after the last credential.
+
+**Why it was not fixed in the originating branch.** The corpus contains `Network: Institutional Investor Passcode: Investor2025` — a genuine two-word SSID, structurally indistinguishable from `Guest Hardline`. Every candidate rule is a word-count or position cap calibrated on zero instances, which is the number-bounded recognizer this repo's writing-plans rule says the next reviewer defeats, and which spec §4 already rejected once on the same reasoning (the `/` rule that "would have been calibrated on nothing"). The consequence is also bounded: the text renders in full under the wrong row label, rather than vanishing or being silently rewritten.
+
+**And a multi-token network value followed by a password label** (`SSID: Guest Door Code: 2468` reading as network `Guest Door`) — spec §6.8. Folded here for the same reason: it is one structure with `Wifi for Polling Network: Institutional Investor Passcode: Investor2025`, a real corpus value whose SSID genuinely is two tokens, so no rule separates them and the probe that would settle it is the same corpus sweep this row already asks for.
+
+**The same row covers credential-ish prose with NO accepted syntax** — `SSID: Guest WPA is secret`, `WPA is secret\nSSID: Guest`, `Access key=secret\nSSID: Guest` — raised as a separate finding in a later review round and folded here because it is the identical undecidability: with no separator and no accepted label near the credential, nothing in the grammar marks it as one. Probed character by character, all six cited forms render every character of the cell to the crew member; what is imperfect is which row the text sits in.
+
+**Scope if promoted:** if the probe finds real instances, their shape supplies the discriminator (a trailing sentence-cased clause, a known prose lead-in like "Hardline"/"Encore", or a separator the corpus actually uses). If it finds none, this closes as a permanent documented limit — spec §6.7 already carries it.
+
+### BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row has no transcription affordance
+
+**Effort:** S
+
+**Filed:** 2026-08-10, impeccable critique P2 during `feat/crew-field-enrichment` close-out (the arc that introduced the row).
+
+**Reachable live surface, not a hypothetical.** The Wi-Fi split now renders `event_details.internet` passwords as their own `venue-wifi-password` fact row. Probed 2026-08-09 across the four live sheets: two carry a password that reaches this row today (Fixed Income Trading Summit 2025 `FITS2025`; FinTech Forum CTO Summit 2026 `ORDTG.`). It renders as `text-sm font-semibold` proportional body text, right-aligned, like every other fact value.
+
+**The problem.** A password is transcribed by hand into a phone's Wi-Fi dialog, often in a dim ballroom, by someone standing up mid-task. Proportional type does not disambiguate the characters that matter for exactly that task: `O`/`0`, `l`/`1`/`I`, `rn`/`m`. `DESIGN.md` already mandates tabular figures on "every time, date, count, and confirmation number" for the same glance-and-transcribe reason; a Wi-Fi password is the same kind of value and currently gets none of it. The trailing-punctuation limit compounds it — `ORDTG.` deliberately preserves a period the crew member cannot tell from a sentence end (spec §6.3, an accepted limit on the parse side, but the render could disambiguate what the parse cannot).
+
+**Why deferred rather than fixed in the originating branch** (per the class-sweep disposition rule, which defaults to fixing peers in-branch): (a) it needs a design decision this PR cannot settle — tabular figures, a monospace treatment, a tap-to-copy control, or a larger type step are four different answers with different costs on a 390px phone; and (c) every one of them widens the shared `FactRows` primitive past the single optional `testId` that arc declared, on a surface the PR does not otherwise restyle.
+
+**Scope if promoted:** decide the affordance, add the per-row hook to `components/crew/primitives/FactRows.tsx`, apply it at the `venue-wifi-password` push site in `components/crew/sections/VenueSection.tsx`, and pin it with a render assertion. If tap-to-copy wins, it also needs a 44x44 target and a copied-state announcement, which is a materially bigger change than the other three.
+
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
 **Effort:** L (scope floor — design-gated)
@@ -932,34 +946,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 **Why backlog, not deferred:** This is a likely-v2 product direction (a downloadable STANDARDIZED TEMPLATE), not committed v1 work. It requires (a) a template-design pass (what the downloadable sheet looks like, how Doug adopts it, migration from organic sheets), (b) a product decision about mandating a template vs tolerating organic sheets, and (c) parser changes to read any **genuinely-new** structured fields the template adds (labeled Call/Doors, hotel room-type/check-in-out time-of-day, discrete Wi-Fi SSID/PW, etc.). **NOTE:** the **AGENDA run-of-show parser is NOT part of this backlog** — it is scheduled v1 work (Phase-2 spec, see the corrected AGENDA bullet above); this entry covers only the TEMPLATE-standardization of the source + the fields that are genuinely absent today. The v1 Blend reconciliation ships without any of it; the design drops/empty-states the genuinely-unreliable fields and parses the AGENDA run-of-show where present. No spec/plan/milestone **for the template** (the AGENDA parser does have one — Phase 2).
 
 **Promotion prerequisite:** EITHER (a) owner decides to formalize the downloadable template as a real v2 feature (template design + adoption plan), OR (b) the v1 redesign ships and operator feedback shows the empty-state surfaces (timeline, wifi, flights, contacts) are a real friction point worth closing at the source. Promotion starts with a brainstorming session on the template shape + the parser contract for any new structured tabs (the AGENDA run-of-show grid contract is already partially mapped in the redesign milestone's deep-read notes).
-
-### BL-CREW-FIELD-ENRICHMENT — Surface already-captured-but-unprojected crew-page fields (flights, Wi-Fi SSID/PW split, room-within-venue)
-
-**Filed:** 2026-06-18, during the crew-page redesign Phase 2 spec adversarial review (R16-MEDIUM). The Phase-1 spec's prose originally lumped several field-enrichments into "Phase 2," but the Phase-2 spec was scoped to **AGENDA run-of-show only**. To single-source the phase boundary (so an implementer can't read Phase-1 as promising Travel-flight work that Phase-2 doesn't deliver), these three field-enrichments are split out here and the Phase-1 references were corrected to point at this item.
-
-**Effort:** M
-
-**Distinction from `BL-CREW-SHEET-TEMPLATE-V2`:** that entry is about a NEW standardized _source_ sheet (making genuinely-absent fields reliably present). THIS entry is about _surfacing fields that the organic sheets already carry_ (and the parser already captures or trivially could) but the projection/UI never exposes — no new source needed, just projection + UI + tests.
-
-**Scope (each upgrades a Phase-1 section/empty-state in place):**
-
-- **Per-crew flight surfacing.** `crew_members.flight_info` is already parsed (`lib/parser/types.ts:71`, `lib/parser/blocks/crew.ts:248`) but is **not** in the `ShowForViewer` projection and renders no UI. Add: the projection field, the Travel-section "flights" block (gated like ground transport — only the assigned crew member / admin sees their own flight PII), and a non-null flight test. Filled in ~1 of 7 organic sheets today, so it ships behind an honest empty state.
-- **Wi-Fi SSID/PW structured split.** Phase 1 shows the raw `event_details.internet` string in Venue (raw display IS in scope and ships in v1). This item adds a structured SSID/PW parse so the two render as discrete labeled fields. Reliable in only 2 of 7 organic sheets — fail-soft to the raw string when unsplittable.
-- **Room-within-venue name** structured capture (lives in EVENT DETAILS / section headers today, not a clean field).
-
-**Why backlog, not deferred:** no committed v1 trigger; these are honest-empty-state enrichments, not gaps that block launch (Phase 1 + Phase 2 ship complete without them). Each needs a small spec/plan (projection + UI + gating + tests). The flight block in particular needs a trust-boundary decision (per-crew flight PII visibility) mirroring `transportTileVisible`.
-
-**Promotion prerequisite:** owner prioritization OR post-launch operator feedback that a specific field (most likely flights) is a real friction point. Promotion starts with a brainstorming session per field (the flight trust boundary is the load-bearing design question).
-
-### BL-FLIGHT-LEG-ORIENTATION — arrival/departure labels + richer flight-leg layout
-
-**Filed:** 2026-06-19 (crew-page Phase 3 per-crew flight info, impeccable v3 dual-gate LOW/MED note). The "Your flight" card renders each `flight_info` leg (split on the TECH-path `" | "`) as an unlabeled text line. The impeccable critique noted there is no arrival/departure orientation cue between the two legs, the confirmation code is buried mid-string, and the raw passthrough is slightly spreadsheet-flavored.
-
-**Effort:** M
-
-**Why backlog, not now:** intentional per the ratified spec decision to render the raw `" | "`-split legs WITHOUT deep-structuring (the split is positional — for a round-trip the first leg is arrival, second is departure, but a one-way leg cannot be disambiguated, and deep-parsing route/airline/time/conf from the space-separated string is fragile/YAGNI). Adding labels/structure is only sound once a structured-leg source exists. The cleanest enabler is `DEF-FLIGHT-1` (the TRAVEL-tab parser), which could normalize into a structured shape; alternatively a TECH-path post-parser that splits arrival vs departure deterministically.
-
-**Promotion prerequisite:** EITHER (a) `DEF-FLIGHT-1` lands a structured flight shape this card can label, OR (b) operator feedback that the unlabeled legs are a real readability friction. Until then the unlabeled raw-leg render is truthful and passes the impeccable gate.
 
 ### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
 

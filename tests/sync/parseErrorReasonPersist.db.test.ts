@@ -5,13 +5,21 @@ import postgres from "postgres";
 import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
 
 describe("producer wiring", () => {
-  it("builds its PARSE_ERROR_LAST_GOOD context via buildParseErrorContext, wiring phase1.code", () => {
+  it("every PARSE_ERROR_LAST_GOOD alert producer wires buildParseErrorContext with a BOUND failure code", () => {
     const src = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8");
-    const i = src.indexOf('code: "PARSE_ERROR_LAST_GOOD"');
-    const block = src.slice(i, i + 400);
-    expect(block).toMatch(/buildParseErrorContext\(/);
-    // the failure code must be WIRED, not a constant: the hard-fail result binding flows in.
-    expect(block).toMatch(/failureCode:\s*phase1\.code/);
+    const producers = [...src.matchAll(/code: "PARSE_ERROR_LAST_GOOD",/g)].map((m) => m.index ?? 0);
+    // TWO producers, deliberately: the workbook-synthesis fetch-failure arm
+    // (BL-CRON-WORKBOOK-FAULT-CODE — wires the classifier's `code` binding) and the
+    // phase1 hard_fail branch (wires `phase1.code`). A third producer must extend
+    // this count AND carry the same wiring shape.
+    expect(producers).toHaveLength(2);
+    for (const i of producers) {
+      const block = src.slice(i, i + 400);
+      expect(block).toMatch(/buildParseErrorContext\(/);
+      // the failure code must be WIRED, not a string constant: a result binding flows in.
+      expect(block).toMatch(/failureCode:\s*(phase1\.code|code)\b/);
+      expect(block).not.toMatch(/failureCode:\s*["']/);
+    }
   });
 });
 
