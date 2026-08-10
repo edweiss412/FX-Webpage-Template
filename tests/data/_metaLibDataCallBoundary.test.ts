@@ -376,14 +376,59 @@ function mentionedNames(file: string, source: string): Set<string> {
  * Leaving the callee in place keeps such a pin matching, so it is rejected,
  * which is what "this pin guards THIS site" has to mean.
  */
-function sourceWithCallErased(
+/**
+ * The names this site's RESULT is bound to.
+ *
+ * A row's pins are two claims, not one: that the call is here, and that its
+ * error is checked. Requiring a single pin to depend on the call proved only
+ * the first — an exact call pin plus an `if (other.error)` pin copied from a
+ * neighbouring site passed every layer while the call never checked its own
+ * error (R17 F1), which is the substantive thing this guard exists to catch.
+ *
+ * Obscuring the binding is how the second claim gets tested: a pin that speaks
+ * about THIS site's result stops matching, and one borrowed from a neighbour
+ * goes on matching. Both `const x = await …` and `x = (await …)` bind, and a
+ * destructuring binding (`const { data: tokens, error: tokenErr } = await …`)
+ * binds every name in the pattern.
+ */
+function siteBindingNames(node: ts.Node): string[] {
+  const names: string[] = [];
+  const collect = (name: ts.BindingName): void => {
+    if (ts.isIdentifier(name)) {
+      names.push(name.text);
+      return;
+    }
+    for (const element of name.elements) {
+      if (!ts.isOmittedExpression(element)) collect(element.name);
+    }
+  };
+  for (let at: ts.Node | undefined = node; at !== undefined; at = at.parent) {
+    if (ts.isVariableDeclaration(at)) {
+      collect(at.name);
+      return names;
+    }
+    if (
+      ts.isBinaryExpression(at) &&
+      at.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(at.left)
+    ) {
+      return [at.left.text];
+    }
+    if (ts.isStatement(at) && !ts.isExpressionStatement(at) && !ts.isVariableStatement(at)) break;
+  }
+  return names;
+}
+
+function sourceWithSiteObscured(
   file: string,
   original: string,
   stripped: string,
   ordinal: number,
+  what: "call" | "binding",
 ): string {
   const sourceFile = parse(file, original);
   const ranges: Array<[number, number]> = [];
+  let bindings: string[] = [];
   let seen = 0;
   const visit = (node: ts.Node): void => {
     const found = siteAt(node);
@@ -394,13 +439,29 @@ function sourceWithCallErased(
       // first row's pin and pass — silently, and the coupling rule's whole
       // promise is that a pin guards THIS site (R16 F1). Position is the same
       // identity Layer 2 reconciles on.
-      if (seen === ordinal)
-        ranges.push([found.argument.getStart(sourceFile), found.argument.getEnd()]);
+      if (seen === ordinal) {
+        if (what === "call") {
+          ranges.push([found.argument.getStart(sourceFile), found.argument.getEnd()]);
+        } else {
+          bindings = siteBindingNames(node);
+        }
+      }
       seen += 1;
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+
+  if (what === "binding" && bindings.length > 0) {
+    const wanted = new Set(bindings);
+    const collectIdentifiers = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && wanted.has(node.text)) {
+        ranges.push([node.getStart(sourceFile), node.getEnd()]);
+      }
+      ts.forEachChild(node, collectIdentifiers);
+    };
+    collectIdentifiers(sourceFile);
+  }
 
   const chars = stripped.split("");
   for (const [from, to] of ranges) {
@@ -438,14 +499,32 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
           problems.push(`${where}: pin is empty — an empty discharge proves nothing`);
           return;
         }
-        // Rule 2 — call coupling, proven by ERASURE rather than by reading the
-        // pattern's text. At least one pin must stop matching once this row's
-        // call is removed from the source; a pin that survives its own site's
-        // deletion was never guarding it.
-        const erased = sourceWithCallErased(file, readFile(file), stripped, index);
-        if (!row.pin.some((pattern) => !matchesPin(pattern, erased))) {
+        // Rule 2 — coupling, proven by OBSCURING rather than by reading the
+        // pattern's text. A row makes two claims — the call is here, and its
+        // error is checked — so it is tested twice. Erase the call and some pin
+        // must stop matching; obscure the names this site's result is bound to
+        // and some pin must stop matching. One pin can satisfy both, but a row
+        // that pins its own call while borrowing a neighbour's `if (x.error)`
+        // satisfies only the first, which is the shape that matters (R17 F1).
+        const readSource = readFile(file);
+        const withoutCall = sourceWithSiteObscured(file, readSource, stripped, index, "call");
+        if (!row.pin.some((pattern) => !matchesPin(pattern, withoutCall))) {
           problems.push(
             `${where}: no pin depends on this row's call — every pin still matches once the call is erased, so a pin copied from another site, another call kind, or another function cannot be told apart`,
+          );
+        }
+        // The error claim needs INDEPENDENT evidence: a pin that survives the
+        // call being erased (so it is not just the call pin again) and stops
+        // matching when the site's result binding is obscured. The call pin
+        // satisfies both tests on its own, which is why "some pin fails each"
+        // was not enough — the borrowed error pin was never scrutinised.
+        const withoutBinding = sourceWithSiteObscured(file, readSource, stripped, index, "binding");
+        const provesResultInspected = row.pin.some(
+          (pattern) => matchesPin(pattern, withoutCall) && !matchesPin(pattern, withoutBinding),
+        );
+        if (!provesResultInspected) {
+          problems.push(
+            `${where}: no pin depends on this site's result binding — an error-handling pin borrowed from a neighbouring site would still match, so this row does not prove THIS call's error is checked`,
           );
         }
         const unmatched = row.pin.filter((pattern) => !matchesPin(pattern, stripped));
@@ -1181,18 +1260,36 @@ describe("META lib/data Supabase call boundary", () => {
     // Rows sit in SOURCE ORDER, which is the identity Layer 2 reconciles on and
     // now the identity the erasure uses too — so every fixture here registers
     // the file's sites in order and moves only the pin under test.
+    // Rows sit in SOURCE ORDER, which is the identity Layer 2 reconciles on and
+    // the identity the obscuring uses too — so every fixture here registers the
+    // file's sites in order and moves only the pin under test. Each site binds
+    // its result and checks it, because a row must prove both claims.
     test("a pin coupled only by substring, or to an empty literal, is rejected", () => {
       const source =
-        'await sb.from("shows_internal");\nawait sb.from("shows");\nawait sb.from("");\n';
+        'const a = await sb.from("shows_internal");\nif (a.error) throw a.error;\n' +
+        'const b = await sb.from("shows");\nif (b.error) throw b.error;\n' +
+        'const c = await sb.from("");\nif (c.error) throw c.error;\n';
       const rowsWith = (borrowedAt: number): SiteRow[] => {
         const honest: SiteRow[] = [
-          { kind: "from", literal: "shows_internal", pin: [/\.from\("shows_internal"\)/] },
-          { kind: "from", literal: "shows", pin: [/\.from\("shows"\)/] },
-          { kind: "from", literal: "", pin: [/\.from\(""\)/] },
+          {
+            kind: "from",
+            literal: "shows_internal",
+            pin: [/const a = await sb\.from\("shows_internal"\)/, /if \(a\.error\)/],
+          },
+          {
+            kind: "from",
+            literal: "shows",
+            pin: [/const b = await sb\.from\("shows"\)/, /if \(b\.error\)/],
+          },
+          { kind: "from", literal: "", pin: [/const c = await sb\.from\(""\)/, /if \(c\.error\)/] },
         ];
         return honest.map((row, at) =>
           at === borrowedAt
-            ? { kind: row.kind, literal: row.literal, pin: [/\.from\("shows_internal"\)/] }
+            ? {
+                kind: row.kind,
+                literal: row.literal,
+                pin: [/const a = await sb\.from\("shows_internal"\)/, /if \(a\.error\)/],
+              }
             : row,
         );
       };
@@ -1200,10 +1297,12 @@ describe("META lib/data Supabase call boundary", () => {
       // `shows` is a substring of `shows_internal`, and both are live here.
       expect(validateRows({ [SOURCE]: rowsWith(1) }, reader({ [SOURCE]: source }))).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
+        expect.stringContaining("no pin depends on this site's result binding"),
       ]);
       // An empty literal is a substring of everything.
       expect(validateRows({ [SOURCE]: rowsWith(2) }, reader({ [SOURCE]: source }))).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
+        expect.stringContaining("no pin depends on this site's result binding"),
       ]);
 
       // Control: every row pinned to its own site passes, so the rejections
@@ -1215,11 +1314,19 @@ describe("META lib/data Supabase call boundary", () => {
     // that shared a kind and a literal let the second row carry a copy of the
     // first row's pin and pass, silently — and `getShowForViewer.ts` really does
     // read `crew_members` and `shows_internal` twice each (whole-diff R16 F1).
+    // Duplicate `{kind, literal}` sites are DISTINCT sites. Obscuring every site
+    // that shared a kind and a literal let the second row carry a copy of the
+    // first row's pin and pass, silently — and `getShowForViewer.ts` really does
+    // read `crew_members` and `shows_internal` twice each (whole-diff R16 F1).
     test("a duplicate site cannot be discharged by its twin's pin", () => {
       const source =
-        'const a = await sb.from("dup");\nif (a.error) throw a.error;\nconst b = await sb.from("dup");\nif (b.error) throw b.error;\n';
-      const first: [RegExp, ...RegExp[]] = [/const a = await sb\.from\("dup"\)/];
-      const second: [RegExp, ...RegExp[]] = [/const b = await sb\.from\("dup"\)/];
+        'const a = await sb.from("dup");\nif (a.error) throw a.error;\n' +
+        'const b = await sb.from("dup");\nif (b.error) throw b.error;\n';
+      const first: [RegExp, ...RegExp[]] = [/const a = await sb\.from\("dup"\)/, /if \(a\.error\)/];
+      const second: [RegExp, ...RegExp[]] = [
+        /const b = await sb\.from\("dup"\)/,
+        /if \(b\.error\)/,
+      ];
 
       expect(
         validateRows(
@@ -1231,7 +1338,10 @@ describe("META lib/data Supabase call boundary", () => {
           },
           reader({ [SOURCE]: source }),
         ),
-      ).toEqual([expect.stringContaining("no pin depends on this row's call")]);
+      ).toEqual([
+        expect.stringContaining("no pin depends on this row's call"),
+        expect.stringContaining("no pin depends on this site's result binding"),
+      ]);
 
       // Control: each row pinned to its own occurrence passes.
       expect(
@@ -1248,26 +1358,44 @@ describe("META lib/data Supabase call boundary", () => {
     });
 
     test("a pin copied from another site in the same file is rejected", () => {
-      const source = 'await sb.from("admin_emails");\nawait sb.from("new_table");\n';
+      const source =
+        'const a = await sb.from("admin_emails");\nif (a.error) throw a.error;\n' +
+        'const b = await sb.from("new_table");\nif (b.error) throw b.error;\n';
+      const firstRow: SiteRow = {
+        kind: "from",
+        literal: "admin_emails",
+        pin: [/const a = await sb\.from\("admin_emails"\)/, /if \(a\.error\)/],
+      };
       expect(
         validateRows(
           {
             [SOURCE]: [
-              { kind: "from", literal: "admin_emails", pin: [/from\("admin_emails"\)/] },
-              { kind: "from", literal: "new_table", pin: [/from\("admin_emails"\)/] },
+              firstRow,
+              {
+                kind: "from",
+                literal: "new_table",
+                pin: [/const a = await sb\.from\("admin_emails"\)/, /if \(a\.error\)/],
+              },
             ],
           },
           reader({ [SOURCE]: source }),
         ),
-      ).toEqual([expect.stringContaining("no pin depends on this row's call")]);
+      ).toEqual([
+        expect.stringContaining("no pin depends on this row's call"),
+        expect.stringContaining("no pin depends on this site's result binding"),
+      ]);
 
       // Control: the second row pinned to its own site passes.
       expect(
         validateRows(
           {
             [SOURCE]: [
-              { kind: "from", literal: "admin_emails", pin: [/from\("admin_emails"\)/] },
-              { kind: "from", literal: "new_table", pin: [/from\("new_table"\)/] },
+              firstRow,
+              {
+                kind: "from",
+                literal: "new_table",
+                pin: [/const b = await sb\.from\("new_table"\)/, /if \(b\.error\)/],
+              },
             ],
           },
           reader({ [SOURCE]: source }),
@@ -1275,64 +1403,86 @@ describe("META lib/data Supabase call boundary", () => {
       ).toEqual([]);
     });
 
+    // `from` and `rpc` can name the same thing, so the literal alone does not
+    // identify the site (whole-diff R11 F1).
     test("a pin borrowed from the other call kind is rejected", () => {
       const source =
-        'export async function f() {\n  const a = await sb.from("shared");\n  if (a.error) throw a.error;\n  await sb.rpc("shared");\n}\n';
-      const borrowed: Registry = {
-        [SOURCE]: [
-          { kind: "from", literal: "shared", pin: [/sb\.from\("shared"\)/, /if \(a\.error\)/] },
-          { kind: "rpc", literal: "shared", pin: [/sb\.from\("shared"\)/, /if \(a\.error\)/] },
-        ],
+        'const a = await sb.from("shared");\nif (a.error) throw a.error;\n' +
+        'const b = await sb.rpc("shared");\nif (b.error) throw b.error;\n';
+      const fromRow: SiteRow = {
+        kind: "from",
+        literal: "shared",
+        pin: [/const a = await sb\.from\("shared"\)/, /if \(a\.error\)/],
       };
-      expect(validateRows(borrowed, reader({ [SOURCE]: source }))).toEqual([
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              fromRow,
+              {
+                kind: "rpc",
+                literal: "shared",
+                pin: [/const a = await sb\.from\("shared"\)/, /if \(a\.error\)/],
+              },
+            ],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
+        expect.stringContaining("no pin depends on this site's result binding"),
       ]);
 
-      const reversed: Registry = {
-        [SOURCE]: [
-          { kind: "from", literal: "shared", pin: [/sb\.rpc\("shared"\)/] },
-          { kind: "rpc", literal: "shared", pin: [/sb\.rpc\("shared"\)/] },
-        ],
-      };
-      expect(validateRows(reversed, reader({ [SOURCE]: source }))).toEqual([
-        expect.stringContaining("no pin depends on this row's call"),
-      ]);
-
-      // Control: each row pinned to its OWN call kind passes, so the rejections
-      // above are the rule firing and not an unsatisfiable fixture.
-      const honest: Registry = {
-        [SOURCE]: [
-          { kind: "from", literal: "shared", pin: [/sb\.from\("shared"\)/, /if \(a\.error\)/] },
-          { kind: "rpc", literal: "shared", pin: [/sb\.rpc\("shared"\)/] },
-        ],
-      };
-      expect(validateRows(honest, reader({ [SOURCE]: source }))).toEqual([]);
+      // Control: each row pinned to its OWN call kind passes.
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              fromRow,
+              {
+                kind: "rpc",
+                literal: "shared",
+                pin: [/const b = await sb\.rpc\("shared"\)/, /if \(b\.error\)/],
+              },
+            ],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([]);
     });
 
     // The member name needs its own LEFT boundary: `notfrom("x")` contains
     // `from("x")` and `myrpc("x")` contains `rpc("x")`, so a pin naming a
     // different function was discharging the row (whole-diff R12 F1).
+    // The member name needs its own LEFT boundary — `notfrom("x")` contains
+    // `from("x")` (whole-diff R12 F1). Under the obscuring rule this is simply
+    // a pin that does not depend on the site.
     test("a pin naming a different function whose name ends in the member is rejected", () => {
       const source =
-        'export async function f() {\n  await sb.from("shared_from");\n  await sb.rpc("shared_rpc");\n  notfrom("shared_from");\n  myrpc("shared_rpc");\n}\n';
-      const borrowed: Array<[string, SiteRow]> = [
-        ["notfrom", { kind: "from", literal: "shared_from", pin: [/notfrom\("shared_from"\)/] }],
-        ["myrpc", { kind: "rpc", literal: "shared_rpc", pin: [/myrpc\("shared_rpc"\)/] }],
-      ];
-      for (const [name, row] of borrowed) {
-        expect(validateRows({ [SOURCE]: [row] }, reader({ [SOURCE]: source })), name).toEqual([
-          expect.stringContaining("no pin depends on this row's call"),
-        ]);
-      }
+        'const a = await sb.from("shared_from");\nif (a.error) throw a.error;\n' +
+        'notfrom("shared_from");\n';
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [{ kind: "from", literal: "shared_from", pin: [/notfrom\("shared_from"\)/] }],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([
+        expect.stringContaining("no pin depends on this row's call"),
+        expect.stringContaining("no pin depends on this site's result binding"),
+      ]);
 
-      // Control: the same pins with the real receiver pass, so the rejections
-      // are the boundary firing rather than an unsatisfiable fixture.
+      // Control: the real site's pins pass.
       expect(
         validateRows(
           {
             [SOURCE]: [
-              { kind: "from", literal: "shared_from", pin: [/sb\.from\("shared_from"\)/] },
-              { kind: "rpc", literal: "shared_rpc", pin: [/sb\.rpc\("shared_rpc"\)/] },
+              {
+                kind: "from",
+                literal: "shared_from",
+                pin: [/const a = await sb\.from\("shared_from"\)/, /if \(a\.error\)/],
+              },
             ],
           },
           reader({ [SOURCE]: source }),
@@ -1344,40 +1494,40 @@ describe("META lib/data Supabase call boundary", () => {
     // rule never reads the pattern's text, so how the pattern spells a
     // neighbouring function — with a supplementary-plane character, or with a
     // braced Unicode escape — cannot affect whether it depends on THIS call.
+    // R13's spellings, and the reason they are no longer expressible: the rule
+    // never reads the pattern's text, so how a pattern spells a neighbouring
+    // function cannot affect whether it depends on THIS site.
     test("a pin naming a neighbouring function is rejected however that name is spelled", () => {
       const source =
-        'export async function f() {\n  await sb.from("shared_from");\n  await sb.rpc("shared_rpc");\n  \u{10400}from("shared_from");\n  afrom("shared_from");\n  \u{10400}rpc("shared_rpc");\n  arpc("shared_rpc");\n}\n';
+        'const a = await sb.from("shared_from");\nif (a.error) throw a.error;\n' +
+        '\u{10400}from("shared_from");\nafrom("shared_from");\n';
       const borrowed: Array<[string, SiteRow]> = [
         [
-          "astral prefix, from",
+          "astral prefix",
           { kind: "from", literal: "shared_from", pin: [/\u{10400}from\("shared_from"\)/u] },
         ],
         [
-          "astral prefix, rpc",
-          { kind: "rpc", literal: "shared_rpc", pin: [/\u{10400}rpc\("shared_rpc"\)/u] },
-        ],
-        [
-          "braced escape, from",
+          "braced escape",
           { kind: "from", literal: "shared_from", pin: [/\u{61}from\("shared_from"\)/u] },
-        ],
-        [
-          "braced escape, rpc",
-          { kind: "rpc", literal: "shared_rpc", pin: [/\u{61}rpc\("shared_rpc"\)/u] },
         ],
       ];
       for (const [name, row] of borrowed) {
         expect(validateRows({ [SOURCE]: [row] }, reader({ [SOURCE]: source })), name).toEqual([
           expect.stringContaining("no pin depends on this row's call"),
+          expect.stringContaining("no pin depends on this site's result binding"),
         ]);
       }
 
-      // Control: pins on the real sites depend on them and pass.
+      // Control: pins on the real site pass.
       expect(
         validateRows(
           {
             [SOURCE]: [
-              { kind: "from", literal: "shared_from", pin: [/sb\.from\("shared_from"\)/] },
-              { kind: "rpc", literal: "shared_rpc", pin: [/sb\.rpc\("shared_rpc"\)/] },
+              {
+                kind: "from",
+                literal: "shared_from",
+                pin: [/const a = await sb\.from\("shared_from"\)/, /if \(a\.error\)/],
+              },
             ],
           },
           reader({ [SOURCE]: source }),
@@ -1388,20 +1538,33 @@ describe("META lib/data Supabase call boundary", () => {
     // A pin that names the member and not the literal would discharge any row
     // of that kind in the file. It must be rejected — the case that decides
     // whether the erasure covers the callee (it must not).
+    // A pin that names the member and not the literal would discharge any row of
+    // that kind in the file — the case that decides whether the erasure covers
+    // the callee (it must not).
     test("a pin naming only the member, not the literal, is rejected", () => {
-      const source =
-        'export async function f() {\n  const a = await sb.from("only_one");\n  if (a.error) throw a.error;\n}\n';
+      const source = 'const a = await sb.from("only_one");\nif (a.error) throw a.error;\n';
       expect(
         validateRows(
           { [SOURCE]: [{ kind: "from", literal: "only_one", pin: [/sb\.from\(/] }] },
           reader({ [SOURCE]: source }),
         ),
-      ).toEqual([expect.stringContaining("no pin depends on this row's call")]);
+      ).toEqual([
+        expect.stringContaining("no pin depends on this row's call"),
+        expect.stringContaining("no pin depends on this site's result binding"),
+      ]);
 
-      // Control: naming the call passes.
+      // Control: naming the call and its result passes.
       expect(
         validateRows(
-          { [SOURCE]: [{ kind: "from", literal: "only_one", pin: [/sb\.from\("only_one"\)/] }] },
+          {
+            [SOURCE]: [
+              {
+                kind: "from",
+                literal: "only_one",
+                pin: [/const a = await sb\.from\("only_one"\)/, /if \(a\.error\)/],
+              },
+            ],
+          },
           reader({ [SOURCE]: source }),
         ),
       ).toEqual([]);
@@ -1411,21 +1574,35 @@ describe("META lib/data Supabase call boundary", () => {
     // `Array.from("shared")` is not a site, so it must not be erased — otherwise
     // a pin naming only that innocent call is erased along with the real one and
     // looks coupled to it (whole-diff R14 F1).
+    // The obscuring must ask the SAME question the scanner asks. An excluded
+    // `Array.from("shared")` is not a site, so it must not be obscured —
+    // otherwise a pin naming only that innocent call looks coupled (R14 F1).
     test("a pin naming an excluded Array.from call does not count as depending on the site", () => {
       const source =
-        'export async function f() {\n  const chars = Array.from("shared");\n  const a = await sb.from("shared");\n  if (a.error) throw a.error;\n  return chars;\n}\n';
+        'const chars = Array.from("shared");\n' +
+        'const a = await sb.from("shared");\nif (a.error) throw a.error;\n';
       expect(
         validateRows(
           { [SOURCE]: [{ kind: "from", literal: "shared", pin: [/Array\.from\("shared"\)/] }] },
           reader({ [SOURCE]: source }),
         ),
-      ).toEqual([expect.stringContaining("no pin depends on this row's call")]);
+      ).toEqual([
+        expect.stringContaining("no pin depends on this row's call"),
+        expect.stringContaining("no pin depends on this site's result binding"),
+      ]);
 
-      // Control: the real site's pin still passes, so the rejection is the
-      // exclusion firing rather than the fixture being unsatisfiable.
+      // Control: the real site's pins pass.
       expect(
         validateRows(
-          { [SOURCE]: [{ kind: "from", literal: "shared", pin: [/sb\.from\("shared"\)/] }] },
+          {
+            [SOURCE]: [
+              {
+                kind: "from",
+                literal: "shared",
+                pin: [/const a = await sb\.from\("shared"\)/, /if \(a\.error\)/],
+              },
+            ],
+          },
           reader({ [SOURCE]: source }),
         ),
       ).toEqual([]);
@@ -1434,21 +1611,29 @@ describe("META lib/data Supabase call boundary", () => {
     // `g` makes `.test()` stateful: `lastIndex` survives between calls, so a
     // pin shared by two rows could report dependence for a row it never
     // guarded, purely from where the previous call left off (whole-diff R14 F2).
+    // `g` makes `.test()` stateful: `lastIndex` survives between calls, so a pin
+    // shared by two rows could report dependence for a row it never guarded,
+    // purely from where the previous call left off (whole-diff R14 F2).
     test("a stateful pin cannot discharge a row through leftover lastIndex", () => {
       const source =
-        'export async function f() {\n  const a = await sb.from("first");\n  const b = await sb.rpc("second");\n}\n';
+        'const a = await sb.from("first");\nif (a.error) throw a.error;\n' +
+        'const b = await sb.rpc("second");\nif (b.error) throw b.error;\n';
       for (const flags of ["g", "gi"]) {
-        const shared = new RegExp('sb\\.from\\("first"\\)', flags);
+        const shared: [RegExp, ...RegExp[]] = [
+          new RegExp('const a = await sb\\.from\\("first"\\)', flags),
+          new RegExp("if \\(a\\.error\\)", flags),
+        ];
         const registry: Registry = {
           [SOURCE]: [
-            { kind: "from", literal: "first", pin: [shared] },
-            { kind: "rpc", literal: "second", pin: [shared] },
+            { kind: "from", literal: "first", pin: shared },
+            { kind: "rpc", literal: "second", pin: shared },
           ],
         };
-        // The rpc row is discharged by a pin on the from site; stateless
-        // matching must reject it every time, whatever ran before.
+        // The rpc row is discharged by pins on the from site; stateless matching
+        // must reject it every time, whatever ran before.
         expect(validateRows(registry, reader({ [SOURCE]: source })), flags).toEqual([
           expect.stringContaining('rpc("second"): no pin depends on this row\'s call'),
+          expect.stringContaining('rpc("second"): no pin depends on this site\'s result binding'),
         ]);
       }
     });
@@ -1457,21 +1642,92 @@ describe("META lib/data Supabase call boundary", () => {
     // a fresh copy is 0 — so an authored `y` pin whose match begins later does
     // not match the source and must be reported as such. Stripping `y` alongside
     // `g` made those pins pass both rules (whole-diff R15 F1).
+    // Sticky is NOT statefulness. `y` anchors the match at `lastIndex`, which on
+    // a fresh copy is 0 — so an authored `y` pin whose match begins later does
+    // not match the source and must be reported as such. Stripping `y` alongside
+    // `g` made those pins pass every rule (whole-diff R15 F1).
     test("a sticky pin keeps its anchoring semantics", () => {
-      const notAtStart = 'export async function f() {\n  const a = await sb.from("shows");\n}\n';
+      const notAtStart = 'const a = await sb.from("shows");\nif (a.error) throw a.error;\n';
       expect(
         validateRows(
-          { [SOURCE]: [{ kind: "from", literal: "shows", pin: [/sb\.from\("shows"\)/y] }] },
+          {
+            [SOURCE]: [
+              { kind: "from", literal: "shows", pin: [/if \(a\.error\)/y, /sb\.from\("shows"\)/] },
+            ],
+          },
           reader({ [SOURCE]: notAtStart }),
         ),
-      ).toEqual([expect.stringContaining("do not match the source")]);
+      ).toEqual([
+        // A pin that matches nothing also proves nothing about the result.
+        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("do not match the source"),
+      ]);
 
       // Control: the same sticky pin where it DOES anchor passes, so the
       // rejection is the anchoring rather than a blanket refusal of `y`.
       expect(
         validateRows(
-          { [SOURCE]: [{ kind: "from", literal: "shows", pin: [/sb\.from\("shows"\)/y] }] },
-          reader({ [SOURCE]: 'sb.from("shows");\n' }),
+          {
+            [SOURCE]: [
+              {
+                kind: "from",
+                literal: "shows",
+                pin: [/const a = await sb\.from\("shows"\)/y, /if \(a\.error\)/],
+              },
+            ],
+          },
+          reader({ [SOURCE]: notAtStart }),
+        ),
+      ).toEqual([]);
+    });
+
+    // The substantive shape: an exact pin on the row's OWN call, plus an
+    // error-handling pin copied from the neighbouring site. The call claim holds
+    // and the error claim does not, and the site never checks its own error —
+    // which is the thing this guard exists to catch (whole-diff R17 F1).
+    test("an exact call pin plus a borrowed error pin is rejected", () => {
+      const source =
+        'const good = await sb.from("good");\nif (good.error) throw good.error;\n' +
+        'const bad = await sb.from("bad");\nreturn bad.data;\n';
+      const goodRow: SiteRow = {
+        kind: "from",
+        literal: "good",
+        pin: [/const good = await sb\.from\("good"\)/, /if \(good\.error\)/],
+      };
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              goodRow,
+              {
+                kind: "from",
+                literal: "bad",
+                // Its own call, but somebody else's error check.
+                pin: [/const bad = await sb\.from\("bad"\)/, /if \(good\.error\)/],
+              },
+            ],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([expect.stringContaining("no pin depends on this site's result binding")]);
+
+      // Control: once `bad` checks its own error and the row pins that, it passes.
+      const fixed =
+        'const good = await sb.from("good");\nif (good.error) throw good.error;\n' +
+        'const bad = await sb.from("bad");\nif (bad.error) throw bad.error;\n';
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              goodRow,
+              {
+                kind: "from",
+                literal: "bad",
+                pin: [/const bad = await sb\.from\("bad"\)/, /if \(bad\.error\)/],
+              },
+            ],
+          },
+          reader({ [SOURCE]: fixed }),
         ),
       ).toEqual([]);
     });
@@ -1487,6 +1743,8 @@ describe("META lib/data Supabase call boundary", () => {
         ],
       };
       expect(validateRows(registry, reader({ [SOURCE]: MODULE_SOURCE }))).toEqual([
+        // A pin that matches nothing also proves nothing about the result.
+        expect.stringContaining("no pin depends on this site's result binding"),
         expect.stringContaining("do not match the source"),
       ]);
     });
