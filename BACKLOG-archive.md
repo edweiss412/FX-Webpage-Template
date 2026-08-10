@@ -6269,6 +6269,62 @@ This is the dark-spec class already recorded for this repo (`feedback_dark_spec_
 > job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
 > `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.
 
+---
+
+## BL-HELP-NON-SHOW-REPORT-SURFACE — Non-show-scoped recurrence-report surface for `/help/errors` — CLOSED 2026-08-09 (`feat/help-report-surface`, Option A SHIPPED)
+
+**Resolution: SHIPPED as Option A.** The owner reviewed both options side by side on 2026-08-09 and
+ratified Option A: the `/help/errors` trailing `mailto:` is replaced by the existing M8 report flow
+as a fifth, non-show-scoped, admin-authenticated surface (`surface: "help"`, `show_id: null`), which
+auto-attaches the page's URL fragment as `fieldRef.helpCode`. Design:
+`docs/superpowers/specs/2026-08-09-help-report-surface-design.md` (adversarial R6 APPROVE); plan
+`docs/superpowers/plans/2026-08-09-help-report-surface.md` (R6 APPROVE). Master spec §13.1 gains
+surface 5, §13.2.1 gains the help show-line note, and AC-11.11 gains r12 retiring the r11 stopgap.
+`M11-I-D-1` closes with it.
+
+**Option B is NOT shipped, and its fence is preserved.** No recurrence aggregation table or view, no
+`/api/report-recurrence`, no admin triage screen, no §12.4 catalog rows. Un-defer trigger for that
+half: report volume makes manual pattern-spotting painful, or the owner asks for the count screen. A
+later Option B can backfill counts from the issues themselves, since `helpCode` is now recorded per
+report.
+
+**Staleness repair, recorded because the entry's own scope section was wrong.** The "API + storage.
+Decision needed" block above was refuted by the live code, not by a decision: `reports.show_id` has
+been nullable since the founding migration (`supabase/migrations/20260501001000_internal_and_admin.sql:311`)
+and `/api/report` already accepted `show_id: null` on the admin path. No new endpoint, table, or
+migration was needed, and the effort resized **L to S**. The M8-contract-impact line was the accurate
+one: the widening was done as a careful crew-vs-rest accept-set pass over `ReportModal`, with a
+structural guard (`tests/components/report/_metaSurfaceComparisons.test.ts`) pinning that no
+surface-equals-admin comparison survives, so a future surface cannot silently inherit the crew arm.
+
+Original entry preserved below.
+
+**Status:** CLOSED · **Resolved:** 2026-08-09 (`feat/help-report-surface`)
+
+**Origin:** M11-I-D-1 (MEDIUM) filed 2026-05-22 during Phase I Codex R1 adversarial review.
+
+**Effort:** S (resized from L 2026-08-09 — staleness repair: the "API + storage. Decision needed" block is refuted by live code; `reports.show_id` nullable since `20260501001000_internal_and_admin.sql:311` and `/api/report` accepts `show_id: null` on the admin path per §D4. Design: `docs/superpowers/specs/2026-08-09-help-report-surface-design.md`.)
+
+**Symptom:** AC-11.11 (M11 spec line 695) says the `/help/errors` trailing CTA points to "the bug-report flow (per §4.3)". Master-spec §13.1 defines four bug-report surfaces, all show-scoped. There is no surface defined for a non-show-scoped recurrence report — "I keep seeing code X across my show portfolio."
+
+**Scope of a real fix (if/when promoted):**
+
+- **Surface design.** A 5th non-show-scoped report surface. Most likely a `<ReportRecurrenceButton>` per `/help/errors` catalog entry, opening a modal that captures `{code, free-text, optional contact}`. Possibly an admin triage view that aggregates recurrence reports by code.
+- **API + storage.** Either extend `/api/report` to accept `showId: null` + a `recurrenceCode: string`, OR add `/api/report-recurrence` as a sibling endpoint. New `report_recurrences` table OR extend `reports` schema. Decision needed.
+- **M8 contract impact.** ReportButton's existing show-scoped contract is hardened (~30 rounds of adversarial review). Extending requires a careful pass — the existing four surfaces must continue working unchanged.
+- **Admin triage UX.** If recurrences are useful signal, Doug or Eric want a view that aggregates them. Adds an admin dashboard surface.
+- **Catalog wiring.** §12.4 catalog rows would gain optional fields linking each code to its recurrence-report history.
+
+Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests + adversarial review).
+
+**Why backlog, not deferred:** No concrete trigger yet. v1 ships with `mailto:` (M11-I-D-1 in the M11 plan tree's DEFERRED.md) — that path works, just lacks idempotency / catalog labeling / GitHub routing of the four §13.1 surfaces. Whether Doug actually NEEDS a richer non-show-scoped flow is unknown until operators use the docs. Master-spec §13.1 was hardened without anyone identifying this surface as needed; not yet clear it's a real product gap rather than a spec-AC oversight.
+
+**Promotion prerequisite:** EITHER (a) FXAV operator feedback flags the mailto-vs-modal divergence as real friction ("I want to report this without opening my mail client"), OR (b) a future milestone introduces a non-show-scoped report surface for any other reason (e.g., crew-side feedback that isn't per-show), and `/help/errors` adopts it as a sibling, OR (c) master-spec §13.1 gets revisited to add a fifth surface (which would itself need to ratify the AC-11.11 contract).
+
+**Promotion mechanics:** Promote with companion M11-I-D-1 deferral re-open: amend AC-11.11 spec line to point at the new surface, swap `app/help/errors/page.tsx:45-49` mailto for the new component, run cross-CLI adversarial review on the §13.1 contract extension.
+
+---
+
 ## BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT — `cleanupStaleEntry` revalidates a path the picker is rarely on
 
 **Resolution (2026-08-09, M-wave 2 W-DOCS — filing-bar demotion):** archived per the wave spec §2.1 (`docs/superpowers/specs/2026-08-09-m-wave-2-design.md`). The entry's own 2026-08-03 correction refutes its stated mechanism (`revalidatePath` tags are pathname-only on the installed Next 16.2.10 — probe preserved below), and the worst observable outcome is a cleared stale-entry hint lingering until the next navigation. The three recorded obstacles and the measure-first re-attempt rule are preserved verbatim below. **Re-open trigger:** the next change to the stale-cleanup path, or any report of a stale hint persisting.

@@ -37,7 +37,16 @@ import { isMessageCode, messageFor, type MessageCode } from "@/lib/messages/look
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { NewTabHint } from "@/components/shared/NewTabHint";
 
-export type ReportSurface = "crew" | "admin";
+/**
+ * Accept-set rule (2026-08-09 spec §2.2): crew behavior iff
+ * `surface === "crew"`; EVERY other surface (admin, help, any future
+ * admin-authenticated surface) gets the admin arm. An equality comparison
+ * against the admin literal in this file is a defect — it silently gives a new
+ * surface the crew arm. The scan is textual and deliberately strict (a
+ * commented-out comparison fails it too), so this note states the rule without
+ * writing the pattern: tests/components/report/_metaSurfaceComparisons.test.ts.
+ */
+export type ReportSurface = "crew" | "admin" | "help";
 
 export type ReportAutocapture = {
   crewPreview?: unknown;
@@ -58,7 +67,8 @@ export type ReportModalProps = {
   surface: ReportSurface;
   /** Stable per-button-instance id; the sessionStorage scope. */
   surfaceId: string;
-  showId: string;
+  /** Null for non-show-scoped surfaces (help). */
+  showId: string | null;
   autocapture?: ReportAutocapture;
   /**
    * When true, the freeform note is OPTIONAL — Submit is enabled with an empty
@@ -151,7 +161,41 @@ function isKnownCode(code: unknown): code is MessageCode {
 
 function copyForCode(code: MessageCode, surface: ReportSurface): string | null {
   const entry = messageFor(code);
-  return surface === "admin" ? entry.dougFacing : entry.crewFacing;
+  return surface === "crew" ? entry.crewFacing : entry.dougFacing;
+}
+
+const HEADING: Record<ReportSurface, string> = {
+  crew: "Something looks wrong?",
+  admin: "Report this",
+  // Matches the trigger label on /help/errors, so the dialog's accessible name
+  // names the same act the button did (impeccable critique P1).
+  help: "Report a recurring error",
+};
+
+function fieldRefHelpCode(fieldRef: unknown): string | null {
+  if (!fieldRef || typeof fieldRef !== "object") return null;
+  const value = (fieldRef as { helpCode?: unknown }).helpCode;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/**
+ * What the help surface says it captured. Doug arrives here after hitting the
+ * same error twice, and the capture is best-effort (2026-08-09 spec §4 limit
+ * 3): a find-in-page arrival sets no fragment at all. Saying so is the
+ * difference between a conservative outcome and a silent one, and the note is
+ * the documented backstop. The captured code is rendered through the catalog
+ * as its title, never as the raw code (invariant 5).
+ */
+function helpCaptureLine(fieldRef: unknown): string {
+  const code = fieldRefHelpCode(fieldRef);
+  if (!code) {
+    return "No error code was captured from this page. Name it in your note so Eric can match it.";
+  }
+  if (isMessageCode(code)) {
+    const title = messageFor(code).title;
+    if (title) return `About ${title}. Eric gets that code with your note.`;
+  }
+  return "Eric gets the section you were reading, plus your note.";
 }
 
 // Network-failure rendering routes through the §12.4 catalog as
@@ -235,6 +279,24 @@ export function ReportModal(props: ReportModalProps) {
   // Persist on every state change. The `surfaceId !== persisted.surfaceId`
   // mismatch is impossible by construction (we key by surfaceId); the
   // guard is defense-in-depth against future refactor.
+  // A submission outlives the component that started it: the parent may unmount
+  // this modal (a keyed remount on /help/errors, an ordinary close) while the
+  // POST is still in flight. The detached attempt must go INERT rather than
+  // reach back into shared state — clearing sessionStorage from a component
+  // nobody can see wipes the idempotency key out from under whatever mounted in
+  // its place, and the next open mints a fresh key that files a second issue
+  // for the same report. Leaving the persisted row alone keeps the ORIGINAL
+  // key, so a resumed attempt lands on the server's idempotency path and
+  // returns duplicate/recovered instead of creating a duplicate. Conservative
+  // and visible (the resume banner), never silent.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     // Don't persist terminal states — they're cleared on transition.
     if (status === "succeeded" || status === "expired") return;
@@ -307,12 +369,19 @@ export function ReportModal(props: ReportModalProps) {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
+      // Detached mid-flight: leave every shared surface untouched. Checked
+      // after EVERY await, not just the first: the response can arrive with its
+      // body still streaming, so `response.json()` is a second suspension point
+      // and an unmount inside it would otherwise reach the terminal branches
+      // below (diff review R4 F1).
+      if (!mountedRef.current) return;
       let parsed: { ok?: boolean; code?: string; status?: string; github_issue_url?: string } = {};
       try {
         parsed = (await response.json()) as typeof parsed;
       } catch {
         parsed = {};
       }
+      if (!mountedRef.current) return;
 
       const isTerminalSuccess =
         response.status >= 200 && response.status < 300 && parsed.ok === true;
@@ -321,7 +390,7 @@ export function ReportModal(props: ReportModalProps) {
         setStatus("succeeded");
         setSuccess({
           kind: "succeeded",
-          ...(surface === "admin" && parsed.github_issue_url
+          ...(surface !== "crew" && parsed.github_issue_url
             ? { github_issue_url: parsed.github_issue_url }
             : {}),
         });
@@ -353,6 +422,7 @@ export function ReportModal(props: ReportModalProps) {
       }
     } catch {
       clearTimeout(timeoutId);
+      if (!mountedRef.current) return;
       setStatus("failed-retryable");
       setError({ kind: "network" });
     }
@@ -405,13 +475,13 @@ export function ReportModal(props: ReportModalProps) {
   const showResumeBanner = mountedFromResume && status === "failed-retryable";
   const showStartFreshWarning = status === "new-report-warning";
 
-  const heading = surface === "crew" ? "Something looks wrong?" : "Report this";
+  const heading = HEADING[surface];
   // When the note is optional (messageOptional — data-quality reports, where the
   // autocapture IS the content), say so, so an empty-but-enabled Submit doesn't read
   // as a required-but-unfilled field (impeccable critique P3).
   const placeholder = messageOptional
-    ? "Add a note if you like. We've already captured the details."
-    : "What's off? Be as brief as you like.";
+    ? "Add a note if you like. We’ve already captured the details."
+    : "What’s off? Be as brief as you like.";
   // Surface-specific subhead. Crew copy is verbatim from spec §13.1
   // (line 2982): the modal must explicitly tell the crew member that
   // reports go to the developer (not Doug) and that show-content
@@ -423,7 +493,9 @@ export function ReportModal(props: ReportModalProps) {
   const subhead =
     surface === "crew"
       ? "This goes to the developer, not Doug. For show-content questions, message Doug directly."
-      : "This files a GitHub issue for Eric to triage.";
+      : surface === "help"
+        ? helpCaptureLine(autocapture?.fieldRef)
+        : "This files a GitHub issue for Eric to triage.";
   const submitLabel = showResumeBanner ? "Resume submission" : "Submit";
 
   // POLISH-D1/D3: errorCopy is always a string (possibly empty) when error
@@ -439,7 +511,7 @@ export function ReportModal(props: ReportModalProps) {
     if (error.kind === "network") {
       return copyForCode("NETWORK_UNREACHABLE", surface) ?? "";
     }
-    const oppositeSurface: ReportSurface = surface === "admin" ? "crew" : "admin";
+    const oppositeSurface: ReportSurface = surface === "crew" ? "admin" : "crew";
     return copyForCode(error.code, surface) ?? copyForCode(error.code, oppositeSurface) ?? "";
   })();
 
@@ -586,7 +658,7 @@ export function ReportModal(props: ReportModalProps) {
               <path d="M5 12.5l4.5 4.5L19 7" />
             </svg>
             <p className="text-base font-medium text-text-strong">Report submitted.</p>
-            {surface === "admin" && success?.kind === "succeeded" && success.github_issue_url ? (
+            {surface !== "crew" && success?.kind === "succeeded" && success.github_issue_url ? (
               <a
                 data-testid="report-modal-success-link"
                 href={success.github_issue_url}
@@ -612,7 +684,7 @@ export function ReportModal(props: ReportModalProps) {
             <p className="text-base font-medium text-text-strong">
               {errorCopy ?? "This report attempt has expired."}
             </p>
-            {surface === "admin" && error && error.kind === "code" ? (
+            {surface !== "crew" && error && error.kind === "code" ? (
               <HelpAffordance code={error.code} />
             ) : null}
             <button
@@ -650,7 +722,7 @@ export function ReportModal(props: ReportModalProps) {
                   className="mt-2 flex flex-col gap-1 text-sm text-warning-text"
                 >
                   <p>{errorCopy}</p>
-                  {surface === "admin" && error.kind === "code" ? (
+                  {surface !== "crew" && error.kind === "code" ? (
                     <HelpAffordance code={error.code} />
                   ) : null}
                 </div>
