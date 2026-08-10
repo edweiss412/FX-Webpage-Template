@@ -133,62 +133,66 @@ describe("makeDiagramLoader — URL construction", () => {
   });
 });
 
-describe("makeDiagramLoader — key encoding", () => {
-  // A manifest key becomes ONE URL path segment. Unencoded, a key containing a
-  // path or query delimiter is reinterpreted by URL parsing and route matching —
-  // and the dangerous case is not the 404: `v?x.webp` truncates to `v`, which can
-  // silently select and sign a DIFFERENT listed object.
-  const HOSTILE: Array<[string, string]> = [
-    ["a slash", "nested/v.webp"],
-    ["a query delimiter", "v?x.webp"],
-    ["a fragment delimiter", "v#x.webp"],
-    ["a traversal pair", "a/../b.webp"],
-    ["a percent escape", "a%2Fb.webp"],
-    ["a backslash", "v\\x.webp"],
-    ["a tab", "v\tx.webp"],
-    ["a newline", "v\nx.webp"],
-    ["a bare dot-dot", ".."],
+describe("makeDiagramLoader — unsafe keys are never selected", () => {
+  // A key outside the minted shape is REJECTED rather than encoded and emitted.
+  // Encoding alone was not enough: the route decodes before matching, and the
+  // matched path is then normalized by Storage — `v?x.webp` signs `.../v`. The
+  // loader and the route now share one predicate, so a key the route will not
+  // authorize can never be the URL the loader picks.
+  const HOSTILE = [
+    "nested/v.webp",
+    "v?x.webp",
+    "v#x.webp",
+    "a/../b.webp",
+    "a%2Fb.webp",
+    "v\\x.webp",
+    "v\tx.webp",
+    "v\nx.webp",
+    "..",
+    ".",
+    "a b.webp",
   ];
 
-  test.each(HOSTILE)("%s survives as ONE segment that decodes back to the key", (_label, key) => {
-    const url = makeDiagramLoader({
-      showId,
-      rev,
-      key: "orig.png",
-      variants: [{ width: 256, key }],
-    })({ src: "orig.png", width: 256 });
+  test.each(HOSTILE)("a hostile key %j is skipped in favour of a safe sibling", (key) => {
+    const url = load(200, {
+      variants: [
+        { width: 256, key },
+        { width: 512, key: `${key.length}-safe@512.webp` },
+      ],
+    });
 
-    const segments = url.split("/");
-    premiseHolds("the URL kept its fixed prefix shape", segments.length === 7);
-    const last = segments[6]!;
-    // Exactly one segment, and it means exactly the key the manifest listed.
-    expect(decodeURIComponent(last)).toBe(key);
-    expect(last).not.toContain("/");
-    expect(last).not.toContain("?");
-    expect(last).not.toContain("#");
+    // Width ordering would otherwise have PREFERRED the hostile 256 row. Compare
+    // the emitted SEGMENT, not a substring: a hostile key like "." appears inside
+    // every URL as an ordinary character.
+    const emittedKey = decodeURIComponent(url.slice(url.lastIndexOf("/") + 1));
+    expect(emittedKey).not.toBe(key);
+    expect(url).toBe(`/api/asset/diagram/${showId}/${rev}/${key.length}-safe@512.webp`);
   });
 
-  test("two keys that differ only past a delimiter cannot collide", () => {
-    // The reviewer's reproduction: requesting `v?x.webp` selected and signed `v`.
-    const collide = makeDiagramLoader({
-      showId,
-      rev,
-      key: "orig.png",
-      variants: [{ width: 256, key: "v?x.webp" }],
-    })({ src: "orig.png", width: 256 });
-    const plain = makeDiagramLoader({
-      showId,
-      rev,
-      key: "orig.png",
-      variants: [{ width: 256, key: "v" }],
-    })({ src: "orig.png", width: 256 });
+  test.each(HOSTILE)("a hostile key %j alone falls back to the original", (key) => {
+    expect(load(256, { variants: [{ width: 256, key }] })).toBe(ORIGINAL_URL);
+  });
 
-    expect(collide).not.toBe(plain);
+  test("the two keys in the collision reproduction can no longer address each other", () => {
+    // `v?x.webp` truncating to `v` was the original defect; now neither is served.
+    expect(load(256, { variants: [{ width: 256, key: "v?x.webp" }] })).toBe(ORIGINAL_URL);
+    // `v` alone IS a legal object name, and stays servable.
+    expect(load(256, { variants: [{ width: 256, key: "v" }] })).toBe(
+      `/api/asset/diagram/${showId}/${rev}/v`,
+    );
+  });
+
+  test("a Slides object id with a colon is legitimate and stays servable", () => {
+    // Google Slides object ids permit `:` after the first character, so a key
+    // built from one must NOT be rejected — a false negative here 410s a
+    // correctly generated variant.
+    const key = "embedded-shape:diagram-1.png@512.webp";
+    expect(load(512, { variants: [{ width: 512, key }] })).toBe(
+      `/api/asset/diagram/${showId}/${rev}/${key}`,
+    );
   });
 
   test("the ordinary @<width>.webp key stays literally readable", () => {
-    // `@` is legal in a path segment; encoding it would churn every URL, the e2e
-    // network gate, and anything an operator greps for.
     expect(load(512)).toContain("@512.webp");
   });
 });

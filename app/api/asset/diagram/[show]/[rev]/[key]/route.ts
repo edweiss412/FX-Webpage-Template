@@ -6,6 +6,7 @@ import { isAllowedDiagramMime, resolveCurrentDiagrams } from "@/lib/data/diagram
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { boundedPassThroughWeb, ByteLimitExceededError } from "@/lib/sync/boundedBytes";
+import { isSafeDiagramKey } from "@/lib/images/diagramKey";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
@@ -109,25 +110,6 @@ function objectPath(storagePath: string): string | null {
  * accept-set toward originals-only. Every rejected shape here is a row in the
  * route suite's malformed matrix.
  */
-/**
- * A variant key is a STORAGE OBJECT NAME we minted (`<assetKey>@<width>.webp`,
- * over Drive/Slides ids), so it has a known, narrow shape. Anything outside that
- * shape is rejected here rather than matched and then handed on: the matched path
- * goes to `createSignedUrl`, which interpolates it into a URL and lets URL
- * NORMALIZATION rewrite it — probed against the installed @supabase/storage-js,
- * `v?x.webp` signs `.../v`, `a/../b.webp` signs `.../b.webp`, and `..` climbs out
- * of the revision prefix entirely. Rejecting at the accept-set means no such key
- * is ever authorized, so there is nothing for normalization to rewrite. `.` and
- * `..` are excluded by name because they pass the character class but are
- * relative-path components rather than object names.
- */
-const SAFE_VARIANT_KEY = /^[A-Za-z0-9._@-]+$/;
-
-function isSafeVariantKey(key: string): boolean {
-  if (key === "." || key === "..") return false;
-  return SAFE_VARIANT_KEY.test(key);
-}
-
 function listedVariantKeys(entry: { variants?: unknown }): string[] {
   const raw = entry.variants;
   if (!Array.isArray(raw)) return [];
@@ -137,7 +119,7 @@ function listedVariantKeys(entry: { variants?: unknown }): string[] {
     const { width, key } = row as { width?: unknown; key?: unknown };
     if (typeof width !== "number" || !Number.isFinite(width) || width <= 0) continue;
     if (typeof key !== "string" || key.length === 0) continue;
-    if (!isSafeVariantKey(key)) continue;
+    if (!isSafeDiagramKey(key)) continue;
     keys.push(key);
   }
   return keys;
@@ -171,6 +153,14 @@ function findAsset(diagrams: PersistedDiagrams, expectedPath: string): AssetEntr
     // prevents. A null-path entry with plausible-looking variants is simply skipped.
     const { snapshotPath } = entry;
     if (typeof snapshotPath !== "string" || snapshotPath.length === 0) continue;
+
+    // The SAME shape gate as variants, on the original's own key. Matching by
+    // literal equality is not sufficient: the matched path is what gets signed,
+    // and Storage normalizes it, so a manifest whose original key carried `?`,
+    // `..` or a backslash would sign a different object. Applying the gate to one
+    // branch and not the other is how that class survived round 2.
+    const originalKey = snapshotPath.slice(snapshotPath.lastIndexOf("/") + 1);
+    if (!isSafeDiagramKey(originalKey)) continue;
 
     if (snapshotPath === expectedPath) {
       // A non-string mimeType reaches isAllowedDiagramMime, which lowercases it.

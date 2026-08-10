@@ -377,6 +377,13 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     // Item 2 is the active slide now, and it is still the unavailable branch.
     expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
     expect(screen.getByText(/unavailable/i)).toBeTruthy();
+
+    // ...and the REVERSE direction: active-failed back to inactive-failed. The
+    // inventory declares failure terminal in BOTH directions, so both are driven.
+    act(() => emblaApis.at(-1)!.scrollTo(0));
+
+    expect(container.querySelectorAll("img")).toHaveLength(before - 1);
+    expect(screen.getByText(/unavailable/i)).toBeTruthy();
   });
 
   test("unavailable → any never transitions: an unavailable item renders no image at all", () => {
@@ -419,6 +426,14 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     const afterInactive = pathOf(inactiveImages(container)[0]!.getAttribute("src"));
     expect(afterInactive).not.toBe(ORIGINAL(1));
     expect(afterInactive).toContain("@");
+
+    // BACK AGAIN — the inventory's "back and forth" row. A single navigation
+    // would pass on a component whose first selection works and whose later ones
+    // do not, which is the whole point of claiming the compound.
+    act(() => emblaApis.at(-1)!.scrollTo(0));
+
+    expect(pathOf(activeImage(container).getAttribute("src"))).toBe(ORIGINAL(1));
+    expect(pathOf(inactiveImages(container)[0]!.getAttribute("src"))).toContain("@");
     expect(container.innerHTML).not.toContain("data-framer");
   });
 });

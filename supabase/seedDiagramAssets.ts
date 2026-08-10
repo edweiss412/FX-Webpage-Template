@@ -225,13 +225,26 @@ export async function uploadSeedDiagramAssets(
       const objectPath = `shows/${showId}/${revisionId}/${object.key}`;
       // `upsert` because a re-seed reuses the revision id; a previous run's show
       // id leaves its objects behind, which is inert (nothing addresses them).
-      const { error } = await storage.upload(objectPath, Buffer.from(object.bytes), {
+      // not-subject-to-meta: seed-time script, not a request path — it runs from
+      // `pnpm db:seed` against the local stack and has no typed-result caller to
+      // discriminate for. The call-boundary contract still applies in substance:
+      // BOTH arms are destructured and BOTH are validated, and either fault stops
+      // the seed loudly rather than recording a phantom upload.
+      const { data, error } = await storage.upload(objectPath, Buffer.from(object.bytes), {
         contentType: object.contentType,
         upsert: true,
       });
       if (error) {
         throw new Error(
           `seedDiagramAssets: upload of ${SEED_DIAGRAM_BUCKET}/${objectPath} failed: ${error.message}`,
+        );
+      }
+      // A `{ data: null, error: null }` response would otherwise be recorded as a
+      // successful upload, and every later step — the manifest write, the e2e
+      // premises — would then be reasoning about bytes that are not there.
+      if (!data?.path) {
+        throw new Error(
+          `seedDiagramAssets: upload of ${SEED_DIAGRAM_BUCKET}/${objectPath} returned neither an error nor a stored path`,
         );
       }
       uploaded.push(objectPath);

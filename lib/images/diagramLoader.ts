@@ -9,6 +9,7 @@
 // waste this pipeline exists to remove.
 
 import type { ImageLoaderProps } from "next/image";
+import { isSafeDiagramKey } from "@/lib/images/diagramKey";
 
 export type DiagramVariantRef = { width: number; key: string };
 
@@ -37,7 +38,11 @@ function encodeKeySegment(key: string): string {
   // (`<assetKey>@<width>.webp`), so it is decoded back rather than left as %40 —
   // keeping the URL shape the route, the e2e network gate, and any operator
   // reading logs already expect.
-  const encoded = encodeURIComponent(key).replace(/%40/g, "@");
+  // `@` and `:` are legal in a path segment and both occur in real keys (the
+  // `@<width>.webp` suffix; Slides object ids permit `:`), so they are decoded
+  // back — leaving them percent-encoded would churn every URL and the e2e
+  // network gate for no safety gain.
+  const encoded = encodeURIComponent(key).replace(/%40/g, "@").replace(/%3A/g, ":");
   // A segment of exactly "." or ".." is a relative-path component, not a name;
   // encodeURIComponent leaves both untouched.
   if (encoded === "." || encoded === "..") return encoded.replace(/\./g, "%2E");
@@ -59,7 +64,9 @@ function validVariants(raw: unknown): DiagramVariantRef[] {
     if (typeof row !== "object" || row === null) continue;
     const { width, key } = row as { width?: unknown; key?: unknown };
     if (typeof width !== "number" || !Number.isFinite(width) || width <= 0) continue;
-    if (typeof key !== "string" || key.length === 0) continue;
+    // The SAME predicate the route's accept-set uses. Accepting a wider set here
+    // meant a malformed row could be SELECTED over a usable sibling and then 410.
+    if (!isSafeDiagramKey(key)) continue;
     rows.push({ width, key });
   }
   return rows.sort((a, b) => a.width - b.width);

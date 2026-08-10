@@ -39,9 +39,11 @@ afterEach(() => cleanup());
 
 describe("Gallery — thumbnail grid", () => {
   test("emits asset URLs with bare-UUID rev segment (no `r=` prefix)", () => {
-    // M9 C6b / M7-D3 was REVERTED: thumbnails keep raw <img> because
-    // /_next/image strips auth cookies. Test asserts the raw asset
-    // URL directly. Since the next/image migration (spec §6) the element
+    // Thumbnails emit our own private asset-route URLs through the custom loader,
+    // so the /_next/image optimizer is never in the path (AC-3 pins zero optimizer
+    // requests) and nothing strips cookies or rewrites Cache-Control — the reason
+    // the pre-migration revert gave for keeping a raw <img> no longer applies.
+    // Since the next/image migration (spec §6) the element
     // reports an ORIGIN-QUALIFIED src, so the path is compared rather than the
     // raw attribute — the contract being pinned is the path shape, and an
     // origin-anchored regex would fail on a URL that satisfies it.

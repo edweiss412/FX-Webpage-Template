@@ -2081,6 +2081,7 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     );
     if (canGoPrevious) await previousButton.click();
     else await nextButton.click();
+    const wentForward = !canGoPrevious;
 
     const swipedSlides = await settledLightboxSample(
       page,
@@ -2126,6 +2127,22 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     expect(
       noDims!.variantKeys.includes(assetKeyOf(inactiveSlide.src)),
       `the INACTIVE slide must request a manifest-listed variant; got ${inactiveSlide.src}, listed ${JSON.stringify(noDims!.variantKeys)}`,
+    ).toBe(true);
+
+    // BACK AGAIN. The transition inventory declares the back-and-forth compound,
+    // and a single navigation would pass on a component whose first selection
+    // works and whose later ones do not. Re-sampled fresh after settle, never
+    // against a locator captured before the move (Embla replaces slide DOM).
+    if (wentForward) await previousButton.click();
+    else await nextButton.click();
+    const returnedSlides = await settledLightboxSample(page, (slides) =>
+      slides.some((slide) => slide.active && slide.complete),
+    );
+    const returnedActive = returnedSlides.find((slide) => slide.active);
+    expect(returnedActive, "a slide is active again after navigating back").toBeTruthy();
+    expect(
+      returnedActive!.complete && returnedActive!.naturalWidth > 0,
+      "the slide that became active again decoded",
     ).toBe(true);
 
     expect(
