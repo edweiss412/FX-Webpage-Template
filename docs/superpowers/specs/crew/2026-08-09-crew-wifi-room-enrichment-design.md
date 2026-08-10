@@ -112,6 +112,17 @@ Room-within-venue: identifiable in 4/4 live sheets; across the 10 fixture shows,
    "SSID: Guest\nPassword: secret\nHardline from Encore" => notes "Hardline from Encore"  (correct)
    ```
 
+   **The same limit covers credential-ish prose carrying NO accepted syntax**, in either position, because it is the same undecidability seen from the other side:
+
+   ```text
+   "SSID: Guest WPA is secret"        => ssid  "Guest WPA is secret"
+   "SSID: Guest WPA=secret"           => ssid  "Guest WPA=secret"
+   "WPA is secret\nSSID: Guest"       => notes "WPA is secret"
+   "Access key=secret\nSSID: Guest"   => notes "Access key=secret"
+   ```
+
+   In every one of these the crew member sees ALL of the text — probed character by character — so nothing is lost, hidden, or rewritten; what is imperfect is which row it sits in. There is no separator and no accepted label word anywhere near the credential, so nothing in the accepted grammar marks it as one: separating `WPA is secret` from a network genuinely named `Guest WPA is secret` requires recognizing an open-ended vocabulary of credential words (`WPA`, `Access key`, `key`, `passphrase`, …), which is the enumeration this spec's convergence criterion explicitly refuses. Prose on its own line reaching the notes row verbatim is the DESIGNED behavior, not a defect — it is how §3.1 promises prose survives.
+
    **Why this is documented rather than fixed.** The corpus contains `Network: Institutional Investor Passcode: Investor2025`, whose SSID is genuinely two words — structurally identical to "Guest Hardline". Any rule separating them is a word-count or position cap calibrated on NOTHING (no corpus value has trailing prose on a flattened line), and a recognizer bounded by a number is the shape this project's own writing-plans rule tells us the next reviewer will defeat. The consequence is bounded and weaker than the defects that were fixed: the text is still rendered in full and nothing vanishes — it is attributed to the wrong row. Tracked as `BL-WIFI-FLATTENED-TRAILING-PROSE`, whose promotion prerequisite is a corpus probe finding a real flattened value with trailing prose; that probe, not a guess, would supply the discriminator.
 
 6. **The room row surfaces the general-session room only.** Breakout/additional rooms stay in their own tiles; a show whose crew works only breakouts sees no Venue room row (their room appears in room-scoped tiles). Accepted scope line.

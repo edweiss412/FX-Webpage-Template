@@ -511,3 +511,51 @@ describe("parseWifiValue — credential-shaped residue rejects too (review S3 F1
     }
   });
 });
+
+/**
+ * Documented limit §6.7, second half (whole-diff review, segment 3 R3).
+ * Credential-ish prose carrying NO accepted syntax — no separator, no accepted
+ * label word — cannot be told from a network name by the accepted grammar.
+ *
+ * These cases assert the OUTCOME the consequence bound actually requires: every
+ * character of the input still reaches the crew member. They are pinned so the
+ * behavior is a decision rather than an accident, and so a future change that
+ * starts DROPPING such text fails here even though the attribution question
+ * stays open.
+ */
+describe("parseWifiValue — credential-ish prose without syntax (documented limit §6.7)", () => {
+  const CASES = [
+    "SSID: Guest WPA is secret",
+    "SSID: Guest WPA=secret",
+    "WPA is secret\nSSID: Guest",
+    "SSID: Guest\nWPA is secret",
+    "Access key=secret\nSSID: Guest",
+    "SSID: Guest\nAccess key=secret",
+  ];
+
+  it("renders every character of the cell, losing nothing", () => {
+    premise("cases swept", CASES.length, 0);
+    for (const value of CASES) {
+      const parsed = parseWifiValue(value);
+      // Either the whole cell renders raw, or the split renders all of its text.
+      const rendered =
+        parsed === null
+          ? value
+          : [parsed.ssid, parsed.password, parsed.notes].filter(Boolean).join(" ");
+      const carried = value
+        .split(/\s+/)
+        .filter((word) => !/^(?:SSID|Network|Code|PW|Passcode|Password)[:-]?$/i.test(word));
+      premise(`${JSON.stringify(value)}: words to account for`, carried.length, 0);
+      for (const word of carried) {
+        expect(rendered, `${JSON.stringify(value)} dropped ${word}`).toContain(word);
+      }
+    }
+  });
+
+  it("prose on its own line still reaches the notes row", () => {
+    // The designed behavior §3.1 promises, asserted directly so "notes carried
+    // the prose" is never mistaken for an accident of the guard.
+    expect(parseWifiValue("WPA is secret\nSSID: Guest")?.notes).toBe("WPA is secret");
+    expect(parseWifiValue("SSID: Guest\nAccess key=secret")?.notes).toBe("Access key=secret");
+  });
+});
