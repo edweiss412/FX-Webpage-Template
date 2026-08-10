@@ -271,44 +271,30 @@ function exportedNames(file: string, source: string): Set<string> {
 }
 
 /**
- * Does this pin name the row's literal as the QUOTED ARGUMENT of a call?
+ * Does this pin name the row's CALL — its kind and its literal together?
  *
  * A bare substring test is not coupling: `shows` is a substring of
  * `shows_internal` and both are live literals here, so a `shows` row could be
  * discharged by a pin copied off a `shows_internal` site — precisely the defect
  * the coupling rule exists to stop. An empty literal was worse: `includes("")`
- * is true of every pin (whole-diff R3 F1). Requiring the delimiters makes the
- * test say what it means.
+ * is true of every pin (whole-diff R3 F1).
  *
- * A literal carrying regex metacharacters appears escaped in the pin source and
- * will NOT be found here — that is a rejection naming the row, which is the
- * signalled direction; no live row is affected.
+ * Coupling to the literal ALONE is not enough either. `from` and `rpc` can name
+ * the same thing, so an unhandled `rpc("shared")` row could reuse a handled
+ * `from("shared")` pin and pass every rule in both directions (whole-diff R11
+ * F1). The row's kind is half of what identifies the site, so the pin must
+ * carry both.
+ *
+ * Regex escaping is removed before the comparison, so `\.from\("shows"\)`
+ * reads as the call it pins. A literal carrying regex metacharacters will NOT
+ * be found here — that is a rejection naming the row, the signalled direction;
+ * no live row is affected.
  */
-function pinEmbedsLiteral(patternSource: string, literal: string): boolean {
-  return ['"', "'", "`"].some((quote) => patternSource.includes(`${quote}${literal}${quote}`));
+function pinEmbedsCall(patternSource: string, kind: Site["kind"], literal: string): boolean {
+  const unescaped = patternSource.replace(/\\/g, "");
+  return ['"', "'", "`"].some((quote) => unescaped.includes(`${kind}(${quote}${literal}${quote}`));
 }
 
-/**
- * The names a suite actually MENTIONS: every identifier it writes, and every
- * static string it contains.
- *
- * Three rounds landed on the text-containment predicate this replaces, each
- * with a token that the source spells one way and the language reads another:
- * ASCII `\b` let `x$get` satisfy `$get` (R7), a letter/digit approximation of
- * IdentifierPart let `get\u0301x` satisfy `get` (R8), and raw `#` and `\`
- * still let `#get`, `get\u0301x` and `admin_emails\u005Fv2` satisfy their
- * tokens (R10). Each repair widened a character class, and the next round found
- * the next spelling — the same open-set mistake the SCANNER escaped by moving
- * to the parse, and the same answer applies. Source text is not identifier
- * text: `\u005F` IS an underscore, `#get` is a private identifier and not
- * `get`, and only the lexer knows.
- *
- * String literals are collected alongside identifiers because a table name is
- * cited as a string, and because §6.5's ratified limit is that a mention in a
- * test title still counts. Comments contribute nothing, which is R2 F4's
- * comment-only rejection now falling out of the parse rather than needing a
- * separate strip.
- */
 function mentionedNames(file: string, source: string): Set<string> {
   const names = new Set<string>();
   const visit = (node: ts.Node): void => {
@@ -350,9 +336,9 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
         // Rule 2 — literal coupling. Without it, copying an existing site's pin
         // onto a new row silently discharges an unchecked call; a pin copied
         // from `shows` cannot contain `new_table` (spec R2 F4).
-        if (!row.pin.some((pattern) => pinEmbedsLiteral(pattern.source, row.literal))) {
+        if (!row.pin.some((pattern) => pinEmbedsCall(pattern.source, row.kind, row.literal))) {
           problems.push(
-            `${where}: no pin embeds the row literal — a pin copied from another site cannot guard this one`,
+            `${where}: no pin embeds this row's call — a pin copied from another site, or from the other call kind, cannot guard this one`,
           );
         }
         const unmatched = row.pin.filter((pattern) => !pattern.test(stripped));
@@ -1081,14 +1067,14 @@ describe("META lib/data Supabase call boundary", () => {
         [SOURCE]: [{ kind: "from", literal: "shows", pin: [/\.from\("shows_internal"\)/] }],
       };
       expect(validateRows(substringCollision, reader({ [SOURCE]: source }))).toEqual([
-        expect.stringContaining("no pin embeds the row literal"),
+        expect.stringContaining("no pin embeds this row's call"),
       ]);
 
       const emptyLiteral: Registry = {
         [SOURCE]: [{ kind: "from", literal: "", pin: [/\.from\("shows_internal"\)/] }],
       };
       expect(validateRows(emptyLiteral, reader({ [SOURCE]: source }))).toEqual([
-        expect.stringContaining("no pin embeds the row literal"),
+        expect.stringContaining("no pin embeds this row's call"),
       ]);
 
       // Controls: the honestly-coupled forms of both still pass, so the
@@ -1107,8 +1093,45 @@ describe("META lib/data Supabase call boundary", () => {
         [SOURCE]: [{ kind: "from", literal: "new_table", pin: [/from\("admin_emails"\)/] }],
       };
       expect(validateRows(registry, reader({ [SOURCE]: MODULE_SOURCE }))).toEqual([
-        expect.stringContaining("no pin embeds the row literal"),
+        expect.stringContaining("no pin embeds this row's call"),
       ]);
+    });
+
+    // `from` and `rpc` can name the same thing, so the literal alone does not
+    // identify the site. An unhandled row of one kind could reuse a handled
+    // pin of the other, in both directions (whole-diff R11 F1).
+    test("a pin borrowed from the other call kind is rejected", () => {
+      const source =
+        'export async function f() {\n  const a = await sb.from("shared");\n  if (a.error) throw a.error;\n  await sb.rpc("shared");\n}\n';
+      const borrowed: Registry = {
+        [SOURCE]: [
+          { kind: "from", literal: "shared", pin: [/sb\.from\("shared"\)/, /if \(a\.error\)/] },
+          { kind: "rpc", literal: "shared", pin: [/sb\.from\("shared"\)/, /if \(a\.error\)/] },
+        ],
+      };
+      expect(validateRows(borrowed, reader({ [SOURCE]: source }))).toEqual([
+        expect.stringContaining("no pin embeds this row's call"),
+      ]);
+
+      const reversed: Registry = {
+        [SOURCE]: [
+          { kind: "from", literal: "shared", pin: [/sb\.rpc\("shared"\)/] },
+          { kind: "rpc", literal: "shared", pin: [/sb\.rpc\("shared"\)/] },
+        ],
+      };
+      expect(validateRows(reversed, reader({ [SOURCE]: source }))).toEqual([
+        expect.stringContaining("no pin embeds this row's call"),
+      ]);
+
+      // Control: each row pinned to its OWN call kind passes, so the rejections
+      // above are the rule firing and not an unsatisfiable fixture.
+      const honest: Registry = {
+        [SOURCE]: [
+          { kind: "from", literal: "shared", pin: [/sb\.from\("shared"\)/, /if \(a\.error\)/] },
+          { kind: "rpc", literal: "shared", pin: [/sb\.rpc\("shared"\)/] },
+        ],
+      };
+      expect(validateRows(honest, reader({ [SOURCE]: source }))).toEqual([]);
     });
 
     test("a pin that no longer matches the source is rejected", () => {
