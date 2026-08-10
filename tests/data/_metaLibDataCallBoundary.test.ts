@@ -181,11 +181,17 @@ function extractSites(source: string, file = "planted.ts"): Site[] {
  * A pin is the author's RegExp, and it may carry `g` or `y` — which make
  * `.test()` STATEFUL. `lastIndex` then survives from one call to the next, so a
  * pin shared between two rows could report dependence for a row it never
- * guarded, purely from where the previous call left off (R14 F2). Every match
- * runs on a fresh, stateless copy.
+ * guarded, purely from where the previous call left off (R14 F2).
+ *
+ * A FRESH copy is the whole fix: `lastIndex` starts at 0, so one call behaves
+ * exactly as the author wrote it. The flags are preserved, deliberately —
+ * stripping `y` as well was this repair's own first bug (R15 F1), because
+ * sticky is not statefulness. It anchors the match at `lastIndex`, so a
+ * de-stickied pin matches where the authored one does not, and pins that never
+ * matched the source were passing both coupling and the source-match rule.
  */
 function matchesPin(pattern: RegExp, text: string): boolean {
-  return new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, "")).test(text);
+  return new RegExp(pattern.source, pattern.flags).test(text);
 }
 
 const WAIVER_WITH_REASON_RE = /^\/\/ not-subject-to-meta: \S/;
@@ -288,7 +294,11 @@ function exportedNames(file: string, source: string): Set<string> {
       // A per-specifier `type` marker erases the same way `export type {}` does.
       if (clause && ts.isNamedExports(clause)) {
         for (const element of clause.elements) {
-          if (!element.isTypeOnly) names.add(element.name.text);
+          // `export { f as default }` and `export { default } from "./other"`
+          // bind the DEFAULT export, not a callable named one — the same rule
+          // already applied to `export default function f` (R15 F2).
+          if (element.isTypeOnly || element.name.text === "default") continue;
+          names.add(element.name.text);
         }
       }
     }
@@ -1334,13 +1344,13 @@ describe("META lib/data Supabase call boundary", () => {
       ).toEqual([]);
     });
 
-    // `g` and `y` make `.test()` stateful: `lastIndex` survives between calls,
-    // so a pin shared by two rows could report dependence for a row it never
+    // `g` makes `.test()` stateful: `lastIndex` survives between calls, so a
+    // pin shared by two rows could report dependence for a row it never
     // guarded, purely from where the previous call left off (whole-diff R14 F2).
     test("a stateful pin cannot discharge a row through leftover lastIndex", () => {
       const source =
         'export async function f() {\n  const a = await sb.from("first");\n  const b = await sb.rpc("second");\n}\n';
-      for (const flags of ["g", "y", "gi"]) {
+      for (const flags of ["g", "gi"]) {
         const shared = new RegExp('sb\\.from\\("first"\\)', flags);
         const registry: Registry = {
           [SOURCE]: [
@@ -1354,6 +1364,29 @@ describe("META lib/data Supabase call boundary", () => {
           expect.stringContaining('rpc("second"): no pin depends on this row\'s call'),
         ]);
       }
+    });
+
+    // Sticky is NOT statefulness. `y` anchors the match at `lastIndex`, which on
+    // a fresh copy is 0 — so an authored `y` pin whose match begins later does
+    // not match the source and must be reported as such. Stripping `y` alongside
+    // `g` made those pins pass both rules (whole-diff R15 F1).
+    test("a sticky pin keeps its anchoring semantics", () => {
+      const notAtStart = 'export async function f() {\n  const a = await sb.from("shows");\n}\n';
+      expect(
+        validateRows(
+          { [SOURCE]: [{ kind: "from", literal: "shows", pin: [/sb\.from\("shows"\)/y] }] },
+          reader({ [SOURCE]: notAtStart }),
+        ),
+      ).toEqual([expect.stringContaining("do not match the source")]);
+
+      // Control: the same sticky pin where it DOES anchor passes, so the
+      // rejection is the anchoring rather than a blanket refusal of `y`.
+      expect(
+        validateRows(
+          { [SOURCE]: [{ kind: "from", literal: "shows", pin: [/sb\.from\("shows"\)/y] }] },
+          reader({ [SOURCE]: 'sb.from("shows");\n' }),
+        ),
+      ).toEqual([]);
     });
 
     test("a pin that no longer matches the source is rejected", () => {
@@ -1629,6 +1662,43 @@ describe("META lib/data Supabase call boundary", () => {
           name,
         ).toEqual([expect.stringContaining("is not an exported identifier")]);
       }
+    });
+
+    // `export { f as default }` and `export { default } from "./other"` bind the
+    // DEFAULT export written as a list, which is the same non-named binding the
+    // declaration form already rejected (whole-diff R15 F2).
+    test("a via naming a default export written as a list is rejected", () => {
+      for (const [name, moduleSource] of [
+        ["as default", "function f() {}\nexport { f as default };\n"],
+        ["default re-export", 'export { default } from "./other";\n'],
+      ] as const) {
+        const registry: Registry = {
+          [SOURCE]: [{ kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "default" }],
+        };
+        expect(
+          validateRows(
+            registry,
+            // The suite names `default` so ONLY the export rule can fire here.
+            reader({ [SOURCE]: moduleSource, [SUITE]: "test('default', () => { f(); });" }),
+          ),
+          name,
+        ).toEqual([expect.stringContaining("is not an exported identifier")]);
+      }
+
+      // Control: a NAMED re-export is a real callable binding and is accepted.
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdminEmail" },
+            ],
+          },
+          reader({
+            [SOURCE]: 'export { addAdminEmail } from "./other";\n',
+            [SUITE]: "test('x', () => { addAdminEmail(); });",
+          }),
+        ),
+      ).toEqual([]);
     });
 
     test("a coveredBy citation to a deleted or renamed suite is rejected", () => {
