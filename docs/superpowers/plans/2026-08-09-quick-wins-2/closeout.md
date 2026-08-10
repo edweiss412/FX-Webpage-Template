@@ -80,6 +80,14 @@ Two dispatches over the round-1 repairs plus a peer sweep. The resolver, the led
 
 Each repair was verified by its mutant: `min-[720px]:gap-0` on the Step3Review row fails that pin; a scoped `--spacing` in `globals.css` fails both static pins; restored, 5 passed. `rg` is not on the Playwright runner's PATH, so the override scan is a Node walk — a search that cannot run must not read as a search that found nothing.
 
+### §12.1d Same-vector sweep, run instead of waiting for round 3
+
+Two consecutive rounds landed on one class: **a guard whose fixture or probe shares an assumption with the mechanism it checks.** R1-1 shared the scanner's roots/extensions/token spellings; R2-1 shared its parser grammar; R2-2 shared a root-scope assumption; R2-3 shared a single-viewport assumption. The same-vector rule sets three rounds as the trigger for comprehensive re-analysis and its tightening says to ship the defense at FIRST occurrence when the class is nameable — it was nameable at R1-1, so the analysis ran here rather than after a third round paid for it.
+
+Sweeping the four guard files for the class turned up one more instance, and it was the largest: **`themeTokenArrowBan`'s fixture never exercises the live walker at all.** Every premise runs through `walkFiles` (an on-disk temp tree); the live guard runs through `trackedFiles` (`git ls-files`). A `trackedFiles` that returned nothing — a wrong git argument, a cwd outside a repository, a filter dropping every extension — would report zero offenders and PASS with all four premises green. The two walkers are deliberately different code, so the fixture cannot vouch for the one that matters; a floor on what it returns can, and now does (`premise(trackedCount, 200)`). Mutant: making the `git ls-files` split match nothing fails the live guard by name; restored, 6 passed.
+
+The other three files were swept and are clean of the class: `canonicalClassConstWrap` reads the same files it asserts about (unavoidable, and a removed callee makes every row report rather than none); `scopeTiles` now shares one constructor between premise and call by construction; the tap-target pins state their remaining assumption executably.
+
 ### §12.2 Observed-RED transcripts index
 
 Every RED in this branch was observed against the live tree, and both observations recorded in the task's own commit message.

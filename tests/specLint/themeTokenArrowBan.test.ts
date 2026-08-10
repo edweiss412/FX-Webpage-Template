@@ -541,6 +541,21 @@ describe("no `@theme`-token arrow forms survive in class strings (spec §2.2)", 
   // ── The guard itself ────────────────────────────────────────────────────────────────
 
   it("reports zero arrow forms of a declared @theme token under app/, components/, lib/", () => {
+    // THE FIXTURE NEVER EXERCISES THIS WALKER. Every premise above runs through
+    // `walkFiles` (an on-disk temp tree); the live guard runs through
+    // `trackedFiles` (`git ls-files`). So a `trackedFiles` that returned NOTHING
+    // — a wrong git argument, a cwd that is not a repository, a filter that
+    // drops every extension — would report zero offenders and PASS, with all
+    // four premises still green.
+    //
+    // Found by sweeping THIS FILE for the class the last two review rounds kept
+    // landing on ("the fixture shares an assumption with the mechanism"), rather
+    // than by waiting for a third round to land on it. The two walkers are
+    // deliberately different code, so the fixture cannot vouch for this one; a
+    // floor on what it returns can.
+    const trackedCount = trackedFiles(ROOT, UI_ROOTS).length;
+    premise("tracked .ts/.tsx files the live scan actually opened", trackedCount, 200);
+
     const offenders = scanRoots({ root: ROOT, roots: UI_ROOTS, tracked: true }).map(
       (s) => `${s.file}:${s.line} — ${s.token}`,
     );
