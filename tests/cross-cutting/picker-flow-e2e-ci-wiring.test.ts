@@ -206,6 +206,13 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
  * fails as loudly as a missing one, and a NEW gate with no row fails twice over
  * (parity, and the declared-gate scan in expectNoUndeclaredProjectGate).
  */
+/**
+ * A row must point at a test that ACTUALLY carries a runtime gate. Review R2
+ * removed the `test.skip` and the row went on "subtracting" a gate that no
+ * longer existed — the derived count still came to 9, and the guard reported
+ * clean. "A stale row fails as loudly as a missing one" was the claim; it was
+ * not true until `expectRegistryRowsAreLive` below made it so.
+ */
 const PROJECT_GATED: Record<string, { title: string; runsUnder: string[] }[]> = {
   "tests/e2e/theme-toggle.spec.ts": [
     {
@@ -434,6 +441,75 @@ function listByProject(specs: string[], project: string): Map<string, [Set<strin
  * So a spec with no registry row keeps the flat identifier ban, and a spec with one may read the
  * project ONLY inside a `test.skip(...)` condition. Both directions fail loudly.
  */
+/**
+ * Every PROJECT_GATED row points at a test that ACTUALLY carries a runtime
+ * `test.skip` in its own callback. Without this the registry subtracts on the
+ * strength of a title alone: review R2 deleted the `test.skip` and the row went
+ * on subtracting, the derived count still came to 9, and nothing complained.
+ */
+function expectRegistryRowsAreLive(spec: string): void {
+  const rows = PROJECT_GATED[spec];
+  if (!rows || rows.length === 0) return;
+  // Same idiom the rest of this file uses: `join` + `readFileSync` from the
+  // module's existing imports. A missing spec is a different guard's business.
+  const sf = ts.createSourceFile(
+    spec,
+    readFileSync(join(process.cwd(), spec), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+
+  const titlesWithSkip = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "test" &&
+      node.arguments.length >= 2
+    ) {
+      const titleNode = node.arguments[0];
+      const body = node.arguments[1];
+      const title =
+        titleNode &&
+        (ts.isStringLiteral(titleNode) || ts.isNoSubstitutionTemplateLiteral(titleNode))
+          ? titleNode.text
+          : null;
+      if (title && body && (ts.isArrowFunction(body) || ts.isFunctionExpression(body))) {
+        let hasSkip = false;
+        const scanSkip = (n: ts.Node): void => {
+          if (
+            ts.isCallExpression(n) &&
+            ts.isPropertyAccessExpression(n.expression) &&
+            ts.isIdentifier(n.expression.expression) &&
+            n.expression.expression.text === "test" &&
+            n.expression.name.text === "skip" &&
+            n.arguments.length >= 1
+          ) {
+            hasSkip = true;
+          }
+          ts.forEachChild(n, scanSkip);
+        };
+        scanSkip(body);
+        if (hasSkip) titlesWithSkip.add(title);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+
+  const stale = rows
+    .filter((row) => !titlesWithSkip.has(row.title))
+    .map((row) => `"${row.title}"`)
+    .sort();
+  expect(
+    stale,
+    `${spec}: these PROJECT_GATED rows name a test with NO runtime \`test.skip(...)\` in its ` +
+      "callback. A row that subtracts an execution the spec no longer gates makes the derived " +
+      "count wrong in the permissive direction — the registry keeps crediting a skip that is " +
+      "not there. Delete the row, or restore the gate.",
+  ).toEqual([]);
+}
+
 function expectNoUndeclaredProjectGate(spec: string): void {
   const source = readFileSync(join(process.cwd(), spec), "utf8");
   // Shared stripper, not a local idiom (tests/cross-cutting/_metaStripCommentsSingleSource):
@@ -547,6 +623,52 @@ function expectNoUndeclaredProjectGate(spec: string): void {
       ts.forEachChild(node, walk);
     };
     walk(body);
+
+    // AND: CAN THIS BODY COMPLETE WITHOUT ASSERTING? Banning `return` was still
+    // too narrow — review R2 wrapped the whole body in
+    // `if (browserName === "chromium") { …assertions… }`, which returns
+    // nowhere, passes every check, and leaves mobile with `assertions: 0`.
+    //
+    // The closed property is not "which statement skips" but "is there a path
+    // through this body that asserts nothing". A body whose every `expect(`
+    // sits inside a conditional has one, so at least one assertion must be
+    // unconditional. Conservative on purpose: a test that genuinely branches
+    // both ways can hoist one shared assertion, and a test that means to run
+    // under one project says so with `test.skip`, which is what the registry
+    // is for.
+    let expectsTotal = 0;
+    let expectsUnconditional = 0;
+    const countExpects = (node: ts.Node, guarded: boolean): void => {
+      if (
+        node !== body &&
+        (ts.isArrowFunction(node) ||
+          ts.isFunctionExpression(node) ||
+          ts.isFunctionDeclaration(node))
+      ) {
+        return;
+      }
+      if (
+        ts.isCallExpression(node) &&
+        ((ts.isIdentifier(node.expression) && node.expression.text === "expect") ||
+          (ts.isPropertyAccessExpression(node.expression) &&
+            ts.isCallExpression(node.expression.expression) &&
+            ts.isIdentifier(node.expression.expression.expression) &&
+            node.expression.expression.expression.text === "expect"))
+      ) {
+        expectsTotal += 1;
+        if (!guarded) expectsUnconditional += 1;
+      }
+      const nowGuarded =
+        guarded ||
+        ts.isIfStatement(node) ||
+        ts.isSwitchStatement(node) ||
+        ts.isConditionalExpression(node);
+      ts.forEachChild(node, (child) => countExpects(child, nowGuarded));
+    };
+    countExpects(body, false);
+    if (expectsTotal > 0 && expectsUnconditional === 0) {
+      record(body, "every assertion in this test body is inside a conditional");
+    }
   }
 
   const scan = (node: ts.Node): void => {
@@ -589,6 +711,7 @@ function expectWired(segments: string[][], spec: string, what: string): void {
   ).toBeGreaterThan(0);
 
   expectNoUndeclaredProjectGate(spec);
+  expectRegistryRowsAreLive(spec);
 
   for (const segment of naming) {
     const projects = segment

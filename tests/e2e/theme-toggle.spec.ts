@@ -469,6 +469,14 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
  * cascade had collapsed would pass there. Real geometry is this file's job.
  */
 test.describe("crew avatar menu — theme switch behind a resolved identity", () => {
+  // SAME 120s ALLOWANCE AS ARM (a), and it was missing. Review R2 measured this
+  // case at the config default of 60s while its own body waits up to 90s on the
+  // crew-shell retry plus 30s on the menu — so the cold-runner allowance the
+  // helper advertises was unreachable and a slow CI boot would fail the case on
+  // the clock rather than on the assertion. The budget has to exceed the waits
+  // inside it.
+  test.setTimeout(120_000);
+
   test("opens the menu, flips the theme, and every target clears the tap floor at 390px", async ({
     page,
   }, testInfo) => {
