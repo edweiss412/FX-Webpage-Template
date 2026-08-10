@@ -133,7 +133,15 @@ export function analyseDestructiveFile(
       const isRequire = ts.isIdentifier(n.expression) && n.expression.text === "require";
       if (isDynamicImport || isRequire) {
         const a = n.arguments[0];
-        if (a && ts.isStringLiteral(a) && a.text === "postgres") dynamicAcquire = true;
+        // Literal TEXT, not literal KIND. r9 slipped through on
+        // `import(`postgres`)` because a NoSubstitutionTemplateLiteral is not a
+        // StringLiteral — the same enumeration mistake one node type down. And an
+        // argument that is neither literal form cannot be read at all, so it is
+        // rejected rather than assumed innocent: in a destructive file, a module
+        // specifier this check cannot evaluate is itself the hazard.
+        const literalText =
+          a && (ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a)) ? a.text : null;
+        if (literalText === null || literalText === "postgres") dynamicAcquire = true;
       }
     }
     ts.forEachChild(n, checkAcquire);

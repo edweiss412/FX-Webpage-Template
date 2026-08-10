@@ -131,9 +131,17 @@ describe("prune_sync_log (spec §3.5)", () => {
       .begin(async (tx) => {
         await tx`
         insert into public.sync_log (drive_file_id, status, message, occurred_at)
-        values (${`${MARKER}-old`},   'x', 'old',   now() - interval '90 days'),
-               (${`${MARKER}-edge`},  'x', 'edge',  now() - interval '61 days'),
-               (${`${MARKER}-fresh`}, 'x', 'fresh', now() - interval '1 day')
+        values (${`${MARKER}-old`},     'x',        'old',    now() - interval '90 days'),
+               (${`${MARKER}-edge`},    'x',        'edge',   now() - interval '61 days'),
+               (${`${MARKER}-fresh`},   'x',        'fresh',  now() - interval '1 day'),
+               -- Recent rows with OTHER statuses. Every fixture sharing one status left
+               -- the cases unable to tell time-based deletion from a status-based
+               -- over-delete: a mutant reading
+               -- \`occurred_at < cutoff OR status = 'skipped'\` passed both while
+               -- deleting unrelated recent rows (whole-diff r9). These must survive.
+               (${`${MARKER}-skipped`}, 'skipped',  'recent', now() - interval '2 days'),
+               (${`${MARKER}-applied`}, 'applied',  'recent', now() - interval '3 days'),
+               (${`${MARKER}-error`},   'error',    'recent', now() - interval '4 days')
       `;
 
         // The oracle: a GLOBAL count read inside this same transaction, immediately
@@ -153,7 +161,12 @@ describe("prune_sync_log (spec §3.5)", () => {
         select drive_file_id from public.sync_log
         where drive_file_id like ${`${MARKER}%`} order by drive_file_id
       `;
-        expect(survivors.map((r) => r.drive_file_id)).toEqual([`${MARKER}-fresh`]);
+        expect(survivors.map((r) => r.drive_file_id)).toEqual([
+          `${MARKER}-applied`,
+          `${MARKER}-error`,
+          `${MARKER}-fresh`,
+          `${MARKER}-skipped`,
+        ]);
 
         // ALWAYS rolled back: a committing prune deletes unrelated old local rows
         // permanently, and nothing above would notice.

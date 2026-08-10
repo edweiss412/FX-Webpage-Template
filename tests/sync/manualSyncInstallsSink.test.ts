@@ -71,7 +71,21 @@ describe("manual sync entry points install a sync_log sink (regression pin)", ()
   });
 
   it.each([...ALREADY_INSTRUMENTED])("%s still installs a sink", (rel) => {
-    expect(read(rel)).toMatch(/writeSyncLog/);
+    // INSTALLATION, not mention. whole-diff r9: asserting only /writeSyncLog/ meant
+    // the import alone satisfied the pin, so removing the actual sink from both
+    // production sites while keeping their imports still passed. Same bar as the
+    // eight repaired sites above.
+    const src = read(rel);
+    expect(src, `${rel} does not import the sink`).toMatch(
+      /import\s*\{[^}]*\bwriteSyncLog\b[^}]*\}\s*from\s*["']@\/lib\/sync\/syncLog["']/,
+    );
+    // Two legitimate installation shapes: the property form the eight repaired sites
+    // use (`logSync: writeSyncLog`), and the default-binding form the webhook route
+    // uses (`const logSync = deps.logSync ?? writeSyncLog`). Both bind the sink to
+    // `logSync`; neither is satisfied by an unused import.
+    expect(src, `${rel} imports the sink but never installs it`).toMatch(
+      /logSync\s*[:=][^;\n]*\bwriteSyncLog\b/,
+    );
   });
 
   it("the pending-ingestions retry route installs a sink on BOTH of its paths", () => {

@@ -287,6 +287,26 @@ await target.unsafe("select public.prune_sync_log()");`;
     expect(analyseDestructiveFile(P, src).ok).toBe(false);
   });
 
+  it("(v) template-literal and computed dynamic acquisition are rejected too", () => {
+    // whole-diff r9: `import(`postgres`)` is a NoSubstitutionTemplateLiteral, not a
+    // StringLiteral - the same enumeration mistake one node type down. The check now
+    // reads literal TEXT, and rejects an argument it cannot read at all, since a
+    // module specifier this analyzer cannot evaluate is itself the hazard.
+    for (const acquire of [
+      "(await import(`postgres`)).default",
+      "require(`postgres`)",
+      "require(pkgName)",
+    ]) {
+      const src = `${IMPORT}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const local = postgres(url, { max: 1 });
+const pg2 = ${acquire};
+const target = pg2(process.env.TEST_DATABASE_URL!);
+await target.unsafe("select public.prune_sync_log()");`;
+      expect(analyseDestructiveFile(P, src).ok, acquire).toBe(false);
+    }
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.
