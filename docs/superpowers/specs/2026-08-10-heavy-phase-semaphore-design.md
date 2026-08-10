@@ -244,17 +244,20 @@ AGENTS.md rule):
 - Priority waiters poll faster (§4.1.5 defaults), so on a release they statistically
   win the race.
 - Each priority waiter touches a marker `prio-wait-<pid>` in the slot dir while
-  waiting, removed on acquire and on normal exit (`atexit`, best-effort); markers with
-  mtime older than 10 min are ignored (a crashed waiter must not throttle others).
-  Non-priority waiters that see a fresh priority marker add one extra poll interval
-  before each attempt, yielding the next free slot to the priority waiter with high
-  probability.
+  waiting, removed on acquire and on normal exit (`atexit`, best-effort). A marker is
+  FRESH within the single freshness window defined below and ignored past it (a
+  crashed waiter must not throttle others). Non-priority waiters that see a fresh
+  marker add one extra poll interval before each attempt, yielding the next free slot
+  to the priority waiter with high probability.
 - A non-priority waiter that backs off for a fresh marker emits a one-line stderr
   notice (`yielding to priority waiter`) — the marker mechanism's own observable
   surface (R4 F3).
-- Marker freshness window: `max(10 min, 2 × the waiter's effective poll interval)` —
-  a fixed 10-minute window goes stale between two polls at the 600 s poll ceiling and
-  would silently cancel the bias (R4 F5 interaction class).
+- Marker freshness window — the ONLY definition (R6 F2): a marker is fresh while
+  `age <= max(10 min, 2 × the observing waiter's effective poll interval)`. The
+  adaptive term exists because a fixed 10-minute window goes stale between two polls
+  at the 600 s poll ceiling and would silently cancel the bias (R4 F5 interaction
+  class); the 10-minute floor bounds how long a crashed waiter's marker can throttle
+  others at ordinary poll rates.
 - No lock handoff, no queue file, no strict ordering guarantee. A starved normal waiter
   still acquires as soon as no fresh priority marker exists.
 - Discriminability requirement for §7: the marker back-off must be observable
@@ -292,13 +295,27 @@ recorded value. Waiters RE-RESOLVE `config` on every poll iteration (R2 F2 third
 instance): a waiter that outlives a dir removal/recreation converges on the new
 topology within one poll rather than acting on a startup snapshot.
 
-**Capacity changes go through `--recreate` (R5 F1):**
-`python3 scripts/with-heavy-slot.py --recreate --slots N` performs the swap safely:
-it takes a BLOCKING `flock` on every current slot file in index order — so it waits
-for every live holder, including one in the validate→exec window, to finish — then,
-holding all locks, unlinks the old slot files and `config`, publishes the new
-`config` (same tmp+link discipline), creates the new slot files, and releases. Any
-waiter mid-acquisition either blocks behind `--recreate`'s locks or wins an orphaned
+**Capacity changes go through `--recreate` (R5 F1; serialization per R6 F1):**
+`python3 scripts/with-heavy-slot.py --recreate --slots N` performs the swap safely.
+`--slots` obeys the SAME [1, 64] integer domain as `FX_HEAVY_SLOTS` but with the
+management posture: out-of-domain or missing input is a stderr error and exit 2 with
+NO swap (a management command fails loud; only the wrap path must never block a gate
+run — R6 F3, which also closes the `--slots 0` empty-topology wedge). Procedure:
+
+1. Take a BLOCKING `flock` on `recreate.lock` in the slot dir (created on demand,
+   NEVER unlinked by any operation) — recreators serialize on it, so a second
+   `--recreate` waits out the first entirely rather than interleaving (R6 F1).
+2. Flock every current slot file in index order (blocking — waits for every live
+   holder, including one in the validate→exec window), and after EACH slot flock
+   apply the step-6 identity check (`fstat` vs `stat`): an orphaned-inode lock —
+   possible if this recreator opened a path before a prior recreator's swap — is
+   closed and the slot re-opened from the current pathname before proceeding, so a
+   recreator can never hold a stale generation while mutating the live one (R6 F1).
+3. Holding recreate.lock + all current-generation slot locks: unlink the old slot
+   files and `config`, publish the new `config` (same tmp+link discipline), create
+   the new slot files, release everything.
+
+Any waiter mid-acquisition either blocks behind these locks or wins an orphaned
 inode and is rejected by step 6 validation on its next attempt. Reboot (`/tmp`
 clears) is the other supported reset. Manual `rm -rf` of a live slot dir is OUT OF
 CONTRACT — it reintroduces the recreation races by hand and files to §8.
@@ -458,11 +475,17 @@ real `/tmp/fx-heavy-slots`.
     `stale slot-held marker — acquiring normally`, the run ACQUIRES a slot (observable:
     a concurrent wrapped command at slots=1 is mutually excluded with it), and the
     marker it passes to its own child names the NEW slot/pid.
-13. **Recreate blocks on live holders (R5 F1).** Slots=1 with a wrapped command
-    running; start `--recreate --slots 2` concurrently: assert it does not complete
-    before the holder's command exits (ordering via timestamps), completes after,
-    and the dir then holds slot-0/slot-1 plus a config recording 2 with no tmp
-    residue.
+13. **Recreate discipline (R5 F1, R6 F1, R6 F3).** Holder arm: slots=1 with a
+    wrapped command running; `--recreate --slots 2` started concurrently must not
+    complete before the holder's command exits (timestamps), completes after, and
+    the dir then holds slot-0/slot-1 + config 2 + no tmp residue. Recreator arm: two
+    `--recreate` invocations started together (one delayed inside via the injection
+    hook so it opens pre-swap paths) — assert they serialize on recreate.lock, the
+    final dir matches the LAST completed recreation exactly (one config, matching
+    slot files, no orphaned-generation files), and at no point do wrapped commands
+    admitted under different generations run concurrently (overlap oracle). Domain
+    arm: `--recreate --slots 0` and `--slots banana` exit 2, stderr error, dir
+    byte-identical before/after.
 
 The suite spawns ≤3 tiny node children per case — it is itself light and needs no slot.
 
