@@ -248,17 +248,46 @@ describe("ShowRowActions — transition inventory rows owned by this task (§3.5
 // PANEL beside the menu, and the panel (not the menu) owns key handling so they
 // still reach it.
 describe("ShowRowActions — the menu element holds only menu content", () => {
-  test("every child of role=menu is a menuitem or a separator", () => {
-    render(<ShowRowActions row={row({ slug: "aria" })} />);
+  // BOTH crew states, because they render DIFFERENT children: the empty roster
+  // adds the described-by hint, and a crew-populated fixture alone never sees
+  // it — which is exactly how this claim was true in the test and false in the
+  // reachable case until whole-diff R5 probed it.
+  test.each([
+    ["with crew", [{ id: "c1", name: "Ada Lovelace" }]],
+    ["with an empty roster", []],
+  ] as const)("every child of role=menu is menu content (%s)", (_label, crew) => {
+    const r = row({ slug: "aria", crew: [...crew], crewCount: crew.length });
+    render(<ShowRowActions row={r} />);
     const menu = openMenu("aria");
     const kids = Array.from(menu.children);
     premise("the menu rendered children to inspect", kids.length, 0);
     for (const kid of kids) {
       expect(
-        ["menuitem", "separator"],
+        // `none` is the ARIA escape hatch, not a loophole: the empty-crew hint
+        // is a <p> that must sit visually under the item it explains, and
+        // role="none" removes it from the accessibility tree entirely, so the
+        // menu's CHILDREN as assistive tech sees them are still only items and
+        // separators. The `aria-describedby` reference reaches it regardless.
+        ["menuitem", "separator", "none"],
         `unexpected role="${kid.getAttribute("role")}" child of role="menu"`,
       ).toContain(kid.getAttribute("role"));
     }
+  });
+
+  test("the empty-crew hint is the ONLY presentational child, and it is described-by-referenced", () => {
+    const r = row({ slug: "hint", crew: [], crewCount: 0 });
+    premiseHolds("the fixture has an empty roster", (r.crew ?? []).length === 0);
+    render(<ShowRowActions row={r} />);
+    const menu = openMenu("hint");
+    const presentational = Array.from(menu.children).filter(
+      (k) => k.getAttribute("role") === "none",
+    );
+    expect(presentational).toHaveLength(1);
+    const hint = presentational[0]!;
+    expect(hint.getAttribute("data-testid")).toBe("row-action-preview-empty-hint-hint");
+    // It is not orphaned: the item it explains points at it.
+    const item = document.body.querySelector('[data-testid="row-action-preview-hint"]')!;
+    expect(item.getAttribute("aria-describedby")).toBe(hint.id);
   });
 
   test("a separator precedes the destructive item — required, not merely permitted", () => {
