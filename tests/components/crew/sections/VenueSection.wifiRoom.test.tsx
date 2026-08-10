@@ -27,7 +27,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { parseSheet } from "@/lib/parser";
-import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
+import { compareRooms, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import {
@@ -351,7 +351,11 @@ describe("Room row", () => {
       { ...gsTemplate, id: "r1", name: "ZULU HALL" },
       { ...gsTemplate, id: "r9", name: "ALPHA HALL" },
     ];
-    const byName = [...rooms].sort((a, b) => a.name.localeCompare(b.name))[0]!;
+    // Expected comes from the REAL comparator, not a re-implementation of it. A
+    // hand-rolled `name.localeCompare` agreed with `compareRooms` on this
+    // fixture, so the test proved "something sorted by name" rather than "the
+    // specified comparator ran" (review R7).
+    const byName = [...rooms].sort(compareRooms)[0]!;
     const byId = [...rooms].sort((a, b) => a.id.localeCompare(b.id))[0]!;
     const expectedName = byName.name;
     premiseHolds(
@@ -370,6 +374,29 @@ describe("Room row", () => {
 
     const row = renderVenue(withRooms(rooms)).querySelector('[data-testid="venue-room"]');
     expect(valueOf(row)).toBe(expectedName);
+  });
+
+  test("the winner is compareRooms' winner, not merely a name sort", () => {
+    // compareRooms compares NORMALIZED names and breaks the resulting tie by id.
+    // Two rooms whose names differ only by case therefore tie on name and resolve
+    // to the lower id, while a raw `localeCompare` picks the other one. This is
+    // the case that separates the specified comparator from a plausible
+    // substitute (review R7).
+    const gsTemplate = roomsFromFixture(REAL_NAME_FIXTURE).find((r) => r.kind === "gs")!;
+    const rooms: ProjectedRoomRow[] = [
+      { ...gsTemplate, id: "r9", name: "alpha" },
+      { ...gsTemplate, id: "r1", name: "ALPHA" },
+    ];
+    const canonical = [...rooms].sort(compareRooms)[0]!;
+    const rawLocale = [...rooms].sort((a, b) => a.name.localeCompare(b.name))[0]!;
+    premiseHolds(
+      "compareRooms and a raw localeCompare DISAGREE on this fixture, so the " +
+        "case can tell the specified comparator from a substitute",
+      canonical.id !== rawLocale.id,
+    );
+
+    const row = renderVenue(withRooms(rooms)).querySelector('[data-testid="venue-room"]');
+    expect(valueOf(row)).toBe(canonical.name);
   });
 });
 
