@@ -289,32 +289,35 @@ function pinEmbedsLiteral(patternSource: string, literal: string): boolean {
 }
 
 /**
- * Is `token` present as a whole IDENTIFIER, not merely as a substring?
+ * The names a suite actually MENTIONS: every identifier it writes, and every
+ * static string it contains.
  *
- * `\b` cannot answer this: it is an ASCII word boundary, so it sees one between
- * `x` and `$`, and one between `é` and `X`. A `via` of `$get` was therefore
- * satisfied by an unrelated `x$get`, and a `via` of `café` by `caféX` — a
- * citation discharged by a suite that never mentions the symbol at all, which is
- * outside §6.5's "mention, not exercise" and simply wrong (whole-diff R7 F1).
+ * Three rounds landed on the text-containment predicate this replaces, each
+ * with a token that the source spells one way and the language reads another:
+ * ASCII `\b` let `x$get` satisfy `$get` (R7), a letter/digit approximation of
+ * IdentifierPart let `get\u0301x` satisfy `get` (R8), and raw `#` and `\`
+ * still let `#get`, `get\u0301x` and `admin_emails\u005Fv2` satisfy their
+ * tokens (R10). Each repair widened a character class, and the next round found
+ * the next spelling — the same open-set mistake the SCANNER escaped by moving
+ * to the parse, and the same answer applies. Source text is not identifier
+ * text: `\u005F` IS an underscore, `#get` is a private identifier and not
+ * `get`, and only the lexer knows.
  *
- * Nor does an approximation of "letter, digit, `_` or `$`": ECMAScript's
- * IdentifierPart also admits combining marks (`Mn`, `Mc`), connector
- * punctuation beyond `_` (`Pc`), `Other_ID_Continue`, non-letter `ID_Start`
- * characters like `℘`, and the zero-width joiners — so `get\u0301x` is one
- * identifier that a `via` of `get` was still matching inside (whole-diff R8 F1).
- *
- * The definition is therefore TAKEN, not approximated: IdentifierPart is
- * `ID_Continue` plus `$`, ZWNJ and ZWJ, and `\p{ID_Continue}` is a Unicode
- * property escape the regex engine already implements. Enumerating the families
- * it covers would be the same open-set mistake this suite has refused
- * elsewhere; naming the property closes all of them at once.
+ * String literals are collected alongside identifiers because a table name is
+ * cited as a string, and because §6.5's ratified limit is that a mention in a
+ * test title still counts. Comments contribute nothing, which is R2 F4's
+ * comment-only rejection now falling out of the parse rather than needing a
+ * separate strip.
  */
-const IDENTIFIER_CHAR = "[\\p{ID_Continue}$\\u200C\\u200D]";
-
-function containsWholeWord(haystack: string, token: string): boolean {
-  if (token === "") return false;
-  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<!${IDENTIFIER_CHAR})${escaped}(?!${IDENTIFIER_CHAR})`, "u").test(haystack);
+function mentionedNames(file: string, source: string): Set<string> {
+  const names = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node)) names.add(node.text);
+    else if (ts.isStringLiteralLike(node)) names.add(node.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(file, source));
+  return names;
 }
 
 /**
@@ -373,13 +376,9 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
         );
       }
       for (const suite of row.coveredBy) {
-        let suiteText: string;
+        let mentioned: Set<string>;
         try {
-          // Comment-stripped: a citation discharged by the suite's own PROSE
-          // about the boundary is the weakest form of the §6.5 limit, and it is
-          // the one form the machine can rule out for free (whole-diff R2 F4).
-          // Mention-not-exercise remains the accepted limit for live code.
-          suiteText = stripCommentsForFile(readFile(suite), suite);
+          mentioned = mentionedNames(suite, readFile(suite));
         } catch {
           problems.push(`${where}: covering suite ${suite} does not exist`);
           continue;
@@ -387,7 +386,7 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
         // Literal OR via: a suite that mocks at the client boundary never
         // mentions the table literal (spec R2 F1 — tests/data/adminEmails.test.ts
         // names `listAdminEmails` seven times and `admin_emails` zero times).
-        if (!containsWholeWord(suiteText, row.literal) && !containsWholeWord(suiteText, row.via)) {
+        if (!mentioned.has(row.literal) && !(row.via !== "" && mentioned.has(row.via))) {
           problems.push(
             `${where}: covering suite ${suite} mentions neither the literal nor via "${row.via}"`,
           );
@@ -1267,89 +1266,99 @@ describe("META lib/data Supabase call boundary", () => {
       }
     });
 
-    // Containment is by IDENTIFIER, not by ASCII word boundary. `\b` sees a
-    // boundary between `x` and `$`, and between `é` and `X`, so a citation was
-    // dischargeable by a suite that never mentions the symbol at all
-    // (whole-diff R7 F1).
-    test("a coveredBy suite mentioning only a LARGER identifier is rejected", () => {
+    // A suite MENTIONS a name when it writes that identifier or that string —
+    // decided by the parse, because source text is not identifier text. Three
+    // rounds of character-class widening died here: `x$get` satisfying `$get`
+    // (R7), `get\u0301x` satisfying `get` (R8), and `#get` plus every escaped
+    // spelling still satisfying theirs (R10).
+    test("a larger or differently-spelled identifier does not count as a mention", () => {
       const cases: Array<[string, string, string, string]> = [
-        // name, module source, via, suite text
-        ["leading $ in via", "export function $get() {}\n", "$get", "test x$get does something"],
-        ["trailing $ in via", "export function get$() {}\n", "get$", "test get$x does something"],
-        ["unicode via", "export function café() {}\n", "café", "test caféX does something"],
+        // name, module source, via, suite source
+        ["ascii suffix", "export function get() {}\n", "get", "test('x', () => { widget(); });"],
+        ["leading $", "export function $get() {}\n", "$get", "test('x', () => { x$get(); });"],
+        [
+          "combining mark",
+          "export function get() {}\n",
+          "get",
+          "test('x', () => { get\u0301x(); });",
+        ],
+        ["private identifier", "export function get() {}\n", "get", "class C {\n  #get() {}\n}"],
+        [
+          "unicode escape suffix",
+          "export function get() {}\n",
+          "get",
+          "test('x', () => { get\\u0301x(); });",
+        ],
+        [
+          "braced escape suffix",
+          "export function get() {}\n",
+          "get",
+          "test('x', () => { get\\u{301}x(); });",
+        ],
+        [
+          "braced escape prefix",
+          "export function get() {}\n",
+          "get",
+          "test('x', () => { x\\u{301}get(); });",
+        ],
       ];
-      for (const [name, moduleSource, via, suiteText] of cases) {
+      for (const [name, moduleSource, via, suiteSource] of cases) {
         const registry: Registry = {
           [SOURCE]: [{ kind: "from", literal: "admin_emails", coveredBy: [SUITE], via }],
         };
         expect(
-          validateRows(registry, reader({ [SOURCE]: moduleSource, [SUITE]: suiteText })),
+          validateRows(registry, reader({ [SOURCE]: moduleSource, [SUITE]: suiteSource })),
           name,
         ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
       }
     });
 
-    // ECMAScript IdentifierPart is not "letter, digit, `_` or `$`". Each family
-    // below continues an identifier, so `get<mark>x` is ONE identifier and a
-    // `via` of `get` must not match inside it (whole-diff R8 F1). Taken from the
-    // `ID_Continue` property rather than enumerated — this list is the evidence
-    // the property covers them, not the mechanism.
-    test("a coveredBy suite mentioning a larger identifier in any IdentifierPart family is rejected", () => {
-      const families: Array<[string, string]> = [
-        ["Mn combining mark", "\u0301"],
-        ["Mc spacing mark", "\u0903"],
-        ["Pc connector punctuation", "\u203F"],
-        ["Other_ID_Continue", "\u00B7"],
-        ["non-letter ID_Start", "\u2118"],
-        ["ZWNJ", "\u200C"],
-        ["ZWJ", "\u200D"],
-      ];
-      for (const [name, continuation] of families) {
+    // The LITERAL operand takes the same treatment, including the escape that
+    // spells an underscore.
+    test("a larger or escaped table name does not count as a mention of the literal", () => {
+      for (const [name, suiteSource] of [
+        ["larger name", "test('x', () => { insert('admin_emails_v2'); });"],
+        ["escaped underscore", "test('x', () => { admin_emails\\u005Fv2(); });"],
+        ["braced escape", "test('x', () => { admin_emails\\u{5F}v2(); });"],
+      ] as const) {
         const registry: Registry = {
-          [SOURCE]: [{ kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "get" }],
+          [SOURCE]: [
+            { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdminEmail" },
+          ],
         };
         expect(
-          validateRows(
-            registry,
-            reader({
-              [SOURCE]: "export function get() {}\n",
-              [SUITE]: `test get${continuation}x does something`,
-            }),
-          ),
+          validateRows(registry, reader({ [SOURCE]: MODULE_SOURCE, [SUITE]: suiteSource })),
           name,
         ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
       }
     });
 
-    test("a coveredBy suite mentioning the exact identifier is accepted", () => {
-      const cases: Array<[string, string, string, string]> = [
-        ["leading $ in via", "export function $get() {}\n", "$get", "test $get(1) does something"],
-        ["unicode via", "export function café() {}\n", "café", "test café(1) does something"],
-      ];
-      for (const [name, moduleSource, via, suiteText] of cases) {
-        const registry: Registry = {
-          [SOURCE]: [{ kind: "from", literal: "admin_emails", coveredBy: [SUITE], via }],
-        };
-        expect(
-          validateRows(registry, reader({ [SOURCE]: moduleSource, [SUITE]: suiteText })),
-          name,
-        ).toEqual([]);
-      }
-    });
-
-    // The same boundary applies to the LITERAL operand of the OR.
-    test("a coveredBy suite mentioning only a larger table name is rejected", () => {
-      const registry: Registry = {
+    // Controls: the exact identifier and the exact string DO count, so the
+    // rejections above are the rule firing rather than an unsatisfiable fixture.
+    test("the exact identifier or the exact string counts as a mention", () => {
+      const viaMention: Registry = {
         [SOURCE]: [
           { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdminEmail" },
         ],
       };
       expect(
         validateRows(
-          registry,
-          reader({ [SOURCE]: MODULE_SOURCE, [SUITE]: "test admin_emails_v2 rows" }),
+          viaMention,
+          reader({
+            [SOURCE]: MODULE_SOURCE,
+            [SUITE]: "test('x', () => { addAdminEmail(); });",
+          }),
         ),
-      ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
+      ).toEqual([]);
+      expect(
+        validateRows(
+          viaMention,
+          reader({
+            [SOURCE]: MODULE_SOURCE,
+            [SUITE]: "test('x', () => { expect(t).toBe('admin_emails'); });",
+          }),
+        ),
+      ).toEqual([]);
     });
 
     test("a coveredBy citation to a deleted or renamed suite is rejected", () => {
