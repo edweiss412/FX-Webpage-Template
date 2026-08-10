@@ -24,6 +24,7 @@
  * Sibling domains own their own registry-style meta-tests; the auth domain's is
  * `tests/auth/_metaInfraContract.test.ts`, deliberately untouched here (spec §1.1).
  */
+import ts from "typescript";
 import { describe, expect, test } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -39,95 +40,103 @@ const LIB_DATA_ROOT = "lib/data";
 const MODULE_FILE_RE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 
 /**
- * The string-literal first argument is the discriminator: every real Supabase
- * builder/RPC call names its table or function as a literal, while the two
- * non-Supabase `.from(` shapes in this corpus (`Array.from(iterable)`,
- * `Array.from({ length: n })`) take no literal at all. The quote class includes
- * the backtick because a no-substitution template is an ordinary string
- * argument Prettier leaves alone (spec R2 F2). The optional `<...>` segment
- * covers the SDK's explicit type arguments — `.rpc<T>("x")` typechecks against
- * `SupabaseClient` and must be visible (spec R4 F1).
+ * Sites come from the PARSE, not from a text pattern.
  *
- * Nothing between the method name and its argument list is assumed adjacent:
- * whitespace, an optional generic segment, and an optional `?.` may all sit
- * there. `sb.from <Row>("x")`, `sb.rpc/* note *\/<Row>("x")` (a comment is
- * blanked to spaces before the scan) and `sb.rpc?.("x")` all typecheck against
- * `SupabaseClient`, and every one of them was silently invisible when the
- * pattern required adjacency (whole-diff R3 F2, F3).
+ * Four consecutive review rounds each found another spelling that a regex over
+ * the source text could not see — a bare `$` in the name, an escaped `\${`, a
+ * backslash line continuation, a space or a comment before the type arguments,
+ * `?.`, `!`, `?.<T>` — and every one of them was SILENTLY invisible, which is
+ * the one failure mode this guard promises never to have. Widening the pattern
+ * once more would have answered the wrong question: "does this text look like a
+ * call?" ranges over an open set of spellings and does not terminate.
  *
- * The literal body runs lazily to the BACKREFERENCED closing quote, so the only
- * character it excludes is the one that opened it. An earlier form excluded all
- * three quote characters and `$` outright, which silently dropped
- * `.rpc("cost$center")`, `.from("crew's")`, `.rpc('say"hi')`, a backticked
- * `cost$center`, and `.from("")` — ordinary authoring that compiles, made
- * invisible to every layer. Substitution templates are excluded where they
- * actually live (below), not by banning `$` from every quoting style.
+ * The parser answers the question that actually matters — "is this a call whose
+ * callee is a member named `from` or `rpc`, with a static string first
+ * argument?" — and answers it for every spelling at once. Comments, whitespace,
+ * type arguments, optional calls, non-null assertions and parentheses are
+ * syntax the parser has already resolved before this code sees the node.
  */
-const SUPABASE_CALL_RE =
-  /\.(from|rpc)\s*(?:<[^>()]*>)?\s*(?:\?\.)?\s*\(\s*(["'`])((?:\\[\s\S]|[^\\])*?)\2/g;
+function parse(file: string, source: string): ts.SourceFile {
+  // The FILE NAME carries the script kind: `createSourceFile` reads .tsx as TSX
+  // and .ts as TS, which matters because parsing plain .ts as TSX misreads
+  // `<T>(x: T) => x` as JSX.
+  return ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+}
+
+/** `sb.from(…)`, `sb?.from(…)`, `sb!.from(…)`, `(sb).from(…)`, `sb["from"](…)`. */
+function calleeMemberName(node: ts.Expression): string | undefined {
+  let expr = node;
+  while (
+    ts.isParenthesizedExpression(expr) ||
+    ts.isNonNullExpression(expr) ||
+    ts.isAsExpression(expr)
+  ) {
+    expr = expr.expression;
+  }
+  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+  if (ts.isElementAccessExpression(expr)) {
+    const arg = expr.argumentExpression;
+    return ts.isStringLiteralLike(arg) ? arg.text : undefined;
+  }
+  return undefined;
+}
 
 type Site = { kind: "from" | "rpc"; literal: string };
 
-/**
- * Is this backtick literal a genuinely DYNAMIC name?
- *
- * Only an unescaped `${` opens a substitution. Dropping every literal whose raw
- * text contains `${` also drops `` `cost\${center}` ``, which evaluates to the
- * static string `cost${center}` — silently, which is the one thing this guard
- * must never do. Removing escape PAIRS first is what makes the test exact: it
- * consumes `\$` (so the `{` is left harmless) and consumes `\\` (so a literal
- * backslash cannot hide the live `${` that follows it).
- */
-function isSubstitutionTemplate(literal: string): boolean {
-  return literal.replace(/\\[\s\S]/g, "").includes("${");
-}
-
-function extractSites(strippedSource: string): Site[] {
-  const re = new RegExp(SUPABASE_CALL_RE.source, "g");
+function extractSites(source: string, file = "planted.ts"): Site[] {
   const sites: Site[] = [];
-  let match = re.exec(strippedSource);
-  while (match !== null) {
-    const kind = match[1];
-    const quote = match[2];
-    const literal = match[3];
-    if ((kind === "from" || kind === "rpc") && literal !== undefined) {
-      // A SUBSTITUTION template is a genuinely dynamic name and stays a
-      // documented limit (§6.1); a no-substitution template is an ordinary
-      // string argument and counts.
-      if (!(quote === "`" && isSubstitutionTemplate(literal))) sites.push({ kind, literal });
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const method = calleeMemberName(node.expression);
+      const arg = node.arguments[0];
+      // `isStringLiteralLike` is a string literal OR a no-substitution template
+      // — exactly the two forms that name a table statically. A template WITH
+      // substitutions is a genuinely dynamic name and stays a documented limit
+      // (§6.1); the parser draws that line for us, so an escaped `\${` inside an
+      // otherwise-static template is simply part of the name. `.text` is the
+      // COOKED value, so escapes resolve to the name Postgres would see.
+      if ((method === "from" || method === "rpc") && arg !== undefined) {
+        if (ts.isStringLiteralLike(arg)) sites.push({ kind: method, literal: arg.text });
+      }
     }
-    match = re.exec(strippedSource);
-  }
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(file, source));
   return sites;
 }
 
-const WAIVER_MARKER = "// not-subject-to-meta:";
+const WAIVER_WITH_REASON_RE = /^\/\/ not-subject-to-meta: \S/;
 
 /**
- * The marker must OPEN its own line comment: optional indentation, then `//`,
- * then the marker and a non-empty reason.
+ * The marker must be the whole of a LINE comment, and the lexer decides which
+ * comments those are.
  *
- * Anchoring to the line start is what keeps a QUOTED marker from waiving. A
- * `/* // not-subject-to-meta: … *\/` block, or a JSDoc line reading
- * ` * // not-subject-to-meta: …`, is documentation ABOUT the convention — and
- * both were accepted by the earlier unanchored form, because comment-stripping
- * removes a block comment just as thoroughly as a line comment, so
- * "absent after strip" could not tell them apart (whole-diff R2 F3). Writing
- * about the directive in a JSDoc is ordinary; silently waiving a real call site
- * because someone documented the convention is not acceptable.
+ * Textual anchoring could not: a block comment whose inner line begins with the
+ * marker satisfies any "starts a line" test, and comment-stripping erases a
+ * block just as thoroughly as a line comment, so "absent after strip" could not
+ * tell them apart either. Documentation ABOUT the convention silently waived a
+ * live call site through several spellings (whole-diff R2 F3, R4 F4). Asking the
+ * scanner for `SingleLineCommentTrivia` ends that family: a `/* … *\/` range is
+ * never one, however its inner lines are indented.
  */
-const WAIVER_WITH_REASON_RE = /^[ \t]*\/\/ not-subject-to-meta: \S/m;
+function lineCommentTexts(file: string, source: string): string[] {
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    /* skipTrivia */ false,
+    file.endsWith(".tsx") || file.endsWith(".jsx")
+      ? ts.LanguageVariant.JSX
+      : ts.LanguageVariant.Standard,
+    source,
+  );
+  const out: string[] = [];
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (token === ts.SyntaxKind.SingleLineCommentTrivia) out.push(scanner.getTokenText().trim());
+  }
+  return out;
+}
 
-/**
- * Comment-proof waiver recognition, tightening the auth test's raw substring
- * check (spec R3 F3). Both halves must hold: the ORIGINAL opens a line comment
- * with the marker and a non-empty reason, AND the marker is gone from the
- * comment-STRIPPED source. Present-in-original plus absent-after-strip proves
- * the marker lives in a comment, so a marker inside a string literal cannot
- * waive; the line anchor proves it is the LINE comment that carries it.
- */
-function isWaived(original: string, stripped: string): boolean {
-  return WAIVER_WITH_REASON_RE.test(original) && !stripped.includes(WAIVER_MARKER);
+function isWaived(file: string, original: string): boolean {
+  return lineCommentTexts(file, original).some((text) => WAIVER_WITH_REASON_RE.test(text));
 }
 
 /**
@@ -150,15 +159,38 @@ type ReadFile = (path: string) => string;
 
 const readFromDisk: ReadFile = (path) => readFileSync(path, "utf8");
 
-/** Exported identifiers of a module, anchored so a mention inside a body cannot count. */
-function exportedNames(strippedSource: string): Set<string> {
-  const re = /^export (?:async )?(?:function|const) ([A-Za-z_$][\w$]*)/gm;
+/**
+ * Exported identifiers, read from the parse.
+ *
+ * A line-anchored regex counted text that merely LOOKED like an export
+ * declaration — a line inside a multiline template, or after a backslash
+ * continuation, made `via: "addAdmin"` pass while only `addAdminEmail` was
+ * exported (whole-diff R4 F5). It also could not see `export { addAdminEmail }`,
+ * which is a real export; the parse sees both correctly, so a limit that existed
+ * only because the recognizer was weak goes away with it.
+ */
+function exportedNames(file: string, source: string): Set<string> {
   const names = new Set<string>();
-  let match = re.exec(strippedSource);
-  while (match !== null) {
-    const name = match[1];
-    if (name !== undefined) names.add(name);
-    match = re.exec(strippedSource);
+  const isExported = (node: ts.Node): boolean =>
+    ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+
+  for (const statement of parse(file, source).statements) {
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+      if (isExported(statement) && statement.name) names.add(statement.name.text);
+    } else if (ts.isVariableStatement(statement)) {
+      if (isExported(statement)) {
+        for (const decl of statement.declarationList.declarations) {
+          if (ts.isIdentifier(decl.name)) names.add(decl.name.text);
+        }
+      }
+    } else if (ts.isExportDeclaration(statement)) {
+      const clause = statement.exportClause;
+      // The EXPORTED name is what a caller can import: `a as c` exports `c`.
+      if (clause && ts.isNamedExports(clause)) {
+        for (const element of clause.elements) names.add(element.name.text);
+      }
+    }
   }
   return names;
 }
@@ -202,7 +234,7 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
       problems.push(`${file}: registered file cannot be read`);
       continue;
     }
-    const exports = exportedNames(stripped);
+    const exports = exportedNames(file, readFile(file));
 
     rows.forEach((row, index) => {
       const where = `${file}[${index}] ${row.kind}("${row.literal}")`;
@@ -271,8 +303,11 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
 type ScannedFile = { file: string; original: string; stripped: string; sites: Site[] };
 
 function scan(file: string, source: string): ScannedFile {
+  // `stripped` is for the PINS, which are text pins by design (§6.3). Site
+  // extraction reads the ORIGINAL, because the parser already knows what a
+  // comment is.
   const stripped = stripCommentsForFile(source, file);
-  return { file, original: source, stripped, sites: extractSites(stripped) };
+  return { file, original: source, stripped, sites: extractSites(source, file) };
 }
 
 /**
@@ -306,7 +341,7 @@ function undischargedFiles(scanned: ScannedFile[], registry: Registry): string[]
   return scanned
     .filter((entry) => entry.sites.length > 0)
     .filter((entry) => (registry[entry.file]?.length ?? 0) === 0)
-    .filter((entry) => !isWaived(entry.original, entry.stripped))
+    .filter((entry) => !isWaived(entry.file, entry.original))
     .map((entry) => entry.file);
 }
 
@@ -526,8 +561,7 @@ describe("META lib/data Supabase call boundary", () => {
   });
 
   describe("scanner self-tests", () => {
-    const plantSites = (source: string): Site[] =>
-      extractSites(stripCommentsForFile(source, "planted.ts"));
+    const plantSites = (source: string): Site[] => extractSites(source);
 
     test("matches every compliant call shape", () => {
       expect(plantSites('await sb.from("shows").select("*");')).toEqual([
@@ -552,32 +586,52 @@ describe("META lib/data Supabase call boundary", () => {
       ]);
     });
 
-    // One shape, several spellings: what sits between the method name and its
-    // argument list is not always adjacent. Each of these typechecks against the
-    // installed `SupabaseClient`, and each was SILENTLY invisible — the site
-    // vanished from the extraction, so Layer 1 saw no call and Layer 2 still
-    // reconciled (whole-diff R3 F2, F3).
-    test("the method, its type arguments and its argument list need not be adjacent", () => {
-      expect(plantSites('await sb.from <Row>("spaced_generic");')).toEqual([
-        { kind: "from", literal: "spaced_generic" },
-      ]);
-      // A comment between the two is blanked to spaces before the scan, so it
-      // reaches the scanner as the same shape by a different route.
-      expect(plantSites('await sb.rpc/* note */<Row>("commented_generic");')).toEqual([
-        { kind: "rpc", literal: "commented_generic" },
-      ]);
-      expect(plantSites('await sb.rpc?.("optional_rpc");')).toEqual([
-        { kind: "rpc", literal: "optional_rpc" },
-      ]);
-      expect(plantSites('await sb.from?.("optional_table");')).toEqual([
-        { kind: "from", literal: "optional_table" },
-      ]);
-      expect(plantSites('await sb.rpc<Row>?.("optional_typed");')).toEqual([
-        { kind: "rpc", literal: "optional_typed" },
-      ]);
-      // The discriminator is unchanged: still no string literal, still no site.
+    // Every syntactic spelling of the same call. Each of these typechecks
+    // against the installed `SupabaseClient`, and each was invisible to the text
+    // pattern this scanner replaced — four review rounds found them one or two
+    // at a time (whole-diff R3 F2/F3, R4 F1/F2/F3). The parse resolves all of
+    // them before this suite sees a node, which is why the list can be closed
+    // rather than extended again next round.
+    test("every syntactic spelling of the call is the same call", () => {
+      const spellings: Array<[string, Site]> = [
+        ['await sb.from <Row>("spaced_generic");', { kind: "from", literal: "spaced_generic" }],
+        [
+          'await sb.rpc/* note */<Row>("commented_generic");',
+          { kind: "rpc", literal: "commented_generic" },
+        ],
+        [
+          'await sb./* boundary */from("commented_dot");',
+          { kind: "from", literal: "commented_dot" },
+        ],
+        ['await sb.rpc?.("optional_rpc");', { kind: "rpc", literal: "optional_rpc" }],
+        ['await sb.from?.("optional_table");', { kind: "from", literal: "optional_table" }],
+        ['await sb.rpc?.<Row>("optional_typed");', { kind: "rpc", literal: "optional_typed" }],
+        ['await sb.from!("nonnull");', { kind: "from", literal: "nonnull" }],
+        [
+          'await sb.from!<Row, Insert>("nonnull_generic");',
+          { kind: "from", literal: "nonnull_generic" },
+        ],
+        ['await (sb).from("parenthesized");', { kind: "from", literal: "parenthesized" }],
+        ['await sb["from"]("element_access");', { kind: "from", literal: "element_access" }],
+        [
+          'await sb.rpc<Record<string, () => void>>("parens_in_generic");',
+          { kind: "rpc", literal: "parens_in_generic" },
+        ],
+        [
+          'await sb.rpc<Array<string>>("nested_angles");',
+          { kind: "rpc", literal: "nested_angles" },
+        ],
+      ];
+      for (const [source, site] of spellings) {
+        expect(plantSites(source), source).toEqual([site]);
+      }
+    });
+
+    test("the discriminator is unchanged: no static string name, no site", () => {
       expect(plantSites("const xs = Array.from (iterable);")).toEqual([]);
       expect(plantSites("const ys = Array.from?.(iterable);")).toEqual([]);
+      expect(plantSites("const zs = Array.from({ length: n });")).toEqual([]);
+      expect(plantSites('await sb.select("not_a_boundary");')).toEqual([]);
     });
 
     // The literal class used to exclude all three quote characters AND `$`
@@ -601,27 +655,26 @@ describe("META lib/data Supabase call boundary", () => {
       // An empty name is nonsense, but invisible is the wrong way to say so:
       // extract it, so it must be registered and a human sees it.
       expect(plantSites('await sb.from("");')).toEqual([{ kind: "from", literal: "" }]);
-      // An escaped closing quote does not end the literal.
+      // The literal is the COOKED value — the name Postgres would see.
       expect(plantSites('await sb.from("say \\"hi\\"").select("*");')).toEqual([
-        { kind: "from", literal: 'say \\"hi\\"' },
+        { kind: "from", literal: 'say "hi"' },
       ]);
     });
 
     // Two more shapes that were SILENTLY dropped — the same failure mode as the
     // class above, found by probing the repaired scanner rather than the
     // original (whole-diff R2 F1, F2).
-    test("an escaped ${ is a static name, and a backslash line continuation does not end the literal", () => {
-      // `\${` produces the two characters `$` and `{` at runtime, so the name is
-      // static. Testing for `${` in the raw text called it dynamic and dropped it.
+    test("an escaped ${ is a static name, and a line continuation is part of one", () => {
+      // `\\${` produces the two characters `$` and `{`, so the name is static and
+      // the parser hands back exactly what Postgres would see.
       expect(plantSites("await sb.rpc(`cost\\${center}`);")).toEqual([
-        { kind: "rpc", literal: "cost\\${center}" },
+        { kind: "rpc", literal: "cost${center}" },
       ]);
-      // A real substitution is still dropped, including one behind a literal
-      // backslash — `\\` is an escaped backslash, so the `${` after it is live.
+      // A real substitution is a dynamic name and stays a documented limit.
       expect(plantSites("await sb.from(`${tableVar}`);")).toEqual([]);
-      expect(plantSites("await sb.from(`a\\\\${tableVar}`);")).toEqual([]);
-      // A backslash line continuation: the escape must be able to consume a line
-      // terminator, which `\\.` cannot — `.` is not dot-all.
+      expect(plantSites("await sb.from(`a${tableVar}b`);")).toEqual([]);
+      // A backslash line continuation is part of the literal, in every
+      // JavaScript line terminator.
       for (const [name, terminator] of [
         ["LF", "\n"],
         ["CR", "\r"],
@@ -629,39 +682,22 @@ describe("META lib/data Supabase call boundary", () => {
         ["LS", "\u2028"],
         ["PS", "\u2029"],
       ] as const) {
-        expect(plantSites(`await sb.from("continued\\${terminator}name");`), name).toEqual([
-          { kind: "from", literal: `continued\\${terminator}name` },
+        expect(plantSites(`await sb.from("contin\\${terminator}ued");`), name).toEqual([
+          { kind: "from", literal: "continued" },
         ]);
       }
     });
 
-    test("extracts sites in source order, distinguishing kind and duplicate literals", () => {
-      expect(
-        plantSites(
-          'const a = await sb.from("shows_internal").select("run_of_show");\n' +
-            'const b = await sb.rpc("viewer_version_token");\n' +
-            'const c = await sb.from("shows_internal").select("financials");\n',
-        ),
-      ).toEqual([
-        { kind: "from", literal: "shows_internal" },
-        { kind: "rpc", literal: "viewer_version_token" },
-        { kind: "from", literal: "shows_internal" },
-      ]);
-    });
-
-    test("rejects the corpus's non-Supabase shapes", () => {
-      expect(plantSites("const years = Array.from(iterable);")).toEqual([]);
-      expect(plantSites("const xs = Array.from({ length: n });")).toEqual([]);
-      expect(plantSites("const o = Object.fromEntries(pairs);")).toEqual([]);
-    });
-
-    test("documented limit §6.1: dynamic names and paren/nested-angle generics are invisible", () => {
+    // §6.1, and now ONLY this. The generic-segment carve-outs the old text
+    // pattern needed are gone: parenthesised and nested-angle type arguments are
+    // ordinary syntax to the parser and are asserted as positives above. What
+    // remains is the honest limit — a name the source does not state.
+    test("documented limit §6.1: only genuinely DYNAMIC names are invisible", () => {
       expect(plantSites("await sb.from(tableVar);")).toEqual([]);
       expect(plantSites("await sb.rpc(fnVar, { p: 1 });")).toEqual([]);
       expect(plantSites("await sb.from(`${tableVar}`);")).toEqual([]);
       expect(plantSites("await sb.from(`prefix_${tableVar}_suffix`);")).toEqual([]);
-      expect(plantSites('await sb.rpc<Record<string, () => void>>("parens_generic");')).toEqual([]);
-      expect(plantSites('await sb.rpc<Array<string>>("nested_angles");')).toEqual([]);
+      expect(plantSites("await sb.from(TABLE.shows);")).toEqual([]);
     });
 
     test("comment stripping is load-bearing", () => {
@@ -677,8 +713,7 @@ describe("META lib/data Supabase call boundary", () => {
   });
 
   describe("waiver self-tests", () => {
-    const plantWaiver = (source: string): boolean =>
-      isWaived(source, stripCommentsForFile(source, "planted.ts"));
+    const plantWaiver = (source: string): boolean => isWaived("planted.ts", source);
 
     test("a commented marker with a reason waives", () => {
       expect(
@@ -713,6 +748,12 @@ describe("META lib/data Supabase call boundary", () => {
         // real thing (whole-diff R2 F3).
         "/* // not-subject-to-meta: quoted directive */",
         "/**\n * // not-subject-to-meta: documentation example\n */",
+        // R4 F4: the marker on its OWN line inside a block. Every textual "starts
+        // a line" test accepts these; only the lexer knows the enclosing range is
+        // MultiLineCommentTrivia, never a line comment.
+        "/*\n// not-subject-to-meta: inner line of a plain block\n*/",
+        "/**\n// not-subject-to-meta: inner line, no leading star\n*/",
+        "/*\n    // not-subject-to-meta: inner line, indented\n*/",
       ]) {
         const source = `${spelling}\nawait sb.from("x");`;
         expect(plantWaiver(source), spelling).toBe(false);
@@ -950,12 +991,11 @@ describe("META lib/data Supabase call boundary", () => {
       ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
     });
 
-    // The export scanner reads `export function` / `export const` declarations.
-    // A symbol exported only through a re-export list is not seen — and the
-    // result is a REJECTION naming the row, not a silent pass, which is the
-    // direction the consequence bound requires. Pinned so the limit is a
-    // decision rather than an accident.
-    test("a via exported only via a re-export list is rejected, not silently accepted", () => {
+    // A symbol exported through a re-export list IS exported, and the parse
+    // says so. The line-anchored regex this replaced could not see it, and that
+    // limit existed only because the recognizer was weak — so it goes away with
+    // the recognizer (whole-diff R4 F5).
+    test("a via exported through a re-export list is accepted", () => {
       const reExportSource = "async function addAdminEmail() {}\nexport { addAdminEmail };\n";
       const registry: Registry = {
         [SOURCE]: [
@@ -967,7 +1007,36 @@ describe("META lib/data Supabase call boundary", () => {
           registry,
           reader({ [SOURCE]: reExportSource, [SUITE]: "test addAdminEmail writes admin_emails" }),
         ),
-      ).toEqual([expect.stringContaining("is not an exported identifier")]);
+      ).toEqual([]);
+    });
+
+    // …and text that merely LOOKS like an export declaration is not one. A line
+    // inside a multiline template, or after a backslash continuation, made a
+    // bogus `via` pass while only `addAdminEmail` was exported (whole-diff R4 F5).
+    test("export-shaped text inside a literal is not an export", () => {
+      for (const [name, moduleSource] of [
+        [
+          "template",
+          "export async function addAdminEmail() {}\nconst doc = `\nexport const addAdmin = 1;\n`;\n",
+        ],
+        [
+          "continuation",
+          'export async function addAdminEmail() {}\nconst doc = "\\\nexport const addAdmin = 1;";\n',
+        ],
+      ] as const) {
+        const registry: Registry = {
+          [SOURCE]: [
+            { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdmin" },
+          ],
+        };
+        expect(
+          validateRows(
+            registry,
+            reader({ [SOURCE]: moduleSource, [SUITE]: "test addAdmin writes admin_emails" }),
+          ),
+          name,
+        ).toEqual([expect.stringContaining("is not an exported identifier")]);
+      }
     });
 
     test("a coveredBy citation to a deleted or renamed suite is rejected", () => {
