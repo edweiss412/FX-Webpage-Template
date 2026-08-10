@@ -141,6 +141,31 @@ export function analyseDestructiveFile(
     };
   }
 
+  // The driver name may appear ONLY in call position. r6 aliased it — `const connect =
+  // postgres; connect(remote)` — and the aliased connection was never inspected, so
+  // "every connection is checked" was false while a safe first connection satisfied the
+  // count. Enumerating alias forms is the same losing game as enumerating rebinds, so
+  // this takes the same exit: if the identifier is never read except to call it, no
+  // alias can exist. That also covers passing it as a callback and reaching through a
+  // property, without naming either.
+  let nonCallUse: string | null = null;
+  const checkUses = (n: ts.Node): void => {
+    if (ts.isIdentifier(n) && driverNames.has(n.text) && !driverShadowed.has(n.text)) {
+      const p = n.parent;
+      const isCallee = p && ts.isCallExpression(p) && p.expression === n;
+      const isOwnImport = p && ts.isImportClause(p);
+      if (!isCallee && !isOwnImport) nonCallUse = n.text;
+    }
+    ts.forEachChild(n, checkUses);
+  };
+  ts.forEachChild(sf, checkUses);
+  if (nonCallUse !== null) {
+    return {
+      ok: false,
+      reason: `\`${nonCallUse}\` is referenced outside call position, so an alias could open an unchecked connection`,
+    };
+  }
+
   if (guardCalls.length === 0) return { ok: false, reason: "no loopback guard is called" };
   if (!guardCalls.some((c) => trusted((c.expression as ts.Identifier).text))) {
     return {

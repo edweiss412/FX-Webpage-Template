@@ -249,6 +249,20 @@ ${PRUNE}`;
     expect(analyseDestructiveFile(P, src).ok).toBe(false);
   });
 
+  it("(s) an ALIAS of the driver cannot open an unchecked connection", () => {
+    // whole-diff r6: `const connect = postgres; connect(remote)`. A safe first
+    // connection satisfied the count while the aliased one was never inspected.
+    // Enumerating alias forms is the same losing game as enumerating rebinds, so the
+    // driver name may now appear only in call position - no alias can exist.
+    const src = `${IMPORT}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const local = postgres(url, { max: 1 });
+const connect = postgres;
+const target = connect(process.env.TEST_DATABASE_URL!);
+await target.unsafe("select public.prune_sync_log()");`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.
