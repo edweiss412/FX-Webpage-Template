@@ -772,6 +772,8 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 
 ### BL-ADMIN-DASHBOARD-ROW-ACTIONS — ActiveShowsPanel row-action shortcuts
 
+**Status:** IN PROGRESS · **Branch:** feat/admin-dashboard-row-actions
+
 **Origin:** M11-E-D3 (MEDIUM) filed 2026-05-20. M11 user-facing-docs `/help/admin/dashboard` documents per-row actions `Open`, `Preview as`, `Re-sync`, `Archive` on the Active Shows panel per master spec §9.1. Shipped `components/admin/ActiveShowsPanel.tsx` renders show title + crew count + sync-status only; no row-level action affordances.
 
 **Effort:** M
