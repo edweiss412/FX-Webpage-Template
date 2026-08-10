@@ -26,6 +26,7 @@ import { ShowRowActions } from "@/components/admin/ShowRowActions";
 import { buildShowModalHref } from "@/lib/admin/showModalParams";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { CREW_SUBMENU_CAP } from "@/components/admin/ShowRowActions";
+import { SYNC_GENERIC_ERROR_COPY } from "@/lib/admin/syncRequest";
 import type { ActiveShowRow, CrewMemberRef } from "@/lib/admin/showDisplay";
 import { premise, premiseHolds } from "../../../_shared/premise";
 
@@ -427,5 +428,87 @@ describe("shrink_held prompt — the menu grammar yields to the sub-panel", () =
     expect(q("row-actions-menu-kbh")).not.toBeNull();
     expect(fetchMock.mock.calls.length).toBe(callsBefore);
     expect(document.activeElement).toBe(q("row-action-resync-kbh"));
+  });
+});
+
+// ── whole-diff review R1 repairs (findings 1, 2, 4) ─────────────────────────
+describe("Re-sync — every reachable failure speaks, and a request owns the surface", () => {
+  // The route can return codes the §12.4 catalog does not carry at all, and
+  // codes whose row has `dougFacing: null`. ErrorExplainer renders NOTHING for
+  // either, so trusting it alone paints an empty alert.
+  const SILENT_CODES = ["MI-2_EMPTY_TITLE", "STAGED_PARSE_REVISION_RACE"] as const;
+
+  test.each(SILENT_CODES.map((c) => [c]))(
+    "%s has no renderable catalog copy, so the alert falls back to plain language",
+    async (code) => {
+      const entry = (MESSAGE_CATALOG as Record<string, { dougFacing?: string | null }>)[code];
+      // PREMISE (own inputs): this case only tests the fallback if the code
+      // genuinely has nothing to render. A code that GAINS copy later must move
+      // to the catalog-copy suite, not silently pass here.
+      premiseHolds(
+        `${code} has no dougFacing copy in the catalog`,
+        !entry || typeof entry.dougFacing !== "string" || entry.dougFacing.trim() === "",
+      );
+      fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: code }));
+      render(<ShowRowActions row={row({ slug: "silent" })} />);
+      openMenu("silent");
+      fireEvent.click(q("row-action-resync-silent")!);
+      const region = await waitFor(() => {
+        const el = q<HTMLElement>("row-actions-error-silent");
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      expect(region.textContent ?? "").toContain(SYNC_GENERIC_ERROR_COPY);
+      // Never empty, and never the raw code (invariant 5).
+      expect((region.textContent ?? "").trim().length).toBeGreaterThan(0);
+      expect(document.body.textContent ?? "").not.toContain(code);
+    },
+  );
+
+  test("a pending request refuses every dismissal path, so its outcome cannot land on a closed menu", async () => {
+    let release: (r: Response) => void = () => {};
+    fetchMock.mockReturnValue(
+      new Promise<Response>((res) => {
+        release = res;
+      }),
+    );
+    render(<ShowRowActions row={row({ slug: "hold" })} />);
+    const menu = openMenu("hold");
+    fireEvent.click(q("row-action-resync-hold")!);
+    await waitFor(() => expect(q("row-action-resync-hold")!.textContent).toContain("Syncing…"));
+
+    // Escape, Tab, the backdrop and a page scroll all funnel through the same
+    // gate; each would otherwise unmount the menu the answer is about to land in.
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(q("row-actions-menu-hold")).not.toBeNull();
+    fireEvent.keyDown(menu, { key: "Tab" });
+    expect(q("row-actions-menu-hold")).not.toBeNull();
+    fireEvent.click(q("row-actions-backdrop-hold")!);
+    expect(q("row-actions-menu-hold")).not.toBeNull();
+
+    // …and the failure it was holding open for is visible.
+    release(jsonResponse({ ok: false, error: "SHOW_BUSY_RETRY" }));
+    await waitFor(() => expect(q("row-actions-error-hold")).not.toBeNull());
+    expect(q("row-actions-error-hold")!.textContent ?? "").toContain(
+      MESSAGE_CATALOG.SHOW_BUSY_RETRY.dougFacing!,
+    );
+  });
+
+  test("a FAILED Accept returns focus to the Re-sync item rather than dropping it on <body>", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(HELD_PAYLOAD));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: false, error: "SHOW_BUSY_RETRY" }));
+    render(<ShowRowActions row={row({ slug: "af" })} />);
+    openMenu("af");
+    fireEvent.click(q("row-action-resync-af")!);
+    const accept = await waitFor(() => {
+      const el = q<HTMLElement>("row-actions-accept-shrink-af");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    fireEvent.click(accept);
+    await waitFor(() => expect(q("row-actions-error-af")).not.toBeNull());
+    // The prompt (and the focused button) unmounted; focus must not be on body.
+    expect(q("row-actions-shrink-confirm-af")).toBeNull();
+    expect(document.activeElement).toBe(q("row-action-resync-af"));
   });
 });

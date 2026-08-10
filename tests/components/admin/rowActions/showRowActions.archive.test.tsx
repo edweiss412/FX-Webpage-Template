@@ -276,3 +276,42 @@ describe("Archive confirm — the menu grammar yields to the sub-panel", () => {
     expect(archiveActionMock).not.toHaveBeenCalled();
   });
 });
+
+// ── whole-diff review R1 repairs (findings 3, 6) ────────────────────────────
+describe("Archive — a rejected action still speaks, and the confirm always names the show", () => {
+  test("a REJECTED server action renders the generic retry copy instead of an unhandled rejection", async () => {
+    archiveActionMock.mockRejectedValue(new Error("transport blew up"));
+    render(<ShowRowActions row={row({ slug: "boom" })} />);
+    openMenu("boom");
+    enterConfirm("boom");
+    fireEvent.click(q("row-actions-archive-go-boom")!);
+    const region = await waitFor(() => {
+      const el = q<HTMLElement>("row-actions-archive-error-boom");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    // A server action can reject on transport, on auth, or on a post-commit
+    // fault inside the action itself — its telemetry write is awaited — so the
+    // show may already be archived while the row still shows a confirm.
+    expect(region.textContent ?? "").toContain(ARCHIVE_GENERIC_ERROR_COPY);
+    expect(region.getAttribute("role")).toBe("alert");
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  test("a NULL-titled row still names the show, by its slug", () => {
+    const r = row({ slug: "no-title", title: null });
+    // PREMISE (own inputs): the fallback is only exercised by a null title, and
+    // is only observable when the slug differs from the default fixture title.
+    premiseHolds("the fixture row has a null title", r.title === null);
+    render(<ShowRowActions row={r} />);
+    openMenu("no-title");
+    enterConfirm("no-title");
+    const prose = q("row-actions-archive-consequence-no-title")!.textContent ?? "";
+    // AC-5: a destructive confirm that cannot say WHICH show is a confirm the
+    // admin cannot audit. Derived from the shared copy source, not hand-written.
+    expect(prose).toBe(archiveConsequenceProse(r.slug));
+    expect(prose).toContain(r.slug);
+    // …and never the unnamed sentence, which is the defect this pins.
+    expect(prose).not.toBe(archiveConsequenceProse(null));
+  });
+});

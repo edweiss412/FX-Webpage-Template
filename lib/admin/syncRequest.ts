@@ -11,12 +11,40 @@
  * silent-outcome class the design spec's consequence bound forbids. Deciding
  * that once, here, is why this module exists.
  *
+ * @see MESSAGE_CATALOG — the §12.4 catalog this module consults for copy.
+ *
  * EXTRACTION, not redesign: every branch below is the behavior
  * `ReSyncButton.post` already shipped, and `tests/components/ReSyncButton.test.tsx`
  * passes unmodified across the move (the plan's extraction fence). The React
  * state, focus and announcement choices stay in each component — they differ
  * between an overlay panel and a menu region.
  */
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+
+/**
+ * The plain-language fallback for a failure whose code has NO renderable
+ * Doug-facing copy — either the code is absent from the §12.4 catalog entirely
+ * (`MI-2_EMPTY_TITLE`, `MI-3_NO_VALID_DATES`) or its row carries
+ * `dougFacing: null` (`STAGED_PARSE_REVISION_RACE`,
+ * `LOCK_OWNERSHIP_ASSERTION_FAILED`). `ErrorExplainer` renders NOTHING for
+ * those, so a surface that trusts it alone paints an empty alert and tells the
+ * admin nothing — the silent-outcome class the consequence bound forbids.
+ * Never contains the code itself (invariant 5).
+ */
+export const SYNC_GENERIC_ERROR_COPY =
+  "The re-sync didn’t go through. Try again in a moment; if it keeps failing, contact the developer.";
+
+/**
+ * Does this code resolve to copy a human can read? The catalog is the single
+ * source: a missing row and a null `dougFacing` are the same outcome to a
+ * reader, so they get the same answer here.
+ */
+export function hasSyncFailureCopy(code: string): boolean {
+  const entry = (MESSAGE_CATALOG as Record<string, { dougFacing?: string | null } | undefined>)[
+    code
+  ];
+  return typeof entry?.dougFacing === "string" && entry.dougFacing.trim().length > 0;
+}
 
 /** The route's decision, normalized for a caller that renders it. */
 export type SyncOutcome =

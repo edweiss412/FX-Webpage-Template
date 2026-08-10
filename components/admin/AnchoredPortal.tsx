@@ -252,7 +252,12 @@ export function AnchoredPortal({
         ...(applied?.maxHeight != null ? { maxHeight: applied.maxHeight } : {}),
         ...(applied?.maxWidth != null ? { maxWidth: applied.maxWidth } : {}),
       }}
-      className={`z-50 ${className}`}
+      // `overflow-y-auto` is not optional next to `maxHeight`: the cap only
+      // moves the box's own edge, and with the default `overflow: visible` the
+      // children paint straight through it — a 13-item submenu on a short or
+      // zoomed viewport spills exactly as far as it would have uncapped.
+      // `auto`, never `clip`: clip reports a scrollHeight it will not scroll.
+      className={`z-50 overflow-y-auto overscroll-contain ${className}`}
     >
       {children}
     </div>,

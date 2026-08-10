@@ -38,7 +38,11 @@ import { useRouter } from "next/navigation";
 import { AnchoredPortal } from "@/components/admin/AnchoredPortal";
 import { useShowModalNav } from "@/components/admin/useShowModalNav";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
-import { requestShowSync } from "@/lib/admin/syncRequest";
+import {
+  hasSyncFailureCopy,
+  requestShowSync,
+  SYNC_GENERIC_ERROR_COPY,
+} from "@/lib/admin/syncRequest";
 import {
   ARCHIVE_GENERIC_ERROR_COPY,
   ARCHIVE_NOT_FOUND_COPY,
@@ -113,6 +117,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const archiveItemRef = useRef<HTMLButtonElement>(null);
   const archiveCancelRef = useRef<HTMLButtonElement>(null);
   const restoreArchiveFocusRef = useRef(false);
+  const restoreResyncFocusRef = useRef(false);
   const triggerId = useId();
   const errorMsgId = useId();
   const emptyCrewHintId = useId();
@@ -134,6 +139,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // request and an undecided shrink hold both mean "this row is mid-action".
   const busy = pending || heldShrink !== null;
 
+  /** Unconditional close. Only the flows that OWN the outcome call this. */
   const closeMenu = (restoreFocus: boolean) => {
     setOpen(false);
     setSubmenuOpen(false);
@@ -143,6 +149,20 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     // dashboard: without it, opening a menu on a scrolled row jumped the page
     // to the top before the panel had been placed.
     if (restoreFocus) triggerRef.current?.focus({ preventScroll: true });
+  };
+
+  /**
+   * User-initiated dismissal — Escape, Tab, the backdrop, a page scroll, a link
+   * click. Refused while a request is in flight, because a request OWNS this
+   * surface until it resolves: closing mid-flight sets the outcome on an
+   * unmounted menu, so a failure reaches the admin as nothing at all, and a
+   * late success steals focus back after they have moved on. One gate here
+   * covers every path, which is the point of routing them all through one
+   * function.
+   */
+  const dismissMenu = (restoreFocus: boolean) => {
+    if (pending) return;
+    closeMenu(restoreFocus);
   };
 
   const closeSubmenu = () => {
@@ -199,6 +219,20 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     if (confirmingArchive && !pending) archiveCancelRef.current?.focus({ preventScroll: true });
   }, [confirmingArchive, pending]);
 
+  /**
+   * C5 (close focus) for the held prompt. Focusing the Re-sync item IMPERATIVELY
+   * before `setHeldShrink(null)` looked equivalent and was measurably flaky: the
+   * node focused pre-render is not always the node React keeps, and when it is
+   * replaced the focus goes with it and lands on `<body>`. Requesting
+   * restoration and performing it after the state settles always targets the
+   * live node — the same idiom the archive cancel below uses.
+   */
+  useEffect(() => {
+    if (heldShrink !== null || !restoreResyncFocusRef.current) return;
+    restoreResyncFocusRef.current = false;
+    resyncItemRef.current?.focus({ preventScroll: true });
+  }, [heldShrink]);
+
   // C5 (close focus): only a CANCEL restores, and it must run AFTER the item
   // it returns to has re-mounted.
   useEffect(() => {
@@ -229,6 +263,10 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         // of the document (WCAG 2.4.3).
         closeMenu(true);
       } else {
+        // The held prompt unmounts with this, taking the focused control with
+        // it; ask for restoration and let the effect below perform it once the
+        // state has settled.
+        if (heldShrink !== null) restoreResyncFocusRef.current = true;
         setHeldShrink(null);
         setErrorCode(outcome.code);
       }
@@ -255,6 +293,12 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       } else {
         setArchiveFailure(classifyArchiveFailure(result.code));
       }
+    } catch {
+      // A server action can REJECT — transport, auth, or a post-commit fault in
+      // the action itself (its telemetry write is awaited). Without this the
+      // rejection is an unhandled promise and the row shows a confirm step for
+      // a show that may already be archived.
+      setArchiveFailure({ kind: "generic" });
     } finally {
       setPending(false);
     }
@@ -292,7 +336,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         restoreArchiveFocusRef.current = true;
         setConfirmingArchive(false);
       } else {
-        resyncItemRef.current?.focus({ preventScroll: true });
+        restoreResyncFocusRef.current = true;
         setHeldShrink(null);
       }
       return;
@@ -307,12 +351,12 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       // un-stopped Escape would close the whole modal along with this menu.
       e.preventDefault();
       e.stopPropagation();
-      closeMenu(true);
+      dismissMenu(true);
     } else if (e.key === "Tab") {
       // APG menu-button: Tab closes. Focusing the trigger BEFORE the default
       // Tab action lets focus continue in document order from the trigger.
       triggerRef.current?.focus({ preventScroll: true });
-      closeMenu(false);
+      dismissMenu(false);
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
       if (document.activeElement === previewItemRef.current && hasCrew && !busy) {
@@ -351,7 +395,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       closeSubmenu();
     } else if (e.key === "Tab") {
       triggerRef.current?.focus({ preventScroll: true });
-      closeMenu(false);
+      dismissMenu(false);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       items[(idx + 1 + items.length) % items.length]?.focus();
@@ -391,7 +435,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
           aria-hidden="true"
           tabIndex={-1}
           data-testid={`row-actions-backdrop-${slug}`}
-          onClick={() => closeMenu(false)}
+          onClick={() => dismissMenu(false)}
           className="fixed inset-0 z-20 cursor-default"
         />
       ) : null}
@@ -428,7 +472,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         // the page can end up somewhere the admin never pointed. Focus returns
         // to the trigger so it is never stranded on a removed node — with
         // preventScroll, so the dismissal does not fight the scroll that caused it.
-        onDismiss={() => closeMenu(true)}
+        onDismiss={() => dismissMenu(true)}
       >
         {/* The panel owns the chrome AND the key handling; the `role="menu"`
             element inside it holds ONLY menuitems and separators. The ARIA menu
@@ -461,7 +505,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                   e.preventDefault();
                   return;
                 }
-                closeMenu(false);
+                dismissMenu(false);
               }}
               className={MENU_ITEM_CLASS}
             >
@@ -564,7 +608,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                 data-testid={`row-actions-archive-consequence-${slug}`}
                 className="text-xs/relaxed wrap-break-word text-text-subtle"
               >
-                {archiveConsequenceProse(row.title)}
+                {archiveConsequenceProse(label)}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -628,7 +672,16 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               className="mt-1 rounded-sm border border-border-strong bg-warning-bg p-2.5 text-warning-text"
             >
               <div id={errorMsgId} role="alert" className="min-w-0 text-xs/relaxed">
-                <ErrorExplainer code={errorCode} surface="admin" />
+                {/* `ErrorExplainer` renders NOTHING for a code with no catalog
+                    row or a null `dougFacing` — several the sync route can
+                    return are exactly that — so trusting it alone paints an
+                    empty alert. The fallback speaks plain language and never
+                    contains the code (invariant 5). */}
+                {hasSyncFailureCopy(errorCode) ? (
+                  <ErrorExplainer code={errorCode} surface="admin" />
+                ) : (
+                  SYNC_GENERIC_ERROR_COPY
+                )}
               </div>
             </div>
           ) : null}
@@ -653,9 +706,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                   data-testid={`row-actions-keep-current-${slug}`}
                   disabled={pending}
                   onClick={() => {
-                    // Focus the still-mounted item BEFORE unmounting the panel
-                    // that holds the focused safe control (the C5 idiom).
-                    resyncItemRef.current?.focus({ preventScroll: true });
+                    restoreResyncFocusRef.current = true;
                     setHeldShrink(null);
                   }}
                   className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3.5 text-[13px] font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
@@ -690,7 +741,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         testId={`row-action-preview-portal-${slug}`}
         align="right"
         preferredSide="bottom"
-        onDismiss={() => closeMenu(true)}
+        onDismiss={() => dismissMenu(true)}
       >
         <div
           ref={submenuRef}
@@ -710,7 +761,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               tabIndex={-1}
               data-testid={`row-action-preview-crew-${member.id}`}
               href={`/admin/show/${encodeURIComponent(slug)}/preview/${encodeURIComponent(member.id)}`}
-              onClick={() => closeMenu(false)}
+              onClick={() => dismissMenu(false)}
               className={MENU_ITEM_CLASS}
             >
               {member.name === null || member.name === "" ? UNNAMED_CREW : member.name}
@@ -723,7 +774,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               data-testid={`row-action-preview-more-${slug}`}
               href={openHref(slug)}
               scroll={false}
-              onClick={() => closeMenu(false)}
+              onClick={() => dismissMenu(false)}
               className={`${MENU_ITEM_CLASS} text-text-subtle`}
             >
               {`… and ${overflowCrewCount} more (open the show)`}
