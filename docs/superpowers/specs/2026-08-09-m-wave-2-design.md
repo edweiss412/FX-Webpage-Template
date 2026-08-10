@@ -1,6 +1,6 @@
 # M-wave 2 — second READY + decision-unlocked mid-size implementation wave
 
-**Date:** 2026-08-09 · **Arc branch:** `docs/m-wave-2-spec` · **Status:** DRAFT (pre-review)
+**Date:** 2026-08-09 · **Arc branch:** `docs/m-wave-2-spec` · **Status:** APPROVED (codex-guard R6, 2026-08-09; findings 7/4/4/2/2/0 across R1-R6, all repaired in-branch)
 
 ## §0 Why this wave exists, and its baseline
 
