@@ -170,6 +170,27 @@ describe("Wi-Fi split rows", () => {
     expect(container.innerHTML).toBe(expected);
   });
 
+  /**
+   * Diff review R2 F2. The outer cell is not a sentinel, so it reaches the split
+   * branch; the DERIVED ssid is one, and FactRows drops sentinel rows — so the
+   * component used to commit to the split and then render nothing, losing the
+   * cell. The contract is unchanged: split correctly OR render raw, never vanish.
+   */
+  test("a derived sentinel ssid falls back to the raw row instead of vanishing", () => {
+    const SENTINELS = ["TBD", "N/A", "TBA", "-"];
+    premise("sentinel ssid cases", SENTINELS.length, 0);
+    for (const sentinel of SENTINELS) {
+      const raw = `SSID: ${sentinel}`;
+      const container = renderVenue(withInternet(raw));
+      // No split row claimed it...
+      expect(container.querySelector('[data-testid="venue-wifi-ssid"]'), raw).toBeNull();
+      // ...and the cell is still on the page, verbatim, under the raw label.
+      expect(container.textContent, raw).toContain(raw);
+      expect(container.textContent, raw).toContain("Crew Wi-Fi");
+      cleanup();
+    }
+  });
+
   test("an empty internet value renders no Wi-Fi row at all", () => {
     const container = renderVenue(withInternet(""));
     expect(container.querySelector('[data-testid="venue-wifi-ssid"]')).toBeNull();
@@ -211,6 +232,23 @@ describe("Room row", () => {
 
     const container = renderVenue(withRooms(rooms));
     expect(container.querySelector('[data-testid="venue-room"]')).toBeNull();
+  });
+
+  test("a sentinel room name renders no row and no empty Facilities card", () => {
+    // The row would otherwise be pushed, counted by hasFacts, then dropped by
+    // FactRows — leaving the card chrome with nothing in it (review R2 F2).
+    const SENTINELS = ["TBD", "N/A", "TBA"];
+    premise("sentinel room-name cases", SENTINELS.length, 0);
+    for (const sentinel of SENTINELS) {
+      const rooms = roomsFromFixture(REAL_NAME_FIXTURE).map((room) =>
+        room.kind === "gs" ? { ...room, name: sentinel } : room,
+      );
+      const container = renderVenue(withRooms(rooms));
+      expect(container.querySelector('[data-testid="venue-room"]'), sentinel).toBeNull();
+      // No Facilities card at all — not a card containing zero rows.
+      expect(container.querySelector('[data-testid="venue-facilities"]'), sentinel).toBeNull();
+      cleanup();
+    }
   });
 
   test("zero rooms renders no row", () => {
@@ -305,41 +343,64 @@ const DOCUMENTED_ROW_GUARDS = [
   "parking",
   "roomName",
   "internet && wifi",
-  "wifi.password",
-  "wifi.notes",
+  "wifi.password && !shouldHideGenericOptional(wifi.password)",
+  "wifi.notes && !shouldHideGenericOptional(wifi.notes)",
   "internet",
   "power",
 ] as const;
 
+/**
+ * The fact-row construction block, extracted with BOTH anchors proven present
+ * and ordered (diff review R2 F5). `indexOf` returns -1 for a missing anchor and
+ * `slice(start, -1)` still yields a long string, so a length-only premise passed
+ * after an anchor was renamed — the audit kept "passing" against a slice that no
+ * longer bounded what it claimed to bound.
+ */
+const START_ANCHOR = "const factRows: FactRow[] = []";
+const END_ANCHOR = "const hasWhere =";
+
+function factRowSectionOf(source: string): string {
+  const start = source.indexOf(START_ANCHOR);
+  const end = source.indexOf(END_ANCHOR);
+  premiseHolds(`the start anchor ${JSON.stringify(START_ANCHOR)} is present`, start !== -1);
+  premiseHolds(`the end anchor ${JSON.stringify(END_ANCHOR)} is present`, end !== -1);
+  premiseHolds("the anchors are in order, so the slice is the block", start < end);
+  return source.slice(start, end);
+}
+
 describe("transition audit — the new rows are instant by construction", () => {
   const source = readFileSync("components/crew/sections/VenueSection.tsx", "utf8");
+  // The row RENDERER is part of this surface: a `"use client"` there would make
+  // every one of these rows a client boundary, and scanning only VenueSection
+  // could not see it (review R2 F5).
+  const factRowsSource = readFileSync("components/crew/primitives/FactRows.tsx", "utf8");
 
   test("VenueSection is a server component with no motion and no transition classes", () => {
     premiseHolds(
-      "the audited source was actually read",
-      source.includes("export function VenueSection"),
+      "the audited sources were actually read",
+      source.includes("export function VenueSection") &&
+        factRowsSource.includes("export function FactRows"),
     );
-    expect(source).not.toContain('"use client"');
-    expect(source).not.toContain("AnimatePresence");
-    expect(source).not.toContain("framer-motion");
-    expect(source).not.toContain("motion.");
+    for (const [name, text] of [
+      ["VenueSection.tsx", source],
+      ["FactRows.tsx", factRowsSource],
+    ] as const) {
+      expect(text, name).not.toContain('"use client"');
+      expect(text, name).not.toContain("AnimatePresence");
+      expect(text, name).not.toContain("framer-motion");
+      expect(text, name).not.toContain("motion.");
+    }
     // `transition-colors` on the Maps anchor predates this change and is a CSS
     // hover treatment, not a row appear/disappear animation — the rows this
     // change adds introduce no `transition-` class of their own.
-    const factRowSection = source.slice(
-      source.indexOf("const factRows: FactRow[] = []"),
-      source.indexOf("const hasWhere ="),
-    );
-    premise("the fact-row construction block was located", factRowSection.length, 0);
+    const factRowSection = factRowSectionOf(source);
+
     expect(factRowSection).not.toContain("transition-");
     expect(factRowSection).not.toContain("animate");
   });
 
   test("every fact row is pushed under a plain conditional, one per documented state", () => {
-    const factRowSection = source.slice(
-      source.indexOf("const factRows: FactRow[] = []"),
-      source.indexOf("const hasWhere ="),
-    );
+    const factRowSection = factRowSectionOf(source);
     // The imperative push-guard style, not JSX ternaries: enumerate the guards
     // so a new row cannot be added without appearing in this audit.
     const conditions = [...factRowSection.matchAll(/^\s*(?:} else )?if \((.+?)\) \{$/gm)].map((m) =>

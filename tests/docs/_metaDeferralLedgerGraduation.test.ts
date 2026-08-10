@@ -97,10 +97,12 @@ const BACKLOG_GRADUATED = [
   // closed together. The field-enrichment row graduates RESOLVED — its flight
   // bullet had already shipped (the entry's "not in the ShowForViewer
   // projection and renders no UI" claim was stale), and its Wi-Fi and room
-  // bullets ship on this branch. The flight-leg row graduates OBSOLETE: both its
-  // premise (unlabeled raw " | " legs) and its own stated promotion prerequisite
-  // (a structured flight shape) were already satisfied by the shipped structured
-  // flight card, so there is nothing left to promote.
+  // bullets ship on this branch. The flight-leg row graduates OBSOLETE because
+  // its own promotion prerequisite (a structured flight shape) shipped and made
+  // the structured card the DEFAULT render, retiring the entry's scope. The
+  // narrower raw-fallback path that stays reachable for unstructurable legs is
+  // filed as its successor, BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK, rather than
+  // left implicit inside a closed entry (diff review R2 F3).
   {
     id: "BL-CREW-FIELD-ENRICHMENT",
     provenance: "feat/crew-field-enrichment",

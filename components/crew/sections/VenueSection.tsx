@@ -167,7 +167,15 @@ export function VenueSection({
   // Display-time split into SSID / password / notes. `null` means the value is
   // outside the observed label vocabulary, and the raw row below renders it
   // verbatim — the value is never silently reshaped.
-  const wifi = internet !== null ? parseWifiValue(internet) : null;
+  //
+  // The DERIVED ssid is re-checked against the sentinel predicate (diff review
+  // R2 F2). `SSID: TBD` is not a sentinel as a whole cell, so it reaches the
+  // split branch, but its ssid IS one — and FactRows drops sentinel rows, so the
+  // component committed to the split branch and then rendered nothing at all,
+  // losing the cell entirely. Rejecting the split here returns it to the raw row,
+  // which renders "SSID: TBD" verbatim.
+  const splitWifi = internet !== null ? parseWifiValue(internet) : null;
+  const wifi = splitWifi !== null && !shouldHideGenericOptional(splitWifi.ssid) ? splitWifi : null;
   const rawPower = data.show.event_details["power"] ?? null;
   const power = shouldHideGenericOptional(rawPower) ? null : rawPower!.trim();
 
@@ -184,7 +192,11 @@ export function VenueSection({
   const gsRoom = roomsFetchFailed
     ? null
     : (data.rooms.filter((room) => room.kind === "gs").sort(compareRooms)[0] ?? null);
-  const gsRoomName = gsRoom?.name.trim() ?? "";
+  // Sentinel-gated at the READ SITE like every other value in this component: a
+  // room literally named "TBD" would otherwise be pushed as a row, counted by
+  // `hasFacts`, and then dropped by FactRows — rendering an empty Facilities
+  // card when Room is the only fact (diff review R2 F2).
+  const gsRoomName = shouldHideGenericOptional(gsRoom?.name ?? null) ? "" : gsRoom!.name.trim();
   const roomName =
     gsRoomName.length > 0 && gsRoomName.toLowerCase() !== SYNTHESIZED_GS_ROOM_NAME.toLowerCase()
       ? gsRoomName
@@ -236,10 +248,10 @@ export function VenueSection({
       icon: <WifiIcon />,
       testId: "venue-wifi-ssid",
     });
-    if (wifi.password) {
+    if (wifi.password && !shouldHideGenericOptional(wifi.password)) {
       factRows.push({ k: "Wi-Fi password", v: wifi.password, testId: "venue-wifi-password" });
     }
-    if (wifi.notes) {
+    if (wifi.notes && !shouldHideGenericOptional(wifi.notes)) {
       // Labeled "Internet notes", NOT "Crew Wi-Fi" (impeccable critique P1): four
       // of the five corpus values that produce notes describe a HARDLINE, so
       // "Crew Wi-Fi: Hardline from Encore" tells a crew member the opposite of

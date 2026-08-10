@@ -58,13 +58,31 @@ const LABEL_RE = new RegExp(`\\b(${NET}|${PWD})${SEP}`, "gi");
 const NET_ONLY_RE = new RegExp(`^(?:${NET})$`, "i");
 
 /**
- * A `Word:` token that is NOT one of the accepted labels. Finding one INSIDE a
- * captured value means the cell carries vocabulary this splitter does not know,
- * so the value it captured is a guess — `SSID: Guest WPA: secret` would
- * otherwise render "Guest WPA: secret" as the network name. Letter-initial by
- * construction, so a time (`9:00`) is not label-shaped.
+ * Signals that a captured value is a GUESS rather than a reading. Any hit means
+ * the cell carries more syntax than this splitter resolved, so the whole parse
+ * is rejected and the raw cell renders instead (diff review R2 F1 probed every
+ * one of these against the shipped module):
+ *
+ *   - `Word:` that is not an accepted label — `SSID: Guest WPA: secret` would
+ *     otherwise name the network "Guest WPA: secret". Letter-initial, so a time
+ *     (`9:00`) is not label-shaped.
+ *   - An accepted label word sitting in the value with something other than a
+ *     separator after it — `SSID: Guest Password is secret`, `SSID: Guest
+ *     Network is Corporate`. The label was not matched as a pair, so its text
+ *     was absorbed into a neighbouring value.
+ *   - A spaced dash, which is one of the two accepted separators. Seeing one
+ *     INSIDE a value means a pair was formed on the other separator and this
+ *     one was not resolved — `SSID: Guest WPA - secret`.
  */
 const LABEL_SHAPED_RE = /\b[A-Za-z][A-Za-z0-9]{1,15}\s*:/;
+const ACCEPTED_LABEL_WORD_RE = new RegExp(`\\b(?:${NET}|${PWD})\\b`, "i");
+const SPACED_DASH_RE = /\s-\s/;
+
+function valueIsAGuess(value: string): boolean {
+  return (
+    LABEL_SHAPED_RE.test(value) || ACCEPTED_LABEL_WORD_RE.test(value) || SPACED_DASH_RE.test(value)
+  );
+}
 
 type Label = { isNetwork: boolean; start: number; end: number };
 
@@ -116,8 +134,8 @@ export function parseWifiValue(raw: string | null | undefined): WifiInfo | null 
         ambiguous = true;
         continue;
       }
-      // Unknown vocabulary swallowed into a value — the capture is a guess.
-      if (LABEL_SHAPED_RE.test(value)) ambiguous = true;
+      // Unresolved syntax swallowed into a value — the capture is a guess.
+      if (valueIsAGuess(value)) ambiguous = true;
 
       if (label.isNetwork) {
         if (ssid === null) ssid = value;

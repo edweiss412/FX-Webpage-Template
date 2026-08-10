@@ -965,6 +965,18 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ---
 
+### BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK — a leg the parser cannot structure renders as an unlabeled raw line
+
+**Effort:** M
+
+**Filed:** 2026-08-10, whole-diff review R2 F3 on `feat/crew-field-enrichment`, which refuted the claim that the unlabeled-leg render "no longer exists" while `BL-FLIGHT-LEG-ORIENTATION` was being archived. This row is that entry's successor: the archived one closed because the structured card became the DEFAULT render, and this one carries the residual it did not cover.
+
+**Reachable live surface, with the branch already pinned by a test.** `components/crew/sections/TravelSection.tsx` renders structured fields only when a leg carries content beyond a bare date; otherwise it falls back to `seg.raw` under `data-testid="travel-flight-leg"`, deliberately, so an operator's text is never dropped. `tests/components/crew/sections/TravelSection.flight.test.tsx` pins that branch. An itinerary such as `3/22 Charter pending | 3/24 Return pending` produces TWO such legs, and a crew member then sees two unlabeled lines with no arrival/departure orientation — the shape the archived entry described, surviving in the narrow case.
+
+**Why this is a different problem from the entry it succeeds.** That entry asked for labels once a structured source existed; the source exists and the labels ship. This one is about legs the source cannot describe structurally at all, so no amount of layout work on the structured card reaches them. The two candidate directions are also different in kind: widen `parseFlightItinerary` to structure more shapes (a parser-coverage question, needing a corpus probe of real `flight_info` values that currently fail to structure), or give the raw fallback its own orientation affordance (a design question — and with one unstructured leg among structured siblings, a label may be more misleading than none).
+
+**Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation in a case whose real-world frequency has not been measured. **Promotion prerequisite:** a corpus probe over live `flight_info` values establishing how often a leg fails to structure. If it is rare, this closes as a documented limit; if it is common, the probe also tells you which shapes to teach the parser, which is the cheaper of the two directions.
+
 ### BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row has no transcription affordance
 
 **Effort:** S

@@ -22,13 +22,13 @@ RED: new `tests/crew/wifiDisplay.test.ts` with every §4 corpus value verbatim a
 
 ## Task 2 — `FactRow.testId` (declared shared-primitive change)
 
-<!-- task: red=`pnpm vitest run tests/components/crew/primitives/factRows.test.ts` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/components/crew/factRows.test.tsx` ac=AC-3 -->
 
 RED: FactRows unit test asserting a row with `testId` emits `data-testid` and a row without emits none — fails against the current `k/v/sub/icon` type. Implement the optional field. Every existing FactRows consumer untouched (additive optional). **Commit:** `feat(crew-page): FactRow optional testId`.
 
 ## Task 3 — VenueSection wiring (Wi-Fi rows + room row) + transition audit
 
-<!-- task: red=`pnpm vitest run tests/components/crew/sections/VenueSection.test.tsx tests/crew/wifiDisplay.test.ts` ac=AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/components/crew/sections/VenueSection.wifiRoom.test.tsx tests/components/crew/sections/VenueSection.test.tsx` ac=AC-3,AC-4 -->
 
 RED: VenueSection RTL cases — split value renders `venue-wifi-ssid` ("Wi-Fi network"), `venue-wifi-password` (only when non-null), `venue-wifi-notes` rows; unsplittable renders the existing raw "Crew Wi-Fi" row BYTE-identically (snapshot equality against a pre-change capture — the fail-soft regression pin); empty renders nothing; room row `venue-room` renders a REAL gs name, and is ABSENT for zero rooms / empty name / synthesized `General Session` / `tileErrors["rooms"]` set / breakout-only shows; multi-gs picks first by `compareRooms`. **The synthesized-name case is FIXTURE-DERIVED (plan R3 F1):** it runs `parseSheet` on one of the five raw fixtures that produce the synthesized name (e.g. `fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md`), projects its parsed rooms into the `makeShowForViewer` override, and asserts no row — a parser-to-UI regression, never a hand-authored `{ kind, name }` literal (which would pass vacuously against a renamed fallback). Transition audit folded here per the spec §3.5 inventory, reproduced verbatim (plan R1 F1):
 
@@ -45,6 +45,10 @@ State pairs enumerated for the audit (each is a server-render delta, all instant
 RED: add the two `BACKLOG_GRADUATED` rows FIRST (`BL-FLIGHT-LEG-ORIENTATION`, `BL-CREW-FIELD-ENRICHMENT`, provenance `feat/crew-field-enrichment`) — the graduation meta-test fails: registry rows without archived sections. Implement: move both entries to `BACKLOG-archive.md` (`BL-FLIGHT-LEG-ORIENTATION` as OBSOLETE with the §0.3 evidence — structured flight card shipped, PR-38-217 audit line, live successor filed as TRAVEL-FLIGHT-SUPPRESSED-LEGIBILITY-1; `BL-CREW-FIELD-ENRICHMENT` as RESOLVED — flight bullet shipped prior with the stale-claim correction recorded, Wi-Fi + room bullets this PR), each with `Recorded by feat/crew-field-enrichment.` and original text preserved; remove both from BACKLOG.md WITH their IN PROGRESS markers (same commit — archives reject in-flight entries). GREEN both meta-tests. **Commit:** `docs: graduate BL-FLIGHT-LEG-ORIENTATION (OBSOLETE) + BL-CREW-FIELD-ENRICHMENT (RESOLVED)`.
 
 <!-- tasks: end -->
+
+**RED-command corrections (diff review R2 F4).** Task 2's command named `tests/components/crew/primitives/factRows.test.ts`, which does not exist — the FactRows suite lives at `tests/components/crew/factRows.test.tsx`, and the task extends it rather than creating a sibling, so the command could never have completed a RED-to-GREEN cycle as written. Task 3's command named the pre-existing Venue suite plus Task 1's already-green parser suite, omitting the new `VenueSection.wifiRoom.test.tsx` that carries its RED. Both are corrected above to the files the implementation actually drove, so the invariant-1 evidence is reproducible from the plan.
+
+Task 3's suite is a SIBLING file (`VenueSection.wifiRoom.test.tsx`) rather than an append to the 228-line `VenueSection.test.tsx`, matching the `ScheduleSection.*` / `TravelSection.*` convention already in that directory.
 
 ## Close-out (not a TDD task)
 

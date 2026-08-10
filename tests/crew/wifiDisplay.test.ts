@@ -299,3 +299,56 @@ describe("parseWifiValue — partial recognition falls back raw (review R1 F1)",
     }
   });
 });
+
+/**
+ * Diff review R2 F1: an accepted label word can appear inside a value without
+ * being matched as a pair (no separator after it), and the unknown-vocabulary
+ * check only saw the colon form. Both leave the residue presented as an SSID.
+ * Every case below was probed against the shipped module by the reviewer.
+ */
+describe("parseWifiValue — unresolved syntax inside a value falls back raw (review R2 F1)", () => {
+  it("an unknown label in DASH form rejects, as the colon form already did", () => {
+    expect(parseWifiValue("SSID: Guest WPA - secret")).toBeNull();
+    expect(parseWifiValue("SSID: Guest Login - secret")).toBeNull();
+  });
+
+  it("an accepted label word with no separator after it rejects", () => {
+    // The label was never matched as a pair, so its text was absorbed into the
+    // neighbouring value and "Guest Password is secret" became the network name.
+    expect(parseWifiValue("SSID: Guest Password is secret")).toBeNull();
+    expect(parseWifiValue("SSID: Guest Network is Corporate")).toBeNull();
+  });
+
+  it("every accepted label word is covered, not just the ones probed", () => {
+    // Derived from the label sets themselves, so a widened vocabulary cannot add
+    // a word this case silently stops covering. Only the NO-separator form is
+    // swept: `SSID: Guest Code - secret` is a legitimate two-pair cell (network
+    // "Guest", password "secret"), and rejecting it would be the opposite bug.
+    const labelWords = ["SSID", "Network", "Code", "PW", "Passcode", "Password"];
+    premise("accepted label words swept", labelWords.length, 0);
+    for (const word of labelWords) {
+      expect(parseWifiValue(`SSID: Guest ${word} is secret`), word).toBeNull();
+    }
+  });
+
+  it("an accepted label word WITH a separator is still a legitimate pair", () => {
+    // The boundary of the rule above, pinned so a future tightening cannot
+    // swallow the corpus's own dash form (RIA ships exactly this shape).
+    expect(parseWifiValue("SSID: Guest Code - secret")).toEqual({
+      ssid: "Guest",
+      password: "secret",
+      notes: null,
+    });
+  });
+
+  it("a plain multi-word SSID followed by a real password label still splits", () => {
+    // The reviewer listed this among the escapes; it is the CORRECT reading —
+    // network "Guest WiFi", password "secret" — and is pinned so a later
+    // tightening cannot quietly reject it.
+    expect(parseWifiValue("SSID: Guest WiFi Password: secret")).toEqual({
+      ssid: "Guest WiFi",
+      password: "secret",
+      notes: null,
+    });
+  });
+});
