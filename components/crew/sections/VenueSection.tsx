@@ -234,7 +234,12 @@ export function VenueSection({
       factRows.push({ k: "Wi-Fi password", v: wifi.password, testId: "venue-wifi-password" });
     }
     if (wifi.notes) {
-      factRows.push({ k: "Crew Wi-Fi", v: wifi.notes, testId: "venue-wifi-notes" });
+      // Labeled "Internet notes", NOT "Crew Wi-Fi" (impeccable critique P1): four
+      // of the five corpus values that produce notes describe a HARDLINE, so
+      // "Crew Wi-Fi: Hardline from Encore" tells a crew member the opposite of
+      // what the sheet says. The raw-fallback row keeps "Crew Wi-Fi" because
+      // there the value IS the whole internet cell.
+      factRows.push({ k: "Internet notes", v: wifi.notes, testId: "venue-wifi-notes" });
     }
   } else if (internet) {
     // Fail-soft: byte-identical to the pre-split row (no testId — adding one

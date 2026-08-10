@@ -116,8 +116,12 @@ describe("Wi-Fi split rows", () => {
     expect(valueOf(ssid)).toBe("Hyatt_Meeting");
     expect(labelOf(password)).toBe("Wi-Fi password");
     expect(valueOf(password)).toBe("FITS2025");
-    expect(labelOf(notes)).toBe("Crew Wi-Fi");
+    // "Internet notes", not "Crew Wi-Fi": the prose here describes a HARDLINE in
+    // four of the five corpus values that produce notes, so the Wi-Fi label
+    // would contradict the value (impeccable critique P1).
+    expect(labelOf(notes)).toBe("Internet notes");
     expect(valueOf(notes)).toBe("Hardline from Encore");
+    expect(container.textContent).not.toContain("Crew Wi-Fi");
 
     // Nothing anywhere in the card still shows the unsplit cell.
     expect(container.textContent).not.toContain("SSID: Hyatt_Meeting");

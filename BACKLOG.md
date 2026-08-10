@@ -951,6 +951,20 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ---
 
+### BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row has no transcription affordance
+
+**Effort:** S
+
+**Filed:** 2026-08-10, impeccable critique P2 during `feat/crew-field-enrichment` close-out (the arc that introduced the row).
+
+**Reachable live surface, not a hypothetical.** The Wi-Fi split now renders `event_details.internet` passwords as their own `venue-wifi-password` fact row. Probed 2026-08-09 across the four live sheets: two carry a password that reaches this row today (Fixed Income Trading Summit 2025 `FITS2025`; FinTech Forum CTO Summit 2026 `ORDTG.`). It renders as `text-sm font-semibold` proportional body text, right-aligned, like every other fact value.
+
+**The problem.** A password is transcribed by hand into a phone's Wi-Fi dialog, often in a dim ballroom, by someone standing up mid-task. Proportional type does not disambiguate the characters that matter for exactly that task: `O`/`0`, `l`/`1`/`I`, `rn`/`m`. `DESIGN.md` already mandates tabular figures on "every time, date, count, and confirmation number" for the same glance-and-transcribe reason; a Wi-Fi password is the same kind of value and currently gets none of it. The trailing-punctuation limit compounds it — `ORDTG.` deliberately preserves a period the crew member cannot tell from a sentence end (spec §6.3, an accepted limit on the parse side, but the render could disambiguate what the parse cannot).
+
+**Why deferred rather than fixed in the originating branch** (per the class-sweep disposition rule, which defaults to fixing peers in-branch): (a) it needs a design decision this PR cannot settle — tabular figures, a monospace treatment, a tap-to-copy control, or a larger type step are four different answers with different costs on a 390px phone; and (c) every one of them widens the shared `FactRows` primitive past the single optional `testId` that arc declared, on a surface the PR does not otherwise restyle.
+
+**Scope if promoted:** decide the affordance, add the per-row hook to `components/crew/primitives/FactRows.tsx`, apply it at the `venue-wifi-password` push site in `components/crew/sections/VenueSection.tsx`, and pin it with a render assertion. If tap-to-copy wins, it also needs a 44x44 target and a copied-state announcement, which is a materially bigger change than the other three.
+
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
 **Effort:** L (scope floor — design-gated)

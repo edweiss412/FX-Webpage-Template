@@ -50,9 +50,46 @@ RED: add the two `BACKLOG_GRADUATED` rows FIRST (`BL-FLIGHT-LEG-ORIENTATION`, `B
 
 Impeccable dual-gate with the canonical v3 setup sequence (the skill's context loader: PRODUCT.md + DESIGN.md → register reference read → `/impeccable critique` → `/impeccable audit`) on the diff; findings + dispositions in §12 below; the machine-valid `impeccable-gate:` marker written there at close-out per the parser grammar in `tests/docs/_invariant8Closeout.ts` (`critique=RAN audit=RAN p0=... p1=... dispositions=...`; no placeholder until then). Full ladder: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`. Whole-diff codex review, DETACHED dispatch (nohup — harness background tasks get killed on this box), brief: REVIEWER ONLY; consequence bound "every internet value is split correctly or rendered raw verbatim (handled correctly OR signaled, never silently wrong; the notes prose is never discarded)"; fence "organically-authored sheet text; adversarial cell content files to documented limits"; convergence = the AC suite + §4 corpus as the closure. Push → real CI green (12 required contexts; Vercel rate-limit fail is not required) → merge → main sync `0  0` (AC-6, AC-7). Note: NO invariant-12 marker removal in the last commit — the markers leave in Task 4's archiving commit (a graduating entry's marker comes off in the same commit that archives it).
 
-## §12 Impeccable closeout (populated at close-out)
+## §12 Impeccable closeout
 
-Findings + dispositions land here; the standalone marker line is written here at close-out.
+Run 2026-08-10 against the diff's UI surface: `components/crew/sections/VenueSection.tsx` (Wi-Fi split rows + Room row) and `components/crew/primitives/FactRows.tsx` (optional `testId`). Canonical v3 setup gates ran first: `context.mjs` loaded PRODUCT.md + DESIGN.md, and the **product** register reference was read (app UI — design SERVES the product), per the register-selection rule.
+
+**⚠️ DEGRADED: single-context (both isolated assessment sub-agents were dispatched and died without returning).** Recorded rather than hidden, per the critique contract's rule that a silent degraded run is a failed run. Cause is the machine, not the diff: this box was running ~172 concurrent peer sessions at a load average that peaked over 500 during the window, and both agents were lost to the same background-process kill class already documented for it (`AGENTS.md`, Codex silent-death section). The deterministic half did NOT degrade — `detect.mjs` ran directly against both files and returned `[]` (exit 0), and the mechanical UI invariants were re-run by hand over the diff. What degraded is the isolation between the design review and the detector evidence, not their coverage.
+
+### Deterministic scan
+
+`detect.mjs` on both files: **0 findings**, exit 0. Hand-run mechanical invariants over `git diff origin/main...HEAD -- components/`:
+
+| Invariant | Result |
+| --- | --- |
+| em-dash in user-visible copy | PASS — four hits, all inside code comments; no rendered string contains one |
+| arbitrary bracket values (`text-[`, `bg-[`, `shadow-[`, `duration-[`) | PASS — none added |
+| new `className` strings | PASS — none; the diff adds row DATA to an existing primitive, no new markup |
+| 44px tap targets | N/A — the diff introduces no interactive element (`<button>`, `<a>`, `onClick`, `role="button"`, `href` all absent from added lines) |
+| new color token | PASS — none; no `DESIGN.md` contrast pin owed |
+| browser overlay | SKIPPED — no dev server, and starting one risks the documented sibling-worktree `:3000` collision. Fallback signal recorded here rather than claimed as run. |
+
+### Findings and dispositions
+
+**P0: 0. P1: 1 (fixed). P2: 2 (one filed, one accepted). P3: 1 (accepted).**
+
+- **[P1 — FIXED] The retained notes row was labeled "Crew Wi-Fi" while its value describes a hardline.** Probe over the corpus values that produce notes: `Hardline from Encore`, `Encore to provide hardline for streaming`, `Hardline from Encore`, `Encore to provide hardline for streaming`, `Wifi for Polling` — four of five describe a WIRED connection. "Crew Wi-Fi: Hardline from Encore" tells a crew member deciding how to get a stream online the opposite of what the sheet says, which is a correctness defect in copy, not a preference. Renamed to **"Internet notes"**. The RAW-FALLBACK row keeps "Crew Wi-Fi" — there the value is the whole internet cell, so the label is still true, and keeping it is also what preserves the byte-identical fail-soft pin. Spec §3.2 carries the amendment with the same probe, so spec and code do not drift.
+- **[P2 — FILED] The Wi-Fi password row has no transcription affordance.** Proportional `text-sm font-semibold` does not disambiguate `O`/`0` or `l`/`1`/`I` for a value that exists to be typed by hand into a phone in a dim ballroom, and `DESIGN.md` already mandates tabular figures for the same glance-and-transcribe reason on times, dates, counts, and confirmation numbers. Deferred because the affordance is a design decision this PR cannot settle (tabular / monospace / tap-to-copy / larger step) and every option widens `FactRows` past the single declared `testId`. Filed as `BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY` with the live-surface probe (two of four live sheets reach the row).
+- **[P2 — ACCEPTED] "Room" understates that the row names the general-session room only.** A crew member working a breakout can read `Room: SALON ABC` as theirs. Accepted rather than fixed: spec §6.6 already ratifies general-session-only as the scope line, breakout names render in their own room-scoped tiles, and the precise alternative ("General session") is a 15-character `whitespace-nowrap` label that squeezes the value column at 390px — the fix costs more than the ambiguity on the surface where it matters most.
+- **[P3 — ACCEPTED] The three Wi-Fi rows have a ragged left edge**, because only the first carries the WifiIcon. Deliberate: the icon marks where the connectivity group starts, and repeating it three times would be noise against "every element earns its pixel". The ragged edge is a property of the existing `FactRows` primitive (each row is its own flex container with a `shrink-0` label), not something this diff introduced.
+
+### Audit dimensions
+
+| # | Dimension | Score | Key finding |
+| --- | --- | --- | --- |
+| 1 | Accessibility | 4 | `<dl>`/`<dt>`/`<dd>` label-before-value semantics preserved; no new interactive element, so no focus/target surface added; no state carried by color |
+| 2 | Performance | 4 | Pure synchronous server render; one line-oriented regex scan per render, no client boundary, no motion |
+| 3 | Responsive | 3 | Label `whitespace-nowrap` + `shrink-0` against a `wrap-break-word` value column handles a long SSID; "Wi-Fi password" is the longest new label and the one narrowing the value column at 390px |
+| 4 | Theming | 4 | No new token, no hard-coded color, no class change at all |
+| 5 | Anti-patterns | 4 | Detector clean; the rows reuse the existing fact-list vocabulary rather than inventing an affordance |
+| **Total** | | **19/20** | Excellent (minor polish) |
+
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions=recorded
 
 ## Invariant checklist
 
