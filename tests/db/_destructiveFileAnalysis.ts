@@ -17,10 +17,30 @@
  * next escape. Enumerating binding syntax does not terminate; asking the parser which
  * declaration a name resolves to does.
  *
- * Threat model: ordinary authoring mistakes by a contributor. Documented limits, stated
- * rather than pretended away: a guard reached through computed member access
- * (`mod["assertLocalDbUrl"]`), an aliased re-export chain, or a URL laundered through a
- * helper function are out of scope. Those are obfuscation, not mistakes.
+ * Threat model: ordinary authoring mistakes by a contributor.
+ *
+ * **A DOCUMENTED LIMIT, stated because it is load-bearing and I got it wrong once.**
+ * The BINDING questions this module answers are closed by construction: the connected
+ * URL must be a `const` from a trusted guard call, every same-named declaration must
+ * satisfy that, the guard and driver must be import-resolved, and the driver may appear
+ * only in call position. No syntax escapes those.
+ *
+ * The ACQUISITION question is NOT closed. Whole-diff review found five distinct ways to
+ * obtain a second driver — `import()`, `require()`, `import { default as … }`,
+ * `import * as …`, `createRequire`, then `process.getBuiltinModule(…)` — and round 11 of
+ * that review claimed the set was closed at four. Round 12 disproved it. Each rejection
+ * below is real and worth having, but this module does NOT prove that no unchecked
+ * connection exists; it raises the cost of writing one by accident.
+ *
+ * The sound framing is the EXECUTION SITE: every destructive statement must run on a
+ * client bound to an already-checked connection, which makes acquisition irrelevant.
+ * That was attempted and reverted here because real files build clients through local
+ * factories (`resetValidationDataConcurrency.test.ts`'s `newConn()`), so it needs
+ * interprocedural analysis. Filed as `BL-DESTRUCTIVE-GUARD-EXECUTION-SITE`.
+ *
+ * Also out of scope, and genuinely obfuscation rather than mistake: computed member
+ * access (`mod["assertLocalDbUrl"]`), aliased re-export chains, a URL laundered through
+ * a helper.
  */
 import ts from "typescript";
 import { dirname, resolve } from "node:path";
@@ -165,6 +185,12 @@ export function analyseDestructiveFile(
     if (ts.isCallExpression(n)) {
       const isDynamicImport = n.expression.kind === ts.SyntaxKind.ImportKeyword;
       const isRequire = ts.isIdentifier(n.expression) && n.expression.text === "require";
+      // `process.getBuiltinModule("node:module").createRequire(...)` — r12's fifth
+      // acquisition route, and the one that disproved r11's "closed set" claim.
+      const isBuiltinModuleGetter =
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.expression.name.text === "getBuiltinModule";
+      if (isBuiltinModuleGetter) dynamicAcquire = true;
       if (isDynamicImport || isRequire) {
         const a = n.arguments[0];
         // Literal TEXT, not literal KIND. r9 slipped through on

@@ -804,6 +804,18 @@ A middle option exists (guard, but emit a `log.error` with a durable code so the
 
 **Related, same emit path (fold into whichever fix lands):** each emit opens and closes a dedicated postgres connection while the per-show advisory lock is held, lengthening lock hold on every manual sync. Cheap to fix by reusing the transaction's connection for the sink, but that changes the sink's isolation semantics — the row would then roll back with a failed sync rather than recording the failure, which is a behavior decision, not a refactor.
 
+### BL-DESTRUCTIVE-GUARD-EXECUTION-SITE — the destructive-target guard checks connections, when it should check execution sites
+
+**Status:** OPEN · **Severity:** MEDIUM (a guard that raises the cost of a mistake without proving absence) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-10
+
+**Probe evidence.** `tests/db/_destructiveFileAnalysis.ts` verifies that every `postgres(...)` call it can SEE connects to a guarded loopback URL. Whole-diff review of PR #767 found five distinct ways to obtain a driver the analyzer cannot see — `import()`, `require()`, `import { default as … }`, `import * as … `, `createRequire`, and `process.getBuiltinModule("node:module").createRequire` — each demonstrated returning `{"ok":true}` on a file that pruned `TEST_DATABASE_URL`. Every one is now rejected, and round 11 of that review claimed the set was closed at four; round 12 disproved it. **The acquisition enumeration does not terminate**, so the current module raises the cost of writing an unchecked connection by accident without proving none exists.
+
+**The sound framing, which does terminate.** Check the EXECUTION SITE rather than the connections: every destructive statement must run on a client bound to a connection the analyzer already checked. Acquisition then stops mattering — a client obtained by any route simply is not in the checked set.
+
+**Why it was not done in that PR (disposition reason (c) — a redesign of a surface the PR does not otherwise touch).** It was attempted and reverted. Real destructive files build clients through local factories: `tests/db/resetValidationDataConcurrency.test.ts:64` uses `const b = newConn()`. Propagating "checked" through a local factory needs interprocedural analysis, without which the invariant rejects correct code. That is a proper piece of work, not a follow-on tweak, and the PR it surfaced in was about sync-log attribution.
+
+**Acceptance.** Every current fixture in `tests/db/destructiveFileAnalysis.test.ts` still rejects, all real destructive files still pass, AND a file acquiring a driver by a route not in the current rejection list is rejected because its client is not in the checked set. If that lands, the acquisition rules (dynamic import, require, createRequire, getBuiltinModule, non-default import form) can all be DELETED — the redesign should make the module smaller, not larger.
+
 ### BL-SPEC-LINT-CITATION-INTENT — spec:lint checks that a citation resolves, never that it resolves to the right file
 
 **Status:** OPEN · **Severity:** MEDIUM (silent wrong-anchor citations in specs and plans) · **Class:** tooling gate · **Effort:** M · **Filed:** 2026-08-09

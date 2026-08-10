@@ -344,6 +344,22 @@ await target.unsafe("select public.prune_sync_log()");`;
     expect(analyseDestructiveFile(P, src).ok).toBe(false);
   });
 
+  it("(y) process.getBuiltinModule is rejected", () => {
+    // whole-diff r12: the FIFTH acquisition route, and the one that disproved r11's
+    // claim that the set was closed at four. The module header now records that the
+    // acquisition question is not closed and names the sound framing that would close
+    // it (BL-DESTRUCTIVE-GUARD-EXECUTION-SITE).
+    for (const spec of ['"module"', '"node:module"']) {
+      const src = `${IMPORT}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const local = postgres(url, { max: 1 });
+const req = process.getBuiltinModule(${spec}).createRequire(import.meta.url);
+const target = req("postgres")(process.env.TEST_DATABASE_URL!);
+await target.unsafe("select public.prune_sync_log()");`;
+      expect(analyseDestructiveFile(P, src).ok, spec).toBe(false);
+    }
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.
