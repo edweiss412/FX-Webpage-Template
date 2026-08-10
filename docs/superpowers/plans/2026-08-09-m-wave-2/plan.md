@@ -6,7 +6,7 @@
 
 **Architecture:** W-DOCS on `docs/m-wave-2-spec` (spec/plan/brief + demote archives + claim handoff), then `feat/m2-payload-hygiene`, `feat/m2-sync-fault-codes`, `feat/m2-e2e-infra`, `feat/m2-guard-precision`, `feat/m2-ui-cluster` off `origin/main`, each TDD per task, cross-model reviewed, CI-green merged, in that order.
 
-**Date:** 2026-08-09 · **Spec:** `docs/superpowers/specs/2026-08-09-m-wave-2-design.md` (+ ratified brief `docs/superpowers/specs/2026-08-09-m-wave-2-decisions-brief.md`) · **Status:** DRAFT (plan-review round 1 repairs applied)
+**Date:** 2026-08-09 · **Spec:** `docs/superpowers/specs/2026-08-09-m-wave-2-design.md` (+ ratified brief `docs/superpowers/specs/2026-08-09-m-wave-2-decisions-brief.md`) · **Status:** plan-APPROVED (codex-guard R6, 2026-08-09; findings 12/9/4/2/1/0 across R1-R6, all repaired in-branch; spec APPROVED codex-guard R6)
 
 ## Global constraints
 
