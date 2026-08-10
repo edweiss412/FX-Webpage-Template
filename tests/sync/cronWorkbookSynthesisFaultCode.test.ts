@@ -145,9 +145,13 @@ describe("cron workbook-synthesis fault code (BL-CRON-WORKBOOK-FAULT-CODE)", () 
     expect(updateShowParseError).toHaveBeenCalledTimes(1);
     expect(markShowDriveError).not.toHaveBeenCalled();
     // The recorded sync_log row carries the ratified code.
+    // ONE argument since 2026-08-10: insertSyncLog's explicit show-id parameter was
+    // retired, and show_id is resolved from drive_file_id by subselect inside the
+    // statement. Whether the RIGHT show is attributed is asserted where it can be
+    // observed - tests/db/syncLogAttribution.db.test.ts - not against a spy that could
+    // only ever echo back what the caller handed it.
     expect(insertSyncLog).toHaveBeenCalledWith(
       expect.objectContaining({ code: "PARSE_ERROR_LAST_GOOD" }),
-      "show-1",
     );
     // The admin alert is the parse-family producer, not the Drive one.
     expect(upsertAdminAlert).toHaveBeenCalledWith(
