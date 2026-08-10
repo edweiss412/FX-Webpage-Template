@@ -12,9 +12,11 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { DEV_PANEL_PRESENT } from "@/lib/admin/__generated__/devPanelPresent";
+import { cn } from "@/lib/ui/cn";
 
-const devLinkClass =
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+const devLinkClass = cn(
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+);
 
 export function DevToolsRow({
   icon,

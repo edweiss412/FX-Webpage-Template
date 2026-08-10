@@ -41,6 +41,7 @@ import {
 } from "@/components/crew/icons/sectionIcons";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
+import { cn } from "@/lib/ui/cn";
 
 const SECTION_LABELS: Record<SectionId, string> = {
   today: "Today",
@@ -81,11 +82,12 @@ export function CrewSubNav({ activeSection, budgetVisible, onSelect }: CrewSubNa
 
   const tab = (id: SectionId, variant: "desktop" | "mobile") => {
     const isActive = id === activeSection;
-    const base =
-      "inline-flex min-h-tap-min items-center justify-center px-3 text-sm font-medium " +
-      "transition-colors duration-fast ease-out-quart focus-visible:outline-none " +
-      "focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 " +
-      "focus-visible:ring-offset-bg";
+    const base = cn(
+      "inline-flex min-h-tap-min items-center justify-center px-3 text-sm font-medium",
+      "transition-colors duration-fast ease-out-quart focus-visible:outline-none",
+      "focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+      "focus-visible:ring-offset-bg",
+    );
     const desktop = isActive
       ? "border-b-2 border-accent text-text-strong"
       : "border-b-2 border-transparent text-text-subtle hover:text-text";

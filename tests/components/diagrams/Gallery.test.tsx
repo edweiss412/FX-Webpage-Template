@@ -20,6 +20,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const SHOW_ID = "11111111-1111-4111-8111-111111111111";
 const REV = "22222222-2222-4222-8222-222222222222";
@@ -30,6 +31,7 @@ function items(n: number, available = true, keyPrefix = "embedded-obj-"): Galler
     key: `${keyPrefix}${i + 1}.png`,
     alt: `Diagram ${i + 1}`,
     available,
+    variants: [],
   }));
 }
 
@@ -37,16 +39,21 @@ afterEach(() => cleanup());
 
 describe("Gallery — thumbnail grid", () => {
   test("emits asset URLs with bare-UUID rev segment (no `r=` prefix)", () => {
-    // M9 C6b / M7-D3 was REVERTED: thumbnails keep raw <img> because
-    // /_next/image strips auth cookies. Test asserts the raw asset
-    // URL directly (the next/image-aware variant was a transient
-    // state — see commit history).
+    // Thumbnails emit our own private asset-route URLs through the custom loader,
+    // so the /_next/image optimizer is never in the path (AC-3 pins zero optimizer
+    // requests) and nothing strips cookies or rewrites Cache-Control — the reason
+    // the pre-migration revert gave for keeping a raw <img> no longer applies.
+    // Since the next/image migration (spec §6) the element
+    // reports an ORIGIN-QUALIFIED src, so the path is compared rather than the
+    // raw attribute — the contract being pinned is the path shape, and an
+    // origin-anchored regex would fail on a URL that satisfies it.
     render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={items(3)} />);
     const imgs = screen.getAllByRole("img");
     expect(imgs).toHaveLength(3);
     for (const img of imgs) {
       const src = img.getAttribute("src") ?? "";
-      expect(src).toMatch(
+      const path = new URL(src, "http://localhost").pathname;
+      expect(path).toMatch(
         new RegExp(`^/api/asset/diagram/${SHOW_ID}/${REV}/embedded-obj-\\d+\\.png$`),
       );
       expect(src).not.toContain("r=");
@@ -74,9 +81,27 @@ describe("Gallery — thumbnail grid", () => {
     // Caller (DiagramsTile) is responsible for placing embedded entries
     // first. The Gallery itself relays the order verbatim.
     const ordered: GalleryItem[] = [
-      { id: "embedded:obj-1", key: "embedded-obj-1.png", alt: "Embedded 1", available: true },
-      { id: "embedded:obj-2", key: "embedded-obj-2.png", alt: "Embedded 2", available: true },
-      { id: "linked:drv-1", key: "folder-drv-1.jpg", alt: "Linked 1", available: true },
+      {
+        id: "embedded:obj-1",
+        key: "embedded-obj-1.png",
+        alt: "Embedded 1",
+        available: true,
+        variants: [],
+      },
+      {
+        id: "embedded:obj-2",
+        key: "embedded-obj-2.png",
+        alt: "Embedded 2",
+        available: true,
+        variants: [],
+      },
+      {
+        id: "linked:drv-1",
+        key: "folder-drv-1.jpg",
+        alt: "Linked 1",
+        available: true,
+        variants: [],
+      },
     ];
     render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={ordered} />);
     const imgs = screen.getAllByRole("img");
@@ -88,9 +113,27 @@ describe("Gallery — thumbnail grid", () => {
 
   test("AC-7.7: unavailable item renders a placeholder slot, NOT a hidden slot", () => {
     const mixed: GalleryItem[] = [
-      { id: "embedded:obj-1", key: "embedded-obj-1.png", alt: "Diagram 1", available: true },
-      { id: "embedded:obj-2", key: "embedded-obj-2.png", alt: "Diagram 2", available: false },
-      { id: "embedded:obj-3", key: "embedded-obj-3.png", alt: "Diagram 3", available: true },
+      {
+        id: "embedded:obj-1",
+        key: "embedded-obj-1.png",
+        alt: "Diagram 1",
+        available: true,
+        variants: [],
+      },
+      {
+        id: "embedded:obj-2",
+        key: "embedded-obj-2.png",
+        alt: "Diagram 2",
+        available: false,
+        variants: [],
+      },
+      {
+        id: "embedded:obj-3",
+        key: "embedded-obj-3.png",
+        alt: "Diagram 3",
+        available: true,
+        variants: [],
+      },
     ];
     render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={mixed} />);
 
@@ -140,8 +183,20 @@ describe("Gallery — thumbnail grid", () => {
     // last segment). Failed-load tracking MUST key on the unique `id`, else
     // one thumbnail's 4xx blanks its twin. Distinct `id`, identical `key`.
     const twins: GalleryItem[] = [
-      { id: "embedded:obj-1", key: "embedded-dup.png", alt: "Diagram 1", available: true },
-      { id: "embedded:obj-2", key: "embedded-dup.png", alt: "Diagram 2", available: true },
+      {
+        id: "embedded:obj-1",
+        key: "embedded-dup.png",
+        alt: "Diagram 1",
+        available: true,
+        variants: [],
+      },
+      {
+        id: "embedded:obj-2",
+        key: "embedded-dup.png",
+        alt: "Diagram 2",
+        available: true,
+        variants: [],
+      },
     ];
     render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={twins} />);
 
@@ -156,5 +211,191 @@ describe("Gallery — thumbnail grid", () => {
     const slot1 = screen.getByTestId("diagram-slot-1");
     expect(slot1.getAttribute("data-unavailable")).toBeNull();
     expect(within(slot1).queryByRole("img")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// next/image migration (spec §6).
+//
+// The srcset assertions are the load-bearing ones: they prove the browser is
+// offered ONLY variant URLs. A loader that fell back to the original above the
+// ladder would put the original in srcset at 1080w-3840w — exactly the bytes
+// this pipeline exists to stop shipping — while every status-and-MIME style
+// assertion still passed.
+// ---------------------------------------------------------------------------
+
+describe("Gallery — next/image thumbnails", () => {
+  const BLUR = "data:image/webp;base64,UklGRhIAAABXRUJQ";
+
+  function variantItem(overrides: Partial<GalleryItem> = {}): GalleryItem {
+    return {
+      id: "embedded-obj-1",
+      key: "embedded-obj-1.png",
+      alt: "Diagram 1",
+      available: true,
+      variants: [
+        { width: 256, key: "embedded-obj-1.png@256.webp" },
+        { width: 512, key: "embedded-obj-1.png@512.webp" },
+      ],
+      ...overrides,
+    };
+  }
+
+  /** jsdom resolves img.src against the document origin; compare paths, not URLs. */
+  function pathOf(url: string | null): string {
+    return new URL(url ?? "", "http://localhost").pathname;
+  }
+
+  function firstImage(item: GalleryItem): HTMLImageElement {
+    const { container } = render(
+      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[item]} />,
+    );
+    return container.querySelector("img")!;
+  }
+
+  test("every srcset candidate is a VARIANT URL — the original never appears", () => {
+    const img = firstImage(variantItem());
+    const originalUrl = `/api/asset/diagram/${SHOW_ID}/${REV}/embedded-obj-1.png`;
+
+    const candidates = (img.getAttribute("srcset") ?? "")
+      .split(",")
+      .map((entry) => pathOf(entry.trim().split(" ")[0]!))
+      .filter(Boolean);
+    // Without candidates there is nothing to check and the row is vacuous.
+    premise("next/image emitted srcset candidates", candidates.length, 1);
+
+    expect(candidates.every((url) => url.includes("@"))).toBe(true);
+    expect(candidates).not.toContain(originalUrl);
+    // Snapping collapses the candidate list onto the ladder.
+    expect(new Set(candidates)).toEqual(
+      new Set([
+        `/api/asset/diagram/${SHOW_ID}/${REV}/embedded-obj-1.png@256.webp`,
+        `/api/asset/diagram/${SHOW_ID}/${REV}/embedded-obj-1.png@512.webp`,
+      ]),
+    );
+  });
+
+  test("an item with no variants still serves the original", () => {
+    const img = firstImage(variantItem({ variants: [] }));
+
+    expect(pathOf(img.getAttribute("src"))).toBe(
+      `/api/asset/diagram/${SHOW_ID}/${REV}/embedded-obj-1.png`,
+    );
+  });
+
+  test("blurDataURL renders the blur placeholder", () => {
+    const img = firstImage(variantItem({ blurDataURL: BLUR }));
+
+    // next/image inlines the blur bytes into a background-image SVG filter.
+    expect(img.getAttribute("style")).toContain("background-image");
+    expect(img.getAttribute("style")).toContain(BLUR);
+  });
+
+  test.each([
+    ["absent", undefined],
+    ["an empty string", ""],
+    ["a non-string", 42 as unknown as string],
+  ])("blurDataURL that is %s renders NO placeholder", (_label, blurDataURL) => {
+    const img = firstImage(
+      variantItem(blurDataURL === undefined ? {} : { blurDataURL: blurDataURL as string }),
+    );
+
+    expect(img.getAttribute("style") ?? "").not.toContain("background-image");
+  });
+
+  test("thumbnails stay lazy — no priority anywhere (the gallery is below the fold)", () => {
+    expect(firstImage(variantItem()).getAttribute("loading")).toBe("lazy");
+  });
+
+  test("the CELL is the positioned ancestor, not the button", () => {
+    // `fill` is absolute inset-0, so it needs a positioned ancestor — but WHICH
+    // one is load-bearing: WebKit resolves the button's `height: 100%` against
+    // the cell's aspect-ratio BORDER box, so containing-blocking the image on the
+    // button made it 2px taller than the cell's content box and cropped it at the
+    // bottom, while Chromium matched the content box and hid the bug entirely.
+    // Real-browser geometry: tests/e2e/crew-layout-dimensions.spec.ts.
+    const { container } = render(
+      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[variantItem()]} />,
+    );
+    const button = container.querySelector("button")!;
+    const cell = button.parentElement!;
+
+    premiseHolds(
+      "the cell sizes itself by aspect-ratio, which is what makes the box choice matter",
+      cell.className.includes("aspect-square"),
+    );
+    expect(cell.className).toContain("relative");
+    expect(button.className.split(/\s+/)).not.toContain("relative");
+  });
+
+  test("onError still flips to the unavailable branch", () => {
+    const { container } = render(
+      <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[variantItem()]} />,
+    );
+    fireEvent.error(container.querySelector("img")!);
+
+    expect(screen.getByTestId("diagram-slot-0").getAttribute("data-unavailable")).toBe("true");
+  });
+
+  test("REGRESSION PIN — an item carrying none of the new fields renders as before", () => {
+    const legacy = {
+      id: "embedded-legacy",
+      key: "embedded-legacy.png",
+      alt: "Diagram 1",
+      available: true,
+      variants: [],
+    } satisfies GalleryItem;
+
+    expect(pathOf(firstImage(legacy).getAttribute("src"))).toBe(
+      `/api/asset/diagram/${SHOW_ID}/${REV}/embedded-legacy.png`,
+    );
+  });
+});
+
+describe("Gallery — thumbnail sizes", () => {
+  function firstImg(sizes?: string): HTMLImageElement {
+    const { container } = render(
+      <Gallery
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[
+          {
+            id: "embedded-obj-1",
+            key: "embedded-obj-1.png",
+            alt: "Diagram 1",
+            available: true,
+            variants: [
+              { width: 256, key: "embedded-obj-1.png@256.webp" },
+              { width: 1024, key: "embedded-obj-1.png@1024.webp" },
+            ],
+          },
+        ]}
+        {...(sizes ? { sizes } : {})}
+      />,
+    );
+    return container.querySelector("img")!;
+  }
+
+  test("a caller-supplied sizes reaches the element and CHANGES which tier is picked", () => {
+    // The over-declaration this fixes is invisible to status and URL-shape
+    // assertions: every candidate is still a listed variant either way. What
+    // separates the correct value from the wrong one is WHICH tier the browser
+    // is offered at a given viewport, so that is what this asserts.
+    const narrow = "(min-width: 1200px) 92px, 29vw";
+    const img = firstImg(narrow);
+
+    expect(img.getAttribute("sizes")).toBe(narrow);
+    const wide = firstImg();
+    expect(wide.getAttribute("sizes")).not.toBe(narrow);
+    premiseHolds(
+      "the default is a real value, not an empty attribute",
+      (wide.getAttribute("sizes") ?? "").length > 0,
+    );
+  });
+
+  test("the default sizes reflects the FULL-WIDTH branch, not the split", () => {
+    // A default tuned for the narrow split column would under-declare in the
+    // full-width branch and ship a blurry thumbnail — the opposite failure.
+    expect(firstImg().getAttribute("sizes")).toContain("280px");
   });
 });
