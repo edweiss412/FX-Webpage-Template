@@ -87,17 +87,59 @@ export function analyseDestructiveFile(
   /** Trustworthy only if imported from the guard module AND not shadowed anywhere. */
   const trusted = (name: string): boolean => imported.has(name) && !shadowed.has(name);
 
+  // The DRIVER is resolved by import too, symmetric with the guard. r5 showed a local
+  // function named `postgres` wrapping a differently-imported driver: `postgres(url)`
+  // looked guarded, the wrapper discarded its argument and connected to
+  // TEST_DATABASE_URL. Trusting a call because of its NAME is the same mistake on the
+  // other participant, so it gets the same answer - provenance, not spelling.
+  const driverNames = new Set<string>();
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    if (stmt.moduleSpecifier.text !== "postgres") continue;
+    const clause = stmt.importClause;
+    if (clause?.name) driverNames.add(clause.name.text);
+  }
+  // A local declaration of an imported driver name shadows it, exactly as for the guard.
+  const driverShadowed = new Set<string>();
+  const noteDriverDecl = (name: ts.BindingName): void => {
+    if (ts.isIdentifier(name)) {
+      if (driverNames.has(name.text)) driverShadowed.add(name.text);
+      return;
+    }
+    for (const el of name.elements) if (ts.isBindingElement(el)) noteDriverDecl(el.name);
+  };
+  const walkDriverDecls = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) || ts.isParameter(n)) noteDriverDecl(n.name);
+    else if (ts.isFunctionDeclaration(n) && n.name && driverNames.has(n.name.text)) {
+      driverShadowed.add(n.name.text);
+    }
+    ts.forEachChild(n, walkDriverDecls);
+  };
+  ts.forEachChild(sf, walkDriverDecls);
+
+  const isDriver = (name: string): boolean => driverNames.has(name) && !driverShadowed.has(name);
+
   const guardCalls: ts.CallExpression[] = [];
   const connects: ts.CallExpression[] = [];
+  /** Any call to a name that LOOKS like the driver but does not resolve to it. */
+  let impostorConnect = false;
   const collect = (n: ts.Node): void => {
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
       const callee = n.expression.text;
       if (GUARD_NAMES.includes(callee)) guardCalls.push(n);
-      else if (callee === "postgres") connects.push(n);
+      else if (isDriver(callee)) connects.push(n);
+      else if (callee === "postgres") impostorConnect = true;
     }
     ts.forEachChild(n, collect);
   };
   ts.forEachChild(sf, collect);
+
+  if (impostorConnect) {
+    return {
+      ok: false,
+      reason: "`postgres(...)` is called on a name that is not the imported driver",
+    };
+  }
 
   if (guardCalls.length === 0) return { ok: false, reason: "no loopback guard is called" };
   if (!guardCalls.some((c) => trusted((c.expression as ts.Identifier).text))) {

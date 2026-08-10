@@ -23,7 +23,10 @@ import { describe, expect, it } from "vitest";
 import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
 
 const P = "tests/db/fixture.test.ts";
-const IMPORT = `import { assertLocalDbUrl } from "./_localDbUrl";`;
+const IMPORT = [
+  `import postgres from "postgres";`,
+  `import { assertLocalDbUrl } from "./_localDbUrl";`,
+].join("\n");
 const PRUNE = `await sql.unsafe("select public.prune_sync_log()");`;
 
 describe("analyseDestructiveFile — accepted forms", () => {
@@ -227,6 +230,22 @@ switch (process.env.MODE) {
     const sql = postgres(url2, { max: 1 });
     ${PRUNE}
 }`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
+  it("(r) a LOCAL wrapper named `postgres` around a differently-imported driver", () => {
+    // whole-diff r5: `postgres(url)` looked guarded while the wrapper discarded its
+    // argument and connected to TEST_DATABASE_URL through an aliased driver. Trusting
+    // a call because of its NAME was the same mistake the guard side already made, so
+    // it gets the same answer: the driver is resolved by import, not by spelling.
+    const src = `import rawPostgres from "postgres";
+import { assertLocalDbUrl } from "./_localDbUrl";
+function postgres(_url: string, _opts?: unknown) {
+  return rawPostgres(process.env.TEST_DATABASE_URL!);
+}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(url, { max: 1 });
+${PRUNE}`;
     expect(analyseDestructiveFile(P, src).ok).toBe(false);
   });
 
