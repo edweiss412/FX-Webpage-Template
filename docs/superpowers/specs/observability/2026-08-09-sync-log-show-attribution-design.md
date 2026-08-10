@@ -265,10 +265,19 @@ Three findings across rounds 1 and 2 were instances of one vector — *a `sync_l
 
 So the check flags a call only when its argument is an **inline object literal lacking a drive-file-id property** — decidable locally, still catching all seven target sites (which are `{ code: … }` literals), and dropping all three false positives. A variable argument is a DOCUMENTED LIMIT, not a finding. Narrowing the claim beats widening the recognizer: a guard with false positives trains contributors to add exemptions reflexively, and then it is decoration rather than a control.
 
-A NEW meta-suite under `tests/sync/` (named `_metaSyncLogAttribution`, created by this change, so it is a deliverable rather than a citation) walks every call site reaching a `sync_log` writer **from disk** and requires each to be in exactly one state:
+A NEW meta-suite under `tests/sync/` (named `_metaSyncLogAttribution`, created by this change, so it is a deliverable rather than a citation) walks every call site reaching a `sync_log` writer **from disk** and requires each to be in exactly one of **three** states.
 
-1. **Attributing** — the call passes a `drive_file_id`, or
-2. **Registered run-level** — an explicit `RUN_LEVEL_SYNC_LOG_SITES` row naming the site and why it cannot name a file.
+(R11 F2: an earlier revision said *two* here while §6.2 introduced a third. Implementing the two-state list literally would reject every legitimate gap marker; implementing the later claim would contradict "exactly one". The oracle was underspecified at exactly the point round 10 extended it, so the count is stated once, here, and §6.2 refers to it rather than restating it.)
+
+The three:
+
+1. **Attributing** — the call passes a `drive_file_id`; or
+2. **Exempted at the site as run-level** — an inline `// run-level-sync-log: <reason>` marker on or immediately above the call, asserting *no show is knowable there*; or
+3. **Marked as a filed emission gap** — an inline `// sync-log-emission-gap: <BL-id>` marker, asserting *the attempt is not emitted at all and the gap is filed* (§6.2).
+
+**Exemption is site-precise, never a file-level registry.** A file-scoped row for `lib/sync/runOnboardingScan.ts` — which legitimately needs one for its run-level readiness emit at `lib/sync/runOnboardingScan.ts:1134` — would exempt the seven superseded sites in that same file, i.e. exactly the sites this guard exists to catch. An exemption's granularity must be at least as fine as the defect's, and the file needing the exemption is usually the file holding the instances, because both come from one subsystem. Same shape as invariant 10's `// no-telemetry: <reason>`, and it does not rot when lines move.
+
+**Markers 2 and 3 are distinct on purpose.** Run-level asserts no show is knowable; the gap marker asserts the attempt is unemitted and filed. A staged apply knows its show perfectly well, so collapsing them would encode a deferred repair as a design property and leave no way to tell a genuine run-level site from one waiting on a filing.
 
 Filesystem discovery is the load-bearing part: a NEW call site fails by default rather than being silently exempt. Same posture as `tests/log/_metaMutationSurfaceObservability.test.ts` (invariant 10). Mechanism: `walkSourceFiles` (`lib/messages/__internal__/walkSourceFiles.ts:8-11`) plus the TypeScript AST, exactly as that precedent uses them.
 
