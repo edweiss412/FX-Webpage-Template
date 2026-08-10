@@ -926,3 +926,119 @@ describe("/api/asset/diagram — ASSET_UNAVAILABLE breadcrumb (finding #8)", () 
     expect(breadcrumbs()).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Variant accept-set (spec §5).
+//
+// The accept-set is EXACTLY the manifest-listed original and variant paths for
+// the live revision, over entries with a non-null snapshotPath. A variant match
+// must sign the VARIANT's own object path — serving original bytes under a
+// variant URL would silently defeat the whole pipeline while looking correct.
+// ---------------------------------------------------------------------------
+
+describe("/api/asset/diagram — manifest-listed variants", () => {
+  const variantKey = `${assetKey}@512.webp`;
+  const variantPath = `diagram-snapshots/shows/${showId}/${currentRev}/${variantKey}`;
+
+  function withVariants(variants: unknown, overrides: Record<string, unknown> = {}) {
+    const base = currentDiagrams();
+    return {
+      current: {
+        ...base,
+        embeddedImages: [{ ...base.embeddedImages[0]!, variants, ...overrides }],
+      } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+  }
+
+  test("a listed variant key serves webp from the VARIANT object path", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+
+    const response = await getDiagram(currentRev, variantKey);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/webp");
+    expect(response.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    // The signed object is the variant itself — not the original it was derived from.
+    expect(routeMock.storageDownloads).toEqual([variantPath]);
+  });
+
+  test("HEAD on a listed variant key matches GET's status", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+
+    expect((await headDiagram(currentRev, variantKey)).status).toBe(200);
+  });
+
+  test("an unlisted but plausible variant key is 410", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+
+    // Same shape, a tier that was never generated: plausibility is not authorization.
+    expect((await getDiagram(currentRev, `${assetKey}@256.webp`)).status).toBe(410);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("a listed variant under a STALE revision is 410", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+
+    expect((await getDiagram(pendingRev, variantKey)).status).toBe(410);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("an entry without a variants field is 410 for any variant key", async () => {
+    routeMock.diagrams = { current: currentDiagrams(), pending: null };
+
+    expect((await getDiagram(currentRev, variantKey)).status).toBe(410);
+  });
+
+  test("a null snapshotPath with plausible variants is 410 and never throws", async () => {
+    // The null-path gate must run BEFORE any dirname derivation (spec §5 R2 F2):
+    // deriving a directory from null is the throw this row exists to prevent.
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }], { snapshotPath: null });
+
+    expect((await getDiagram(currentRev, variantKey)).status).toBe(410);
+  });
+
+  // The full §4 malformed matrix. Every row must 410 WITHOUT throwing — a malformed
+  // manifest field shrinks the accept-set toward originals-only, it never 500s.
+  const MALFORMED: Array<[string, unknown]> = [
+    ["a non-array variants value", "not-an-array"],
+    ["a null variants value", null],
+    ["an object variants value", { width: 512, key: variantKey }],
+    ["a null row", [null]],
+    ["a non-object row", ["nope"]],
+    ["a non-finite width", [{ width: Number.NaN, key: variantKey }]],
+    ["an infinite width", [{ width: Number.POSITIVE_INFINITY, key: variantKey }]],
+    ["a zero width", [{ width: 0, key: variantKey }]],
+    ["a negative width", [{ width: -512, key: variantKey }]],
+    ["an empty-string key", [{ width: 512, key: "" }]],
+    ["a non-string key", [{ width: 512, key: 512 }]],
+    ["a missing key", [{ width: 512 }]],
+  ];
+
+  test.each(MALFORMED)("%s is 410 without throwing", async (_label, variants) => {
+    routeMock.diagrams = withVariants(variants);
+
+    const response = await getDiagram(currentRev, variantKey);
+
+    expect(response.status).toBe(410);
+    expect(assetLogRecords.filter((record) => record.level === "error")).toEqual([]);
+  });
+
+  test("the ORIGINAL still serves when a malformed variants field sits beside it", async () => {
+    // The accept-set shrinks toward originals-only; it does not collapse to nothing.
+    routeMock.diagrams = withVariants("not-an-array");
+
+    const response = await getDiagram(currentRev, assetKey);
+
+    expect(response.status).toBe(200);
+    expect(routeMock.storageDownloads).toEqual([canonicalPath]);
+  });
+
+  test("a picker session is still required for a variant URL", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+    routeMock.link = { kind: "continue" };
+
+    expect((await getDiagram(currentRev, variantKey)).status).toBe(401);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+});

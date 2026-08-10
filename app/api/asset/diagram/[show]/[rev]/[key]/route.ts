@@ -102,10 +102,47 @@ function objectPath(storagePath: string): string | null {
   return storagePath.slice(prefix.length);
 }
 
+/**
+ * The §4 guard conditions, applied to one entry's `variants` field.
+ *
+ * A malformed manifest value can never make this route throw — it shrinks the
+ * accept-set toward originals-only. Every rejected shape here is a row in the
+ * route suite's malformed matrix.
+ */
+function listedVariantKeys(entry: { variants?: unknown }): string[] {
+  const raw = entry.variants;
+  if (!Array.isArray(raw)) return [];
+  const keys: string[] = [];
+  for (const row of raw) {
+    if (typeof row !== "object" || row === null) continue;
+    const { width, key } = row as { width?: unknown; key?: unknown };
+    if (typeof width !== "number" || !Number.isFinite(width) || width <= 0) continue;
+    if (typeof key !== "string" || key.length === 0) continue;
+    keys.push(key);
+  }
+  return keys;
+}
+
 function findAsset(diagrams: PersistedDiagrams, expectedPath: string): AssetEntry | null {
   for (const entry of [...diagrams.embeddedImages, ...diagrams.linkedFolderItems]) {
-    if (entry.snapshotPath === expectedPath) {
-      return { snapshotPath: entry.snapshotPath, mimeType: entry.mimeType };
+    // Non-null string gate FIRST (spec §5): `snapshotPath: string | null` is a valid
+    // persisted shape, and deriving a directory from null is the throw this ordering
+    // prevents. A null-path entry with plausible-looking variants is simply skipped.
+    const { snapshotPath } = entry;
+    if (typeof snapshotPath !== "string" || snapshotPath.length === 0) continue;
+
+    if (snapshotPath === expectedPath) {
+      return { snapshotPath, mimeType: entry.mimeType };
+    }
+
+    const directory = snapshotPath.slice(0, snapshotPath.lastIndexOf("/") + 1);
+    for (const key of listedVariantKeys(entry)) {
+      if (`${directory}${key}` === expectedPath) {
+        // The VARIANT's own path is what gets signed — serving the original's bytes
+        // under a variant URL would defeat the pipeline while looking correct.
+        // Variants are always webp by construction (spec §3 encoding).
+        return { snapshotPath: expectedPath, mimeType: "image/webp" };
+      }
     }
   }
   return null;
