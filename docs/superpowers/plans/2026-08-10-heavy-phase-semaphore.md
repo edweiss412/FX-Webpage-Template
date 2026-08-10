@@ -22,7 +22,7 @@
 
 ## e2e harness-readiness: N/A — no Playwright attached; all tests are vitest + child_process.
 
-Shared test scaffolding (anti-tautology): every case builds its OWN `mkdtemp` slot dir via `FX_HEAVY_SLOT_DIR`; helper `runWrapped(env, argv)` spawns `python3 scripts/with-heavy-slot.py`; assertions read child-written artifact files and the SPEC-CONTRACTED stderr lines (spec §4.5 runtime stderr contract), never incidental output. Timing bounds derive from the case's own `FX_HEAVY_POLL_MS`; `FX_HEAVY_JITTER_PCT=0` wherever determinism is asserted. Each snippet typechecked against strict tsconfig before plan dispatch.
+Shared test scaffolding (anti-tautology): every case builds its OWN `mkdtemp` slot dir via `FX_HEAVY_SLOT_DIR`; helper `runWrapped(env, argv)` spawns `python3 scripts/with-heavy-slot.py` with a SANITIZED environment — it strips `FX_HEAVY_SLOT_HELD` and every ambient `FX_HEAVY_*` before applying the case's own vars (plan R1 F2: the closeout gate dogfoods the suite under `pnpm heavy`, so test-spawned wrappers would otherwise inherit a LIVE outer marker, validate it, and pass through — every mutual-exclusion fixture silently vacuous). Cases therefore behave identically wrapped or unwrapped; assertions read child-written artifact files and the SPEC-CONTRACTED stderr lines (spec §4.5 runtime stderr contract), never incidental output. Timing bounds derive from the case's own `FX_HEAVY_POLL_MS`; `FX_HEAVY_JITTER_PCT=0` wherever determinism is asserted. Each snippet typechecked against strict tsconfig before plan dispatch.
 
 ## Acceptance criteria (each AC delegates its full arm inventory to the named spec §7 case — the spec is canonical)
 
@@ -45,23 +45,23 @@ Shared test scaffolding (anti-tautology): every case builds its OWN `mkdtemp` sl
 
 ## Task 1 — wrapper core: mutual exclusion, crash release, transparency
 
-<!-- task: red=`pnpm vitest run tests/scripts/withHeavySlot.test.ts` ac=AC-1,AC-2,AC-3 -->
+<!-- task: red=`pnpm vitest run tests/scripts/withHeavySlot.test.ts` ac=AC-1,AC-2,AC-3,AC-4 -->
 
-RED: create tests/scripts/withHeavySlot.test.ts implementing spec §7 cases 1-3 exactly as specified (premise-carrying overlap oracle, jitter-aware crash-release bound, exit-code/argv transparency). Fails: scripts/with-heavy-slot.py does not exist.
+RED: create tests/scripts/withHeavySlot.test.ts implementing spec §7 cases 1-4 exactly as specified (premise-carrying overlap oracle, jitter-aware crash-release bound, exit-code/argv transparency, descendant lock-lifetime pin — case 4 moved here from Task 2 because the behavior it pins is emergent from this task's execvp+spawn semantics, plan R1 F1). Fails: scripts/with-heavy-slot.py does not exist.
 
-GREEN: implement the §4.1 acquisition path for the single-generation happy case — steps 1-8 EXCEPT the §4.5 consistency/recreate machinery (Task 3) and priority (Task 4): dir bootstrap, SH attempt bracket on recreate.lock (NB-first + waiting line), config create/adopt with contracted stderr lines, acquire scan, metadata write (basename+argc only), wait loop with warn cadence, post-acquire validation, `acquired slot-<i>` line, `os.set_inheritable` + `os.execvp`. Stdlib only.
+GREEN — MINIMAL for cases 1-4 only (plan R1 F1: nothing tested by a later case lands here): dir bootstrap, minimal config create/adopt (enough for the scan to know N; the full atomic-publication protocol with its discriminator lines is Task 3's, where case 9 tests it), acquire scan with `O_CREAT`, wait loop with basic warn cadence, `acquired slot-<i>` line, `os.set_inheritable` + `os.execvp`. NO metadata content/redaction (Task 2, case 7), NO SH bracket (Task 3, case 13), NO post-acquire validation (Task 3, cases 9/11), NO priority or reentrancy (Task 4). Stdlib only.
 
 Commit: `feat(infra): heavy-phase slot wrapper core (mutual exclusion, crash-safe)`
 
 ## Task 2 — lock-lifetime pin, disable hatch, diagnostics, knob domains
 
-<!-- task: red=`pnpm vitest run tests/scripts/withHeavySlot.test.ts` ac=AC-4,AC-6,AC-7,AC-8 -->
+<!-- task: red=`pnpm vitest run tests/scripts/withHeavySlot.test.ts` ac=AC-6,AC-7,AC-8 -->
 
-RED: add spec §7 cases 4, 6, 7, 8 (all arms, incl. the secret-absence sentinel and the full knob-domain matrix).
+RED: add spec §7 cases 6, 7, 8 (all arms, incl. the secret-absence sentinel and the full knob-domain matrix; case 4 belongs to Task 1 per its F1 re-scope).
 
 GREEN: implement `FX_HEAVY_DISABLE` direct-exec, O_RDONLY metadata read + `holder unknown (metadata unreadable)` branch, and every §4.5 knob accept-set (warn-and-default numerics incl. `FX_HEAVY_JITTER_PCT`; warn-on-set-but-not-1 booleans).
 
-Commit: `feat(infra): heavy-slot lifetime pin, disable hatch, holder diagnostics, knob domains`
+Commit: `feat(infra): heavy-slot disable hatch, holder diagnostics, knob domains`
 
 ## Task 3 — topology: consistency, validation, recreate
 
@@ -102,9 +102,9 @@ Commit: `feat(infra): pnpm heavy entry point + AGENTS.md heavy-phase rule`
 (Gate-command validity: probed against constructed failing state — exits 1 on a branch without Task 5's commit, 0 after; anchors ordering, not a test file.)
 
 - Full local gates, wrapper dogfooded: `pnpm heavy pnpm test`, `pnpm typecheck` (vitest AND playwright tsconfigs), `pnpm exec eslint .`, `pnpm format:check`.
+- Round-economy filing FIRST (plan R1 F3 — the merged tree IS the closeout artifact; nothing tracked mutates post-merge): every review round's corpus row and any threshold-owed filing section commits with that round's repair, and the final filing state is part of the diff the last review round examines.
 - Whole-diff codex-guard review (stage diff) to APPROVE; push; PR; real CI green (`gh pr checks --required`); `gh pr merge --merge` same turn; ff-sync `0 0`; Stage 4.4 (pane+agent labels cleared, nudge CronDelete).
 - Ledger: no BL-/DEF- rows exist for this arc — nothing to mark or archive.
-- Round-economy filing: extend `docs/review-rounds/feat/heavy-phase-semaphore/4a3be8baed76.md` with the final spec round count and any plan/diff sections the thresholds require.
 
 <!-- tasks: end -->
 
