@@ -806,7 +806,14 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 
 A working draft exists in the shipping session's scratchpad; the design above is authoritative.
 
-**Promotion prerequisite:** none. Ready to implement.
+**Two open definitional questions the shipping arc did NOT settle (spec R14 F2/F3) — resolve these before implementing, do not treat the design above as complete on them:**
+
+- **The signature-keyed accept-set is not yet decidable.** If "carries `logSync`" means a DIRECT property it excludes real entry points whose sink is nested — `runManualSyncForShow`/`_unlocked` via `processDeps.logSync` (`lib/sync/runManualSyncForShow.ts:48-72`), `applyStaged`/`_unlocked`/`applyStagedParse` via `firstPublishedTailDeps.logSync` (`lib/sync/applyStaged.ts:369`, `:950`, `:1152`, `:1940`, `:2073`). If nested properties count, a checker probe admitted five non-runners — `evaluateQualityRegression_unlocked` (`lib/sync/runScheduledCronSync.ts:316-381`), `runPhase1_unlocked` (`:2543-2549`), `runPhase2_unlocked` (`:2551-2557`), `prepareProcessOneFile` (`:2858`), `prepareOnboardingFiles` (`lib/sync/runOnboardingScan.ts:1194-1204`) — plus `runOnboardingScan`, whose production caller passes only `{ onProgress }` (`app/api/admin/onboarding/scan/route.ts:282-284`) while the callee opens its own logging transaction, leaving no truthful disposition.
+- **The three markers are not disjoint in the current tree.** Every run-level seed also reaches no per-file attempt, so `run-level-sync-log` and `sync-log-no-attempt` are both defensible at all eight seeds (`lib/sync/runScheduledCronSync.ts:3780`, `:3796`; the four `lib/onboarding/sessionLifecycle.ts` sites; `lib/sync/runOnboardingScan.ts:1134`; `app/api/drive/webhook/route.ts:224`). Either collapse them or find a predicate that separates them.
+
+**Promotion prerequisite:** none for scheduling, but the two questions above are the first work, not an afterthought — they are why this was descoped.
+
+**Interim coverage:** `fix/sync-log-show-id-duration` ships `tests/sync/syncLogRepairSites.test.ts`, an enumerated pin over the fifteen sites it repairs. Delete it when this guard lands.
 
 ### BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches
 

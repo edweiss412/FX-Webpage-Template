@@ -265,6 +265,12 @@ The structural guard that would enforce §3.2's rule at CI time is **not part of
 
 **What this costs, stated honestly.** The repairs in this change are correct without the guard; what is deferred is *regression prevention*. A future call site can reintroduce the defect and nothing will fail. That is a real gap, and it is why the entry is filed as ready-to-implement with no promotion prerequisite rather than as a nice-to-have.
 
+**The repairs still get an oracle — an enumerated one (R14 F1).** Descoping the guard would otherwise leave the caller repairs untested: the seven onboarding branches are mutually exclusive, so no behavioural test reaches more than one (R10 F1), and no other assertion pins the eight sink installations. That is a real hole and R14 F1 is right to call it.
+
+So this change ships `tests/sync/syncLogRepairSites.test.ts`: a **fixed list** of the fifteen sites this PR repairs, asserting each passes a `drive_file_id` or installs a sink. It is deliberately an enumeration, and that is not a relapse — the anti-enumeration lesson of this arc applies to **covers**, which claim completeness and rot when a site is added. This claims nothing about completeness. It pins fifteen specific repairs made in this diff, which is exactly what a regression test is for, and it is decidable with no accept-set, no marker taxonomy, and no writer derivation — the three things whose definitions would not converge (R14 F2, F3).
+
+When `BL-SYNC-LOG-ATTRIBUTION-METATEST` lands, it subsumes this test and this test is deleted.
+
 **What this change still ships:** every repair the guard would have policed — the sink resolution at all three writers (§3.1), the caller fixes at the seven superseded sites and the eight sinkless entry points (§3.5.1), and the markers on the fenced surfaces (§6.2), which are inert documentation until the guard lands but are written now while the reasoning is fresh.
 
 ---
