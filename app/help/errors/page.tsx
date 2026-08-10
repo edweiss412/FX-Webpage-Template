@@ -1,11 +1,11 @@
 // app/help/errors/page.tsx
-// M11 Phase E.13: catalog-iterating reference page. Server component — no
-// client JS of its own (RefAnchor is the only client island).
+// M11 Phase E.13: catalog-iterating reference page. Server component — its
+// only client islands are RefAnchor and the trailing HelpReportCta.
 //
 // Audit Chunk 4 (help-readability): the flat, alphabetical, dozens-long index
 // is grouped by code family under plain `<h2 id="kebab">` section headings with
 // a top jump-list, each code shows its CODE (the thing Doug copies from /admin),
-// and the "tell Eric" CTA renders ONCE at the bottom instead of under every
+// and the report CTA renders ONCE at the bottom instead of under every
 // entry. The h2 group level also fixes the prior h1 -> h3 outline skip
 // (DEFERRED.md D7) without widening RefAnchor's catalog-code-only VALID_ID
 // (D.5 contract): catalog codes keep RefAnchor + copy-link; the family headings
@@ -14,6 +14,7 @@ import { Fragment } from "react";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { RefAnchor } from "@/app/help/_components/RefAnchor";
 import { Callout } from "@/app/help/_components/Callout";
+import { HelpReportCta } from "@/app/help/errors/_components/HelpReportCta";
 import { FAMILIES, OTHER, familyFor } from "@/app/help/errors/_families";
 // Full-sweep copy plan (Task 9): the page's own renderability filter is now
 // the shared catalogDocsValidator predicate (single source with the T2-4
@@ -56,7 +57,7 @@ export default function ErrorsPage() {
       <p>
         Entries are grouped by the part of the app they come from. Jump to a section, or search the
         page for your code with <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd>. Still stuck after reading
-        it? There is a contact link at the foot of the page.
+        it? There is a report button at the foot of the page.
       </p>
 
       <nav aria-label="Jump to an error category" className="my-6">
@@ -97,19 +98,16 @@ export default function ErrorsPage() {
       ))}
 
       <Callout type="note">
-        {/* AC-11.11 r10: the trailing CTA is "tell Eric →" (link text + aria-label
-            pinned by tests/help/page-errors.test.tsx); rendered ONCE here instead
-            of under every entry (audit Chunk 4). The link is the closing clause so
-            the decorative arrow sits at the sentence terminus. aria-label drops
-            the arrow from the accessible name. */}
-        Read your code&rsquo;s explanation above, and note the code and what you were doing.{" "}
-        <a
-          href="mailto:edweiss412@gmail.com?subject=FXAV%20bug%3A&body=What%20happened%3A%0A%0AWhich%20code%3A%0A"
-          aria-label="If this keeps happening, tell Eric"
-          className="underline underline-offset-2"
-        >
-          If this keeps happening, tell Eric →
-        </a>
+        {/* AC-11.11 r12 (2026-08-09 spec §2.5) retires the r11 mailto stopgap:
+            the trailing CTA is the §13.1 surface-5 report button, rendered ONCE
+            here rather than under every entry (audit Chunk 4). The button
+            captures whichever code anchor the reader arrived on, so the prose
+            does not ask them to retype it. */}
+        <p className="mb-3">
+          Read your code&rsquo;s explanation above. If it keeps happening after that, report it and
+          Eric will pick it up.
+        </p>
+        <HelpReportCta />
       </Callout>
     </>
   );
