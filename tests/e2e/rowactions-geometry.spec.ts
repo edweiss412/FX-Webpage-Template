@@ -38,7 +38,11 @@ import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 const TOL = 0.5;
 /** Enough rows that the document scrolls at the viewport below, with margin. */
 const SEEDED_SHOWS = 16;
-const CREW_PER_SHOW = 3;
+// Enough to EXCEED the submenu cap (12 shown + an overflow item = 13 rows at
+// the 44px floor = 572px), so the capped-and-scrolling case is reachable. A
+// three-person fixture cannot produce it, which is how R7 found focus landing
+// on an invisible item with no test able to see it.
+const CREW_PER_SHOW = 14;
 /** Unique per file, so a re-run purges its own residue and nothing else. */
 const TITLE_PREFIX = "RowActions Geometry";
 const DRIVE_FILE_ID = (i: number) => `rowactions-geometry-e2e:${i}`;
@@ -318,6 +322,50 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     // …and it actually dismisses.
     await page.mouse.click(4, 4);
     await expect(page.locator('[data-testid^="row-actions-menu-"]')).toHaveCount(0);
+  });
+
+  test("keyboard focus in a CAPPED submenu is revealed, never left off-screen", async ({
+    page,
+  }) => {
+    // Every focus move passes `preventScroll` — correct, a menu must not drag
+    // the page around — so something else has to scroll the panel's OWN box.
+    // Without it, arrowing past the fold moves focus to an item nobody can see.
+    const trigger = await lastSeededTrigger(page);
+    await trigger.scrollIntoViewIfNeeded();
+    await trigger.click();
+    await page.locator('[data-testid^="row-action-preview-"]').first().click();
+    const submenu = page.locator('[data-testid^="row-action-preview-menu-"]');
+    await expect(submenu).toBeVisible();
+
+    const panel = page.locator("[data-portal-scroll]").last();
+    const items = submenu.locator('[role="menuitem"]');
+    const count = await items.count();
+    // PREMISE (own inputs): the panel must actually be capped and scrolling,
+    // and there must be more items than fit — otherwise every item is visible
+    // and the assertion cannot fail.
+    const metrics = await panel.evaluate((el) => ({
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    }));
+    expect(
+      metrics.scrollHeight,
+      "premise not met: the submenu panel must overflow its cap for this case to mean anything",
+    ).toBeGreaterThan(metrics.clientHeight);
+    expect(count, "premise not met: the fixture must fill the cap").toBeGreaterThan(1);
+
+    // Arrow to the LAST item, which starts below the fold.
+    await page.keyboard.press("End");
+    const revealed = await page.evaluate(() => {
+      const active = document.activeElement as HTMLElement | null;
+      const box = active?.closest<HTMLElement>("[data-portal-scroll]");
+      if (!active || !box) return null;
+      const a = active.getBoundingClientRect();
+      const b = box.getBoundingClientRect();
+      return { top: a.top, bottom: a.bottom, boxTop: b.top, boxBottom: b.bottom };
+    });
+    expect(revealed, "focus must be on an item inside the scrolling panel").not.toBeNull();
+    expect(revealed!.top).toBeGreaterThanOrEqual(revealed!.boxTop - TOL);
+    expect(revealed!.bottom).toBeLessThanOrEqual(revealed!.boxBottom + TOL);
   });
 
   test("compound: the row unmounting while the menu is open leaves no orphaned portal", async ({

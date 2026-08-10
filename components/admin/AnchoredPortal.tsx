@@ -262,6 +262,11 @@ export function AnchoredPortal({
       ref={panelRef}
       data-testid={testId}
       data-portal-side={applied?.side ?? preferredSide}
+      // Marks THIS node as the surface's scroll container. A capped panel
+      // scrolls, and keyboard focus moves inside it with `preventScroll` — so
+      // something has to reveal the focused item, and it must be this box
+      // rather than the page.
+      data-portal-scroll=""
       style={{
         position: "absolute",
         left: applied?.left ?? 0,

@@ -66,6 +66,30 @@ const MENU_ITEM_CLASS =
 const ICON_CLASS = "size-4 shrink-0 text-text-subtle";
 
 /**
+ * Move focus to a menu item and REVEAL it inside its own scroll container.
+ *
+ * Every focus move in this component passes `preventScroll: true`, which is
+ * correct — a menu must not drag the page around under the admin. But a capped
+ * panel scrolls, and the capped case is reachable: the crew submenu holds up to
+ * 12 members plus an overflow item, thirteen rows at the 44px floor, 572px of
+ * content that a short viewport caps and scrolls. Without this, arrowing past
+ * the fold moves focus to an item nobody can see.
+ *
+ * Only the container's own `scrollTop` is touched, computed from rects, so the
+ * page never moves.
+ */
+function focusMenuItem(el: HTMLElement | null | undefined): void {
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  const box = el.closest<HTMLElement>("[data-portal-scroll]");
+  if (!box) return;
+  const boxRect = box.getBoundingClientRect();
+  const rect = el.getBoundingClientRect();
+  if (rect.top < boxRect.top) box.scrollTop -= boxRect.top - rect.top;
+  else if (rect.bottom > boxRect.bottom) box.scrollTop += rect.bottom - boxRect.bottom;
+}
+
+/**
  * Cap + overflow (spec §3.2): a 40-person crew must not render a 40-item
  * submenu. Past the cap the list ends with one item that opens the show, where
  * the full roster lives.
@@ -236,9 +260,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     if (open) {
       const active = document.activeElement;
       if (!(active instanceof HTMLElement) || !menuRef.current?.contains(active)) {
-        menuRef.current
-          ?.querySelector<HTMLElement>('[role="menuitem"]')
-          ?.focus({ preventScroll: true });
+        focusMenuItem(menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]'));
       }
     }
     // ACTIONABLE surfaces close. The read-only outcome banners (`errorCode`,
@@ -256,16 +278,12 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // APG: opening a menu button moves focus to the first item.
   useEffect(() => {
     if (!open) return;
-    menuRef.current
-      ?.querySelector<HTMLElement>('[role="menuitem"]')
-      ?.focus({ preventScroll: true });
+    focusMenuItem(menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]'));
   }, [open]);
 
   useEffect(() => {
     if (!submenuOpen) return;
-    submenuRef.current
-      ?.querySelector<HTMLElement>('[role="menuitem"]')
-      ?.focus({ preventScroll: true });
+    focusMenuItem(submenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]'));
   }, [submenuOpen]);
 
   // Accidental-accept safety (WCAG 2.4.3 + §3.8): when the hold prompt appears,
@@ -477,16 +495,16 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       }
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      items[(idx + 1 + items.length) % items.length]?.focus({ preventScroll: true });
+      focusMenuItem(items[(idx + 1 + items.length) % items.length]);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      items[(idx - 1 + items.length) % items.length]?.focus({ preventScroll: true });
+      focusMenuItem(items[(idx - 1 + items.length) % items.length]);
     } else if (e.key === "Home") {
       e.preventDefault();
-      items[0]?.focus({ preventScroll: true });
+      focusMenuItem(items[0]);
     } else if (e.key === "End") {
       e.preventDefault();
-      items[items.length - 1]?.focus({ preventScroll: true });
+      focusMenuItem(items[items.length - 1]);
     } else if (e.key === "Enter" || e.key === " ") {
       // Space does not natively activate an <a>, so both keys route through
       // click and every item behaves identically regardless of its element.
@@ -511,16 +529,16 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       dismissMenu(false);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      items[(idx + 1 + items.length) % items.length]?.focus({ preventScroll: true });
+      focusMenuItem(items[(idx + 1 + items.length) % items.length]);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      items[(idx - 1 + items.length) % items.length]?.focus({ preventScroll: true });
+      focusMenuItem(items[(idx - 1 + items.length) % items.length]);
     } else if (e.key === "Home") {
       e.preventDefault();
-      items[0]?.focus({ preventScroll: true });
+      focusMenuItem(items[0]);
     } else if (e.key === "End") {
       e.preventDefault();
-      items[items.length - 1]?.focus({ preventScroll: true });
+      focusMenuItem(items[items.length - 1]);
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       (document.activeElement as HTMLElement | null)?.click();

@@ -75,6 +75,11 @@ on:
       # gate too — naming only the components would leave that path dark.
       - "lib/admin/archiveCopy.ts"
       - "lib/admin/syncRequest.ts"
+      # Row geometry consumes --spacing-tap-min directly: the 44px floor sizes
+      # the trigger, every menu item and therefore the panels the geometry spec
+      # measures. A token edit can break containment, so the file that DEFINES
+      # the token triggers the gate too.
+      - "app/globals.css"
       # Every production surface the needs-attention holds rollup touches: a
       # later regression in any of them must not leave the holds spec dark.
       - "lib/admin/identityHolds.ts"
