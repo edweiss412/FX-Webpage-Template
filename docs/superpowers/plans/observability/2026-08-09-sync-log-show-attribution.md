@@ -2,9 +2,11 @@
 
 **Spec:** `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` (canonical; this plan implements it, TDD per task, one commit per task). **Branch:** `fix/sync-log-show-id-duration`. **Charter:** `BL-ADMIN-PER-SHOW-HISTORY`.
 
-impeccable-gate: N/A — no UI surface
+**Invariant 8 APPLIES to this change** (plan R1 F1). Task 3c edits `app/admin/dev/actions.ts`, `app/admin/show/[slug]/_actions/roleToken.ts` and `app/admin/show/[slug]/_actions/useRaw.ts`, and `AGENTS.md:20` defines any file under `app/` except `app/api/**` as a UI surface **regardless of whether the edit is visually apparent**. An earlier revision claimed `N/A` reasoning that no visual change occurs; the invariant is written on file location precisely so that reasoning cannot be used.
 
-(Live marker, not illustrative. This change touches no file under `app/` or `components/`, no `@theme` token block, and neither `DESIGN.md` nor `tailwind.config.*`. The `app/` paths cited in the spec are context for a decision NOT to build UI, not deliverables.)
+The invariant-8 dual gate runs at close-out on the affected diff, and its marker line is written **then**, with real counts, in the close-out record. It is deliberately absent from this plan rather than carrying a placeholder: the marker grammar admits only `RAN`/`RAN-DEGRADED`, so any value written before the gate runs would be false, and a false marker is worse than a missing one — it is the exact "assert a protection instead of shipping it" defect this arc spent sixteen rounds removing.
+
+(Live marker. **Invariant 8 APPLIES** — plan R1 F1: Task 3c edits `app/admin/dev/actions.ts`, `app/admin/show/[slug]/_actions/roleToken.ts` and `app/admin/show/[slug]/_actions/useRaw.ts`, and `AGENTS.md:20` defines any file under `app/` except `app/api/**` as a UI surface regardless of whether the edit is visually apparent. An earlier revision claimed `N/A` on the reasoning that no *visual* change occurs; the invariant is written on file location precisely so that reasoning cannot be used. The dual gate runs at close-out and this marker is completed with its counts.)
 
 ---
 
@@ -145,7 +147,7 @@ values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::
 
 **RED validity.** The exact-object `toHaveBeenCalledWith` assertions at `tests/sync/runScheduledCronSync.test.ts:2643-2680` fail the moment the entry gains a field. The production line is the entry construction inside `logSync` (`lib/sync/runScheduledCronSync.ts:2241-2249`).
 
-Add `showId?: string | null` and `durationMs?: number` to `SyncLogEntry` (`tests/sync/runScheduledCronSync.test.ts:446-456`); add `attemptStartedAtMs?: number` to `SyncLogDeps` (`tests/sync/runScheduledCronSync.test.ts:2218-2220`).
+Add `durationMs?: number` to `SyncLogEntry` — **not** `showId` (plan R1 F2: an explicit show-id channel is the design the spec rejected in §3.1.1, and Task 1's own text forbids it) (`tests/sync/runScheduledCronSync.test.ts:446-456`); add **both** `attemptStartedAtMs?: number` **and** `now?: () => Date` to `SyncLogDeps` (plan R1 F2: `logSync` computes `now() - start`, so a widening carrying only the start cannot read `deps.now` under the declared parameter type and would fall back to ambient time, defeating the injected-delta oracle) (`tests/sync/runScheduledCronSync.test.ts:2218-2220`).
 
 **Exact injection point.** `processOneFile(driveFileId, mode, fileMeta, deps: ProcessOneFileDeps = {})` (`tests/sync/runScheduledCronSync.test.ts:2707-2712`). Capture at the top, before `prepareProcessOneFile`, then bind once:
 
@@ -242,7 +244,7 @@ The rule is therefore: **a file importing an exported sync entry point must supp
 
 Census — exactly **two of seven** production entry points install a sink today (`app/api/cron/sync/route.ts:21` and `app/api/drive/webhook/route.ts:230`); the six below do not.
 
-**First, widen the type that cannot carry a sink.** `RunManualStageForFirstSeenDeps` (`lib/sync/runManualStageForFirstSeen.ts:52-62`) has `upsertAdminAlert` and `publishShowInvalidation` but no `logSync`, so callers *cannot* pass one and the signature-keyed accept-set would exclude the path entirely. Add `logSync?: ProcessOneFileDeps["logSync"]` before wiring any call site — otherwise the rule launders missing plumbing into "not an entry point".
+**No type widening is needed.** `RunManualStageForFirstSeenDeps` already carries `logSync?: ProcessOneFileDeps["logSync"]` (`lib/sync/runManualStageForFirstSeen.ts:63`). An earlier revision of this plan mandated adding it, from a grep window that stopped one line short (plan R1 F18). Callers can pass a sink today; the defect is only that they do not.
 
 **Eight known call sites**, one property each (`logSync: writeSyncLog`) — and the count is illustrative, not the contract. The derived assertion above is the cover; two of these eight were found only after the six-site list was published, which is the fifth hand-list to come up short in this arc.
 
@@ -366,4 +368,4 @@ Archive `BL-ADMIN-PER-SHOW-HISTORY` to `BACKLOG-archive.md` with the UI half rec
 
 ## Commit discipline
 
-One commit per task, conventional-commits style, `fix(sync):` / `test(sync):` / `feat(db):` scopes. `impeccable-gate: N/A — no UI surface` in the closeout.
+One commit per task, conventional-commits style, `fix(sync):` / `test(sync):` / `feat(db):` scopes. `impeccable-gate: critique=PENDING audit=PENDING p0=0 p1=0 dispositions=none` in the closeout.
