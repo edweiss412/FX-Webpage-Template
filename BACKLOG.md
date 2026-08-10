@@ -138,7 +138,7 @@ carry these two sites with it, since the marginal cost then collapses to the edi
 
 ## BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE — the lightbox pins the original with nothing to watch while it loads
 
-**Status:** IN PROGRESS · **Branch:** feat/diagram-viewing-polish · filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** medium · **Class:** UX · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** feat/diagram-viewing-polish · **Filed:** from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** medium · **Class:** UX · **Effort:** S
 
 The active lightbox slide sets `pinOriginal: true` (`components/diagrams/GalleryLightbox.tsx`), so
 opening a diagram downloads the full-resolution original — deliberately, because zoom needs it
@@ -156,7 +156,7 @@ ratified spec decision and needs a spec amendment, which is why it did not land 
 
 ## BL-DIAGRAM-BLUR-EDGE-SIZE — the 16px blur carries no structure for line art and is brightest where it hurts
 
-**Status:** IN PROGRESS · **Branch:** feat/diagram-viewing-polish · filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** UX · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** feat/diagram-viewing-polish · **Filed:** from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** UX · **Effort:** S
 
 `BLUR_MAX_EDGE = 16` (`lib/sync/diagramVariants.ts`) is the spec's bound (§3). A 16px downsample of a
 white stage plot with thin black lines averages to a near-uniform light field: it delivers the full
@@ -172,7 +172,7 @@ placeholder on the lightbox tiers only. Both change spec §3, so neither landed 
 
 ## BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE — a failed thumbnail drops focus and says nothing
 
-**Status:** IN PROGRESS · **Branch:** feat/diagram-viewing-polish · filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** A11Y · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** feat/diagram-viewing-polish · **Filed:** from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** A11Y · **Effort:** S
 
 When a thumbnail's runtime load fails, the gallery cell swaps from `<button>` to a non-interactive
 `<div>` (`components/diagrams/Gallery.tsx`). If that thumbnail held focus, focus falls to `<body>`.
