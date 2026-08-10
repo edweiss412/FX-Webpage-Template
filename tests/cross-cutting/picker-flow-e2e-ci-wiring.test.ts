@@ -163,6 +163,10 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
     "Admin Reset + Rotate flow: changing the share-token invalidates the old URL and the new URL works",
   ],
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": [],
+  // Wired 2026-08-10 (M-wave 2 W-E2E): the §5.7 anchor pair + restricted-viewer
+  // recovery run un-skipped on desktop-chromium alone (the spec header records
+  // the measured WebKit __Host- envelope constraint). Skips nothing.
+  "tests/e2e/right-now-transitions.spec.ts": [],
   // Wired 2026-08-09 (BL-RESURRECT-MOBILE-SAFARI-E2E). Rows are EXPLICIT — an
   // empty array is a claim ("this spec skips nothing"), and the ENROLLED
   // membership assertion below refuses a missing row rather than defaulting it.
@@ -195,6 +199,7 @@ const ENROLLED = [
   "tests/e2e/stage-restricted-crew-schedule.spec.ts",
   "tests/e2e/crew-page.spec.ts",
   "tests/e2e/theme-toggle.spec.ts",
+  "tests/e2e/right-now-transitions.spec.ts",
 ] as const;
 
 const EXEMPT: Record<string, string> = {

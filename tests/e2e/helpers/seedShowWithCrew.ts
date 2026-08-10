@@ -109,6 +109,13 @@ export type SeedShowWithCrewOptions = {
    */
   eventDetails?: ShowRow["event_details"];
   crew?: SeedCrewMemberInput[];
+  /**
+   * shows_internal seed, written INSIDE the same locked transaction as the show
+   * insert. `runOfShow` lands in shows_internal.run_of_show — the per-day agenda
+   * store resolveKeyTimes reads for the RightNow hero's per-day Show anchors.
+   * Omit → no shows_internal row (getShowForViewer projects runOfShow: null).
+   */
+  internal?: { runOfShow?: unknown };
 };
 
 export type SeededShow = {
@@ -158,11 +165,15 @@ function runLockedSeedTx(driveFileId: string, statements: string[], context: str
     ...statements,
     "commit;",
   ].join("\n");
-  const dsn = resolvePsqlTarget({
-    caller: "seedShowWithCrew",
-    envVars: ["TEST_DATABASE_URL", "DATABASE_URL"],
-    honorRemoteOptIn: true,
-  });
+  // Deliberately NOT TEST_DATABASE_URL (the devCaptureStaged precedent): this
+  // helper's hazard is a SPLIT TARGET, not merely a remote one. The token
+  // read-back below and every consumer suite's PostgREST admin client resolve
+  // the loopback SUPABASE_URL stack, so the locked psql writes must land on the
+  // SAME database — honoring an ambient validation TEST_DATABASE_URL would seed
+  // one database and read another (or, with the refusal, fail every consumer
+  // under the canonical .env.local, which is what the first full crew run
+  // measured on 2026-08-10). The resolver falls through to the loopback default.
+  const dsn = resolvePsqlTarget({ caller: "seedShowWithCrew" });
   try {
     return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
       input: sql,
@@ -238,6 +249,12 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
           ${sqlTextArray(row.roleFlags)},
           ${row.claimedViaOauthAt == null ? "null" : `${sqlString(row.claimedViaOauthAt)}::timestamptz`},
           ${sqlJsonbOrNull(row.stageRestriction)}, ${sqlJsonbOrNull(row.dateRestriction)});`,
+    );
+  }
+  if (options.internal !== undefined) {
+    statements.push(
+      `insert into public.shows_internal (show_id, run_of_show)
+       values (${sqlString(showId)}::uuid, ${sqlJsonbOrNull(options.internal.runOfShow ?? null)});`,
     );
   }
   runLockedSeedTx(driveFileId, statements, `seed (${driveFileId})`);
