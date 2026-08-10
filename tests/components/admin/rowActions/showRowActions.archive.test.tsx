@@ -315,3 +315,53 @@ describe("Archive — a rejected action still speaks, and the confirm always nam
     expect(prose).not.toBe(archiveConsequenceProse(null));
   });
 });
+
+// ── whole-diff review R3 (background refresh does NOT remount the row) ──────
+// Spec §3.5 assumed a background `router.refresh()` re-mounts the row and takes
+// the menu with it. It does not: `router.refresh()` merges the RSC payload
+// WITHOUT losing React state (Next 16 useRouter docs), and ShowsTable keys rows
+// by `row.id`, which does not change when a show is unpublished. The same
+// component instance therefore survives with `row.published` flipped — and the
+// Archive confirm and held decision render OUTSIDE the eligibility gate,
+// because the ARIA menu content model puts them beside the menu.
+describe("Archive — a row that loses eligibility under an open menu", () => {
+  test("a published→unpublished refresh closes the confirm and leaves Open only", () => {
+    const r = row({ slug: "flip" });
+    premiseHolds("the fixture row starts published", r.published === true);
+    const { rerender } = render(<ShowRowActions row={r} />);
+    openMenu("flip");
+    enterConfirm("flip");
+    // PREMISE (own inputs): the confirm must be on screen before the flip, or
+    // its absence afterwards proves nothing.
+    premiseHolds(
+      "the confirm is open before the refresh",
+      q("row-actions-archive-confirm-flip") !== null,
+    );
+
+    // The SAME instance re-renders with new server data — no remount.
+    rerender(<ShowRowActions row={{ ...r, published: false }} />);
+
+    // AC-2: an unpublished row offers Open only. A confirm left actionable here
+    // would archive a show the server would refuse anyway, after telling the
+    // admin it was about to succeed.
+    expect(q("row-actions-archive-confirm-flip")).toBeNull();
+    expect(q("row-actions-archive-go-flip")).toBeNull();
+    expect(q("row-action-archive-flip")).toBeNull();
+    expect(q("row-action-resync-flip")).toBeNull();
+    expect(q("row-action-preview-flip")).toBeNull();
+    expect(q("row-action-open-flip")).not.toBeNull();
+    expect(archiveActionMock).not.toHaveBeenCalled();
+  });
+
+  test("a failure banner from the previous state does not outlive the eligibility change", async () => {
+    archiveActionMock.mockResolvedValue({ ok: false, code: "infra_error" });
+    const r = row({ slug: "banner" });
+    const { rerender } = render(<ShowRowActions row={r} />);
+    openMenu("banner");
+    enterConfirm("banner");
+    fireEvent.click(q("row-actions-archive-go-banner")!);
+    await waitFor(() => expect(q("row-actions-archive-error-banner")).not.toBeNull());
+    rerender(<ShowRowActions row={{ ...r, published: false }} />);
+    expect(q("row-actions-archive-error-banner")).toBeNull();
+  });
+});

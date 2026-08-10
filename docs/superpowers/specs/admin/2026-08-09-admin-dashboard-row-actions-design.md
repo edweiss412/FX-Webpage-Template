@@ -90,7 +90,7 @@ States: closed / open / open+pending / open+error / confirm-step (Archive). Pair
 | held-decision → open+pending (Accept, second POST) | instant; pending spinner returns |
 | held-decision → open (Keep) | instant dismiss, no request |
 | compound: row unmounts (bucket flip after archive) while menu open | the portal closes via its row-unmount subscription (§3.1 positioning contract) — no orphaned portal; asserted |
-| compound: server refresh re-renders row while menu open (background revalidate) | menu closes (row identity re-mounts) — accepted; noted so the e2e doesn't flake on it |
+| compound: server refresh re-renders row while menu open (background revalidate) | the menu STAYS OPEN — corrected at whole-diff R3 against the Next 16 `useRouter` docs (`node_modules/next/dist/docs/01-app/03-api-reference/04-functions/use-router.md`): `router.refresh()` merges the RSC payload WITHOUT losing React state, and `ShowsTable` keys rows by `row.id`, which does not change. The original row assumed a remount that does not happen. What the surface owes instead is ELIGIBILITY: if the refresh flips the row to unpublished, the submenu, the Archive confirm, the held decision and any failure banner all close, leaving Open only (AC-2) — asserted on a same-instance re-render, since a remount would not exercise it. |
 
 ### 3.6 Help doc
 

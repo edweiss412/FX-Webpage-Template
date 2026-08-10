@@ -184,6 +184,28 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing second render: the backdrop portal cannot exist during the server render or the hydrating one, so the flip to `mounted` IS the mechanism (the HoverHelp / AnchoredPortal precedent carries the same waiver).
   useEffect(() => setMounted(true), []);
 
+  /**
+   * A row can lose its mutating actions UNDER AN OPEN MENU. The spec's §3.5
+   * compound row assumed a background `router.refresh()` remounts the row and
+   * takes the menu with it; it does not. `router.refresh()` merges the RSC
+   * payload WITHOUT losing React state (Next 16, `useRouter` docs), and
+   * `ShowsTable` keys each row by `row.id`, which does not change when the
+   * show is unpublished. So the same component instance survives with
+   * `row.published` flipped to false, and without this the Archive confirm and
+   * the held Re-sync decision — which render outside the eligibility gate, as
+   * the ARIA menu content model requires — would stay actionable on a row that
+   * AC-2 says may offer Open only.
+   */
+  useEffect(() => {
+    if (showMutatingActions) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a RESET on an eligibility change, not a derivation: it runs only on the published→unpublished edge, sets constants, and cannot cascade.
+    setSubmenuOpen(false);
+    setConfirmingArchive(false);
+    setHeldShrink(null);
+    setArchiveFailure(null);
+    setErrorCode(null);
+  }, [showMutatingActions]);
+
   // APG: opening a menu button moves focus to the first item.
   useEffect(() => {
     if (!open) return;
@@ -636,7 +658,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               </>
             ) : null}
           </div>
-          {confirmingArchive ? (
+          {showMutatingActions && confirmingArchive ? (
             // In-place swap of the Archive ROW (§3.5): the item is replaced,
             // never duplicated, so there is exactly one archive affordance.
             <div
@@ -686,7 +708,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               </div>
             </div>
           ) : null}
-          {archiveFailure ? (
+          {showMutatingActions && archiveFailure ? (
             // Every reachable failure says SOMETHING: the two lowercase
             // sentinels get generic prose (they are NOT §12.4 codes and
             // must never reach messageFor), catalog codes get catalog copy.
@@ -705,7 +727,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
             </div>
           ) : null}
 
-          {errorCode ? (
+          {showMutatingActions && errorCode ? (
             // Same split as the shipped ReSyncButton reference (:280-287): the
             // live region is the MESSAGE node, and the named group wraps it, so
             // no focusable control is announced as part of the alert.
@@ -730,7 +752,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
             </div>
           ) : null}
 
-          {heldShrink && !errorCode ? (
+          {showMutatingActions && heldShrink && !errorCode ? (
             // NOT a live region, deliberately: it holds this decision's own
             // controls and takes focus, so a reader would otherwise hear the
             // buttons as part of the announcement. The arrival is announced on
