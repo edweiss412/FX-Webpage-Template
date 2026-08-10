@@ -52,6 +52,7 @@ import { namesReferAny } from "@/lib/data/nameMatch";
 import { resolveTransportOwners } from "@/lib/data/transportOwnerResolve";
 import { showCacheTag } from "@/lib/data/showCacheTag";
 import { decodeJsonbColumn } from "@/lib/db/coerceJsonbObject";
+import { freshSourceAnchors } from "@/lib/sheet-links/freshSourceAnchors";
 import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
 import { deriveSchedulePhases } from "@/lib/parser";
 import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
@@ -872,8 +873,14 @@ async function readShowDataForViewer(
     runOfShow,
     // not-subject-to-meta: projected from the already-fetched shows row
     driveFileId: (showRowDb.drive_file_id as string | null | undefined) ?? null,
-    sourceAnchors:
-      (showRowDb.source_anchors as Record<string, SourceAnchor> | null | undefined) ?? {},
+    // Anchor freshness gate (spec 2026-08-09-m-wave-2 §2.3): anchors computed from
+    // an older Drive revision than the show's data demote to the builder's #gid=0
+    // fallback arm rather than deep-linking into a layout that has moved.
+    sourceAnchors: freshSourceAnchors(
+      showRowDb.source_anchors as Record<string, SourceAnchor> | null | undefined,
+      (showRowDb.source_anchors_modified_time as string | null | undefined) ?? null,
+      (showRowDb.last_seen_modified_time as string | null | undefined) ?? null,
+    ),
     ...(financials ? { financials } : {}),
   };
 }

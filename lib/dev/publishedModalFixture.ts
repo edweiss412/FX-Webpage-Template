@@ -584,4 +584,6 @@ export function applyFixture(
   }
 
   return { snapshot, dataOverrides };
+}// Anchor freshness (spec 2026-08-09-m-wave-2 §2.3): dev-only fixture data,
+}// not a shows-row projection — the freshness helper does not apply.
 }

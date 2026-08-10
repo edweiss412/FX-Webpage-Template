@@ -1518,6 +1518,13 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    coi_status = $15,
                    pull_sheet = $16::jsonb,
                    source_anchors = coalesce($17::jsonb, source_anchors),
+                   -- Anchor stamp (spec 2026-08-09-m-wave-2 §2.3): a fresh anchor write
+                   -- stamps the revision it was computed from ($14 = this pass's
+                   -- modifiedTime); the preserve arm preserves the old stamp with the map.
+                   source_anchors_modified_time = case
+                     when $17::jsonb is not null then $14::timestamptz
+                     else source_anchors_modified_time
+                   end,
                    last_synced_at = now(),
                    last_checked_at = now(),
                    last_sync_status = 'ok',
@@ -1546,6 +1553,12 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    coi_status = $16,
                    pull_sheet = $17::jsonb,
                    source_anchors = coalesce($18::jsonb, source_anchors),
+                   -- Anchor stamp (spec 2026-08-09-m-wave-2 §2.3): fresh write stamps the
+                   -- processed revision ($15); the preserve arm keeps the old stamp.
+                   source_anchors_modified_time = case
+                     when $18::jsonb is not null then $15::timestamptz
+                     else source_anchors_modified_time
+                   end,
                    last_synced_at = now(),
                    last_checked_at = now(),
                    last_sync_status = 'ok',
@@ -1584,12 +1597,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
                   unpublish_token, unpublish_token_expires_at, source_anchors,
+                  source_anchors_modified_time,
                   last_synced_at, last_checked_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, $21::jsonb, now(), now(), 'ok', null${extraValues})
+                        $19::uuid, $20::timestamptz, $21::jsonb,
+                        case when $21::jsonb is not null and $21::jsonb <> '{}'::jsonb
+                             then $16::timestamptz end,
+                        now(), now(), 'ok', null${extraValues})
                 on conflict do nothing
                 returning id
               `,
