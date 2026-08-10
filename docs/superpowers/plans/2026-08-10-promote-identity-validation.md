@@ -16,8 +16,9 @@ Red is written by this task (invariant-1 shape): repointing the realdb suite at 
 
 1. `EXPECTED_ASSET_NAMES_SQL` per spec §4.1: discriminated `kind='original'` (full `snapshotPath`) / `kind='variant'` (key) rows, both JSON legs keeping the malformed-`variants` guard verbatim; count SQL deleted.
 2. `queryRows<T>` on `LockablePromoteTx` + its `postgresTxAdapter` only (shared `LockableSyncTx` untouched — five other implementers enumerated in the spec must NOT change).
-3. Realdb assertions: name LIST with multiplicities (sorted-array equality) for a seeded manifest incl. variants, null-`snapshotPath` exclusion, a duplicate-basename manifest, and the malformed-variants row; exercised through the COMPOSED `withPromoteLock` → `withShowLock` → `queryRows` path.
-4. Green: suite passes.
+3. Realdb assertions: the full `{kind, name}` ROW list with multiplicities (sorted-array equality on BOTH fields — R1 F2: name-only equality lets originals mislabeled as variants bypass path binding, and variants mislabeled as originals go falsely `mispathed`) for a seeded manifest incl. variants, null-`snapshotPath` exclusion, a duplicate-basename manifest, and the malformed-variants row; exercised through the COMPOSED `withPromoteLock` → `withShowLock` → `queryRows` path.
+4. Structural fences (R1 F4): a source-scan assertion that `EXPECTED_ASSET_COUNT_SQL` no longer exists anywhere in `lib/` (the single-source negative), and a type-level assertion that `LockableSyncTx` does NOT declare `queryRows` (e.g. a `@ts-expect-error` on `declare const t: LockableSyncTx; t.queryRows` in a typecheck-only test) so a shared-interface widening fails the suite rather than the diff review.
+5. Green: suite passes.
 
 ## Task 2 — Path binding + set comparison + deltas + emit
 
@@ -27,7 +28,7 @@ Red is written by this task (invariant-1 shape): the new fixtures fail against t
 
 1. Path binding first (every `original` row's dirname === `canonicalPrefix(show_id, revision)`; slash-less paths are `mispathed` by definition), then multiset comparison at both checkpoints; deltas `{missing, extra, duplicated, mispathed, truncated}` bounded to 10, present on the three comparison-derived branches only.
 2. The post-commit `log.warn` with `code: "SNAPSHOT_PROMOTE_MANIFEST_MISMATCH"` + deltas + `snapshotRevisionId` inside `promoteSnapshotUpload`, after the transaction resolves, outside the lock.
-3. Fixtures per spec §6: the filing's probe shape (red today — it passes; green when it fails with `missing`+`extra` populated); all-required-plus-extra (`extra` only — exact-set); duplicated-requirement (`duplicated`, not `missing`); stale-revision snapshotPath (`mispathed`, before any listing comparison — the R4 probe shape); exact match promotes; 11-name delta → 10 + `truncated`; rollback-on-post-move-mismatch (moved objects restored); emit ordering sink-spy (fires once per deltas-carrying outcome, post-resolve, never on rollback-failure/lock-skipped). Expected names derived from fixture manifests, never from implementation output.
+3. Fixtures per spec §6: the filing's probe shape (red today — it passes; green when it fails with `missing`+`extra` populated); all-required-plus-extra (`extra` only — exact-set); duplicated-requirement (`duplicated`, not `missing`); stale-revision snapshotPath (`mispathed`, before any listing comparison — the R4 probe shape; ORDERING PROVEN by a storage spy asserting `storage.list` was NEVER invoked on that fixture — R1 F3); exact match promotes; 11-name delta → 10 + `truncated`; rollback-on-post-move-mismatch (moved objects restored); emit ordering sink-spy (fires once per deltas-carrying outcome, post-resolve, never on rollback-failure/lock-skipped). Expected names derived from fixture manifests, never from implementation output.
 4. Green: suite passes; `pnpm vitest run tests/sync` green as the belt.
 
 ## Task 3 — Graduation + merge sequence
@@ -36,7 +37,7 @@ Red is written by this task (invariant-1 shape): the new fixtures fail against t
 
 Red now (the entry heading exists; the negated grep exits 1; exits 0 once graduated — same command).
 
-1. Graduate the entry to the archive (marker off in the graduation commit — invariant 12's sanctioned shape); registry row per `tests/docs/_metaDeferralLedgerGraduation.test.ts`; `pnpm vitest run tests/docs` green as the belt.
+1. Graduate the entry to the archive (marker off in the graduation commit — invariant 12's sanctioned shape); registry row per `tests/docs/_metaDeferralLedgerGraduation.test.ts`. **Completion checks (R1 F1 — the red alone would pass on a bare deletion):** `grep -q "BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES" BACKLOG-archive.md` (archived, not deleted) AND `grep -q "BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES" tests/docs/_metaDeferralLedgerGraduation.test.ts` (registry row present); then `pnpm vitest run tests/docs` green as the belt.
 2. Whole-diff cross-model review to APPROVE; real CI green; `gh pr merge --merge`; fast-forward main; `0  0` check.
 
 <!-- tasks: end -->
