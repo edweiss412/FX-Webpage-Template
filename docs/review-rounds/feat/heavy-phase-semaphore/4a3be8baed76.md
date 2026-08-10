@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 16 rounds
+## diff — 17 rounds
 
-**Examined:** sixteen counted rounds on the implementation diff, dispatched as two
+**Examined:** seventeen counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1/1/2/1/1 findings across rounds 1-16 — thirty in total.
+string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1/1/2/1/1/2 findings across rounds 1-17 — thirty-two in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned fifteen is a paragraph of
+spec rounds had probed each one. The half that burned sixteen is a paragraph of
 English and a regex list.
 
-**Judgment:** eight of the thirty diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the thirty-two diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -314,13 +314,26 @@ more precisely — code spans pinned AS PARSED, the two `strong` markers asserte
 `strong` NODES (so dropping the bold entirely still fails, while its spelling is
 free), and location pinned by heading text and depth.
 
-That left a real design consequence worth recording: the guard now carries TWO
-normalized representations of the same rule, and every check must pick the right
-one. Marker location and the pin use the CONTENT form; clause patterns and
-`pinnedBy` use the RAW form, because they assert backticked commands and the
-content form has no backticks left to match. Getting that wrong is silent in one
-direction — it was seven false violations here, caught immediately — but it is the
-kind of split that wants the comment it now has.
+That left a design consequence the filing recorded as a hazard to be careful about:
+the guard now carried TWO normalized representations, and every check had to pick
+the right one. Round 17 then produced a false positive in EACH half of that split —
+`` `` pnpm heavy <cmd> `` `` (same `inlineCode` value, different delimiter
+spelling) rejected by the raw-form patterns, and an `<!-- editorial note -->` whose
+`html` node value `plainText` concatenated straight into the content pin.
+
+**The split was the defect, not the tuning of it**, and the filing's "wants a
+comment" framing was the wrong disposition one round before being refuted — the
+third time in this arc that a repair was declared safe one round early. The close
+is ONE canonical rendering emitted from the parse tree: code spans always
+single-backticked whatever they were written as, `html` and `code` nodes
+contributing nothing because comments and code blocks are not the contract, and
+every check — pin, clause patterns, `pinnedBy`, polarity — reading the same string.
+There is no longer a wrong form to pick.
+
+Worth naming as the arc's most repeated authoring error, since it now has four
+instances (R3, R4, R14, R16): **declaring a class closed in the same commit that
+closes one member of it.** Each time the honest move was available and cheap — say
+which axis was closed and which were not yet examined.
 
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
@@ -335,9 +348,10 @@ cannot be nested into the preceding section, the code spans are pinned AS PARSED
 no clause-referenced span can quietly stop being one, the pin ignores the list
 marker glyph and every other markdown delimiter because those are syntax rather
 than content, emphasis is asserted as `strong` NODES so its spelling is free while
-its absence is not, and 65 cases — 43 `OPERATORS` rows plus twenty stays-quiet
-rows — run on every suite, so no repair can silently regress an earlier one in
-either direction. What
+its absence is not, one canonical AST-derived rendering feeds every check so no
+delimiter spelling and no editorial comment can reach any of them, and 67 cases —
+43 `OPERATORS` rows plus twenty-two stays-quiet rows — run on every suite, so no
+repair can silently regress an earlier one in either direction. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
 than a pattern list when the guard's subject is prose. That has no static signature;
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and

@@ -382,9 +382,42 @@ function stripListMarker(text: string): string {
   return text.replace(/^\s*[-*+]\s+/, "");
 }
 
-/** The item's content with every markdown delimiter dropped by the parser. */
+/**
+ * ONE canonical rendering of the rule, derived from the parse tree.
+ *
+ * Round 16 split this into two representations — content for the pin, raw for the
+ * pattern checks — and round 17 found a false positive in each half of the split:
+ * `` `` pnpm heavy <cmd> `` `` is the same `inlineCode` value with a different
+ * delimiter spelling, which the raw-form patterns rejected; and an
+ * `<!-- editorial note -->` is an `html` node whose value `plainText` happily
+ * concatenated into the content pin. The split was the defect, not the tuning.
+ *
+ * So: one form, emitted from the AST. Delimiters come out canonical (a code span
+ * is always single-backticked, whatever it was written as), `html` and `code`
+ * nodes contribute nothing because comments and code blocks are not the contract,
+ * and every check — the pin, the clause patterns, `pinnedBy`, the polarity axis —
+ * reads the same string. There is no longer a wrong form to pick.
+ */
+function canonicalText(node: MdNode): string {
+  let out = "";
+  const walk = (n: MdNode): void => {
+    if (n.type === "html" || n.type === "code") return;
+    if (n.type === "inlineCode") {
+      out += "`" + (n.value ?? "") + "`";
+      return;
+    }
+    if (typeof n.value === "string") {
+      out += n.value;
+      return;
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(node);
+  return normalize(out);
+}
+
 function contentOf(markdown: string): string {
-  return normalize(plainText(remark().parse(markdown) as unknown as MdNode));
+  return canonicalText(remark().parse(markdown) as unknown as MdNode);
 }
 
 export function pinProblems(rule: string, pinned: string): string[] {
@@ -399,6 +432,7 @@ export function pinProblems(rule: string, pinned: string): string[] {
   // `strong` markers are asserted as `strong` nodes below, and location is
   // pinned by heading text and depth.
   if (contentOf(stripListMarker(rule)) === contentOf(stripListMarker(pinned))) return [];
+
   return [
     "the rule's text differs from tests/docs/fixtures/agents-heavy-phase-rule.md. " +
       "This bullet is a cross-CLI contract: Codex sessions read it and never read the " +
@@ -610,7 +644,7 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   // `**MUST wrap**` and `__MUST wrap__` are the same block to every reader and
   // to the parser. ("MUST wrap" is not a substring of "MUST NOT wrap", so the
   // two markers stay distinct without their delimiters.)
-  const rule = contentOf(raw);
+  const rule = canonicalText(located.item);
   const mustAt = rule.indexOf(MUST_MARKER_TEXT);
   const mustNotAt = rule.indexOf(MUST_NOT_MARKER_TEXT);
   const tailAt = rule.indexOf(TAIL_MARKER);
@@ -629,14 +663,11 @@ export function checkHeavyPhaseRule(agents: string): string[] {
     return ["the rule's MUST / MUST NOT / tail blocks are out of order"];
   }
 
-  // TWO representations, deliberately. Marker LOCATION comes from the content
-  // form, where `**x**` and `__x__` are the same thing. Clause PATTERNS run
-  // against the raw form, because they assert backticked commands and the
-  // content form has no backticks left to match. Both are normalized.
-  const mustRegion = normalize(raw.slice(rawMustAt, rawMustNotAt));
-  const mustNotRegion = normalize(raw.slice(rawMustNotAt, rawTailAt));
-  const tailRegion = normalize(raw.slice(rawTailAt));
-  const headRegion = normalize(raw.slice(0, rawMustNotAt));
+  // Every region is a slice of the ONE canonical rendering.
+  const mustRegion = rule.slice(mustAt, mustNotAt);
+  const mustNotRegion = rule.slice(mustNotAt, tailAt);
+  const tailRegion = rule.slice(tailAt);
+  const headRegion = rule.slice(0, mustNotAt);
 
   const members: Array<[string, "must" | "must-not"]> = [
     ...CLASSIFIED.flatMap(([span, entry]): Array<[string, "must" | "must-not"]> =>
@@ -671,9 +702,7 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   // pins it" is only excused while that something else is actually there.
   for (const [span, entry] of CLASSIFIED) {
     if (entry.side !== "ignore") continue;
-    // Raw form: these patterns assert backticked spans, which the content form
-    // has already stripped.
-    if (!entry.pinnedBy.test(normalize(raw))) {
+    if (!entry.pinnedBy.test(rule)) {
       problems.push(
         `ignored span \`${span}\` claims coverage that is absent (${entry.why}); ` +
           `expected ${String(entry.pinnedBy)}`,
@@ -1052,6 +1081,18 @@ describe("AGENTS.md heavy-phase rule", () => {
         text.replace(
           "## Cross-cutting discipline (from milestone retrospectives)",
           "Cross-cutting discipline (from milestone retrospectives)\n" + "-".repeat(58),
+        ),
+    ],
+    [
+      "a code span is written with double backticks and padding",
+      (text) => text.replace("`pnpm heavy <cmd>`", "`` pnpm heavy <cmd> ``"),
+    ],
+    [
+      "an editorial HTML comment is appended inside the rule",
+      (text) =>
+        text.replace(
+          "guard: `tests/docs/agentsHeavyPhaseRule.test.ts`.",
+          "guard: `tests/docs/agentsHeavyPhaseRule.test.ts`. <!-- editorial note -->",
         ),
     ],
     [
