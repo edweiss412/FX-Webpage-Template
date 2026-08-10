@@ -195,12 +195,16 @@ describe("sync_log attribution — write through the real sink, read through que
       returning id
     `;
 
-    const tx = new PostgresOnboardingScanTx({
-      unsafe: async (text: string, params: unknown[] = []) => {
-        await sql.unsafe(text, params as never[]);
-        return [];
-      },
-    } as never);
+    const tx = new PostgresOnboardingScanTx(
+      {
+        unsafe: async (text: string, params: unknown[] = []) => {
+          await sql.unsafe(text, params as never[]);
+          return [];
+        },
+      } as never,
+      "folder-fixture",
+      "00000000-0000-4000-8000-000000000000",
+    );
     await tx.logSync({ code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN", driveFileId: FILE });
 
     const [row] = await sql<{ show_id: string | null }[]>`
