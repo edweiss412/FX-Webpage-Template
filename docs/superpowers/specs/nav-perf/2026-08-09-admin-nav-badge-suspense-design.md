@@ -4,16 +4,16 @@
 
 ## §0 Summary
 
-Move the admin layout's two badge reads — `loadBellUnseenCount` and `loadNeedsAttentionCount` — out of the layout's blocking await path, so first `/admin` entry paints the nav chrome immediately and the badge counts stream in via `<Suspense>`. Plus one independent win the research surfaced: the onboarding early-return branch currently pays both badge awaits and then discards them — it stops issuing those reads at all.
+Move the admin layout's two badge reads — `loadBellUnseenCount` and `loadNeedsAttentionCount` — out of the layout's blocking await path, so first `/admin` entry paints the nav chrome immediately and the badge counts stream in afterwards. The mechanism (redesigned in spec R1) is promise-as-prop with the commit INSIDE the existing hooks behind their monotonic tokens — no `<Suspense>` boundary and no `use()` leaf, because the resolved counts drive behavior far beyond a chip (trigger branch, aria-labels, `zeroNow()`, panel refetch), so nothing may suspend (R1 F1). The ledger entry's named mechanism was Suspense; the entry's GOAL — chrome paints before the badge reads — is what ships, and this spec records why a Suspense boundary is the wrong tool on this surface. Plus one independent win the research surfaced: the onboarding early-return branch currently pays both badge awaits and then discards them — it stops issuing those reads at all.
 
 The backlog entry's premise "the repo has zero `<Suspense>` precedent" is STALE: real boundaries ship in the admin tree today (`app/admin/page.tsx` `ShowReviewModalSkeleton` fallback; `app/admin/dev/telemetry/page.tsx`; `app/admin/dev/telemetry-dim/page.tsx`). Half the entry's promotion prerequisite is already met; the other half (an AdminNav bridge preserving the client refetch hook) is this design.
 
 ## §1 Resolved scope — do not relitigate
 
 1. **`Promise.all` stays `Promise.all`** where reads remain grouped — never `allSettled` (nav-perf phase-2 §invariant-9 line, ratified there). This design removes the barrier for the two badge reads; it does not change failure semantics: both loaders RETURN discriminated results (`{ kind: "ok" } | { kind: "infra_error" }`-class) rather than throwing, per invariant 9, and that contract is what makes the un-awaited-promise pattern safe (§3.2).
-2. **The client refetch contract is preserved unchanged:** `useNeedsAttentionBadge` (prop-sync effect + pathname effect + monotonic token + AbortController, fail-quiet `setCount(null)` per ratified D-4) and `useBellBadge` keep their semantics; they move INTO streamed leaf components but their code is not rewritten.
+2. **The client refetch contract is preserved:** `useNeedsAttentionBadge` (prop-sync effect + pathname effect + monotonic token + AbortController, fail-quiet `setCount(null)` per ratified D-4) and `useBellBadge` (including `degraded`, `zeroNow()`, `pingSignal`, panel `onOpened` refetch) keep ALL their observable semantics. Each hook gains exactly one new arm — an async initial-seed that commits a resolved promise value through the SAME token gate its other commit sources use. No component moves; no hook state leaves its current owner (R1 F1).
 3. **Badge render rules unchanged:** hidden unless finite > 0, "9+" cap, `admin-attention-badge` testid; bell unchanged visually except arrival timing.
-4. **Selected mechanism: promise-as-prop + `use()`** (§3.2), validated by a mandatory spike task before implementation (§3.5). The slot-bridge alternative is the recorded fallback, not a parallel deliverable.
+4. **Selected mechanism: promise-as-prop committed inside the hooks** (§3.2, redesigned per R1 — no Suspense, no `use()`), validated by a mandatory spike task before implementation (§3.5). The client-side first-fetch seeding alternative is the recorded fallback, not a parallel deliverable.
 5. **Out of scope:** caching the badge reads (`unstable_cache`/tags — neither loader is cached today and this arc does not add caching); the layout's OTHER await barriers (identity/health/app-settings — measured but untouched); any crew-facing surface.
 
 ## §2 Current state (live-code citations, verified 2026-08-09 by investigator)
@@ -31,40 +31,39 @@ The backlog entry's premise "the repo has zero `<Suspense>` precedent" is STALE:
 
 Reorder `app/admin/layout.tsx`: the onboarding early-return decision happens BEFORE the badge reads are issued. On the onboarding path, neither loader is called (today: called, awaited, discarded). No behavior change for the onboarding UI. This lands even if the streaming half is descoped by the spike.
 
-### 3.2 Streaming bridge: promise-as-prop + `use()`
+### 3.2 Streaming bridge: promise-as-prop, committed inside the hooks (redesigned per R1)
 
-The layout ISSUES both reads without awaiting and passes the promises to the client tree:
+The layout ISSUES both reads without awaiting, wraps each so it can NEVER reject (`.catch(() => ({ kind: "infra_error" as const }))` — both loaders already return discriminated results by contract; the wrap is belt for thrown infra), and passes the promises to the client tree:
 
 ```tsx
 // layout (server): no await, no barrier
-const bellCountPromise = loadBellUnseenCount(adminEmail, viewerIsDeveloper);
-const attentionCountPromise = loadNeedsAttentionCount();
-<AdminNav email={email} healthRollup={healthRollup} viewerIsDeveloper={viewerIsDeveloper}
-  bellCountPromise={bellCountPromise} attentionCountPromise={attentionCountPromise} />
+const bellCountPromise = loadBellUnseenCount(adminEmail, viewerIsDeveloper).catch(() => ({ kind: "infra_error" as const }));
+const attentionCountPromise = loadNeedsAttentionCount().catch(() => ({ kind: "infra_error" as const }));
+<AdminNav ... bellCountPromise={bellCountPromise} attentionCountPromise={attentionCountPromise} />
 ```
 
-Inside `AdminNav` (client), the badge chip and the bell become `<Suspense fallback={null}>`-wrapped leaves that resolve their promise with React's `use()` and then run the EXISTING hooks with the resolved value as the initial seed:
+`AdminNav` and `NotifBell` mount IMMEDIATELY — nothing suspends, no Suspense boundary exists on this surface. Each hook gains an async-seed arm:
 
-```tsx
-function AttentionBadgeLeaf({ countPromise }) {
-  const initial = use(countPromise);           // { kind: "ok", count } | { kind: "infra_error" }
-  const count = useNeedsAttentionBadge(initial.kind === "ok" ? initial.count : null);
-  …existing render gate + testid…
-}
-```
+- On mount, state is the pending shape: attention count `null` (chip hidden by the existing finite-gt-0 gate), bell count `null` + `degraded: false` (bell button renders, no chip, no `!`).
+- An effect subscribes: `promise.then((initial) => commitIfCurrent(initial))` where `commitIfCurrent` goes through the hook's EXISTING monotonic token — the seed commit applies only if no later commit source (pathname refetch, `zeroNow()`, panel `onOpened` refetch, prop-sync) has bumped the token since mount. A late-resolving seed LOSES to every newer commit (R1 F2's clobber direction).
+- All downstream consumers — the bell trigger branch, count-aware `aria-label`s (including the parent link's in `AdminNav`), `zeroNow()`'s synchronous zero, `pingSignal`, the panel's `onOpened` refetch — keep reading hook state exactly where they read it today. The pending window is observationally "count unknown", which every existing render gate already handles.
+- Bell `infra_error` resolution commits `degraded: true` → the existing catalog-derived `!` trigger renders exactly as today (R1 F3 — the bell's degraded affordance is pinned by `notifBell.test.tsx` / `AdminNav.test.tsx` and is PRESERVED; fail-quiet-hidden is the ATTENTION badge's ratified contract only).
 
-Bell: `NotifBell` splits into the always-painted bell button shell and a Suspense-wrapped count leaf seeding `useBellBadge` — the plan enumerates the exact split after reading `NotifBell.tsx`; the contract is that the bell BUTTON never waits, only its unseen-count chip does.
+Why the hooks own the pending state instead of a suspended leaf: the R1 probes showed the resolved counts drive behavior OUTSIDE any leaf (trigger branch, parent-link aria-label, zeroNow-before-resolution), and a pre-mount navigation would initialize `lastPathRef` on the destination and skip the initial fetch, silently persisting a stale count. With the hooks mounted from first paint, the pathname effect is live for the entire pending window: navigation during pending fires the refetch exactly as today, and the token gate decides the winner deterministically.
 
-Safety clauses, each load-bearing:
+Interleavings (each gets a test, AC-5):
 
-- **No unhandled rejection by contract:** `loadNeedsAttentionCount` returns discriminated results (never throws) — invariant 9. If the plan's pre-draft pass finds `loadBellUnseenCount` can throw, the layout wraps it (`.catch(() => ({ kind: "infra_error" as const }))`) so the passed promise NEVER rejects — the badge fail-quiet contract (null → hidden) is the designed degradation either way.
-- **Serialization:** the promises resolve to plain JSON values — legal server→client promise props.
-- **Fallbacks are `null`:** a not-yet-streamed badge is indistinguishable from the legitimate "no attention items" hidden state, which is the correct progressive rendering (the pill appearing is additive, never a layout shift — the badge is absolutely positioned/inline chip; plan verifies no CLS).
-- **Pathname refetches are unaffected:** after first resolution the hooks own state; navigation within `/admin` re-renders pages, not the layout, so the promise props are stable per layout render — exactly today's `initialBadgeCount` lifecycle.
+| Order | Outcome |
+| --- | --- |
+| seed resolves, then navigation | seed commits; pathname refetch then overwrites — today's behavior |
+| navigation, then seed resolves | pathname refetch committed (token bumped); late seed DISCARDED |
+| bell clicked (zeroNow) before seed resolves | zero commits + token bump; late seed DISCARDED; panel `onOpened` refetch proceeds as today |
+| seed resolves `infra_error` (bell) | `degraded: true`, `!` trigger — unchanged affordance |
+| seed never resolves (hung read) | pending shape persists; first pathname refetch repopulates; no wedge |
 
 ### 3.3 What the user sees
 
-First `/admin` entry: nav chrome (links, health, avatar, bell shell) paints without waiting on the two badge queries; the attention badge and bell count pop in when their reads land. Failure: badges stay hidden (existing fail-quiet contract). No spinner — `fallback={null}`.
+First `/admin` entry: nav chrome (links, health, avatar, bell button) paints without waiting on the two badge queries; the attention badge and bell count chip pop in when their reads land. Failure: the attention badge stays hidden (its ratified fail-quiet contract); the bell renders its existing degraded `!` trigger (its ratified contract — the two differ deliberately, R1 F3). No spinner anywhere.
 
 ### 3.4 Layout barrier inventory (measured, mostly untouched)
 
@@ -72,7 +71,7 @@ The identity/health barrier and app-settings/finalize awaits remain (out of scop
 
 ### 3.5 Spike task (mandatory, before implementation tasks)
 
-Per the empirical-spike rule (stateful/framework surface): a throwaway probe in this worktree proves, in `next dev` AND `next build && next start`, that (a) a `force-dynamic` layout passing an unresolved promise to a client `use()` leaf actually STREAMS (chrome flushes before the count resolves — verified with an artificially slow loader), (b) no hydration error or double-fetch, (c) the pathname refetch still fires on navigation. The spike's measurements go into the plan verbatim. If streaming does NOT hold under `force-dynamic` (framework contract UNRATIFIED until probed), the fallback is the server-child slot bridge (badge leaf as a server component child streamed into a slot prop), and the spec's §3.2 is amended by one commit before planning proceeds.
+Per the empirical-spike rule (stateful/framework surface): a throwaway probe in this worktree proves, in `next dev` AND `next build && next start`, that (a) a `force-dynamic` layout passing an unresolved promise prop to a client component actually STREAMS the resolution (chrome flushes before the count resolves, and the client thenable resolves when the RSC stream delivers — verified with an artificially slow loader), (b) no hydration error or double-fetch, and consuming the promise via `.then` in an effect (NOT `use()`) works on the shipped Next version, (c) the pathname refetch still fires on navigation, including a navigation issued BEFORE the promise resolves (the R1 F2 interleaving). The spike's measurements go into the plan verbatim. If promise-prop streaming does NOT hold under `force-dynamic` (framework contract UNRATIFIED until probed), the fallback is client-side seeding: mount with null and let the FIRST pathname-effect-style fetch populate both counts (one extra request, zero framework coupling), and the spec's §3.2 is amended by one commit before planning proceeds.
 
 ### 3.6 Dimensional Invariants
 
@@ -80,34 +79,35 @@ None introduced: the badge chip and bell count are inline/absolutely-positioned 
 
 ### 3.7 Transition Inventory
 
-States per chip: absent (fallback/suspended), hidden (resolved, count 0 or infra_error), visible (count > 0).
+Attention chip states: pending (null, hidden), hidden (resolved 0 or infra_error), visible (count > 0). Bell states: pending (no chip, not degraded), count chip, degraded `!` (infra_error) — the bell's degraded state is part of its pinned contract, not a new state.
 
 | Transition | Treatment |
 | --- | --- |
-| absent (suspended) to hidden | instant, and visually identical: both render nothing |
-| absent (suspended) to visible | instant appearance on stream resolution; no animation (chip is additive, no shift) |
+| pending to hidden | instant, and visually identical for the attention chip: both render nothing |
+| pending to visible | instant appearance on seed resolution; no animation (chip is additive, no shift) |
+| pending to degraded (bell, infra_error) | instant; the existing `!` trigger recipe, unchanged |
 | visible to hidden (refetch lands 0 / fail-quiet null) | instant, existing hook behavior, unchanged |
 | hidden to visible (refetch lands > 0) | instant, existing hook behavior, unchanged |
-| compound: pathname refetch fires while initial promise still suspended | impossible by construction: the hook mounts only inside the resolved leaf, so the pathname effect cannot run before first resolution; asserted in AC-5's integration test |
-| compound: layout re-render mid-stream (router.refresh) | new promises, leaf re-suspends to fallback null then resolves; identical to first load |
+| compound: pathname refetch fires while the seed promise is still pending | fully specified in the §3.2 interleaving table: the refetch commits and bumps the token; the late seed is discarded; asserted in AC-5's integration tests |
+| compound: layout re-render mid-stream (router.refresh) | new promise props arrive; the seed arm re-subscribes with a fresh token check; identical decision rule as first load |
 
 ## §4 Acceptance criteria
 
 - **AC-1** Onboarding path issues ZERO badge-loader calls (spy/source assertion), and its UI is unchanged.
 - **AC-2** `/admin` layout render does not await either badge loader (source-scan: no `await` on the two call expressions; behavioral: chrome testids present before slow-loader resolution in the spike-derived e2e or RTL-with-suspended-promise test).
-- **AC-3** Badge chip renders post-stream with correct count, "9+" cap, hidden on `infra_error` and on 0 — the existing render-gate tests keep passing against the leaf.
-- **AC-4** Bell button paints without the count; count chip streams in; `useBellBadge` refetch behavior unchanged.
-- **AC-5** Pathname-change refetch still fires exactly as today (existing hook tests keep passing; one integration test toggles pathname with the leaf mounted).
-- **AC-6** No raw error codes in UI (invariant 5) — failure renders nothing, which is the catalog-free contract this surface already ratified (D-4 fail-quiet).
+- **AC-3** Attention chip renders post-seed with correct count, "9+" cap, hidden on `infra_error` and on 0 — the existing render-gate tests keep passing unmodified.
+- **AC-4** Bell button paints without the count; count chip arrives on seed resolution; `infra_error` seed renders the existing degraded `!` trigger; `zeroNow()`, `pingSignal`, and panel `onOpened` refetch behave byte-identically to today (existing `notifBell.test.tsx` contract tests keep passing unmodified).
+- **AC-5** Every §3.2 interleaving row has a test: seed-then-navigate, navigate-then-seed (late seed discarded), zeroNow-before-seed (late seed discarded), infra_error seed (bell degraded), hung seed (pathname refetch repopulates). Existing pathname-refetch tests keep passing unmodified.
+- **AC-6** No raw error codes in UI (invariant 5): attention failure renders nothing (D-4 fail-quiet); bell failure renders the existing catalog-derived degraded trigger — both ratified contracts, unchanged.
 - **AC-7** Impeccable dual-gate on the diff (UI surface); `impeccable-gate:` marker in closeout.
 - **AC-8** Full suite + real CI green; cross-model whole-diff review APPROVE.
 
 ## §5 Documented limits
 
 1. **Badge arrival is now visibly async** on slow reads — a chip popping in ~hundreds of ms after chrome. Accepted: that is the feature. No skeleton, because a skeleton for a maybe-hidden chip advertises noise.
-2. **A rejected bell promise degrades to hidden count** (§3.2 wrapper) rather than surfacing an error — matches the ratified fail-quiet badge posture (D-4), recorded as the designed conservative path.
+2. **A thrown-infra bell read maps to `infra_error`** via the layout wrap (§3.2), which the hook commits as `degraded: true` — the bell's EXISTING degraded affordance, not a hidden state (R1 F3). The attention badge's parallel case stays hidden per D-4. Two surfaces, two ratified postures, both preserved.
 3. **The other layout barriers remain** (§3.4). First-paint is bounded below by identity+health, by design.
-4. **`use()` promise-prop pattern is Next-version-coupled.** The spike (§3.5) is the ratification gate; the spec deliberately does not assert the framework contract from memory.
+4. **Promise-prop streaming is Next-version-coupled.** The spike (§3.5) is the ratification gate; the spec deliberately does not assert the framework contract from memory, and the no-framework fallback (client-side first-fetch seeding) is recorded in §3.5.
 
 ## §6 Out of scope
 
