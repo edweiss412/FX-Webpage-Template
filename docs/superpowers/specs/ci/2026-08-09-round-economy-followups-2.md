@@ -69,21 +69,24 @@ edit MUST cite its source filing paths inline.
 **Target:** `docs/agents/writing-plans.md`, new bullet directly after "Typecheck pasted
 snippets + verify CI wiring" (`docs/agents/writing-plans.md:25`). **Action:** new bullet.
 
-**Substance:** Before a plan is dispatched for review, every task's `red=` command (the
-declared task contract, `docs/agents/spec-self-review.md:27-36`) is validated executably,
-split by what exists on the live tree. A `red=` whose target test EXISTS at plan time is RUN
-and must fail for the stated reason — one that already exits 0 is a plan defect. A `red=`
-whose test file the task itself CREATES is the ordinary TDD shape (invariant 1 writes the
-failing test inside the task): it is NOT run at plan time — `No test files found` is its
-expected plan-time state — and the plan-time check is static instead: the task names the
-production line whose absence or defect will make the new test fail (the RED-validity bullet
-in the same file), that absence or defect is verified against the live tree, and the
-observed-red obligation lands in the task's RED step. Three never-red-by-construction shapes
-are rejected statically in either case: a `red=` that can never be OBSERVED red at any point
-(a guard test that passes the moment it is authored; a command naming the very file its GREEN
-deletes, so it errors identically before and after); a conjunct behind `&&` where an earlier
-expected failure short-circuits it (RED observes each conjunct separately; the conjunction is
-the GREEN criterion); and a task body with no one-line "what is red and why" statement. Declared gate commands (merge gates, closeout checks, CI probes) get the same
+**Substance:** The task-marker contract is red-then-green ON THE SAME COMMAND: a `red=` (the
+declared task contract, `docs/agents/spec-self-review.md:27-36`) is valid only if the task
+has a point where the command is OBSERVED failing for the stated reason and a later point
+where the SAME command passes. Before a plan is dispatched for review, each marker is
+validated against that cycle. A `red=` asserting the current tree already fails (its failing
+case exists at plan time) is RUN — one that exits 0 is a plan defect. A `red=` whose failing
+case the task itself writes — a NEW test file OR a new case added to an EXISTING suite — is
+the ordinary invariant-1 shape: it is not run at plan time (the pre-change suite may
+legitimately be green, or the file absent), and the plan-time check is static instead: the
+task names the production line whose absence or defect will make the new case fail (the
+RED-validity bullet in the same file), verified absent or defective on the live tree, with
+the observed-red obligation landing in the task's RED step. Rejected statically, in either
+branch, is any marker whose cycle cannot complete: a guard test that passes the moment it is
+authored (no observable red); a command whose target the GREEN step deletes or renames, so
+the SAME command never passes (the classname arc's census case — red observable before the
+deletion, never green after it); a conjunct behind `&&` where an earlier expected failure
+short-circuits it (asserted red, never observed; the conjunction is the GREEN criterion); and
+a task body with no one-line "what is red and why" statement. Declared gate commands (merge gates, closeout checks, CI probes) get the same
 treatment as a test's mutant-red: probe each against a CONSTRUCTED failing input and confirm
 non-zero exit — a bare `gh run list`, an unresolvable sha that empties a diff into a passing
 `test -z`, and a fail-open shell chain all exit 0 on the exact failure they name. Mechanical
@@ -171,15 +174,16 @@ gate commands exiting 0 on the failure they name).
 
 Description: extend `spec:lint`'s declared-task-contract arm (`pnpm spec:lint`,
 `scripts/spec-lint.ts`; task-region grammar per `docs/agents/spec-self-review.md:27-36`). For
-an enrolled plan: (a) an execution mode that RUNS each `red=` command whose target test
-EXISTS on the live tree and reports a new code (e.g. `RED_ALREADY_GREEN`) when it exits 0 —
-opt-in per invocation, since a `red=` may be expensive; a `red=` targeting a test the plan
-itself creates is the ordinary TDD shape and is exempt from execution, not from validation:
-the arm instead checks the task names a production line verifiable as absent or defective on
-the live tree; (b) static never-red shapes needing no execution: a `red=` that can never be
-OBSERVED red (a guard test passing the moment it is authored; a command naming the very file
-its GREEN deletes), an `&&` conjunct behind an expected failure, and a task body with no
-one-line "what is red and why" statement;
+an enrolled plan, validating the same-command red-then-green cycle: (a) an execution mode
+that RUNS each `red=` the plan asserts is red NOW (its failing case exists at plan time) and
+reports a new code (e.g. `RED_ALREADY_GREEN`) when it exits 0 — opt-in per invocation, since
+a `red=` may be expensive; a `red=` whose failing case the task itself writes (a new test
+file OR a new case in an existing suite) is exempt from execution, not from validation: the
+arm instead checks the task names a production line verifiable as absent or defective on the
+live tree; (b) static cycle-breaker shapes needing no execution: a guard test green at
+authoring, a command whose target the GREEN step deletes or renames (the SAME command never
+passes), an `&&` conjunct behind an expected failure, and a task body with no one-line "what
+is red and why" statement;
 (c) an advisory listing declared gate commands that carry no
 "probed against a constructed failing input" annotation. The rule half binds immediately via
 P1; this row is the mechanical enforcement. Design and thresholds belong to the implementing
@@ -208,7 +212,8 @@ immediately via P3. Design and opt-in mechanics belong to the implementing arc.
 ## §4 Acceptance criteria
 
 - AC-1: each P-row lands in its named target file, at its named anchor, with its source filing
-  paths cited inline; wording preserves every normative element of §2 (the three never-red
+  paths cited inline; wording preserves every normative element of §2 (the same-command
+  red-then-green cycle contract with its rejected
   shapes, the constructed-failing-input probe, "enrolment precedes review", the
   cannot-express re-disposition, the executable-single-source rule and its qualifier escape).
 - AC-2: both BL rows land in `BACKLOG.md`'s open queue with heading, meta line (including
