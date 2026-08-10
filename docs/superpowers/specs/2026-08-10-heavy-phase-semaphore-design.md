@@ -154,8 +154,16 @@ scripts/with-heavy-slot.py — new in this arc (invoked as `python3 scripts/with
    §8 documented limit; silent omission is not permitted (R1 F5). The warning also
    states that a recorded PID may have exited while a shell descendant retains the
    lock (§4.2).
-6. On acquire: `os.set_inheritable(fd, True)` (raw integer fd — valid per the
-   `os.open` API), then `os.execvp(cmd, args)` — the wrapper process BECOMES the heavy
+6. **Post-acquire topology validation (R3 F1):** after `flock` succeeds on slot *i*,
+   re-read `config`; if *i* >= the CURRENT slot count, this acquisition is outside the
+   live topology (the §4.5 resize race) — emit a one-line stderr notice, `os.close`
+   the fd (releasing the lock), and restart the resolution loop from step 2. An
+   acquisition can only proceed to exec when its slot index is valid under a config
+   value read AFTER the lock was taken, which closes both race instances (initial
+   resolve→scan and per-poll re-resolve→scan): a stale-topology waiter can win a
+   higher-numbered slot momentarily but can never RUN holding one.
+7. On acquire (validated): `os.set_inheritable(fd, True)` (raw integer fd — valid per
+   the `os.open` API), then `os.execvp(cmd, args)` — the wrapper process BECOMES the heavy
    command. The flock fd rides through exec; the kernel releases it when the last
    process holding the fd exits. Crash of the holder (any signal, including SIGKILL) =
    immediate release (§4.0 P2). Zero cleanup code (C5).
@@ -263,9 +271,12 @@ invocation shape, not alias (R1 F7):
   (below), any direct `playwright test` without an interactive flag, and the screenshot
   captures `pnpm screenshot:gallery` / `pnpm screenshot:help` (their config runs an
   inner 8192 MB build, `playwright.screenshots.config.ts:128`).
-- Any build — `pnpm build`, direct `next build`, or any invocation of
+- Any BUILD — `pnpm build`, direct `next build`, or a `next build` run through
   `scripts/with-admin-dev-flag.mjs` (R2 F1: the inner build lock is worktree-local, so
-  only the semaphore bounds builds across worktrees).
+  only the semaphore bounds builds across worktrees). The build shape is `next build`
+  regardless of entry point; `next start` / `next dev` — including through the same
+  wrapper script, which forwards any command (R3 F2) — are long-lived servers and
+  belong to the MUST-NOT class below.
 - Mutation harness: `pnpm mutation:guards`, any `--project mutation` run; one slot per
   concurrently-running shard batch.
 
@@ -281,8 +292,8 @@ MUST NOT be wrapped:
   the wrapper; the suite hitting them is the heavy phase, not the server.
 
 A package.json convenience script `"heavy": "python3 scripts/with-heavy-slot.py --"`
-makes the invocation `pnpm heavy pnpm test` (pnpm appends run-script args; the Task-4
-test pins the forwarding executably).
+makes the invocation `pnpm heavy pnpm test` (pnpm appends run-script args; §7 case 10
+pins the forwarding executably).
 
 ## 5. AGENTS.md rule (new cross-cutting bullet, appended after the current last bullet of "Cross-cutting discipline")
 
@@ -359,7 +370,15 @@ real `/tmp/fx-heavy-slots`.
    values) — after all complete, exactly one `config` value exists, every process's
    stderr shows either creation or adopt, and no `config.tmp.*` residue remains
    (pins the `os.link` first-writer-wins publication).
-10. **pnpm forwarding (Task 5).** `pnpm heavy -- node -e "process.exit(0)"` exits 0.
+10. **pnpm forwarding.** `pnpm heavy -- node -e "process.exit(0)"` exits 0. (The plan
+    owns task numbering; this spec references cases, never plan tasks.)
+11. **Resize-race containment (R3 F1).** Dir at `FX_HEAVY_SLOTS=3`; start a waiter
+    (all three slots held by test-owned flocks so it waits with resolved N=3); remove
+    and recreate the dir with config N=1 and a test-owned holder on slot-0; release
+    ONE of the old slot fds so the stale waiter can win a higher-numbered slot.
+    Assert: the waiter's command does NOT run concurrently with the slot-0 holder's
+    (overlap log as in case 1), and its stderr contains the topology-restart notice —
+    a stale-topology acquisition is released, never exec'd.
 
 The suite spawns ≤3 tiny node children per case — it is itself light and needs no slot.
 
