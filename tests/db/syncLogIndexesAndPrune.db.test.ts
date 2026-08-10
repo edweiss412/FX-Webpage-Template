@@ -53,9 +53,18 @@ describe("sync_log indexes (spec §3.4)", () => {
     // local query can observe that.
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
-    const migration = readFileSync(
-      join(process.cwd(), "supabase/migrations/20260809000000_sync_log_show_attribution.sql"),
-      "utf8",
+    const { stripSqlComments } = await import("@/tests/_shared/stripComments");
+    // COMMENT-STRIPPED before any of the assertions below. Reading raw text let a
+    // guard living inside `/* … */` satisfy every regex while unguarded
+    // `create index … on dev.sync_log` statements executed beside it — and locally
+    // that passes twice over, because dev.sync_log exists here so the indexes appear
+    // either way. The failure only shows on a target without a dev schema, which is
+    // exactly the deployment this assertion exists to protect.
+    const migration = stripSqlComments(
+      readFileSync(
+        join(process.cwd(), "supabase/migrations/20260809000000_sync_log_show_attribution.sql"),
+        "utf8",
+      ),
     );
     expect(migration).toMatch(/to_regclass\('dev\.sync_log'\) is not null/);
     // And the dev index must sit INSIDE that guard, not merely somewhere in the file.
