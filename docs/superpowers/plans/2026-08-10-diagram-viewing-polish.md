@@ -60,7 +60,7 @@ Red now (the entry heading exists; the negated grep exits 1; green when all thre
 
 1. Graduate all three rows to the archive with their dispositions (amendment / probe closure / repair); markers come off in the graduation commit (invariant 12's sanctioned shape — no end-of-PR marker step); add graduation-registry rows per `tests/docs/_metaDeferralLedgerGraduation.test.ts`.
 2. `pnpm vitest run tests/docs` green as the belt.
-3. Whole-diff cross-model review to APPROVE; real CI green (including the phantom-gap run exercising the new oracle); `gh pr merge --merge`; fast-forward main; `0  0` check.
+3. Whole-diff cross-model review to APPROVE. If any post-gate repair touches a UI surface, RERUN both halves of the invariant-8 gate on the amended diff and refresh the §12 record + marker (the gated diff must be the merged diff), then rerun `pnpm vitest run tests/docs`. Real CI green (including the phantom-gap run exercising the new oracle); `gh pr merge --merge`; fast-forward main; `0  0` check.
 
 <!-- tasks: end -->
 
@@ -75,4 +75,4 @@ Red now (the entry heading exists; the negated grep exits 1; green when all thre
 
 ## §12 — impeccable gate record
 
-The marker line lands here, filled, at Task 4 completion (the guard accepts only the filled grammar).
+The marker line lands here, filled, at Task 4 completion (the guard accepts only the filled grammar), FOLLOWED by the full findings table: every critique and audit finding — P0 through P3 — one row each with severity, description, and disposition (fixed / DEFERRED.md ref / accepted-with-reason).
