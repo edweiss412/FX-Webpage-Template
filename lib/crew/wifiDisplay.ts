@@ -50,7 +50,14 @@ export type WifiInfo = {
 
 const NET = "SSID|Network";
 const PWD = "Code|PW|Passcode|Password";
-const SEP = "\\s*[:\\-]\\s*";
+/**
+ * The separator characters, and the SINGLE source for both the label matcher and
+ * the leftover-syntax check below. Deriving the check from this class is the
+ * whole point: the two cannot drift, and widening the accepted separators
+ * automatically widens what counts as unresolved syntax.
+ */
+const SEP_CHARS = ":\\-";
+const SEP = `\\s*[${SEP_CHARS}]\\s*`;
 
 /** Every label occurrence on a line, in source order. */
 const LABEL_RE = new RegExp(`\\b(${NET}|${PWD})${SEP}`, "gi");
@@ -58,30 +65,33 @@ const LABEL_RE = new RegExp(`\\b(${NET}|${PWD})${SEP}`, "gi");
 const NET_ONLY_RE = new RegExp(`^(?:${NET})$`, "i");
 
 /**
- * Signals that a captured value is a GUESS rather than a reading. Any hit means
- * the cell carries more syntax than this splitter resolved, so the whole parse
- * is rejected and the raw cell renders instead (diff review R2 F1 probed every
- * one of these against the shipped module):
+ * Leftover syntax: a separator character surviving INSIDE a captured value or a
+ * prose residue. The grammar consumes every separator it understands, so one
+ * that is still there belongs to a pair this splitter did not resolve, and the
+ * text around it is a guess. The whole parse is rejected and the raw cell
+ * renders (spec §6.1).
  *
- *   - `Word:` that is not an accepted label — `SSID: Guest WPA: secret` would
- *     otherwise name the network "Guest WPA: secret". Letter-initial, so a time
- *     (`9:00`) is not label-shaped.
- *   - An accepted label word sitting in the value with something other than a
- *     separator after it — `SSID: Guest Password is secret`, `SSID: Guest
- *     Network is Corporate`. The label was not matched as a pair, so its text
- *     was absorbed into a neighbouring value.
- *   - A spaced dash, which is one of the two accepted separators. Seeing one
- *     INSIDE a value means a pair was formed on the other separator and this
- *     one was not resolved — `SSID: Guest WPA - secret`.
+ * **Derived, not enumerated — and that is the repair.** Three review rounds hit
+ * this same vector because the check tried to RECOGNIZE unknown labels: first
+ * `Word:` only, then plus accepted label words and a spaced dash. Each version
+ * was bounded by numbers and character classes, and each round produced new
+ * escapes from exactly those bounds — `P:` (too short), `AuthenticationCode:`
+ * (too long), `WiFi_Password:` (underscore), `802.1X:` (digit-initial),
+ * `Contraseña:` (non-ASCII), `WPA- secret` and `WPA -secret` (one-sided dash).
+ * Asking "which unknown labels exist?" ranges over an open set and does not
+ * terminate. Asking "is any separator left unconsumed?" ranges over a closed one
+ * — the two characters the accept-set itself defines — so the escapes above are
+ * not a longer list to chase; they are all the same answer.
+ *
+ * `ACCEPTED_LABEL_WORD_RE` remains because a label word can appear with NO
+ * separator at all (`SSID: Guest Password is secret`), which leaves nothing for
+ * the separator test to find.
  */
-const LABEL_SHAPED_RE = /\b[A-Za-z][A-Za-z0-9]{1,15}\s*:/;
+const LEFTOVER_SEPARATOR_RE = new RegExp(`[${SEP_CHARS}]`);
 const ACCEPTED_LABEL_WORD_RE = new RegExp(`\\b(?:${NET}|${PWD})\\b`, "i");
-const SPACED_DASH_RE = /\s-\s/;
 
 function valueIsAGuess(value: string): boolean {
-  return (
-    LABEL_SHAPED_RE.test(value) || ACCEPTED_LABEL_WORD_RE.test(value) || SPACED_DASH_RE.test(value)
-  );
+  return LEFTOVER_SEPARATOR_RE.test(value) || ACCEPTED_LABEL_WORD_RE.test(value);
 }
 
 type Label = { isNetwork: boolean; start: number; end: number };

@@ -312,6 +312,62 @@ describe("parseWifiValue — unresolved syntax inside a value falls back raw (re
     expect(parseWifiValue("SSID: Guest Login - secret")).toBeNull();
   });
 
+  /**
+   * Structural defense for a vector that took three review rounds (S3 F1).
+   * Each earlier guard tried to RECOGNIZE unknown labels and was bounded by a
+   * number or a character class, so every round produced fresh escapes from
+   * exactly those bounds. The shipped rule instead rejects any UNCONSUMED
+   * separator, which ranges over the closed set the accept-set defines.
+   *
+   * These cases are the union of every escape all three rounds produced. They
+   * are listed not as the closure set — enumeration is not the criterion — but
+   * so a future widening that reopens any of them fails by name.
+   */
+  it("every escape the three review rounds produced is closed", () => {
+    const escapes = [
+      "SSID: Guest WPA: secret", // R1: unknown colon label
+      "SSID: Guest WPA - secret", // R2: unknown dash label, spaced
+      "SSID: Guest WPA- secret", // S3: one-sided dash
+      "SSID: Guest WPA -secret", // S3: one-sided dash, other side
+      "SSID: Guest P: secret", // S3: below the old 2-char floor
+      "SSID: Guest AuthenticationCode: secret", // S3: above the old 16-char cap
+      "SSID: Guest WiFi_Password: secret", // S3: underscore, outside the old class
+      "SSID: Guest 802.1X: WPA2", // S3: digit-initial
+      "SSID: Guest Contraseña: secreto", // S3: non-ASCII
+    ];
+    premise("escapes swept", escapes.length, 0);
+    for (const value of escapes) {
+      expect(parseWifiValue(value), value).toBeNull();
+    }
+  });
+
+  it("the leftover-separator rule is DERIVED from the accepted separators", () => {
+    // The guard and the label matcher must read the same separator class, or the
+    // guard silently stops covering a separator the grammar accepts. Asserted
+    // against the module source because both are internal, and drift between
+    // them is exactly the regression that reopens this vector.
+    const source = readFileSync(path.join(REPO_ROOT, "lib/crew/wifiDisplay.ts"), "utf8");
+    const declared = /const SEP_CHARS = "([^"]+)";/.exec(source)?.[1];
+    premiseHolds("the module declares a single SEP_CHARS source", declared !== undefined);
+    // Both consumers must interpolate the ONE declaration. Matched by shape
+    // rather than exact escaping, which prettier is free to rewrite.
+    expect(source, "SEP must derive from SEP_CHARS").toMatch(
+      /const SEP = `[^`]*\$\{SEP_CHARS\}[^`]*`/,
+    );
+    expect(source, "the leftover check must derive from SEP_CHARS").toMatch(
+      /const LEFTOVER_SEPARATOR_RE = new RegExp\(`\[\$\{SEP_CHARS\}\]`\)/,
+    );
+
+    // And behaviourally: every declared separator, unconsumed inside a value,
+    // rejects. Derived from the declaration rather than transcribed, so adding a
+    // separator to the grammar without widening the guard fails here.
+    const chars = declared!.replace(/\\/g, "");
+    premise("declared separator characters", chars.length, 0);
+    for (const ch of chars) {
+      expect(parseWifiValue(`SSID: Guest WPA${ch} secret`), ch).toBeNull();
+    }
+  });
+
   it("an accepted label word with no separator after it rejects", () => {
     // The label was never matched as a pair, so its text was absorbed into the
     // neighbouring value and "Guest Password is secret" became the network name.
