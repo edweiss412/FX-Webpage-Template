@@ -172,23 +172,35 @@ scripts/with-heavy-slot.py — new in this arc (invoked as `python3 scripts/with
    restart the resolution loop from step 2. An acquisition proceeds to exec only
    holding the CURRENT inode at a CURRENTLY-valid index, which closes the resize race
    in every recreation class, not just the shrink subset.
+   The validate→exec sequence is not kernel-atomic; what closes the residual window is
+   the §4.5 rule that topology changes go through `--recreate`, which BLOCKS on every
+   live holder's flock — a process past validation holds a current-inode flock, so a
+   rule-following recreation cannot overlap its execution at all (R5 F1). Manual
+   `rm -rf` of the slot dir is out of contract (§8).
 7. On acquire (validated): `os.set_inheritable(fd, True)` (raw integer fd — valid per
    the `os.open` API), then `os.execvp(cmd, args)` — the wrapper process BECOMES the heavy
    command. The flock fd rides through exec; the kernel releases it when the last
    process holding the fd exits. Crash of the holder (any signal, including SIGKILL) =
    immediate release (§4.0 P2). Zero cleanup code (C5).
 
-**Reentrancy — outermost-owns (R4 F2):** before exec, the wrapper sets
-`FX_HEAVY_SLOT_HELD=1` in the command's environment (its ONLY env addition). A wrapper
-invocation that starts with `FX_HEAVY_SLOT_HELD` already set acquires NOTHING: it
-emits one stderr note (`nested under held slot — passing through`) and execs the
-command directly. Environment — unlike fds — survives every spawn layer, so the guard
-reaches arbitrarily deep children. This makes nested qualifying phases
-(`pnpm build → next build`, `test:fast → vitest`, playwright web servers,
-`mutation:guards → vitest` children) structurally incapable of the
-outer-holds-inner-waits self-deadlock: the outermost wrapped command owns the slot;
-every inner wrap is a surfaced no-op. The AGENTS.md rule says "wrap the outermost
-command"; wrapping an inner one anyway is harmless by construction.
+**Reentrancy — outermost-owns, with a VALIDATED marker (R4 F2, R5 F3):** before exec,
+the wrapper sets `FX_HEAVY_SLOT_HELD=<slot-path>:<pid>` in the command's environment
+(its ONLY env addition) — the held slot's pathname plus the holder's PID, not a bare
+flag. A wrapper invocation that starts with the marker set does NOT trust it blindly
+(the env survives Node-spawn descendants that the fd does not — R5 F3): it validates
+that (a) the named slot file's metadata records the marker's PID, (b) that PID is
+alive (`kill -0`), and (c) the slot is actually locked (a `LOCK_NB` probe on a
+separate fd FAILS; the probe fd is closed either way). All three hold → emit
+`nested under held slot — passing through` and exec directly. Any check fails → the
+marker is STALE (the ancestor holder died; an orphaned descendant is launching new
+work): emit `stale slot-held marker — acquiring normally`, strip the marker from the
+child env, and run the normal acquisition path. This keeps the nested self-deadlock
+structurally impossible for live holders while a dead holder's descendants can never
+silently bypass admission. Nested qualifying phases (`pnpm build → next build`,
+`test:fast → vitest`, playwright web servers, `mutation:guards → vitest` children)
+pass through under a live ancestor; the outermost wrapped command owns the slot. The
+AGENTS.md rule says "wrap the outermost command"; wrapping an inner one anyway is
+harmless by construction.
 
 Exit code, signals, stdio: otherwise fully transparent — `execvp` means the caller
 sees the heavy command's exit status directly; no forwarding logic exists to get
@@ -262,7 +274,8 @@ AGENTS.md rule):
 | `FX_HEAVY_WAIT_WARN_S` | `300` | repeat-warning cadence while waiting. |
 | `FX_HEAVY_DISABLE` | unset | `1` = exec the command directly, no locking (escape hatch; also the CI posture). |
 | `FX_HEAVY_JITTER_PCT` | `20` | poll jitter percent; `0` = deterministic (test posture). |
-| `FX_HEAVY_SLOT_HELD` | (set by wrapper) | NOT a user knob — the §4.1 reentrancy signal. Written by the wrapper into the exec'd env; read by nested wrapper invocations, which pass through without acquiring. Never set it by hand. |
+| `FX_HEAVY_SLOT_HELD` | (set by wrapper) | NOT a user knob — the §4.1 reentrancy signal (`<slot-path>:<pid>`). Written by the wrapper into the exec'd env; nested invocations VALIDATE it (metadata pid + liveness + lock probe) before passing through. Never set it by hand. |
+| `FX_HEAVY_TEST_HOLD_OPEN_MS` | unset | NOT a user knob — test-only race-injection point: sleep this many ms between a slot `open` and its `flock` attempt, making the §7 case 11 orphaned-inode window deterministically reproducible (R5 F2). Integer [0, 60000]; out-of-domain warns + ignores. Production sessions never set it. |
 
 **Slot-count consistency (R1 F9, atomicity per R2 F2):** publication of `config` (one
 JSON line `{"slots": N}`) is ATOMIC first-writer-wins: an invocation that finds no
@@ -277,9 +290,18 @@ R4 F4), the loser after `EEXIST`. The loser then reads the winner's value, and o
 mismatch with its own `FX_HEAVY_SLOTS` emits a one-line stderr warning and ADOPTS the
 recorded value. Waiters RE-RESOLVE `config` on every poll iteration (R2 F2 third
 instance): a waiter that outlives a dir removal/recreation converges on the new
-topology within one poll rather than acting on a startup snapshot. Changing capacity is
-explicit: remove the slot dir (or reboot — `/tmp` clears) while no holder is live; the
-warning text says exactly that.
+topology within one poll rather than acting on a startup snapshot.
+
+**Capacity changes go through `--recreate` (R5 F1):**
+`python3 scripts/with-heavy-slot.py --recreate --slots N` performs the swap safely:
+it takes a BLOCKING `flock` on every current slot file in index order — so it waits
+for every live holder, including one in the validate→exec window, to finish — then,
+holding all locks, unlinks the old slot files and `config`, publishes the new
+`config` (same tmp+link discipline), creates the new slot files, and releases. Any
+waiter mid-acquisition either blocks behind `--recreate`'s locks or wins an orphaned
+inode and is rejected by step 6 validation on its next attempt. Reboot (`/tmp`
+clears) is the other supported reset. Manual `rm -rf` of a live slot dir is OUT OF
+CONTRACT — it reintroduces the recreation races by hand and files to §8.
 
 **Knob domains (R2 F4).** All knobs are read at startup (except the per-poll `config`
 re-resolve above); every out-of-domain value falls back with a one-line stderr warning,
@@ -415,21 +437,32 @@ real `/tmp/fx-heavy-slots`.
    (pins the `os.link` first-writer-wins publication).
 10. **pnpm forwarding.** `pnpm heavy -- node -e "process.exit(0)"` exits 0. (The plan
     owns task numbering; this spec references cases, never plan tasks.)
-11. **Resize-race containment (R3 F1, R4 F1).** Two arms sharing the case-1 overlap
-    oracle. Shrink arm: dir at `FX_HEAVY_SLOTS=3`; waiter blocks with resolved N=3
-    (all slots test-held); recreate dir with config N=1 and a test-owned holder on
-    new slot-0; release one OLD slot fd. Identity arm (same-size recreation): dir at
-    N=1, waiter blocked on the held slot; recreate dir with config N=1 and a
-    test-owned holder locking the NEW slot-0 inode; release the OLD inode's flock so
-    the stale waiter's already-open fd can win its orphaned inode — the index check
-    alone would pass (`0 < 1`); only the `(st_dev, st_ino)` identity check rejects
-    it. Both arms assert: the stale waiter's command never runs concurrently with the
-    new topology's holder, and its stderr carries the topology-restart notice.
-12. **Nested pass-through (R4 F2).** Slots=1: an outer wrapped command's child
-    invokes the wrapper again (inherits `FX_HEAVY_SLOT_HELD=1`); assert the inner
-    command RUNS (no self-deadlock on the single slot), the inner wrapper's stderr
-    carries the `nested under held slot` note, and slot-file lock state shows one
-    holder throughout.
+11. **Resize-race containment (R3 F1, R4 F1, fixture per R5 F2).** The orphaned-inode
+    window (open → descheduled → flock) is sub-poll and unreachable through the
+    public interface — the acquire loop closes losing fds — so both arms inject it
+    deterministically with `FX_HEAVY_TEST_HOLD_OPEN_MS`: the waiter opens the OLD
+    slot file, sleeps at the injection point, the test swaps the topology during the
+    sleep (unlink + recreate: identity arm same-size N=1→N=1; shrink arm N=3→N=1),
+    with a test-owned holder locking the NEW slot-0 inode; the waiter's flock then
+    wins its now-orphaned inode. Assert per arm: the waiter's command never runs
+    concurrently with the new topology's holder (case-1 overlap oracle), and its
+    stderr carries the topology-restart notice — identity rejection in the same-size
+    arm (`0 < 1` passes the index check), index or identity rejection in the shrink
+    arm.
+12. **Nested pass-through and stale marker (R4 F2, R5 F3).** Live arm — slots=1: an
+    outer wrapped command's child invokes the wrapper again (inherits the marker);
+    assert the inner command RUNS (no self-deadlock), inner stderr carries
+    `nested under held slot`, one holder throughout. Stale arm — start a wrapped
+    parent whose Node child (marker inherited, fd not) survives it; after the parent
+    exits, the orphan invokes the wrapper: assert stderr carries
+    `stale slot-held marker — acquiring normally`, the run ACQUIRES a slot (observable:
+    a concurrent wrapped command at slots=1 is mutually excluded with it), and the
+    marker it passes to its own child names the NEW slot/pid.
+13. **Recreate blocks on live holders (R5 F1).** Slots=1 with a wrapped command
+    running; start `--recreate --slots 2` concurrently: assert it does not complete
+    before the holder's command exits (ordering via timestamps), completes after,
+    and the dir then holds slot-0/slot-1 plus a config recording 2 with no tmp
+    residue.
 
 The suite spawns ≤3 tiny node children per case — it is itself light and needs no slot.
 
@@ -445,6 +478,10 @@ The suite spawns ≤3 tiny node children per case — it is itself light and nee
   guessing (§4.1.5). Never silent.
 - `/tmp` clears on reboot — by design (locks are runtime state; the kernel released
   them at death anyway).
+- Manual `rm -rf` of a live slot dir is out of contract (§4.5) — it hand-builds the
+  recreation races `--recreate` exists to prevent. Consequence is bounded over-
+  admission until in-flight commands finish, surfaced by topology-restart notices on
+  every subsequent acquisition; the repair is rerunning `--recreate`.
 - A wrapped phase can wait when more than `slots` heavy phases overlap — bounded,
   surfaced by the wait warning, ratified under C1 (R2 F6).
 - Same-worktree double build: the second build holds a heavy slot while idling on the
