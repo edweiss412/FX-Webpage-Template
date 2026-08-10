@@ -436,6 +436,17 @@ const BACKLOG_GRADUATED = [
     id: "BL-VERSION-AMBIGUOUS-V1-OVERRIDE",
     provenance: "docs/close-v1-override-wont-build",
   },
+  // feat/help-report-surface (2026-08-09): the non-show recurrence-report
+  // surface shipped as Option A of the owner-ratified design — the /help/errors
+  // trailing mailto is replaced by the M8 report flow at surface "help",
+  // show_id null. The entry's "API + storage. Decision needed" block was stale,
+  // not open: reports.show_id has been nullable since the founding migration,
+  // so no endpoint, table, or migration was needed and the effort resized L to S
+  // (spec 2026-08-09-help-report-surface-design.md).
+  {
+    id: "BL-HELP-NON-SHOW-REPORT-SURFACE",
+    provenance: "feat/help-report-surface",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
