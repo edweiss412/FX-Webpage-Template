@@ -39,6 +39,13 @@ import { AnchoredPortal } from "@/components/admin/AnchoredPortal";
 import { useShowModalNav } from "@/components/admin/useShowModalNav";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { requestShowSync } from "@/lib/admin/syncRequest";
+import {
+  ARCHIVE_GENERIC_ERROR_COPY,
+  ARCHIVE_NOT_FOUND_COPY,
+  archiveConsequenceProse,
+  classifyArchiveFailure,
+} from "@/lib/admin/archiveCopy";
+import { archiveShowAction } from "@/app/admin/show/[slug]/_actions/archive";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
 
 /**
@@ -75,6 +82,13 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const [pending, setPending] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [heldShrink, setHeldShrink] = useState<HeldShrink | null>(null);
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
+  // The archive refusal, already classified: `null` is "no refusal", never
+  // "some refusal with nothing to say" — an empty error region is a bug by
+  // specification (spec §3.4).
+  const [archiveFailure, setArchiveFailure] = useState<ReturnType<
+    typeof classifyArchiveFailure
+  > | null>(null);
   // Persistent live region (BL-ANNOUNCE-REGION-UNMOUNT-CLASS): success CLOSES
   // the menu, so an announcement living inside it would unmount before it could
   // be read. This node outlives every menu state.
@@ -86,9 +100,13 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const previewItemRef = useRef<HTMLButtonElement>(null);
   const resyncItemRef = useRef<HTMLButtonElement>(null);
   const keepCurrentRef = useRef<HTMLButtonElement>(null);
+  const archiveItemRef = useRef<HTMLButtonElement>(null);
+  const archiveCancelRef = useRef<HTMLButtonElement>(null);
+  const restoreArchiveFocusRef = useRef(false);
   const triggerId = useId();
   const errorMsgId = useId();
   const emptyCrewHintId = useId();
+  const archiveWarnId = useId();
 
   // Guard condition (spec §3.1): a row with no title is named by its slug, so
   // the trigger never announces "Actions for null".
@@ -143,7 +161,25 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     setSubmenuOpen(false);
     setErrorCode(null);
     setHeldShrink(null);
+    setConfirmingArchive(false);
+    setArchiveFailure(null);
   }, [open]);
+
+  // C3 (DESIGN.md destructive contract): the confirm mounts with the SAFE
+  // control focused. Without it, swapping the row unmounts the focused item,
+  // focus falls to <body>, and the next Enter can land on Confirm — the
+  // stray-second-Enter vector on a destructive control.
+  useEffect(() => {
+    if (confirmingArchive) archiveCancelRef.current?.focus();
+  }, [confirmingArchive]);
+
+  // C5 (close focus): only a CANCEL restores, and it must run AFTER the item
+  // it returns to has re-mounted.
+  useEffect(() => {
+    if (confirmingArchive || !restoreArchiveFocusRef.current) return;
+    restoreArchiveFocusRef.current = false;
+    archiveItemRef.current?.focus();
+  }, [confirmingArchive]);
 
   const runSync = async (accept?: { expectedModifiedTime: string }) => {
     if (pending) return;
@@ -166,6 +202,29 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       } else {
         setHeldShrink(null);
         setErrorCode(outcome.code);
+      }
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const runArchive = async () => {
+    if (pending) return;
+    setArchiveFailure(null);
+    setPending(true);
+    try {
+      // The SHIPPED action takes a SLUG and resolves the show itself; passing
+      // row.id would return show_not_found without archiving anything.
+      const result = await archiveShowAction(slug);
+      if (result.ok) {
+        setConfirmingArchive(false);
+        setAnnouncement(`Archived ${label}. Crew links for this show are now dead.`);
+        // Ordering (§3.5): refresh FIRST — the row has to be relocating into
+        // the Archived bucket by the time the menu goes away.
+        router.refresh();
+        closeMenu(false);
+      } else {
+        setArchiveFailure(classifyArchiveFailure(result.code));
       }
     } finally {
       setPending(false);
@@ -385,17 +444,92 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                 {pending ? RESYNC_PENDING_LABEL : RESYNC_IDLE_LABEL}
               </button>
 
-              <button
-                type="button"
-                role="menuitem"
-                tabIndex={-1}
-                data-testid={`row-action-archive-${slug}`}
-                {...itemDisabledProps}
-                className={MENU_ITEM_CLASS}
-              >
-                <Archive aria-hidden="true" className={ICON_CLASS} />
-                Archive
-              </button>
+              {confirmingArchive ? (
+                // In-place swap of the Archive ROW (§3.5): the item is replaced,
+                // never duplicated, so there is exactly one archive affordance.
+                <div
+                  role="group"
+                  aria-label={`Confirm archiving ${label}`}
+                  data-testid={`row-actions-archive-confirm-${slug}`}
+                  className="flex flex-col gap-2 rounded-sm bg-surface-sunken p-2.5"
+                >
+                  {/* Wraps, never truncates: a pathological title must not
+                      elide the very context a destructive confirm depends on. */}
+                  <p
+                    id={archiveWarnId}
+                    data-testid={`row-actions-archive-consequence-${slug}`}
+                    className="text-xs/relaxed wrap-break-word text-text-subtle"
+                  >
+                    {archiveConsequenceProse(row.title)}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      ref={archiveCancelRef}
+                      data-testid={`row-actions-archive-cancel-${slug}`}
+                      disabled={pending}
+                      onClick={() => {
+                        restoreArchiveFocusRef.current = true;
+                        setConfirmingArchive(false);
+                      }}
+                      className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border bg-surface px-3.5 text-[13px] font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                    {/* Tier-2 destructive confirm-go (§3.8): archiving rotates
+                        the crew link dead immediately. Registered in
+                        tests/styles/_metaDestructiveConfirm (occurrence 1). */}
+                    <button
+                      type="button"
+                      data-testid={`row-actions-archive-go-${slug}`}
+                      aria-describedby={archiveWarnId}
+                      disabled={pending}
+                      aria-busy={pending}
+                      onClick={() => void runArchive()}
+                      className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-3.5 py-2 text-[13px] font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {pending ? "Archiving…" : "Confirm archive"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  tabIndex={-1}
+                  ref={archiveItemRef}
+                  data-testid={`row-action-archive-${slug}`}
+                  {...itemDisabledProps}
+                  onClick={() => {
+                    if (busy) return;
+                    setArchiveFailure(null);
+                    setConfirmingArchive(true);
+                  }}
+                  className={MENU_ITEM_CLASS}
+                >
+                  <Archive aria-hidden="true" className={ICON_CLASS} />
+                  Archive
+                </button>
+              )}
+
+              {archiveFailure ? (
+                // Every reachable failure says SOMETHING: the two lowercase
+                // sentinels get generic prose (they are NOT §12.4 codes and
+                // must never reach messageFor), catalog codes get catalog copy.
+                <div
+                  role="alert"
+                  data-testid={`row-actions-archive-error-${slug}`}
+                  className="mt-1 rounded-sm border border-border-strong bg-warning-bg p-2.5 text-xs/relaxed text-warning-text"
+                >
+                  {archiveFailure.kind === "catalog" ? (
+                    <ErrorExplainer code={archiveFailure.code} surface="admin" />
+                  ) : archiveFailure.kind === "not_found" ? (
+                    ARCHIVE_NOT_FOUND_COPY
+                  ) : (
+                    ARCHIVE_GENERIC_ERROR_COPY
+                  )}
+                </div>
+              ) : null}
             </>
           ) : null}
 
