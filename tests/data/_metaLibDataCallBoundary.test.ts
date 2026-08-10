@@ -513,18 +513,28 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
             `${where}: no pin depends on this row's call — every pin still matches once the call is erased, so a pin copied from another site, another call kind, or another function cannot be told apart`,
           );
         }
-        // The error claim needs INDEPENDENT evidence: a pin that survives the
+        // The second claim needs INDEPENDENT evidence: a pin that survives the
         // call being erased (so it is not just the call pin again) and stops
-        // matching when the site's result binding is obscured. The call pin
-        // satisfies both tests on its own, which is why "some pin fails each"
-        // was not enough — the borrowed error pin was never scrutinised.
+        // matching when the names this site's result is bound to are obscured.
+        // The call pin satisfies both tests on its own, which is why "some pin
+        // fails each" was not enough — the borrowed error pin was never
+        // scrutinised (R17 F1).
+        //
+        // What this establishes is that a pin SPEAKS ABOUT THIS SITE'S RESULT,
+        // which is a structural fact. It is deliberately not a claim that the
+        // error is inspected: a pin of `return result.data` speaks about the
+        // result too, and obscuring is by NAME, so a shadowed binding or an
+        // aggregate one satisfies it as well (R18 F1, F2). Those are §6.7's
+        // deliberate-weak-authoring territory, pinned executable below, and the
+        // runtime half stays with the behavioral suites — the same division
+        // §6.3 has always drawn.
         const withoutBinding = sourceWithSiteObscured(file, readSource, stripped, index, "binding");
-        const provesResultInspected = row.pin.some(
+        const speaksAboutResult = row.pin.some(
           (pattern) => matchesPin(pattern, withoutCall) && !matchesPin(pattern, withoutBinding),
         );
-        if (!provesResultInspected) {
+        if (!speaksAboutResult) {
           problems.push(
-            `${where}: no pin depends on this site's result binding — an error-handling pin borrowed from a neighbouring site would still match, so this row does not prove THIS call's error is checked`,
+            `${where}: no pin speaks about this site's result — every pin either names the call or survives the result binding being obscured, so a pin borrowed from a neighbouring site cannot be told apart`,
           );
         }
         const unmatched = row.pin.filter((pattern) => !matchesPin(pattern, stripped));
@@ -1297,12 +1307,12 @@ describe("META lib/data Supabase call boundary", () => {
       // `shows` is a substring of `shows_internal`, and both are live here.
       expect(validateRows({ [SOURCE]: rowsWith(1) }, reader({ [SOURCE]: source }))).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
       ]);
       // An empty literal is a substring of everything.
       expect(validateRows({ [SOURCE]: rowsWith(2) }, reader({ [SOURCE]: source }))).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
       ]);
 
       // Control: every row pinned to its own site passes, so the rejections
@@ -1340,7 +1350,7 @@ describe("META lib/data Supabase call boundary", () => {
         ),
       ).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
       ]);
 
       // Control: each row pinned to its own occurrence passes.
@@ -1382,7 +1392,7 @@ describe("META lib/data Supabase call boundary", () => {
         ),
       ).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
       ]);
 
       // Control: the second row pinned to its own site passes.
@@ -1430,7 +1440,7 @@ describe("META lib/data Supabase call boundary", () => {
         ),
       ).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
       ]);
 
       // Control: each row pinned to its OWN call kind passes.
@@ -1470,7 +1480,7 @@ describe("META lib/data Supabase call boundary", () => {
         ),
       ).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
       ]);
 
       // Control: the real site's pins pass.
@@ -1514,7 +1524,7 @@ describe("META lib/data Supabase call boundary", () => {
       for (const [name, row] of borrowed) {
         expect(validateRows({ [SOURCE]: [row] }, reader({ [SOURCE]: source })), name).toEqual([
           expect.stringContaining("no pin depends on this row's call"),
-          expect.stringContaining("no pin depends on this site's result binding"),
+          expect.stringContaining("no pin speaks about this site's result"),
         ]);
       }
 
@@ -1550,7 +1560,7 @@ describe("META lib/data Supabase call boundary", () => {
         ),
       ).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
       ]);
 
       // Control: naming the call and its result passes.
@@ -1588,7 +1598,7 @@ describe("META lib/data Supabase call boundary", () => {
         ),
       ).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
       ]);
 
       // Control: the real site's pins pass.
@@ -1633,7 +1643,7 @@ describe("META lib/data Supabase call boundary", () => {
         // must reject it every time, whatever ran before.
         expect(validateRows(registry, reader({ [SOURCE]: source })), flags).toEqual([
           expect.stringContaining('rpc("second"): no pin depends on this row\'s call'),
-          expect.stringContaining('rpc("second"): no pin depends on this site\'s result binding'),
+          expect.stringContaining('rpc("second"): no pin speaks about this site\'s result'),
         ]);
       }
     });
@@ -1659,7 +1669,7 @@ describe("META lib/data Supabase call boundary", () => {
         ),
       ).toEqual([
         // A pin that matches nothing also proves nothing about the result.
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
         expect.stringContaining("do not match the source"),
       ]);
 
@@ -1709,7 +1719,7 @@ describe("META lib/data Supabase call boundary", () => {
           },
           reader({ [SOURCE]: source }),
         ),
-      ).toEqual([expect.stringContaining("no pin depends on this site's result binding")]);
+      ).toEqual([expect.stringContaining("no pin speaks about this site's result")]);
 
       // Control: once `bad` checks its own error and the row pins that, it passes.
       const fixed =
@@ -1732,6 +1742,51 @@ describe("META lib/data Supabase call boundary", () => {
       ).toEqual([]);
     });
 
+    // Documented limit §6.7, made executable rather than left as prose. What
+    // rule 2 establishes is that a pin SPEAKS ABOUT this site's result — a
+    // structural fact. It is not a claim that the error is inspected, and these
+    // four shapes are exactly the gap (whole-diff R18 F1, F2). Each requires
+    // authoring a pin deliberately, which is outside §1.3's fence, and the
+    // runtime half stays with the behavioral suites (§6.3). Asserted so the
+    // limit is a stated behavior a reader can see the cost of, not an accident.
+    test("documented limit §6.7: a pin about the RESULT is accepted even when no error is checked", () => {
+      const dataOnly = 'const result = await sb.from("t");\nreturn result.data;\n';
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              {
+                kind: "from",
+                literal: "t",
+                pin: [/const result = await sb\.from\("t"\)/, /return result\.data/],
+              },
+            ],
+          },
+          reader({ [SOURCE]: dataOnly }),
+        ),
+      ).toEqual([]);
+
+      // Obscuring is by NAME, so a shadowed binding elsewhere in the file
+      // satisfies the rule too.
+      const shadowed =
+        'const result = await sb.from("t");\nreturn result.data;\n' +
+        "function other() {\n  const result = compute();\n  if (result.error) throw result.error;\n}\n";
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              {
+                kind: "from",
+                literal: "t",
+                pin: [/const result = await sb\.from\("t"\)/, /if \(result\.error\)/],
+              },
+            ],
+          },
+          reader({ [SOURCE]: shadowed }),
+        ),
+      ).toEqual([]);
+    });
+
     test("a pin that no longer matches the source is rejected", () => {
       const registry: Registry = {
         [SOURCE]: [
@@ -1744,7 +1799,7 @@ describe("META lib/data Supabase call boundary", () => {
       };
       expect(validateRows(registry, reader({ [SOURCE]: MODULE_SOURCE }))).toEqual([
         // A pin that matches nothing also proves nothing about the result.
-        expect.stringContaining("no pin depends on this site's result binding"),
+        expect.stringContaining("no pin speaks about this site's result"),
         expect.stringContaining("do not match the source"),
       ]);
     });
