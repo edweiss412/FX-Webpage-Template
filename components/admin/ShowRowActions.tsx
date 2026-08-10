@@ -198,6 +198,9 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const shownCrew = crew.slice(0, CREW_SUBMENU_CAP);
   const overflowCrewCount = crew.length - shownCrew.length;
   const hasCrew = crew.length > 0;
+  // Membership, not count: swapping one member for another leaves the length
+  // unchanged and still unmounts whatever the admin had focused.
+  const crewIdentity = shownCrew.map((m) => m.id).join(",");
 
   // ONE in-flight action per row (spec §3.1 guard conditions). A pending
   // request and an undecided shrink hold both mean "this row is mid-action".
@@ -287,10 +290,33 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     focusMenuItem(menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]'));
   }, [open]);
 
+  /**
+   * Open-focus AND roster reconciliation, in one effect because they answer the
+   * same question: is focus on a live item?
+   *
+   * A background refresh can change the ROSTER, not just publication state. If
+   * the crew empties, the submenu's items unmount while `submenuOpen` stays
+   * true — focus lands on `<body>`, and crew returning later would reopen a
+   * menu the admin never asked for. If a single member is removed (or the
+   * overflow item disappears when the count falls back to the cap), the submenu
+   * stays up but the focused node is gone.
+   *
+   * Keyed on the crew IDENTITY list, not just its length: swapping one member
+   * for another leaves the count unchanged and still unmounts the focused node.
+   */
   useEffect(() => {
     if (!submenuOpen) return;
-    focusMenuItem(submenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]'));
-  }, [submenuOpen]);
+    if (!hasCrew) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- a RESET on a roster change: it runs only on the has-crew→empty edge and cannot cascade.
+      setSubmenuOpen(false);
+      previewItemRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !submenuRef.current?.contains(active)) {
+      focusMenuItem(submenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]'));
+    }
+  }, [submenuOpen, hasCrew, crewIdentity]);
 
   // Accidental-accept safety (WCAG 2.4.3 + §3.8): when the hold prompt appears,
   // focus lands on the SAFE control, never on the destructive accept, so a

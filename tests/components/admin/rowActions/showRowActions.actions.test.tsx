@@ -588,3 +588,52 @@ describe("Re-sync — every reachable failure speaks, and a request owns the sur
     expect(document.activeElement).toBe(q("row-action-resync-af"));
   });
 });
+
+// ── whole-diff review R10 ───────────────────────────────────────────────────
+// A background refresh changes the ROSTER, not just publication state, and the
+// submenu's focus reconciliation was keyed only on `submenuOpen`.
+describe("Preview submenu — a roster refresh under an open submenu", () => {
+  test("an emptied roster closes the submenu and returns focus to its item", () => {
+    const r = row({ slug: "empty-flip" });
+    const { rerender } = render(<ShowRowActions row={r} />);
+    openMenu("empty-flip");
+    openSubmenu("empty-flip");
+    premiseHolds(
+      "the submenu is open before the roster changes",
+      q("row-action-preview-menu-empty-flip") !== null,
+    );
+
+    rerender(<ShowRowActions row={{ ...r, crew: [], crewCount: 0 }} />);
+
+    // Left open, `submenuOpen` would stay true with nothing in it: focus falls
+    // to <body>, and crew returning later reopens a menu nobody asked for.
+    expect(q("row-action-preview-menu-empty-flip")).toBeNull();
+    expect(document.activeElement).toBe(q("row-action-preview-empty-flip"));
+  });
+
+  test("removing the FOCUSED member keeps the submenu open and moves focus to a live item", () => {
+    const r = row({
+      slug: "swap",
+      crew: [
+        { id: "a", name: "Ada" },
+        { id: "b", name: "Grace" },
+      ],
+      crewCount: 2,
+    });
+    const { rerender } = render(<ShowRowActions row={r} />);
+    openMenu("swap");
+    const submenu = openSubmenu("swap");
+    const first = q("row-action-preview-crew-a")!;
+    premiseHolds(
+      "focus starts on the member about to be removed",
+      document.activeElement === first,
+    );
+
+    rerender(<ShowRowActions row={{ ...r, crew: [{ id: "b", name: "Grace" }], crewCount: 1 }} />);
+
+    expect(q("row-action-preview-crew-a")).toBeNull();
+    expect(q("row-action-preview-menu-swap")).not.toBeNull();
+    // Not <body>: the surface is still open, so focus belongs inside it.
+    expect(submenu.contains(document.activeElement)).toBe(true);
+  });
+});
