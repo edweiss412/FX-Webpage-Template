@@ -22,11 +22,14 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import {
   closeSync,
+  existsSync,
   mkdtempSync,
   openSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -820,6 +823,10 @@ describe("spec §7 case 13 — recreate discipline", () => {
 
     const doomed = runRecreate({ ...env, FX_HEAVY_TEST_HOLD_OPEN_MS: "5000" }, ["--slots", "2"]);
     await waitForStderr(doomed, "swap begin ", 15_000);
+    // `swap begin` precedes the config replace; the kill must land strictly
+    // INSIDE the injected delay, which is exactly the state where the config
+    // already reads the new count and the old slot files are all still present.
+    await waitUntil("the swap to have replaced config", () => configSlots(dir) === 2, 15_000);
     doomed.child.kill("SIGKILL");
     await doomed.exited;
 
@@ -871,4 +878,269 @@ describe("spec §7 case 13 — recreate discipline", () => {
     expect(configSlots(dir)).toBe(64);
     expect(tmpResidue(dir)).toEqual([]);
   }, 60_000);
+});
+
+// --- Task 4 shared fixtures --------------------------------------------------
+
+/** Runs its argv as a command and merges the child's stderr into its own. */
+const NESTED_JS = `
+const { spawnSync } = require("node:child_process");
+const argv = process.argv.slice(1);
+const result = spawnSync(argv[0], argv.slice(1), { stdio: "inherit" });
+process.exit(result.status ?? 1);
+`;
+
+/** Spawns its argv detached and exits, leaving an orphan that outlives it. */
+const SPAWN_DETACHED_JS = `
+const { spawn } = require("node:child_process");
+const child = spawn(process.execPath, process.argv.slice(1), {
+  detached: true,
+  stdio: "ignore",
+});
+child.unref();
+`;
+
+const ORPHAN_CJS = `
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const [wrapper, innerScript, log, outDir] = process.argv.slice(2);
+// Outlive the wrapped parent: the env marker is inherited, the slot fd is not.
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200);
+const result = spawnSync("python3", [wrapper, "--", process.execPath, innerScript, log, outDir], {
+  encoding: "utf8",
+});
+fs.writeFileSync(outDir + "/orphan.stderr", result.stderr || "");
+fs.writeFileSync(outDir + "/orphan.status", String(result.status));
+`;
+
+const ORPHAN_INNER_CJS = `
+const fs = require("node:fs");
+const [log, outDir] = process.argv.slice(2);
+fs.writeFileSync(outDir + "/orphan.marker", String(process.env.FX_HEAVY_SLOT_HELD));
+fs.appendFileSync(log, "start:orphan:" + Date.now() + "\\n");
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);
+fs.appendFileSync(log, "end:orphan:" + Date.now() + "\\n");
+`;
+
+function priorityMarkers(dir: string): string[] {
+  return readdirSync(dir).filter((name) => name.startsWith("prio-wait-"));
+}
+
+describe("spec §7 case 5 — priority bias (marker mechanism)", () => {
+  it(
+    "hands the freed slot to the priority waiter, and the normal waiter says it yielded",
+    // The ordering arm alone tolerates scheduler noise; the notice arm inside it
+    // is timing-independent and would fail identically on every retry.
+    { timeout: 90_000, retry: 2 },
+    async () => {
+      const dir = slotDir();
+      const pollMs = 500;
+      // EQUAL polls with jitter DISABLED: independent jitter could hand priority
+      // the win with the marker logic deleted.
+      const env = {
+        FX_HEAVY_SLOT_DIR: dir,
+        FX_HEAVY_SLOTS: "1",
+        FX_HEAVY_POLL_MS: String(pollMs),
+        FX_HEAVY_JITTER_PCT: "0",
+      };
+      const log = join(dir, "case5-order.log");
+      const holder = await holdSlot(env);
+
+      // Barrier premise: both waiters are established BEFORE the release, so the
+      // ordering measures the bias rather than the start times.
+      const normal = runWrapped(env, logWindowArgs("normal", log, 300));
+      await waitForStderr(normal, "waiting for a heavy slot", 15_000);
+      const priority = runWrapped(
+        { ...env, FX_HEAVY_PRIORITY: "1" },
+        logWindowArgs("prio", log, 300),
+      );
+      await waitForStderr(priority, "waiting for a heavy slot", 15_000);
+
+      holder.child.kill("SIGKILL");
+      await holder.exited;
+      await Promise.all([normal.exited, priority.exited]);
+
+      const got = windows(log);
+      expect(got.get("prio")).toBeDefined();
+      expect(got.get("normal")).toBeDefined();
+      expect(got.get("prio")!.start).toBeLessThan(got.get("normal")!.start);
+      // Timing-independent: the notice exists only if the marker mechanism ran,
+      // so a marker-deletion implementation fails here whatever the schedule did.
+      expect(normal.stderr()).toContain("yielding to priority waiter");
+    },
+  );
+
+  it("refreshes the priority marker's mtime on every poll, not just at creation", async () => {
+    const dir = slotDir();
+    const pollMs = 400;
+    const env = {
+      FX_HEAVY_SLOT_DIR: dir,
+      FX_HEAVY_SLOTS: "1",
+      FX_HEAVY_POLL_MS: String(pollMs),
+      FX_HEAVY_JITTER_PCT: "0",
+    };
+    const holder = await holdSlot(env);
+    const priority = runWrapped({ ...env, FX_HEAVY_PRIORITY: "1" }, [
+      process.execPath,
+      "-e",
+      "process.exit(0)",
+    ]);
+    try {
+      await waitForStderr(priority, "waiting for a heavy slot", 15_000);
+      const markers = priorityMarkers(dir);
+      expect(markers).toHaveLength(1);
+      const marker = join(dir, markers[0]!);
+
+      const first = statSync(marker).mtimeMs;
+      await sleep(pollMs * 3);
+      const second = statSync(marker).mtimeMs;
+      // A create-once implementation lets an active waiter's marker age out of
+      // the freshness window while it is still polling.
+      expect(second).toBeGreaterThan(first);
+    } finally {
+      priority.child.kill("SIGKILL");
+      await priority.exited;
+      holder.child.kill("SIGKILL");
+      await holder.exited;
+    }
+  }, 60_000);
+
+  /**
+   * Both halves plant a marker backdated 700 s and differ ONLY in the cadence the
+   * marker declares. Freshness computed from the OBSERVER's own interval gives
+   * the same answer to both, so the first half fails on such an implementation.
+   */
+  async function stderrOfWaiterBesideMarker(declaredPollMs: number): Promise<string> {
+    const dir = slotDir();
+    const env = {
+      FX_HEAVY_SLOT_DIR: dir,
+      FX_HEAVY_SLOTS: "1",
+      FX_HEAVY_POLL_MS: "300",
+      FX_HEAVY_JITTER_PCT: "0",
+    };
+    const holder = await holdSlot(env);
+    const marker = join(dir, "prio-wait-999999");
+    writeFileSync(marker, JSON.stringify({ pid: 999999, poll_ms: declaredPollMs }) + "\n");
+    const backdated = Date.now() / 1000 - 700;
+    utimesSync(marker, backdated, backdated);
+
+    const waiter = runWrapped(env, [process.execPath, "-e", "process.exit(0)"]);
+    try {
+      await waitForStderr(waiter, "waiting for a heavy slot", 15_000);
+      await sleep(1200);
+      return waiter.stderr();
+    } finally {
+      waiter.child.kill("SIGKILL");
+      await waiter.exited;
+      holder.child.kill("SIGKILL");
+      await holder.exited;
+    }
+  }
+
+  it("treats a 400000 ms-cadence marker backdated 700 s as FRESH (window 800 s)", async () => {
+    expect(await stderrOfWaiterBesideMarker(400_000)).toContain("yielding to priority waiter");
+  }, 60_000);
+
+  it("treats a 3000 ms-cadence marker backdated 700 s as STALE (600 s floor)", async () => {
+    const stderr = await stderrOfWaiterBesideMarker(3000);
+    premiseHolds(
+      "the waiter genuinely waited beside the planted marker",
+      stderr.includes("waiting for a heavy slot"),
+    );
+    expect(stderr).not.toContain("yielding to priority waiter");
+  }, 60_000);
+});
+
+describe("spec §7 case 12 — nested pass-through and stale marker", () => {
+  it("passes a nested invocation through under a LIVE holder, keeping one holder throughout", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "200" };
+    const log = join(dir, "case12-live.log");
+
+    const outer = runWrapped(env, [
+      process.execPath,
+      "-e",
+      NESTED_JS,
+      "python3",
+      WRAPPER,
+      "--",
+      process.execPath,
+      "-e",
+      LOG_WINDOW_JS,
+      "inner",
+      log,
+      "1500",
+    ]);
+    await waitForStderr(outer, "acquired slot-", 15_000);
+
+    const other = runWrapped(env, logWindowArgs("other", log, 500));
+    const [ro, rt] = await Promise.all([outer.exited, other.exited]);
+    expect(ro.code).toBe(0);
+    expect(rt.code).toBe(0);
+
+    expect(outer.stderr()).toContain("nested under held slot");
+    // Exactly one acquisition across outer + inner (stderr is merged).
+    expect(outer.stderr().match(/acquired slot-/g) ?? []).toHaveLength(1);
+
+    const got = windows(log);
+    expect(got.get("inner")).toBeDefined();
+    expect(got.get("other")).toBeDefined();
+    expect(overlaps(got.get("inner"), got.get("other"))).toBe(false);
+  }, 90_000);
+
+  it("acquires normally when the marker's holder is dead, and re-marks with the NEW slot and pid", async () => {
+    const dir = slotDir();
+    const orphanScript = join(dir, "orphan.cjs");
+    const innerScript = join(dir, "orphan-inner.cjs");
+    writeFileSync(orphanScript, ORPHAN_CJS);
+    writeFileSync(innerScript, ORPHAN_INNER_CJS);
+
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "200" };
+    const log = join(dir, "case12-stale.log");
+
+    const parent = runWrapped(env, [
+      process.execPath,
+      "-e",
+      SPAWN_DETACHED_JS,
+      orphanScript,
+      WRAPPER,
+      innerScript,
+      log,
+      dir,
+    ]);
+    await waitForStderr(parent, "acquired slot-", 15_000);
+    expect((await parent.exited).code).toBe(0);
+
+    // Occupy the slot across the orphan's attempt, so "it acquired" is a claim
+    // about admission rather than about an empty dir.
+    const other = runWrapped(env, logWindowArgs("other", log, 2500));
+    await waitForStderr(other, "acquired slot-", 15_000);
+
+    await waitUntil(
+      "the orphan's wrapped run to finish",
+      () => existsSync(join(dir, "orphan.status")),
+      60_000,
+    );
+    await other.exited;
+
+    const orphanStderr = readFileSync(join(dir, "orphan.stderr"), "utf8");
+    expect(orphanStderr).toContain("stale slot-held marker");
+    premiseHolds(
+      "the orphan was genuinely excluded while the other holder ran",
+      orphanStderr.includes("waiting for a heavy slot"),
+    );
+    expect(orphanStderr).toMatch(/^acquired slot-\d+ \(slots=1\)$/m);
+    expect(readFileSync(join(dir, "orphan.status"), "utf8")).toBe("0");
+
+    const got = windows(log);
+    expect(got.get("orphan")).toBeDefined();
+    expect(got.get("other")).toBeDefined();
+    expect(overlaps(got.get("orphan"), got.get("other"))).toBe(false);
+
+    const remarked = readFileSync(join(dir, "orphan.marker"), "utf8").trim();
+    expect(remarked.startsWith(`${join(dir, "slot-0")}:`)).toBe(true);
+    const remarkedPid = Number(remarked.slice(remarked.lastIndexOf(":") + 1));
+    expect(Number.isInteger(remarkedPid)).toBe(true);
+    expect(remarkedPid).not.toBe(parent.pid);
+  }, 120_000);
 });

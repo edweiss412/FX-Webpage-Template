@@ -17,12 +17,14 @@ the caller sees the command's own exit status because no forwarding logic exists
 
 Python 3 stdlib only (C6): macOS ships no flock(1) and Node has no stdlib flock.
 
-Every emission is ASCII and goes to stderr: stdout belongs to the wrapped
-command, and a non-ASCII byte would raise on a C-locale stderr.
+Every emission goes to stderr: stdout belongs to the wrapped command. Emissions
+are ASCII apart from the two reentrancy notices, whose exact text is fixed by
+spec §4.1 and carries an em dash.
 """
 
 from __future__ import annotations
 
+import atexit
 import fcntl
 import json
 import os
@@ -34,6 +36,7 @@ import time
 DEFAULT_SLOT_DIR = "/tmp/fx-heavy-slots"
 DEFAULT_SLOTS = 2
 DEFAULT_POLL_MS = 3000
+DEFAULT_PRIORITY_POLL_MS = 1000
 DEFAULT_WAIT_WARN_S = 300
 DEFAULT_JITTER_PCT = 20
 
@@ -42,6 +45,11 @@ SLOTS_MAX = 64
 
 UNKNOWN_HOLDER = "holder unknown (metadata unreadable)"
 SLOT_NAME = re.compile(r"^slot-(\d+)$")
+MARKER_ENV = "FX_HEAVY_SLOT_HELD"
+PRIO_PREFIX = "prio-wait-"
+# The floor bounds how long a CRASHED priority waiter's marker can throttle
+# others at ordinary poll rates.
+FRESHNESS_FLOOR_S = 600
 
 
 def warn(message: str) -> None:
@@ -277,6 +285,133 @@ def present_slot_indices(slot_dir: str) -> list[int]:
     return sorted(found)
 
 
+# --- priority markers and reentrancy -----------------------------------------
+
+
+_marker_path: str | None = None
+
+
+def _remove_priority_marker() -> None:
+    global _marker_path
+    if _marker_path is None:
+        return
+    try:
+        os.unlink(_marker_path)
+    except OSError:
+        pass
+    _marker_path = None
+
+
+def touch_priority_marker(slot_dir: str, poll_ms: int) -> None:
+    """Created on first wait, mtime REFRESHED on every poll attempt.
+
+    Create-once is non-conforming: an actively polling waiter's marker would
+    silently age out of its own freshness window, and the whole point of the
+    window is that a CRASHED waiter — the one that stops refreshing — is the only
+    one that expires. The marker declares its own effective poll interval, since
+    an observer computing freshness from ITS interval expires a slow-polling
+    waiter that is still very much alive.
+    """
+    global _marker_path
+    path = os.path.join(slot_dir, "%s%d" % (PRIO_PREFIX, os.getpid()))
+    if _marker_path is None:
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps({"pid": os.getpid(), "poll_ms": poll_ms}) + "\n")
+        _marker_path = path
+        atexit.register(_remove_priority_marker)
+        return
+    try:
+        os.utime(path, None)
+    except OSError:
+        # Removed under us (a manual clean); re-create on the next attempt.
+        _marker_path = None
+
+
+def declared_poll_ms(path: str) -> int | None:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            value = json.loads(handle.read()).get("poll_ms")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def fresh_priority_waiter(slot_dir: str, self_pid: int) -> tuple[str, str] | None:
+    """A foreign priority marker inside its DECLARED-cadence freshness window.
+
+    The window is `max(10 min, 2 x the interval declared IN THE MARKER)`. An
+    unreadable marker is fresh at the floor and surfaced as `cadence unknown` —
+    never silently ignored.
+    """
+    try:
+        names = os.listdir(slot_dir)
+    except OSError:
+        return None
+    now = time.time()
+    mine = "%s%d" % (PRIO_PREFIX, self_pid)
+    for name in sorted(names):
+        if not name.startswith(PRIO_PREFIX) or name == mine:
+            continue
+        path = os.path.join(slot_dir, name)
+        try:
+            age = now - os.stat(path).st_mtime
+        except OSError:
+            continue
+        declared = declared_poll_ms(path)
+        if declared is None:
+            window, label = float(FRESHNESS_FLOOR_S), "cadence unknown"
+        else:
+            window = max(float(FRESHNESS_FLOOR_S), 2 * declared / 1000.0)
+            label = "cadence %d ms" % declared
+        if age <= window:
+            return name, label
+    return None
+
+
+def validated_nested_marker(env: dict[str, str]) -> bool | None:
+    """None = no marker inherited. True = a LIVE ancestor holds the named slot.
+
+    The marker is never trusted blindly: the env survives Node-spawn descendants
+    that the slot fd does not, so an orphaned descendant launching new work would
+    otherwise bypass admission entirely. All three checks must hold — the slot's
+    metadata records the marker's pid, that pid is alive, and the slot really is
+    locked.
+    """
+    raw = env.get(MARKER_ENV)
+    if raw is None:
+        return None
+    path, _, pid_text = raw.rpartition(":")
+    if not path:
+        return False
+    try:
+        pid = int(pid_text)
+    except ValueError:
+        return False
+    data = read_holder(path)
+    if data is None or data.get("pid") != pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:
+        probe = os.open(path, os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return True
+    else:
+        # The probe WON, so nothing holds the slot: the ancestor is gone.
+        fcntl.flock(probe, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(probe)
+
+
 # --- acquisition -------------------------------------------------------------
 
 
@@ -356,10 +491,21 @@ def acquire_loop(
     jitter_pct: int,
     cadence: WarnCadence,
     hold_open_ms: int,
+    priority: bool,
 ) -> tuple[int, int, int]:
     """Returns (index, fd, slots). The SH bracket is released before returning."""
     announce = True
     while True:
+        if not priority:
+            # Best-effort bias, not a queue: one extra poll interval before each
+            # attempt yields the next free slot to a priority waiter with high
+            # probability. The back-off happens OUTSIDE the SH bracket — sleeping
+            # inside it would block recreations for the length of the yield.
+            yielding = fresh_priority_waiter(slot_dir, os.getpid())
+            if yielding is not None:
+                if cadence.due("yield"):
+                    warn("yielding to priority waiter (%s, %s)" % yielding)
+                time.sleep(poll_seconds(poll_ms, jitter_pct))
         bracket_fd = hold_bracket(slot_dir, cadence, poll_ms, jitter_pct)
         try:
             slots = resolve_slots(slot_dir, desired, announce)
@@ -379,6 +525,8 @@ def acquire_loop(
                 )
                 for other in range(slots):
                     warn("waiting: slot-%d held by %s" % (other, describe_holder(slot_dir, other)))
+            if priority:
+                touch_priority_marker(slot_dir, poll_ms)
         finally:
             # Released before every poll sleep and before exec: the bracket is
             # never held across a wait and never inherited by the command.
@@ -522,9 +670,26 @@ def main(argv: list[str]) -> int:
     if env_flag(env, "FX_HEAVY_DISABLE"):
         os.execvp(command[0], command)
 
-    priority = env_flag(env, "FX_HEAVY_PRIORITY")
+    nested = validated_nested_marker(env)
+    if nested is True:
+        # Outermost-owns: the ancestor holds the slot for the whole tree, so a
+        # nested qualifying phase must pass through or it self-deadlocks.
+        warn("nested under held slot \u2014 passing through")
+        os.execvp(command[0], command)
+    if nested is False:
+        warn("stale slot-held marker \u2014 acquiring normally")
+        os.environ.pop(MARKER_ENV, None)
+        env.pop(MARKER_ENV, None)
+
+    priority = env_flag(env, "FX_HEAVY_PRIORITY") or "--priority" in wrapper_args
     desired = env_int(env, "FX_HEAVY_SLOTS", DEFAULT_SLOTS, SLOTS_MIN, SLOTS_MAX)
-    poll_ms = env_int(env, "FX_HEAVY_POLL_MS", DEFAULT_POLL_MS, 50, 600000)
+    poll_ms = env_int(
+        env,
+        "FX_HEAVY_POLL_MS",
+        DEFAULT_PRIORITY_POLL_MS if priority else DEFAULT_POLL_MS,
+        50,
+        600000,
+    )
     warn_s = env_int(env, "FX_HEAVY_WAIT_WARN_S", DEFAULT_WAIT_WARN_S, 10, 86400)
     jitter_pct = env_int(env, "FX_HEAVY_JITTER_PCT", DEFAULT_JITTER_PCT, 0, 50)
     hold_open_ms = env_int(env, "FX_HEAVY_TEST_HOLD_OPEN_MS", 0, 0, 60000)
@@ -532,10 +697,18 @@ def main(argv: list[str]) -> int:
     slot_dir = ensure_slot_dir(env)
     cadence = WarnCadence(warn_s)
     index, fd, slots = acquire_loop(
-        slot_dir, desired, poll_ms, jitter_pct, cadence, hold_open_ms
+        slot_dir, desired, poll_ms, jitter_pct, cadence, hold_open_ms, priority
     )
 
+    _remove_priority_marker()
     write_metadata(fd, command, priority)
+    # The command's ONLY env addition (C2): the held slot's pathname plus this
+    # holder's pid, so a nested invocation can VALIDATE the claim rather than
+    # trust a bare flag.
+    os.environ[MARKER_ENV] = "%s:%d" % (
+        slot_path(os.path.abspath(slot_dir), index),
+        os.getpid(),
+    )
     warn("acquired slot-%d (slots=%d)" % (index, slots))
     # The fd must survive execvp — that is the whole mechanism. Python marks fds
     # non-inheritable by default (PEP 446).
