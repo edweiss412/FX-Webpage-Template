@@ -20,7 +20,7 @@
  *    `FX_HEAVY_JITTER_PCT=0` wherever determinism is asserted.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -184,6 +184,27 @@ function logWindowArgs(tag: string, log: string, holdMs: number): string[] {
   return [process.execPath, "-e", LOG_WINDOW_JS, tag, log, String(holdMs)];
 }
 
+/** A node command that occupies its slot until killed. */
+function sleeperArgs(ms: number, extra: string[] = []): string[] {
+  return [
+    process.execPath,
+    "-e",
+    `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,${ms})`,
+    ...extra,
+  ];
+}
+
+/** Occupy a slot and return only once the wrapper says so. */
+async function holdSlot(env: Record<string, string>, extra: string[] = []): Promise<Run> {
+  const run = runWrapped(env, sleeperArgs(60_000, extra));
+  await waitForStderr(run, "acquired slot-", 20_000);
+  return run;
+}
+
+function configSlots(dir: string): number {
+  return Number(JSON.parse(readFileSync(join(dir, "config"), "utf8")).slots);
+}
+
 // ---------------------------------------------------------------------------
 
 describe("spec §7 case 1 — mutual exclusion (premise-carrying)", () => {
@@ -321,5 +342,172 @@ describe("spec §7 case 4 — descendant lock-lifetime pin (§4.0 P3 / §4.2)", 
 
     // Housekeeping: the orphan sleeps 15 s and would otherwise outlive the run.
     if (alive(orphanPid)) process.kill(orphanPid, "SIGKILL");
+  }, 60_000);
+});
+
+describe("spec §7 case 6 — disable hatch", () => {
+  it("FX_HEAVY_DISABLE=1 execs directly, so two slots=1 commands overlap", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_DISABLE: "1" };
+    const log = join(dir, "disabled.log");
+    const a = runWrapped(env, logWindowArgs("a", log, 900));
+    const b = runWrapped(env, logWindowArgs("b", log, 900));
+    const [ra, rb] = await Promise.all([a.exited, b.exited]);
+    expect(ra.code).toBe(0);
+    expect(rb.code).toBe(0);
+
+    const got = windows(log);
+    expect(overlaps(got.get("a"), got.get("b"))).toBe(true);
+  }, 60_000);
+});
+
+describe("spec §7 case 7 — metadata surfacing and secret absence", () => {
+  it("names the holder's pid in the first-wait warning when metadata is intact", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const holder = await holdSlot(env);
+    try {
+      const waiter = runWrapped(env, [process.execPath, "-e", "process.exit(0)"]);
+      await waitForStderr(waiter, `pid=${holder.pid}`, 15_000);
+      expect(waiter.stderr()).toContain("waiting: slot-0 held by");
+      waiter.child.kill("SIGKILL");
+      await waiter.exited;
+    } finally {
+      holder.child.kill("SIGKILL");
+      await holder.exited;
+    }
+  }, 60_000);
+
+  it("reports `holder unknown (metadata unreadable)` for torn slot content, never silence", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const holder = await holdSlot(env);
+    try {
+      // Advisory locks do not block writes: the test corrupts the metadata the
+      // holder published, through its own fd, while the lock stays held.
+      writeFileSync(join(dir, "slot-0"), "{{{ not json at all");
+
+      const waiter = runWrapped(env, [process.execPath, "-e", "process.exit(0)"]);
+      await waitForStderr(waiter, "holder unknown (metadata unreadable)", 15_000);
+      waiter.child.kill("SIGKILL");
+      await waiter.exited;
+    } finally {
+      holder.child.kill("SIGKILL");
+      await holder.exited;
+    }
+  }, 60_000);
+
+  it("records the basename and argc only — a token-shaped argument reaches neither the slot file nor stderr", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const sentinel = "hunter2-sentinel";
+    // `--` stops node's own option parsing, so the token reaches the child as a
+    // plain argv entry rather than a rejected node flag.
+    const holder = await holdSlot(env, ["--", `--token=${sentinel}`]);
+    try {
+      const slotRaw = readFileSync(join(dir, "slot-0"), "utf8");
+      expect(slotRaw).not.toContain(sentinel);
+      const metadata: unknown = JSON.parse(slotRaw);
+      expect(metadata).toMatchObject({ pid: holder.pid, cmd: "node", argc: 5 });
+
+      const waiter = runWrapped(env, [process.execPath, "-e", "process.exit(0)"]);
+      await waitForStderr(waiter, "waiting: slot-0 held by", 15_000);
+      expect(waiter.stderr()).not.toContain(sentinel);
+      expect(waiter.stderr()).toContain("cmd=node");
+      waiter.child.kill("SIGKILL");
+      await waiter.exited;
+    } finally {
+      holder.child.kill("SIGKILL");
+      await holder.exited;
+    }
+  }, 60_000);
+});
+
+describe("spec §7 case 8 — knob domains", () => {
+  const OK = [process.execPath, "-e", "process.exit(0)"];
+
+  it.each([
+    ["banana", "a non-integer"],
+    ["0", "below the domain — an empty acquire loop would wait forever"],
+    ["65", "above the domain — an env-side cap defeat is the point of this arm"],
+  ])(
+    "FX_HEAVY_SLOTS=%s warns and falls back to 2 (%s)",
+    async (value) => {
+      const dir = slotDir();
+      const run = runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: value }, OK);
+      expect((await run.exited).code).toBe(0);
+      expect(run.stderr()).toContain("FX_HEAVY_SLOTS");
+      expect(run.stderr()).toContain(value);
+      expect(configSlots(dir)).toBe(2);
+    },
+    30_000,
+  );
+
+  it("FX_HEAVY_SLOTS=64 is accepted at the boundary with no warning", async () => {
+    const dir = slotDir();
+    const run = runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "64" }, OK);
+    expect((await run.exited).code).toBe(0);
+    expect(run.stderr()).not.toContain("FX_HEAVY_SLOTS");
+    expect(configSlots(dir)).toBe(64);
+  }, 30_000);
+
+  it("FX_HEAVY_DISABLE=true warns, names the expected value, and keeps locking ACTIVE", async () => {
+    const dir = slotDir();
+    const env = {
+      FX_HEAVY_SLOT_DIR: dir,
+      FX_HEAVY_SLOTS: "1",
+      FX_HEAVY_POLL_MS: "100",
+      FX_HEAVY_DISABLE: "true",
+    };
+    const log = join(dir, "typo-disable.log");
+    const a = runWrapped(env, logWindowArgs("a", log, 900));
+    const b = runWrapped(env, logWindowArgs("b", log, 900));
+    await Promise.all([a.exited, b.exited]);
+
+    expect(a.stderr()).toContain("FX_HEAVY_DISABLE");
+    expect(a.stderr()).toContain("'1'");
+    const got = windows(log);
+    expect(overlaps(got.get("a"), got.get("b"))).toBe(false);
+  }, 60_000);
+
+  it("FX_HEAVY_WAIT_WARN_S=banana warns and falls back to 300", async () => {
+    const dir = slotDir();
+    const run = runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_WAIT_WARN_S: "banana" }, OK);
+    expect((await run.exited).code).toBe(0);
+    expect(run.stderr()).toMatch(/FX_HEAVY_WAIT_WARN_S:.*banana.*300/);
+  }, 30_000);
+
+  it("FX_HEAVY_JITTER_PCT=99 warns and falls back to 20", async () => {
+    const dir = slotDir();
+    const run = runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_JITTER_PCT: "99" }, OK);
+    expect((await run.exited).code).toBe(0);
+    expect(run.stderr()).toMatch(/FX_HEAVY_JITTER_PCT:.*99.*20/);
+  }, 30_000);
+
+  it("FX_HEAVY_POLL_MS=0 warns and falls back to 3000 rather than busy-spinning", async () => {
+    const dir = slotDir();
+    const run = runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_POLL_MS: "0" }, OK);
+    expect((await run.exited).code).toBe(0);
+    expect(run.stderr()).toMatch(/FX_HEAVY_POLL_MS:.*3000/);
+  }, 30_000);
+
+  it("FX_HEAVY_PRIORITY=true warns, names the expected value, and takes NO priority behavior", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const holder = await holdSlot(env);
+    try {
+      const waiter = runWrapped({ ...env, FX_HEAVY_PRIORITY: "true" }, OK);
+      await waitForStderr(waiter, "waiting: slot-0 held by", 15_000);
+      expect(waiter.stderr()).toContain("FX_HEAVY_PRIORITY");
+      expect(waiter.stderr()).toContain("'1'");
+      // The marker is the priority mechanism's only artifact; a typo must not
+      // create one. Discriminating from Task 4 on, when markers begin to exist.
+      expect(readdirSync(dir).filter((name) => name.startsWith("prio-wait-"))).toEqual([]);
+      waiter.child.kill("SIGKILL");
+      await waiter.exited;
+    } finally {
+      holder.child.kill("SIGKILL");
+      await holder.exited;
+    }
   }, 60_000);
 });
