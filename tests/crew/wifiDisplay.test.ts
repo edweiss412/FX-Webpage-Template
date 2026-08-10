@@ -400,3 +400,58 @@ describe("parseWifiValue — flattened trailing prose (documented limit, spec §
     expect(parseWifiValue(FIXTURE_CONSULTANTS)?.ssid).toBe("Institutional Investor");
   });
 });
+
+/**
+ * Whole-diff review, segment 3 F1. The all-or-nothing rule checked captured
+ * VALUES only, so credential-shaped text on a standalone residue line slid
+ * through as prose: the cell split and rendered the password inside "Internet
+ * notes" instead of falling back raw. Spec §6.1 promises the opposite — an
+ * unobserved label spelling makes the WHOLE cell render raw.
+ *
+ * The sweep below is the reviewer's own, made executable and derived from the
+ * label sets rather than transcribed: every accepted label word, in both residue
+ * positions (before and after the label line), plus the unknown colon and dash
+ * forms.
+ */
+describe("parseWifiValue — credential-shaped residue rejects too (review S3 F1)", () => {
+  const LABEL_WORDS = ["SSID", "Network", "Code", "PW", "Passcode", "Password"];
+  const placements: ReadonlyArray<(residue: string) => string> = [
+    (residue) => `${residue}\nSSID: Guest`,
+    (residue) => `SSID: Guest\n${residue}`,
+  ];
+
+  it("an accepted label word on a residue line rejects, in either position", () => {
+    premise("accepted label words swept", LABEL_WORDS.length, 0);
+    premise("residue positions swept", placements.length, 1);
+    for (const word of LABEL_WORDS) {
+      for (const place of placements) {
+        const value = place(`${word} is secret`);
+        expect(parseWifiValue(value), JSON.stringify(value)).toBeNull();
+      }
+    }
+  });
+
+  it("an unknown label on a residue line rejects, colon or dash, either position", () => {
+    for (const residue of ["WPA: secret", "WPA - secret"]) {
+      for (const place of placements) {
+        const value = place(residue);
+        expect(parseWifiValue(value), JSON.stringify(value)).toBeNull();
+      }
+    }
+  });
+
+  it("real corpus prose is still prose", () => {
+    // The rule earns its place only if every observed notes value survives it.
+    const withNotes = [
+      LIVE_FIXED_INCOME,
+      LIVE_FINTECH,
+      FIXTURE_FIXED_INCOME,
+      FIXTURE_FINTECH,
+      FIXTURE_CONSULTANTS,
+    ];
+    premise("corpus values that must still produce notes", withNotes.length, 0);
+    for (const value of withNotes) {
+      expect(parseWifiValue(value)?.notes, value).toBeTruthy();
+    }
+  });
+});

@@ -145,7 +145,16 @@ export function parseWifiValue(raw: string | null | undefined): WifiInfo | null 
     }
 
     const residue = (proseEnd === null ? line : line.slice(0, proseEnd)).trim();
-    if (residue.length > 0) residues.push(residue);
+    if (residue.length > 0) {
+      // Residue is prose ONLY if it looks like prose. `WPA: secret` on its own
+      // line never matches a label (the vocabulary is unknown), so it used to
+      // slide through as notes and the cell split with a password hiding in the
+      // prose row — while spec §6.1 promises an unobserved label spelling makes
+      // the WHOLE cell render raw. The same test that guards captured values
+      // guards residue, so credential-shaped text can never be demoted to prose.
+      if (valueIsAGuess(residue)) ambiguous = true;
+      residues.push(residue);
+    }
   }
 
   // Repeated labels mean two candidate networks or two candidate passwords, and
