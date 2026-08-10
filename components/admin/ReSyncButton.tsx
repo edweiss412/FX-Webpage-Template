@@ -26,6 +26,7 @@ import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 import { requestShowSync } from "@/lib/admin/syncRequest";
+import { cn } from "@/lib/ui/cn";
 
 export type ReSyncButtonProps = {
   slug: string;
@@ -68,15 +69,17 @@ const PENDING_LABEL = "Syncing…";
  * carries `mt-1`; that gap is wrong here, and T-OVERLAY pins the abut to within
  * 1px.)
  */
-const OVERLAY_PANEL =
-  "absolute inset-x-0 top-full z-50 max-h-[min(50vh,20rem)] overflow-y-auto rounded-sm border p-3 shadow-tile";
+const OVERLAY_PANEL = cn(
+  "absolute inset-x-0 top-full z-50 max-h-[min(50vh,20rem)] overflow-y-auto rounded-sm border p-3 shadow-tile",
+);
 
 /** A real interactive control, not a glyph: 44px floor + a visible focus ring.
  *  Its accessible name is always branch-specific ("Dismiss sync error" /
  *  "Dismiss sync result") — a bare "Dismiss" is ambiguous once two overlay
  *  types exist. */
-const DISMISS_BUTTON =
-  "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-lg leading-none transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+const DISMISS_BUTTON = cn(
+  "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-lg leading-none transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+);
 
 export function ReSyncButton({ slug }: ReSyncButtonProps) {
   const router = useRouter();
