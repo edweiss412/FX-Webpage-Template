@@ -342,9 +342,14 @@ describe("Room row", () => {
     // by id pick the same winner as one that sorts by name, so the case would
     // pass against the wrong mechanism (review F2).
     const gsTemplate = roomsFromFixture(REAL_NAME_FIXTURE).find((r) => r.kind === "gs")!;
+    // INPUT order, NAME order and ID order are all made to disagree. The winner
+    // is listed LAST, so a component that never sorts at all still passes a test
+    // whose winner happens to be first — which is what the previous fixture did;
+    // and the ids are opposed to the names, so a comparator sorting by id picks
+    // the other room.
     const rooms: ProjectedRoomRow[] = [
-      { ...gsTemplate, id: "r9", name: "ALPHA HALL" },
       { ...gsTemplate, id: "r1", name: "ZULU HALL" },
+      { ...gsTemplate, id: "r9", name: "ALPHA HALL" },
     ];
     const byName = [...rooms].sort((a, b) => a.name.localeCompare(b.name))[0]!;
     const byId = [...rooms].sort((a, b) => a.id.localeCompare(b.id))[0]!;
@@ -356,6 +361,11 @@ describe("Room row", () => {
     premiseHolds(
       "name order and id order DISAGREE, so this case can tell the two apart",
       byName.name !== byId.name,
+    );
+    premiseHolds(
+      "the comparator winner is NOT the input's first room, so an unsorted " +
+        "component cannot pass by accident",
+      rooms[0]!.name !== byName.name,
     );
 
     const row = renderVenue(withRooms(rooms)).querySelector('[data-testid="venue-room"]');
