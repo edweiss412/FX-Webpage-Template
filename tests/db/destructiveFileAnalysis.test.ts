@@ -184,6 +184,52 @@ void url;`;
     expect(analyseDestructiveFile(P, src).ok).toBe(false);
   });
 
+  it("(n) `&&=` and loop-head assignment cannot bypass the const invariant", () => {
+    // whole-diff r4 findings 2 and 3 listed `&&=`, for-of, for-in, and switch-case
+    // declarations as further escapes. None is enumerated any more: a `let` is
+    // rejected outright, so every assignment form it enables is unreachable.
+    const src = `${IMPORT}
+let url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+url &&= process.env.TEST_DATABASE_URL!;
+const sql = postgres(url, { max: 1 });
+${PRUNE}`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
+  it("(o) a for-of head that rebinds an existing guarded name is rejected", () => {
+    const src = `${IMPORT}
+let url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+for (url of [process.env.TEST_DATABASE_URL!]) {
+  const sql = postgres(url, { max: 1 });
+  ${PRUNE}
+}`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
+  it("(p) a for-of DECLARATION shadowing the guarded name is rejected", () => {
+    // r4 finding 2: for-of / for-in / case blocks were scope forms the walker missed.
+    // The invariant does not walk scopes, so the class is closed rather than listed.
+    const src = `${IMPORT}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+for (const url of [process.env.TEST_DATABASE_URL!]) {
+  const sql = postgres(url, { max: 1 });
+  ${PRUNE}
+}`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
+  it("(q) a switch-case declaration shadowing the guarded name is rejected", () => {
+    const src = `${IMPORT}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+switch (process.env.MODE) {
+  case "x":
+    const url2 = process.env.TEST_DATABASE_URL!;
+    const sql = postgres(url2, { max: 1 });
+    ${PRUNE}
+}`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.

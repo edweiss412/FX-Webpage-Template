@@ -3,9 +3,12 @@
  *
  * Resolving `show_id` at the sink only helps rows that are WRITTEN. Two of ten
  * production entry points installed a sync_log sink — the cron route and the Drive
- * webhook — so every manual re-sync ran with no sink at all and produced no row to
- * attribute. Fixing the three sinks without fixing this would have left the manual
- * paths exactly as dark as before, while every sink test passed.
+ * webhook — so a manual re-sync ran with no sink for its `processOneFile` outcomes and
+ * produced no row to attribute for them. Precisely: the manual RECOVERY outcomes were
+ * already written, by `recoveryTx.insertSyncLog` in `markManualDriveError_unlocked` and
+ * `markManualSheetUnavailable_unlocked`; it was the ordinary pipeline outcomes that had
+ * nowhere to go. Fixing the three sinks without fixing this would have left those paths
+ * exactly as dark as before, while every sink test passed.
  *
  * This is a REGRESSION PIN over a FIXED list of eight sites. It claims "these eight
  * were repaired in this diff", NOT "eight is all of them". The derived guard that

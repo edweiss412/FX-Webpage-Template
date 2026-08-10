@@ -140,147 +140,92 @@ function checkConnection(
   const bound = arg.text;
   const connectPos = connect.getStart(sf);
 
-  // ── (a) binding + (b) ordering, resolved LEXICALLY ────────────────────────────
-  // r2's repair matched declarations by NAME anywhere in the file, so a safe `url` in
-  // another function, a sibling block, or an outer scope shadowed by a parameter all
-  // blessed an unsafe connection (r3 finding 1). The question is not "does a guarded
-  // `url` exist somewhere" but "which declaration does THIS `url` resolve to" - so walk
-  // outward from the connection and take the first scope that declares the name.
-  const decl = resolveBinding(connect, bound);
-  if (!decl) return { ok: false, reason: `\`${bound}\` has no declaration in scope` };
-  if (!ts.isVariableDeclaration(decl)) {
-    // A parameter, a catch binding, a function name: none is a guard call, and the
-    // nearest one is what the connection actually reads.
-    return {
-      ok: false,
-      reason: `\`${bound}\` resolves to a ${ts.SyntaxKind[decl.kind]}, not a guarded binding`,
-    };
-  }
-  const init = decl.initializer;
-  const declaredFromGuard =
-    !!init &&
-    ts.isCallExpression(init) &&
-    ts.isIdentifier(init.expression) &&
-    trusted(init.expression.text);
-  if (!declaredFromGuard) {
-    return { ok: false, reason: `\`${bound}\` is not bound to a trusted guard call` };
-  }
-  if (decl.getStart(sf) > connectPos) {
-    return { ok: false, reason: "the guard call runs after the connection is opened" };
-  }
+  // ── (a) binding + (b) ordering, by an invariant the LANGUAGE enforces ────────
+  // Rounds 1-4 each found another escape in a recognizer: a commented guard, a
+  // reassigned binding, a second client, a parameter shadow, array and object
+  // destructuring rebinds, cross-function and cross-block and parameter-collision scope
+  // confusion, then `&&=` and for-of/for-in loop assignment. Every repair enumerated one
+  // more syntax and invited the next. Enumerating JavaScript's binding and assignment
+  // forms does not terminate.
+  //
+  // So the rule stops describing what is FORBIDDEN and states what must be TRUE:
+  //
+  //   every declaration of the connected name in this file is a `const` initialized
+  //   directly from a trusted guard call.
+  //
+  // `const` is not a stylistic preference here, it is the whole mechanism. The language
+  // guarantees a `const` binding is never reassigned — by `=`, by `&&=`, by
+  // destructuring, by a loop head, or by any syntax not yet invented — so there is no
+  // rebinding check to leak. Requiring it of EVERY same-named declaration removes the
+  // scope question too: it no longer matters which one this connection resolves to,
+  // because they are all guarded.
+  //
+  // This is deliberately conservative. A file that reuses the name for something
+  // unguarded is REJECTED even if the connected one is fine. That false positive is
+  // loud, local, and fixed by renaming a variable — the right direction for a guard
+  // whose failure mode is silently pruning a shared project.
+  const decls = declarationsOf(sf, bound);
+  if (decls.length === 0) return { ok: false, reason: `\`${bound}\` has no declaration` };
 
-  // ── rebinding, in EVERY assignment form (r1 finding 2, r2 finding 4) ──────────
-  // Simple assignment, array destructuring, and object destructuring are all
-  // AssignmentExpressions to the parser, so one check covers the class rather than one
-  // regex per syntax.
-  let rebound = false;
-  const writesTo = (target: ts.Node): boolean => {
-    if (ts.isIdentifier(target)) return target.text === bound;
-    if (ts.isArrayLiteralExpression(target)) return target.elements.some(writesTo);
-    if (ts.isObjectLiteralExpression(target)) {
-      return target.properties.some((prop) => {
-        if (ts.isShorthandPropertyAssignment(prop)) return prop.name.text === bound;
-        if (ts.isPropertyAssignment(prop)) return writesTo(prop.initializer);
-        return false;
-      });
+  for (const d of decls) {
+    if (!ts.isVariableDeclaration(d.node)) {
+      return {
+        ok: false,
+        reason: `\`${bound}\` is declared as a ${ts.SyntaxKind[d.node.kind]}, not a guarded const`,
+      };
     }
-    if (ts.isParenthesizedExpression(target)) return writesTo(target.expression);
-    return false;
-  };
-  const findRebind = (n: ts.Node): void => {
-    if (
-      ts.isBinaryExpression(n) &&
-      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      writesTo(n.left) &&
-      n.getStart(sf) < connectPos
-    ) {
-      // A re-assignment FROM a trusted guard call is still guarded.
-      const fromGuard =
-        ts.isCallExpression(n.right) &&
-        ts.isIdentifier(n.right.expression) &&
-        trusted(n.right.expression.text);
-      if (!fromGuard) rebound = true;
+    if (!d.isConst) {
+      return {
+        ok: false,
+        reason: `\`${bound}\` is declared with let/var, so it can be reassigned before the connection`,
+      };
     }
-    ts.forEachChild(n, findRebind);
-  };
-  ts.forEachChild(sf, findRebind);
-
-  if (rebound) {
-    return {
-      ok: false,
-      reason: `\`${bound}\` is reassigned from a non-guard expression before the connection`,
-    };
+    const init = d.node.initializer;
+    const fromGuard =
+      !!init &&
+      ts.isCallExpression(init) &&
+      ts.isIdentifier(init.expression) &&
+      trusted(init.expression.text);
+    if (!fromGuard) {
+      return { ok: false, reason: `\`${bound}\` is not bound to a trusted guard call` };
+    }
+    if (d.node.getStart(sf) > connectPos) {
+      return { ok: false, reason: "the guard call runs after the connection is opened" };
+    }
   }
 
   return { ok: true };
 }
 
-/**
- * The declaration `name` resolves to AT `from`, by lexical scope.
- *
- * Walks outward and, in each scope-bearing ancestor, looks for a declaration of the
- * name among that scope's own statements and parameters. The first hit wins, which is
- * what the language does. Deliberately simple: it does not model hoisting differences
- * between `var` and `let`, because a destructive test that depends on that distinction
- * is not an ordinary authoring mistake.
- */
-function resolveBinding(from: ts.Node, name: string): ts.Declaration | null {
-  const declares = (n: ts.Node): ts.Declaration | null => {
-    let found: ts.Declaration | null = null;
-    const fromBindingName = (bn: ts.BindingName, decl: ts.Declaration): void => {
-      if (found) return;
-      if (ts.isIdentifier(bn)) {
-        if (bn.text === name) found = decl;
-        return;
-      }
-      for (const el of bn.elements) if (ts.isBindingElement(el)) fromBindingName(el.name, el);
-    };
-    const visitShallow = (child: ts.Node): void => {
-      if (found) return;
-      if (ts.isVariableStatement(child)) {
-        for (const d of child.declarationList.declarations) fromBindingName(d.name, d);
-      } else if (ts.isFunctionDeclaration(child) && child.name?.text === name) {
-        found = child;
-      } else if (ts.isVariableDeclarationList(child)) {
-        for (const d of child.declarations) fromBindingName(d.name, d);
-      }
-    };
-    // Parameters belong to the function scope itself.
-    if (ts.isFunctionLike(n)) {
-      for (const p of n.parameters) fromBindingName(p.name, p);
-      if (found) return found;
+/** Every declaration of `name` in the file, with whether it is a `const`. */
+function declarationsOf(
+  sf: ts.SourceFile,
+  name: string,
+): Array<{ node: ts.Node; isConst: boolean }> {
+  const out: Array<{ node: ts.Node; isConst: boolean }> = [];
+  const fromBindingName = (bn: ts.BindingName, node: ts.Node, isConst: boolean): void => {
+    if (ts.isIdentifier(bn)) {
+      if (bn.text === name) out.push({ node, isConst });
+      return;
     }
-    if (ts.isCatchClause(n) && n.variableDeclaration) {
-      fromBindingName(n.variableDeclaration.name, n.variableDeclaration);
-      if (found) return found;
+    for (const el of bn.elements) {
+      if (ts.isBindingElement(el)) fromBindingName(el.name, el, isConst);
     }
-    // Statements directly inside this scope.
-    const body: ts.Node | undefined =
-      ts.isFunctionLike(n) && "body" in n ? (n as { body?: ts.Node }).body : n;
-    if (body && ts.isBlock(body)) {
-      for (const st of body.statements) visitShallow(st);
-    } else if (body && ts.isSourceFile(body)) {
-      for (const st of body.statements) visitShallow(st);
-    } else if (body && ts.isModuleBlock(body)) {
-      for (const st of body.statements) visitShallow(st);
-    }
-    if (ts.isForStatement(n) && n.initializer && ts.isVariableDeclarationList(n.initializer)) {
-      visitShallow(n.initializer);
-    }
-    return found;
   };
-
-  for (let n: ts.Node | undefined = from; n; n = n.parent) {
-    const isScope =
-      ts.isSourceFile(n) ||
-      ts.isBlock(n) ||
-      ts.isFunctionLike(n) ||
-      ts.isForStatement(n) ||
-      ts.isCatchClause(n) ||
-      ts.isModuleBlock(n);
-    if (!isScope) continue;
-    const hit = declares(n);
-    if (hit) return hit;
-  }
-  return null;
+  const walk = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n)) {
+      const list = n.parent;
+      const isConst = ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0;
+      fromBindingName(n.name, n, isConst);
+    } else if (ts.isParameter(n)) {
+      fromBindingName(n.name, n, false);
+    } else if ((ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) && n.name?.text === name) {
+      out.push({ node: n, isConst: false });
+    } else if (ts.isCatchClause(n) && n.variableDeclaration) {
+      fromBindingName(n.variableDeclaration.name, n.variableDeclaration, false);
+    }
+    ts.forEachChild(n, walk);
+  };
+  ts.forEachChild(sf, walk);
+  return out;
 }

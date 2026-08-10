@@ -276,8 +276,16 @@ export async function runManualSyncForShow_unlocked(
 ): Promise<ProcessOneFileResult> {
   await assertShowLockHeld(tx, driveFileId);
   const runUnlocked = deps.processOneFile_unlocked ?? defaultProcessOneFile_unlocked;
+  // Spec §3.3: this entry point owns its own attempt boundary. It bypasses
+  // processOneFile, which is where the cron path captures its start, so without this
+  // every emitting outcome on the pending-ingestion retry path persists
+  // duration_ms = NULL despite having a sink (whole-diff r4 finding 1). A caller that
+  // already captured one wins - it knows the wider boundary.
+  const attemptStartedAtMs =
+    deps.processDeps?.attemptStartedAtMs ?? (deps.processDeps?.now?.() ?? new Date()).getTime();
   return await runUnlocked(tx, driveFileId, mode, fileMeta, {
     ...(deps.processDeps ?? {}),
+    attemptStartedAtMs,
     ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
     ...(deps.expectedModifiedTime !== undefined
       ? { expectedModifiedTime: deps.expectedModifiedTime }
