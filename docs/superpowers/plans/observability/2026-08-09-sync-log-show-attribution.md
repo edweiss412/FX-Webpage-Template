@@ -143,6 +143,8 @@ That settles three things that were otherwise assumptions: `$1` reused twice wit
 
 **Type prerequisites land in THIS task (plan R5 F5).** The sink reads `entry.durationMs`, and `SyncLogEntry` currently ends at `parseWarnings` (`lib/sync/runScheduledCronSync.ts:446-455`). Add `durationMs?: number | null` to `SyncLogEntry` here, in the task that first consumes it — deferring it to Task 2 leaves this task's commit failing `pnpm typecheck`, and a task that cannot typecheck at its own boundary is not green. Task 2 then adds only the CAPTURE (`attemptStartedAtMs`), and adds it to `ProcessOneFileDeps` (`lib/sync/runScheduledCronSync.ts:494-577`) as well as `SyncLogDeps`, because its own `depsWithStart: ProcessOneFileDeps = { ...deps, attemptStartedAtMs }` is typed as the former.
 
+**The `?? null` bind and its DB case are THIS task's, not Task 2's (plan R8 F2).** The `undefined`-is-not-`NULL` analysis is written under Task 2 because that is where duration capture is described, but the BIND lives in the sink this task ships. Task 1 therefore binds `entry.durationMs ?? null`, never `entry.durationMs`, and writes the DB case that emits an entry with no `durationMs` property at all — asserting the row lands with `duration_ms IS NULL` and no throw. Both are in this task's red command. Committing the sink without that case leaves the driver-sensitive bind untested at its own boundary, which is the per-task TDD violation this plan has now corrected three times.
+
 **Implementation.** Change the sink insert to (5 params, not 6 — there is no explicit show id; see spec §3.1.1):
 
 ```sql
@@ -207,7 +209,7 @@ Only a completely unconfigured local dev environment may skip clean.
 
 ## Task 2 — Capture the attempt start and thread it to the sink
 
-<!-- task: red=`pnpm vitest run tests/sync/runScheduledCronSync.test.ts -t logSync tests/sync/perFileProcessor.test.ts` ac=AC-6 -->
+<!-- task: red=`pnpm vitest run tests/sync/runScheduledCronSync.test.ts tests/sync/perFileProcessor.test.ts tests/drive/webhook.test.ts tests/db/syncLogAttribution.db.test.ts` ac=AC-6 -->
 
 **RED validity — the claimed existing RED was false (plan R1 F3).** `tests/sync/runScheduledCronSync.test.ts:2662` observes the dependency object handed to a MOCKED `processOneFile`, not the `SyncLogEntry` built inside the real `logSync`, so adding a field to that entry cannot fail it; the later sink assertion is `expect.objectContaining`, not exact. This task therefore WRITES its RED: a new duration assertion against the entry the real helper constructs, with an injected clock and a known delta. The production line is the entry construction inside `logSync` (`lib/sync/runScheduledCronSync.ts:2241-2249`).
 
@@ -215,7 +217,31 @@ Only a completely unconfigured local dev environment may skip clean.
 
 **An EXISTING suite pins the exact logged object (plan R7 F2).** `tests/sync/perFileProcessor.test.ts:982` asserts the logged entry by exact shape; once every `processOneFile` invocation carries a captured start, that entry gains `durationMs` and the assertion fails. Same class as Task 1's persistence suite, and the second measured instance: the plan's per-task red commands name only the suites a task ADDS, never the ones it breaks. Update that assertion here and add `tests/sync/perFileProcessor.test.ts` to this task's red command.
 
-**Class sweep, at plan time rather than at the third finding.** Before implementing either task, run `rg -l "sync_log|logSync|insertSyncLog" tests/` and check every hit for an exact-shape or positional assertion over the sink's columns, entry object, or parameter array. Two were found by review; the sweep is what establishes there is no third. Record its output in the task's commit message.
+**Class sweep — RUN, with dispositions, not deferred (plan R8 F3).** An earlier revision described the sweep as future work and put its output in a commit message; `docs/agents/writing-plans.md:26` requires the current output and a per-hit disposition in the plan itself. Run at plan time:
+
+```
+rg -n 'logSync\)?\.toHaveBeenCalledWith\(\s*\{|params\[[0-9]\]|insertSyncLog' tests/ | rg -v objectContaining
+```
+
+Admissible hit = an assertion that pins the sink's column list positionally, the `SyncLogEntry` object exactly, or the writer's argument count. Every hit, with its owner:
+
+| Hit | Breaks because | Owner |
+| --- | --- | --- |
+| `tests/sync/syncLogSink.persistence.test.ts:22` (and lines 38, 49) | pins `parse_warnings` last | Task 1 |
+| the new DB suite in Task 1's red command | — | Task 1 |
+| `tests/sync/perFileProcessor.test.ts:982` | exact logged object gains `durationMs` | Task 2 |
+| `tests/drive/webhook.test.ts:404` (and lines 445, 482) | exact `toHaveBeenCalledWith({...})` on `logSync` | Task 2 |
+| `tests/sync/runScheduledCronSync.test.ts:1712` (and lines 1753, 2526) | same exact-object shape | Task 2 |
+| `tests/sync/runOfShowSyncLogChannel.test.ts:205` (and lines 224-227, 229, 236-243, 245) | two-arg writer, `"show-1"`, warnings at `params[4]` | Task 3 |
+| `tests/api/admin-sync-route.test.ts:136` | expects the third argument to be exactly `{}` | Task 3c |
+
+Screened OUT, recorded so a later round does not re-raise them:
+
+- `tests/notify/monitorNewShowGaps.db.test.ts:65`, `tests/notify/monitorDigest.autofix.db.test.ts:73` (and line 114) — these WRITE `sync_log` with their own explicit column list. Adding nullable columns cannot break an insert that names its columns.
+- `tests/reports/recoveredLeaseHolder.test.ts`, `tests/reports/tailUpdateMiss.test.ts`, `tests/app/admin/finalizeAgendaRace.test.ts` — `params[n]` indexing on other statements entirely, not the sync-log insert.
+- `tests/observe/querySyncLog.test.ts` — reads through `querySyncLog`, whose projection change is additive.
+
+**Anti-vacuity:** the command must return at least the seven owned rows above. A sweep returning fewer did not run; a sweep returning MORE has found something this table does not own, and that hit needs an owner before implementation proceeds.
 
 **Exact injection point.** `processOneFile(driveFileId, mode, fileMeta, deps: ProcessOneFileDeps = {})` (`lib/sync/runScheduledCronSync.ts:2707-2712`). Capture at the top, before `prepareProcessOneFile`, then bind once:
 
@@ -255,6 +281,8 @@ The RED is a NEW assertion added to that file, and it must fail on production so
 1. Capture the recovery insert's SQL through the same `sql` spy the file already uses and assert it **normalizes to** the expected statement — the same `normalize()` Task 1 uses, comments stripped before whitespace collapse. NOT containment (plan R5 F6): Task 1 forbids containment for exactly this reason, and an appended suffix or a subselect parked in a comment satisfies a containment check while the live statement still binds `$1::uuid`. The two tasks assert the same way or the weaker one is the real contract.
 
 2. Assert the parameter array is `[entry.driveFileId, status, message, parseWarnings]` — **FOUR** elements (plan R5 F1). An earlier revision said five, claiming production has six; production has five (`lib/sync/runScheduledCronSync.ts:1220-1230`) and the target has four, because `$1` is reused for both the subselect and `drive_file_id` and this writer carries no duration (spec §3.3.1 — recovery is a NULL-duration writer). Five would be a bind-count error at runtime. The discriminating assertion is not the length but `params[0] === entry.driveFileId`: today `params[0]` is the show id, so the binding demonstrably flipped.
+
+**Existing assertions in that same file must be repaired here (plan R8 F4).** `tests/sync/runOfShowSyncLogChannel.test.ts` is not a bystander — it encodes the old shape: the two-argument writer at `tests/sync/runOfShowSyncLogChannel.test.ts:205`, `"show-1"` passed at `tests/sync/runOfShowSyncLogChannel.test.ts:224-227` and `tests/sync/runOfShowSyncLogChannel.test.ts:236-243`, and warnings read from `params[4]` at `tests/sync/runOfShowSyncLogChannel.test.ts:229` and `tests/sync/runOfShowSyncLogChannel.test.ts:245`. Under the four-parameter form warnings move to `params[3]`, so both `.some` calls run against `undefined` and throw. Repairing them is part of this task, not a side effect of it — the task previously specified only NEW assertions plus production changes.
 
 3. A type-level pin that `insertSyncLog` accepts exactly one argument, so the retired channel cannot return as an optional parameter nobody passes. Follow the type-removed precondition pattern: a source scan of the `ManualRecoveryTx.insertSyncLog` declaration (`lib/sync/runScheduledCronSync.ts:490`) AND of the duplicate at `lib/sync/runManualSyncForShow.ts:88-99` (plan R2 F13), since a removed type cannot be asserted by a compiling test.
 
@@ -300,7 +328,7 @@ Sites: `lib/sync/runOnboardingScan.ts:740`, `lib/sync/runOnboardingScan.ts:826`,
 
 ## Task 3c — Manual entry points install a sink (with their regression pin) + the two fenced gap markers
 
-<!-- task: red=`pnpm vitest run tests/sync/manualSyncInstallsSink.test.ts tests/sync/syncLogRepairSites.test.ts` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/sync/manualSyncInstallsSink.test.ts tests/sync/syncLogRepairSites.test.ts tests/api/admin-sync-route.test.ts` ac=AC-1 -->
 
 **Scope fence, ratified 2026-08-09 (spec §6.2).** This task wires sinks. It does **not** make manual sync observable, and must not claim to. Spec R8 F1 measured `logSyncCalls: 0` on four `runManualStageForFirstSeen` branches even with a sink installed, because those branches return before the sole emission at `lib/sync/runManualStageForFirstSeen.ts:147`; and `runManualSyncForShow` awaits `runOne` with no catch, so a throw escapes unlogged. That gap is filed as `BL-MANUAL-SYNC-UNEMITTED`.
 
@@ -339,6 +367,8 @@ Census — **two of ten** production entry points install a sink today (`app/api
 | `lib/showLifecycle/unarchiveShow.ts:32` | two-arg call through a local alias (`catchUp`); reached from `app/admin/show/[slug]/_actions/unarchive.ts:34` (spec R6 F1) |
 | `app/api/admin/show/pull-sheet-override/route.ts:213` | two-arg call through a local alias (`runSync`, defaulting to the real function) (spec R6 F1) |
 
+**One existing suite breaks and this task repairs it (plan R8 F5).** `tests/api/admin-sync-route.test.ts:136` asserts the third argument is exactly `{}`. Installing the nested `processDeps.logSync` at the first site changes that object, so the task cannot be green on the two new pin suites alone. Add that file to this task's red command and update the assertion. The sweep table in Task 2 confirms the other seven sites expose no comparable exact-argument failure — their wrappers and `objectContaining` assertions tolerate the added property.
+
 **Also fix the two lying comments** at `app/admin/show/[slug]/_actions/useRaw.ts:162` and `app/admin/show/[slug]/_actions/useRaw.ts:173`, which assert that logging already happens here. They are false today and they are part of why this went unnoticed — a comment claiming a mechanism is the same defect class as a spec claiming one.
 
 **Also install the two fenced gap markers (plan R1 F12).** The approved spec §6.2 requires them and no task owned them; the plan referenced a nonexistent "the filed guard". Add `// sync-log-emission-gap: BL-MANUAL-SYNC-UNEMITTED` at `app/api/admin/staged/[fileId]/apply/route.ts:152` and `app/api/admin/show/staged/[stagedId]/apply/route.ts:164`. Without them the fenced attempts stay silently unemitted rather than explicitly signaled, which is the difference between a documented limit and an undocumented one.
@@ -351,7 +381,9 @@ Census — **two of ten** production entry points install a sink today (`app/api
 
 **Writing the migration file is not applying it (plan R7 F4).** No task applied the migration to the LOCAL database, so every live-DB assertion in this task's red command — indexes in `pg_indexes`, `prune_sync_log` in `pg_proc`, the `cron.job` row — would stay red after a perfectly correct SQL file, and Task 7's `pnpm gen:schema-manifest` would introspect a database that has never seen the function. The only apply anywhere in the plan targeted the validation project, in Task 8, two tasks later.
 
-The implementation step is therefore: write the new migration under `supabase/migrations/` (stem `20260809000000_sync_log_show_attribution`), then apply it to the local stack — `psql -v ON_ERROR_STOP=1 "$LOCAL_TEST_DATABASE_URL" -f supabase/migrations/20260809000000_sync_log_show_attribution.sql` — and re-run the suite. `LOCAL_TEST_DATABASE_URL`, not `TEST_DATABASE_URL`: the latter points at the validation project (`AGENTS.md:20`), and applying here by that variable is the exact hazard Task 5b's guard exists to stop. Do NOT use `supabase db reset` — it rolls back on pg_cron in this project's local stack.
+The implementation step is therefore: write the new migration under `supabase/migrations/` (stem `20260809000000_sync_log_show_attribution`), then apply it to the local stack — `psql -v ON_ERROR_STOP=1 "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/20260809000000_sync_log_show_attribution.sql` — and re-run the suite.
+
+**The literal, not a variable (plan R8 F6).** An earlier revision used `$LOCAL_TEST_DATABASE_URL`; that variable is unset in this worktree and absent from the linked `.env.local`, so `psql` would receive an empty string and silently fall back to the default Unix socket on port 5432 — not Supabase on 127.0.0.1:54322. The migration would then be applied to nothing this task's tests read, and Task 7 would introspect a database without the function. `scripts/preflight-env.mjs:173` is where that connection string is canonical. Emphatically NOT `$TEST_DATABASE_URL`, which points at the validation project — applying here by that variable is the exact hazard Task 5b's guard exists to stop. Do NOT use `supabase db reset` — it rolls back on pg_cron in this project's local stack.
 
 **Returned count: measured-baseline equality, NOT fixture-scoped (plan R5 F7).** `prune_sync_log` returns a GLOBAL count, so a fixture-scoped count is the wrong oracle for it and the two instructions cannot both hold. Survival assertions stay scoped to the fixture marker; the RETURNED count is asserted equal to `select count(*) from public.sync_log where occurred_at < <cutoff>` read inside the same rolled-back transaction immediately before the prune. Same rule, same rationale, as the `app_events` repair in Task 5b.
 
@@ -467,7 +499,7 @@ An index does not change the manifest; the new `prune_sync_log` function does. I
 
 ## Task 8 — Validation-project apply and parity
 
-<!-- task: red=`TEST_DATABASE_URL=<validation> pnpm vitest run tests/db/validation-schema-parity.test.ts` ac=AC-7,AC-8 -->
+<!-- task: red=`TEST_DATABASE_URL="$(grep '^TEST_DATABASE_URL=' .env.local | cut -d= -f2-)" pnpm vitest run tests/db/validation-schema-parity.test.ts` ac=AC-7,AC-8 -->
 
 Apply the migration surgically to the validation project (`supabase db push` is blocked there), then `notify pgrst, 'reload schema';`. Confirm the `validation-schema-parity` gate passes all three layers.
 
@@ -475,7 +507,7 @@ Apply the migration surgically to the validation project (`supabase db push` is 
 
 Two corrections, both required:
 
-1. Run the suite with `TEST_DATABASE_URL` explicitly set to the validation connection string, so Layer 2 compares against validation rather than local. The red is real only under that variable, and the task's red command is the invocation that sets it.
+1. Run the suite with `TEST_DATABASE_URL` explicitly set to the validation connection string, so Layer 2 compares against validation rather than local. The value comes from the linked `.env.local`, read inline — an earlier revision wrote a bare `<validation>` placeholder, which zsh parses as input redirection and which fails with `no such file or directory: validation` before Vitest starts (plan R8 F7). The red is real only under that variable, and the task's red command is the invocation that sets it.
 2. Assert the run actually reached validation rather than silently falling back — the suite's own target-reporting line, or a pre-flight `select current_database()` against the resolved URL, recorded in the closeout's `## Validation apply` section beside the exit status. A parity pass whose target was local is the failure mode this task exists to prevent, and it is indistinguishable from success without that line.
 
 **Tracked output (plan R3 F9).** This task otherwise mutates only an external project and would owe an empty commit under the one-commit-per-task rule. Its commit creates this plan's stem-named closeout sibling (same directory, same stem, closeout suffix — the form `partitionUnits` folds into this unit) with a `## Validation apply` section recording the applied migration filename, the psql exit status, and each parity layer's result. That file is also where Task 9 writes the invariant-8 marker, so the unit gains its closeout sibling here and completes it there. The parity gate is the executable proof; the record is the tracked artifact.
