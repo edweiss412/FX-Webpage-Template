@@ -140,30 +140,32 @@ function checkConnection(
   const bound = arg.text;
   const connectPos = connect.getStart(sf);
 
-  // ── (a) binding + (b) ordering ────────────────────────────────────────────────
-  let declaredFromGuard = false;
-  let declPos = Number.POSITIVE_INFINITY;
-  const findDecl = (n: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.name.text === bound &&
-      n.initializer &&
-      ts.isCallExpression(n.initializer) &&
-      ts.isIdentifier(n.initializer.expression) &&
-      trusted(n.initializer.expression.text)
-    ) {
-      declaredFromGuard = true;
-      declPos = Math.min(declPos, n.getStart(sf));
-    }
-    ts.forEachChild(n, findDecl);
-  };
-  ts.forEachChild(sf, findDecl);
-
+  // ── (a) binding + (b) ordering, resolved LEXICALLY ────────────────────────────
+  // r2's repair matched declarations by NAME anywhere in the file, so a safe `url` in
+  // another function, a sibling block, or an outer scope shadowed by a parameter all
+  // blessed an unsafe connection (r3 finding 1). The question is not "does a guarded
+  // `url` exist somewhere" but "which declaration does THIS `url` resolve to" - so walk
+  // outward from the connection and take the first scope that declares the name.
+  const decl = resolveBinding(connect, bound);
+  if (!decl) return { ok: false, reason: `\`${bound}\` has no declaration in scope` };
+  if (!ts.isVariableDeclaration(decl)) {
+    // A parameter, a catch binding, a function name: none is a guard call, and the
+    // nearest one is what the connection actually reads.
+    return {
+      ok: false,
+      reason: `\`${bound}\` resolves to a ${ts.SyntaxKind[decl.kind]}, not a guarded binding`,
+    };
+  }
+  const init = decl.initializer;
+  const declaredFromGuard =
+    !!init &&
+    ts.isCallExpression(init) &&
+    ts.isIdentifier(init.expression) &&
+    trusted(init.expression.text);
   if (!declaredFromGuard) {
     return { ok: false, reason: `\`${bound}\` is not bound to a trusted guard call` };
   }
-  if (declPos > connectPos) {
+  if (decl.getStart(sf) > connectPos) {
     return { ok: false, reason: "the guard call runs after the connection is opened" };
   }
 
@@ -211,4 +213,74 @@ function checkConnection(
   }
 
   return { ok: true };
+}
+
+/**
+ * The declaration `name` resolves to AT `from`, by lexical scope.
+ *
+ * Walks outward and, in each scope-bearing ancestor, looks for a declaration of the
+ * name among that scope's own statements and parameters. The first hit wins, which is
+ * what the language does. Deliberately simple: it does not model hoisting differences
+ * between `var` and `let`, because a destructive test that depends on that distinction
+ * is not an ordinary authoring mistake.
+ */
+function resolveBinding(from: ts.Node, name: string): ts.Declaration | null {
+  const declares = (n: ts.Node): ts.Declaration | null => {
+    let found: ts.Declaration | null = null;
+    const fromBindingName = (bn: ts.BindingName, decl: ts.Declaration): void => {
+      if (found) return;
+      if (ts.isIdentifier(bn)) {
+        if (bn.text === name) found = decl;
+        return;
+      }
+      for (const el of bn.elements) if (ts.isBindingElement(el)) fromBindingName(el.name, el);
+    };
+    const visitShallow = (child: ts.Node): void => {
+      if (found) return;
+      if (ts.isVariableStatement(child)) {
+        for (const d of child.declarationList.declarations) fromBindingName(d.name, d);
+      } else if (ts.isFunctionDeclaration(child) && child.name?.text === name) {
+        found = child;
+      } else if (ts.isVariableDeclarationList(child)) {
+        for (const d of child.declarations) fromBindingName(d.name, d);
+      }
+    };
+    // Parameters belong to the function scope itself.
+    if (ts.isFunctionLike(n)) {
+      for (const p of n.parameters) fromBindingName(p.name, p);
+      if (found) return found;
+    }
+    if (ts.isCatchClause(n) && n.variableDeclaration) {
+      fromBindingName(n.variableDeclaration.name, n.variableDeclaration);
+      if (found) return found;
+    }
+    // Statements directly inside this scope.
+    const body: ts.Node | undefined =
+      ts.isFunctionLike(n) && "body" in n ? (n as { body?: ts.Node }).body : n;
+    if (body && ts.isBlock(body)) {
+      for (const st of body.statements) visitShallow(st);
+    } else if (body && ts.isSourceFile(body)) {
+      for (const st of body.statements) visitShallow(st);
+    } else if (body && ts.isModuleBlock(body)) {
+      for (const st of body.statements) visitShallow(st);
+    }
+    if (ts.isForStatement(n) && n.initializer && ts.isVariableDeclarationList(n.initializer)) {
+      visitShallow(n.initializer);
+    }
+    return found;
+  };
+
+  for (let n: ts.Node | undefined = from; n; n = n.parent) {
+    const isScope =
+      ts.isSourceFile(n) ||
+      ts.isBlock(n) ||
+      ts.isFunctionLike(n) ||
+      ts.isForStatement(n) ||
+      ts.isCatchClause(n) ||
+      ts.isModuleBlock(n);
+    if (!isScope) continue;
+    const hit = declares(n);
+    if (hit) return hit;
+  }
+  return null;
 }

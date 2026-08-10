@@ -139,6 +139,51 @@ ${PRUNE}`;
     expect(analyseDestructiveFile(P, src).ok).toBe(false);
   });
 
+  it("(k) a safe same-named binding in ANOTHER FUNCTION does not bless this one", () => {
+    // whole-diff r3 finding 1: `cross_function`. Matching declarations by name
+    // anywhere in the file blessed an unsafe connection because a guarded `url`
+    // existed elsewhere. Resolution is lexical now.
+    const src = `${IMPORT}
+function safe() {
+  const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+  return url;
+}
+async function unsafe() {
+  const url = process.env.TEST_DATABASE_URL!;
+  const sql = postgres(url, { max: 1 });
+  ${PRUNE}
+}`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
+  it("(l) a safe same-named binding in a SIBLING BLOCK does not bless this one", () => {
+    // whole-diff r3 finding 1: `cross_block`.
+    const src = `${IMPORT}
+{
+  const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+  void url;
+}
+{
+  const url = process.env.TEST_DATABASE_URL!;
+  const sql = postgres(url, { max: 1 });
+  ${PRUNE}
+}`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
+  it("(m) an outer guarded binding shadowed by a PARAMETER does not bless the inner use", () => {
+    // whole-diff r3 finding 1: `parameter_collision`. The connection reads the
+    // parameter, not the outer guarded const, so the outer one is irrelevant.
+    const src = `${IMPORT}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+async function run(url: string) {
+  const sql = postgres(url, { max: 1 });
+  ${PRUNE}
+}
+void url;`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.

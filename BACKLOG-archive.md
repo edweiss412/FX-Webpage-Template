@@ -6171,3 +6171,48 @@ This is the dark-spec class already recorded for this repo (`feedback_dark_spec_
 > bound instead of an 11-minute job on every admin PR. NOT a required context: a path-filtered
 > job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
 > `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.
+
+### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
+
+**Decision:** 2026-08-10, closed by `fix/sync-log-show-id-duration` (PR #767).
+
+**What was built.** The data half, and only that. `sync_log.show_id` and `duration_ms` are now populated by every routine writer — resolved at the sink from `drive_file_id` inside the INSERT — so a show's sync history is queryable: `pnpm observe synclog --show <uuid>`. Before this, that command returned nothing for every show, and an empty result was indistinguishable from a healthy one (probe: 5073 rows, `count(show_id) = 0`). Indexes on `(show_id, occurred_at DESC)` and `(drive_file_id, occurred_at DESC)` make the per-show read cheap; `prune_sync_log` bounds retention at 60 days.
+
+**What was deliberately NOT built, and why.** The two operator-facing sections this entry asked for — "Sync health (last 5)" and "Parse warnings (history)" on the per-show surface. When the entry was worked on 2026-08-09 the audience question was put directly, and the answer was that a history of failing syncs is a DEVELOPER need, not an operator one: Doug already has `admin_alerts` for high-signal failure notification, active and surfaced above the page chrome, and historical aggregation is something a developer reaches for when diagnosing. So the deliverable is the CLI query working, not new modal sections.
+
+That is a settled call, not deferred work. If FXAV operator feedback later surfaces the "I can't tell if sync has been silently failing" pattern, the UI is now cheap to add — the schema decision this entry was blocked on is made, the store is `sync_log`, and the read path exists. File a NEW entry for the surface at that point; it will be a UI scoping question, not the data-model question this one was.
+
+**The original entry, preserved:**
+
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — a schema/data-model decision, and the store is part of what must be decided. This entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`; sync history and warnings persist to `sync_log` (`lib/sync/syncLog.ts:43`), NOT to `app_events`. A possible bundle with BL-OPS-LOG-DASHBOARD-BANNER is worth evaluating because both surface operator history to an admin, but they read DIFFERENT stores today, so the bundle is a design question rather than a shared read path. (Corrected 2026-08-06: an earlier version of this stamp asserted a shared `app_events` read path, which pre-selected a store that does not hold this history.)
+
+**Store correction 2026-08-06 (L-wave, cross-model review R3):** the body below proposes a new table or view and states schema work is mandatory. That is no longer established. `public.sync_log` already carries `show_id`, `drive_file_id`, status/code, warnings, and `occurred_at`, and `querySyncLog` (`lib/observe/query/syncLog.ts:24`) already filters per show/file and orders newest-first — so a per-show history view may need no new schema at all. What remains genuinely open is whether that store's COMPLETENESS, RETENTION, and INDEXING suit an operator-facing history, which is a design question rather than a schema prerequisite. Read the body's schema framing as superseded by this note.
+
+**Origin:** M11-E-D4 (MEDIUM) filed 2026-05-20. M11 `/help/admin/per-show-panel` documents per-spec §9.2 a "sync health" section (last 5 sync attempts) and a dedicated parse-warnings history section. Shipped `app/admin/show/[slug]/page.tsx` renders `PerShowAlertSection` + `ReSyncButton` + `ParsePanel` + `HelpTooltip` only; no historical-aggregate views.
+
+**Scope:** Add two new sections to `app/admin/show/[slug]/page.tsx`:
+
+- **Sync health (last 5)** — render the most recent 5 sync attempts for the show with timestamp + outcome (success / partial / hard-fail) + (if failed) the canonical error code. Data source TBD: most likely a new `sync_history` table OR a derived view over existing `pending_syncs` + `shows.last_seen_modified_time` change events. Either path requires schema work.
+- **Parse warnings (history)** — distinct from the live `ParsePanel` view (which shows currently-blocked-on-warnings pending_syncs rows), this would show the historical aggregate of parse warnings emitted by previous sync attempts. Data source: extend `shows_internal.parse_warnings` to be append-only history OR query `pending_syncs` history.
+
+Both surfaces need a schema decision (new table vs derived view vs append-only column) before implementation.
+
+**Why backlog, not deferred:** No v1 ops gap. Doug has `admin_alerts` for high-signal failure notification (active and surfaced above the page chrome); historical-aggregate diagnostics are observability polish, not ops requirement. Both sections need schema/data-model work that's outside small mechanical fix scope.
+
+**Promotion prerequisite:** Either (a) FXAV operator feedback surfaces "I can't tell if sync has been silently failing" pattern (real observability gap), OR (b) a v1.x admin-UX or admin-observability milestone bundles this with BL-OPS-LOG. The data-model question (new table vs derived view vs append-only column) needs a brainstorming session.
+
+### BL-APPEVENTS-PRUNE-TEST-UNGUARDED-TARGET
+
+**Decision:** 2026-08-10, FIXED by `fix/sync-log-show-id-duration` (PR #767). `tests/log/appEventsSchema.test.ts` now resolves its URL through `assertLocalDbUrl`, runs the prune inside an always-rolled-back transaction, and asserts the returned count against a baseline measured in that same transaction rather than `>= 1`. The destructive-target guard was extended to discover prune calls, so this class fails loudly rather than silently pruning shared history.
+
+**The original entry, preserved:** — an existing test can prune the validation project
+
+**Status:** FIXED · **Severity:** HIGH (data loss on a shared project; live today) · **Class:** test safety · **Effort:** S · **Filed:** 2026-08-09
+
+**Probe.** `tests/log/appEventsSchema.test.ts:5` resolves its connection as `process.env.TEST_DATABASE_URL ?? <loopback default>` with **no `assertLocalDbUrl` guard**, and `:66` executes `select public.prune_app_events(interval '60 days')`. `TEST_DATABASE_URL` on the shipping machine is the persistent validation project (`AGENTS.md:218`), so running that suite with the ambient env deletes 60 days of validation telemetry.
+
+**Why it is invisible today.** `tests/db/_metaDestructiveDbTargetGuard.test.ts:35-41` discovers destructive tests by two literal patterns — `reset_validation_data` and the `destructive_reset_gate` update. Neither matches a prune, so this file has never been in the guard's `destructive` set and its missing loopback assertion has never been checked.
+
+**Found by** cross-model plan review R2 F6 on `fix/sync-log-show-id-duration`, which extends that guard's discovery to `prune_(sync_log|app_events)`. That arc repairs this file as part of its Task 5b — the guard cannot reach green while a discovered test lacks the assertion — so this entry exists to record the hazard and its independence: it predates that change and would remain if the change were abandoned.
+
+**Fix:** route the URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`), matching every other destructive DB test.

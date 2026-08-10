@@ -30,6 +30,29 @@ happens after the DDL has already landed and so cannot prevent a wrong-project a
 **Objects confirmed present on validation after the apply:** 2 indexes, 1 function, 1
 cron row.
 
+### The cron row is applied POST-MERGE, and that ordering is deliberate
+
+`pg-cron-validation-parity` asserts snapshot EQUALITY on the validation project's
+non-`fxav_cron_` job names against `EXPECTED_NON_FXAV_NON_ORPHAN_CRONS`. That constant
+lives in the code, so during a PR that adds a cron row the two sides are momentarily
+incompatible: main expects one name, the branch expects two, and whichever state
+validation is in, one of them is red. Applying the row immediately turned **main** red.
+
+So the row was unscheduled again (identity-guarded, same `system_identifier` check) and
+is re-applied right after the merge, when main's own registry expects it:
+
+```
+psql -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -f supabase/migrations/20260809000000_sync_log_show_attribution.sql
+```
+
+The migration is idempotent — `create index if not exists`, `create or replace function`,
+and a self-guarded `cron.unschedule` before `cron.schedule` — so re-running it whole is
+the apply, not a special-cased fragment. The indexes and the function stay applied
+throughout: `validation-schema-parity` is a SUPERSET check, so extra objects never break
+it, and only the cron snapshot is equality-shaped. `pg-cron-validation-parity` is not one
+of the twelve required merge contexts, so this branch's own red on that check does not
+gate the merge that resolves it.
+
 **Parity gate:** `pnpm vitest run tests/db/validation-schema-parity.test.ts` with
 `TEST_DATABASE_URL` exported to the validation DSN — 8 passed. Exported once for the
 whole task rather than inlined per command: an inline `VAR=… pnpm …` assignment reaches
