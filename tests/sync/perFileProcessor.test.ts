@@ -979,6 +979,99 @@ describe("incident-shape integration: cron pipeline honors wizard ownership", ()
 
     expect(result).toEqual({ outcome: "skipped", reason: "wizard_owned" });
     // reason → SyncLogEntry.code at the boundary (runScheduledCronSync.ts:2197-2198).
-    expect(logged).toEqual([{ driveFileId: "file-1", outcome: "skipped", code: "wizard_owned" }]);
+    // durationMs joined the entry when the attempt-start capture landed (2026-08-09).
+    // Matched loosely on the number so the assertion stays about the OUTCOME shape;
+    // the duration's own five branches are pinned in runScheduledCronSync.test.ts.
+    expect(logged).toEqual([
+      {
+        driveFileId: "file-1",
+        outcome: "skipped",
+        code: "wizard_owned",
+        durationMs: expect.any(Number),
+      },
+    ]);
+  });
+});
+
+/**
+ * Task 2 (2026-08-09 sync-log show attribution): duration capture.
+ *
+ * The oracle is BRANCH-complete, not path-complete. A suite exercising only the
+ * applied path satisfies a known-delta assertion while leaving every other branch
+ * free to record NULL, NaN, or a negative. Each case below injects `now` so the
+ * delta is asserted against a KNOWN value rather than `> 0` — `> 0` passes for any
+ * positive number a wrong implementation might produce, including an epoch-sized one.
+ */
+describe("attempt duration — branch-complete (spec §3.3)", () => {
+  const SESSION = "22222222-2222-4222-8222-222222222222";
+  const MODIFIED = "2026-05-08T12:00:00.000Z";
+
+  /** A clock that returns each queued instant in order, then repeats the last. */
+  function clockOf(...msValues: number[]) {
+    const queue = [...msValues];
+    return () => new Date(queue.length > 1 ? queue.shift()! : queue[0]!);
+  }
+
+  async function runPreparedSkip(extra: Record<string, unknown>) {
+    const fake = createFakeSupabase({
+      app_settings: [{ id: "default", pending_wizard_session_id: SESSION }],
+      pending_syncs: [{ drive_file_id: "file-d", wizard_session_id: SESSION }],
+    });
+    supabaseMock.client = fake.client;
+    vi.resetModules();
+    const { processOneFile } = await import("@/lib/sync/runScheduledCronSync");
+    const logged: Array<{ durationMs?: number | null }> = [];
+    const deps = {
+      logSync: async (entry: unknown) => {
+        logged.push(entry as { durationMs?: number | null });
+      },
+      withShowLock: (async (_id: string, fn: (tx: unknown) => Promise<unknown>) =>
+        fn({
+          async queryOne(sql: string) {
+            if (/select archived from public\.shows/i.test(sql)) return { archived: false };
+            if (/update public\.shows set last_checked_at/i.test(sql)) return { updated: true };
+            throw new Error(`unexpected SQL in lock tx: ${sql}`);
+          },
+        })) as never,
+      ...extra,
+    };
+    await processOneFile("file-d", "cron", fileMeta(MODIFIED), deps as never);
+    return { logged, deps };
+  }
+
+  test("branch 1 — prepared skip carries the injected delta, not NULL", async () => {
+    // start 1_000_000, emit 1_000_250 => 250ms.
+    const { logged } = await runPreparedSkip({ now: clockOf(1_000_000, 1_000_250) });
+    expect(logged).toHaveLength(1);
+    expect(logged[0]!.durationMs).toBe(250);
+  });
+
+  test("branch 5a — a backward clock clamps at 0, never negative", async () => {
+    const { logged } = await runPreparedSkip({ now: clockOf(1_000_000, 999_000) });
+    expect(logged[0]!.durationMs).toBe(0);
+    expect(logged[0]!.durationMs).not.toBeLessThan(0);
+  });
+
+  test("branch 5b — the value is a finite number, never NaN", async () => {
+    const { logged } = await runPreparedSkip({ now: clockOf(1_000_000, 1_000_010) });
+    expect(Number.isNaN(logged[0]!.durationMs)).toBe(false);
+    expect(Number.isFinite(logged[0]!.durationMs)).toBe(true);
+  });
+
+  test("branch 4 — the caller's shared deps object is NOT mutated", async () => {
+    // The reuse hazard, and the reason `depsWithStart` is a copy. The file loop reuses
+    // ONE processDeps across every file, so an implementation writing
+    // `deps.attemptStartedAtMs = start` still produces correct per-file deltas — each
+    // file overwrites the previous value before its own emit — while leaking state
+    // between files. Asserting two rows differ therefore does NOT catch it; asserting
+    // the shared object is unchanged does.
+    const { deps, logged } = await runPreparedSkip({ now: clockOf(1_000_000, 1_000_100) });
+    // Both halves, or this case is a tautology: "the shared object has no
+    // attemptStartedAtMs" is ALSO true of an implementation that never captures a
+    // start at all, so it would pass against the very absence Task 2 removes. The
+    // delta assertion proves the capture ran; the property assertion proves it ran
+    // on a copy.
+    expect(logged[0]!.durationMs).toBe(100);
+    expect(deps).not.toHaveProperty("attemptStartedAtMs");
   });
 });

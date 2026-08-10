@@ -570,6 +570,10 @@ export type ProcessOneFileDeps = {
   publishShowInvalidation?: (showId: string) => Promise<void>;
   createUnpublishToken?: () => string;
   now?: () => Date;
+  /** Epoch ms for the START of this file's attempt, set by processOneFile and read
+   *  by logSync. Threaded on a COPY of the caller's deps, never assigned onto the
+   *  shared object the file loop reuses. */
+  attemptStartedAtMs?: number;
   /**
    * Re-sync quality gate (Task 2): the manual/version-bound accept route sets
    * these to apply a held shrinkage; cron/push never populate them, so the hold
@@ -2221,6 +2225,11 @@ function isSourceGone(error: unknown): boolean {
 
 type SyncLogDeps = {
   logSync?: ProcessOneFileDeps["logSync"];
+  /** Epoch ms captured at the TOP of the attempt, before prepareProcessOneFile. Absent
+   *  for the §3.3.1 writers that own no attempt boundary; logSync then emits no
+   *  durationMs and the sink persists SQL NULL. */
+  attemptStartedAtMs?: number;
+  now?: ProcessOneFileDeps["now"];
 };
 
 type FirstPublishedNoticeDeps = {
@@ -2251,6 +2260,13 @@ async function logSync(
   if (payload) entry.payload = payload;
   // Set ONLY for the applied outcome (skip/error/stale/stage rows carry no parse warnings).
   if (result.outcome === "applied" && parseWarnings) entry.parseWarnings = parseWarnings;
+  // Duration is derived here, at the single emit point, rather than at each call site.
+  // Absent start stays absent (the sink binds `?? null`); a non-monotonic clock clamps
+  // at 0 rather than persisting a negative or NaN.
+  if (deps.attemptStartedAtMs !== undefined) {
+    const elapsed = (deps.now?.() ?? new Date()).getTime() - deps.attemptStartedAtMs;
+    entry.durationMs = Number.isFinite(elapsed) ? Math.max(0, elapsed) : null;
+  }
   await deps.logSync?.(entry);
 }
 
@@ -2714,6 +2730,12 @@ export async function processOneFile(
   fileMeta: DriveListedFile,
   deps: ProcessOneFileDeps = {},
 ): Promise<ProcessOneFileResult> {
+  // Captured BEFORE prepareProcessOneFile so the recorded duration covers the whole
+  // attempt, including preparation. Bound into a NEW object rather than assigned onto
+  // `deps`: the file loop reuses one shared processDeps across files, so mutating it
+  // would leak this file's start into the next one's attempt.
+  const attemptStartedAtMs = (deps.now?.() ?? new Date()).getTime();
+  const depsWithStart: ProcessOneFileDeps = { ...deps, attemptStartedAtMs };
   const prepared = await prepareProcessOneFile(driveFileId, mode, fileMeta, deps);
   if (prepared.kind === "skip") {
     // DEF-4: an archived show is a SILENT skip — return WITHOUT logSync. The normal skip path below
@@ -2743,7 +2765,7 @@ export async function processOneFile(
         "update public.shows set last_checked_at = now() where drive_file_id = $1 returning true as updated",
         [driveFileId],
       );
-      await logSync(deps, driveFileId, prepared.result, prepared.payload);
+      await logSync(depsWithStart, driveFileId, prepared.result, prepared.payload);
       return prepared.result;
     });
     return "skipped" in logged ? prepared.result : logged;
@@ -2756,13 +2778,13 @@ export async function processOneFile(
       driveFileId,
       mode,
       fileMeta,
-      txBoundProcessDeps(lockedTx, deps, txDeps),
+      txBoundProcessDeps(lockedTx, depsWithStart, txDeps),
       prepared,
     ),
   );
   if ("skipped" in result) {
     const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
-    await logSync(deps, driveFileId, skipped);
+    await logSync(depsWithStart, driveFileId, skipped);
   }
   if (!("skipped" in result) && result.outcome === "applied" && result.snapshotRevisionId) {
     await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
