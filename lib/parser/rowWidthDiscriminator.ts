@@ -22,6 +22,7 @@
  *   - sections whose width distribution TIES (no single modal to be short of)
  */
 import { clean, splitRow } from "./blocks/_helpers";
+import { isKnownSectionHeader } from "./knownSections";
 import { GENERIC_SECTION_KIND, canonicalSectionKind } from "./sectionKind";
 import type { ParseWarning } from "./types";
 
@@ -103,16 +104,30 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
     const isRow = start !== -1 && line.charCodeAt(start) === 124; /* "|" */
 
     if (isRow) {
-      const opener = kindOfFirstCell(firstCell(line));
-      // A LOGICAL section boundary is a blank line OR a recognized opener inside a pipe
-      // run (retro r5/r6). Without the second condition, two sections written with no
-      // blank line between them are measured as one, and a legitimate width change at the
-      // boundary reads as a fused row in every row of the shorter half.
-      if (section.length > 0 && opener !== null) {
+      const col0 = firstCell(line);
+      // TWO SEPARATE QUESTIONS, and fusing them was a bug.
+      //
+      //   "Does a section START here?"  -> isKnownSectionHeader, the parser's OWN
+      //                                    recognizer for the very same headers.
+      //   "What routing key does it get?" -> canonicalSectionKind, which is deliberately
+      //                                    conservative and returns null for anything it
+      //                                    cannot route.
+      //
+      // Asking the second question in place of the first inherits its conservatism as a
+      // MISSED BOUNDARY: three real headers -- IN HOUSE AV, COI, DOCUMENT FOLDER LINK --
+      // are known sections that canonicalSectionKind does not route, so a section opening
+      // with one of them was merged into whatever preceded it, and every row of the
+      // narrower half reported as fused. Probed: 3 of the 33 KNOWN_SECTION_HEADERS.
+      //
+      // The repair is a DERIVATION rather than three more table rows: the boundary now
+      // asks the recognizer that owns the header list, so a header added there is a
+      // boundary here for free, and the two can no longer drift.
+      const isOpener = isKnownSectionHeader(clean(col0));
+      if (section.length > 0 && isOpener) {
         flush();
         section = [];
       }
-      if (section.length === 0) sectionKind = opener ?? GENERIC_SECTION_KIND;
+      if (section.length === 0) sectionKind = kindOfFirstCell(col0) ?? GENERIC_SECTION_KIND;
       section.push({ line, cells: splitRow(line).length });
       continue;
     }

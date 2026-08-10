@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { parseSheet } from "@/lib/parser";
+import { KNOWN_SECTION_HEADERS } from "@/lib/parser/knownSections";
 import { isRoutingKey } from "@/lib/parser/sectionKind";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { FIXTURES, readFixture } from "@/tests/parser/mutation/fixtures";
@@ -161,9 +162,10 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     // shape. Measured as one section, the four 5-cell rows set the modal and all three
     // 4-cell rows report as fused: three false positives on well-formed input.
     //
-    // The second table opens with NOTES, which `canonicalSectionKind` does NOT recognize,
-    // so the opener boundary cannot rescue this fixture — the prose flush is the only
-    // thing that can, which is what makes the arm discriminating rather than incidental.
+    // The second table opens with NOTES, which is NOT a registered section header
+    // (probed), so the opener boundary cannot rescue this fixture — the prose flush is the
+    // only thing that can, which is what keeps the arm discriminating rather than
+    // incidental. Re-verified after the boundary moved to `isKnownSectionHeader`.
     const md = [
       "| CREW | Role | Call | Out | Note |",
       "| --- | --- | --- | --- | --- |",
@@ -195,6 +197,45 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
       "",
     ].join("\n");
     expect(fused(md, "calibration.md")).toEqual([]);
+  });
+
+  it("treats EVERY known section header as a boundary, derived from the registry", () => {
+    // KILLS: asking `canonicalSectionKind(...) !== null` instead of `isKnownSectionHeader`.
+    // Those answer different questions -- "what routing key does this get?" versus "does a
+    // section start here?" -- and the routing table is deliberately conservative, so three
+    // real headers (IN HOUSE AV, COI, DOCUMENT FOLDER LINK) were known sections it does not
+    // route. A section opening with one of them merged into whatever preceded it and every
+    // row of the narrower half reported as fused. Found by cross-model review, then probed:
+    // 3 of the 33 registered headers.
+    //
+    // DERIVED, NOT ENUMERATED (AGENTS.md class-sweep). Listing the three would re-open the
+    // moment someone registers a fourth. This walks the registry, so a new header is
+    // covered the day it lands and the two sets cannot drift apart again.
+    const wide = [
+      "| CREW | Role | Call | Out | Note |",
+      "| --- | --- | --- | --- | --- |",
+      "| Alice | A1 | 08:00 | 17:00 | x |",
+      "| Bob | A2 | 08:00 | 17:00 | x |",
+      "| Carla | A2 | 09:00 | 17:00 | x |",
+      "| Dan | A3 | 09:00 | 17:00 | x |",
+    ];
+    premise("registry is populated", KNOWN_SECTION_HEADERS.size, 20);
+    const offenders = [...KNOWN_SECTION_HEADERS].filter((header) => {
+      // The narrower section is butted straight against the wider one with no blank line,
+      // so ONLY the opener rule can separate them. Its three rows all share width 4
+      // against the leading block's 5: if the boundary is missed they are three rows at
+      // modal-1 and all three are reported.
+      const md = [
+        ...wide,
+        `| ${header} | Start | End | Note |`,
+        "| --- | --- | --- | --- |",
+        "| one | 3/1 | 3/1 | x |",
+        "| two | 3/2 | 3/3 | x |",
+        "",
+      ].join("\n");
+      return fused(md, "calibration.md").length > 0;
+    });
+    expect(offenders).toEqual([]);
   });
 
   it("DOCUMENTED EQUIVALENCE: the 3-row floor is redundant with the tie-guard", () => {

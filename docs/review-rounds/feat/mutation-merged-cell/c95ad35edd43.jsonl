@@ -1,0 +1,1 @@
+{"stage":"diff","round":1,"branch":"feat/mutation-merged-cell","baseSha":"c95ad35edd43","label":null,"status":"no_verdict","verdict":null,"failureReason":"total_timeout","findingCount":null,"startedAt":"2026-08-10T00:00:30.122Z","endedAt":"2026-08-10T00:25:30.881Z","briefPath":"/tmp/brief-b3.md","outDir":"/tmp/codex-b3-r1-200030","guardVersion":1,"recoveredFrom":null}
