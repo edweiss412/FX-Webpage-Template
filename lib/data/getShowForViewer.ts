@@ -682,9 +682,12 @@ async function readShowDataForViewer(
   // wave resolves) — the stored shows_internal.run_of_show object is never mutated.
   const readRunOfShow = async (): Promise<Record<string, ScheduleDay> | null> => {
     try {
-      // not-subject-to-meta: lib/data is outside _metaInfraContract's auth-domain scan
-      // (tests/auth/_metaInfraContract.test.ts:258-259 walks lib/auth/app/auth/app/api/auth/app/api/show only);
-      // the { data, error } boundary is pinned by the behavioral returned-error + thrown-exception tests below.
+      // not-subject-to-meta: INERT, and kept only to say so. This site is pinned
+      // per-site by tests/data/_metaLibDataCallBoundary.test.ts (the shows_internal
+      // run_of_show row), and that suite gives registry rows precedence over
+      // file-grain waivers — so this marker exempts nothing. The { data, error }
+      // boundary is additionally covered behaviorally by the returned-error +
+      // thrown-exception tests in tests/data/getShowForViewerRunOfShow.test.ts.
       const r = await supabase
         .from("shows_internal")
         .select("run_of_show")

@@ -118,6 +118,10 @@ const BACKLOG_GRADUATED = [
   // exclusion (email-canonicalization) is execution-proven via the run-excluded
   // oracle registry, so every exclusion is gated elsewhere by construction.
   { id: "BL-CI-UNIT-GATE-EXCLUSIONS", provenance: "ci/unit-gate-exclusions" },
+  {
+    id: "BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST",
+    provenance: "test/libdata-call-boundary-metatest",
+  },
   // chore/next-1630-wedge-remeasure (2026-08-09): upstream React replay-loss fix
   // confirmed by measurement: 0/20 wedged samples on next 16.3.0's vendored canary
   // cbb046ab-20260731 vs the 7/10 baseline on 3f0b9e61-20260317. Graduated by the

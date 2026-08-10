@@ -25,6 +25,7 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-04-review-round-economy.md`](./2026-08-04-review-round-economy.md) | 2026-08-04 |
 | [`2026-08-07-round-economy-followups.md`](./2026-08-07-round-economy-followups.md) | 2026-08-07 |
 | [`2026-08-09-resurrect-mobile-safari-e2e-design.md`](./2026-08-09-resurrect-mobile-safari-e2e-design.md) | 2026-08-09 |
+| [`2026-08-09-libdata-call-boundary-metatest-design.md`](./2026-08-09-libdata-call-boundary-metatest-design.md) | 2026-08-09 |
 | [`2026-08-09-app-e2e-batch1-design.md`](./2026-08-09-app-e2e-batch1-design.md) | 2026-08-09 |
 | [`2026-08-09-round-economy-followups-2.md`](./2026-08-09-round-economy-followups-2.md) | 2026-08-09 |
 | [`probes`](./probes) | 2026-08-04 |
