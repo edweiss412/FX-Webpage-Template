@@ -34,7 +34,6 @@
     "mint_validation_fixture_atomic(p_combo text, p_fixture_payload jsonb) -> jsonb [DEFINER]",
     "my_share_tokens_for_email() -> TABLE(slug text, share_token text) [DEFINER]",
     "prune_app_events(retain interval) -> integer [DEFINER]",
-    "prune_sync_log(retain interval) -> integer [DEFINER]",
     "publish_admin_alerts_bell_ping() -> trigger [DEFINER]",
     "publish_show(p_show_id uuid) -> boolean [DEFINER]",
     "publish_show_invalidation(p_show_id uuid) -> void [DEFINER]",
