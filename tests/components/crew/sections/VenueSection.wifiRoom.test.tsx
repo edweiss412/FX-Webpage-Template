@@ -27,6 +27,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { VenueSection } from "@/components/crew/sections/VenueSection";
 import { parseSheet } from "@/lib/parser";
+import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import { compareRooms, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
@@ -71,6 +72,16 @@ function renderVenue(data: ReturnType<typeof makeShowForViewer>): HTMLElement {
 function withInternet(internet: string): ReturnType<typeof makeShowForViewer> {
   return makeShowForViewer({
     show: { venue: { name: "Test Venue", address: "1 Main St" }, event_details: { internet } },
+  });
+}
+
+/** The live Fixed Income cell — the corpus value that produces all three rows. */
+const SPLIT_INTERNET = "Hardline from Encore\n\nSSID: Hyatt_Meeting\nCode: FITS2025";
+
+/** A show whose only Facilities fact is power, so the Wi-Fi rows are absent. */
+function withPower(power: string): ReturnType<typeof makeShowForViewer> {
+  return makeShowForViewer({
+    show: { venue: { name: "Test Venue", address: "1 Main St" }, event_details: { power } },
   });
 }
 
@@ -186,10 +197,18 @@ describe("Wi-Fi split rows", () => {
    * cell. The contract is unchanged: split correctly OR render raw, never vanish.
    */
   test("a derived sentinel ssid falls back to the raw row instead of vanishing", () => {
-    const SENTINELS = ["TBD", "N/A", "TBA", "-"];
+    // `-` is deliberately NOT here: it is a separator, so the leftover-separator
+    // rule rejects that cell before the derived-sentinel gate is ever consulted,
+    // and including it proved a different mechanism than the one this case names
+    // (review S5 R4). Every sentinel below reaches the gate as a parsed ssid.
+    const SENTINELS = ["TBD", "N/A", "TBA", "—"];
     premise("sentinel ssid cases", SENTINELS.length, 0);
     for (const sentinel of SENTINELS) {
       const raw = `SSID: ${sentinel}`;
+      premiseHolds(
+        `${sentinel}: the splitter DOES parse it, so the derived gate is what rejects it`,
+        parseWifiValue(raw)?.ssid === sentinel,
+      );
       const container = renderVenue(withInternet(raw));
       // No split row claimed it...
       expect(container.querySelector('[data-testid="venue-wifi-ssid"]'), raw).toBeNull();
@@ -517,18 +536,26 @@ describe("transition audit — the new rows are instant by construction", () => 
    */
   test("no rendered element in the Facilities card carries a motion class", () => {
     const MOTION = /(^|\s)(animate-|transition-|motion-|duration-|ease-)/;
-    const states = [
-      ["split", "Hardline from Encore\n\nSSID: Hyatt_Meeting\nCode: FITS2025"],
-      ["raw", RAW_WIFI_VALUE],
-    ] as const;
-    premise("states swept", states.length, 1);
+    // The DECLARED state inventory, not a sample of it. A mutant that animated
+    // only the room row passed every earlier assertion because no case rendered
+    // one (review S5 R4), so each documented state gets a render here.
+    const rooms = roomsFromFixture(REAL_NAME_FIXTURE);
+    const states: ReadonlyArray<[string, ReturnType<typeof makeShowForViewer>]> = [
+      ["split (network + password + notes)", withInternet(SPLIT_INTERNET)],
+      ["split, password absent", withInternet("SSID: Hyatt_Meeting")],
+      ["split, notes absent", withInternet("SSID - Hyatt_Meeting Password: PHC2025")],
+      ["raw fallback", withInternet(RAW_WIFI_VALUE)],
+      ["Wi-Fi absent, another fact present", withPower("200A 3-phase")],
+      ["room present", withRooms(rooms)],
+    ];
+    premise("declared states swept", states.length, 4);
 
-    for (const [name, internet] of states) {
-      const container = renderVenue(withInternet(internet));
+    for (const [name, data] of states) {
+      const container = renderVenue(data);
       const card = container.querySelector('[data-testid="venue-facilities"]');
       premiseHolds(`the ${name} case actually rendered a Facilities card`, card !== null);
-      const rows = card!.querySelectorAll('[data-testid="fact-rows"] > div');
-      premise(`${name}: fact rows to audit`, rows.length, 0);
+      const auditRows = card!.querySelectorAll('[data-testid="fact-rows"] > div');
+      premise(`${name}: fact rows to audit`, auditRows.length, 0);
 
       // Interactive controls are excluded: the card header's report button
       // carries a pre-existing hover `transition-colors`, which is a colour
@@ -538,7 +565,7 @@ describe("transition audit — the new rows are instant by construction", () => 
       const audited = [card!, ...card!.querySelectorAll("*")].filter(
         (element) => !isInteractive(element),
       );
-      premise(`${name}: static elements audited`, audited.length, rows.length);
+      premise(`${name}: static elements audited`, audited.length, auditRows.length);
 
       for (const element of audited) {
         const className = element.getAttribute("class") ?? "";

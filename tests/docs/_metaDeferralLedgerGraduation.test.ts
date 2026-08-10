@@ -100,7 +100,8 @@ const BACKLOG_GRADUATED = [
   // bullets ship on this branch. The flight-leg row graduates OBSOLETE because
   // its own promotion prerequisite (a structured flight shape) shipped and made
   // the structured card the DEFAULT render, retiring the entry's scope. The
-  // narrower raw-fallback path that stays reachable for unstructurable legs is
+  // narrower raw-fallback path that stays reachable for date-only legs — which
+  // DO parse, but carry no displayable field for the card to lay out — is
   // filed as its successor, BL-FLIGHT-UNSTRUCTURED-LEG-RAW-FALLBACK, rather than
   // left implicit inside a closed entry (diff review R2 F3).
   {
