@@ -71,7 +71,8 @@ const RECOGNIZED_CALLEES = ["cn", "clsx", "cva", "classnames"];
 interface Initializer {
   /** The label used in failure messages — the const, or the const's property. */
   label: string;
-  node: ts.Expression;
+  /** `null` for an object member this reader cannot express (spread, shorthand). */
+  node: ts.Expression | null;
 }
 
 function sourceFileFor(rel: string): ts.SourceFile {
@@ -91,13 +92,11 @@ function sourceFileFor(rel: string): ts.SourceFile {
  * Deliberately not module-scope-only: `base` and `focusRing` are declared inside
  * `StepIndicator`, and the rule's blind spot does not care about scope.
  */
-function findDeclaration(sourceFile: ts.SourceFile, name: string): ts.VariableDeclaration | null {
-  let found: ts.VariableDeclaration | null = null;
+function findDeclarations(sourceFile: ts.SourceFile, name: string): ts.VariableDeclaration[] {
+  const found: ts.VariableDeclaration[] = [];
   const visit = (node: ts.Node): void => {
-    if (found !== null) return;
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
-      found = node;
-      return;
+      found.push(node);
     }
     ts.forEachChild(node, visit);
   };
@@ -110,8 +109,16 @@ function initializersOf(declaration: ts.VariableDeclaration, name: string): Init
   const init = declaration.initializer;
   if (init === undefined) return [];
   if (ts.isObjectLiteralExpression(init)) {
-    return init.properties.flatMap((prop) => {
-      if (!ts.isPropertyAssignment(prop)) return [];
+    return init.properties.flatMap((prop): Initializer[] => {
+      // A member this reader does not understand used to be dropped SILENTLY,
+      // which is the worst possible handling: moving the dark values behind
+      // `{ ...DARK, sm }` emptied the result list, and an empty list satisfies
+      // the shape premise, the non-empty premise AND the wrap assertion at once
+      // (review R3). Unsupported members are now surfaced as a row that cannot
+      // be wrapped, so they fail loudly instead of vanishing.
+      if (!ts.isPropertyAssignment(prop)) {
+        return [{ label: `${name}.<${ts.SyntaxKind[prop.kind]}>`, node: null }];
+      }
       const key = ts.isIdentifier(prop.name)
         ? prop.name.text
         : ts.isStringLiteral(prop.name)
@@ -141,17 +148,36 @@ function isBareStringLiteral(
 describe("class-string consts stay inside the lint rule's reach (spec §2.3)", () => {
   const parsed = SITES.map((site) => {
     const sourceFile = sourceFileFor(site.file);
-    const declaration = findDeclaration(sourceFile, site.name);
-    return { site, sourceFile, declaration };
+    const all = findDeclarations(sourceFile, site.name);
+    return {
+      site,
+      sourceFile,
+      declaration: all.length === 1 ? (all[0] as ts.VariableDeclaration) : null,
+      count: all.length,
+    };
   });
 
-  it("premise: every named declaration is still present, with the initializer shape its row expects", () => {
+  it("premise: every named declaration is present, UNIQUE in its file, and the shape its row expects", () => {
     const missing = parsed
-      .filter((p) => p.declaration === null)
+      .filter((p) => p.count === 0)
       .map((p) => `${p.site.file} — ${p.site.name}`);
     premiseHolds(
       `every named class-string const is present: missing ${missing.join(", ") || "(none)"}`,
       missing.length === 0,
+    );
+
+    // UNIQUE, because a row identifies its target BY NAME and the reader used to
+    // take the first match anywhere in the file. Adding an unrelated wrapped
+    // `base` above `StepIndicator` let the intended `base` go bare while the row
+    // stayed green (review R3) — and `base`/`focusRing` are exactly the names
+    // most likely to collide. Ambiguity is refused rather than resolved by
+    // position: a second declaration means the row no longer names one thing.
+    const ambiguous = parsed
+      .filter((p) => p.count > 1)
+      .map((p) => `${p.site.file} — ${p.site.name} (${p.count} declarations)`);
+    premiseHolds(
+      `every named const resolves to exactly ONE declaration: ambiguous ${ambiguous.join(", ") || "(none)"}`,
+      ambiguous.length === 0,
     );
 
     const wrongShape = parsed.flatMap((p) => {
@@ -177,6 +203,7 @@ describe("class-string consts stay inside the lint rule's reach (spec §2.3)", (
     const empty = parsed.flatMap(({ site, declaration }) => {
       if (declaration === null) return [];
       return initializersOf(declaration, site.name).flatMap((entry) => {
+        if (entry.node === null) return [`${site.file} — ${entry.label} (unreadable member)`];
         const args: readonly ts.Expression[] = ts.isCallExpression(entry.node)
           ? entry.node.arguments
           : [entry.node];
@@ -197,7 +224,7 @@ describe("class-string consts stay inside the lint rule's reach (spec §2.3)", (
     const unwrapped = parsed.flatMap(({ site, declaration }) => {
       if (declaration === null) return [];
       return initializersOf(declaration, site.name)
-        .filter((entry) => !isRecognizedCall(entry.node))
+        .filter((entry) => entry.node === null || !isRecognizedCall(entry.node))
         .map((entry) => `${site.file} — ${entry.label}`);
     });
     expect(

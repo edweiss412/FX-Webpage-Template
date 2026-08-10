@@ -1595,31 +1595,33 @@ test.describe("§6.1 disclosure behaviour survives the Class-A repair", () => {
 const EXPANSION_BAND_PER_SIDE = (TAP_MIN - VISUAL_PILL) / 2;
 
 /**
- * The gap utility on the IMMEDIATE PARENT of the element carrying `testId`, read
- * out of the SOURCE with the TypeScript parser.
+ * The LITERAL className of the IMMEDIATE PARENT of the element carrying
+ * `testId`, read out of the source with the TypeScript parser.
  *
- * IMMEDIATE, not "nearest ancestor that happens to declare a gap" — that was the
- * shipped version and it was wrong in the direction that looks fine (cross-model
- * review R1, probed). Deleting `gap-2` from the Step3Review row made the walk
- * climb to the outer `flex flex-col gap-2` header and accept ITS vertical gap: a
- * different axis, a different box, a different question. The pin reported PASS
- * while the container it names had no gap at all.
+ * IMMEDIATE, not "nearest ancestor that happens to declare a gap": the walk used
+ * to climb, and deleting the inner `gap-2` made it accept an outer `flex-col`
+ * row's VERTICAL gap while reporting PASS (review R1).
  *
- * Returning `null` — no parent, no literal className, or no gap utility on it —
- * is a PREMISE failure at the call site, never a pass. A `className` built from a
- * template or a variable is also `null` for the same reason: this reads source,
- * so a class it cannot see is a class it must not vouch for.
+ * IT RETURNS THE WHOLE CLASS STRING AND PARSES NOTHING ELSE, and that is the
+ * repair for a recognizer that could not stop growing. Three consecutive review
+ * rounds landed on the same shape — the gap extractor did not model
+ * `gap-x-0` beside `gap-2`, or stacked variants (`md:hover:gap-0`), or
+ * semantic-valued ones (`min-[1240px]:gap-x-tile-gap`), or a per-viewport
+ * collapse restored at the far endpoint. Each round widened it and the next
+ * round found the spelling it still missed, because "which Tailwind utilities
+ * win at this width" is an open question about a compiler, and a regex is the
+ * wrong instrument for it.
  *
- * The gap is returned as its TOKEN, not converted to pixels here. The conversion
- * this replaced multiplied by a test-local `4`, which is the project's spacing
- * step restated rather than derived: injecting `--spacing: 0.1875rem` left every
- * static pin green at a computed 8 while the real gap was 6, under the band. The
- * browser resolves the token now, in the same engine the measured case uses.
+ * So the regex is GONE. The caller hands the entire class string to the real
+ * engine and measures what it computes, at every viewport the suite declares.
+ * The AST's job is now only to answer "which element, and what does its
+ * className literally say" — a closed question about one node.
+ *
+ * `null` — no parent, or a non-literal className — is a PREMISE failure at the
+ * call site, never a pass. A className built from a template or a variable is
+ * unreadable from source, so this refuses to vouch for it.
  */
-function immediateGapParentOf(
-  relPath: string,
-  testId: string,
-): { classText: string; gapToken: string; variantGaps: string[] } | null {
+function immediateParentClassOf(relPath: string, testId: string): string | null {
   const source = readFileSync(join(REPO_ROOT, relPath), "utf8");
   const sourceFile = ts.createSourceFile(
     relPath,
@@ -1661,8 +1663,6 @@ function immediateGapParentOf(
   findAnchor(sourceFile);
   if (anchor === null) return null;
 
-  // Exactly one step out, skipping only the JSX-syntax wrappers that carry no
-  // element of their own (a `{cond && <El/>}` expression container is not a box).
   let parent: ts.Node | undefined = (anchor as ts.Node).parent;
   while (
     parent !== undefined &&
@@ -1671,22 +1671,7 @@ function immediateGapParentOf(
     parent = parent.parent;
   }
   if (parent === undefined || !ts.isJsxElement(parent)) return null;
-
-  const classText = literalClassOf(parent.openingElement);
-  if (classText === null) return null;
-  const match = /(?:^|\s)(gap(?:-[xy])?-\d+(?:\.\d+)?)(?:\s|$)/.exec(classText);
-  if (match?.[1] === undefined) return null;
-  // VARIANT-prefixed gaps are collected, not ignored. A container written
-  // `gap-2 sm:gap-0` extracts as `gap-2`, and a probe at one width then reports
-  // 8px while the real gap collapses to 0 at the next breakpoint — a silent
-  // miss, and a reachable one: `min-[720px]:gap-0` already ships in this repo
-  // (components/crew/primitives/KeyTimesStrip.tsx). The static form cannot
-  // reason about a per-viewport gap from source, so it REFUSES rather than
-  // guesses (cross-model review R2).
-  const variantGaps = [
-    ...classText.matchAll(/(?:^|\s)([^\s:]+:gap(?:-[xy])?-\d+(?:\.\d+)?)(?:\s|$)/g),
-  ].flatMap((m) => (m[1] === undefined ? [] : [m[1]]));
-  return { classText, gapToken: match[1], variantGaps };
+  return literalClassOf(parent.openingElement);
 }
 
 /**
@@ -1717,42 +1702,37 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
   });
 
   for (const pin of STATIC_GAP_PINS) {
-    test(`static pin: ${pin.label} keeps a gap that clears the band`, async ({ page }) => {
-      const found = immediateGapParentOf(pin.file, pin.anchorTestId);
-      // PREMISE, not the assertion. "No gap-declaring immediate parent" must fail
-      // HERE — otherwise it is indistinguishable from "the container is fine",
-      // which is exactly how a pin goes quietly vacuous. It covers three shapes at
-      // once: the anchor moved, the gap moved to a wrapper, or the className became
-      // non-literal and unreadable from source.
+    test(`static pin: ${pin.label} keeps a gap that clears the band at every viewport`, async ({
+      page,
+    }) => {
+      const classText = immediateParentClassOf(pin.file, pin.anchorTestId);
+      // PREMISE, not the assertion. "No literal className on the immediate
+      // parent" must fail HERE — otherwise it is indistinguishable from "the
+      // container is fine", which is how a pin goes quietly vacuous. It covers
+      // three shapes at once: the anchor moved, the container lost its class,
+      // or the className became non-literal and unreadable from source.
       premiseHolds(
         `${pin.label}: [data-testid="${pin.anchorTestId}"]'s IMMEDIATE parent in ${pin.file} ` +
-          `declares a literal gap utility`,
-        found !== null,
+          `carries a literal className`,
+        classText !== null,
       );
-      const container = found as { classText: string; gapToken: string; variantGaps: string[] };
+      const className = classText as string;
 
-      // A per-viewport gap makes the single-width probe below unsound, so it is
-      // a PREMISE failure rather than a quiet base-token measurement.
-      premiseHolds(
-        `${pin.label}: the container declares no responsive gap variant (found ` +
-          `${container.variantGaps.join(", ") || "none"}); a gap that changes at a breakpoint ` +
-          `cannot be settled by one width, and the base token would report clearance the wider ` +
-          `viewport does not have`,
-        container.variantGaps.length === 0,
-      );
-
-      // The probe below is a detached element on `document.body`, so it resolves
-      // the ROOT `--spacing`. If some ancestor of the real container scoped its
-      // own, the two would diverge and the pin would report clearance the
-      // container does not have (cross-model review R2). That assumption is
-      // CHECKED here rather than assumed — probed at zero overrides tree-wide,
-      // and this fails loudly if one ever lands. Measuring the real container
-      // instead is not available to a static pin: neither container is in any
-      // mounted subtree, and widening the mount is the harness redesign the
-      // ratified scope excludes (UI spec §1.1 item 2, §4 limit 5).
-      // A pure-Node walk, not a spawned `rg`: the Playwright runner's PATH does
-      // not carry ripgrep, and a search that cannot run must not be mistaken for
-      // a search that found nothing.
+      // A TRIPWIRE on the one assumption the probe below still makes, with its
+      // reach stated rather than implied. The probe is a detached element on
+      // `document.body`, so it resolves the ROOT `--spacing`; a container beneath
+      // an element that scoped its own would diverge.
+      //
+      // It reads SOURCE TEXT, so it sees the two static spellings
+      // (`[--spacing:3px]` in a class, `--spacing: 3px` in CSS) and NOT the two
+      // dynamic ones (`el.style.setProperty("--spacing", …)`,
+      // `style={{ "--spacing": … }}`), which review R3 probed. Widening it to
+      // chase those is one more step down the recognizer road this file just
+      // backed out of, so the residual is a DOCUMENTED LIMIT: closing it needs
+      // the container measured where it lives, which means mounting it — the
+      // harness redesign the ratified scope excludes (UI spec §1.1 item 2). The
+      // measured HelpSheet case below IS mounted and has no such gap; these two
+      // containers are precisely the ones that cannot be.
       const scopedSpacing = ((): string => {
         const hits: string[] = [];
         const walk = (dir: string): void => {
@@ -1761,10 +1741,11 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
             if (entry.isDirectory()) {
               walk(abs);
             } else if (/\.(?:tsx?|css)$/.test(entry.name)) {
-              const text = readFileSync(abs, "utf8");
-              text.split("\n").forEach((line, i) => {
-                if (/--spacing\s*:/.test(line)) hits.push(`${abs}:${i + 1}`);
-              });
+              readFileSync(abs, "utf8")
+                .split("\n")
+                .forEach((line, i) => {
+                  if (/--spacing\s*:/.test(line)) hits.push(`${abs}:${i + 1}`);
+                });
             }
           }
         };
@@ -1772,53 +1753,67 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
         return hits.join("\n");
       })();
       premiseHolds(
-        `no element scopes its own --spacing (found: ${scopedSpacing || "none"}), so a detached ` +
-          `probe on document.body resolves the same step the real container does`,
+        `no element scopes its own --spacing in source (found: ${scopedSpacing || "none"}), so a ` +
+          `detached probe on document.body resolves the same step the real container does. Static ` +
+          `spellings only; a runtime setProperty is a documented limit.`,
         scopedSpacing === "",
       );
 
-      // The token is resolved by the REAL ENGINE, not by arithmetic in this file.
-      // A local `gap-N × 4px` conversion restates the project's spacing step
-      // instead of deriving it, and stays green when the step moves.
-      await boot(page, 390);
-      const resolved = await page.evaluate((token) => {
-        const probe = document.createElement("div");
-        probe.className = `flex ${token}`;
-        probe.style.position = "absolute";
-        probe.style.visibility = "hidden";
-        probe.appendChild(document.createElement("span"));
-        probe.appendChild(document.createElement("span"));
-        document.body.appendChild(probe);
-        const cs = getComputedStyle(probe);
-        const out = { column: parseFloat(cs.columnGap), row: parseFloat(cs.rowGap) };
-        probe.remove();
-        return out;
-      }, container.gapToken);
+      await boot(page, VIEWPORTS[0]);
 
-      // A token the compiled stylesheet never emitted computes to 0 and would
-      // "fail" for the wrong reason. Said as a premise so the two are never
-      // confused.
+      // EVERY declared viewport, because a gap that collapses in the MIDDLE of
+      // the range is invisible to endpoint sampling: `gap-2 min-[720px]:gap-0
+      // min-[1280px]:gap-2` measures 8 at both ends and 0 at 768 (review R3).
+      const measured: { width: number; column: number; row: number }[] = [];
+      for (const width of VIEWPORTS) {
+        await page.setViewportSize({ width, height: 900 });
+        const gaps = await page.evaluate((cls) => {
+          const probe = document.createElement("div");
+          // The container's WHOLE class string, resolved by the real engine.
+          // Nothing here parses Tailwind: `gap-x-0` beside `gap-2`, a stacked
+          // `md:hover:gap-0`, a semantic `min-[1240px]:gap-x-tile-gap` — the
+          // compiler settles all of them, and a recognizer never would.
+          probe.className = cls;
+          probe.style.position = "absolute";
+          probe.style.visibility = "hidden";
+          probe.appendChild(document.createElement("span"));
+          probe.appendChild(document.createElement("span"));
+          document.body.appendChild(probe);
+          const cs = getComputedStyle(probe);
+          const out = { column: parseFloat(cs.columnGap), row: parseFloat(cs.rowGap) };
+          probe.remove();
+          return out;
+        }, className);
+        measured.push({ width, ...gaps });
+      }
+
+      // A class string the compiled stylesheet never emitted computes to 0 and
+      // would "fail" for the wrong reason. Said as a premise so the two are
+      // never confused — and asserted on the WIDEST measurement, so a genuine
+      // collapse at one width still reaches the assertion below.
       premiseHolds(
-        `${pin.label}: the compiled stylesheet emits \`${container.gapToken}\` (computed ` +
-          `${resolved.column}px); a token absent from the bundle would read 0 and be ` +
-          `indistinguishable from a collapsed gap`,
-        Number.isFinite(resolved.column) && resolved.column > 0,
+        `${pin.label}: the compiled stylesheet resolves this container's classes (measured ` +
+          `${measured.map((m) => `${m.width}:${m.column}`).join(", ")}); an unemitted class would ` +
+          `read 0 everywhere and be indistinguishable from a collapsed gap`,
+        measured.some((m) => Number.isFinite(m.column) && m.column > 0),
       );
 
+      const below = measured.filter((m) => !(m.column >= EXPANSION_BAND_PER_SIDE));
       expect(
-        resolved.column,
-        `${pin.label} — its immediate container ("${container.classText}") no longer keeps the ` +
-          `${EXPANSION_BAND_PER_SIDE}px expansion band off its neighbour. This is mutant #14 from ` +
-          `the tap-target arc: a grown target overlaps the control beside it, and every other ` +
-          `assertion in this file still passes because the PAINTED boxes never moved.`,
-      ).toBeGreaterThanOrEqual(EXPANSION_BAND_PER_SIDE);
+        below.map((m) => `${m.width}px: ${m.column}px`),
+        `${pin.label} — its immediate container ("${className}") stops keeping the ` +
+          `${EXPANSION_BAND_PER_SIDE}px expansion band off its neighbour at these widths. This is ` +
+          `mutant #14 from the tap-target arc: a grown target overlaps the control beside it, and ` +
+          `every other assertion in this file still passes because the PAINTED boxes never moved.`,
+      ).toEqual([]);
     });
   }
 
-  // Both ends of the suite's own viewport range, because a gap that collapses at
-  // a breakpoint is invisible to a single-width measurement (cross-model review
-  // R2) — and unlike the static pins, this case CAN just look at the wider one.
-  for (const width of [Math.min(...VIEWPORTS), Math.max(...VIEWPORTS)] as const) {
+  // EVERY declared viewport, for the same reason the static pins now sweep them:
+  // endpoint-only sampling misses a collapse in the middle of the range
+  // (`gap-2 min-[720px]:gap-0 min-[1280px]:gap-2` reads 8, 8 at the ends and 0
+  // at 768). This case measures the REAL mounted header, so it needs no probe.
+  for (const width of VIEWPORTS) {
     test(`measured @${width}px: the HelpSheet header row's computed gap clears the band on both axes`, async ({
       page,
     }) => {

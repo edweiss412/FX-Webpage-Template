@@ -90,6 +90,27 @@ Sweeping the four guard files for the class turned up one more instance, and it 
 
 The other three files were swept and are clean of the class: `canonicalClassConstWrap` reads the same files it asserts about (unavoidable, and a removed callee makes every row report rather than none); `scopeTiles` now shares one constructor between premise and call by construction; the tap-target pins state their remaining assumption executably.
 
+### §12.1e Cross-model diff review — round 3, and the decision to stop widening
+
+Three dispatches. The RESOLVER scope returned **APPROVE, 0 findings** — that surface is closed. The DOCS scope returned 3, all defects in this closeout's own record-keeping (§12.1f). The GUARDS scope returned 6, and every one of them was the same shape: *the recognizer does not recognize enough.*
+
+That is the ratchet the round-economy retrospective names, and round 3 is where it gets refused rather than fed. The rule is explicit — when consecutive rounds keep landing on one function, the mechanism is answering the wrong question, and the repair is to delete or derive it rather than widen it again.
+
+**What the gap extractor could not stop missing.** Round 2 taught it about `min-[720px]:gap-0`. Round 3 handed it four more spellings it still missed, each with a live Tailwind 4.2.4 probe: a second unprefixed utility (`gap-2 gap-x-0`), a stacked variant (`md:hover:gap-0`), a semantic-valued variant (`min-[1240px]:gap-x-tile-gap` — already a grammar in this corpus), and an intermediate collapse restored at the far endpoint (`gap-2 min-[720px]:gap-0 min-[1280px]:gap-2`, which reads 8 at 320 and 1280 and 0 at 768). Widening it a third time would have bought the next round's spelling.
+
+**So the regex is gone.** The AST now answers only a closed question — *which element, and what does its className literally say* — and hands the WHOLE class string to the real engine, measured at EVERY declared viewport. "Which Tailwind utilities win at this width" is a question about a compiler; a compiler answers it exactly, and a recognizer never will. All four round-3 spellings die against the new mechanism without it knowing any of them exist, and mutant #14 still dies.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| R3-1 | `premise(trackedCount, 200)` was a PICKED bound — a mutant dropping an entire root returned 362, over the floor, so the guard passed while a third of the tree went unscanned. | Derived from the tree: the independent disk walk supplies the expected size, and the tracked walk must return ≥90% of it. The drop-root mutant now fails. |
+| R3-2 | `findDeclaration` took the FIRST same-named declaration anywhere, so an unrelated `base` above `StepIndicator` satisfied the row while the intended one went bare. `base`/`focusRing` are the most collision-prone names in the set. | Ambiguity is REFUSED, not resolved by position: a row must resolve to exactly one declaration. |
+| R3-3 | `initializersOf` silently dropped `SpreadAssignment`/`ShorthandPropertyAssignment`, so `{ ...DARK, sm }` emptied the list — and an empty list satisfies the shape premise, the non-empty premise and the wrap assertion at once. | An unreadable member is surfaced as a row that cannot be wrapped, so it fails loudly instead of vanishing. |
+| R3-4 | The `--spacing` scope check sees static spellings and misses runtime `setProperty` / React inline styles. | Kept as a TRIPWIRE with its reach stated; the residual is a documented limit, because closing it needs the container mounted — the redesign the ratified scope excludes. Chasing it with a wider scan is the same road this round backed out of. |
+| R3-5 | Gap extraction missed `gap-x-0`, stacked variants, and semantic-valued variants. | Mechanism deleted (above). |
+| R3-6 | Endpoint-only measurement missed an intermediate collapse. | Every declared viewport, for both the static pins and the measured case. |
+
+Round 3 also confirmed the round-1 and round-2 repairs held: both token readers returned all four planted tokens where the old ones returned two, `[--spacing:3px]` was detected, `min-[720px]:gap-0` was collected, and an empty tracked walker failed its floor.
+
 ### §12.2 Observed-RED transcripts index
 
 Every RED in this branch was observed against the live tree, and both observations recorded in the task's own commit message.

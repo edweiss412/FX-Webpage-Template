@@ -553,8 +553,27 @@ describe("no `@theme`-token arrow forms survive in class strings (spec §2.2)", 
     // than by waiting for a third round to land on it. The two walkers are
     // deliberately different code, so the fixture cannot vouch for this one; a
     // floor on what it returns can.
+    // DERIVED from the tree, not picked. The first version floored this at a
+    // literal 200, and a mutant that dropped an entire root still returned 362 —
+    // over the bound, so the guard passed while a third of the codebase went
+    // unscanned (review R3). A number chosen by hand cannot know how big the
+    // repo is; the OTHER walker does.
+    //
+    // `walkFiles` reads the same roots from disk with completely different code
+    // (readdir, no git), so it is an independent count of what SHOULD be there.
+    // Tracked files are a subset of walked ones (an untracked scratch file is
+    // walked but not tracked), and the gap between them is small and stable —
+    // so the tracked walk must return nearly everything the disk walk finds.
+    const walkedCount = walkFiles(ROOT, UI_ROOTS).length;
     const trackedCount = trackedFiles(ROOT, UI_ROOTS).length;
-    premise("tracked .ts/.tsx files the live scan actually opened", trackedCount, 200);
+    premise("files the disk walk finds under app/, components/, lib/", walkedCount, 200);
+    premiseHolds(
+      `the live git-tracked scan opened ${trackedCount} of the ${walkedCount} .ts/.tsx files on ` +
+        `disk under ${UI_ROOTS.join(", ")}. A walker that lost a root, an extension, or its git ` +
+        `invocation returns a plausible-looking number that a hand-picked floor accepts — this ` +
+        `bound moves with the repository instead.`,
+      trackedCount >= walkedCount * 0.9,
+    );
 
     const offenders = scanRoots({ root: ROOT, roots: UI_ROOTS, tracked: true }).map(
       (s) => `${s.file}:${s.line} — ${s.token}`,
