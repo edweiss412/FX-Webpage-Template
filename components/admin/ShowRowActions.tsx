@@ -200,7 +200,12 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const hasCrew = crew.length > 0;
   // Membership, not count: swapping one member for another leaves the length
   // unchanged and still unmounts whatever the admin had focused.
-  const crewIdentity = shownCrew.map((m) => m.id).join(",");
+  // …and the OVERFLOW item is part of that identity. 13 crew to 12 leaves the
+  // first twelve ids untouched while the overflow link disappears, so a key
+  // built from the shown members alone reports "no change" and the effect does
+  // not re-run — stranding focus on a link that just unmounted (whole-diff R11,
+  // probed: `effectDepsEqual: true` while overflow went 1 → 0).
+  const crewIdentity = `${shownCrew.map((m) => m.id).join(",")}|overflow:${overflowCrewCount}`;
 
   // ONE in-flight action per row (spec §3.1 guard conditions). A pending
   // request and an undecided shrink hold both mean "this row is mid-action".
@@ -442,6 +447,13 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         // Ordering (§3.5): refresh FIRST — the row has to be relocating into
         // the Archived bucket by the time the menu goes away.
         router.refresh();
+        // closeMenu(true) aims focus at the trigger, which SURVIVES a sync but
+        // not an archive: the refresh moves this row out of the active bucket
+        // and the trigger unmounts with it, so focus lands on <body>. That is a
+        // documented limit (spec §6) rather than something this component can
+        // fix alone — the anchor it would need belongs to ShowsTable, and the
+        // announcement channel it would need outlives no row. The call stays
+        // because it is correct whenever the row DOES survive.
         closeMenu(true);
       } else {
         setArchiveFailure(classifyArchiveFailure(result.code));

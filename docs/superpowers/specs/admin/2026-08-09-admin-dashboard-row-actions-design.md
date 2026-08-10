@@ -142,6 +142,15 @@ The Archive confirm step implements the DESIGN.md destructive-action rules (the 
    retry, the retry is idempotent (the RPC's discriminator is false on the no-op arm), and the row
    relocates on the next refresh regardless. Distinguishing the two would require the action to
    report post-commit faults separately, which is a change to a surface this arc freezes (§1.5).
+6. **A successful Archive ends with focus on `<body>`, and its announcement may not be read**
+   (recorded at whole-diff R11). Success calls `router.refresh()`, which relocates the row into the
+   Archived bucket; the row unmounts, taking BOTH the trigger focus is being returned to and the
+   row-owned live region carrying the announcement. Every other outcome keeps its row, so this is
+   the archive path alone. The outcome is still SURFACED — the row visibly leaves the active list
+   and the dashboard re-renders — so the mutation is never silent; what degrades is the a11y
+   handoff. A real repair needs a focus anchor owned by `ShowsTable` (the row cannot anchor its own
+   disappearance) plus an app-level announce channel that outlives any row, both surfaces this arc
+   does not touch (§1.5, §7).
 
 ## §7 Out of scope
 

@@ -637,3 +637,40 @@ describe("Preview submenu — a roster refresh under an open submenu", () => {
     expect(submenu.contains(document.activeElement)).toBe(true);
   });
 });
+
+// ── whole-diff review R11 F1 ───────────────────────────────────────────────
+describe("Preview submenu — the overflow item is part of the roster identity", () => {
+  test("dropping from cap+1 to cap unmounts the overflow link and re-homes focus", () => {
+    const big: CrewMemberRef[] = Array.from({ length: CREW_SUBMENU_CAP + 1 }, (_u, i) => ({
+      id: `c${i}`,
+      name: `Crew ${i}`,
+    }));
+    const exact = big.slice(0, CREW_SUBMENU_CAP);
+    // PREMISE (own inputs): the SHOWN members must be identical across the
+    // change — that is the whole point. A key built from them alone reports no
+    // change, which is how the overflow link could unmount unnoticed.
+    premiseHolds(
+      "the shown members are unchanged by the roster edit",
+      big
+        .slice(0, CREW_SUBMENU_CAP)
+        .map((m) => m.id)
+        .join(",") === exact.map((m) => m.id).join(","),
+    );
+    const r = row({ slug: "ovf", crew: big, crewCount: big.length });
+    const { rerender } = render(<ShowRowActions row={r} />);
+    openMenu("ovf");
+    const submenu = openSubmenu("ovf");
+    const more = q("row-action-preview-more-ovf")!;
+    expect(more).not.toBeNull();
+    more.focus();
+    premiseHolds(
+      "focus is on the overflow link before the change",
+      document.activeElement === more,
+    );
+
+    rerender(<ShowRowActions row={{ ...r, crew: exact, crewCount: exact.length }} />);
+
+    expect(q("row-action-preview-more-ovf")).toBeNull();
+    expect(submenu.contains(document.activeElement)).toBe(true);
+  });
+});
