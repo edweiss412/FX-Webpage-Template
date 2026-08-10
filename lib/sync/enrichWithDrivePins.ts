@@ -25,6 +25,7 @@ import type {
   ParseWarning,
 } from "@/lib/parser/types";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
+import { stripZeroWidth } from "@/lib/parser/zeroWidth";
 import { extractEmbeddedObjects, type ExtractedEmbeddedObjects } from "@/lib/drive/embeddedObjects";
 import { enrichAgenda } from "@/lib/sync/enrichAgenda";
 import { enrichVenueGeocode } from "@/lib/sync/enrichVenueGeocode";
@@ -229,7 +230,9 @@ async function extractEmbeddedImages(
     return keptObjects.map((object) => {
       const bytes = extracted.bytesByObjectId.get(object.objectId) ?? null;
       return {
-        sheetTab: diagramsTitle,
+        // Drive-string payload boundary (spec 2026-08-09-m-wave-2 §2.2): the OOXML
+        // tab title enters the persisted payload here, bypassing parseSheet's strip.
+        sheetTab: stripZeroWidth(diagramsTitle),
         objectId: object.objectId,
         mimeType: object.mimeType,
         contentUrl: null,
@@ -308,10 +311,12 @@ async function extractEmbeddedImages(
     }
 
     embeddedImages.push({
-      sheetTab: diagramsSheet.title,
+      // Drive-string payload boundary (§2.2): Sheets-API title + alt enter the
+      // persisted payload here, bypassing parseSheet's strip.
+      sheetTab: stripZeroWidth(diagramsSheet.title),
       objectId: object.objectId,
       mimeType: object.mimeType,
-      ...(object.alt ? { alt: object.alt } : {}),
+      ...(object.alt ? { alt: stripZeroWidth(object.alt) } : {}),
       contentUrl: object.contentUrl ?? null,
       sheetsRevisionId,
       embeddedFingerprint: bytes ? sha256Base64Url(bytes) : null,
@@ -377,7 +382,9 @@ export async function enrichWithDrivePins(
     linkedFolderItems = keptFiles.map((f) => ({
       driveFileId: f.driveFileId,
       mimeType: f.mimeType,
-      ...(f.name ? { alt: f.name } : {}),
+      // Drive-string payload boundary (§2.2): the Drive file name enters the
+      // persisted payload as alt text, bypassing parseSheet's strip.
+      ...(f.name ? { alt: stripZeroWidth(f.name) } : {}),
       drive_modified_time: f.modifiedTime,
       headRevisionId: f.headRevisionId,
       md5Checksum: f.md5Checksum,
