@@ -224,7 +224,7 @@ then archive this entry. Nothing else is owed.
 
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
-**Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** M
+**Status:** IN PROGRESS (was: PARTIALLY CLOSED 2026-07-26)(PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** M · **Branch:** feat/m2-e2e-infra
 **l-wave-screen 2026-08-06:** KEEP at honest residual scope — the wired-in-CI half closed 2026-07-26/27 and only the per-job smoke residue remains, so it is resized L->M in this same commit.
 
 **What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
@@ -1154,7 +1154,7 @@ costs nothing. The same module-load capture pattern should be swept for across `
 
 ### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
 
-**Status:** OPEN · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M
+**Status:** IN PROGRESS · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M · **Branch:** feat/m2-e2e-infra
 
 **Not caused by the branch that measured it** — the same test fails the same way on an unrelated
 branch in the same window:
@@ -1264,7 +1264,7 @@ trigger the invariant-8 impeccable dual gate.
 
 ### BL-RIGHTNOW-SECTION57-FIXTURE-INERT — the §5.7 suite's run_of_show fixture does not drive the hero it asserts
 
-**Status:** OPEN · **Severity:** MEDIUM (the suite asserts nothing it claims to; it is now statically skipped so it cannot read as coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` §3.5 WHOLE-FILE valve, exception (c)) · **Effort:** M
+**Status:** IN PROGRESS · **Severity:** MEDIUM (the suite asserts nothing it claims to; it is now statically skipped so it cannot read as coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` §3.5 WHOLE-FILE valve, exception (c)) · **Effort:** M · **Branch:** feat/m2-e2e-infra
 
 **Probed, not theorized** (TZ=UTC, to match the CI runner). `tests/e2e/right-now-transitions.spec.ts`
 seeds `shows_internal.run_of_show` in `beforeAll` and asserts the RightNowHero renders that day's
@@ -1303,7 +1303,7 @@ to `driveToState`, which is what made the recovery case's state-entry failure lo
 
 ### BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER — the §5.7 recovery case cannot be driven by an admin viewer
 
-**Status:** OPEN · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M
+**Status:** IN PROGRESS · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M · **Branch:** feat/m2-e2e-infra
 
 **Probed, not theorized.** `tests/e2e/right-now-transitions.spec.ts`'s recovery case enters
 `viewer_off_day` by mutating the VIEWER's `date_restriction`. Admin resolution ignores
