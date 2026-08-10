@@ -69,7 +69,7 @@ function discoverTs(): Hit[] {
             // Two live call shapes (verified 2026-07-24):
             //  (a) object form  upsertAdminAlert({ showId, code, context })
             //  (b) positional   upsertAdminAlert(db, showId, code, context)
-            //      — lib/reports/submit.ts:759, lib/sync/assetRecovery.ts:482
+            //      — lib/reports/submit.ts:767, lib/sync/assetRecovery.ts:482
             // In (b) the context is the LAST argument.
             // Property names go through propertyKeyName so a QUOTED key reads as
             // the same key as a bare one. Comparing raw source text meant

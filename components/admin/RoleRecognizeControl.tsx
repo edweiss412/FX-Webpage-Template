@@ -31,6 +31,7 @@ import { GRANTABLE_FLAGS, type GrantableFlag } from "@/lib/sync/roleMappingOverl
 import * as COPY from "@/components/admin/roleRecognizeCopy";
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import type { WarningControlSite } from "@/components/admin/warningControlSite";
+import { cn } from "@/lib/ui/cn";
 
 export type RoleRecognizeSaveMode = "create" | "revise";
 
@@ -88,23 +89,27 @@ const CHECKBOX_LABEL: Record<GrantableFlag, string> = {
 
 // Neutral-outline trigger + secondary buttons (matches the use-raw escape-hatch
 // treatment; the accent is reserved for the primary save CTA below).
-const outlineBtn =
-  "inline-flex min-h-tap-min items-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong " +
-  "transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring " +
-  "disabled:cursor-not-allowed disabled:opacity-60";
+const outlineBtn = cn(
+  "inline-flex min-h-tap-min items-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong",
+  "transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  "disabled:cursor-not-allowed disabled:opacity-60",
+);
 
-const accentBtn =
-  "inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text " +
-  "transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring " +
-  "disabled:cursor-not-allowed disabled:opacity-60";
+const accentBtn = cn(
+  "inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text",
+  "transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  "disabled:cursor-not-allowed disabled:opacity-60",
+);
 
-const ghostBtn =
-  "min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle " +
-  "transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring " +
-  "disabled:cursor-not-allowed disabled:opacity-60";
+const ghostBtn = cn(
+  "min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle",
+  "transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  "disabled:cursor-not-allowed disabled:opacity-60",
+);
 
-const popIn =
-  "motion-safe:animate-[role-recognize-pop_var(--duration-fast)_var(--ease-out-quart)] motion-reduce:animate-none";
+const popIn = cn(
+  "motion-safe:animate-[role-recognize-pop_var(--duration-fast)_var(--ease-out-quart)] motion-reduce:animate-none",
+);
 
 export function RoleRecognizeControl({
   roleToken,

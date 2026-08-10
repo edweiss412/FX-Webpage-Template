@@ -18,6 +18,12 @@ import type { DataGapsSummary, AutoFixSummary } from "@/lib/parser/dataGaps";
 // badge. This standalone export is imported by lib/admin/loadRecentAutoApplied.ts.
 export type RosterShiftSummary = { added: number; removed: number; renamed: number; total: number };
 
+// admin-dashboard-row-actions (spec §3.2) — the minimum crew identity the
+// dashboard row's "Preview as…" submenu needs to build
+// /admin/show/[slug]/preview/[crewId] links. `name` is nullable in
+// crew_members, so the submenu carries the unnamed-crew fallback.
+export type CrewMemberRef = { id: string; name: string | null };
+
 export type ActiveShowRow = {
   id: string;
   slug: string;
@@ -59,6 +65,14 @@ export type ActiveShowRow = {
   // /admin/unpublished loader that populated this was removed; Held shows now
   // live in the dashboard's Active-shows list, which does not set this field.)
   dataGaps?: DataGapsSummary;
+  // admin-dashboard-row-actions (spec §3.2) — OPTIONAL crew identity for the
+  // row's "Preview as…" submenu, populated by fetchDashboardData for ACTIVE
+  // PUBLISHED rows only from the same paginated crew read that yields
+  // `crewCount`. Producers that omit it change nothing (the `dataGaps?`
+  // precedent): ShowsTable passes the row through untouched and only
+  // ShowRowActions reads it. Absent = "not a row-actions-eligible row";
+  // present-and-empty = "eligible, but this show has no crew yet".
+  crew?: CrewMemberRef[];
   // Flow-4 4.3 badge (spec §6.4/§5.4, Task 7) — OPTIONAL per-show roster-shift
   // summary from the `roster_shift_counts` RPC, populated for PUBLISHED shows
   // only (unpublished → undefined → no roster contribution). When `total > 0`,

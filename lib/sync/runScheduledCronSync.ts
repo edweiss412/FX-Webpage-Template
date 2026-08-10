@@ -35,7 +35,10 @@ import {
   fetchSheetMarkdownAndBytesAtRevision,
   withDriveRetry,
 } from "@/lib/drive/fetch";
-import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import {
+  synthesizeMarkdownFromXlsx,
+  WorkbookSynthesisError,
+} from "@/lib/drive/exportSheetToMarkdown";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
 import {
@@ -118,6 +121,8 @@ import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
 import { emitRoleFlagsNotice, ROLE_FLAGS_EMIT_SOURCE } from "@/lib/sync/emitRoleFlagsNotice";
 import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
+import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
+import { emitDiagramVariantFailures } from "@/lib/log/emitDiagramVariantFailures";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
 export const STAGED_PARSE_REVISION_RACE_COOLDOWN = "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
@@ -159,7 +164,11 @@ type SyncFailureCode =
   | typeof SYNC_STEP_TIMEOUT
   | typeof DRIVE_METADATA_MISSING
   | typeof SHEET_UNAVAILABLE
-  | "LOCK_OWNERSHIP_ASSERTION_FAILED";
+  | "LOCK_OWNERSHIP_ASSERTION_FAILED"
+  // BL-CRON-WORKBOOK-FAULT-CODE (ratified): a corrupt workbook (WorkbookSynthesisError)
+  // is a parse-family fault; the existing catalog code + copy tell Doug the latest edit
+  // did not parse and the previous version is still live. No new §12.4 row.
+  | "PARSE_ERROR_LAST_GOOD";
 
 export type RevisionRaceCooldown = {
   retryCount: number;
@@ -403,6 +412,11 @@ export type ProcessOneFileResult =
       // that tail entirely. OPTIONAL, mirroring roleFlagsNotice? above — absent and [] both mean
       // "nothing unlanded", and every consumer defaults with `?? []`.
       unlandedRenames?: UnlandedRename[];
+      // Census hop 2 (spec §3): diagram variant failures carried out of the locked tx so
+      // processOneFile's post-commit tail can emit them. Two sinks read it off THIS type:
+      // the tail below (cron + manual) and the pending-ingestion retry route, which calls
+      // runManualSyncForShow_unlocked and so bypasses the tail entirely.
+      variantFailures?: DiagramVariantFailureRow[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 / R16 structural defense): REQUIRED so tsc forces EVERY tail caller that builds
       // an applied result (cron / manual / staged) to supply it — a future 4th caller cannot
@@ -487,6 +501,12 @@ type CronRecoveryTx = SyncPipelineTx & {
     driveFileId: string,
     code: string,
   ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
+  /** Parse-family status writer (BL-CRON-WORKBOOK-FAULT-CODE arm). `| void` mirrors
+   * the phase1 declaration so pre-existing void-returning tx mocks stay assignable. */
+  updateShowParseError(
+    driveFileId: string,
+    error: { code: string; message: string },
+  ): Promise<string | null | void>;
   insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
@@ -1506,6 +1526,13 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    coi_status = $15,
                    pull_sheet = $16::jsonb,
                    source_anchors = coalesce($17::jsonb, source_anchors),
+                   -- Anchor stamp (spec 2026-08-09-m-wave-2 §2.3): a fresh anchor write
+                   -- stamps the revision it was computed from ($14 = this pass's
+                   -- modifiedTime); the preserve arm preserves the old stamp with the map.
+                   source_anchors_modified_time = case
+                     when $17::jsonb is not null then $14::timestamptz
+                     else source_anchors_modified_time
+                   end,
                    last_synced_at = now(),
                    last_checked_at = now(),
                    last_sync_status = 'ok',
@@ -1534,6 +1561,12 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    coi_status = $16,
                    pull_sheet = $17::jsonb,
                    source_anchors = coalesce($18::jsonb, source_anchors),
+                   -- Anchor stamp (spec 2026-08-09-m-wave-2 §2.3): fresh write stamps the
+                   -- processed revision ($15); the preserve arm keeps the old stamp.
+                   source_anchors_modified_time = case
+                     when $18::jsonb is not null then $15::timestamptz
+                     else source_anchors_modified_time
+                   end,
                    last_synced_at = now(),
                    last_checked_at = now(),
                    last_sync_status = 'ok',
@@ -1572,12 +1605,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
                   unpublish_token, unpublish_token_expires_at, source_anchors,
+                  source_anchors_modified_time,
                   last_synced_at, last_checked_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, $21::jsonb, now(), now(), 'ok', null${extraValues})
+                        $19::uuid, $20::timestamptz, $21::jsonb,
+                        case when $21::jsonb is not null and $21::jsonb <> '{}'::jsonb
+                             then $16::timestamptz end,
+                        now(), now(), 'ok', null${extraValues})
                 on conflict do nothing
                 returning id
               `,
@@ -2537,6 +2574,12 @@ export function classifySyncFailure(error: unknown): SyncFailureCode {
   ) {
     return "LOCK_OWNERSHIP_ASSERTION_FAILED";
   }
+  // BL-CRON-WORKBOOK-FAULT-CODE: synthesis happens INSIDE the Drive fetch, so a
+  // corrupt workbook surfaces through the fetch_failure wrapper. Keyed on error
+  // IDENTITY (the type the drive layer throws), like the onboarding paths.
+  if (error instanceof WorkbookSynthesisError) {
+    return "PARSE_ERROR_LAST_GOOD";
+  }
   return SYNC_FILE_FAILED;
 }
 
@@ -2621,10 +2664,63 @@ async function handleFetchFailure_unlocked(
     code === STAGED_PARSE_SOURCE_GONE
       ? { outcome: "source_gone" as const, code }
       : { outcome: "parse_error" as const, code };
-  if (existingPending) return result;
-
+  // The show read is hoisted ABOVE the existing-pending early return (review r1 F1):
+  // the first-seen carve below must also govern that return, or a first-seen file
+  // with a staged pending row would report PARSE_ERROR_LAST_GOOD — a code whose copy
+  // promises a previous live version that does not exist.
   const show = await tx.readShowForPhase1(driveFileId);
+  if (existingPending) {
+    return code === "PARSE_ERROR_LAST_GOOD" && !show
+      ? { outcome: "parse_error", code: SYNC_FILE_FAILED }
+      : result;
+  }
   const recoveryTx = tx as LockedShowTx<CronRecoveryTx>;
+  // BL-CRON-WORKBOOK-FAULT-CODE parse-family arm: a corrupt workbook on an EXISTING
+  // show presents as a parse failure (status 'parse_error', PARSE_ERROR_LAST_GOOD
+  // alert), never as a Drive failure that sends Doug to share settings. Last-good
+  // payload untouched: updateShowParseError writes status fields only. FIRST-SEEN
+  // (no show row) deliberately falls through to the generic path below: there is no
+  // previous version, so PARSE_ERROR_LAST_GOOD's copy would be a wrong instruction —
+  // the pending_ingestions (live-partition:n/a — doc reference, no statement) row
+  // keeps SYNC_FILE_FAILED.
+  if (show && code === "PARSE_ERROR_LAST_GOOD") {
+    // `?? null` + cast: the tx contract tolerates void-returning mocks (phase1
+    // precedent); production returns the touched row id or null.
+    const showId = ((await recoveryTx.updateShowParseError(driveFileId, {
+      code,
+      message: errorMessage(error),
+    })) ?? null) as string | null;
+    await recoveryTx.insertSyncLog(
+      {
+        driveFileId,
+        outcome: "error",
+        code,
+        payload: {
+          driveFileId,
+          message: errorMessage(error),
+          previousLastSeenModifiedTime: show.lastSeenModifiedTime ?? null,
+        },
+      },
+      showId,
+    );
+    await recoveryTx.upsertAdminAlert({
+      showId,
+      code: "PARSE_ERROR_LAST_GOOD",
+      context: buildParseErrorContext({
+        driveFileId,
+        // Phase1ShowRow carries no bare title; the prior parse's show title is the
+        // §12.4 <sheet-name> the alert interpolates (hard_fail-branch precedent).
+        sheetName: show.priorParseResult?.show?.title ?? null,
+        failureCode: code,
+      }),
+    });
+    await resolveStaleSyncProblemAlerts_unlocked(
+      tx,
+      showId,
+      syncProblemCodeForStatus("parse_error"),
+    );
+    return { ...result, showId };
+  }
   if (show) {
     const updated =
       code === STAGED_PARSE_SOURCE_GONE
@@ -2692,6 +2788,22 @@ async function handleFetchFailure_unlocked(
     return { ...result, showId };
   }
 
+  if (code === "PARSE_ERROR_LAST_GOOD") {
+    // FIRST-SEEN carve: no show row means no last-good, so PARSE_ERROR_LAST_GOOD's
+    // "previous version is still live" copy would be a wrong instruction on the
+    // pending_ingestions (live-partition:n/a — doc reference, no statement)
+    // panel — the ingestion row keeps today's generic code.
+    await tx.upsertLivePendingIngestion({
+      driveFileId,
+      wizardSessionId: null,
+      driveFileName: fileMeta.name,
+      lastErrorCode: SYNC_FILE_FAILED,
+      lastErrorMessage: errorMessage(error),
+      lastWarnings: [],
+      lastSeenModifiedTime: binding.modifiedTime,
+    });
+    return { outcome: "parse_error", code: SYNC_FILE_FAILED };
+  }
   await tx.upsertLivePendingIngestion({
     driveFileId,
     wizardSessionId: null,
@@ -2759,6 +2871,27 @@ export async function processOneFile(
   if ("skipped" in result) {
     const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
     await logSync(deps, driveFileId, skipped);
+  }
+  // Census hop 2 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT,
+  // outside the show-lock tx (invariant 10), and FIRST in this tail. Placed ahead of
+  // the other post-commit steps and isolated, because this region is a sequence of
+  // un-isolated awaits: a throw in promote or in either emit below would otherwise
+  // skip the variant rows entirely, and a dropped signal is the one outcome the
+  // whole hop census exists to prevent.
+  if (!("skipped" in result) && result.outcome === "applied" && result.variantFailures?.length) {
+    try {
+      await emitDiagramVariantFailures(result.variantFailures, { showId: result.showId });
+    } catch (error) {
+      const escalation = log.error("diagram variant failure emit failed", {
+        source: "sync.diagramVariants",
+        code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
+        showId: result.showId,
+        error,
+      });
+      await escalation.catch(() => {
+        /* best-effort: the escalation must never change the sync outcome */
+      });
+    }
   }
   if (!("skipped" in result) && result.outcome === "applied" && result.snapshotRevisionId) {
     await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
@@ -3646,6 +3779,9 @@ export async function processOneFile_unlocked(
   // mirroring roleFlagsNotice — nothing here emits, the emit is outside the lock (invariant 10).
   if (phase2.unlandedRenames && phase2.unlandedRenames.length > 0) {
     result.unlandedRenames = phase2.unlandedRenames;
+  }
+  if (phase2.variantFailures && phase2.variantFailures.length > 0) {
+    result.variantFailures = phase2.variantFailures;
   }
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
   await emitSuccessfulPhase2Tail({

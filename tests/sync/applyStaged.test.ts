@@ -30,6 +30,7 @@ import {
 } from "@/lib/sync/applyStaged";
 import { ASSET_RECOVERY_ALERT_FAMILY } from "@/lib/sync/assetRecovery";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const logMock = vi.hoisted(() => ({
   error: vi.fn(),
@@ -457,6 +458,167 @@ describe("applyStaged live-scope", () => {
     );
 
     expect(emitIdentityLinkRenameUnlanded).not.toHaveBeenCalled();
+  });
+
+  // Task 2 hop 3 of 5 (spec 2026-08-09-private-image-pipeline §3), sink: the dashboard Apply.
+  // snapshotAssets records variant failures INSIDE the show-lock tx and may not log them there
+  // (invariant 10 — a durable warn inside a tx that later rolls back persists a failure record for
+  // an apply that never happened). They ride ApplyStagedCoreResult → ApplyStagedResult → this
+  // post-commit reconcile tail. Asserted through the log mock (the suite's `@/lib/log` mock), NOT
+  // by spying an emit helper: a helper spy is satisfied with the carrier chain broken at either end.
+  // Failure mode caught: a dropped hop across applyStagedCore → applyStaged → live tail. The cron
+  // sink passing says nothing about this one — each carrier is a separate result type.
+  const variantFailureFixture = () => [
+    {
+      assetKey: "folder-linked-1.png",
+      reason: "sharp_error" as const,
+      message: "sharp pipeline threw: unsupported input",
+    },
+    {
+      assetKey: "embedded-obj-1.png",
+      reason: "blur_oversize" as const,
+      message: "blur 24x18 exceeds the 16px cap",
+    },
+  ];
+  const variantFailureWarnCalls = () =>
+    logMock.warn.mock.calls.filter(
+      ([, fields]) =>
+        (fields as { code?: unknown } | undefined)?.code === "DIAGRAM_VARIANT_GENERATION_FAILED",
+    );
+
+  test("an applied staged apply emits DIAGRAM_VARIANT_GENERATION_FAILED once per variant failure row", async () => {
+    logMock.warn.mockReset();
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const events: string[] = [];
+    logMock.warn.mockImplementation(async (_message: unknown, fields: unknown) => {
+      const emitted = fields as { code?: unknown; assetKey?: unknown };
+      if (emitted?.code === "DIAGRAM_VARIANT_GENERATION_FAILED") {
+        events.push(`emit:${String(emitted.assetKey)}`);
+      }
+    });
+    // TWO rows with distinct keys/reasons/messages so a constant-payload emit cannot pass.
+    const variantFailures = variantFailureFixture();
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => {
+        events.push("lock:start");
+        const locked = await fn(tx);
+        events.push("lock:commit");
+        return locked;
+      }),
+      readLivePendingSyncForApply: vi.fn(async () => pending()),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: { snapshot_revision_id: "rev-prior" },
+      })),
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        appliedRoleMappings: [],
+        showId: "show-1",
+        variantFailures,
+      })),
+    });
+
+    let result: Awaited<ReturnType<typeof applyStaged>>;
+    let observedWarnCalls: unknown[][] = [];
+    try {
+      result = await applyStaged(
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "live",
+          stagedId: "staged-live",
+          reviewerChoices: [],
+          appliedByEmail: "doug@fxav.test",
+        },
+        syncDeps,
+      );
+    } finally {
+      // Snapshot BEFORE the reset — mockReset() clears mock.calls, so reading the
+      // calls after it would assert against an emptied array and report a wiring
+      // failure that is really just the teardown eating the evidence.
+      observedWarnCalls = variantFailureWarnCalls();
+      logMock.warn.mockReset();
+    }
+
+    expect(result).toMatchObject({ outcome: "applied", showId: "show-1" });
+    // Exactly one emit per row, payload derived from the fixture rows themselves (spec §3) — a
+    // constant payload, a dropped field, or a collapsed list all fail here.
+    expect(observedWarnCalls).toEqual(
+      variantFailures.map((failure) => [
+        "diagram variant generation failed",
+        {
+          source: "sync.diagramVariants",
+          code: "DIAGRAM_VARIANT_GENERATION_FAILED",
+          showId: "show-1",
+          assetKey: failure.assetKey,
+          reason: failure.reason,
+          error: failure.message,
+        },
+      ]),
+    );
+    // POST-COMMIT: outside every held lock tx (invariant 10). Stated as the invariant
+    // itself rather than as one literal event sequence — the live path takes the
+    // pipeline lock more than once (preflight, then apply), and pinning a single
+    // lock pair would make this row fail on an unrelated lock refactor while still
+    // not proving what it claims.
+    const emitEvents = events.filter((event) => event.startsWith("emit:"));
+    premise("the fixture produced emits to order against", emitEvents.length, 0);
+    expect(emitEvents).toEqual(variantFailures.map((failure) => `emit:${failure.assetKey}`));
+    expect(events.filter((event) => event === "lock:commit").length).toBeGreaterThan(0);
+    expect(events.indexOf(emitEvents[0]!)).toBeGreaterThan(events.lastIndexOf("lock:commit"));
+  });
+
+  // The invariant-10 proof, and the most load-bearing row of this hop. Phase 2 hands back variant
+  // failure rows AND a stale outcome: the snapshot ran inside the tx, the tx did NOT commit. A
+  // durable warn here would record a generation failure for an apply that never landed, so the
+  // emit must be gated on the COMMITTED applied result, never on the carrier being populated.
+  test("a rolled-back staged apply emits DIAGRAM_VARIANT_GENERATION_FAILED zero times", async () => {
+    logMock.warn.mockReset();
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const variantFailures = variantFailureFixture();
+    const runPhase2 = vi.fn(async () => ({
+      outcome: "stale" as const,
+      code: "STALE_MANUAL_REPLAY_ABORTED" as const,
+      variantFailures,
+    }));
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      readLivePendingSyncForApply: vi.fn(async () => pending()),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: { snapshot_revision_id: "rev-prior" },
+      })),
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
+      runPhase2,
+    });
+
+    let result: Awaited<ReturnType<typeof applyStaged>>;
+    try {
+      result = await applyStaged(
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "live",
+          stagedId: "staged-live",
+          reviewerChoices: [],
+          appliedByEmail: "doug@fxav.test",
+        },
+        syncDeps,
+      );
+    } finally {
+      logMock.warn.mockReset();
+    }
+
+    // Both halves of the premise, or "zero emits" proves nothing: the apply must have RUN the
+    // producer (rows exist to leak) and must NOT have committed.
+    premiseHolds(
+      "the rolled-back fixture ran phase 2 and carried at least one variant-failure row",
+      runPhase2.mock.calls.length > 0 && variantFailures.length > 0,
+    );
+    const outcome = "skipped" in result ? "skipped" : result.outcome;
+    premiseHolds(`the fixture's apply did not commit (outcome=${outcome})`, outcome !== "applied");
+    expect(variantFailureWarnCalls()).toEqual([]);
   });
 
   test("wrapper aborts live Apply when staged_id changes between Drive verification and locked CAS", async () => {

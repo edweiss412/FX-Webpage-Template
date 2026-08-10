@@ -162,6 +162,8 @@ type PerRowResult =
         // Publish freshness gate refusal (staging-overlay spec 2026-07-16 §3.5 call site 1).
         | "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH"
         | "DRIVE_FETCH_FAILED"
+        // Post-parse internal-helper fault (BL-PREPARE-INTERNAL-FAULT-KIND §2.3).
+        | "ONBOARDING_INTERNAL_ERROR"
         // Sheet-content branch of an inline re-parse fault (existing catalog row).
         | "STAGED_PARSE_FAILED";
       re_apply_url: string;
@@ -504,7 +506,10 @@ async function demotePending(
     | typeof STAGED_REVIEW_ITEMS_CORRUPT
     | typeof RESCAN_REVIEW_REQUIRED
     | "DRIVE_FETCH_FAILED"
-    | "STAGED_PARSE_FAILED",
+    | "STAGED_PARSE_FAILED"
+    // Post-parse internal-helper fault (BL-PREPARE-INTERNAL-FAULT-KIND, spec
+    // 2026-08-09-m-wave-2 §2.3): a code bug, not a Drive or sheet-structure fault.
+    | "ONBOARDING_INTERNAL_ERROR",
 ): Promise<void> {
   await tx.query<{ demoted: boolean }>(
     `
@@ -886,7 +891,9 @@ async function processApprovedRow(
       const code =
         err instanceof PrepareOnboardingFileError && err.kind === "parse"
           ? "STAGED_PARSE_FAILED"
-          : "DRIVE_FETCH_FAILED";
+          : err instanceof PrepareOnboardingFileError && err.kind === "internal"
+            ? "ONBOARDING_INTERNAL_ERROR"
+            : "DRIVE_FETCH_FAILED";
       await demotePending(tx, wizardSessionId, row.drive_file_id, code);
       return {
         drive_file_id: row.drive_file_id,

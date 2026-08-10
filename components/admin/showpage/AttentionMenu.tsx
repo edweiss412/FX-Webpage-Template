@@ -33,6 +33,7 @@ import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { autoResolveNote, NEEDS_LOOK_CODES, type NeedsLookCode } from "@/lib/adminAlerts/audience";
 import { NEEDS_LOOK_HINTS } from "@/lib/admin/needsLookHints";
+import { cn } from "@/lib/ui/cn";
 
 export type AttentionMenuProps = {
   items: AttentionItem[];
@@ -43,8 +44,8 @@ export type AttentionMenuProps = {
 };
 
 const TONE_DOT: Record<AttentionItem["tone"], { dot: string; srText: string }> = {
-  critical: { dot: "bg-status-degraded", srText: "urgent: " },
-  notice: { dot: "bg-status-review", srText: "needs review: " },
+  critical: { dot: cn("bg-status-degraded"), srText: "urgent: " },
+  notice: { dot: cn("bg-status-review"), srText: "needs review: " },
 };
 
 export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: AttentionMenuProps) {
@@ -138,7 +139,7 @@ function AttentionMenuPanel({
       data-testid="published-show-review-attention-menu"
       role="group"
       aria-label={hasNeedsYou ? "Needs you" : "Monitoring"}
-      className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-(--shadow-popover) transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
+      className={`absolute top-[calc(100%+8px)] right-0 z-20 w-[min(400px,calc(100vw-32px))] origin-top-right rounded-md border border-border bg-surface-raised shadow-popover transition-[opacity,transform] duration-fast ease-out-quart motion-reduce:transition-none ${
         entered ? "scale-100 opacity-100" : "scale-95 opacity-0"
       }`}
     >

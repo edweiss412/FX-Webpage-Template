@@ -6,6 +6,12 @@ import { canonicalize } from "../lib/email/canonicalize";
 import { parseSheet } from "../lib/parser";
 import { deriveSlug } from "../lib/parser/slug";
 import type { ParsedSheet, PersistedDiagrams } from "../lib/parser/types";
+import {
+  SEED_SHOW_ID_PLACEHOLDER,
+  buildSeedDiagramAssets,
+  uploadSeedDiagramAssets,
+  type SeedDiagramAsset,
+} from "./seedDiagramAssets";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
@@ -98,7 +104,12 @@ function fixtureModifiedTime(index: number): string {
   return `2026-01-${String(index + 1).padStart(2, "0")}T12:00:00.000Z`;
 }
 
-function buildPersistedDiagrams(parsed: ParsedSheet, fileName: string, driveFileId: string) {
+function buildPersistedDiagrams(
+  parsed: ParsedSheet,
+  fileName: string,
+  driveFileId: string,
+  diagramAssets: readonly SeedDiagramAsset[],
+) {
   const snapshotRevisionId = stableUuid(`${driveFileId}:snapshot`);
 
   if (fileName === restageRequiredFixture) {
@@ -118,6 +129,14 @@ function buildPersistedDiagrams(parsed: ParsedSheet, fileName: string, driveFile
           snapshotPath: null,
           sourceFolder: "embedded",
         },
+        // Private-image-pipeline fixture (spec §4). Two AVAILABLE entries with
+        // real bytes in the local Storage bucket, so the crew gallery's
+        // next/image tiers resolve to servable variant URLs. They ride the
+        // restage fixture because the e2e layout gate already resolves this show
+        // (crew-layout-dimensions.spec.ts SEED_DRIVE_FILE_ID). The status stays
+        // `partial_failure_restage_required` — it is driven by the null-path
+        // entry above, which is untouched.
+        ...diagramAssets.map((asset) => asset.entry),
       ],
       linkedFolderItems: [],
     } satisfies SeedPersistedDiagrams;
@@ -132,7 +151,7 @@ function buildPersistedDiagrams(parsed: ParsedSheet, fileName: string, driveFile
   } satisfies SeedPersistedDiagrams;
 }
 
-function loadFixtures(): FixtureSeed[] {
+function loadFixtures(diagramAssets: readonly SeedDiagramAsset[]): FixtureSeed[] {
   const fixtureFiles = readdirSync(fixtureDir)
     .filter((fileName) => fileName.endsWith(".md"))
     .sort();
@@ -168,7 +187,7 @@ function loadFixtures(): FixtureSeed[] {
       modifiedTime: fixtureModifiedTime(index),
       slug,
       parsed,
-      diagrams: buildPersistedDiagrams(parsed, fileName, driveFileId),
+      diagrams: buildPersistedDiagrams(parsed, fileName, driveFileId, diagramAssets),
     };
   });
 }
@@ -238,6 +257,26 @@ function showInsertSql(seed: FixtureSeed): string {
       null,
       ${sqlTimestamp(seed.modifiedTime)}
     );
+  `;
+}
+
+/**
+ * Resolve SEED_SHOW_ID_PLACEHOLDER in the diagrams manifest to the row's
+ * DB-generated `id`.
+ *
+ * `shows.id` is a server default, so the storage paths the manifest advertises
+ * (`diagram-snapshots/shows/<id>/<rev>/<key>`, route.ts `canonicalPath`) cannot
+ * be built before the INSERT. This runs in the SAME transaction, under the
+ * per-show advisory lock the seed already holds (invariant 2) — never as a
+ * follow-up statement outside it. Emitted only for seeds that carry the token,
+ * so it is a no-op for every other fixture.
+ */
+function diagramShowIdSubstitutionSql(seed: FixtureSeed): string {
+  if (!JSON.stringify(seed.diagrams).includes(SEED_SHOW_ID_PLACEHOLDER)) return "";
+  return `
+    update public.shows
+       set diagrams = replace(diagrams::text, ${sqlString(SEED_SHOW_ID_PLACEHOLDER)}, id::text)::jsonb
+     where drive_file_id = ${sqlString(seed.driveFileId)};
   `;
 }
 
@@ -577,6 +616,7 @@ function seedSql(seeds: FixtureSeed[]): string {
       .map(
         (seed) => `
           ${showInsertSql(seed)}
+          ${diagramShowIdSubstitutionSql(seed)}
           ${internalInsertSql(seed)}
           ${crewInsertSql(seed)}
           ${hotelInsertSql(seed)}
@@ -592,10 +632,39 @@ function seedSql(seeds: FixtureSeed[]): string {
   `;
 }
 
-function main(): void {
-  const seeds = loadFixtures();
+async function main(): Promise<void> {
+  // Bytes FIRST: the manifest entries the seed writes are derived from the SAME
+  // production variant stage the sync pipeline runs (supabase/seedDiagramAssets.ts),
+  // so the fixture cannot advertise a ladder the implementation would not emit.
+  const diagramRevisionId = stableUuid(`${fixtureDriveFileId(restageRequiredFixture)}:snapshot`);
+  const diagramAssets = await buildSeedDiagramAssets(diagramRevisionId, stableHash);
+
+  const seeds = loadFixtures(diagramAssets);
   runPsql(seedSql(seeds));
-  process.stdout.write(`Seeded ${seeds.length} fixture shows.\n`);
+
+  // Storage upload is POST-COMMIT and keyed on the resolved show id (the
+  // substitution above wrote it into every snapshotPath). A manifest that
+  // advertises objects the bucket does not hold makes every gallery image 410 —
+  // so an upload failure throws rather than leaving a half-seeded fixture.
+  const diagramShowId = runPsql(`
+    select id::text from public.shows
+     where drive_file_id = ${sqlString(fixtureDriveFileId(restageRequiredFixture))};
+  `);
+  if (!/^[0-9a-f-]{36}$/i.test(diagramShowId)) {
+    throw new Error(
+      `Seed diagram assets: could not resolve the show id for ${restageRequiredFixture} (got ${JSON.stringify(diagramShowId)}).`,
+    );
+  }
+  const uploaded = await uploadSeedDiagramAssets(diagramShowId, diagramRevisionId, diagramAssets);
+
+  process.stdout.write(
+    `Seeded ${seeds.length} fixture shows (${uploaded.length} diagram objects uploaded to shows/${diagramShowId}/${diagramRevisionId}/).\n`,
+  );
 }
 
-main();
+main().catch((error: unknown) => {
+  process.stderr.write(
+    `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+  );
+  process.exitCode = 1;
+});
