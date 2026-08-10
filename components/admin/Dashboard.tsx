@@ -18,7 +18,7 @@
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
-import { type ActiveShowRow } from "@/lib/admin/showDisplay";
+import { type ActiveShowRow, type CrewMemberRef } from "@/lib/admin/showDisplay";
 import {
   summarizeDataGaps,
   summarizeAutoFixes,
@@ -275,6 +275,9 @@ export async function fetchDashboardData(
   // short-circuit to the typed infra_error AFTER Promise.all resolves (a closure
   // cannot `return` out of fetchDashboardData).
   type InfraResult = { kind: "infra_error"; message: string };
+  // One crew read, two derivations (spec §3.2): `counts` feeds the row's crew
+  // cell, `members` feeds the row-actions "Preview as…" submenu.
+  type CrewRoster = { counts: Map<string, number>; members: Map<string, CrewMemberRef[]> };
   const isInfra = (v: unknown): v is InfraResult =>
     typeof v === "object" && v !== null && (v as { kind?: string }).kind === "infra_error";
 
@@ -302,34 +305,53 @@ export async function fetchDashboardData(
     }
   };
 
-  // Per-show crewCount — paginate-until-complete so one-to-many child rows are
+  // Per-show crew roster — paginate-until-complete so one-to-many child rows are
   // never truncated by the PostgREST cap (R17 / §3.4). NOT a single .in() row
   // fetch. Short-circuit on empty id set. Internally sequential (offset walk),
   // but runs CONCURRENTLY with crewTotal + needs-attention (nav-perf phase 1).
-  const readCrewCounts = async (): Promise<Map<string, number> | InfraResult> => {
-    const byShow = new Map<string, number>();
-    if (activeShowIds.length === 0) return byShow;
+  //
+  // admin-dashboard-row-actions (spec §3.2): the SAME read carries crew
+  // IDENTITY (`id, name`) as well as the count, because the row's "Preview as…"
+  // submenu lists crew members. One query, two derivations — never a second
+  // read bolted alongside. `name` NULLS LAST then `id` makes the per-show list
+  // stable for display AND makes the offset walk totally ordered (show_id alone
+  // is not a total order, so page boundaries were previously arbitrary).
+  const readCrewRoster = async (): Promise<CrewRoster | InfraResult> => {
+    const counts = new Map<string, number>();
+    const members = new Map<string, CrewMemberRef[]>();
+    if (activeShowIds.length === 0) return { counts, members };
     try {
       let offset = 0;
       for (;;) {
         const q = await supabase
           .from("crew_members")
-          .select("show_id")
+          .select("show_id, id, name")
           .in("show_id", activeShowIds)
           .order("show_id", { ascending: true })
+          .order("name", { ascending: true, nullsFirst: false })
+          .order("id", { ascending: true })
           .range(offset, offset + CREW_PAGE_SIZE - 1);
         if (q.error) {
           return { kind: "infra_error", message: `crew_members query failed: ${q.error.message}` };
         }
-        const page = (q.data ?? []) as ReadonlyArray<{ show_id?: string }>;
+        const page = (q.data ?? []) as ReadonlyArray<{
+          show_id?: string;
+          id?: string;
+          name?: string | null;
+        }>;
         for (const row of page) {
           if (!row.show_id) continue;
-          byShow.set(row.show_id, (byShow.get(row.show_id) ?? 0) + 1);
+          counts.set(row.show_id, (counts.get(row.show_id) ?? 0) + 1);
+          if (!row.id) continue;
+          const list = members.get(row.show_id);
+          const ref: CrewMemberRef = { id: row.id, name: row.name ?? null };
+          if (list) list.push(ref);
+          else members.set(row.show_id, [ref]);
         }
         if (page.length < CREW_PAGE_SIZE) break;
         offset += CREW_PAGE_SIZE;
       }
-      return byShow;
+      return { counts, members };
     } catch (err) {
       return {
         kind: "infra_error",
@@ -439,10 +461,10 @@ export async function fetchDashboardData(
   // loader (lib/admin/loadNeedsAttention.ts) reuses the injected client. Each
   // wave member keeps its own boundary discrimination; a typed infra_error from
   // any one short-circuits the dashboard below.
-  const [crewTotalResult, crewCountsResult, na, finalizeOwnedIds, ignoredResult, dataGapsResult] =
+  const [crewTotalResult, crewRosterResult, na, finalizeOwnedIds, ignoredResult, dataGapsResult] =
     await Promise.all([
       readCrewTotal(),
-      readCrewCounts(),
+      readCrewRoster(),
       loadNeedsAttention({ cap: RENDER_CAP, supabase }),
       readFinalizeOwned(),
       // Non-fatal secondary surface (§ ignored disclosure): reuse the shared
@@ -456,10 +478,11 @@ export async function fetchDashboardData(
     ]);
 
   if (isInfra(crewTotalResult)) return crewTotalResult;
-  if (isInfra(crewCountsResult)) return crewCountsResult;
+  if (isInfra(crewRosterResult)) return crewRosterResult;
   if ("kind" in na) return na;
   const crewTotal = crewTotalResult;
-  const crewCountByShow = crewCountsResult;
+  const crewCountByShow = crewRosterResult.counts;
+  const crewMembersByShow = crewRosterResult.members;
   // Ignored sheets degrade in place: on infra_error the disclosure shows fixed
   // catalog-safe copy (invariant 5) rather than failing the whole dashboard.
   const ignoredSheets = ignoredResult.kind === "ok" ? ignoredResult.rows : [];
@@ -515,6 +538,13 @@ export async function fetchDashboardData(
       isLive,
       finalizeOwned,
       archivedAt: (s.archived_at as string | null) ?? null,
+      // admin-dashboard-row-actions (spec §3.2 / §1.4): crew IDENTITY rides
+      // only on ACTIVE PUBLISHED rows — the only rows whose ⋮ menu offers
+      // "Preview as…". Held rows hide that item (§1.3) and archived rows are
+      // out of scope, so both OMIT the key rather than carrying dead payload.
+      // Present-but-empty is meaningful (published show with no crew yet →
+      // the item renders disabled); absent means "not an eligible row".
+      ...(!isArchived && published ? { crew: crewMembersByShow.get(s.id as string) ?? [] } : {}),
       // exactOptional: conditional spread so a clean row OMITS the key (§2.3).
       ...(gaps ? { dataGaps: gaps } : {}),
       // exactOptional: OMIT rosterShift entirely when the show has no roster shift.
