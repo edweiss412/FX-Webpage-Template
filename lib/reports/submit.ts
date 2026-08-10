@@ -269,7 +269,15 @@ function showLine(body: RequestBody): string {
   if (title && slug) return `${title} (\`${slug}\`)${idSuffix}`;
   if (title) return `${title}${idSuffix}`;
   if (slug) return `\`${slug}\`${idSuffix}`;
-  return body.show_id ?? "staged wizard sheet (no show record)";
+  // The null-show fallback is surface-scoped (2026-08-09 spec §2.4). The route
+  // rejects a help body carrying show_id/showTitle/showSlug, so help always
+  // lands here rather than on the title/slug arms above.
+  return (
+    body.show_id ??
+    (body.surface === "help"
+      ? "non-show recurrence report (/help/errors)"
+      : "staged wizard sheet (no show record)")
+  );
 }
 
 function foundShowContext(showContext?: ReportShowContextInput): ReportShowContext | null {

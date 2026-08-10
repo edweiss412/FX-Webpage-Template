@@ -28,7 +28,11 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in guardSurfaces.gate.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
-  "tests/scripts/ledgerClaimsCheck.test.ts": 15,
+  // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
+  // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a
+  // throwaway repo, so it counts as environment-touching like its
+  // single-line sibling.
+  "tests/scripts/ledgerClaimsCheck.test.ts": 16,
   "tests/scripts/ledgerClaims.test.ts": 0,
   "tests/specLint/taskContract.test.ts": 0,
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
@@ -45,6 +49,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // decided by the ambient one.
   "tests/reviewRounds/count.test.ts": 0,
   "tests/docs/_metaReviewRoundEconomy.test.ts": 0,
+  // M-wave 2 W-GUARDS (2026-08-10): both guard-extractor suites are pure by
+  // the same rule as the corpus suite — they read the live tree via node:fs
+  // and walkSourceFiles, which is deliberately NOT provenance; neither touches
+  // child_process, ledger-git, or process.env.
+  "tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts": 0,
+  "tests/help/_metaUiLabelCrosswalk.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

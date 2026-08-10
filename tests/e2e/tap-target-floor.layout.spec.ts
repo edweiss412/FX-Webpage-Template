@@ -25,10 +25,11 @@
 import { test, expect } from "./helpers/fontFidelityFixture";
 import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import ts from "typescript";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 import { premise, premiseHolds } from "../_shared/premise";
 
@@ -1155,8 +1156,15 @@ test.describe("DI-3/DI-4/DI-5 — the step pills grow their target without movin
 
         // DI-5 (PRESERVATION, spec §8 — passes before AND after by design; do
         // not "strengthen" it into discriminating form). The margin box is what
-        // the stepper's layout actually spends, and at 320px the connectors are
-        // 0px wide (probe P3) so there is no slack to absorb a change.
+        // the stepper's layout actually spends.
+        //
+        // The ORIGINAL reason this held was that the connectors were 0px wide at
+        // 320px (probe P3), so the row had no slack at all. That is no longer
+        // true: the connectors are a fixed 60px (`w-confirm-box`). The
+        // assertion is unaffected, for a different and stronger reason — the
+        // pill carries `shrink-0` (components/admin/OnboardingWizard.tsx
+        // `base`), so it is excluded from flex distribution entirely and no
+        // connector width can move its box.
         expect(
           measured.w + measured.marginLeft + measured.marginRight,
           `pill ${n} horizontal margin box`,
@@ -1549,4 +1557,416 @@ test.describe("§6.1 disclosure behaviour survives the Class-A repair", () => {
       ).toBe(true);
     }
   });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * BL-TAP-TARGET-NEIGHBOUR-OVERLAP-COVERAGE — the expansion band clears its
+ * neighbour
+ *
+ * Spec: docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md §2.7
+ * Plan: docs/superpowers/plans/2026-08-09-quick-wins-2/plan.md, Task A6
+ *
+ * WHAT WAS UNASSERTED. Every repaired control grows 8px per side beyond its
+ * painted box (`-m-2`), and the growth is layout-neutral: the MARGIN box stays
+ * the painted size, so the only thing keeping the grown target off an
+ * interactive neighbour is the container's own `gap`. Three targets had no
+ * assertion at all on that gap — mutant #14 from the tap-target arc (collapse a
+ * container to `gap-0` so a grown target overlaps its neighbour) passes the
+ * committed suite for all three.
+ *
+ * THE APPROACH IS RATIFIED AND NOT RE-OPENED HERE (spec §1.1 item 2): the
+ * arithmetic gap assertion derived from each container's own gap token, NOT a
+ * harness redesign that mounts production containers. So the FORM is fixed per
+ * container by what the live entry actually mounts, measured 2026-08-09:
+ *
+ *   HelpSheet close  — the sheet IS mounted, so the gap is MEASURED in the
+ *                      real engine, on the real computed style.
+ *   Step3Review      — not in any mounted subtree: STATIC PIN.
+ *   StagedReviewCard — not in any mounted subtree: STATIC PIN.
+ *
+ * CONSEQUENCE BOUND. This asserts gap ARITHMETIC, not production adjacency —
+ * the production neighbour inventory stays hand-traced and a page-level harness
+ * is out of scope (spec §4 limit 5). What the pins guarantee is that a
+ * container whose gap collapses below the band fails loudly, rather than
+ * shipping an overlap nobody measured.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The per-side growth a repaired target takes beyond its painted box.
+ *
+ * DERIVED from the two sizes this file already pins rather than written as `8`:
+ * the target is `size-tap-min` (44) around a `size-7` visual (28), so each side
+ * grows (44 − 28) / 2. A literal would go stale silently the day either token
+ * moves; this cannot.
+ */
+const EXPANSION_BAND_PER_SIDE = (TAP_MIN - VISUAL_PILL) / 2;
+
+/**
+ * The LITERAL className of the IMMEDIATE PARENT of the element carrying
+ * `testId`, read out of the source with the TypeScript parser.
+ *
+ * IMMEDIATE, not "nearest ancestor that happens to declare a gap": the walk used
+ * to climb, and deleting the inner `gap-2` made it accept an outer `flex-col`
+ * row's VERTICAL gap while reporting PASS (review R1).
+ *
+ * IT RETURNS THE WHOLE CLASS STRING AND PARSES NOTHING ELSE, and that is the
+ * repair for a recognizer that could not stop growing. Three consecutive review
+ * rounds landed on the same shape — the gap extractor did not model
+ * `gap-x-0` beside `gap-2`, or stacked variants (`md:hover:gap-0`), or
+ * semantic-valued ones (`min-[1240px]:gap-x-tile-gap`), or a per-viewport
+ * collapse restored at the far endpoint. Each round widened it and the next
+ * round found the spelling it still missed, because "which Tailwind utilities
+ * win at this width" is an open question about a compiler, and a regex is the
+ * wrong instrument for it.
+ *
+ * So the regex is GONE. The caller hands the entire class string to the real
+ * engine and measures what it computes, at every viewport the suite declares.
+ * The AST's job is now only to answer "which element, and what does its
+ * className literally say" — a closed question about one node.
+ *
+ * `null` — no parent, or a non-literal className — is a PREMISE failure at the
+ * call site, never a pass. A className built from a template or a variable is
+ * unreadable from source, so this refuses to vouch for it.
+ */
+/**
+ * The tokens in `className` that AFFECT A GAP but are conditioned on something
+ * this suite's viewport sweep cannot settle.
+ *
+ * Two inversions live here, and they are different from each other.
+ *
+ * WHICH VARIANTS ARE OK is an ACCEPT-SET (review R7). The first version listed
+ * pseudo-state prefixes to refuse; `has-[:hover]:gap-0` walked straight through
+ * it, because arbitrary variants are an open set. The sweep only resizes the
+ * viewport, so only width variants can be settled — every other variant is
+ * refused, INCLUDING spellings nobody has written yet, since they are not on
+ * the accept-list either.
+ *
+ * WHICH TOKENS ARE GAPS is decided BY THE COMPILED STYLESHEET (review R9). That
+ * accept-set was still guarded by a regex recognizing named `gap-*` utilities,
+ * so `has-[:hover]:[gap:0px]` was never even offered to it — along with
+ * `[column-gap:…]`, `[row-gap:…]` and the legacy `grid-*` aliases. Recognizing
+ * Tailwind spellings is the exact defect this file already deleted twice. So
+ * nothing here recognizes anything: it finds the rule the engine EMITTED for
+ * each class and reads the property names off the declaration. A token is a gap
+ * token iff the browser says its rule sets a gap property, whatever it is spelt
+ * like, and a token the compiler never emitted sets nothing and is correctly
+ * ignored.
+ *
+ * Variant splitting is bracket-aware for the same reason: `has-[:hover]:[gap:0px]`
+ * splits on the TWO structural colons, not on the four a naive `split(":")` sees.
+ */
+async function gapTokensNotSettledByWidth(page: Page, className: string): Promise<string[]> {
+  return page.evaluate((cls) => {
+    const VIEWPORT_VARIANT =
+      /^(?:sm|md|lg|xl|2xl|min-\[[^\]]+\]|max-\[[^\]]+\]|max-(?:sm|md|lg|xl|2xl))$/;
+
+    const variantsOf = (token: string): string[] => {
+      const parts: string[] = [];
+      let depth = 0;
+      let current = "";
+      for (const ch of token) {
+        if (ch === "[" || ch === "(") depth += 1;
+        else if (ch === "]" || ch === ")") depth -= 1;
+        if (ch === ":" && depth === 0) {
+          parts.push(current);
+          current = "";
+          continue;
+        }
+        current += ch;
+      }
+      parts.push(current);
+      return parts.slice(0, -1);
+    };
+
+    // The class's own emitted rule, matched on the escaped selector with a
+    // right boundary so `.gap-2` never claims `.gap-24`'s declarations.
+    //
+    // The declarations are read from the matched rule AND ITS WHOLE SUBTREE,
+    // because Tailwind v4 emits variants as native CSS nesting: `hover:gap-0`
+    // compiles to `.hover\:gap-0 { &:hover { gap: … } }`, whose OUTER rule
+    // carries zero declarations. A first version read only the outer rule's
+    // `style`, found nothing, and reported every state-conditioned gap as "not
+    // a gap class" — the precise silence it exists to break. Its own probe
+    // caught it: `has-[:hover]:[gap:0px]` and `hover:gap-0` were both waved
+    // through. The nested rules are where the declaration actually lives.
+    const gapInSubtree = (rule: CSSRule): boolean => {
+      const style = (rule as CSSStyleRule).style;
+      if (style) {
+        for (let i = 0; i < style.length; i += 1) {
+          if (/gap/.test(style.item(i))) return true;
+        }
+      }
+      const kids = (rule as CSSGroupingRule).cssRules;
+      if (kids) {
+        for (const kid of Array.from(kids)) {
+          if (gapInSubtree(kid)) return true;
+        }
+      }
+      return false;
+    };
+
+    const declaresGap = (token: string): boolean => {
+      const escaped = CSS.escape(token).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const needle = new RegExp(`\\.${escaped}(?![A-Za-z0-9_-])`);
+      const visit = (rules: CSSRuleList): boolean => {
+        for (const rule of Array.from(rules)) {
+          const selector = (rule as CSSStyleRule).selectorText;
+          if (typeof selector === "string" && needle.test(selector) && gapInSubtree(rule)) {
+            return true;
+          }
+          // Descend regardless: the matching rule can sit inside an `@media`,
+          // `@layer` or `@supports` wrapper.
+          const kids = (rule as CSSGroupingRule).cssRules;
+          if (kids && visit(kids)) return true;
+        }
+        return false;
+      };
+      for (const sheet of Array.from(document.styleSheets)) {
+        try {
+          if (visit(sheet.cssRules)) return true;
+        } catch {
+          // Cross-origin sheet: unreadable, and never one of ours.
+        }
+      }
+      return false;
+    };
+
+    return cls
+      .split(/\s+/)
+      .filter((token) => token.length > 0)
+      .filter(declaresGap)
+      .filter((token) => variantsOf(token).some((v) => !VIEWPORT_VARIANT.test(v)));
+  }, className);
+}
+
+function immediateParentClassOf(relPath: string, testId: string): string | null {
+  const source = readFileSync(join(REPO_ROOT, relPath), "utf8");
+  const sourceFile = ts.createSourceFile(
+    relPath,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    ts.ScriptKind.TSX,
+  );
+
+  const literalClassOf = (opening: ts.JsxOpeningLikeElement): string | null => {
+    for (const attr of opening.attributes.properties) {
+      if (!ts.isJsxAttribute(attr) || attr.name.getText(sourceFile) !== "className") continue;
+      const init = attr.initializer;
+      if (init !== undefined && ts.isStringLiteral(init)) return init.text;
+      return null;
+    }
+    return null;
+  };
+
+  const carriesTestId = (opening: ts.JsxOpeningLikeElement): boolean =>
+    opening.attributes.properties.some(
+      (attr) =>
+        ts.isJsxAttribute(attr) &&
+        attr.name.getText(sourceFile) === "data-testid" &&
+        attr.initializer !== undefined &&
+        ts.isStringLiteral(attr.initializer) &&
+        attr.initializer.text === testId,
+    );
+
+  // EVERY match, not the first. Taking the first answers "which element?"
+  // silently: a duplicate testid earlier in AST order binds the wrong element and
+  // the pin then measures a container it was never about (review R4). A closed
+  // question with two answers is not closed, so ambiguity is REFUSED.
+  const anchors: ts.Node[] = [];
+  const findAnchors = (node: ts.Node): void => {
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && carriesTestId(node)) {
+      anchors.push(ts.isJsxOpeningElement(node) ? node.parent : node);
+    }
+    ts.forEachChild(node, findAnchors);
+  };
+  findAnchors(sourceFile);
+  if (anchors.length !== 1) return null;
+  const anchor = anchors[0] as ts.Node;
+
+  let parent: ts.Node | undefined = anchor.parent;
+  while (
+    parent !== undefined &&
+    (ts.isJsxExpression(parent) || ts.isParenthesizedExpression(parent))
+  ) {
+    parent = parent.parent;
+  }
+  if (parent === undefined || !ts.isJsxElement(parent)) return null;
+  return literalClassOf(parent.openingElement);
+}
+
+/**
+ * The two containers that are NOT in any mounted subtree, anchored by a testid
+ * inside them rather than by a line number (the entry's own citations had
+ * already rotted a directory prefix by the time this arc read them).
+ */
+const STATIC_GAP_PINS = [
+  {
+    label: "HelpSheet trigger container (Step3Review header row)",
+    file: "components/admin/wizard/Step3Review.tsx",
+    anchorTestId: "wizard-step3-heading",
+  },
+  {
+    label: "HelpTooltip container (StagedReviewCard summary row)",
+    file: "components/admin/StagedReviewCard.tsx",
+    anchorTestId: "staged-parse-summary",
+  },
+] as const;
+
+test.describe("§2.7 — the 8px expansion band cannot reach an interactive neighbour", () => {
+  test("premise: the band is a real, positive distance derived from this file's own sizes", () => {
+    premise(
+      "expansion band per side, derived from (TAP_MIN - VISUAL_PILL) / 2",
+      EXPANSION_BAND_PER_SIDE,
+      0,
+    );
+  });
+
+  for (const pin of STATIC_GAP_PINS) {
+    test(`static pin: ${pin.label} keeps a gap that clears the band at every viewport`, async ({
+      page,
+    }) => {
+      const classText = immediateParentClassOf(pin.file, pin.anchorTestId);
+      // PREMISE, not the assertion. "No literal className on the immediate
+      // parent" must fail HERE — otherwise it is indistinguishable from "the
+      // container is fine", which is how a pin goes quietly vacuous. It covers
+      // three shapes at once: the anchor moved, the container lost its class,
+      // or the className became non-literal and unreadable from source.
+      premiseHolds(
+        `${pin.label}: [data-testid="${pin.anchorTestId}"]'s IMMEDIATE parent in ${pin.file} ` +
+          `carries a literal className`,
+        classText !== null,
+      );
+      const className = classText as string;
+
+      await boot(page, VIEWPORTS[0]);
+
+      // WHICH GAP VARIANTS THIS PROBE CAN ACTUALLY SETTLE. Both halves — which
+      // tokens are gaps, and which variants are exercisable — are decided by the
+      // engine and an accept-set rather than by recognizing spellings; see
+      // `gapTokensNotSettledByWidth`. Runs after `boot` because it reads the
+      // COMPILED stylesheet, which is the whole point.
+      const unexercisable = await gapTokensNotSettledByWidth(page, className);
+      premiseHolds(
+        `${pin.label}: every gap-setting class on this container is one the viewport sweep can ` +
+          `settle (unexercisable: ${unexercisable.join(", ") || "none"}). A gap conditioned on ` +
+          `anything but width — hover, focus, group/peer state, an arbitrary \`has-[…]\` variant — ` +
+          `cannot be settled by a hidden probe, so it is refused rather than measured at its ` +
+          `resting value.`,
+        unexercisable.length === 0,
+      );
+
+      // EVERY declared viewport, because a gap that collapses in the MIDDLE of
+      // the range is invisible to endpoint sampling: `gap-2 min-[720px]:gap-0
+      // min-[1280px]:gap-2` measures 8 at both ends and 0 at 768 (review R3).
+      const measured: { width: number; column: number; row: number }[] = [];
+      for (const width of VIEWPORTS) {
+        await page.setViewportSize({ width, height: 900 });
+        const gaps = await page.evaluate((cls) => {
+          const probe = document.createElement("div");
+          // The container's WHOLE class string, resolved by the real engine.
+          // Nothing here parses Tailwind: `gap-x-0` beside `gap-2`, a stacked
+          // `md:hover:gap-0`, a semantic `min-[1240px]:gap-x-tile-gap` — the
+          // compiler settles all of them, and a recognizer never would.
+          probe.className = cls;
+          probe.style.position = "absolute";
+          probe.style.visibility = "hidden";
+          probe.appendChild(document.createElement("span"));
+          probe.appendChild(document.createElement("span"));
+          document.body.appendChild(probe);
+          const cs = getComputedStyle(probe);
+          const out = { column: parseFloat(cs.columnGap), row: parseFloat(cs.rowGap) };
+          probe.remove();
+          return out;
+        }, className);
+        measured.push({ width, ...gaps });
+      }
+
+      // A class string the compiled stylesheet never emitted computes to 0 and
+      // would "fail" for the wrong reason. Said as a premise so the two are
+      // never confused — and asserted on the WIDEST measurement, so a genuine
+      // collapse at one width still reaches the assertion below.
+      premiseHolds(
+        `${pin.label}: the compiled stylesheet resolves this container's classes (measured ` +
+          `${measured.map((m) => `${m.width}:${m.column}`).join(", ")}); an unemitted class would ` +
+          `read 0 everywhere and be indistinguishable from a collapsed gap`,
+        measured.some((m) => Number.isFinite(m.column) && m.column > 0),
+      );
+
+      // BOTH AXES. The probe measured `row` all along and the assertion threw it
+      // away, which is not a recognizer gap — the engine and the probe agree —
+      // it is an assertion ignoring a number it already had. `gap-x-2 gap-y-0`
+      // measures 8/0 and passed (review R5). It matters for a real container:
+      // StagedReviewCard's row is `flex-wrap`, so when it wraps, the ROW gap is
+      // what separates the wrapped lines from each other.
+      const below = measured.filter(
+        (m) => !(m.column >= EXPANSION_BAND_PER_SIDE) || !(m.row >= EXPANSION_BAND_PER_SIDE),
+      );
+      expect(
+        below.map((m) => `${m.width}px: column=${m.column}px row=${m.row}px`),
+        `${pin.label} — its immediate container ("${className}") stops keeping the ` +
+          `${EXPANSION_BAND_PER_SIDE}px expansion band off its neighbour at these widths. This is ` +
+          `mutant #14 from the tap-target arc: a grown target overlaps the control beside it, and ` +
+          `every other assertion in this file still passes because the PAINTED boxes never moved.`,
+      ).toEqual([]);
+    });
+  }
+
+  // EVERY declared viewport, for the same reason the static pins now sweep them:
+  // endpoint-only sampling misses a collapse in the middle of the range
+  // (`gap-2 min-[720px]:gap-0 min-[1280px]:gap-2` reads 8, 8 at the ends and 0
+  // at 768). This case measures the REAL mounted header, so it needs no probe.
+  for (const width of VIEWPORTS) {
+    test(`measured @${width}px: the HelpSheet header row's computed gap clears the band on both axes`, async ({
+      page,
+    }) => {
+      await boot(page, width);
+      await openHelpSheet(page);
+
+      // The MEASURED path needs the same refusal as the static pins, and did not
+      // have it (review R9): this case reads the header at its RESTING state, so
+      // an ordinary `hover:gap-0` on the real element measures the base gap and
+      // passes while the live container collapses under the pointer. Same
+      // decision procedure, applied to the class string the mounted element
+      // actually carries.
+      const headerClassName = await page
+        .locator('[data-testid="help-sheet-body"] > header')
+        .evaluate((el) => el.className);
+      const unexercisable = await gapTokensNotSettledByWidth(page, headerClassName);
+      premiseHolds(
+        `the mounted HelpSheet header's gap classes are all settled by width (unexercisable: ` +
+          `${unexercisable.join(", ") || "none"}). A gap conditioned on hover, focus, group/peer ` +
+          `state or an arbitrary \`has-[…]\` variant is not measurable at rest, so it is refused ` +
+          `rather than read at its resting value.`,
+        unexercisable.length === 0,
+      );
+
+      // Re-queried AFTER the open (detach-safety): the header does not exist in
+      // the pre-click DOM at all.
+      const gaps = await page.locator('[data-testid="help-sheet-body"] > header').evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          column: parseFloat(cs.columnGap),
+          row: parseFloat(cs.rowGap),
+          display: cs.display,
+        };
+      });
+
+      // The gap only separates anything if the row is a flex/grid container —
+      // `column-gap` on a block element computes to a number and means nothing.
+      premiseHolds(
+        `the HelpSheet header is a flex row (computed display ${gaps.display})`,
+        gaps.display.includes("flex") || gaps.display.includes("grid"),
+      );
+
+      for (const axis of ["column", "row"] as const) {
+        expect(
+          gaps[axis],
+          `HelpSheet close button @${width}px — the header's computed ${axis}-gap no longer clears ` +
+            `the ${EXPANSION_BAND_PER_SIDE}px expansion band, so the grown close target can reach ` +
+            `the heading beside it (mutant #14).`,
+        ).toBeGreaterThanOrEqual(EXPANSION_BAND_PER_SIDE);
+      }
+    });
+  }
 });

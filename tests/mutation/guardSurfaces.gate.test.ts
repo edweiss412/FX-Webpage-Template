@@ -47,12 +47,15 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // explain rather than a number to update.
   ledgerClaimsCore: { equivalent: 3 },
   // Counted from the surface: SIX reachability arguments -- the three two-field
-  // parses at ledger-git.ts:67, :114 and :176, the twice-tested regex group at :202,
-  // the `+++ b/` fallthrough at :261, and headRepo's three-way collapse at :306
-  // -- plus ONE accepted-gap family of exactly THREE sites, the spawn timeouts
-  // at :32-34. A fourth accepted-gap row means a new family, which needs its
-  // own backlog entry rather than a bumped number here.
-  ledgerGit: { equivalent: 6, "accepted-gap": 3 },
+  // parses at ledger-git.ts:83, :130 and :192, the twice-tested regex group at :219,
+  // the `+++ b/` fallthrough at :280, and headRepo's three-way collapse at :325
+  // -- plus ONE accepted-gap family of exactly SIX sites: the spawn timeouts at
+  // :32-34 and MAX_GIT_STDOUT's three literals at :62, all of them spawnSync
+  // bounds unassertable through the surface and all ledgered against
+  // BL-LEDGER-GIT-TIMEOUT-CONSTANTS (extended 2026-08-09,
+  // BL-MUTATION-LEDGERGIT-SITE-DRIFT). A seventh accepted-gap row means a new
+  // family, which needs its own backlog entry rather than a bumped number here.
+  ledgerGit: { equivalent: 6, "accepted-gap": 6 },
   // Counted from the surface: count.ts carries NO blessed survivor at all. Its
   // floor is 1, so any row appearing here is a coverage regression to repair
   // rather than a number to update.
@@ -63,6 +66,14 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
   reviewRoundCorpus: { equivalent: 2 },
+  // M-wave 2 W-GUARDS (2026-08-10). popoverOverlayExtract: TWO equivalent rows
+  // (the template-separator connector flip, which can only inject the token
+  // `undefined` where no accept-set token contains it; and the null-key
+  // fall-through continue, which reaches only comparisons a null key cannot
+  // match). renderedTextHaystack: clean sweep, 17/17 killed after the
+  // hardening rows.
+  popoverOverlayExtract: { equivalent: 2 },
+  renderedTextHaystack: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

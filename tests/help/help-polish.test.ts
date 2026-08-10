@@ -48,9 +48,13 @@ describe("Chunk 5: minor-polish sweep", () => {
     expect(src).toMatch(/For the full wizard reference/);
     // the promise sentence no longer trails the wizard pointer in one run-on
     expect(src).not.toContain("The summary below is the quick path; the full step-by-step");
-    // the two facts from the original run-on survive in the pointer (Codex r3 hardening)
+    // the two facts from the original run-on survive in the pointer (Codex r3 hardening).
+    // The second fact's wording changed 2026-08-10 (M-wave 2 W-GUARDS crosswalk
+    // triage): **Finalize** was drift — no shipped control carries that label;
+    // the wizard's own help page and UI say "finish setup" — so the pin now
+    // holds the corrected phrasing, same fact.
     expect(src).toMatch(/folder-URL verification/);
-    expect(src).toMatch(/\*\*Finalize\*\* step that activates sync/);
+    expect(src).toMatch(/finish-setup step that publishes the shows you tick and activates sync/);
   });
 
   it("landing: the value/benefit intro is split into separate sentences", () => {

@@ -57,6 +57,11 @@ function makeShowRow(overrides: Record<string, unknown> = {}) {
     last_sync_status: null,
     drive_file_id: null,
     source_anchors: null,
+    // Freshness-gate defaults (spec 2026-08-09-m-wave-2 §2.3): matched stamps so the
+    // populated-column row exercises the MAPPING, not a demote; per-row overrides
+    // below exercise the gate itself.
+    source_anchors_modified_time: "2026-08-01T00:00:00.000Z",
+    last_seen_modified_time: "2026-08-01T00:00:00.000Z",
     ...overrides,
   };
 }

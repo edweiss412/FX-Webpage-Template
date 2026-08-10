@@ -28,7 +28,20 @@ The **Sync status** column is the part that matters most. The values you'll see:
 | **"Sync in progress"**                                                                 | A poll is running right now.                                                                                                                                                                                       | Check back in a moment.                                                            |
 | **Not synced yet**                                                                     | The app hasn't completed a poll for this show yet.                                                                                                                                                                 | Nothing; just wait for the next poll.                                              |
 
-Tapping anywhere on a row opens that show's per-show panel; that's where every action lives (re-sync, preview as crew, the Sheet changes feed, sharing). The table itself is a read-only glance.
+Tapping anywhere on a row opens that show's per-show panel, where the Sheet changes feed and sharing live. The four things you reach for most are on the row itself, behind the **⋮** button at the end of it.
+
+<h3 id="row-actions">Row actions (the ⋮ button)</h3>
+
+Every active row ends with a **⋮** button. It opens a short menu so the common moves do not cost you a page:
+
+- **Open.** The same thing tapping the row does: the show’s per-show panel.
+- **Preview as…** Opens a second list of the show’s crew; pick a person to see their page exactly as they see it. It lists up to 12 people, and past that the last entry opens the show, where the full roster is.
+- **Re-sync.** Pulls the sheet from Drive again, without leaving the dashboard. If the re-sync would drop a large part of the show, the app keeps the version that is live and asks you first: keep the current version, or apply the reduced one.
+- **Archive.** Asks you to confirm, naming the show, then archives it. Crew links stop working immediately.
+
+A show that is still going through its first publish, and a show brought back from the archive that you have not republished yet, show **Open** only. The other three would be refused while a publish is in flight, so the menu leaves them out rather than offering something that cannot work.
+
+Only one of these runs at a time per row. While one is working the other items are inert, and if something goes wrong the menu stays open with the reason in plain words.
 
 The empty state (no shows yet) reads "You do not have any shows yet." and tells you to share a sheet into your watched Drive folder so the sync can pick it up.
 
@@ -48,7 +61,7 @@ Most cards wait for your decision. Some clear on their own: a sync problem card 
 
 The **Archived** side of the bucket toggle lists shows you've archived. Their crew links stay off until you unarchive and republish; crew who open an old link see nothing, which is the point of archiving a wrapped show.
 
-You archive from a show's own page: open the show, tap **Share link** (or the **⋮** button beside it), and choose **Archive show**. Each row in the archived list has a one-tap **Unarchive**, which moves the show back to the Active list as **Held, not published**. Open it and publish it again to turn the crew links back on.
+There are two ways to archive. From the dashboard, tap the **⋮** button at the end of an active row and choose **Archive**. From the show itself, open it, tap **Share link** (or the **⋮** button beside it), and choose **Archive show**. Both ask you to confirm first, and both name the show they are about to archive. Each row in the archived list has a one-tap **Unarchive**, which moves the show back to the Active list as **Held, not published**. Open it and publish it again to turn the crew links back on.
 
 ## Changes and review
 

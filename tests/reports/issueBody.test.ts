@@ -198,3 +198,49 @@ describe("report issue body templates", () => {
     expect(body).toContain("- Last sync: 2026-05-12T16:30:00Z");
   });
 });
+
+// ---------------------------------------------------------------------------
+// help surface (2026-08-09 spec §2.4). The null-show fallback branches on the
+// surface: help issues read as non-show recurrence reports, the staged-wizard
+// copy stays for everything else.
+// ---------------------------------------------------------------------------
+describe("help surface issue body (spec §2.4)", () => {
+  const HELP_CODE = "AMBIGUOUS_EMAIL_BINDING";
+
+  const helpBody: RequestBody = {
+    ...baseBody,
+    surface: "help",
+    show_id: null,
+    showTitle: null,
+    showSlug: null,
+    fieldRef: { helpCode: HELP_CODE },
+  };
+
+  test("renders non-show line, help surface, and helpCode; no wizard copy", () => {
+    const body = buildAdminIssueBody(
+      { kind: "admin", email: "doug@example.com" },
+      helpBody,
+      null,
+      undefined,
+    );
+
+    // Line-anchored: a suffix on the fallback string fails here, where a bare
+    // `toContain` would pass.
+    expect(body).toMatch(/^\*\*Show:\*\* non-show recurrence report \(\/help\/errors\)$/m);
+    expect(body).toMatch(/^\*\*Surface:\*\* help$/m);
+    expect(body).toContain(HELP_CODE);
+    expect(body).not.toContain("staged wizard sheet");
+  });
+
+  test("keeps wizard copy for admin + null show", () => {
+    const body = buildAdminIssueBody(
+      { kind: "admin", email: "doug@example.com" },
+      { ...helpBody, surface: "admin", fieldRef: { kind: "wizard-step3" } },
+      null,
+      undefined,
+    );
+
+    expect(body).toMatch(/^\*\*Show:\*\* staged wizard sheet \(no show record\)$/m);
+    expect(body).not.toContain("non-show recurrence report");
+  });
+});

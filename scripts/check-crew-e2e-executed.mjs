@@ -49,11 +49,29 @@ export const REQUIRED = {
   // The 4 statically-skipped §4.10 transition-audit cases are excluded by
   // construction (they never produce a passing result) and are registered by
   // exact title in the wiring guard's EXPECTED_SKIPS.
-  "crew-page.spec.ts": 15,
-  // 8 = 4 cases x BOTH projects. theme-toggle carries no project gate — every
-  // case asserts behavior identical under mobile-safari and desktop-chromium, and
-  // both were run separately to prove it before this row was written.
-  "theme-toggle.spec.ts": 8,
+  // 16 as of the crew-chrome branch: the 15 above plus the anchored-footer
+  // short-page case (AC-U2), which asserts both width regimes in one test.
+  "crew-page.spec.ts": 16,
+  // 9, and the number is the MATRIX rather than a multiple (plan
+  // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
+  //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
+  //   arm (b) — 1 avatar-menu case, desktop-chromium ONLY           = 1
+  // Arm (b) is Chromium-gated by a DECLARED `test.skip(...)` because the picker
+  // identity it needs cannot exist under WebKit over plain http (the `__Host-`
+  // Secure envelope is never stored), so it can never pass under mobile-safari.
+  // 9 is therefore TIGHT, not slack: mobile-safari can contribute at most 4 and
+  // desktop-chromium at most 5, so demanding 9 forces both to be complete. The
+  // wiring guard derives this same number from live per-project resolution minus
+  // its PROJECT_GATED registry — it is not trusted as a literal here.
+  "theme-toggle.spec.ts": 9,
+  // ── wired 2026-08-10 by M-wave 2 W-E2E (BL-RIGHTNOW-SECTION57-FIXTURE-INERT +
+  // BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER) ────────────────────────
+  // 3 = the §5.7 anchor pair (Day-1 anchor, midnight rollover) + the restricted-
+  // viewer recovery case, desktop-chromium ALONE (the picker-bootstrap __Host-
+  // envelope is dark on WebKit over plain http — the spec header records the
+  // measured failure). Derived from the 2026-08-10 local run's report: 3 passing
+  // unique spec ids under desktop-chromium.
+  "right-now-transitions.spec.ts": 3,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry

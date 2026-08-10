@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 import { isMidBlockSectionStart } from "@/lib/parser/knownSections";
+import { stripZeroWidth } from "@/lib/parser/zeroWidth";
 
 type CellGrid = string[][];
 
@@ -374,14 +375,24 @@ function synthesizeMarkdownFromXlsxUnguarded(
         .join("\n\n");
       const regions = collectPullSheetRegionsFromMarkdown(tabMarkdown);
       if (regions.length > 0) {
-        const included = opts?.includePullSheetFromTab === sheetName;
+        // Drive-string payload boundary (spec 2026-08-09-m-wave-2 §2.2): the OOXML tab
+        // name + raw-grid previews enter the persisted payload here, bypassing
+        // parseSheet's strip. The stored override round-trips the STRIPPED name back as
+        // `includePullSheetFromTab`, so the inclusion match compares stripped forms on
+        // both sides — a legacy override captured pre-strip still matches its tab.
+        const cleanTabName = stripZeroWidth(sheetName);
+        const included =
+          opts?.includePullSheetFromTab !== undefined &&
+          stripZeroWidth(opts.includePullSheetFromTab) === cleanTabName;
         const fingerprint = createHash("sha256")
           .update(regions.map((r) => stripBlankLines(r.regionMarkdown)).join("\n\x00\n"), "utf8")
           .digest("hex");
         const rawPreviews = collectRawPullSheetPreviews(rawGrid);
         archivedPullSheetTabs.push({
-          tabName: sheetName,
-          headerPreviews: regions.map((_, index) => rawPreviews[index] ?? "(no header text)"),
+          tabName: cleanTabName,
+          headerPreviews: regions.map((_, index) =>
+            stripZeroWidth(rawPreviews[index] ?? "(no header text)"),
+          ),
           fingerprint,
           included,
           contentChangedSinceAccept: false,

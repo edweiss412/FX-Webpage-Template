@@ -11,6 +11,7 @@
 // so a replaced entry reads as inactive history, not an active state.
 
 import type { ChangeStatus } from "@/lib/sync/holds/types";
+import { cn } from "@/lib/ui/cn";
 
 // Literal class strings (not template-constructed) so Tailwind v4's content scan
 // emits each utility into the built CSS.
@@ -18,27 +19,27 @@ const BADGE: Record<ChangeStatus, { label: string; title: string; className: str
   applied: {
     label: "Applied",
     title: "This change was applied.",
-    className: "bg-status-positive/15 text-status-positive-text",
+    className: cn("bg-status-positive/15 text-status-positive-text"),
   },
   pending: {
     label: "Pending review",
     title: "Waiting for your approval.",
-    className: "bg-info-bg text-text-subtle",
+    className: cn("bg-info-bg text-text-subtle"),
   },
   rejected: {
     label: "Rejected",
     title: "This change was rejected.",
-    className: "bg-warning-bg text-warning-text",
+    className: cn("bg-warning-bg text-warning-text"),
   },
   undone: {
     label: "Undone",
     title: "This change was undone.",
-    className: "bg-surface-sunken text-text-subtle",
+    className: cn("bg-surface-sunken text-text-subtle"),
   },
   superseded: {
     label: "Superseded",
     title: "Replaced by a newer change.",
-    className: "bg-surface-sunken text-text-subtle",
+    className: cn("bg-surface-sunken text-text-subtle"),
   },
 };
 

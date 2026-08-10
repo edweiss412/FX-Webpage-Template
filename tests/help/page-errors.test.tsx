@@ -39,30 +39,31 @@ describe("/help/errors (E.13)", () => {
     expect(src).toMatch(/MESSAGE_CATALOG/);
   });
 
+  // The page itself stays a server component. The CTA is a separate client
+  // island (app/help/errors/_components/HelpReportCta.tsx), the same shape
+  // RefAnchor already uses.
   it("iterates entries server-side (no useEffect / useState client patterns)", () => {
     expect(src).not.toContain("useState");
     expect(src).not.toContain('"use client"');
   });
 
-  it("trailing CTA is 'tell Eric' (NOT 'Learn more') per AC-11.11 r10", () => {
-    expect(src).toMatch(/tell Eric/i);
+  // AC-11.11 r12 (2026-08-09 spec §2.5) retires the r11 mailto stopgap: the
+  // trailing CTA is the §13.1 surface-5 report button. Both layers are pinned —
+  // the source scan catches a mailto left behind in a comment or an unrendered
+  // branch, the rendered assertion catches the button going missing.
+  it("trailing CTA mounts HelpReportCta and no mailto survives in the source", () => {
+    expect(src).toMatch(/HelpReportCta/);
+    expect(src).not.toMatch(/mailto:/i);
+    expect(src).not.toMatch(/tell Eric/i);
     expect(src).not.toMatch(/Learn more/i); // the destination page never self-links
   });
 
-  // M12.12 follow-up — the tell-Eric CTA's "→" is decorative; aria-label
-  // drops it from the accessible name WITHOUT splitting the visible text run
-  // (text-run splits shift text-decoration paint — byte-level screenshot
-  // drift). Visible copy (AC-11.11 r10 "tell Eric →") is unchanged. Failure
-  // mode caught: someone puts the arrow back into the accessible name.
-  it("tell-Eric CTA accessible name drops the decorative → (aria-label), visible text keeps it", async () => {
+  it("renders the report CTA button exactly once", async () => {
     const Page = (await import("@/app/help/errors/page")).default;
-    const { getAllByRole } = render(<Page />);
-    const ctas = getAllByRole("link", { name: "If this keeps happening, tell Eric" });
-    expect(ctas.length).toBeGreaterThan(0);
-    for (const cta of ctas) {
-      expect(cta.textContent).toBe("If this keeps happening, tell Eric →");
-      expect(cta.firstElementChild).toBeNull();
-    }
+    const { getAllByRole, container } = render(<Page />);
+    const ctas = getAllByRole("button", { name: "Report a recurring error" });
+    expect(ctas.length).toBe(1);
+    expect(container.querySelectorAll('a[href^="mailto:"]').length).toBe(0);
   });
 
   it("rendered output contains every renderable code as an anchor id", async () => {

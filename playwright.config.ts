@@ -42,10 +42,10 @@ export default defineConfig({
   // (superseded — spec docs/superpowers/specs/ci/
   // 2026-08-09-resurrect-mobile-safari-e2e-design.md §2.3). The constraint
   // still binds: crew-page.spec.ts mutates the seed's room A/V in beforeAll.
-  // (right-now-transitions.spec.ts also mutates shows_internal.run_of_show, but
-  // its only suite is statically skipped as of 2026-08-09, so it currently writes
-  // nothing — it is named here because un-skipping it would make it a writer
-  // again, not because it is one today.)
+  // (right-now-transitions.spec.ts is a live DB writer too — un-skipped
+  // 2026-08-10, M-wave 2 W-E2E — but it seeds a fresh per-test show and writes
+  // only its own rows, never the shared Waldorf seed. It is serialized here for
+  // the shared dev.* stack, not for seed contention.)
   workers: 1,
   retries: process.env.CI ? 2 : 0,
   use: {
@@ -76,7 +76,7 @@ export default defineConfig({
       // — that would substring-match the `layout-dimensions` alternative in BOTH projects
       // and silently run where it was never meant to.
       testMatch:
-        /(font-rendering-census|sample|crew-page|crew-section-toggle|right-now-transitions|report-modal|canonical-class-dimensions|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(font-rendering-census|sample|crew-page|crew-section-toggle|report-modal|canonical-class-dimensions|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
@@ -90,7 +90,7 @@ export default defineConfig({
     {
       name: "desktop-chromium",
       testMatch:
-        /(picker-flow|stage-restricted-crew-schedule|sample|font-binding|right-now-transitions|report-modal|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|step3-review-modal\.agenda|warning-panel-polish|dev-capture|published-show-attention|alert-action-links|nojs-loading-notice|font-rendering-census|needs-attention-holds)\.spec\.ts/,
+        /(picker-flow|stage-restricted-crew-schedule|sample|font-binding|right-now-transitions|report-modal|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|step3-review-modal\.agenda|warning-panel-polish|dev-capture|published-show-attention|alert-action-links|nojs-loading-notice|font-rendering-census|needs-attention-holds|rowactions-geometry)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },

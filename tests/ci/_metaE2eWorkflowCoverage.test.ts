@@ -122,6 +122,11 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
     "its lifecycle-layout-e2e.yml run block validates the REPEATS input in a case/if block, and the R12 scanner refuses control-flow run blocks (both branches DO run the spec on every PR — REPEATS defaults to '1' — but the scanner cannot prove branch liveness by regex; the census pins the same block via complex-invocation registry rows). NOT the BL-E2E-APP-DEPENDENT-SPECS-CI-DARK population: this spec runs on every PR.",
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/nojs-loading-notice.spec.ts": PATH_GATED,
+  // admin-dashboard-row-actions: rides the SAME admin-layout-e2e.yml job as its
+  // three siblings above, whose path filter now also names every production
+  // surface this spec guards (ShowRowActions, AnchoredPortal, ShowsTable and the
+  // lib/popover placement core), so a regression in any of them fires the gate.
+  "tests/e2e/rowactions-geometry.spec.ts": PATH_GATED,
   "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
@@ -159,7 +164,8 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/published-review-modal.realtime.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.reopen.spec.ts": PATH_GATED,
   "tests/e2e/published-show-attention.spec.ts": UNSEEN,
-  "tests/e2e/right-now-transitions.spec.ts": UNSEEN,
+  // Wired 2026-08-10 (M-wave 2 W-E2E): named in crew-e2e.yml's run command.
+  "tests/e2e/right-now-transitions.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/roles-settings-layout.spec.ts": UNSEEN,
   "tests/e2e/section-header-visual.spec.ts":
     "invoked only through the section-header-visual.yml docker run … bash -lc '…' block, which the R13 scanner refuses (spec path inside a quoted string is not a command-position invocation, and the block carries $PWD expansion). The census routes that same block through the complex-invocation registry, and the spec's LIVENESS is owned by the byte-comparing visual drift gate itself (a dead run has no fresh capture to compare); BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT tracks required-set promotion",

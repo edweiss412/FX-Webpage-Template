@@ -8,6 +8,39 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement (2026-08-10)
+
+**Effort:** S
+
+Surfaced by the invariant-8 dual gate on branch `feat/admin-nav-badge-suspense`, by BOTH halves
+independently (critique P1, audit P2). Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-09-admin-nav-badge-suspense.md`.
+
+**The finding.** That branch moves the two badge reads out of the layout's blocking path, so the
+counts now land after the nav has painted. Two accessible names change at that moment:
+`NotifBell.tsx` flips "Notifications" → "Notifications: N unseen", and `AdminNav.tsx`'s attention
+tab flips "Needs attention" → "Needs attention, N items". Nothing announces the change. A screen
+reader user who reads either control during the pending window and never returns to it keeps the
+count-less name for the rest of the visit.
+
+**Why deferred rather than repaired in-branch — reason (a), it needs a product decision this PR
+cannot settle.** The repair is not the code; it is whether this surface should speak at all. The
+app has one announce channel (`AdminAnnounceProvider`) with a strict ownership contract — the
+region's owner must sit above every data-dependent branch (DESIGN.md §15), which the layout does
+satisfy — but wiring the _global nav_ into it means every `/admin` entry with a nonzero count
+announces on load. PRODUCT.md's register for this user is calm competence on a venue floor, and a
+count that speaks on every page load may be exactly the chatter that register rejects. Whether the
+badge should announce, and if so whether only on the first resolution and only above zero, is
+Doug's call, not the implementer's.
+
+**Un-defer trigger:** the owner rules on announcing badge arrivals, OR any a11y pass that finds a
+real screen-reader user affected by the stale name.
+
+**Bounded worst case today:** the control's PURPOSE is always conveyed correctly ("Notifications",
+"Needs attention"); only the supplementary count is missing, and it is restored on the next focus
+because both names are computed reactively from hook state. No control is unlabeled, mislabeled, or
+unreachable at any point.
+
 ### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
 
 **Effort:** M (remaining: item (d) only) · **Status:** IN PROGRESS · **Branch:** feat/m2-ui-cluster
@@ -245,19 +278,89 @@ From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07
 
 ---
 
-## Undo announcement channel — impeccable critique deferrals (2026-08-03)
+## /help/errors report surface — impeccable dual-gate deferrals (2026-08-09)
 
-From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique's detector ran clean (0 findings) and contrast, tokens, tap targets, em-dash and ARIA all passed. Three findings are accepted and deferred rather than fixed, each with its reason and un-defer trigger.
+Filed from the invariant-8 dual gate on `feat/help-report-surface`. Dispositions and the refuted
+findings are recorded in §12 of `docs/superpowers/plans/2026-08-09-help-report-surface.md`.
 
-### UNDO-UNCATALOGUED-CODE-CARD-1 — impeccable critique P2: an uncatalogued error code renders an empty card and announces nothing (2026-08-03)
+### HELPREPORT-MODAL-STATIC-IMPORT-CATALOG-1 — [P1] every route with a report button downloads the whole message catalog
 
 **Effort:** M
 
-`ErrorExplainer` returns `null` when a code has no catalog row (`components/messages/ErrorExplainer.tsx:82`), so the wrapper paints its bordered warning chrome with no text inside and the live region fires empty.
+From the impeccable audit. The import chain is static and unconditional, so the modal, its help
+affordance, and the full §12.4 catalog land in the route bundle whether or not the modal is ever
+opened:
 
-**Accepted, not fixed.** Behavior is unchanged from before this branch — the conditional wrapper rendered the same empty card. What the branch changes is the promise: an always-mounted live region reads as a commitment to speak. Fixing it properly means resolving the code before deciding to render, which touches the message layer rather than these three components, and every code reachable from these call sites has a catalog row today (`lib/messages/catalog.ts:902`, `:939`, `:952`, `:3275`).
+```
+components/shared/ReportButton.tsx:34   import { ReportModal, ... }
+components/shared/ReportModal.tsx:37    import { HelpAffordance } from "@/components/admin/HelpAffordance"
+components/admin/HelpAffordance.tsx:41  import { MESSAGE_CATALOG, ... } from "@/lib/messages/catalog"
+$ wc -l lib/messages/catalog.ts
+4052 lib/messages/catalog.ts
+```
 
-**Un-defer trigger:** any new code reachable from a feed action, or the next `lib/messages` pass.
+`ReportButton` already mounts the modal only when open, so nothing renders early — but a static
+import is a download either way. This branch made `/help/errors` the newest instance: the page
+server-renders every catalog entry as HTML and now also ships that prose a second time as JS, to a
+venue-floor phone, to render one button. The crew footer and the admin surfaces have carried the same
+weight since M8.
+
+**Accepted, not fixed.** The repair is `next/dynamic` on the modal inside `ReportButton`, which wins
+on every surface at once — and changes the mount contract for all four existing ones: the modal would
+stop appearing synchronously on click, which is what the hardened M8 suites assert. The 2026-08-09
+spec §1.1 item 9 fences existing-surface behavior as byte-identical for this PR, so the change
+belongs in its own PR with those suites as the net.
+
+**Un-defer trigger:** any page-weight budget on `/help/**` or the crew page, or the next milestone
+that touches `ReportButton`'s mount path for another reason.
+
+### HELPREPORT-CTA-REMOUNT-FOCUS-1 — [P1] a mid-open fragment change closes the dialog with no cue and drops focus to `<body>`
+
+**Effort:** M
+
+From the impeccable critique and audit. `app/help/errors/_components/HelpReportCta.tsx` keys
+`ReportButton` by the live fragment, so a `hashchange` while the modal is open remounts the button
+and unmounts the modal. That unmount is the ratified mechanism, not an accident (2026-08-09 spec
+§2.1, repaired at plan R5): it is what stops a live attempt from being re-pointed at another code,
+and `tests/help/helpReportCta.test.tsx` case 6 pins it. The unaddressed consequence is what happens
+next — `lib/a11y/dialogFocus.ts` restores focus to the trigger, which that same remount just removed,
+so focus falls to `document.body` and a screen reader gets no dialog-closed cue. The realistic path
+is the phone back gesture between two fragment history entries. The typed draft survives under the
+old `surfaceId`, but nothing says so.
+
+**Accepted, not fixed.** Both candidate repairs are decisions this PR cannot settle. Freezing the
+hash for the lifetime of an open attempt removes the unmount entirely and preserves
+key/draft/`helpCode` co-variance — but it contradicts the remount the spec ratified and the test that
+pins it, so it is a spec amendment. Restoring focus to the NEW trigger keeps the ratified mechanism
+but needs a rule for when focus may move during ordinary reading: every jump-list click on this page
+is a `hashchange`, and stealing focus to the page-foot CTA on each one is worse than the defect.
+
+Same failure shape as [[ATTENTION-INDEX-JUMP-FOCUS-1]] above (focus to `<body>` after a
+trigger-removing transition); if a focus-orchestration spec is written for that, this belongs in it.
+
+**Un-defer trigger:** any keyboard or screen-reader report of losing place on `/help/errors`, or the
+focus-orchestration spec that closes the sibling entry.
+
+### HELPREPORT-MODAL-NO-ESCAPE-1 — [P2] the report dialog cannot be dismissed with Esc
+
+**Effort:** S
+
+From the impeccable audit. `grep -c 'Escape' components/shared/ReportModal.tsx` returns `0`; the only
+key handling in the modal is Cmd/Ctrl+Enter to submit. `lib/a11y/dialogFocus.ts:13-14` states
+explicitly that "Esc handling is the dialog's responsibility (typically already wired in the dialog
+component)", and it never was. Not an SC failure — Close is Tab-reachable and inside the focus trap —
+but it breaks the APG dialog pattern, and this branch extends the gap to a fifth surface.
+
+**Accepted, not fixed.** Pre-existing since M8 on all four existing surfaces; adding a dismissal path
+is a behavior change to every one of them, which spec §1.1 item 9 fences for this PR. It is a
+one-place fix that should ship with the modal's own suite as its net.
+
+**Un-defer trigger:** the next PR that touches `ReportModal`'s keyboard handling, or any
+keyboard-a11y sweep.
+
+## Undo announcement channel — impeccable critique deferrals (2026-08-03)
+
+From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique's detector ran clean (0 findings) and contrast, tokens, tap targets, em-dash and ARIA all passed. Three findings are accepted and deferred rather than fixed, each with its reason and un-defer trigger.
 
 ### UNDO-DIALOG-LABEL-CONSTANT-1 — impeccable critique P3: the dialog region's `aria-label` is a constant while its `data-testid` is derived (2026-08-03)
 
@@ -268,3 +371,39 @@ From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique
 **Accepted, not fixed, and deliberately so.** Deriving the label from `testIdBase` was implemented and reverted: it produces names like "Status updates in the wizard step3 card `<driveFileId>` review dialog", putting internal identifiers into text a screen reader speaks. A leaked drive-file id in an accessible name is a worse outcome for the user than a duplicated label in the rare two-dialog case. The `data-testid` remains derived, so tooling and Playwright stay unambiguous.
 
 **Un-defer trigger:** a human-readable per-dialog name becomes available on the shell (a title prop or similar), or two review dialogs become simultaneously reachable outside Step-3.
+
+---
+
+## Dashboard row actions — impeccable dual-gate deferrals (2026-08-10)
+
+From the impeccable v3 dual gate on `feat/admin-dashboard-row-actions`. The critique's deterministic detector ran clean (exit 0, `[]`). The P0 (keyboard-unreachable confirm controls) and the audit's P0 (a `translate` ancestor collapsing the outside-click backdrop) were FIXED in-branch, as were four P1s and two P2s. Three findings are accepted and deferred, each with its reason and un-defer trigger.
+
+### ROWACTIONS-MENU-ENTRY-MOTION-1 — impeccable critique P3: the menu opens and closes instantly where the precedent animates (2026-08-10)
+
+**Effort:** S
+
+`components/admin/wizard/CrewRowActions.tsx:284` gives its menu `route-enter`; the dashboard row menu has no entry motion.
+
+**Accepted, not fixed.** Instant is the RATIFIED treatment, not an omission: the spec's §3.5 transition inventory sets `closed → open` and `open → closed` to the popover-primitive default, and `tests/components/admin/rowActions/showRowActions.shell.test.tsx` pins the absence of any `transition-`/`animate-` class on the panel. Adding motion now would reopen a ratified inventory row and invert a shipped assertion in a close-out commit, which is the wrong place to relitigate a design decision.
+
+**Un-defer trigger:** a design pass that settles entry motion for the admin popover family as a whole (the precedent, `AppHealthPopover`, and this menu together), or an amendment to §3.5.
+
+### ROWACTIONS-MENU-MINWIDTH-BOUNDS-1 — impeccable audit P3: `min-w-52` can override the placement core's computed `maxWidth` (2026-08-10)
+
+**Effort:** S
+
+`components/admin/ShowRowActions.tsx` sets `min-w-52` (208px) on the panel. When the placement bounds are narrower than that — reachable only under pinch-zoom, where `lib/popover/position.ts` insets the visual viewport — the panel overflows the bounds it was measured against, and `wrappedHeightAt` then reports a height for a width the panel is not actually using.
+
+**Accepted, not fixed.** Not reachable at any supported layout width: the narrowest target viewport is 390px, and the bounds only fall under 208px inside a pinch-zoom gesture. The repair (`min-w-[min(13rem,100%)]`) is one class, but it changes the measured width of every menu and therefore the geometry e2e's containment numbers; landing it with a real-browser pinch-zoom assertion is the honest version, and there is no such harness today. `min-w-52` is also the shipped precedent's width, so the deferral keeps the two menus identical.
+
+**Un-defer trigger:** a pinch-zoom or visual-viewport e2e harness lands, or the popover family's min-width is revisited.
+
+### HELP-STRAIGHT-APOSTROPHES-1 — impeccable audit P3: `/help` MDX prose uses straight apostrophes (2026-08-10)
+
+**Effort:** M
+
+`app/help/admin/dashboard/page.mdx` carries 25 straight apostrophes in prose (lines 3, 12, 14, 17, 21, 26, 27, 29, 52-58, 62, 68 among them) against 2 typographic ones — both of the latter in the prose this branch added, which is the side that matches the project's mechanical copy rule.
+
+**Accepted, not fixed.** Pre-existing and file-wide: this branch introduced none of them, and normalizing them here would put a large unrelated prose diff inside a UI close-out commit. It is also almost certainly not one file — the rule applies across `/help`, so the fix is a sweep with its own guard, not a rider. The branch's own prose is correct and is pinned by `tests/help/dashboard-row-actions.test.ts`.
+
+**Un-defer trigger:** a `/help` copy-conformance sweep, or a mechanical guard extending the straight-apostrophe ban to MDX prose.

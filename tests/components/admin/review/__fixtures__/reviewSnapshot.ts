@@ -150,6 +150,11 @@ const BASE: ShowReviewSnapshot = {
       gear_packlist: { title: "PULL SHEET", gid: 44, a1: "A1:D80" },
       financials: { title: "INFO", gid: 0, a1: "A32:D40" },
     },
+    // Matched anchor stamps (spec 2026-08-09-m-wave-2 §2.3): the adapter's freshness
+    // gate forwards the map only when the anchors' revision equals the data revision;
+    // an unstamped fixture would demote every anchor and blind the D13 detector.
+    source_anchors_modified_time: "2026-08-03T17:00:00Z",
+    last_seen_modified_time: "2026-08-03T17:00:00Z",
     drive_file_id: DRIVE_FILE_ID,
     coi_status: "received",
     last_synced_at: "2026-08-03T17:00:00Z",

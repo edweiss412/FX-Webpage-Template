@@ -128,7 +128,14 @@ describe("lifecycle callers", () => {
     expect(order).toEqual(["rpc", "sync"]);
     // Real signature is runManualSyncForShow(driveFileId, mode="manual", deps?) — positional mode string
     // (lib/sync/runManualSyncForShow.ts:217-220), NOT an options object.
-    expect(catchUp).toHaveBeenCalledWith("drive-1", "manual");
+    // The third argument arrived 2026-08-09: the catch-up sync now installs a
+    // sync_log sink, so its attempt is written and attributable. CatchUpSync was
+    // widened to forward it rather than defaulting it inside a wrapper — a default
+    // would hide the sink behind indirection, which is what the fixed-site pin in
+    // tests/sync/manualSyncInstallsSink.test.ts exists to make visible.
+    expect(catchUp).toHaveBeenCalledWith("drive-1", "manual", {
+      processDeps: { logSync: expect.any(Function) },
+    });
     expect(res).toEqual({ ok: true, performed: true });
   });
 

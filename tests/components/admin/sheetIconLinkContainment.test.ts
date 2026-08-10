@@ -1046,6 +1046,9 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "tests/components/admin/showpage/publishedReviewModal.test.tsx": 2,
         "tests/components/admin/wizard/Step2Verify.test.tsx": 1,
         "tests/components/step3SheetCard.test.tsx": 1,
+        // Anchor-freshness integration pair (spec 2026-08-09-m-wave-2 §2.3):
+        // three href assertions against the crew-page projection seam.
+        "tests/data/sourceAnchorFreshness.db.test.ts": 3,
         "tests/dev/fullSplitComposite.test.ts": 1,
         "tests/e2e/_pillFocusLiveEntry.tsx": 1,
         "tests/e2e/_publishedReviewModalHarness.tsx": 1,
@@ -1946,6 +1949,12 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       // resolver treats .jsonl as a module without a rules/loader entry (denied
       // above), and nothing imports one.
       ".jsonl",
+      // The repo's first Python file: scripts/with-heavy-slot.py, the heavy-phase
+      // slot wrapper. It is invoked as an argv to `python3` by a package.json
+      // script and by agent sessions - never imported. No pinned-config bundler
+      // resolves .py as a module without a rules/loader entry (denied above), and
+      // the module graph cannot reach it at all.
+      ".py",
     ]);
     const DOTFILE_BASENAMES = new Set([
       ".gitattributes",
