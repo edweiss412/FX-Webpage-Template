@@ -386,6 +386,26 @@ function declarationsOf(
       out.push({ node: n, isConst: false });
     } else if (ts.isCatchClause(n) && n.variableDeclaration) {
       fromBindingName(n.variableDeclaration.name, n.variableDeclaration, false);
+    } else if (ts.isImportDeclaration(n) && n.importClause) {
+      // IMPORT bindings are declarations too, and omitting them broke the
+      // closed-by-construction claim: an imported `targetUrl` connected directly,
+      // with an unrelated guarded `const targetUrl` in a nested function, passed
+      // (whole-diff r14). An import is never a `const` initialized from a guard call,
+      // so counting it here rejects the file - which is the correct answer.
+      const clause = n.importClause;
+      if (clause.name && clause.name.text === name) out.push({ node: clause.name, isConst: false });
+      const nb = clause.namedBindings;
+      if (nb) {
+        if (ts.isNamespaceImport(nb)) {
+          if (nb.name.text === name) out.push({ node: nb.name, isConst: false });
+        } else {
+          for (const el of nb.elements) {
+            if (el.name.text === name) out.push({ node: el.name, isConst: false });
+          }
+        }
+      }
+    } else if (ts.isImportEqualsDeclaration(n) && n.name.text === name) {
+      out.push({ node: n.name, isConst: false });
     }
     ts.forEachChild(n, walk);
   };

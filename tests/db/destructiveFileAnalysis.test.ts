@@ -360,6 +360,30 @@ await target.unsafe("select public.prune_sync_log()");`;
     }
   });
 
+  it("(z) an IMPORTED target url is rejected, even beside a guarded same-named const", () => {
+    // whole-diff r14: declarationsOf ignored import bindings, so an imported
+    // `targetUrl` connected directly - with an unrelated guarded const of the same
+    // name inside an unused function - satisfied the analyzer. That is a BINDING
+    // failure, not the documented acquisition limit: the invariant claims every
+    // declaration of the connected name is a const from a guard call, and an import
+    // is a declaration.
+    for (const imp of [
+      'import { targetUrl } from "./fixtures/urls";',
+      'import targetUrl from "./fixtures/urls";',
+      'import targetUrl = require("./fixtures/urls");',
+    ]) {
+      const src = `${IMPORT}
+${imp}
+function unused() {
+  const targetUrl = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+  return targetUrl;
+}
+const sql = postgres(targetUrl, { max: 1 });
+${PRUNE}`;
+      expect(analyseDestructiveFile(P, src).ok, imp).toBe(false);
+    }
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.
