@@ -77,6 +77,44 @@ moving from a count to a required-name set is a change to the promotion integrit
 it needs a decision about what to do with EXTRA objects (today they are tolerated when counts match)
 and a matching rollback story, which is a spec, not a patch.
 
+## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
+
+**Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
+
+Plan Task 11 step 6 (`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`) requires one
+validation-project sync of a diagram-bearing show showing (a) variant objects in storage and (b) no
+module-resolution telemetry, recorded as a comment on the merged PR (#761, merged
+`8739556586e5441d1b4f3fb905fe580c58b19b4e`). It was NOT run.
+
+**Why it could not be run at close-out, and this is measured rather than assumed:** the probe
+exercises the DEPLOYED validation app — `scripts/validation-smoke.ts` is deployed-side by
+construction ("agent smoke test of the DEPLOYED validation app", and its prerequisites are Vercel
+validation-project env vars). At merge time Vercel refused deployments account-wide:
+`Deployment rate limited — retry in 24 hours`, visible on PR #761's checks. No deploy, no sync, no
+evidence. The half that needs no deploy — that `sharp` resolves under a production-only install —
+WAS run pre-merge and is recorded in the arc (`pnpm install --prod && node -e "require('sharp')"`,
+resolving 0.34.5 after the dependency move).
+
+**The probe, verbatim, so this is a step rather than an intention:**
+
+1. Confirm the validation deployment carries the merge commit above.
+2. Trigger one sync of a diagram-bearing show against validation.
+3. `select name from storage.objects where bucket_id='diagram-snapshots'` — assert `@<width>.webp`
+   objects sit beside their originals under the show's current `snapshot_revision_id` prefix.
+4. `pnpm observe --env validation` — assert no module-resolution fault, and specifically no
+   `DIAGRAM_VARIANT_GENERATION_FAILED` row whose `error` names a missing module.
+5. Post the transcript as a comment on PR #761 and replace this entry's pointer in the plan's §12.
+
+**Why it is filed rather than left in the plan:** its only record was a step inside Task 11 of a plan
+whose other ten tasks are done. §12 was supposed to pre-carry a pointer and did not — that omission
+is the reason this row exists, and §12 now points here.
+
+**What is at risk if it is never run:** low but real. The failure it would catch is `sharp` failing to
+resolve or produce variants in the deployed Node runtime, which degrades silently — originals still
+render, so the only signal is telemetry nobody is reading. The production defect this arc already
+found by probe (sharp sitting in `devDependencies`) is exactly that shape, which is the argument for
+finishing the check rather than assuming the fix held.
+
 ## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
 
 **Status:** OPEN — filed at private-image-pipeline close-out · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
@@ -810,23 +848,6 @@ plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then l
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
 
-### BL-ADMIN-DASHBOARD-ROW-ACTIONS — ActiveShowsPanel row-action shortcuts
-
-**Origin:** M11-E-D3 (MEDIUM) filed 2026-05-20. M11 user-facing-docs `/help/admin/dashboard` documents per-row actions `Open`, `Preview as`, `Re-sync`, `Archive` on the Active Shows panel per master spec §9.1. Shipped `components/admin/ActiveShowsPanel.tsx` renders show title + crew count + sync-status only; no row-level action affordances.
-
-**Effort:** M
-
-**Scope:** Add the four documented row actions to `ActiveShowsPanel.tsx`:
-
-- `Open` — link to `/admin/show/[slug]`. Already navigable via the show-title link; this would expose it as an explicit action with consistent affordance treatment.
-- `Preview as` — link to `/admin/show/[slug]/preview/[crewId]` (M10 Phase 3 §B preview-as flow). Already routable; this exposes it as a row action.
-- `Re-sync` — POST to the manual-sync route. Functional equivalent exists at `/admin/show/[slug]` via `<ReSyncButton>`; this is a dashboard-level shortcut.
-- `Archive` — likely needs a new SECURITY DEFINER RPC for soft-delete (`shows.archived_at`). Spec §9.1 mentions archiving but the column doesn't exist yet; promotion may require a small schema migration.
-
-**Why backlog, not deferred:** None of the four shortcuts close a functional ops gap — Doug can already accomplish all four actions by drilling into the per-show page (`Re-sync` directly; the others by navigation). This is pure surfacing/convenience. `Archive` is the only one with a schema implication; the others are pure UI work.
-
-**Promotion prerequisite:** Either (a) FXAV operator feedback surfaces dashboard-level friction (Doug actively wants to triage multiple shows from the dashboard without drilling in), OR (b) a v1.x admin-UX polish milestone. `Archive` may need a separate spec amendment if `shows.archived_at` semantics need definition (idempotency, side effects on `crew_member_auth`, etc.).
-
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
 **Effort:** L (scope floor — design-gated)
@@ -929,22 +950,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 **Why backlog, not deferred:** no committed v1 trigger; these are honest-empty-state enrichments, not gaps that block launch (Phase 1 + Phase 2 ship complete without them). Each needs a small spec/plan (projection + UI + gating + tests). The flight block in particular needs a trust-boundary decision (per-crew flight PII visibility) mirroring `transportTileVisible`.
 
 **Promotion prerequisite:** owner prioritization OR post-launch operator feedback that a specific field (most likely flights) is a real friction point. Promotion starts with a brainstorming session per field (the flight trust boundary is the load-bearing design question).
-
-### BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST — Structural meta-test for `lib/data` Supabase call-boundary discipline
-
-**Effort:** M
-
-**Filed:** 2026-06-19, crew-page redesign Phase 2 Task 02.5 (`getShowForViewer.runOfShow` projection).
-
-**Context:** Invariant 9 (Supabase call-boundary discipline) requires every Supabase call site to EITHER carry a structural-meta-test registry row OR an inline `// not-subject-to-meta: <reason>` waiver. The auth-domain meta-test `tests/auth/_metaInfraContract.test.ts` only walks `lib/auth` / `app/auth` / `app/api/auth` / `app/api/show` (orphan scan at `:258-259`), so `lib/data` reads are outside its scan. Task 02.5's new `shows_internal.run_of_show` read in `lib/data/getShowForViewer.ts` discharged invariant 9 via the inline-waiver branch (the verbatim comment immediately above the `.select("run_of_show")` read), backed by behavioral returned-error + thrown-exception fail-soft tests. That is the in-scope discharge; this entry tracks the structural follow-up.
-
-**Scope (if promoted):** an analogous registry-style meta-test (mirroring `_metaInfraContract`'s pattern) that walks `lib/data/**` and asserts every Supabase `.from(...)`/`.rpc(...)` call either (a) destructures `{ data, error }` and distinguishes returned-error from thrown-exception, or (b) carries an inline `// not-subject-to-meta:` waiver. `getShowForViewer.ts` already has multiple such reads (hotel/rooms/transportation/contacts/financials/run_of_show) — the meta-test would pin them all and gate future `lib/data` reads at CI time.
-
-**Why backlog, not deferred:** the inline-waiver discharge is the complete in-scope answer for Phase 2; the structural meta-test is a hardening generalization with no committed v1 trigger. The behavioral fail-soft tests already enforce the boundary per-read; the meta-test would convert that to a class-wide CI guard.
-
-**Promotion prerequisite:** Either (a) a second `lib/data` Supabase read lands without a waiver (real drift), OR (b) a v1.x security-hardening milestone bundles this with the related lockdown / call-boundary entries (`BL-ADMIN-POSTGREST-DML-LOCKDOWN`, `BL-RLS-COVERAGE-CROSSCUTTING`). Extend the `_metaInfraContract` pattern, don't write a parallel scanner.
-
----
 
 ### BL-FLIGHT-LEG-ORIENTATION — arrival/departure labels + richer flight-leg layout
 

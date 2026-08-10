@@ -84,6 +84,18 @@ const REGISTRY: Row[] = [
   R("components/admin/ReapStaleSessionsButton.tsx", 0, "panel", "reap-stale-sessions-confirm-yes"),
   R("components/admin/ReSyncButton.tsx", 0, "panel", "admin-resync-accept"),
   R(
+    "components/admin/ShowRowActions.tsx",
+    0,
+    "panel",
+    "row-actions-accept-shrink-* (dashboard row Re-sync shrink_held accept — the row-menu twin of admin-resync-accept)",
+  ),
+  R(
+    "components/admin/ShowRowActions.tsx",
+    1,
+    "panel",
+    "row-actions-archive-go-* (dashboard row Archive confirm-go — the row-menu twin of archive-show-confirm-button)",
+  ),
+  R(
     "components/admin/PreviewBanner.tsx",
     0,
     "exempt-non-confirm",

@@ -599,6 +599,55 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 ---
 
+## BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST — Structural meta-test for `lib/data` Supabase call-boundary discipline — CLOSED 2026-08-10 (`test/libdata-call-boundary-metatest`, PR #770, IMPLEMENTED)
+
+**Status:** CLOSED · **Filed:** 2026-06-19, crew-page redesign Phase 2 Task 02.5 (`getShowForViewer.runOfShow` projection) · **Effort:** M
+
+**Resolution: IMPLEMENTED.** `tests/data/_metaLibDataCallBoundary.test.ts` ships per
+`docs/superpowers/specs/ci/2026-08-09-libdata-call-boundary-metatest-design.md`. It walks `lib/data/**`
+from disk and requires every Supabase `.from(...)` / `.rpc(...)` site to be shape-pinned in an in-file
+registry, discharged to a named behavioral suite, or waivered inline — converting the per-read
+behavioral fail-soft coverage into a class-wide, fails-by-default CI guard. All 17 live sites are
+registered (13 pins + 4 `coveredBy`).
+
+The entry's promotion prerequisite said "extend the `_metaInfraContract` pattern, don't write a parallel
+scanner", and that is what shipped: the registry + orphan-scan + waiver topology, reused with the shared
+`tests/_shared/stripComments.ts` and `tests/_shared/premise.ts` helpers, with
+`tests/auth/_metaInfraContract.test.ts` left byte-identical.
+
+Two assumptions in the original entry needed correcting, and the spec ratified both. The entry described
+the contract as "destructures `{ data, error }`"; `getShowForViewer.ts` uses the result-object form,
+which distinguishes returned-error from thrown identically and is pinned as written — the guard does not
+force a style migration. And the entry's own **Context** paragraph is the stale-waiver claim this arc
+repaired: the `// not-subject-to-meta:` comment said `lib/data` sits outside every scan, true when
+written and false the moment this suite landed.
+
+**What the review cost, and what it bought.** Twenty-two diff rounds. Twelve went into four separate
+instances of one mistake — a text pattern used to answer a question about program structure — in the site
+scanner, the waiver recognition, the mention check and the pin coupling; each was widened until it was
+replaced by asking the TypeScript parse instead. The round record
+(`docs/review-rounds/test/libdata-call-boundary-metatest/0d8d239abcba.md`) tabulates all four and states
+the lesson: "the recognizer missed a spelling" is a finding about the recognizer's category, and the
+second occurrence is the signal, not the fourth. R17 is the round that justified the train — until it,
+the guard required one pin to depend on the call, so a row could pin its own call and borrow a
+neighbour's error check, which is exactly what invariant 9 exists to prevent.
+
+**Not closed by this arc, deliberately:** the sibling hardening entries the promotion prerequisite offered
+as a bundling trigger — `BL-ADMIN-POSTGREST-DML-LOCKDOWN` and `BL-RLS-COVERAGE-CROSSCUTTING` — stay open
+and untouched. Sibling domains (`lib/notify`, `lib/sync`, `app/api/**`) remain owned by their own
+meta-tests.
+
+**Documented limits, recorded rather than filed:** the accepted limits in the design spec's §6 — dynamic
+call arguments; file-grain waivers on unregistered files; pins are text pins, not control-flow proofs;
+`supabase.auth.*` and storage out of scan scope; `coveredBy` proves mention, not exercise; duplicate
+literals distinguished by position (enforced, after R16 showed the earlier "noted" form was silent); pin
+strength beyond coupling is human territory, including the result-claim residue R18 established; and other
+built-in `from` receivers reported loudly rather than enumerated. Each has a conservative worst case and
+each is pinned executable by a planted self-test. Per the ledger filing bar these belong in the owning
+surface's limits record, not the open queue; grep the id to reach this entry.
+
+---
+
 ## BL-TWO-WAY-SHEET-SYNC — Write corrections back to the source Google Sheet — CLOSED 2026-08-09 (`docs/demote-two-way-sheet-sync`, DEMOTED: accepted limit)
 
 **Resolution: DEMOTED to an accepted limit, by owner call 2026-08-09.** The canonical method for
@@ -6744,6 +6793,54 @@ the migration marker; zero `re-kinded by classifier` markers remain (grep-provab
 `knownHoles.test.ts` gained a durable assertion rejecting any future row that parks the
 marker. The 35 rows that stayed `signal_loss` are untouched (out of scope by this entry's
 own text).
+
+---
+
+---
+
+## BL-ADMIN-DASHBOARD-ROW-ACTIONS — ActiveShowsPanel row-action shortcuts — CLOSED 2026-08-10 (`feat/admin-dashboard-row-actions`, PR #765)
+
+**Origin:** M11-E-D3 (MEDIUM) filed 2026-05-20. M11 user-facing-docs `/help/admin/dashboard` documents per-row actions `Open`, `Preview as`, `Re-sync`, `Archive` on the Active Shows panel per master spec §9.1. Shipped `components/admin/ActiveShowsPanel.tsx` renders show title + crew count + sync-status only; no row-level action affordances.
+
+**Effort:** M
+
+**Scope:** Add the four documented row actions to `ActiveShowsPanel.tsx`:
+
+- `Open` — link to `/admin/show/[slug]`. Already navigable via the show-title link; this would expose it as an explicit action with consistent affordance treatment.
+- `Preview as` — link to `/admin/show/[slug]/preview/[crewId]` (M10 Phase 3 §B preview-as flow). Already routable; this exposes it as a row action.
+- `Re-sync` — POST to the manual-sync route. Functional equivalent exists at `/admin/show/[slug]` via `<ReSyncButton>`; this is a dashboard-level shortcut.
+- `Archive` — likely needs a new SECURITY DEFINER RPC for soft-delete (`shows.archived_at`). Spec §9.1 mentions archiving but the column doesn't exist yet; promotion may require a small schema migration.
+
+**Why backlog, not deferred:** None of the four shortcuts close a functional ops gap — Doug can already accomplish all four actions by drilling into the per-show page (`Re-sync` directly; the others by navigation). This is pure surfacing/convenience. `Archive` is the only one with a schema implication; the others are pure UI work.
+
+**Promotion prerequisite:** Either (a) FXAV operator feedback surfaces dashboard-level friction (Doug actively wants to triage multiple shows from the dashboard without drilling in), OR (b) a v1.x admin-UX polish milestone. `Archive` may need a separate spec amendment if `shows.archived_at` semantics need definition (idempotency, side effects on `crew_member_auth`, etc.).
+
+**RESOLUTION 2026-08-10 (`feat/admin-dashboard-row-actions`, PR #765).** Shipped. The entry's own
+premises were stale on three counts, all corrected by the spec that implemented it
+(`docs/superpowers/specs/admin/2026-08-09-admin-dashboard-row-actions-design.md` §0): the row
+renderer is `components/admin/ShowsTable.tsx` — no `ActiveShowsPanel` exists in the tree any more;
+Archive needed NO new RPC and NO schema work, because M12.2 Phase B2 already shipped
+`public.archive_show(uuid)` with its in-RPC advisory lock, the `archiveShowAction` server action and
+its `AUDITABLE_MUTATIONS` rows; and `shows` already carries both `archived` and `archived_at`.
+
+What shipped: a per-row kebab (⋮) menu on the Active-shows rows carrying all four §9.1 actions —
+Open (the same param-preserving modal href the row link uses), Preview as… (a submenu of the show's
+crew, capped at 12 with an overflow item), Re-sync (including the two-phase `shrink_held` decision),
+and Archive (a two-step in-menu confirm implementing the destructive contract). Unpublished rows
+expose Open only. The menu renders through a new anchored body-portal primitive
+(`components/admin/AnchoredPortal.tsx`) because the rows wrapper clips, and takes the row's trailing
+seat rather than adding a bar beneath every row. Pure UI surfacing: no migration, no new RPC, no new
+mutation surface, no new advisory-lock holder.
+
+Review: impeccable dual-gate (2 P0s, 4 P1s, 3 P2s fixed; 3 P3s deferred with un-defer triggers) then
+thirteen whole-diff cross-model rounds — 32 findings, 31 repaired, 1 recorded as a documented limit,
+converging to APPROVE. Two behavior-preserving extractions (`lib/admin/syncRequest.ts`,
+`lib/admin/archiveCopy.ts`) each fenced by their component's existing tests passing unmodified. Spec
+§6 carries six documented limits; the recurring outcome-visibility defect is closed executably by
+`tests/components/admin/rowActions/_metaOutcomeVisibility.test.tsx`.
+
+The id and its stale `ActiveShowsPanel` title are preserved verbatim so every cross-reference still
+resolves.
 
 ---
 
