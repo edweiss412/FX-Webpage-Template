@@ -149,6 +149,12 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
       return NextResponse.json({ ok: false, error: "SYNC_INFRA_ERROR" }, { status: 500 });
     }
 
+    // sync-log-emission-gap: BL-MANUAL-SYNC-UNEMITTED
+    // This apply path writes NO sync_log row, so show attribution cannot reach it.
+    // Not a defect introduced here and not repaired here: the gap is that applyStaged
+    // emits nothing on most branches, which is a behaviour change needing its own
+    // scope decision. Probe measured logSyncCalls: 0. Marked so the silence is
+    // explicit rather than mistaken for an attribution bug in the sink.
     const result = await applyStaged(
       body.source_scope === "wizard"
         ? {

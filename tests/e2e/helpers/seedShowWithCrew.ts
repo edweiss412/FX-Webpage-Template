@@ -159,13 +159,33 @@ function sqlTextArray(values: string[]): string {
  * lockedCrewRestriction (resolved at spawn, remote refused by name, child env
  * scrubbed so PG* variables cannot retarget libpq behind the validated DSN).
  */
-function runLockedSeedTx(driveFileId: string, statements: string[], context: string): string {
-  const sql = [
+/**
+ * Build the ONE locked-transaction SQL (exported for the unit pin, review r1
+ * F1): begin -> per-show advisory lock -> caller statements -> commit, in that
+ * order BY CONSTRUCTION. Caller statements may not smuggle their own
+ * transaction control — a statement containing top-level BEGIN/COMMIT/ROLLBACK
+ * is refused, so "commit before the writes" cannot be expressed through this
+ * builder at all (the reviewer's escaping-mutant class).
+ */
+export function lockedSeedTxSql(driveFileId: string, statements: string[]): string {
+  for (const st of statements) {
+    if (/\b(begin|commit|rollback)\b/i.test(st)) {
+      throw new Error(
+        "lockedSeedTxSql: a caller statement may not contain transaction control " +
+          "(begin/commit/rollback) — the builder owns the transaction shape",
+      );
+    }
+  }
+  return [
     "begin;",
     `select pg_advisory_xact_lock(hashtext('show:' || ${sqlString(driveFileId)}));`,
     ...statements,
     "commit;",
   ].join("\n");
+}
+
+function runLockedSeedTx(driveFileId: string, statements: string[], context: string): string {
+  const sql = lockedSeedTxSql(driveFileId, statements);
   // Deliberately NOT TEST_DATABASE_URL (the devCaptureStaged precedent): this
   // helper's hazard is a SPLIT TARGET, not merely a remote one. The token
   // read-back below and every consumer suite's PostgREST admin client resolve
@@ -179,7 +199,13 @@ function runLockedSeedTx(driveFileId: string, statements: string[], context: str
     return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
       input: sql,
       encoding: "utf8",
-      env: psqlChildEnv({ honorRemoteOptIn: true }),
+      // honorRemoteOptIn: false, deliberately (review r1 F2): this helper's DSN
+      // resolver never honors the remote opt-in — it is loopback-only by the
+      // split-target rationale above — so the child env must not either. With
+      // the opt-in honored, LOCKED_FIXTURE_ALLOW_REMOTE=1 would keep ambient
+      // PG* variables (probe: PGHOST=192.0.2.2 survived) and libpq could send
+      // the locked writes somewhere other than the loopback DSN psql was given.
+      env: psqlChildEnv({ honorRemoteOptIn: false }),
     });
   } catch (err) {
     throw new Error(

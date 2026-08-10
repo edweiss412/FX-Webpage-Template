@@ -113,15 +113,12 @@ type PipelineTx = Phase1Tx &
       driveFileId: string,
       code: string,
     ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
-    insertSyncLog(
-      entry: {
-        driveFileId: string | null;
-        outcome: string;
-        code?: string;
-        payload?: Record<string, unknown>;
-      },
-      showId?: string | null,
-    ): Promise<void>;
+    insertSyncLog(entry: {
+      driveFileId: string | null;
+      outcome: string;
+      code?: string;
+      payload?: Record<string, unknown>;
+    }): Promise<void>;
     upsertAdminAlert(input: {
       showId: string | null;
       code: string;
@@ -461,17 +458,19 @@ function tx(): PipelineTx {
       show.lastSyncError = code;
       return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime };
     },
-    async insertSyncLog(
-      entry: {
-        driveFileId: string | null;
-        outcome: string;
-        code?: string;
-        payload?: Record<string, unknown>;
-      },
-      showId?: string | null,
-    ) {
+    async insertSyncLog(entry: {
+      driveFileId: string | null;
+      outcome: string;
+      code?: string;
+      payload?: Record<string, unknown>;
+    }) {
+      // showId is no longer a parameter: the recovery sink resolves show_id from
+      // drive_file_id by subselect (2026-08-09). Whether the RIGHT show is attributed
+      // is asserted where it can actually be observed - the DB oracle in
+      // tests/db/syncLogAttribution.db.test.ts - not against a fake that could only
+      // ever echo back what the caller handed it.
       this.operations.push(`insertSyncLog:${entry.driveFileId ?? "global"}`);
-      this.syncLog?.push(showId === undefined ? entry : { ...entry, showId });
+      this.syncLog?.push(entry);
     },
     async upsertAdminAlert(input: {
       showId: string | null;
@@ -2189,7 +2188,6 @@ describe("processOneFile", () => {
     });
     expect(fakeTx.syncLog).toEqual([
       expect.objectContaining({
-        showId: "show-1",
         driveFileId: "file-1",
         outcome: "error",
         code: STAGED_PARSE_SOURCE_GONE,
@@ -2253,7 +2251,6 @@ describe("processOneFile", () => {
     });
     expect(fakeTx.syncLog).toEqual([
       expect.objectContaining({
-        showId: "show-1",
         driveFileId: "file-1",
         outcome: "error",
         code: "SYNC_FILE_FAILED",
@@ -2395,7 +2392,6 @@ describe("processOneFile", () => {
     });
     expect(fakeTx.syncLog).toEqual([
       expect.objectContaining({
-        showId: "show-1",
         driveFileId: "file-1",
         outcome: "error",
         code: STAGED_PARSE_SOURCE_GONE,
@@ -2489,7 +2485,6 @@ describe("processOneFile", () => {
     });
     expect(fakeTx.syncLog).toEqual([
       expect.objectContaining({
-        showId: "show-1",
         driveFileId: "file-1",
         outcome: "error",
         code: "SYNC_FILE_FAILED",
@@ -2891,7 +2886,6 @@ describe("runScheduledCronSync", () => {
           driveFileId: "file-a",
           previousLastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
         },
-        showId: "show-a",
       },
     ]);
     expect(fakeTx.alerts).toEqual([

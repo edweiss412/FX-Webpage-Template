@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { stripSqlComments, stripCommentsForFile } from "@/tests/_shared/stripComments";
 import {
   emitSuccessfulPhase2Tail,
   makeSyncPipelineTx,
@@ -206,7 +209,10 @@ describe("D-7 sync_log structural pin — insertSyncLog unions entry.parseWarnin
   // (property-does-not-exist). The method exists at runtime; a test-only local interface narrows it back for the cast.
   // (CronRecoveryTx is not exported, so we re-declare just the surface this pin needs.)
   type SyncLogWriter = {
-    insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
+    // One argument. The explicit show-id channel was retired 2026-08-09: show_id is
+    // resolved by subselect inside the statement, so no caller can hand in an id from
+    // an uncommitted `shows` insert.
+    insertSyncLog(entry: SyncLogEntry): Promise<void>;
   };
 
   function capturingTx() {
@@ -224,30 +230,105 @@ describe("D-7 sync_log structural pin — insertSyncLog unions entry.parseWarnin
   it("insertSyncLog writes entry.parseWarnings into the parse_warnings $5 array", async () => {
     const { tx, calls } = capturingTx();
     const pipe = makeSyncPipelineTx(tx) as unknown as SyncLogWriter; // test-only cast: method exists at runtime, hidden by SyncPipelineTx
-    await pipe.insertSyncLog(
-      { driveFileId: "file-1", outcome: "applied", parseWarnings: [EMPTIED] },
-      "show-1",
-    );
+    await pipe.insertSyncLog({
+      driveFileId: "file-1",
+      outcome: "applied",
+      parseWarnings: [EMPTIED],
+    });
     const syncLogCall = calls.find((c) => c.sql.includes("insert into public.sync_log"))!;
-    const fifth = syncLogCall.params[4] as Array<{ code?: string }>;
-    expect(fifth.some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
+    const warnings = syncLogCall.params[3] as Array<{ code?: string }>;
+    expect(warnings.some((w) => w.code === "AGENDA_DAY_EMPTIED")).toBe(true);
     // RED before impl: insertSyncLog does NOT union entry.parseWarnings → $5 omits AGENDA_DAY_EMPTIED (the real behavior under test).
   });
   it("insertSyncLog keeps the per-outcome payload row when BOTH payload and parseWarnings are present", async () => {
     const { tx, calls } = capturingTx();
     const pipe = makeSyncPipelineTx(tx) as unknown as SyncLogWriter; // test-only cast (see note above)
-    await pipe.insertSyncLog(
-      {
-        driveFileId: "file-1",
-        outcome: "applied",
-        payload: { kind: "x" },
-        parseWarnings: [EMPTIED],
+    await pipe.insertSyncLog({
+      driveFileId: "file-1",
+      outcome: "applied",
+      payload: { kind: "x" },
+      parseWarnings: [EMPTIED],
+    });
+    const warnings = calls.find((c) => c.sql.includes("insert into public.sync_log"))!
+      .params[3] as Array<Record<string, unknown>>;
+    expect(warnings.some((e) => e.kind === "x")).toBe(true); // the payload row survives
+    expect(warnings.some((e) => e.code === "AGENDA_DAY_EMPTIED")).toBe(true); // and the warning is unioned
+  });
+});
+
+/**
+ * Task 3 (2026-08-09 sync-log show attribution): the recovery sink resolves show_id
+ * by the same subselect the cron sink uses, and the explicit parameter is retired.
+ *
+ * Retiring it is the point, not a tidy-up. An explicit id lets a future caller pass
+ * one read from an uncommitted `shows` insert; the FK check would then block on that
+ * row's transaction from a separate connection. Removing the channel makes that
+ * unrepresentable rather than merely unused.
+ */
+describe("recovery sink — show_id by subselect, explicit parameter retired (spec §3.1)", () => {
+  type OneArgWriter = { insertSyncLog(entry: SyncLogEntry): Promise<void> };
+
+  // Same normalizer as the cron sink's pin: strip `--` comments FIRST, then collapse
+  // whitespace. Exact equality, not containment - an appended suffix or a subselect
+  // parked in a comment satisfies containment while the live statement still binds
+  // $1::uuid.
+  // SQL comments come off through THE shared module (spec
+  // 2026-07-26-stripcomments-shared-design); _metaStripCommentsSingleSource forbids a
+  // local `--` regex, and the shared one is quote-aware where a naive one is not.
+  const normalize = (raw: string) => stripSqlComments(raw).replace(/\s+/g, " ").trim();
+
+  function capturing() {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    return {
+      tx: {
+        unsafe: async (sql: string, params: unknown[] = []) => {
+          calls.push({ sql, params });
+          return [];
+        },
       },
-      "show-1",
+      calls,
+    };
+  }
+
+  it("resolves show_id by subselect and binds four parameters, none of them a show id", async () => {
+    const { tx, calls } = capturing();
+    const pipe = makeSyncPipelineTx(tx) as unknown as OneArgWriter;
+    await pipe.insertSyncLog({ driveFileId: "file-9", outcome: "error", code: "X" });
+
+    const call = calls.find((c) => c.sql.includes("insert into public.sync_log"))!;
+    expect(normalize(call.sql)).toBe(
+      "insert into public.sync_log (show_id, drive_file_id, status, message, parse_warnings) " +
+        "values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::jsonb)",
     );
-    const fifth = calls.find((c) => c.sql.includes("insert into public.sync_log"))!
-      .params[4] as Array<Record<string, unknown>>;
-    expect(fifth.some((e) => e.kind === "x")).toBe(true); // the payload row survives
-    expect(fifth.some((e) => e.code === "AGENDA_DAY_EMPTIED")).toBe(true); // and the warning is unioned
+
+    // FOUR, not five: $1 is reused for the subselect AND drive_file_id, and this
+    // writer carries no duration (spec §3.3.1). The discriminating assertion is
+    // params[0] - today it is the show id, so the binding demonstrably flipped.
+    expect(call.params).toHaveLength(4);
+    expect(call.params[0]).toBe("file-9");
+  });
+
+  it("both production declarations of insertSyncLog take exactly one parameter", () => {
+    // A SOURCE scan, because the pin above runs through `as unknown as OneArgWriter`
+    // and therefore cannot fail if a declaration regains `showId?` (whole-diff r13).
+    // A removed optional parameter is invisible to a compiling test: every existing
+    // call still typechecks. The plan named both declarations for exactly this reason.
+    const read = (rel: string) =>
+      stripCommentsForFile(readFileSync(join(process.cwd(), rel), "utf8"), rel);
+
+    for (const rel of ["lib/sync/runScheduledCronSync.ts", "lib/sync/runManualSyncForShow.ts"]) {
+      const src = read(rel);
+      // Anchored on the DECLARATION's typed parameter (`entry:`), so call sites -
+      // which pass an object literal - cannot match and be mistaken for signatures.
+      const decls = [
+        ...src.matchAll(/insertSyncLog\s*\(\s*entry\s*:([\s\S]*?)\)\s*(?::\s*Promise|\{)/g),
+      ].map((m) => m[1]!);
+      expect(decls.length, `${rel} declares no insertSyncLog`).toBeGreaterThan(0);
+      for (const params of decls) {
+        expect(params, `${rel} still advertises the retired explicit show-id channel`).not.toMatch(
+          /\bshowId\b/,
+        );
+      }
+    }
   });
 });

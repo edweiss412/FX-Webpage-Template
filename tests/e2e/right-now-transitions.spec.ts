@@ -194,5 +194,17 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
     await gotoSeeded(page);
     await assertRenderedState(page, "viewer_off_day");
     await expect(page.getByTestId("right-now-body")).not.toContainText(anchorText(DAY1_TIME));
+
+    // Recovery leg (review r1 F3 — the §5.7 recovery contract is "last-good
+    // does not pin a prior day's call time", not merely off-day entry): roll
+    // the client clock to the viewer's OWN day and fire the tick in-session.
+    // The state machine must RECOVER into show_day_n with Day 2's OWN anchor —
+    // and Day 1's anchor (the day the viewer never worked) must not appear.
+    await setSystemTime(page, DAY2_ISO);
+    await advanceClock(page);
+    await assertRenderedState(page, "show_day_n");
+    const body = page.getByTestId("right-now-body");
+    await expect(body).toContainText(anchorText(DAY2_TIME));
+    await expect(body).not.toContainText(anchorText(DAY1_TIME));
   });
 });

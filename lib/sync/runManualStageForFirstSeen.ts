@@ -70,6 +70,8 @@ export type RunManualStageForFirstSeenDeps = {
   upsertAdminAlert?: ProcessOneFileDeps["upsertAdminAlert"];
   publishShowInvalidation?: ProcessOneFileDeps["publishShowInvalidation"];
   logSync?: ProcessOneFileDeps["logSync"];
+  /** Set by runManualStageForFirstSeen at its own entry; read by logSync via the tail. */
+  attemptStartedAtMs?: number;
 };
 
 function addHours(date: Date, hours: number): Date {
@@ -208,6 +210,13 @@ export async function runManualStageForFirstSeen(
   deps: RunManualStageForFirstSeenDeps = {},
 ): Promise<RunManualStageForFirstSeenResult> {
   await assertShowLockHeld(tx, driveFileId);
+  // Spec §3.3 branch 3: this path owns its OWN attempt boundary. Captured here, at the
+  // top, so the recorded duration covers the whole attempt — and threaded on a COPY, so
+  // the caller's deps object is never mutated (same rule as processOneFile's).
+  const depsWithStart: RunManualStageForFirstSeenDeps = {
+    ...deps,
+    attemptStartedAtMs: (deps.now ?? (() => new Date()))().getTime(),
+  };
   if (!deps.fileMeta || !deps.parseResult || !deps.binding) {
     throw new Error(
       "runManualStageForFirstSeen requires pre-fetched fileMeta, parseResult, and binding",
@@ -234,7 +243,13 @@ export async function runManualStageForFirstSeen(
       : {},
   );
   return (
-    (await toResult(tx, driveFileId, { fileMeta, parseResult, binding }, deps, result)) ?? {
+    (await toResult(
+      tx,
+      driveFileId,
+      { fileMeta, parseResult, binding },
+      depsWithStart,
+      result,
+    )) ?? {
       outcome: "parsed",
     }
   );
