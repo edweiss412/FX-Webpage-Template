@@ -2777,7 +2777,8 @@ async function handleFetchFailure_unlocked(
   if (code === "PARSE_ERROR_LAST_GOOD") {
     // FIRST-SEEN carve: no show row means no last-good, so PARSE_ERROR_LAST_GOOD's
     // "previous version is still live" copy would be a wrong instruction on the
-    // pending_ingestions panel — the ingestion row keeps today's generic code.
+    // pending_ingestions (live-partition:n/a — doc reference, no statement)
+    // panel — the ingestion row keeps today's generic code.
     await tx.upsertLivePendingIngestion({
       driveFileId,
       wizardSessionId: null,
