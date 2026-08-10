@@ -63,22 +63,60 @@ function parse(file: string, source: string): ts.SourceFile {
   return ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 }
 
+/**
+ * Strip the wrappers that mean nothing at runtime: grouping parentheses, the
+ * non-null `!`, and the three type-assertion forms (`x as T`, `<T>x`,
+ * `x satisfies T`). All erase to the expression inside.
+ *
+ * It applies to the ARGUMENT as much as the callee — `sb.from(("x"))`,
+ * `sb.from("x" as const)`, `sb.rpc(<const>"x")`, `sb.rpc("x"!)` and
+ * `sb.from("x" satisfies string)` are five spellings of one call with one static
+ * name, and all five were silently invisible while only the callee was unwrapped
+ * (whole-diff R5 F1).
+ */
+function unwrap(node: ts.Expression): ts.Expression {
+  let expr = node;
+  for (;;) {
+    if (
+      ts.isParenthesizedExpression(expr) ||
+      ts.isNonNullExpression(expr) ||
+      ts.isAsExpression(expr) ||
+      ts.isSatisfiesExpression(expr) ||
+      ts.isTypeAssertionExpression(expr)
+    ) {
+      expr = expr.expression;
+      continue;
+    }
+    return expr;
+  }
+}
+
 /** `sb.from(…)`, `sb?.from(…)`, `sb!.from(…)`, `(sb).from(…)`, `sb["from"](…)`. */
 function calleeMemberName(node: ts.Expression): string | undefined {
-  let expr = node;
-  while (
-    ts.isParenthesizedExpression(expr) ||
-    ts.isNonNullExpression(expr) ||
-    ts.isAsExpression(expr)
-  ) {
-    expr = expr.expression;
-  }
+  const expr = unwrap(node);
   if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
   if (ts.isElementAccessExpression(expr)) {
-    const arg = expr.argumentExpression;
+    const arg = unwrap(expr.argumentExpression);
     return ts.isStringLiteralLike(arg) ? arg.text : undefined;
   }
   return undefined;
+}
+
+/**
+ * `Array.from("abc")` is a real call with a static string argument, and it is
+ * not a Supabase boundary. It is the one standard-library collision on these
+ * member names, and the reviewer found it as a loud FALSE POSITIVE — a red test
+ * naming an innocent line, which is the safe direction but still wrong (R5 F4).
+ * Excluding exactly `Array.from` is a named collision, not a widening: any other
+ * receiver still counts, including `sb.from("abc")`.
+ */
+function isStandardLibraryFrom(callee: ts.Expression): boolean {
+  const expr = unwrap(callee);
+  return (
+    ts.isPropertyAccessExpression(expr) &&
+    ts.isIdentifier(expr.expression) &&
+    expr.expression.text === "Array"
+  );
 }
 
 type Site = { kind: "from" | "rpc"; literal: string };
@@ -88,15 +126,21 @@ function extractSites(source: string, file = "planted.ts"): Site[] {
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const method = calleeMemberName(node.expression);
-      const arg = node.arguments[0];
+      const first = node.arguments[0];
+      const arg = first === undefined ? undefined : unwrap(first);
       // `isStringLiteralLike` is a string literal OR a no-substitution template
       // — exactly the two forms that name a table statically. A template WITH
       // substitutions is a genuinely dynamic name and stays a documented limit
-      // (§6.1); the parser draws that line for us, so an escaped `\${` inside an
+      // (§6.1); the parser draws that line, so an escaped `\${` inside an
       // otherwise-static template is simply part of the name. `.text` is the
-      // COOKED value, so escapes resolve to the name Postgres would see.
-      if ((method === "from" || method === "rpc") && arg !== undefined) {
-        if (ts.isStringLiteralLike(arg)) sites.push({ kind: method, literal: arg.text });
+      // COOKED value: the name Postgres would see.
+      if (
+        (method === "from" || method === "rpc") &&
+        arg !== undefined &&
+        ts.isStringLiteralLike(arg) &&
+        !isStandardLibraryFrom(node.expression)
+      ) {
+        sites.push({ kind: method, literal: arg.text });
       }
     }
     ts.forEachChild(node, visit);
@@ -108,31 +152,37 @@ function extractSites(source: string, file = "planted.ts"): Site[] {
 const WAIVER_WITH_REASON_RE = /^\/\/ not-subject-to-meta: \S/;
 
 /**
- * The marker must be the whole of a LINE comment, and the lexer decides which
+ * The marker must be the whole of a LINE comment, and the PARSE decides which
  * comments those are.
  *
  * Textual anchoring could not: a block comment whose inner line begins with the
  * marker satisfies any "starts a line" test, and comment-stripping erases a
  * block just as thoroughly as a line comment, so "absent after strip" could not
- * tell them apart either. Documentation ABOUT the convention silently waived a
- * live call site through several spellings (whole-diff R2 F3, R4 F4). Asking the
- * scanner for `SingleLineCommentTrivia` ends that family: a `/* … *\/` range is
- * never one, however its inner lines are indented.
- */
+ * tell them apart either (whole-diff R2 F3, R4 F4).
+ *
+ * Nor could a context-free LEXER, which was the first repair: it reads `//`
+ * inside a regex character class (`/[// not-subject-to-meta: ]+/`) or inside JSX
+ * text (`<div>// not-subject-to-meta: fake</div>`) as a line comment, so a
+ * marker that is not a comment at all silently waived a live call site
+ * (whole-diff R5 F2). Comment ranges anchored to parsed token positions know
+ * the difference, because by then the regex literal and the JSX text are nodes */
 function lineCommentTexts(file: string, source: string): string[] {
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    /* skipTrivia */ false,
-    file.endsWith(".tsx") || file.endsWith(".jsx")
-      ? ts.LanguageVariant.JSX
-      : ts.LanguageVariant.Standard,
-    source,
-  );
-  const out: string[] = [];
-  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
-    if (token === ts.SyntaxKind.SingleLineCommentTrivia) out.push(scanner.getTokenText().trim());
-  }
-  return out;
+  const sourceFile = parse(file, source);
+  const full = sourceFile.getFullText();
+  const seen = new Set<number>();
+  const texts: string[] = [];
+  const visit = (node: ts.Node): void => {
+    for (const range of ts.getLeadingCommentRanges(full, node.getFullStart()) ?? []) {
+      if (seen.has(range.pos)) continue;
+      seen.add(range.pos);
+      if (range.kind === ts.SyntaxKind.SingleLineCommentTrivia) {
+        texts.push(full.slice(range.pos, range.end).trim());
+      }
+    }
+    for (const child of node.getChildren(sourceFile)) visit(child);
+  };
+  visit(sourceFile);
+  return texts;
 }
 
 function isWaived(file: string, original: string): boolean {
@@ -171,24 +221,32 @@ const readFromDisk: ReadFile = (path) => readFileSync(path, "utf8");
  */
 function exportedNames(file: string, source: string): Set<string> {
   const names = new Set<string>();
-  const isExported = (node: ts.Node): boolean =>
-    ts.canHaveModifiers(node) &&
-    (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+  const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
+    ts.canHaveModifiers(node) && (ts.getModifiers(node) ?? []).some((m) => m.kind === kind);
+  // A `via` names the wrapper a suite CALLS, so only runtime bindings qualify.
+  // `export declare …` and every type-only spelling erase at compile time and
+  // export nothing callable, yet each parses as an export (whole-diff R5 F3).
+  const isRuntimeExport = (node: ts.Node): boolean =>
+    hasModifier(node, ts.SyntaxKind.ExportKeyword) &&
+    !hasModifier(node, ts.SyntaxKind.DeclareKeyword);
 
   for (const statement of parse(file, source).statements) {
     if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
-      if (isExported(statement) && statement.name) names.add(statement.name.text);
+      if (isRuntimeExport(statement) && statement.name) names.add(statement.name.text);
     } else if (ts.isVariableStatement(statement)) {
-      if (isExported(statement)) {
+      if (isRuntimeExport(statement)) {
         for (const decl of statement.declarationList.declarations) {
           if (ts.isIdentifier(decl.name)) names.add(decl.name.text);
         }
       }
-    } else if (ts.isExportDeclaration(statement)) {
+    } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
       const clause = statement.exportClause;
       // The EXPORTED name is what a caller can import: `a as c` exports `c`.
+      // A per-specifier `type` marker erases the same way `export type {}` does.
       if (clause && ts.isNamedExports(clause)) {
-        for (const element of clause.elements) names.add(element.name.text);
+        for (const element of clause.elements) {
+          if (!element.isTypeOnly) names.add(element.name.text);
+        }
       }
     }
   }
@@ -627,6 +685,36 @@ describe("META lib/data Supabase call boundary", () => {
       }
     });
 
+    // The ARGUMENT has spellings too, and they erase at runtime exactly like the
+    // callee's do. All five were silently invisible while only the callee was
+    // unwrapped (whole-diff R5 F1).
+    test("wrappers that erase at runtime do not hide the name", () => {
+      const spellings: Array<[string, Site]> = [
+        ['await sb.from(("parens_arg"));', { kind: "from", literal: "parens_arg" }],
+        ['await sb.from("as_const" as const);', { kind: "from", literal: "as_const" }],
+        ['await sb.rpc(<const>"angle_assert");', { kind: "rpc", literal: "angle_assert" }],
+        ['await sb.rpc("nonnull_arg"!);', { kind: "rpc", literal: "nonnull_arg" }],
+        [
+          'await sb.from("satisfies_arg" satisfies string);',
+          { kind: "from", literal: "satisfies_arg" },
+        ],
+      ];
+      for (const [source, site] of spellings) {
+        expect(plantSites(source), source).toEqual([site]);
+      }
+    });
+
+    // A loud false positive is the safe direction, but it is still wrong: this
+    // is the one standard-library collision on these member names, and it would
+    // have redded CI on an innocent line (whole-diff R5 F4).
+    test("Array.from with a string argument is not a Supabase boundary", () => {
+      expect(plantSites('const chars = Array.from("abc");')).toEqual([]);
+      expect(plantSites('const chars = Array.from("abc", (c) => c);')).toEqual([]);
+      // …and the exclusion is by RECEIVER, so a real boundary with the same
+      // argument still counts.
+      expect(plantSites('await sb.from("abc");')).toEqual([{ kind: "from", literal: "abc" }]);
+    });
+
     test("the discriminator is unchanged: no static string name, no site", () => {
       expect(plantSites("const xs = Array.from (iterable);")).toEqual([]);
       expect(plantSites("const ys = Array.from?.(iterable);")).toEqual([]);
@@ -700,12 +788,16 @@ describe("META lib/data Supabase call boundary", () => {
       expect(plantSites("await sb.from(TABLE.shows);")).toEqual([]);
     });
 
-    test("comment stripping is load-bearing", () => {
+    // Renamed for accuracy (whole-diff R5 F5): extraction reads the ORIGINAL
+    // source and never calls `stripCommentsForFile`, so this proves the PARSER
+    // does not mistake commented-out code for code — not that stripping runs.
+    // Stripping is still load-bearing elsewhere: the pins and the `coveredBy`
+    // containment both read stripped text.
+    test("the parser does not see calls that are commented out", () => {
       expect(plantSites('// await sb.from("commented_line");')).toEqual([]);
       expect(plantSites('/* await sb.from("commented_block"); */')).toEqual([]);
-      // The same bytes outside a comment ARE seen — so the two assertions above
-      // fail for the right reason, and dropping the strip from the scan path
-      // turns them red rather than leaving them vacuously green.
+      // The same bytes outside a comment ARE seen, so the two assertions above
+      // fail for the right reason rather than being vacuously green.
       expect(plantSites('await sb.from("commented_line");')).toEqual([
         { kind: "from", literal: "commented_line" },
       ]);
@@ -754,6 +846,10 @@ describe("META lib/data Supabase call boundary", () => {
         "/*\n// not-subject-to-meta: inner line of a plain block\n*/",
         "/**\n// not-subject-to-meta: inner line, no leading star\n*/",
         "/*\n    // not-subject-to-meta: inner line, indented\n*/",
+        // R5 F2: not comments at all. A context-free lexer reads `//` inside a
+        // regex character class as a line comment; the parse knows it is a
+        // regex literal.
+        "const waiverChars = /[// not-subject-to-meta: ]+/;",
       ]) {
         const source = `${spelling}\nawait sb.from("x");`;
         expect(plantWaiver(source), spelling).toBe(false);
@@ -761,6 +857,17 @@ describe("META lib/data Supabase call boundary", () => {
           "lib/data/__near_miss.ts",
         ]);
       }
+    });
+    // JSX text is the other place a context-free lexer sees a comment that is
+    // not one. Planted through a .tsx path so the parse uses the JSX grammar
+    // (whole-diff R5 F2).
+    test("a marker in JSX text does not waive", () => {
+      const source =
+        'export const C = () => <div>// not-subject-to-meta: fake</div>;\nawait sb.from("x");';
+      expect(isWaived("planted.tsx", source)).toBe(false);
+      expect(undischargedFiles([scan("lib/data/__planted.tsx", source)], {})).toEqual([
+        "lib/data/__planted.tsx",
+      ]);
     });
   });
 
@@ -1033,6 +1140,36 @@ describe("META lib/data Supabase call boundary", () => {
           validateRows(
             registry,
             reader({ [SOURCE]: moduleSource, [SUITE]: "test addAdmin writes admin_emails" }),
+          ),
+          name,
+        ).toEqual([expect.stringContaining("is not an exported identifier")]);
+      }
+    });
+
+    // A `via` names the wrapper a suite CALLS. Every spelling below parses as an
+    // export and exports nothing callable, so none can discharge a behavioral
+    // citation (whole-diff R5 F3).
+    test("a via that is type-only or declare-erased is rejected", () => {
+      const erased: Array<[string, string]> = [
+        ["export type", "function addAdminEmail() {}\nexport type { addAdminEmail };\n"],
+        ["inline type specifier", "function addAdminEmail() {}\nexport { type addAdminEmail };\n"],
+        ["declare function", "export declare function addAdminEmail(): void;\n"],
+        ["declare class", "export declare class addAdminEmail {}\n"],
+        ["declare const", "export declare const addAdminEmail: () => void;\n"],
+      ];
+      for (const [name, moduleSource] of erased) {
+        const registry: Registry = {
+          [SOURCE]: [
+            { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdminEmail" },
+          ],
+        };
+        expect(
+          validateRows(
+            registry,
+            reader({
+              [SOURCE]: moduleSource,
+              [SUITE]: "test addAdminEmail writes an admin_emails row",
+            }),
           ),
           name,
         ).toEqual([expect.stringContaining("is not an exported identifier")]);
