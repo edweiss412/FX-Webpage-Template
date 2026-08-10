@@ -545,6 +545,50 @@ deliberately does not have.
 
 ---
 
+## BL-NON-CREW-UNDO — Undo for non-crew feed rows (section shrinkage / field degradation / asset drift) — CLOSED 2026-08-09 (`docs/demote-non-crew-undo`, DEMOTED: accepted limit)
+
+**Resolution: DEMOTED to an accepted limit, by owner call 2026-08-09.** Notification-only rows for
+non-crew auto-applied changes are the designed behavior, not a gap awaiting work: the sheet stays
+the source of truth, the feed row carries the "edit the sheet to change this" pointer, and even crew
+undo is only a temporary `undo_override` pin that releases when the sheet reconciles or moves on
+(the feed spec's §6.2 rationale / §4.3). Under the ledger filing bar (AGENTS.md;
+`docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2), a limit whose worst case is
+the designed conservative behavior plus a surfaced signal belongs in a limits record, not the open
+queue. This archive entry is that record; grep the id to reach it.
+
+**Revisit trigger, carried from the entry's promotion prerequisite:** an operator explicitly wants
+to undo a non-crew change in-app (rather than re-editing the sheet), and the capture-widening cost
+is judged worth it. If that fires, re-file starting from the original technical home below — widen
+`applyShowSnapshot`/`before_image` beyond crew rows, then add the domain to `undo_change`'s
+direction handling and the feed's undoable predicate. F6's "not cheap" finding stands; the demotion
+refutes nothing in the original body.
+
+**Supersedes:** the 2026-08-06 L-wave screen's PREREQ stamp
+(`docs/superpowers/specs/2026-08-06-l-wave-design.md` §1.1: "PREREQ (operator explicitly wants
+non-crew undo; capture-widening cost judged then)") and the 2026-08-07 park-review's "stays
+PREREQ-fenced" disposition, both of which kept the row open on the same trigger. Nothing about the
+trigger changed — only its queue residency: the trigger was re-checked with the owner 2026-08-07 and
+had never fired, so the row was a prerequisite-fenced feature idea sitting in the open queue for a
+flow the product deliberately does not have.
+
+**Original entry, preserved in full:**
+
+**Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ — waits on the operator explicitly wanting non-crew undo; the capture-widening cost is judged then, not now.
+**park-review 2026-08-07:** trigger re-checked with the owner — unfired. No operator has wanted to un-apply a non-crew change in-app; "edit the sheet to change this" remains the intended path (the feed spec's §6.2 rationale — sheet stays the source of truth, and even crew undo is only a temporary `undo_override` pin that releases when the sheet reconciles or moves on, §4.3). Stays PREREQ-fenced. The gate field below was split out of the compound "Technical home + promotion prerequisite" label in this pass so the ledger viewer classifies the row as gated (watch) rather than open.
+
+**Filed:** 2026-06-10 from the shipped "sync changes feed + identity-only gate" milestone (PR #19, `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md` §1 non-goals / §7 / finding F6).
+
+**Description:** v1 undo covers **crew-identity** changes only (`crew_added` / `crew_removed` / `crew_renamed`). Non-crew auto-applied changes — MI-7 section shrinkage, MI-8/8b/8c field degradation, asset drift (DIAGRAMS\_\*/REEL_DRIFT) — render as **notification-only** feed rows (`action='none'`, null `before_image`, "edit the sheet to change this" pointer). This entry would extend per-item undo to those rows.
+
+**Why backlog, not deferred — F6 showed it's "not cheap" + no committed trigger:** the undo restore path needs the **pre-apply state** in `before_image`, but the Phase-2 snapshot (`applyShowSnapshot` → `previousCrewMembers`, `lib/sync/runScheduledCronSync.ts:913-932,1088-1100`) captures **prior crew rows ONLY**. It does NOT snapshot prior hotel/room/contact rows, show fields, diagrams, or reel state. Backing non-crew undo requires **widening that prior-state capture** per domain (a real Phase-2 change), plus a domain-specific restore in `undo_change` and the feed's undoable predicate. The approved scope call (#9) was "crew-identity undo first, non-crew only if cheap"; F6 determined non-crew is not cheap.
+
+**Technical home:** widen `applyShowSnapshot`/`before_image` to capture the relevant prior non-crew rows → add the domain to `undo_change`'s direction handling + the feed's `isCrewDomainChangeKind`-style predicate (it currently single-sources `{crew_added,crew_removed,crew_renamed}`).
+
+**Promotion prerequisite:** an operator explicitly wants to undo a non-crew change in-app (rather than re-editing the sheet), and the capture-widening cost is judged worth it.
+
+---
+
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
 **Resolution: DEMOTED and archived. This is a DOCUMENTED LIMIT filed as open work, and the entry says
