@@ -1111,6 +1111,22 @@ describe("META lib/data Supabase call boundary", () => {
       ).toBe(true);
     });
 
+    // Every positive so far put the marker in the file's leading trivia, so
+    // removing the child traversal from `lineCommentTexts()` left the whole
+    // suite green (whole-diff R20 F1). A waiver is ordinarily written next to
+    // the read it waives, which is never position zero.
+    test("a waiver is recognized wherever it sits, not only in leading trivia", () => {
+      const reason = "// not-subject-to-meta: planted reason";
+      for (const [name, source] of [
+        ["after a top-level statement", `const x = 1;\n${reason}\nawait sb.from("y");`],
+        ["inside a block", `function f() {\n  ${reason}\n  return sb.from("y");\n}`],
+        ["at end of file", `await sb.from("y");\n${reason}\n`],
+      ] as const) {
+        expect(plantWaiver(source), name).toBe(true);
+        expect(undischargedFiles([scan("lib/data/__planted.ts", source)], {}), name).toEqual([]);
+      }
+    });
+
     test("a blank reason does not waive", () => {
       expect(plantWaiver("// not-subject-to-meta:\nawait x();")).toBe(false);
       expect(plantWaiver("// not-subject-to-meta:   \nawait x();")).toBe(false);
@@ -1144,6 +1160,12 @@ describe("META lib/data Supabase call boundary", () => {
         "/*\n// not-subject-to-meta: inner line of a plain block\n*/",
         "/**\n// not-subject-to-meta: inner line, no leading star\n*/",
         "/*\n    // not-subject-to-meta: inner line, indented\n*/",
+        // R20 F1: a marker TRAILING a code line is trailing trivia, not leading,
+        // and is deliberately not collected. Reaching for it pulled JSX text
+        // back in as a comment and reopened R5 F2, so the guard keeps the
+        // narrower, sound collection and this spelling stays loud: the file is
+        // undischarged and Layer 1 names it.
+        "const x = 1; // not-subject-to-meta: trailing a code line",
         // R5 F2: not comments at all. A context-free lexer reads `//` inside a
         // regex character class as a line comment; the parse knows it is a
         // regex literal.
