@@ -44,6 +44,7 @@ import {
   requestShowSync,
   SYNC_GENERIC_ERROR_COPY,
 } from "@/lib/admin/syncRequest";
+import { STALE_ROW_COPY } from "@/lib/admin/rowActionCopy";
 import {
   ARCHIVE_GENERIC_ERROR_COPY,
   ARCHIVE_NOT_FOUND_COPY,
@@ -100,9 +101,6 @@ const RESYNC_IDLE_LABEL = "Re-sync";
 const RESYNC_PENDING_LABEL = "Syncing…";
 /** The established unnamed-crew fallback (wizard roster, step3ReviewSections.tsx:1688). */
 const UNNAMED_CREW = "Unnamed";
-/** Spoken when an answer arrives for a row that has since stopped accepting it. */
-const STALE_ROW_COPY =
-  "This show changed while that was running, so the result no longer applies here. Open the show to see where it stands.";
 
 type HeldShrink = { detail: string; heldModifiedTime: string };
 
@@ -980,7 +978,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               tabIndex={-1}
               data-testid={`row-action-preview-crew-${member.id}`}
               href={`/admin/show/${encodeURIComponent(slug)}/preview/${encodeURIComponent(member.id)}`}
-              {...itemDisabledProps}
+              // Explicit, not the shared spread: an identifier-backed spread on
+              // an ANCHOR is unresolvable to the new-tab announcement scanner
+              // (tests/styles/_metaNewTabAnnouncement), which then cannot prove
+              // this link opens in the same tab. Same reason as the Open item.
+              aria-disabled={busy || undefined}
               onClick={(e) => {
                 if (busy) {
                   e.preventDefault();
@@ -1000,7 +1002,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               data-testid={`row-action-preview-more-${slug}`}
               href={openHref(slug)}
               scroll={false}
-              {...itemDisabledProps}
+              aria-disabled={busy || undefined}
               onClick={(e) => {
                 if (busy) {
                   e.preventDefault();
