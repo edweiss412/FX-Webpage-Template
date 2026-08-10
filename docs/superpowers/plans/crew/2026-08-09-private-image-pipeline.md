@@ -6,122 +6,127 @@
 
 ## Meta-test inventory (mandatory declaration)
 
-- **EXTENDS** `tests/api/diagram-asset-route.test.ts` — variant accept-set rows (§5).
-- **CREATES** structural census test pinning that every original-byte upload path runs the variant stage (spec §3 wiring census: `lib/sync/snapshotAssets.ts` both loops, `lib/sync/assetRecovery.ts`).
+- **EXTENDS** `tests/api/diagram-asset-route.test.ts` — variant accept-set rows (spec §5).
+- **EXTENDS** `tests/components/crew/diagramsBlock.test.tsx` — mapper carries the four new manifest fields (plan R1 F7).
+<!-- spec-lint: ignore — file created by this plan's implementation -->
+- **CREATES** `tests/sync/_metaVariantStageCensus.test.ts` — every original-byte upload path runs the variant stage.
+<!-- spec-lint: ignore — file created by this plan's implementation -->
+- **CREATES** `tests/sync/promoteSnapshotExpectedCount.realdb.test.ts` — the expected-count SQL evaluated against real Postgres (plan R1 F3; the mocked `queryOne` seam cannot exercise SQL).
 - **Supabase call-boundary registry (invariant 9):** N/A — no new direct Supabase client call sites; variant uploads flow through the existing injected `SnapshotAssetsStorage.upload` / recovery `deps.storage.upload` interfaces whose call sites are already registered/exempt.
 - **Advisory locks:** N/A — no `pg_advisory*` surface touched; the variant stage is pure compute inside existing lock-held flows, holder topology unchanged.
 - **Invariant 10:** no new mutation surface (no new route/action). `tests/log/_metaMutationSurfaceObservability.test.ts` stays green without registry edits.
 
 ## Mutation-family closure (guard work in this plan)
 
-Census test operators: (a) remove stage call from one call site; (b) add a new upload call site without the stage. Route accept-set operators: (c) unlisted variant key; (d) listed key under stale rev; (e) variant key for entry with `variants` absent. Loader operators: (f) empty variants; (g) malformed row (non-finite width / empty key); (h) width above max tier. These enumerate the closure set; a reviewer-proposed new family needs a live escaping mutant.
-
+Census test operators (plan R1 F9 — includes the four string-presence mutants where the guard scans source): (a) remove the stage call from one call site; (b) add a new upload call site without the stage; (c) the expected token with an appended suffix (`generateDiagramVariantsX`); (d) the token present but not live — in a comment or behind a false condition. Route accept-set operators: (e) unlisted variant key; (f) listed key under stale rev; (g) variant key for entry with `variants` absent; (h) variant key for entry with `snapshotPath: null`. Loader operators: (i) empty variants; (j) malformed row (non-finite/≤0 width, empty/non-string key); (k) width above max tier; (l) `pinOriginal` ignoring width. These enumerate the closure set; a reviewer-proposed new family needs a live escaping mutant.
 
 ## AC map (spec §10 — the `ac=` ids the task markers reference)
 
 AC-1 variant objects + manifest fields at snapshot; AC-2 thumbnails fetch variant URLs under picker auth with the private Cache-Control; AC-3 zero `/_next/image` requests; AC-4 pre-migration manifests render as today; AC-5 revocation parity on variant URLs; AC-6 zero `no-img-element` disables in `components/diagrams/`; AC-7 recovery-path variant parity; AC-8 promote integrity with variants + pagination; AC-9 no-upscale / GIF skip / failure isolation; AC-10 variant 410s + HEAD parity + malformed-manifest no-throw; AC-11 loader clamp + `pinOriginal` + malformed fallback; AC-12 lightbox tiers, blur, geometry, error branch. Full normative text: spec §10.
 
+Task ordering note (plan R1 F1): there is NO standalone manifest-types task — the optional fields on `PersistedEmbeddedImage`/`PersistedLinkedFolderItem` land inside Task 2's GREEN (their first behavioral consumer), because a types-only task has no valid RED: `isPersistedDiagrams` (`lib/data/diagrams.ts:45`) duck-types on `snapshot_revision_id` alone, so old-manifest acceptance passes with or without the fields. AC-4's old-manifest rows are REGRESSION PINS (added green), not REDs, and are labeled so below.
+
 <!-- tasks: depth=2 -->
 
 <!-- spec-lint: ignore — file created by this plan's implementation -->
 ## Task 1 — `lib/sync/diagramVariants.ts` skeleton + behavior tests
-<!-- task: red=`pnpm vitest run tests/sync/diagramVariants.test.ts` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/sync/diagramVariants.test.ts` ac=AC-9 -->
 
 <!-- spec-lint: ignore — file created by this plan's implementation -->
-1. Create `lib/sync/diagramVariants.ts` exporting `DIAGRAM_VARIANT_WIDTHS = [256, 512, 1024] as const`, `type DiagramVariantResult` (spec §3 shape), and `generateDiagramVariants` as a typed stub returning `{ variants: [], blurDataURL: null, intrinsicWidth: null, intrinsicHeight: null, failure: null }` — so the RED failures below derive from missing production behavior (sharp pipeline), never from an unresolved import (RED-validity rule).
+1. Create `lib/sync/diagramVariants.ts` exporting `DIAGRAM_VARIANT_WIDTHS = [256, 512, 1024] as const`, `type DiagramVariantResult` (spec §3 shape, `failure` included), and `generateDiagramVariants` as a typed stub returning `{ variants: [], blurDataURL: null, intrinsicWidth: null, intrinsicHeight: null, failure: null }` — the RED failures below derive from missing production behavior (the sharp pipeline), never from an unresolved import (RED-validity rule).
 <!-- spec-lint: ignore — file created by this plan's implementation -->
-2. RED — `tests/sync/diagramVariants.test.ts` (fixtures: generate png/gif bytes IN-TEST with sharp itself — dims are then fixture-derived, not hardcoded):
-   - 2000×1500 png → variants exactly widths [256, 512, 1024] (derived: `DIAGRAM_VARIANT_WIDTHS.filter(w => w < 2000)`), each `mimeType: "image/webp"`, key `<assetKey>@<w>.webp`, decoded width (sharp metadata on output bytes) === declared width.
-   - 400×300 png → exactly [256]. 200×150 png → `variants: []` (no upscale).
-   - gif → `variants: []`, but `blurDataURL` non-null and intrinsic dims recorded (spec §3 GIF rule).
-   - blurDataURL is a decodable `data:image/webp;base64,` payload, decoded width ≤ 16.
-   - corrupt bytes (`Uint8Array.from([1,2,3])`) → empty result with non-null `failure` discriminator (`reason: "sharp_error"`); the call resolves (no throw) and performs NO logging (spec §3 R2 F1 — log spy asserts ZERO logger calls from the pure function). Premise: `premiseHolds` that the corrupt fixture actually fails sharp (`tests/_shared/premise.ts`).
-   - EXIF orientation row (spec §3 normative, R2 F5): a small JPEG with EXIF orientation 6 (fixture generated in-test via sharp `withMetadata({ orientation: 6 })`) → recorded dims AND each variant's DECODED OUTPUT dims are post-rotation (portrait). Assert by decoding output bytes — sharp `metadata().width/height` is orientation-unaware even with `.rotate()` chained (spec §3 probe).
-   - blur bound rows (R2 F6): extreme-aspect fixture (1×1000) → blur decoded dims both ≤ 16 (`fit: "inside"`); the 2048-char belt exercised in isolation → field omitted + `failure.reason: "blur_oversize"`.
-   - Failure-mode statement: catches silent upscaling, wrong-tier emission, unkeyed variants, sideways variants, unbounded blur payloads, throw-through into snapshot failure.
-3. GREEN — implement with sharp (`.rotate()` auto-orient FIRST — normative per spec §3, then `.resize({ width })`, `.webp({ quality: 75 })`; blur: `resize({ width: 16, height: 16, fit: "inside" })` quality 40; dims from post-rotate metadata; `failure` discriminator, no logging).
-4. Typecheck snippet pass (`pnpm typecheck`), commit `feat(sync): diagram variant generation stage (spec §3)`.
+2. RED — `tests/sync/diagramVariants.test.ts` (fixtures generated IN-TEST with sharp itself — dims fixture-derived, not hardcoded; each row's discriminating condition stated with `premise`/`premiseHolds` from `tests/_shared/premise.ts`, unconditional relative to what it guards — plan R1 F4):
+   - 2000×1500 png → variants exactly `DIAGRAM_VARIANT_WIDTHS.filter(w => w < 2000)`, each `mimeType: "image/webp"`, key `<assetKey>@<w>.webp`, decoded output width === declared width. Premise: fixture width exceeds the largest ladder tier.
+   - 400×300 png → exactly [256]. 200×150 png → `variants: []` (no upscale). Premises: fixture widths straddle the 256 boundary as claimed.
+   - gif (FIXTURE WIDTH > 256 — premise, else "no variants" is vacuous; plan R1 F4) → `variants: []`, `blurDataURL` non-null, dims recorded (spec §3 GIF rule).
+   - EXIF row (spec §3, R2 F5): orientation-6 JPEG fixture, width chosen so ≥1 variant is emitted (premise: `variants.length > 0`, else "each variant's dims" is vacuous — plan R1 F4) → recorded dims AND each variant's DECODED OUTPUT dims are post-rotation; assertions decode output bytes, never trust input `metadata().width/height`.
+   - blur bounds: extreme-aspect 1×1000 fixture → decoded blur dims BOTH ≤ 16. Belt: exercised in isolation with an injected/lowered threshold → in-memory result has `blurDataURL: null` + `failure.reason: "blur_oversize"` (IN-MEMORY NULL — omission is the Task 2 wiring-time serialization rule, not this function's contract; plan R1 F5).
+   - corrupt bytes → `{ variants: [], blurDataURL: null, ... , failure: { reason: "sharp_error" } }`, resolves without throw, ZERO logger calls (spy). Premise: the corrupt fixture actually fails sharp.
+   - Failure modes caught: silent upscaling, wrong-tier emission, unkeyed variants, sideways variants, unbounded blur, throw-through, in-stage logging.
+3. GREEN — sharp: `.rotate()` first (normative), `.resize({ width })`, `.webp({ quality: 75 })`; blur `resize({ width: 16, height: 16, fit: "inside" })` quality 40; dims from materialized rotated output; `failure` discriminator; no logging.
+4. `pnpm typecheck`; commit `feat(sync): diagram variant generation stage (spec §3)`.
 
-## Task 2 — manifest fields + read-side guards
-<!-- task: red=`pnpm vitest run tests/sync/diagramVariants.test.ts tests/components/diagrams/Gallery.test.tsx` ac=AC-4 -->
+## Task 2 — snapshotAssets wiring + manifest fields + hop census
+<!-- task: red=`pnpm vitest run tests/sync/snapshotAssets.test.ts tests/sync/phase2.test.ts tests/sync/runScheduledCronSync.test.ts tests/sync/applyStaged.test.ts tests/api/admin/pendingIngestionRetry-telemetry.test.ts tests/sync/runManualStageForFirstSeen.test.ts` ac=AC-1,AC-4 -->
 
-1. Add optional `variants` / `blurDataURL` / `intrinsicWidth` / `intrinsicHeight` to `PersistedEmbeddedImage` + `PersistedLinkedFolderItem` (`lib/parser/types.ts`; spec §4).
-2. RED: type-level + runtime rows — old-manifest object (fields absent) still satisfies `resolveCurrentDiagrams` duck-type (`isPersistedDiagrams` in `lib/data/diagrams.ts`) and renders Gallery without errors (AC-4 unit leg).
-3. GREEN: types only; no validator change (duck-typing already tolerant — spec §4). Commit `feat(parser): optional variant/blur/dims manifest fields (spec §4)`.
+1. RED (producer — extend `tests/sync/snapshotAssets.test.ts`): real png bytes through `snapshotAssets` → uploads captured at `${tempPrefix}${assetKey}@<w>.webp` (derived from fixture dims × `DIAGRAM_VARIANT_WIDTHS`); manifest entry carries the four new fields with canonical-prefix variant paths, fields OMITTED (never null) where generation produced none (spec §4 serialization); corrupt-bytes entry → original uploaded, no variant uploads, fields ABSENT, siblings unaffected, `snapshot_status` unchanged; `SnapshotAssetsResult.variantFailures` populated `{ assetKey, reason, message }`. Old-manifest REGRESSION PIN (green, not RED — see ordering note): fixture without the fields still parses and round-trips.
+2. RED (hop census, spec §3 R3 F1 — the marker command runs EVERY suite listed, and each emit row pins the EXACT code `DIAGRAM_VARIANT_GENERATION_FAILED` plus `{ source: "sync.diagramVariants", showId, assetKey, reason }` payload keys — plan R1 F2): `Phase2Result` forwards rows verbatim (`tests/sync/phase2.test.ts`); `processOneFile` post-commit tail emits (`tests/sync/runScheduledCronSync.test.ts`); `applyStaged` post-commit reconcile emits, rollback fixture → ZERO emits (`tests/sync/applyStaged.test.ts`); retry route's bypass sink emits (`tests/api/admin/pendingIngestionRetry-telemetry.test.ts`; post-commit isolation via the existing `tests/api/admin/pendingIngestionRetryPostCommitIsolation.test.ts` pattern); `runManualStageForFirstSeen` return gains rows and its caller emits (`tests/sync/runManualStageForFirstSeen.test.ts`).
+3. GREEN: add the optional fields to `PersistedEmbeddedImage`/`PersistedLinkedFolderItem` (`lib/parser/types.ts`); call the stage in both loops after fingerprint/md5 verification; upload variants to temp prefix; null→omit mapping; thread `variantFailures` through every census hop; wire each post-commit emit.
+4. Commit `feat(sync): variant stage in snapshot pipeline + failure-signal hop census (spec §3)`.
 
-## Task 3 — snapshotAssets wiring
-<!-- task: red=`pnpm vitest run tests/sync/snapshotAssets.test.ts` ac=AC-1 -->
+## Task 3 — promoteSnapshot expected-count + pagination
+<!-- task: red=`pnpm vitest run tests/sync/promoteSnapshot.test.ts tests/sync/promoteSnapshotExpectedCount.realdb.test.ts` ac=AC-8 -->
 
-1. RED (extend existing `tests/sync/snapshotAssets.test.ts`): fixture entry with real png bytes through `snapshotAssets` → storage mock captured uploads at `${tempPrefix}${assetKey}@256.webp` etc. (derived from fixture dims × `DIAGRAM_VARIANT_WIDTHS`), manifest entry carries §4 fields with canonical-prefix variant paths, fields OMITTED (not null) where generation produced none (spec §4 serialization rule); corrupt-bytes entry → original uploaded, no variant uploads, entry fields ABSENT, sibling entries unaffected, `snapshot_status` UNCHANGED vs a no-variant-stage baseline; `SnapshotAssetsResult.variantFailures` carries `{assetKey, reason, message}` rows (spec §3 R2 F1 — NO in-stage logging).
-2. RED (failure-signal hop census — spec §3 R3 F1 P0; one named row PER hop/sink, six surfaces): `Phase2Result` forwards `variantFailures` (`lib/sync/phase2.ts:644` region; phase2 suite); `ProcessOneFileResult` carries them to `processOneFile`'s post-commit tail which emits (`lib/sync/runScheduledCronSync.ts:395`; cron-sync suite); `ApplyStagedCoreResult`→`ApplyStagedResult`→`applyStaged` post-commit reconcile emits, rollback fixture → ZERO emits (`lib/sync/applyStaged.ts:259`; applyStaged suite); pending-ingestion retry route's bypass sink emits (`app/api/admin/pending-ingestions/[id]/retry/route.ts:375`; retry-route suite); `runManualStageForFirstSeen` return gains the rows and its caller emits (`lib/sync/runManualStageForFirstSeen.ts:43`; first-seen suite); `assetRecovery` outcome sink emits (`lib/sync/assetRecovery.ts:878`; recovery suite — Task 4). Advisory-lock invariant untouched: every emit sits outside the lock tx by construction of the existing sinks.
-3. GREEN: call `generateDiagramVariants` in both loops after fingerprint/md5 verification; upload variant bytes to temp prefix; map result→entry fields with null→omit; thread `variantFailures` through every census hop; wire the post-commit emits at each census sink.
-3. Commit `feat(sync): variant stage in snapshot pipeline (spec §3 wiring 1)`.
-
-## Task 3b — promoteSnapshot expected-count + pagination (spec §3 "Promotion changes", R1 F1 P0)
-<!-- task: red=`pnpm vitest run tests/sync/promoteSnapshot.test.ts` ac=AC-8 -->
-
-1. RED (extend `tests/sync/promoteSnapshot.test.ts`; spec §9 R2 F7 — three NAMED pagination fixtures, not one generic row): pending manifest whose entries carry `variants` arrays → promote succeeds with temp/canonical listings holding originals+variants (expected count = originals + sum of variant rows); delete one variant object from the mock listing → `manifest_mismatch`; (i) `defaultStorage.list` >100-object listing fully enumerated; (ii) `removePrefix` >100-object prefix fully removed; (iii) rollback-repair path over >100-object canonical listing fully walked (paged limit/offset like `diagramGc` `listPaths`, `lib/sync/diagramGc.ts:101`).
-2. GREEN: extend the expected-count SQL (`lib/sync/promoteSnapshot.ts:235` region) with `jsonb_array_length(coalesce(e->'variants','[]'::jsonb))` legs; paginate `defaultStorage.list` (`lib/sync/promoteSnapshot.ts:83`) and `removePrefix`'s listing (`lib/sync/promoteSnapshot.ts:101`).
-3. Commit `fix(sync): promote counts variants + paginates storage listings (spec §3, R1 F1)`.
+1. Export the expected-count SQL as a named constant from `lib/sync/promoteSnapshot.ts` (it is currently inline at `lib/sync/promoteSnapshot.ts:235`).
+<!-- spec-lint: ignore — file created by this plan's implementation -->
+2. RED — NEW `tests/sync/promoteSnapshotExpectedCount.realdb.test.ts` (plan R1 F3: the existing suite's `showTx.queryOne` mock returns a canned count for any `jsonb_array_elements` SQL, `tests/sync/promoteSnapshot.test.ts:43` — SQL semantics are untestable through that seam): run the exported SQL against the REAL local DB with a seeded `shows.diagrams.pending` fixture — entries with and without `variants`, plus a null-`snapshotPath` entry → count = non-null originals + their variant rows only. Premise: the fixture's variant rows number > 0 (else variant-blind SQL passes).
+3. RED (extend `tests/sync/promoteSnapshot.test.ts`, mock-level flow): variant-bearing listing promotes; one missing variant object → `manifest_mismatch`; pagination pinned per surface (spec §9 R2 F7) with >100-object fixtures and an unconditional `premise(paths.length > 100)` each (plan R1 F4): (i) `defaultStorage.list` (`lib/sync/promoteSnapshot.ts:83`), (ii) `removePrefix` (`lib/sync/promoteSnapshot.ts:101`), (iii) rollback-repair over canonical (`lib/sync/promoteSnapshot.ts:430`) — paged limit/offset like `listPaths` (`lib/sync/diagramGc.ts:101`).
+4. GREEN: SQL gains `jsonb_array_length(coalesce(e->'variants','[]'::jsonb))` legs (both entry types); both adapter listings paginate.
+5. Commit `fix(sync): promote counts variants + paginates storage listings (spec §3)`.
 
 ## Task 4 — assetRecovery wiring + structural census
-<!-- task: red=`pnpm vitest run tests/sync/assetRecovery.test.ts tests/sync/_metaVariantStageCensus.test.ts` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/sync/assetRecovery.test.ts tests/sync/_metaVariantStageCensus.test.ts` ac=AC-7 -->
 
-1. RED: recovery path fixture → recovered original accompanied by variant uploads + manifest fields (mirror of Task 3 assertions against the recovery `deps.storage.upload` capture).
+1. RED (extend `tests/sync/assetRecovery.test.ts`): recovered original accompanied by variant uploads + the four manifest fields (mirror of Task 2 producer assertions against the recovery `deps.storage.upload` capture); recovery result carries `variantFailures`; the outcome sink (`lib/sync/assetRecovery.ts:878` region) emits post-commit with the exact code + payload keys.
 <!-- spec-lint: ignore — file created by this plan's implementation -->
-2. RED: NEW `tests/sync/_metaVariantStageCensus.test.ts` — source-scan of `lib/sync/**` for `.upload(`-class call sites; each must be in the registered census or carry an inline exemption comment. Verified census at plan time (grep run 2026-08-09, pasted per authored-AND-run rule): logical sites `lib/sync/snapshotAssets.ts:145` + `lib/sync/snapshotAssets.ts:165` (the two loops) and `lib/sync/assetRecovery.ts:543` (recovery upload); adapter implementations `lib/sync/assetRecovery.ts:817` and `lib/sync/defaultSnapshotAssetsForApply.ts:149` are interface impls serving those logical paths — exemption-commented, not census rows. Failure mode: a future upload path silently shipping variant-less originals. Mutation operators (a)/(b) from the closure set run pre-dispatch and results recorded in the commit.
-3. GREEN + commit `feat(sync): variant stage in asset recovery + census guard (spec §3 wiring 2)`.
+2. RED — NEW `tests/sync/_metaVariantStageCensus.test.ts`: source-scan of `lib/sync/**` for `.upload(`-class call sites; each must be census-registered or carry an inline exemption comment. Census verified at plan time (grep 2026-08-09, pasted): logical sites `lib/sync/snapshotAssets.ts:145` + `lib/sync/snapshotAssets.ts:165`, `lib/sync/assetRecovery.ts:543`; adapter impls `lib/sync/assetRecovery.ts:817`, `lib/sync/defaultSnapshotAssetsForApply.ts:149` — exemption-commented. The guard asserts a LIVE call relationship (AST-level or import-plus-call-in-function scan), not bare token presence; mutants (a)-(d) from the closure section run pre-dispatch, results recorded in the commit (plan R1 F9).
+3. GREEN + commit `feat(sync): variant stage in asset recovery + census guard (spec §3)`.
 
 ## Task 5 — route variant accept-set
-<!-- task: red=`pnpm vitest run tests/api/diagram-asset-route.test.ts` ac=AC-2,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/api/diagram-asset-route.test.ts` ac=AC-2,AC-5,AC-10 -->
 
-1. RED rows (extend `tests/api/diagram-asset-route.test.ts`): manifest-listed variant key → 200, `Content-Type: image/webp`, `Cache-Control` EXACTLY `private, max-age=0, must-revalidate`, AND the signed-URL call addressed the exact VARIANT storage path (spec §5 R1 F2; assertion style of the existing exact-path row at `tests/api/diagram-asset-route.test.ts:402`); unlisted plausible key (`@2048.webp`) → 410; listed key under stale rev → 410; entry without `variants` + variant-shaped key → 410; MALFORMED `variants` field (non-array, null rows, non-string key) → 410 with no throw (spec §4 server guards); entry with `snapshotPath: null` PLUS plausible `variants` → 410 with no throw (spec §5 R2 F2 — the null-path guard precedes dirname); HEAD on listed variant key → same status/headers as GET minus body; picker-session 401 row unchanged for variant URLs (AC-5).
-2. GREEN: extend `findAsset` (route.ts) per spec §5 — entries with non-null string `snapshotPath` only; literal path equality against original `snapshotPath` OR `dirname(snapshotPath) + "/" + variants[i].key` over VALID rows; variant match RETURNS the variant path as the entry's `snapshotPath` for signing; matched variants serve `image/webp`.
-3. Mutation operators (c)/(d)/(e) run pre-dispatch, recorded. Commit `feat(crew): diagram route serves manifest-listed variants (spec §5)`.
+1. RED rows (extend `tests/api/diagram-asset-route.test.ts`): listed variant key → 200, `Content-Type: image/webp`, `Cache-Control` exactly `private, max-age=0, must-revalidate`, signed request addressed the exact VARIANT storage path (style of `tests/api/diagram-asset-route.test.ts:402`); unlisted plausible key → 410; listed key under stale rev → 410; entry without `variants` → 410; `snapshotPath: null` + plausible `variants` → 410 no throw; **full §4 malformed matrix (plan R1 F6): non-array `variants`, null/non-object rows, non-finite width, zero/negative width, empty-string key, non-string key — each → 410 without throw**; HEAD parity on a variant key; picker-session 401 unchanged for variant URLs (AC-5).
+2. GREEN: extend `findAsset` per spec §5 — non-null string `snapshotPath` gate first, then literal equality against original OR `dirname(snapshotPath) + "/" + variants[i].key` over valid rows; variant match returns the VARIANT path for signing; variants serve `image/webp`.
+3. Mutants (e)-(h) pre-dispatch, recorded. Commit `feat(crew): diagram route serves manifest-listed variants (spec §5)`.
 
 <!-- spec-lint: ignore — file created by this plan's implementation -->
 ## Task 6 — `lib/images/diagramLoader.ts`
-<!-- task: red=`pnpm vitest run tests/images/diagramLoader.test.ts` ac=AC-2 -->
-
-1. Stub module (same RED-validity pattern as Task 1) → RED rows (spec §6 R2 F4 — always-clamp, no width-based original fallthrough): snapping exact/between-tier; above-ladder → LARGEST variant while any valid variant exists; `pinOriginal: true` → original at EVERY width (active lightbox slide); variants absent/empty/all-invalid → original; malformed rows (width NaN/0/negative, empty key) filtered per §4; URL shape `/api/asset/diagram/<show>/<rev>/<key>` matches `diagramAssetKeyFromPath` in `lib/data/diagrams.ts` round-trip. Operators (f)/(g)/(h) pre-dispatch.
-2. GREEN + commit `feat(crew): diagram image loader with variant snapping (spec §6)`.
-
-## Task 7 — Gallery migration
-<!-- task: red=`pnpm vitest run tests/components/diagrams/Gallery.test.tsx` ac=AC-4,AC-6 -->
-
-1. RED (extend `tests/components/diagrams/Gallery.test.tsx`): item with variants+blur renders `next/image` with `placeholder="blur"`; item without blur renders no placeholder prop; `onError` still lands the item in the unavailable-placeholder branch (existing `failedKeys` contract); grid cell gains `relative` (class assertion on the button/li per spec Dimensional Invariants).
-2. GREEN: migrate `<img>` → `Image` (`fill`, `sizes="(min-width: 640px) 25vw, 33vw"`, per-item `makeDiagramLoader`); extend `GalleryItem` + `components/crew/DiagramsBlock.tsx` mapping (`embeddedItem`/`linkedItem` helpers) to pass §4 fields; delete the eslint-disable + revert-rationale comment.
-3. Commit `feat(crew-page): Gallery on next/image with blur variants (spec §6)`.
-
-## Task 8 — GalleryLightbox migration
-<!-- task: red=`pnpm vitest run tests/components/diagrams/GalleryLightbox.test.tsx` ac=AC-4,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/images/diagramLoader.test.ts` ac=AC-11 -->
 
 <!-- spec-lint: ignore — file created by this plan's implementation -->
-1. RED — NEW `tests/components/diagrams/GalleryLightbox.test.tsx` (no general Lightbox suite exists today; only `GalleryLightboxPinchZoom.test.tsx`, which must stay green untouched; new file auto-covered by `BASE_INCLUDE` `tests/**/*.test.tsx`, `vitest.projects.ts:34`): active slide uses `pinOriginal` URL tier; inactive slide with variants uses a CLAMPED variant URL — never original while variants exist (spec §6); BOTH tiers render `placeholder="blur"` when `blurDataURL` present (R1 F6); dims-present entry renders `width`/`height` props; dims-absent INACTIVE branch renders `fill` + `object-contain` inside a NEW inner `relative size-full` wrapper in the figure's content area (spec R3 F2 — NOT `relative` on the `px-4` figure, whose padding box would mismatch the active branch by 32px); dims-absent ACTIVE branch renders inside the `TransformComponent` wrapper (its existing `relative` is the containing block — spec R2 F3); `onError` → existing `setFailedKeys` unavailable branch (`components/diagrams/GalleryLightbox.tsx:680`/`components/diagrams/GalleryLightbox.tsx:708`); failed item stays failed across tier swap (spec Transition Inventory compound row).
-2. GREEN (includes the inner `relative size-full` wrapper for the inactive branch) + commit `feat(crew-page): GalleryLightbox on next/image tiers (spec §6)`.
-3. Transition-audit step (spec Transition Inventory): enumerate `AnimatePresence`/ternary/conditional blocks in both components; assert each inventory pair's treatment (built-in blur swap = instant; failed swap = instant; no new motion). Compound: open lightbox mid-blur — no shared state, assert independent mount.
+1. Typed stub (Task 1 pattern) → RED rows (`tests/images/diagramLoader.test.ts`, new dir auto-covered by `BASE_INCLUDE`, `vitest.projects.ts:34`): snapping exact/between-tier; above-ladder → LARGEST variant (premise: requested width > largest tier — plan R1 F4); `pinOriginal: true` → original at every width including below-ladder; variants absent/empty/all-invalid → original; malformed rows filtered per §4 (non-finite/zero/negative width, empty/non-string key rows each individually); URL round-trips `diagramAssetKeyFromPath` in `lib/data/diagrams.ts`.
+2. GREEN + mutants (i)-(l) pre-dispatch. Commit `feat(crew): diagram image loader with variant clamping (spec §6)`.
 
-## Task 9 — e2e layout + network assertions
-<!-- task: red=`pnpm playwright test tests/e2e/crew-layout-dimensions.spec.ts` ac=AC-2,AC-3 -->
+## Task 7 — Gallery migration + DiagramsBlock mapper
+<!-- task: red=`pnpm vitest run tests/components/diagrams/Gallery.test.tsx tests/components/crew/diagramsBlock.test.tsx` ac=AC-4,AC-6 -->
 
-1. Extend `tests/e2e/crew-layout-dimensions.spec.ts` (harness per its own docblock: `signInAs(ADMIN_FIXTURE)`, seeded Waldorf show via `lookupSeededShow`, share token from `show_share_tokens`, mobile-safari single-writer project, explicit viewports). Harness-readiness: dev-build webServer on port 3000 (existing config), hydration gate = existing suite helpers (never `networkidle` alone), samplers detach-safe.
-2. Dimensional invariant: every `[data-testid^="diagram-slot-"]` cell with an image → image box === cell box within 0.5px via `getBoundingClientRect` (spec Dimensional Invariants row 1).
-3. Lightbox slide geometry (spec Dimensional Invariants, R2 F3 + R3 F2 — BOTH branches, oracle reads the WRAPPER rects, never the figure's outer rect): inactive no-dims slide's image box === its inner `relative size-full` wrapper box; active no-dims slide's image box === its `TransformComponent` wrapper box; each within 0.5px.
-4. Network log over the page load + gallery interaction: zero requests matching `/_next/image` (AC-3); thumbnail requests target `/api/asset/diagram/` URLs (variant-suffixed iff the seed manifest carries variants — seed extension step below).
-5. Seed: extend `supabase/seed.ts` diagrams build with §4 fields + tiny real webp variant objects in the local bucket so the e2e assertions exercise variant serving (fixture-derived, committed generator not committed bytes).
-5. Commit `test(e2e): gallery variant layout + no-optimizer network gate`.
+1. RED (extend `tests/components/diagrams/Gallery.test.tsx`): variants+blur item renders `next/image` with `placeholder="blur"`; no-blur item → no placeholder prop; **empty-string and non-string `blurDataURL` → no placeholder prop; non-finite/≤0 intrinsic dims → dims path not taken (plan R1 F6)**; `onError` → unavailable branch (`failedKeys`); cell/button gains `relative` (class assertion). Old-manifest REGRESSION PIN (green): item without any new field renders as today.
+2. RED (extend `tests/components/crew/diagramsBlock.test.tsx` — the REAL mapper, plan R1 F7: `Gallery.test.tsx` fixtures construct `GalleryItem` directly, so the mapper can drop every field while it passes): `embeddedItem`/`linkedItem` (`components/crew/DiagramsBlock.tsx:53` region) carry `variants`/`blurDataURL`/`intrinsicWidth`/`intrinsicHeight` from a `PersistedDiagrams` fixture into `GalleryItem`; absent fields map to absent.
+3. GREEN: Gallery `<img>` → `Image` (`fill`, `sizes="(min-width: 640px) 25vw, 33vw"`, per-item loader); `GalleryItem` + mapper plumbing; delete the Gallery eslint-disable + revert-rationale comment.
+4. Commit `feat(crew-page): Gallery on next/image with blur variants (spec §6)`.
 
-## Task 10 — impeccable dual gate (invariant 8)
-<!-- task: red=`pnpm lint` ac=AC-6 -->
+## Task 8 — GalleryLightbox migration + transition audit
+<!-- task: red=`pnpm vitest run tests/components/diagrams/GalleryLightbox.test.tsx tests/components/diagrams/GalleryLightboxPinchZoom.test.tsx` ac=AC-12 -->
 
-`/impeccable critique` + `/impeccable audit` on the diff (canonical v3 setup: context.mjs PRODUCT.md+DESIGN.md load → register reference). P0/P1 fixed or DEFERRED.md-entried. Findings + dispositions to closeout §12. Then `pnpm lint` proves zero `@next/next/no-img-element` disables under `components/diagrams/` (AC-6).
+<!-- spec-lint: ignore — file created by this plan's implementation -->
+1. RED — NEW `tests/components/diagrams/GalleryLightbox.test.tsx` (existing `GalleryLightboxPinchZoom.test.tsx` runs in the same marker command and must stay green — plan R1 F10): active slide uses `pinOriginal` URL; inactive slide uses clamped variant URL, `sizes="100vw"` asserted on the inactive `Image` (plan R1 F6); BOTH tiers `placeholder="blur"` when present; empty/non-string blur → no placeholder; dims branch renders `width`/`height`, non-finite/≤0 dims → fill branch; inactive no-dims fill inside the NEW inner `relative size-full` wrapper (spec R3 F2); active no-dims fill inside `TransformComponent` wrapper; `onError` → `setFailedKeys` branch (`components/diagrams/GalleryLightbox.tsx:680`/`components/diagrams/GalleryLightbox.tsx:708`).
+2. Transition audit — BEFORE any commit (plan R1 F10/F13), with the spec's FULL inventory tables (both copied verbatim into the test file header): enumerate every `AnimatePresence`, ternary render, and conditional block in both components; per spec table, assert each of the 10 pairs' treatment (instant / built-in / impossible-by-construction) and each of the 5 compound rows — including failed-item-stays-failed-across-tier-swap and active↔inactive src swaps.
+3. GREEN (inner wrapper included; delete both Lightbox eslint-disables) — then commit `feat(crew-page): GalleryLightbox on next/image tiers + transition audit (spec §6)`.
+
+## Task 9 — e2e: seed variants, layout geometry, network gate, CI wiring
+<!-- task: red=`pnpm playwright test tests/e2e/crew-layout-dimensions.spec.ts` ac=AC-2,AC-3,AC-12 -->
+
+1. SEED FIRST (plan R1 F8 — the REDs below must fail on missing FEATURE, not missing fixture): extend `supabase/seed.ts` so the Waldorf diagrams manifest has ≥2 AVAILABLE entries (non-null `snapshotPath`) with §4 fields, one with dims and one without (both lightbox no-dims/dims branches reachable), and upload tiny real webp variant objects + originals to the local bucket (generator in-repo, bytes not committed). Run `pnpm db:seed` and verify with a direct query before writing test rows.
+2. Extend `tests/e2e/crew-layout-dimensions.spec.ts` (harness per its docblock: `signInAs(ADMIN_FIXTURE)`, `lookupSeededShow`, share token from `show_share_tokens`, mobile-safari single-writer, explicit viewports; port-3000 webServer env per `playwright.config.ts:404` — the run command in this task carries that env). Unconditional premises (plan R1 F8): gallery renders > 0 `Image` elements; network log holds > 0 `/api/asset/diagram/` requests — each `premise(...)`-guarded before any equality assertion.
+3. Geometry: every `[data-testid^="diagram-slot-"]` image box === its cell box; lightbox inactive no-dims image box === inner `relative size-full` wrapper box; active no-dims image box === `TransformComponent` wrapper box (oracle = wrapper rects, never the figure's outer rect); each within 0.5px.
+4. Network: zero `/_next/image` requests (AC-3); thumbnail requests are variant-suffixed UNCONDITIONALLY (the seed now guarantees variants — no "iff"; plan R1 F8).
+5. CI wiring (plan R1 F8 — the file is currently invoked only under `-g "T-NOPHANTOM-CREW"` in `.github/workflows/phantom-gap-e2e.yml:172` and absent from the crew-e2e list at `.github/workflows/crew-e2e.yml:176`): add the new test titles under a grep-matched tag OR add the file to the crew-e2e invocation list — named edit in this task, verified by reading the workflow diff.
+6. Commit `test(e2e): gallery variant layout + no-optimizer network gate`.
+
+## Task 10 — impeccable dual gate + AC-6 proof
+<!-- task: red=`bash -c '! grep -rn "no-img-element" components/diagrams/'` ac=AC-6 -->
+
+1. `/impeccable critique` + `/impeccable audit` on the diff (canonical v3 setup gates). P0/P1 fixed or DEFERRED.md-entried; findings + dispositions to closeout §12.
+2. AC-6 proof is the marker's grep gate (plan R1 F11 — `pnpm lint` exits 0 WITH the disables present, since a disable comment suppresses the warning): zero `no-img-element` matches under `components/diagrams/`; RED-valid because the gate fails until Tasks 7-8 delete the disables. `pnpm lint` still runs as a companion check.
+3. Commit `chore(crew-page): impeccable dual-gate dispositions (invariant 8)` (plan R1 F13 — every task commits).
 
 ## Task 11 — closeout
-<!-- task: red=`pnpm test` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6 -->
+<!-- task: red=`pnpm test` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-10,AC-11,AC-12 -->
 
-1. Full pre-push gates: `pnpm test`, `pnpm typecheck` (vitest AND playwright tsconfigs), `pnpm eslint`, `pnpm format:check`.
-2. File `BL-ADMIN-DIAGRAM-NEXT-IMAGE` (BACKLOG.md, spec §1.1 exception (c) text); archive `BL-PRIVATE-IMAGE-PIPELINE` with spec cross-ref; remove the invariant-12 marker in the PR's LAST commit.
-3. Whole-diff cross-model review (fresh-eyes, split tight-scope briefs if >handful of files: sync surface / route surface / UI surface); CI green; merge; ff-sync main; Stage 4.4 label + cron cleanup.
+1. Gates (verification, not REDs — labeled per plan R1 F13): full `pnpm test`, `pnpm typecheck` (vitest AND playwright tsconfigs), eslint, `pnpm format:check`.
+2. Sharp deployed-runtime verification (spec §3 requirement; plan R1 F12): (a) production-mode `pnpm build` completes with sharp resolved from the sync/apply route graph; (b) `node -e "require('sharp')"` under a pruned production install; (c) post-merge, one validation-project sync of a diagram-bearing show shows variant objects in storage and no module-resolution telemetry. Recorded in closeout §12.
+3. File `BL-ADMIN-DIAGRAM-NEXT-IMAGE` (BACKLOG.md, spec §1.1 exception (c) text); archive `BL-PRIVATE-IMAGE-PIPELINE` with spec cross-ref; remove the invariant-12 marker in the PR's LAST commit — subject `docs(plan): close BL-PRIVATE-IMAGE-PIPELINE; file BL-ADMIN-DIAGRAM-NEXT-IMAGE; drop ledger claim` (plan R1 F13).
+4. Whole-diff cross-model review (fresh-eyes; split tight-scope briefs: sync / route / UI); real CI green; `gh pr merge --merge`; ff-sync main to `0  0`; Stage 4.4 label + cron cleanup.
 
 <!-- tasks: end -->
 
