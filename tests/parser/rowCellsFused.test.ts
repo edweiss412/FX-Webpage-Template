@@ -207,18 +207,18 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     expect(fused(md, "calibration.md")).toEqual([]);
   });
 
-  it("separates adjacent tables by STRUCTURE, whatever the heading says", () => {
-    // KILLS: any LEXICAL boundary test. Cross-model review probed the previous one and it
-    // was wrong in both directions at once:
+  it("stays silent on tables butted together, whatever the heading says", () => {
+    // WHAT THIS ACTUALLY PINS, stated precisely because an earlier version of this comment
+    // claimed more: two butted tables carry TWO delimiter rows, so the run is ambiguous and
+    // ABANDONED. Silence here is abstention, not segmentation. Cross-model review caught
+    // the overclaim by mutating the (now removed) mid-run split and watching this arm stay
+    // green — so the arm was renamed to say what it pins, and the dead split was deleted.
     //
-    //   NOT SUFFICIENT — an unregistered heading (NOTES) merged into the table above it,
-    //   and so did a registered heading written with the colon real sheets use (DATES
-    //   split, DATES: did not; all 27 exact-match headers shared that).
-    //   NOT NECESSARY — see the data-position arm below.
-    //
-    // The heading set here is DERIVED from the registry and then EXTENDED with the two
-    // forms no registry can cover: an unregistered word, and a colon suffix. A boundary
-    // rule that consults labels fails on the extension; a structural one cannot.
+    // It still earns its place: a LEXICAL boundary rule was wrong in both directions
+    // (probed) — an unregistered heading (NOTES) or a colon-suffixed one (DATES:) failed to
+    // separate tables, while a registered token in a data cell falsely separated one — and
+    // this arm walks the whole registry PLUS the two forms no registry can cover, so any
+    // future attempt to reintroduce label-driven segmentation has to face all of them.
     const wide = [
       "| CREW | Role | Call | Out | Note |",
       "| --- | --- | --- | --- | --- |",

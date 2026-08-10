@@ -197,35 +197,30 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
     const isRow = start !== -1 && line.charCodeAt(start) === 124; /* "|" */
 
     if (isRow) {
-      // THE BOUNDARY IS STRUCTURAL, NOT LEXICAL.
+      // A RUN HOLDS AT MOST ONE TABLE, and that is what makes segmentation trivial here.
       //
-      // An alignment row is markdown's own statement that a table starts here, and the row
-      // immediately above it is that table's header. Splitting on it needs no registry, so
-      // it cannot be wrong about a label -- which every lexical formulation of this test
-      // was, in both directions (cross-model review, probed):
+      // A markdown table has exactly one delimiter row, directly under its header. The
+      // FIRST delimiter in a run therefore identifies the header (the row above it) and
+      // nothing else; a SECOND is ambiguous by construction and abandons the run entirely
+      // (see `closeRun`). Between them there is no third case, so there is no mid-run
+      // split to perform — an earlier version carried one, and cross-model review showed
+      // it was dead code that the abstention rule had made unreachable, with two arms
+      // passing through the abstention while claiming to test the split.
       //
-      //   NOT SUFFICIENT. An adjacent table whose heading is not registered (`NOTES`) was
-      //   merged into the one before it; so was a registered heading written with the
-      //   colon real sheets use (`DATES` split, `DATES:` did not -- all 27 exact-match
-      //   headers shared that).
-      //   NOT NECESSARY. A registered token sitting in an ordinary DATA cell (a `Driver`
-      //   row) was read as an opener, turning a tied, skipped distribution into a warning.
-      //
-      // Both directions vanish here: no label is consulted at all. `canonicalSectionKind`
-      // stays, but only for the ROUTING KEY on the warning, which is what it is for.
+      // No LABEL is consulted for any of this. Every lexical formulation of the boundary
+      // was wrong in both directions (probed): an unregistered heading (`NOTES`) or a
+      // colon-suffixed one (`DATES:`) failed to separate tables, while a registered token
+      // in an ordinary data cell (a `Driver` row) falsely separated one.
+      // `canonicalSectionKind` survives only as the warning's ROUTING KEY.
       const info = analyzeRow(line);
       if (info.alignment) {
         runDelimiters++;
         if (runDelimiters >= 2) runAmbiguous = true;
-      }
-      if (info.alignment && section.length > 0) {
-        // The last row pushed is this table's header, so it belongs to the NEW section —
-        // and is marked as its header so the modal is taken over data rows alone.
-        const header = { ...section[section.length - 1]!, header: true };
-        section = section.slice(0, -1);
-        flush();
-        section = [header];
-        sectionKind = kindOfFirstCell(firstCell(header.line)) ?? GENERIC_SECTION_KIND;
+        else if (section.length > 0) {
+          const h = section[section.length - 1]!;
+          section[section.length - 1] = { ...h, header: true };
+          sectionKind = kindOfFirstCell(firstCell(h.line)) ?? GENERIC_SECTION_KIND;
+        }
       }
       if (section.length === 0)
         sectionKind = kindOfFirstCell(firstCell(line)) ?? GENERIC_SECTION_KIND;
