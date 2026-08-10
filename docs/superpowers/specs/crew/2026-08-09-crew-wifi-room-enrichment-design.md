@@ -127,6 +127,18 @@ Room-within-venue: identifiable in 4/4 live sheets; across the 10 fixture shows,
 
    **Why this is documented rather than fixed.** The corpus contains `Network: Institutional Investor Passcode: Investor2025`, whose SSID is genuinely two words — structurally identical to "Guest Hardline". Any rule separating them is a word-count or position cap calibrated on NOTHING (no corpus value has trailing prose on a flattened line), and a recognizer bounded by a number is the shape this project's own writing-plans rule tells us the next reviewer will defeat. The consequence is bounded and weaker than the defects that were fixed: the text is still rendered in full and nothing vanishes — it is attributed to the wrong row. Tracked as `BL-WIFI-FLATTENED-TRAILING-PROSE`, whose promotion prerequisite is a corpus probe finding a real flattened value with trailing prose; that probe, not a guess, would supply the discriminator.
 
+8. **A multi-token network value followed by a password label is read as the LONGER network name.** Once a network label has been established to the left, the splitter cannot tell a longer network name from a qualified password label, because the two are the same structure. All three of these are one shape — network label, multi-token value, password label — and the third is a real corpus value:
+
+   ```text
+   "SSID: Guest WiFi Password: secret"                                      => ssid "Guest WiFi"
+   "SSID: Guest Door Code: 2468"                                            => ssid "Guest Door"
+   "Wifi for Polling Network: Institutional Investor Passcode: Investor2025" => ssid "Institutional Investor"
+   ```
+
+   Any rule that rejects the second rejects the third, which is `Institutional Investor` — an observed value this spec's §4 accounting depends on. Separating them needs a VOCABULARY of qualifier words (`Door`, `Gate`, `Alarm`, and whatever the next producer writes), which is the open-ended enumeration §3.1's convergence criterion refuses. The reading is stated here so it is a decision rather than an accident, and the consequence stays inside the bound: every character of the cell renders, and the network name is the longer of the two candidate readings.
+
+   This is distinct from the case the splitter DOES reject — a qualified password label with NO network name established to its left (`Door Code: 2468`, alone or before an `SSID:` later in the cell). There, nothing has claimed the preceding words, so treating `Door Code:` as the Wi-Fi password is a guess with no support at all, and the whole cell falls back raw.
+
 ## §7 Out of scope
 
 - Parser/schema/projection changes; TRAVEL/flight surfaces (shipped; graduation only); `BL-CREW-SHEET-TEMPLATE-V2` (source standardization); any admin surface; caching.

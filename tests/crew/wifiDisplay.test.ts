@@ -688,3 +688,37 @@ describe("parseWifiValue — qualified password labels reject (review S6 R2)", (
     expect(parseWifiValue("SSID: Guest WiFi Password: secret")?.password).toBe("secret");
   });
 });
+
+/**
+ * Documented limit §6.8 (review S7 R1). Once a network label is established to
+ * the left, a longer network name and a qualified password label are the SAME
+ * structure. The corpus settles which reading ships: `Institutional Investor` is
+ * a real two-token SSID, so any rule rejecting `Guest Door` rejects it too.
+ */
+describe("parseWifiValue — multi-token network values (documented limit §6.8)", () => {
+  it("reads the longer network name, and the corpus is why", () => {
+    const shape: ReadonlyArray<[string, string]> = [
+      ["SSID: Guest WiFi Password: secret", "Guest WiFi"],
+      ["SSID: Guest Door Code: 2468", "Guest Door"],
+      [FIXTURE_CONSULTANTS, "Institutional Investor"],
+    ];
+    premise("same-shape cases", shape.length, 2);
+    for (const [value, expectedSsid] of shape) {
+      expect(parseWifiValue(value)?.ssid, value).toBe(expectedSsid);
+    }
+    // The claim that makes this a limit rather than a bug: the corpus member and
+    // the disputed case are indistinguishable, so they must be read alike.
+    premiseHolds(
+      "the corpus value really does carry a multi-token SSID, so no rule can " +
+        "reject the disputed case without rejecting it",
+      (parseWifiValue(FIXTURE_CONSULTANTS)?.ssid.split(" ").length ?? 0) > 1,
+    );
+  });
+
+  it("still rejects a qualified label with NO network established to its left", () => {
+    // The genuinely different case, and the one the splitter does reject.
+    expect(parseWifiValue("Door Code: 2468")).toBeNull();
+    expect(parseWifiValue("Door Code: 2468\nSSID: Guest")).toBeNull();
+    expect(parseWifiValue("Door Code: 2468 SSID: Guest")).toBeNull();
+  });
+});
