@@ -82,7 +82,10 @@ function unwrap(node: ts.Expression): ts.Expression {
       ts.isNonNullExpression(expr) ||
       ts.isAsExpression(expr) ||
       ts.isSatisfiesExpression(expr) ||
-      ts.isTypeAssertionExpression(expr)
+      ts.isTypeAssertionExpression(expr) ||
+      // An instantiation expression: `(sb.from<Row>)("x")` and `(sb.from)<Row>("x")`
+      // are the same call with its type arguments supplied separately (R6 F1).
+      ts.isExpressionWithTypeArguments(expr)
     ) {
       expr = expr.expression;
       continue;
@@ -103,20 +106,29 @@ function calleeMemberName(node: ts.Expression): string | undefined {
 }
 
 /**
- * `Array.from("abc")` is a real call with a static string argument, and it is
- * not a Supabase boundary. It is the one standard-library collision on these
- * member names, and the reviewer found it as a loud FALSE POSITIVE — a red test
- * naming an innocent line, which is the safe direction but still wrong (R5 F4).
- * Excluding exactly `Array.from` is a named collision, not a widening: any other
- * receiver still counts, including `sb.from("abc")`.
+ * `Array.from("abc")` is a real call with a static string argument and is not a
+ * Supabase boundary. It is the one such collision PRESENT IN THIS CORPUS
+ * (`lib/data/normalizeDateRestriction.ts`), and it surfaced as a loud false
+ * positive — a red test naming an innocent line, the safe direction but still
+ * wrong (R5 F4).
+ *
+ * Deliberately NOT generalised to `Buffer.from`, `Readable.from`,
+ * `Uint8Array.from`, `globalThis.Array.from` and the rest (R6 F2). Enumerating
+ * built-in receivers is an open set, and this arc has already paid five rounds
+ * for a recognizer whose convergence criterion was enumeration. Their worst case
+ * is a LOUD false positive whose response is one waiver comment, which §1.4
+ * admits as a documented limit (§6.8) — while the alternatives that would close
+ * it by heuristic (a capitalized-receiver rule, say) trade a loud false positive
+ * for a SILENT miss on a client held in a capitalized binding, and that trade is
+ * the one the consequence bound forbids.
  */
 function isStandardLibraryFrom(callee: ts.Expression): boolean {
   const expr = unwrap(callee);
-  return (
-    ts.isPropertyAccessExpression(expr) &&
-    ts.isIdentifier(expr.expression) &&
-    expr.expression.text === "Array"
-  );
+  if (!ts.isPropertyAccessExpression(expr)) return false;
+  // Unwrap the RECEIVER too, so `(Array).from(…)` is the same call as
+  // `Array.from(…)` — the exclusion was not even internally consistent (R6 F2).
+  const receiver = unwrap(expr.expression);
+  return ts.isIdentifier(receiver) && receiver.text === "Array";
 }
 
 type Site = { kind: "from" | "rpc"; literal: string };
@@ -704,15 +716,57 @@ describe("META lib/data Supabase call boundary", () => {
       }
     });
 
+    // Instantiation expressions: the type arguments are supplied separately and
+    // the call is the same call (whole-diff R6 F1). Planted in a declaration
+    // initializer, which is where TypeScript actually parses them as such. At
+    // statement position `(sb.from<Row>)("x")` is a chain of comparisons, and a
+    // leading `await` makes TypeScript read `await (…)` as a call named `await`;
+    // reporting no site in either case is correct rather than a miss.
+    test("type arguments supplied separately do not hide the call", () => {
+      const spellings: Array<[string, Site]> = [
+        [
+          'const r = (sb.from<Row>)("instantiated_table");',
+          { kind: "from", literal: "instantiated_table" },
+        ],
+        [
+          'const r = (sb.rpc<Row>)("instantiated_rpc");',
+          { kind: "rpc", literal: "instantiated_rpc" },
+        ],
+        ['const r = (sb.from)<Row>("grouped_table");', { kind: "from", literal: "grouped_table" }],
+        ['const r = (sb.rpc)<Row>("grouped_rpc");', { kind: "rpc", literal: "grouped_rpc" }],
+      ];
+      for (const [source, site] of spellings) {
+        expect(plantSites(source), source).toEqual([site]);
+      }
+    });
+
     // A loud false positive is the safe direction, but it is still wrong: this
-    // is the one standard-library collision on these member names, and it would
-    // have redded CI on an innocent line (whole-diff R5 F4).
+    // is the one such collision present in this corpus, and it would have redded
+    // CI on an innocent line (whole-diff R5 F4).
     test("Array.from with a string argument is not a Supabase boundary", () => {
       expect(plantSites('const chars = Array.from("abc");')).toEqual([]);
       expect(plantSites('const chars = Array.from("abc", (c) => c);')).toEqual([]);
+      expect(plantSites('const chars = (Array).from("abc");')).toEqual([]);
       // …and the exclusion is by RECEIVER, so a real boundary with the same
       // argument still counts.
       expect(plantSites('await sb.from("abc");')).toEqual([{ kind: "from", literal: "abc" }]);
+    });
+
+    // Documented limit §6.8, made executable rather than left as prose. Other
+    // built-ins with a static `from` are NOT excluded: enumerating them is an
+    // open set, and their worst case is a LOUD false positive answered by one
+    // waiver comment. The heuristics that would close it (a capitalized-receiver
+    // rule) trade this for a SILENT miss on a client held in a capitalized
+    // binding, which the consequence bound forbids (whole-diff R6 F2).
+    test("documented limit §6.8: other built-in `from` receivers are reported, loudly", () => {
+      for (const receiver of ["Buffer", "Readable", "Uint8Array"]) {
+        expect(plantSites(`const b = ${receiver}.from("abc");`), receiver).toEqual([
+          { kind: "from", literal: "abc" },
+        ]);
+      }
+      expect(plantSites('const a = globalThis.Array.from("abc");')).toEqual([
+        { kind: "from", literal: "abc" },
+      ]);
     });
 
     test("the discriminator is unchanged: no static string name, no site", () => {
