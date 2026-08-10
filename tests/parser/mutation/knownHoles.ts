@@ -131,32 +131,36 @@ export function findingFor(siteId: string): string {
 //     plus 7 new text_drift rows for the REF_ERROR_LITERAL sites, each mechanism-named.
 //     35 rows discriminated as GENUINE signal_loss and were left alone. ────
 // ─── SHRUNK 2026-08-09 by the ROW_CELLS_FUSED width discriminator
-//     (`feat/mutation-merged-cell`, mutation wave 3/5): 2389 holes closed, taking
-//     3708 → 1319. The class it targeted is `merged-cell` (2369 of its 2407 rows), but the
+//     (`feat/mutation-merged-cell`, mutation wave 3/5): 2388 holes closed, taking
+//     3708 → 1320. The class it targeted is `merged-cell` (2369 of its 2407 rows), but the
 //     shrink deliberately is NOT scoped to that operator: a short-by-one row is the shape
-//     the discriminator recognizes, and `column-shift` (18) and `blank-row:remove` (2)
-//     produce it too. Those 20 rows are a real coverage win for classes branches 4 and 1
+//     the discriminator recognizes, and `column-shift` (17) and `blank-row:remove` (2)
+//     produce it too. Those 19 rows are a real coverage win for classes branches 4 and 1
 //     own, so branch 4 inherits a smaller `column-shift` blast radius than its plan states.
 //     RESIDUE: 38 merged-cell mutants survive by design (spec §5.3) —
 //     the fused row sits in a section the discriminator SKIPS, either under the 3-data-row
 //     floor (every `B0:L0` row is the one-data-row title block) or in a section whose width
 //     distribution ties, so "short by one against the section's normal width" has no
-//     referent. Not a gap: a skipped section yields zero output and zero corruption. ────
-// 1319 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
+//     referent. Not a gap: a skipped section yields zero output and zero corruption.
+//     ONE ROW CAME BACK, deliberately and by measurement: `column-shift:ria:B13:L63:X0`
+//     was deleted in the first pass, then reported as a `newHoles` REGRESSION by the
+//     confirming run, because the shrink had been derived against a parser that changed
+//     afterwards (the section boundary moved from the routing table to the header
+//     registry). Restoring it is the ratchet working as designed -- the ledger records
+//     what the CURRENT parser actually catches, so a row whose mutant survives again
+//     belongs in it, and quietly leaving it out would have been a silent hole. ────
+// 1320 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
 // hole) or a FIX (a resolved hole → stale row) both fail the nightly harness. Stored as
 // pipe-delimited rows inside a TEMPLATE LITERAL (prettier leaves its interior intact, so each hole
-// stays ONE line instead of prettier exploding 1319 object literals to ~11k lines). Row format:
+// stays ONE line instead of prettier exploding 1320 object literals to ~11k lines). Row format:
 //   siteId|kind|fingerprint|finding|note      (fields are pipe-free: siteId uses ':', fp is hex)
 // finding = OPERATOR_FINDING_MAP[operator] (audit #N or BL-MUTATION-* — never a blanket "unaudited",
 // Codex R3). Fingerprints use the EXHAUSTIVE-by-type signal redaction (oracle.ts redactNode) so an
 // in-ledger drift on ANY signal field is caught (Codex R3). Ratchet: SHRINK this list as holes are
 // fixed; never grow it silently. Breakdown: 6 domain-scoped corrupting ops + section-reorder;
-// section-reorder (order-sensitivity, reclassified corrupting) = 82; all others = 1237;
-// by kind: 1270 wrong + 31 signal_loss + 18 text_drift.
+// section-reorder (order-sensitivity, reclassified corrupting) = 82; all others = 1238;
+// by kind: 1271 wrong + 31 signal_loss + 18 text_drift.
 const RAW_HOLES = `
-blank-row:remove:2025-10-consultants-roundtable:B21:L208:Xgap|text_drift|f4a04ae746ad05b4|#10|section fused: warning anchor moved
-blank-row:remove:fintech:B24:L276:Xgap|text_drift|0714e12baed4a061|#10|section fused: warning anchor moved
-blank-row:remove:rpas:B25:L229:Xgap|text_drift|0563a9eeee8deaa1|#10|section fused: warning anchor moved
 blank-row:inject:2024-05-east-coast-family-office:B10:L69:Xgap0|wrong|73d9f07eed068f65|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B10:L70:Xgap1|wrong|c1155b75248f6c82|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B10:L71:Xgap2|wrong|ee0abbf53bbca1e1|#10|blank-row wrong @ inject
@@ -1023,9 +1027,12 @@ blank-row:inject:rpas:B8:L54:Xgap10|wrong|aacec5b7a82104a4|#10|blank-row wrong @
 blank-row:inject:rpas:B8:L55:Xgap11|wrong|aacec5b7a82104a4|#10|blank-row wrong @ inject
 blank-row:remove:2025-03-dci-rpas-central:B0:L5:Xgap|wrong|95cf315b569f7a90|#10|blank-row wrong @ remove
 blank-row:remove:2025-03-dci-rpas-central:B17:L338:Xgap|wrong|b5dbe60934fe0024|#10|blank-row wrong @ remove
+blank-row:remove:2025-10-consultants-roundtable:B21:L208:Xgap|text_drift|f4a04ae746ad05b4|#10|section fused: warning anchor moved
 blank-row:remove:2026-03-rpas-central-four-seasons:B3:L38:Xgap|wrong|ebfc6cc22e15f2a9|#10|blank-row wrong @ remove
 blank-row:remove:east-coast:B14:L88:Xgap|wrong|4f6e132d00be45bf|#10|blank-row wrong @ remove
 blank-row:remove:east-coast:B21:L265:Xgap|wrong|43e5b699c0b71d29|#10|blank-row wrong @ remove
+blank-row:remove:fintech:B24:L276:Xgap|text_drift|0714e12baed4a061|#10|section fused: warning anchor moved
+blank-row:remove:rpas:B25:L229:Xgap|text_drift|0563a9eeee8deaa1|#10|section fused: warning anchor moved
 column-shift:2024-05-east-coast-family-office:B0:L0:X0|wrong|a021768c83b0d05d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B10:L67:X0|wrong|dc5cd8285b10cb13|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B14:L206:X0|wrong|9f6be2826ef677bd|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
@@ -1193,6 +1200,7 @@ column-shift:redefining-fi:B5:L30:X0|wrong|a1e59804ba382189|BL-MUTATION-COLUMN-S
 column-shift:redefining-fi:B7:L37:X0|wrong|8f8b151ee53f5dde|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
 column-shift:ria:B0:L0:X0|wrong|00c587b86d33cc86|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
 column-shift:ria:B12:L58:X0|wrong|b023606aaaeb6a34|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
+column-shift:ria:B13:L63:X0|wrong|8a06dd4f905065ef|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
 column-shift:ria:B15:L67:X0|wrong|a1f568e0cb8776ef|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
 column-shift:ria:B16:L88:X0|wrong|dc753f8687083fee|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
 column-shift:ria:B17:L101:X0|wrong|987fc9c2e6c74182|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
