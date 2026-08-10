@@ -388,6 +388,27 @@ function plainText(node: MdNode): string {
   return out;
 }
 
+type Span = { value: string; at: number };
+
+/**
+ * Real `inlineCode` nodes, not backtick-delimited substrings of prose.
+ *
+ * Round 8 moved BLOCK structure to the AST and left INLINE structure to a regex
+ * over normalized text, and round 11 walked straight into the gap: a blank line
+ * inside a code span ends it (CommonMark does not carry inline code across one),
+ * shattering `` `pnpm test` `` into malformed fragments like `", "` — while
+ * `normalize()` collapsed the blank line and handed every check back a tidy
+ * `` `pnpm test` `` that no longer exists in the document. The parser is the only
+ * thing that knows what a code span IS.
+ */
+function codeSpans(node: MdNode, out: Span[] = []): Span[] {
+  if (node.type === "inlineCode" && typeof node.value === "string") {
+    out.push({ value: node.value, at: node.position?.start.offset ?? 0 });
+  }
+  for (const child of node.children ?? []) codeSpans(child, out);
+  return out;
+}
+
 function containsType(node: MdNode, type: string): boolean {
   if (node.type === type) return true;
   return (node.children ?? []).some((child) => containsType(child, type));
@@ -395,7 +416,7 @@ function containsType(node: MdNode, type: string): boolean {
 
 const OPENER_TEXT = "Heavy local phases run under the machine-wide slot semaphore.";
 
-type Located = { source: string; item: MdNode } | { problem: string };
+type Located = { source: string; item: MdNode; at: number } | { problem: string };
 
 /** Locate the rule's list item through the markdown AST. */
 export function locateRule(agents: string): Located {
@@ -432,7 +453,7 @@ export function locateRule(agents: string): Located {
         if (from === undefined || to === undefined) {
           return { problem: "the heavy-phase rule item has no source position" };
         }
-        return { source: agents.slice(from, to), item };
+        return { source: agents.slice(from, to), item, at: from };
       }
     }
   }
@@ -473,6 +494,13 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   const mustAt = rule.indexOf(MUST_MARKER);
   const mustNotAt = rule.indexOf(MUST_NOT_MARKER);
   const tailAt = rule.indexOf(TAIL_MARKER);
+  // The same three boundaries in RAW offsets, so a parsed code span can be
+  // placed in a region. Whitespace-tolerant, because the raw text may be
+  // reflowed anywhere a space appears.
+  const rawAt = (pattern: RegExp): number => raw.search(pattern);
+  const rawMustAt = rawAt(/\*\*MUST\s+wrap\*\*/);
+  const rawMustNotAt = rawAt(/\*\*MUST\s+NOT\s+wrap\*\*/);
+  const rawTailAt = rawAt(/Wrap\s+the\s+OUTERMOST\s+command\s+only/);
   if (mustAt === -1) problems.push(`the rule has no ${MUST_MARKER} block`);
   if (mustNotAt === -1) problems.push(`the rule has no ${MUST_NOT_MARKER} block`);
   if (tailAt === -1) problems.push(`the rule has no "${TAIL_MARKER}" tail`);
@@ -492,14 +520,24 @@ export function checkHeavyPhaseRule(agents: string): string[] {
     ...EXTRA_MEMBERS,
   ];
 
+  const spans = codeSpans(located.item).map((span) => ({
+    value: normalize(span.value),
+    at: span.at - located.at,
+  }));
+  const inRegion = (span: { at: number }, from: number, to: number): boolean =>
+    from !== -1 && span.at >= from && (to === -1 || span.at < to);
+
   for (const [literal, side] of members) {
-    const pattern = codeSpan(literal);
-    const own = side === "must" ? mustRegion : mustNotRegion;
-    const other = side === "must" ? mustNotRegion : mustRegion;
-    if (!pattern.test(own)) problems.push(`${side.toUpperCase()} member missing: \`${literal}\``);
+    const wanted = normalize(literal);
+    const here = side === "must" ? [rawMustAt, rawMustNotAt] : [rawMustNotAt, rawTailAt];
+    const there = side === "must" ? [rawMustNotAt, rawTailAt] : [rawMustAt, rawMustNotAt];
+    const matching = spans.filter((span) => span.value === wanted);
+    if (!matching.some((span) => inRegion(span, here[0]!, here[1]!))) {
+      problems.push(`${side.toUpperCase()} member missing: \`${literal}\``);
+    }
     // The absence half is what catches a member MOVED across the boundary,
     // which a presence-only check reads as still-present.
-    if (pattern.test(other)) {
+    if (matching.some((span) => inRegion(span, there[0]!, there[1]!))) {
       problems.push(`${side.toUpperCase()} member \`${literal}\` appears on the wrong side`);
     }
   }
@@ -579,6 +617,10 @@ describe("AGENTS.md heavy-phase rule", () => {
 
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
+    [
+      "break a code span with a blank line, so the command stops being one",
+      editRule("`pnpm test`", "`pnpm\r\n\r\n  test`"),
+    ],
     [
       "smuggle a non-breaking space into a command",
       editRule("`pnpm test`", "`pnpm\u00a0test`"),
@@ -811,6 +853,14 @@ describe("AGENTS.md heavy-phase rule", () => {
           "## Cross-cutting discipline (from milestone retrospectives)",
           "Cross-cutting discipline (from milestone retrospectives)\n" + "-".repeat(58),
         ),
+    ],
+    [
+      "a single line break is introduced inside a code span",
+      (text) => text.replace("`pnpm test:fast`", "`pnpm\n  test:fast`"),
+    ],
+    [
+      "the whole file uses CRLF line endings",
+      (text) => text.replace(/\r?\n/g, "\r\n"),
     ],
     [
       "the section heading is renamed within the same cross-cutting tier",

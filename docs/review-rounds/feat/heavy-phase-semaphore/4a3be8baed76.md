@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 10 rounds
+## diff — 11 rounds
 
-**Examined:** ten counted rounds on the implementation diff, dispatched as two
+**Examined:** eleven counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3/5/3/2/2 findings across rounds 1-10 — twenty-three in total.
+string-presence guard, 4/1/1/1/1/3/5/3/2/2/1 findings across rounds 1-11 — twenty-four in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned nine is a paragraph of
+spec rounds had probed each one. The half that burned ten is a paragraph of
 English and a regex list.
 
-**Judgment:** eight of the twenty-three diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the twenty-four diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -231,13 +231,26 @@ the TIER — `cross-cutting` — which is what spec §5 makes normative; whether
 heading calls it discipline, rules, or notes is an organizational choice with
 nothing to do with this rule.
 
+Round 11 closed the arc's last structural gap, and it is the round-8 lesson
+arriving one level deeper. Round 8 moved BLOCK structure to the AST; INLINE
+structure was left as a regex over normalized text, and that is exactly where the
+next mutant landed. A blank line inside a code span ENDS it — CommonMark does not
+carry inline code across one — so `` `pnpm test` `` shattered into malformed
+fragments like `", "`, while `normalize()` collapsed the blank line away and
+handed every check a tidy `` `pnpm test` `` that no longer existed in the document.
+Members are now matched against real `inlineCode` node VALUES, placed into MUST /
+MUST-NOT regions by source offset. The parser is the only thing that knows what a
+code span is, and "use the parser" turned out to apply at every level of the
+document, not just the one that failed first.
+
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
 registry catches a shape added to §4.6, block structure comes from `remark` rather
 than from a regex over syntax, normalization collapses only ASCII whitespace so a
-smuggled U+00A0 cannot read as a space, and 54 cases — 34 `OPERATORS` rows plus
-eighteen stays-quiet rows — run on every suite, so no repair can silently regress
-an earlier one in either direction. What
+smuggled U+00A0 cannot read as a space, members are matched against parsed
+`inlineCode` values rather than backticked substrings, and 57 cases — 35
+`OPERATORS` rows plus twenty stays-quiet rows — run on every suite, so no repair
+can silently regress an earlier one in either direction. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
 than a pattern list when the guard's subject is prose. That has no static signature;
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and
