@@ -6959,6 +6959,8 @@ resolves.
 
 ---
 
+<<<<<<< HEAD
+
 ## BL-WIZARD-CONNECTOR-MAXW-INERT — the wizard step connector renders 0-width, so its `max-w` is a dead constraint — CLOSED 2026-08-10 (`feat/wizard-step-connector`)
 
 **Status:** CLOSED · **Severity:** LOW (cosmetic; an intended hairline separator never renders) · **Class:** UI correctness · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** S · **Reachability:** PROBED 2026-08-08 — measured `getBoundingClientRect()` in mobile-safari at 390px AND at 900px: both connectors are `0 × 1` at both widths.
@@ -6973,4 +6975,124 @@ resolves.
 
 **Work:** decide whether the connector should render; if yes, let the nav stretch (`w-full` on the nav, or `flex-1` on its wrapper) and re-baseline `tests/e2e/__baselines__/canonical-dimensions.json`, which will then measure a real 60px clamp.
 
-**Closed by measurement, not by assumption.** The connector renders at a fixed 60px (`w-confirm-box`) instead of `flex-1 max-w-confirm-box`: the flex-grow was measured at exactly 60px in all twelve step x viewport x theme cells, so it grew nothing and only displaced dead space. The same measurement pass found the hairline was invisible even once rendered (1.22:1 on the page, and a 1.25:1 done/ahead split), so both colours moved to the text ramp — see DESIGN.md §1.2a, which generalizes the rule.
+# **Closed by measurement, not by assumption.** The connector renders at a fixed 60px (`w-confirm-box`) instead of `flex-1 max-w-confirm-box`: the flex-grow was measured at exactly 60px in all twelve step x viewport x theme cells, so it grew nothing and only displaced dead space. The same measurement pass found the hairline was invisible even once rendered (1.22:1 on the page, and a 1.25:1 done/ahead split), so both colours moved to the text ramp — see DESIGN.md §1.2a, which generalizes the rule.
+
+## BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer — CLOSED 2026-08-10 (`feat/crew-chrome-footer-avatar`)
+
+**Status:** CLOSED · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844, scrolled fully to the bottom):
+
+```
+toggle  top 775.6  bottom 819.6  (44x44)
+bar     top 790.7  bottom 844    (height 53.3)   overlaps: true
+footer  top 637.0  bottom 843.6
+document.elementFromPoint(toggle centre) -> the BAR's <svg>
+getComputedStyle(document.body).paddingBottom -> "0px"
+```
+
+The crew sub-nav's fixed bottom bar (`min-[720px]:hidden fixed inset-x-0 bottom-0 z-10`,
+`components/crew/CrewSubNav.tsx:155`) sits over the last ~53px of the footer, and nothing pads the
+page to clear it. The toggle's centre point belongs to the nav bar, so Playwright refuses the click
+with "intercepts pointer events" — and a real thumb lands on the nav tab, not the toggle. Only a
+~15px sliver of the toggle is reachable.
+
+**Why it was invisible until now:** every spec that touched the footer at mobile width was
+`test.describe.skip` against a 404ing route. `crew-page.spec.ts`'s inv8 asserts that the last SECTION
+block clears the fixed bar; the FOOTER is outside `page-container` and no invariant covered it.
+
+**Not fixed in-arc** — exception (a): how the footer should clear the mobile bar (page padding vs
+moving the toggle into the sub-nav vs hiding the footer chrome behind the bar) is a design call this
+arc does not settle. `tests/e2e/theme-toggle.spec.ts` therefore drives its interaction cases at 760px,
+where the bar does not render (`min-[720px]:hidden`), and still asserts the 44px tap floor at 390px.
+
+**Probably one fix with [[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]]:** both symptoms point at
+`crew-shell` being a plain block that breaks the `page-shell` flex chain the footer is written for.
+
+---
+
+---
+
+---
+
+---
+
+## BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT — `mt-auto` on the crew footer is inert, so a short page leaves it mid-viewport — CLOSED 2026-08-10 (`feat/crew-chrome-footer-avatar`)
+
+**Status:** CLOSED · **Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844):
+
+```
+topology  page-shell (display:flex, flex-direction:column)
+            > crew-shell (display:block)          <- breaks the flex chain
+              > page-footer (class mt-auto)
+getComputedStyle(page-footer).marginTop -> "0px"   <- mt-auto resolves to ZERO
+
+every seeded section is taller than the viewport, so the case never occurs on this seed:
+  today 1985 · venue 1539 · travel 1459 · gear 1391 · crew 1329 · schedule 1083   (viewport 844)
+
+constructed short case (section body collapsed; docH 844 == viewport):
+  footer top 135.9  bottom 342.5   gapBelowFooter 501.5px
+```
+
+`mt-auto` only pushes an element when its PARENT is a flex container. The footer's parent is
+`crew-shell`, a plain block, so the declaration does nothing and the footer sits in natural flow. On a
+page shorter than the viewport it floats mid-screen with dead space beneath it.
+
+**Consequence today is nil and the signal is surfaced, not silent** — no seeded show is short enough
+to hit it, which is exactly why the residue test the spec proposed (§3.3.2) was NOT landed: it would
+have been red on arrival against the current tree. Filed under exception (a) rather than fixed: making
+`crew-shell` participate in the flex chain is a layout change to a shipped surface, and it would
+trigger the invariant-8 impeccable dual gate.
+
+**Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
+
+---
+
+### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
+
+**Decision:** 2026-08-10, closed by `fix/sync-log-show-id-duration` (PR #767).
+
+**What was built.** The data half, and only that. `sync_log.show_id` is now resolved at the sink for every routine writer — from `drive_file_id`, inside the INSERT — so a show's sync history is queryable: `pnpm observe synclog --show <uuid>`. Before this, that command returned nothing for every show, and an empty result was indistinguishable from a healthy one (probe: 5073 rows, `count(show_id) = 0`). `duration_ms` is populated on narrower terms and deliberately so: only writers that own an attempt boundary record one, and the §3.3.1 writers (run-level emits, webhook direct-error classes) carry NULL because they describe no single attempt. Indexes on `(show_id, occurred_at DESC)` and `(drive_file_id, occurred_at DESC)` make the per-show read cheap; `prune_sync_log` bounds retention at 60 days.
+
+**What was deliberately NOT built, and why.** The two operator-facing sections this entry asked for — "Sync health (last 5)" and "Parse warnings (history)" on the per-show surface. When the entry was worked on 2026-08-09 the audience question was put directly, and the answer was that a history of failing syncs is a DEVELOPER need, not an operator one: Doug already has `admin_alerts` for high-signal failure notification, active and surfaced above the page chrome, and historical aggregation is something a developer reaches for when diagnosing. So the deliverable is the CLI query working, not new modal sections.
+
+That is a settled call, not deferred work. If FXAV operator feedback later surfaces the "I can't tell if sync has been silently failing" pattern, the UI is now cheap to add — the schema decision this entry was blocked on is made, the store is `sync_log`, and the read path exists. File a NEW entry for the surface at that point; it will be a UI scoping question, not the data-model question this one was.
+
+**The original entry, preserved:**
+
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — a schema/data-model decision, and the store is part of what must be decided. This entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`; sync history and warnings persist to `sync_log` (`lib/sync/syncLog.ts:43`), NOT to `app_events`. A possible bundle with BL-OPS-LOG-DASHBOARD-BANNER is worth evaluating because both surface operator history to an admin, but they read DIFFERENT stores today, so the bundle is a design question rather than a shared read path. (Corrected 2026-08-06: an earlier version of this stamp asserted a shared `app_events` read path, which pre-selected a store that does not hold this history.)
+
+**Store correction 2026-08-06 (L-wave, cross-model review R3):** the body below proposes a new table or view and states schema work is mandatory. That is no longer established. `public.sync_log` already carries `show_id`, `drive_file_id`, status/code, warnings, and `occurred_at`, and `querySyncLog` (`lib/observe/query/syncLog.ts:24`) already filters per show/file and orders newest-first — so a per-show history view may need no new schema at all. What remains genuinely open is whether that store's COMPLETENESS, RETENTION, and INDEXING suit an operator-facing history, which is a design question rather than a schema prerequisite. Read the body's schema framing as superseded by this note.
+
+**Origin:** M11-E-D4 (MEDIUM) filed 2026-05-20. M11 `/help/admin/per-show-panel` documents per-spec §9.2 a "sync health" section (last 5 sync attempts) and a dedicated parse-warnings history section. Shipped `app/admin/show/[slug]/page.tsx` renders `PerShowAlertSection` + `ReSyncButton` + `ParsePanel` + `HelpTooltip` only; no historical-aggregate views.
+
+**Scope:** Add two new sections to `app/admin/show/[slug]/page.tsx`:
+
+- **Sync health (last 5)** — render the most recent 5 sync attempts for the show with timestamp + outcome (success / partial / hard-fail) + (if failed) the canonical error code. Data source TBD: most likely a new `sync_history` table OR a derived view over existing `pending_syncs` + `shows.last_seen_modified_time` change events. Either path requires schema work.
+- **Parse warnings (history)** — distinct from the live `ParsePanel` view (which shows currently-blocked-on-warnings pending_syncs rows), this would show the historical aggregate of parse warnings emitted by previous sync attempts. Data source: extend `shows_internal.parse_warnings` to be append-only history OR query `pending_syncs` history.
+
+Both surfaces need a schema decision (new table vs derived view vs append-only column) before implementation.
+
+**Why backlog, not deferred:** No v1 ops gap. Doug has `admin_alerts` for high-signal failure notification (active and surfaced above the page chrome); historical-aggregate diagnostics are observability polish, not ops requirement. Both sections need schema/data-model work that's outside small mechanical fix scope.
+
+**Promotion prerequisite:** Either (a) FXAV operator feedback surfaces "I can't tell if sync has been silently failing" pattern (real observability gap), OR (b) a v1.x admin-UX or admin-observability milestone bundles this with BL-OPS-LOG. The data-model question (new table vs derived view vs append-only column) needs a brainstorming session.
+
+### BL-APPEVENTS-PRUNE-TEST-UNGUARDED-TARGET
+
+**Decision:** 2026-08-10, FIXED by `fix/sync-log-show-id-duration` (PR #767). `tests/log/appEventsSchema.test.ts` now resolves its URL through `assertLocalDbUrl`, runs the prune inside an always-rolled-back transaction, and asserts the returned count against a baseline measured in that same transaction rather than `>= 1`. The destructive-target guard was extended to discover prune calls, so this class fails loudly rather than silently pruning shared history.
+
+**The original entry, preserved:** — an existing test can prune the validation project
+
+**Status:** FIXED · **Severity:** HIGH (data loss on a shared project; live today) · **Class:** test safety · **Effort:** S · **Filed:** 2026-08-09
+
+**Probe.** `tests/log/appEventsSchema.test.ts:5` resolves its connection as `process.env.TEST_DATABASE_URL ?? <loopback default>` with **no `assertLocalDbUrl` guard**, and `:66` executes `select public.prune_app_events(interval '60 days')`. `TEST_DATABASE_URL` on the shipping machine is the persistent validation project (`AGENTS.md:218`), so running that suite with the ambient env deletes 60 days of validation telemetry.
+
+**Why it is invisible today.** `tests/db/_metaDestructiveDbTargetGuard.test.ts:35-41` discovers destructive tests by two literal patterns — `reset_validation_data` and the `destructive_reset_gate` update. Neither matches a prune, so this file has never been in the guard's `destructive` set and its missing loopback assertion has never been checked.
+
+**Found by** cross-model plan review R2 F6 on `fix/sync-log-show-id-duration`, which extends that guard's discovery to `prune_(sync_log|app_events)`. That arc repairs this file as part of its Task 5b — the guard cannot reach green while a discovered test lacks the assertion — so this entry exists to record the hazard and its independence: it predates that change and would remain if the change were abandoned.
+
+**Fix:** route the URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`), matching every other destructive DB test.
+
+> > > > > > > origin/main

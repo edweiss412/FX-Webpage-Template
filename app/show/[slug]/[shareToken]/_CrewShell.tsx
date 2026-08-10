@@ -458,7 +458,25 @@ export async function CrewShell({
     // diverge from the live one after a tap, exposing two conflicting active
     // sections in the DOM (whole-diff review R1 [MED]). `activeSection` is still
     // the controller's `initialSection` seed below.
-    <div data-testid="crew-shell">
+    // THE FLEX CHAIN, stated explicitly because Tailwind v4 does NOT default
+    // `.flex` to `align-items: stretch` (DESIGN.md §7). `page-shell` is
+    // `flex min-h-screen flex-col` (app/show/[slug]/layout.tsx) precisely so the
+    // footer's `mt-auto` anchors; this div used to be CLASSLESS, so `mt-auto`
+    // resolved against a block parent and did nothing — the shared root cause of
+    // BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT and
+    // BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR.
+    //
+    // The bar clearance lives HERE, as bottom padding on the shell, and that
+    // placement is the fix rather than an implementation detail: padding INSIDE
+    // the footer moves the footer's CONTENT up while the footer's own box still
+    // ends underneath the fixed bar. The space has to be UNDER the footer.
+    // 44px (`--spacing-tap-min`) + 1rem = 60px clears the measured 53.3px bar
+    // with 6.7px to spare; `env(safe-area-inset-bottom)` adds the iOS home
+    // indicator on hardware that has one and is 0 in the e2e harness.
+    <div
+      data-testid="crew-shell"
+      className="flex min-h-0 flex-1 flex-col pb-[calc(var(--spacing-tap-min)+env(safe-area-inset-bottom)+1rem)] min-[720px]:pb-0"
+    >
       <Header
         show={headerShow}
         statusPill={statusPill}

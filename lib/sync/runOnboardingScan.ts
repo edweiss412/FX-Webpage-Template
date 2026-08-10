@@ -659,8 +659,8 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
   async logSync(entry: { code: string; driveFileId?: string; payload?: Record<string, unknown> }) {
     await this.rows(
       `
-        insert into public.sync_log (drive_file_id, status, message, parse_warnings)
-        values ($1, $2, $3, $4::jsonb)
+        insert into public.sync_log (show_id, drive_file_id, status, message, parse_warnings)
+        values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::jsonb)
       `,
       [
         entry.driveFileId ?? null,
@@ -737,7 +737,12 @@ async function scanPreparedFileWithTx(
       }),
     );
     if (!wrote) {
-      await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+      await callTx("logSync", () =>
+        tx.logSync({
+          code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+          driveFileId: file.driveFileId,
+        }),
+      );
       return {
         kind: "stop",
         result: { outcome: "superseded", code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN, processed },
@@ -823,7 +828,12 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+        await callTx("logSync", () =>
+          tx.logSync({
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            driveFileId: file.driveFileId,
+          }),
+        );
         return {
           kind: "stop",
           result: {
@@ -839,7 +849,12 @@ async function scanPreparedFileWithTx(
 
     if (result.outcome === "stage") {
       if (result.stagedId.length === 0) {
-        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+        await callTx("logSync", () =>
+          tx.logSync({
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            driveFileId: file.driveFileId,
+          }),
+        );
         return {
           kind: "stop",
           result: {
@@ -860,7 +875,12 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+        await callTx("logSync", () =>
+          tx.logSync({
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            driveFileId: file.driveFileId,
+          }),
+        );
         return {
           kind: "stop",
           result: {
@@ -893,7 +913,12 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+        await callTx("logSync", () =>
+          tx.logSync({
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            driveFileId: file.driveFileId,
+          }),
+        );
         return {
           kind: "stop",
           result: {
@@ -919,7 +944,12 @@ async function scanPreparedFileWithTx(
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+        await callTx("logSync", () =>
+          tx.logSync({
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            driveFileId: file.driveFileId,
+          }),
+        );
         return {
           kind: "stop",
           result: {
@@ -1016,7 +1046,12 @@ async function recordLiveRowConflict(
     }),
   );
   if (!wrote) {
-    await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+    await callTx("logSync", () =>
+      tx.logSync({
+        code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+        driveFileId: file.driveFileId,
+      }),
+    );
     return false;
   }
   await callTx("logSync", () =>

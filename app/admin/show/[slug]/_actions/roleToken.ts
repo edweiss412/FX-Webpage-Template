@@ -27,6 +27,7 @@ import { canonicalRoleToken, isBuiltInRoleToken } from "@/lib/parser/roleVocabul
 import { normalizeGrants } from "@/lib/sync/roleMappingOverlay";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import type { ParseWarning } from "@/lib/parser/types";
 import { resolveShowById } from "./shared";
@@ -181,7 +182,9 @@ export async function mapRoleToken(
   // same apply_pending state the UI self-heals to (§7; mirrors useRaw.ts:155-170).
   let applied = false;
   try {
-    const sync = await runManualSyncForShow(driveFileId);
+    const sync = await runManualSyncForShow(driveFileId, "manual", {
+      processDeps: { logSync: writeSyncLog },
+    });
     applied =
       sync !== null &&
       typeof sync === "object" &&

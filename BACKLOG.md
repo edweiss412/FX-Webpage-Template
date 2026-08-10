@@ -454,6 +454,58 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 **Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
 
+### BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES — two deliberate-authoring bypasses of the crew-e2e wiring guard
+
+**Severity:** LOW (both require deliberately writing a gate that looks like a declaration but is not; accidental cases are caught loudly) · **Class:** guard coverage · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 4, owner-ratified as a documented limit) · **Effort:** M
+
+**Both probed, with the mutants recorded so a future round starts from evidence:**
+
+1. `expectRegistryRowsAreLive` accepts any `test.skip(...)` as live without proving its condition can exclude the registered projects. `test.skip(false, "…")` binds a row while gating nothing.
+2. One `PROJECT_GATED` row relaxes the identifier ban for the entire FILE, and the body scans deliberately skip nested callbacks — so a gate inside a `test.step` in another test of the same file is unscanned.
+
+**Why it is a limit, not an open bug.** The guard's threat model is ordinary authoring mistakes by a contributor adding or gating a test; both bypasses require deliberately constructing a fake declaration. Four review rounds each produced a narrower bypass with no product-code change, which is the recognizer ratchet the round-economy rule names: "no bypass exists" ranges over an open class and does not terminate. Owner ratified shipping with the limit documented in the guard's own header.
+
+**Promotion trigger:** a real contributor hits one of these by accident, or the guard is extended to a surface where a fake declaration is plausible.
+
+---
+
+### BL-IDENTITY-CLEAR-FAILURE-IS-SILENT — a failed "switch person" reports success
+
+**Severity:** MEDIUM (the crew member believes they signed out of an identity they are still in) · **Class:** correctness / UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 2) · **Effort:** M
+
+**Probed, not theorized.** `clearIdentity` resolves a typed result, and the failure branch is reachable:
+
+```
+clearIdentity failure branch: {"ok":false,"code":"PICKER_RESOLVER_LOOKUP_FAILED"}
+```
+
+`clearIdentityFormAction` in `components/auth/IdentityChip.tsx` awaits it and returns `void`, so the avatar menu closes and the page proceeds as though the identity were cleared.
+
+**Why it is filed rather than fixed in this arc.** The fix is not the discard — it is that the menu has NO failure state to render into. That needs: where the message appears (inside the popover, which closes on submit; or a page-level region), what it says (a §12.4 catalog code, per the no-raw-codes contract), and whether the menu stays open on failure. Those are design decisions, not implementation details. Class-sweep disposition exception (a).
+
+**Note:** the code comment that previously called this "harmless to discard at the form boundary" has been corrected in place — the premise was false, and leaving it would have made the next reader believe the gap was considered and dismissed.
+
+---
+
+### BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal
+
+**Severity:** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S
+
+**Probed, not theorized.** With `localStorage.setItem` throwing (restrictive in-app browser, private mode, third-party-storage block):
+
+```
+after-toggle-with-storage-blocked: dark:dark  stored null
+next-load/os-light:                light
+```
+
+The user picks dark, the page turns dark, and the next load is light again with nothing said.
+
+**Why it is filed rather than fixed here.** `components/layout/useAppliedTheme.ts` absorbs the write failure deliberately — throwing would take the whole control down over a preference, and the fallback (follow the OS) is the conservative answer. What is missing is the SIGNAL, and what the signal should say is a product-copy decision this arc cannot settle: a toast is heavy for a preference, an inline note next to a toggle inside a popover has nowhere to live, and "your browser will not remember this" is the kind of technical explanation `PRODUCT.md` §5 rules out of the UI. Class-sweep disposition exception (a): needs a product decision.
+
+**Reachability:** PROBED — the failure mode is reachable in any embedded webview with storage partitioning, which is exactly where crew open a link from a group thread.
+
+---
+
 ### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
 
 **Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** low · **Class:** FEATURE REACH · **Effort:** S
@@ -818,25 +870,111 @@ plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then l
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
 
-### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
+### BL-SYNC-LOG-EMIT-UNGUARDED — a failed observability write can fail the sync it observes
 
-**Effort:** L (scope floor — design-gated)
-**l-wave-screen 2026-08-06:** PREREQ — scope floor — a schema/data-model decision, and the store is part of what must be decided. This entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`; sync history and warnings persist to `sync_log` (`lib/sync/syncLog.ts:43`), NOT to `app_events`. A possible bundle with BL-OPS-LOG-DASHBOARD-BANNER is worth evaluating because both surface operator history to an admin, but they read DIFFERENT stores today, so the bundle is a design question rather than a shared read path. (Corrected 2026-08-06: an earlier version of this stamp asserted a shared `app_events` read path, which pre-selected a store that does not hold this history.)
+**Status:** OPEN · **Severity:** MEDIUM (availability of manual sync under a transient DB fault) · **Class:** error handling · **Effort:** S · **Filed:** 2026-08-10
 
-**Store correction 2026-08-06 (L-wave, cross-model review R3):** the body below proposes a new table or view and states schema work is mandatory. That is no longer established. `public.sync_log` already carries `show_id`, `drive_file_id`, status/code, warnings, and `occurred_at`, and `querySyncLog` (`lib/observe/query/syncLog.ts:24`) already filters per show/file and orders newest-first — so a per-show history view may need no new schema at all. What remains genuinely open is whether that store's COMPLETENESS, RETENTION, and INDEXING suit an operator-facing history, which is a design question rather than a schema prerequisite. Read the body's schema framing as superseded by this note.
+**Probe evidence.** `lib/sync/runScheduledCronSync.ts:2273` is `await deps.logSync?.(entry);` — no try/catch. `logSync` is called from inside the lock callback at `lib/sync/runScheduledCronSync.ts:3339` and `lib/sync/runScheduledCronSync.ts:3346` (both in `processOneFile_unlocked`, which `withShowLock` invokes), and the installed sink is `writeSyncLog`, which opens its OWN postgres connection (`lib/sync/syncLog.ts:51`). A transient connection fault at emit time therefore throws out of the lock callback and rolls the sync transaction back: **the log write can fail the thing it exists to observe.**
 
-**Origin:** M11-E-D4 (MEDIUM) filed 2026-05-20. M11 `/help/admin/per-show-panel` documents per-spec §9.2 a "sync health" section (last 5 sync attempts) and a dedicated parse-warnings history section. Shipped `app/admin/show/[slug]/page.tsx` renders `PerShowAlertSection` + `ReSyncButton` + `ParsePanel` + `HelpTooltip` only; no historical-aggregate views.
+**Why it is filed now.** The behavior predates this work, but `fix/sync-log-show-id-duration` widened its blast radius from two entry points to ten — every manual re-sync path now installs the sink. Surfaced by the invariant-8 critique on that branch.
 
-**Scope:** Add two new sections to `app/admin/show/[slug]/page.tsx`:
+**Why NOT fixed in that branch (disposition reason (a) — needs a product decision the PR cannot settle).** Both dispositions are defensible and the choice is not the implementer's:
 
-- **Sync health (last 5)** — render the most recent 5 sync attempts for the show with timestamp + outcome (success / partial / hard-fail) + (if failed) the canonical error code. Data source TBD: most likely a new `sync_history` table OR a derived view over existing `pending_syncs` + `shows.last_seen_modified_time` change events. Either path requires schema work.
-- **Parse warnings (history)** — distinct from the live `ParsePanel` view (which shows currently-blocked-on-warnings pending_syncs rows), this would show the historical aggregate of parse warnings emitted by previous sync attempts. Data source: extend `shows_internal.parse_warnings` to be append-only history OR query `pending_syncs` history.
+- **Guard the emit** (`try { await deps.logSync?.(entry) } catch { /* observability must not break the observed action */ }`) — a sync never fails because logging failed, but an observability outage becomes invisible, which is the exact failure mode the whole sync-log attribution arc exists to eliminate.
+- **Leave it loud** — a DB fault stops syncs, which is arguably correct since a sync that cannot record itself is a sync nobody can audit.
 
-Both surfaces need a schema decision (new table vs derived view vs append-only column) before implementation.
+A middle option exists (guard, but emit a `log.error` with a durable code so the gap is itself observable) and is probably right — but it needs a §12.4 code and therefore its own scoped change.
 
-**Why backlog, not deferred:** No v1 ops gap. Doug has `admin_alerts` for high-signal failure notification (active and surfaced above the page chrome); historical-aggregate diagnostics are observability polish, not ops requirement. Both sections need schema/data-model work that's outside small mechanical fix scope.
+**Related, same emit path (fold into whichever fix lands):** each emit opens and closes a dedicated postgres connection while the per-show advisory lock is held, lengthening lock hold on every manual sync. Cheap to fix by reusing the transaction's connection for the sink, but that changes the sink's isolation semantics — the row would then roll back with a failed sync rather than recording the failure, which is a behavior decision, not a refactor.
 
-**Promotion prerequisite:** Either (a) FXAV operator feedback surfaces "I can't tell if sync has been silently failing" pattern (real observability gap), OR (b) a v1.x admin-UX or admin-observability milestone bundles this with BL-OPS-LOG. The data-model question (new table vs derived view vs append-only column) needs a brainstorming session.
+### BL-DESTRUCTIVE-GUARD-EXECUTION-SITE — the destructive-target guard checks connections, when it should check execution sites
+
+**Status:** OPEN · **Severity:** MEDIUM (a guard that raises the cost of a mistake without proving absence) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-10
+
+**Probe evidence.** `tests/db/_destructiveFileAnalysis.ts` verifies that every `postgres(...)` call it can SEE connects to a guarded loopback URL. Whole-diff review of PR #767 found five distinct ways to obtain a driver the analyzer cannot see — `import()`, `require()`, `import { default as … }`, `import * as … `, `createRequire`, and `process.getBuiltinModule("node:module").createRequire` — each demonstrated returning `{"ok":true}` on a file that pruned `TEST_DATABASE_URL`. Every one is now rejected, and round 11 of that review claimed the set was closed at four; round 12 disproved it. **The acquisition enumeration does not terminate**, so the current module raises the cost of writing an unchecked connection by accident without proving none exists.
+
+**The sound framing, which does terminate.** Check the EXECUTION SITE rather than the connections: every destructive statement must run on a client bound to a connection the analyzer already checked. Acquisition then stops mattering — a client obtained by any route simply is not in the checked set.
+
+**Why it was not done in that PR (disposition reason (c) — a redesign of a surface the PR does not otherwise touch).** It was attempted and reverted. Real destructive files build clients through local factories: `tests/db/resetValidationDataConcurrency.test.ts:64` uses `const b = newConn()`. Propagating "checked" through a local factory needs interprocedural analysis, without which the invariant rejects correct code. That is a proper piece of work, not a follow-on tweak, and the PR it surfaced in was about sync-log attribution.
+
+**A SECOND open limit, same root cause (added 2026-08-10 after whole-diff r16).** Discovery is spelling-sensitive: the patterns require the schema-qualified, unquoted `public.<name>(` form, so `select prune_sync_log()` and `select "public"."prune_sync_log"()` are not discovered and no safety analysis runs on such a file. Nine other spellings were closed in that PR by keying on the function name instead of a statement shape, but quoting and qualification remain. Chasing SQL spellings has the same non-termination as the aliasing enumerations, so it is recorded rather than pursued.
+
+The terminating framing is the same one below, applied one layer up: **discover files by the fact that they OPEN A DATABASE CONNECTION**, and require the guard of all of them. That removes SQL spelling from the question entirely — a file cannot execute destructive SQL without a connection. It is a cross-cutting change over every DB test in the repo, which is why it is filed rather than done in a sync-log attribution PR.
+
+**Acceptance.** Every current fixture in `tests/db/destructiveFileAnalysis.test.ts` still rejects, all real destructive files still pass, AND a file acquiring a driver by a route not in the current rejection list is rejected because its client is not in the checked set. If that lands, the acquisition rules (dynamic import, require, createRequire, getBuiltinModule, non-default import form) can all be DELETED — the redesign should make the module smaller, not larger.
+
+### BL-SPEC-LINT-CITATION-INTENT — spec:lint checks that a citation resolves, never that it resolves to the right file
+
+**Status:** OPEN · **Severity:** MEDIUM (silent wrong-anchor citations in specs and plans) · **Class:** tooling gate · **Effort:** M · **Filed:** 2026-08-09
+
+**Probe evidence, measured on this arc.** `pnpm spec:lint` reports `CITATION_FILE_MISSING` when a path does not exist and `CITATION_SYMBOL_UNMATCHED` as an ADVISORY when no identifier sits on the cited line. Neither fires when a citation resolves to the WRONG file at a line that happens to exist. Measured: the plan for `fix/sync-log-show-id-duration` carried mis-filed anchors through two adversarial rounds at `0 hard` — plan R1 F4/F5 and R2 F11 between them named eleven citations pointing at `lib/sync/runScheduledCronSync.ts` whose subjects live in `runManualSyncForShow.ts`, `runOnboardingScan.ts`, `runManualStageForFirstSeen.ts`, `supabase/migrations/20260629000002_app_events.sql`, and `tests/db/_metaDestructiveDbTargetGuard.test.ts`. Every one resolved. `runScheduledCronSync.ts:224` and `runManualSyncForShow.ts:224` are both real lines, so existence cannot discriminate them.
+
+**Live surface.** `scripts/spec-lint.ts`, run on every spec and plan in `docs/superpowers/`.
+
+**Sketch, not a design.** Compare the cited line's enclosing symbol against the identifiers named in the citing sentence, and demote to advisory when the sentence names none. The prior art is the advisory `CITATION_SYMBOL_UNMATCHED` already computes the enclosing-line identifier set; what is missing is the comparison against the prose. Note the trap this arc hit twice: a verifier written by the same author who made the mistake tends to inherit its blind spot — the first one I wrote checked resolution, which is exactly what already passed. Any implementation must be validated against the eleven known-bad citations above as a fixture, not against the corrected plan.
+
+### BL-SYNC-LOG-ATTRIBUTION-METATEST — structural guard that every sync_log writer names its show
+
+**Status:** OPEN · **Severity:** MEDIUM (regression prevention; the defects it guards are repaired in `fix/sync-log-show-id-duration`) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-09
+
+**Why filed rather than shipped with the repair it guards.** Descoped under the three-round prose cap (`docs/agents/spec-self-review.md:22`) after its _definition_ — not the change it guards — consumed spec review rounds 11, 12, and 13 plus two self-found findings. Each repair to the guard's accept-set or marker vocabulary introduced the next round's edge case, which is exactly the negative-marginal-value pattern that rule describes. The attribution repairs themselves are correct with or without it; the guard prevents future regressions.
+
+**The design is done and should be implemented as specified, not re-derived.** Six rounds of work, preserved:
+
+- **Writers are DERIVED from the exports of `lib/sync/syncLog.ts`**, plus the `logSync`/`insertSyncLog` method and callback forms, plus a literal `insert into … sync_log` (schema qualifier optional). A hand-listed writer set omitted `writeSyncLog` and `makePostgresSyncLogSink` while `app/api/cron/sync/route.ts:4,21` imports and wires the former (spec R4 F4).
+- **Emission vs construction:** `makePostgresSyncLogSink(sql)(entry)` is immediately invoked with no binding (`lib/sync/syncLog.ts:54`), so for `f(a)(b)` the OUTER call is the emission and the inner is construction (spec R6 F2).
+- **Only inline object literals are judged.** Measured on the live tree: 37 sites, 12 non-attributing, of which 3 were false positives — `lib/sync/runPushSyncForShow.ts:246`, `lib/sync/runScheduledCronSync.ts:2250`, `lib/sync/syncLog.ts:54` — because a variable argument hides a present `driveFileId`. A variable argument is a documented limit, not a finding.
+- **Exemption is site-precise**, never a file-level registry: a file-scoped row for `lib/sync/runOnboardingScan.ts` (which needs one for `:1134`) would exempt the seven superseded sites in the same file — the very sites the guard exists to catch.
+- **Three disjoint markers**, none substitutable: `run-level-sync-log` (no show is knowable), `sync-log-no-attempt` (a show may be knowable but this call reaches no attempt — the wizard `applyStaged` call), `sync-log-emission-gap: <BL-id>` (an attempt happens, is unemitted, gap filed).
+- **Entry-point rule keys on the SINK PARAMETER**, not transitive reachability, which is recursive and unsatisfiable — `unarchiveShow` reaches a writer, so its callers would owe sinks up the whole graph (spec R13 F1). A signature that cannot carry a sink is a defect to widen, not grounds to exempt the path.
+- **Scope bound:** roots `lib`, `app/api`, `app/admin`; ~150 lines, and past ~250 narrow the claim rather than widen the recognizer. Threat model is ordinary authoring; deliberate obfuscation files to documented limits.
+- Mechanism: `walkSourceFiles` (`lib/messages/__internal__/walkSourceFiles.ts:8-11`) + TypeScript AST, per `tests/log/_metaMutationSurfaceObservability.test.ts`.
+
+A working draft exists in the shipping session's scratchpad; the design above is authoritative.
+
+**Two open definitional questions the shipping arc did NOT settle (spec R14 F2/F3) — resolve these before implementing, do not treat the design above as complete on them:**
+
+- **The signature-keyed accept-set is not yet decidable.** If "carries `logSync`" means a DIRECT property it excludes real entry points whose sink is nested — `runManualSyncForShow`/`_unlocked` via `processDeps.logSync` (`lib/sync/runManualSyncForShow.ts:48-72`), `applyStaged`/`_unlocked`/`applyStagedParse` via `firstPublishedTailDeps.logSync` (`lib/sync/applyStaged.ts:369`, `:950`, `:1152`, `:1940`, `:2073`). If nested properties count, a checker probe admitted five non-runners — `evaluateQualityRegression_unlocked` (`lib/sync/runScheduledCronSync.ts:316-381`), `runPhase1_unlocked` (`:2543-2549`), `runPhase2_unlocked` (`:2551-2557`), `prepareProcessOneFile` (`:2858`), `prepareOnboardingFiles` (`lib/sync/runOnboardingScan.ts:1194-1204`) — plus `runOnboardingScan`, whose production caller passes only `{ onProgress }` (`app/api/admin/onboarding/scan/route.ts:282-284`) while the callee opens its own logging transaction, leaving no truthful disposition.
+- **The three markers are not disjoint in the current tree.** Every run-level seed also reaches no per-file attempt, so `run-level-sync-log` and `sync-log-no-attempt` are both defensible at all eight seeds (`lib/sync/runScheduledCronSync.ts:3780`, `:3796`; the four `lib/onboarding/sessionLifecycle.ts` sites; `lib/sync/runOnboardingScan.ts:1134`; `app/api/drive/webhook/route.ts:224`). Either collapse them or find a predicate that separates them.
+
+**Promotion prerequisite:** none for scheduling, but the two questions above are the first work, not an afterthought — they are why this was descoped.
+
+**Interim coverage:** `fix/sync-log-show-id-duration` ships `tests/sync/syncLogRepairSites.test.ts`, an enumerated pin over the fifteen sites it repairs. Delete it when this guard lands.
+
+### BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches
+
+**Status:** OPEN · **Severity:** HIGH (Doug's deliberate actions are invisible to `observe synclog`) · **Class:** sync observability · **Effort:** M · **Filed:** 2026-08-09
+
+**Probe (cross-model review R8 F1, `fix/sync-log-show-id-duration`).** Installing a `logSync` sink is NOT sufficient for a manual attempt to be recorded. `runManualStageForFirstSeen` returns before its sole emission at `lib/sync/runManualStageForFirstSeen.ts:147` on four branches — `stage` (`:81-83`), `hard_fail` (`:84-85`), `pass` (`:87`), `defer` (`:185-186`) — plus phase-2 `stale` (`:133-135`). A probe supplying `logSync` and exercising the first four reported `logSyncCalls: 0` for every one. Thrown phase-1/phase-2 failures escape through unguarded awaits at `:117` and `:205`. Separately, `runManualSyncForShow` awaits `runOne` with no catch (`lib/sync/runManualSyncForShow.ts:431`); a probe with `processDeps.logSync` installed and `runOne` throwing produced `{"thrown":"probe-prepare-failure","logSyncCalls":0}`.
+
+**Why the arc that found it did not fix it.** `fix/sync-log-show-id-duration` makes every sync writer attribute its show and wires a sink into all eight entry points that lacked one. That is necessary and, for the cron and Drive-webhook paths, sufficient. It is NOT sufficient for manual sync, because these branches never reach an emission at all. Repairing them means adding emission at each early return and deciding what a thrown attempt should record — a change to what the pipeline reports, not to how a row is attributed. Scope decision taken by the user 2026-08-09: ship attribution, file this.
+
+**Third surface, same defect (cross-model R10 F1):** the staged-apply path. `lib/sync/applyStaged.ts:1468-1498` invokes `emitSuccessfulPhase2Tail` with only `upsertAdminAlert` injected (`:1485-1493`) — no sink, no start, no clock — and neither of its two LIVE-CAPABLE callers supplies tail dependencies (`app/api/admin/staged/[fileId]/apply/route.ts:152` omits the argument; `app/api/admin/show/staged/[stagedId]/apply/route.ts:164` passes `{}`). The wizard caller at `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts:153` is NOT affected — it fixes `sourceScope: "wizard"`, which stages approval and manifest metadata only and never reaches `emitSuccessfulPhase2Tail`; the show apply happens later at finalize (`lib/sync/applyStaged.ts:2047-2066`). `rg -n "firstPublishedTailDeps" app lib` finds only the declaration, defaulting, and use inside `applyStaged.ts` — no production injection anywhere. A first-seen apply therefore records no attempt row.
+
+**Scope of a real fix:** emit at each early-return branch of `runManualStageForFirstSeen`; inject a sink and start into `applyStaged`'s tail from both live apply routes; wrap `runOne` in `runManualSyncForShow` so a throw records an `error` outcome. Verify with a live manual sync per branch — the existing tests inject `logSync` at the helper level and so never exercise the early returns.
+
+**Related:** `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` §6.2 fences this and scopes AC-1/AC-6 to the paths that do emit. Sibling defect on the same surface: `BL-PENDING-RETRY-EXISTING-SHOW-THROWS`.
+
+### BL-PENDING-RETRY-EXISTING-SHOW-THROWS — existing-show pending-ingestion retry throws before any sync work
+
+**Status:** OPEN · **Severity:** HIGH (a shipped admin action appears to work and cannot) · **Class:** sync pipeline · **Effort:** M · **Filed:** 2026-08-09
+
+**Probe.** `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` calls `runManualSyncForShow_unlocked(tx, driveFileId, "manual", metadata, {})`. That function invokes `processOneFile_unlocked` with **five** arguments (`lib/sync/runManualSyncForShow.ts:287-294`) — it never passes the sixth `prepared` parameter. `processOneFile_unlocked` throws unconditionally when `prepared` is absent (`lib/sync/runScheduledCronSync.ts:3299-3304`):
+
+```
+if (!prepared) {
+  throw new SyncInfraError("processOneFile_unlocked", "thrown_error",
+    new Error("prepared process data is required before acquiring the show lock"));
+}
+```
+
+So for any non-archived show, the existing-show retry path throws `SyncInfraError` before doing any sync work. Only the archived-skip early return at `:3296` avoids it.
+
+**Why this is not fixed by the arc that found it.** Surfaced by cross-model review R7 (F2/F3) during `fix/sync-log-show-id-duration`. That change makes every sync writer attribute its show, and it wires a `logSync` sink into this site along with seven others — but the throw precedes emission, so the sink is inert here. Repairing it means deciding what `prepared` data this route should construct before taking the lock, which is a design question about the retry flow rather than about logging. Class-sweep disposition exception (a): needs a design decision the current PR cannot settle.
+
+**Scope of a real fix:** decide whether the route should call `prepareProcessOneFile` itself, or use the locked `runManualSyncForShow` entry point instead of the `_unlocked` variant. Then verify with a live retry against an existing show — the current tests inject `processOneFile_unlocked`, which is why this never surfaced.
+
+**Related:** the same path is the third duration-capture boundary noted in `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` §6.1; duration there is moot until the path executes.
 
 ### BL-PICKER-LOCK-ICON-LUCIDIFY — replace U+1F512 emoji with lucide-react Lock in PickerInterstitial
 
@@ -947,6 +1085,31 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Promotion prerequisite:** EITHER (a) owner decides to formalize the downloadable template as a real v2 feature (template design + adoption plan), OR (b) the v1 redesign ships and operator feedback shows the empty-state surfaces (timeline, wifi, flights, contacts) are a real friction point worth closing at the source. Promotion starts with a brainstorming session on the template shape + the parser contract for any new structured tabs (the AGENDA run-of-show grid contract is already partially mapped in the redesign milestone's deep-read notes).
 
+### BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 35 ids appear twice in BACKLOG-archive.md, and no gate notices
+
+**Severity:** LOW (the archive is a record, not a queue; nothing reads it for scheduling) · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, found while resolving an archive merge) · **Effort:** S
+
+**Probed, not theorized.** On `origin/main`, and on main BEFORE the quick-wins-2 mech branch merged (so this is not that arc's doing):
+
+```
+$ git show origin/main:BACKLOG-archive.md \
+    | grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' | sed -E 's/^#+ //' | sort | uniq -d | wc -l
+35
+$ git show ec06b825a^1:BACKLOG-archive.md | ... same pipeline ...
+35
+```
+
+**Why nothing caught it.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` asserts no id is both ACTIVE and ARCHIVED — a cross-file check. Nothing asserts an id appears at most once WITHIN the archive. A union-style merge resolution on the archive (the natural resolution, since two branches usually only append) silently duplicates any entry both sides carry, and every existing gate stays green.
+
+**Two traps for whoever picks this up**, both hit while resolving the merge that found it:
+
+- The active ledger uses `### ` headings and the archive uses `## `. A duplicate check anchored to one level reports clean while every collision hides in the other. Match `^#{2,3}`.
+- Archive PROSE cross-references entry ids, so a substring test (the bare id as a substring) reports an id as archived when only a mention is present. Anchor to the heading.
+
+**Fix:** de-duplicate the 35, then add the within-file uniqueness assertion to the graduation meta-test so the class cannot come back.
+
+---
+
 ### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
 
 **Status:** OPEN · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M
@@ -987,73 +1150,6 @@ from a real font regression, and it takes the whole job down with it. Any accept
 walk could already read — a closed/navigating page during the fixture's sample, or a document whose
 `document.fonts` is not yet queryable. The message already distinguishes pre- from post-navigate,
 which should localise it.
-
----
-
-### BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer
-
-**Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
-
-**Probed, not theorized** (seeded crew route, mobile-safari, 390x844, scrolled fully to the bottom):
-
-```
-toggle  top 775.6  bottom 819.6  (44x44)
-bar     top 790.7  bottom 844    (height 53.3)   overlaps: true
-footer  top 637.0  bottom 843.6
-document.elementFromPoint(toggle centre) -> the BAR's <svg>
-getComputedStyle(document.body).paddingBottom -> "0px"
-```
-
-The crew sub-nav's fixed bottom bar (`min-[720px]:hidden fixed inset-x-0 bottom-0 z-10`,
-`components/crew/CrewSubNav.tsx:155`) sits over the last ~53px of the footer, and nothing pads the
-page to clear it. The toggle's centre point belongs to the nav bar, so Playwright refuses the click
-with "intercepts pointer events" — and a real thumb lands on the nav tab, not the toggle. Only a
-~15px sliver of the toggle is reachable.
-
-**Why it was invisible until now:** every spec that touched the footer at mobile width was
-`test.describe.skip` against a 404ing route. `crew-page.spec.ts`'s inv8 asserts that the last SECTION
-block clears the fixed bar; the FOOTER is outside `page-container` and no invariant covered it.
-
-**Not fixed in-arc** — exception (a): how the footer should clear the mobile bar (page padding vs
-moving the toggle into the sub-nav vs hiding the footer chrome behind the bar) is a design call this
-arc does not settle. `tests/e2e/theme-toggle.spec.ts` therefore drives its interaction cases at 760px,
-where the bar does not render (`min-[720px]:hidden`), and still asserts the 44px tap floor at 390px.
-
-**Probably one fix with [[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]]:** both symptoms point at
-`crew-shell` being a plain block that breaks the `page-shell` flex chain the footer is written for.
-
----
-
-### BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT — `mt-auto` on the crew footer is inert, so a short page leaves it mid-viewport
-
-**Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
-
-**Probed, not theorized** (seeded crew route, mobile-safari, 390x844):
-
-```
-topology  page-shell (display:flex, flex-direction:column)
-            > crew-shell (display:block)          <- breaks the flex chain
-              > page-footer (class mt-auto)
-getComputedStyle(page-footer).marginTop -> "0px"   <- mt-auto resolves to ZERO
-
-every seeded section is taller than the viewport, so the case never occurs on this seed:
-  today 1985 · venue 1539 · travel 1459 · gear 1391 · crew 1329 · schedule 1083   (viewport 844)
-
-constructed short case (section body collapsed; docH 844 == viewport):
-  footer top 135.9  bottom 342.5   gapBelowFooter 501.5px
-```
-
-`mt-auto` only pushes an element when its PARENT is a flex container. The footer's parent is
-`crew-shell`, a plain block, so the declaration does nothing and the footer sits in natural flow. On a
-page shorter than the viewport it floats mid-screen with dead space beneath it.
-
-**Consequence today is nil and the signal is surfaced, not silent** — no seeded show is short enough
-to hit it, which is exactly why the residue test the spec proposed (§3.3.2) was NOT landed: it would
-have been red on arrival against the current tree. Filed under exception (a) rather than fixed: making
-`crew-shell` participate in the flex chain is a layout change to a shipped surface, and it would
-trigger the invariant-8 impeccable dual gate.
-
-**Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
 
 ---
 

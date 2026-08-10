@@ -466,6 +466,10 @@ export type SyncLogEntry = {
   // (sync_log channel). Set ONLY for the applied outcome (the parser-owned codes + any sync-emitted
   // AGENDA_DAY_EMPTIED). insertSyncLog unions these alongside the per-outcome payload row.
   parseWarnings?: ParseResult["warnings"];
+  /** Wall-clock ms for the attempt. Absent for the §3.3.1 writers that own no
+   *  attempt boundary (run-level emits, webhook direct-error classes); the sink
+   *  binds `?? null` so absence persists as SQL NULL rather than throwing. */
+  durationMs?: number | null;
 };
 
 export type SyncPipelineTxBoundDeps = {
@@ -507,7 +511,7 @@ type CronRecoveryTx = SyncPipelineTx & {
     driveFileId: string,
     error: { code: string; message: string },
   ): Promise<string | null | void>;
-  insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
+  insertSyncLog(entry: SyncLogEntry): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
 
@@ -586,6 +590,10 @@ export type ProcessOneFileDeps = {
   publishShowInvalidation?: (showId: string) => Promise<void>;
   createUnpublishToken?: () => string;
   now?: () => Date;
+  /** Epoch ms for the START of this file's attempt, set by processOneFile and read
+   *  by logSync. Threaded on a COPY of the caller's deps, never assigned onto the
+   *  shared object the file loop reuses. */
+  attemptStartedAtMs?: number;
   /**
    * Re-sync quality gate (Task 2): the manual/version-bound accept route sets
    * these to apply a held shrinkage; cron/push never populate them, so the hold
@@ -1231,14 +1239,17 @@ class PostgresPipelineTx implements SyncPipelineTx {
     };
   }
 
-  async insertSyncLog(entry: SyncLogEntry, showId?: string | null) {
+  async insertSyncLog(entry: SyncLogEntry) {
     await this.rows(
       `
         insert into public.sync_log (show_id, drive_file_id, status, message, parse_warnings)
-        values ($1::uuid, $2, $3, $4, $5::jsonb)
+        values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::jsonb)
       `,
+      // §3.1: show_id is DERIVED, and the explicit parameter is RETIRED rather than
+      // merely unused. An explicit id lets a caller pass one read from an uncommitted
+      // `shows` insert; the FK check would then block on that row's transaction from a
+      // separate connection. Removing the channel makes that unrepresentable.
       [
-        showId ?? null,
         entry.driveFileId,
         entry.code ?? entry.outcome,
         entry.code ? `${entry.outcome}:${entry.code}` : entry.outcome,
@@ -2254,6 +2265,11 @@ function isSourceGone(error: unknown): boolean {
 
 type SyncLogDeps = {
   logSync?: ProcessOneFileDeps["logSync"];
+  /** Epoch ms captured at the TOP of the attempt, before prepareProcessOneFile. Absent
+   *  for the §3.3.1 writers that own no attempt boundary; logSync then emits no
+   *  durationMs and the sink persists SQL NULL. */
+  attemptStartedAtMs?: number;
+  now?: ProcessOneFileDeps["now"];
 };
 
 type FirstPublishedNoticeDeps = {
@@ -2284,6 +2300,13 @@ async function logSync(
   if (payload) entry.payload = payload;
   // Set ONLY for the applied outcome (skip/error/stale/stage rows carry no parse warnings).
   if (result.outcome === "applied" && parseWarnings) entry.parseWarnings = parseWarnings;
+  // Duration is derived here, at the single emit point, rather than at each call site.
+  // Absent start stays absent (the sink binds `?? null`); a non-monotonic clock clamps
+  // at 0 rather than persisting a negative or NaN.
+  if (deps.attemptStartedAtMs !== undefined) {
+    const elapsed = (deps.now?.() ?? new Date()).getTime() - deps.attemptStartedAtMs;
+    entry.durationMs = Number.isFinite(elapsed) ? Math.max(0, elapsed) : null;
+  }
   await deps.logSync?.(entry);
 }
 
@@ -2621,15 +2644,12 @@ async function markMissingShow_unlocked(
     driveFileId: show.driveFileId,
     previousLastSeenModifiedTime,
   };
-  await recoveryTx.insertSyncLog(
-    {
-      driveFileId: show.driveFileId,
-      outcome: "error",
-      code: SHEET_UNAVAILABLE,
-      payload,
-    },
-    showId,
-  );
+  await recoveryTx.insertSyncLog({
+    driveFileId: show.driveFileId,
+    outcome: "error",
+    code: SHEET_UNAVAILABLE,
+    payload,
+  });
   await recoveryTx.upsertAdminAlert({
     showId,
     code: "SHEET_UNAVAILABLE",
@@ -2690,19 +2710,16 @@ async function handleFetchFailure_unlocked(
       code,
       message: errorMessage(error),
     })) ?? null) as string | null;
-    await recoveryTx.insertSyncLog(
-      {
+    await recoveryTx.insertSyncLog({
+      driveFileId,
+      outcome: "error",
+      code,
+      payload: {
         driveFileId,
-        outcome: "error",
-        code,
-        payload: {
-          driveFileId,
-          message: errorMessage(error),
-          previousLastSeenModifiedTime: show.lastSeenModifiedTime ?? null,
-        },
+        message: errorMessage(error),
+        previousLastSeenModifiedTime: show.lastSeenModifiedTime ?? null,
       },
-      showId,
-    );
+    });
     await recoveryTx.upsertAdminAlert({
       showId,
       code: "PARSE_ERROR_LAST_GOOD",
@@ -2729,19 +2746,16 @@ async function handleFetchFailure_unlocked(
     const showId = updated.showId;
     const previousLastSeenModifiedTime =
       updated.lastSeenModifiedTime ?? show.lastSeenModifiedTime ?? null;
-    await recoveryTx.insertSyncLog(
-      {
+    await recoveryTx.insertSyncLog({
+      driveFileId,
+      outcome: "error",
+      code,
+      payload: {
         driveFileId,
-        outcome: "error",
-        code,
-        payload: {
-          driveFileId,
-          message: errorMessage(error),
-          previousLastSeenModifiedTime,
-        },
+        message: errorMessage(error),
+        previousLastSeenModifiedTime,
       },
-      showId,
-    );
+    });
     if (code === STAGED_PARSE_SOURCE_GONE) {
       await recoveryTx.upsertAdminAlert({
         showId,
@@ -2822,6 +2836,12 @@ export async function processOneFile(
   fileMeta: DriveListedFile,
   deps: ProcessOneFileDeps = {},
 ): Promise<ProcessOneFileResult> {
+  // Captured BEFORE prepareProcessOneFile so the recorded duration covers the whole
+  // attempt, including preparation. Bound into a NEW object rather than assigned onto
+  // `deps`: the file loop reuses one shared processDeps across files, so mutating it
+  // would leak this file's start into the next one's attempt.
+  const attemptStartedAtMs = (deps.now?.() ?? new Date()).getTime();
+  const depsWithStart: ProcessOneFileDeps = { ...deps, attemptStartedAtMs };
   const prepared = await prepareProcessOneFile(driveFileId, mode, fileMeta, deps);
   if (prepared.kind === "skip") {
     // DEF-4: an archived show is a SILENT skip — return WITHOUT logSync. The normal skip path below
@@ -2851,7 +2871,7 @@ export async function processOneFile(
         "update public.shows set last_checked_at = now() where drive_file_id = $1 returning true as updated",
         [driveFileId],
       );
-      await logSync(deps, driveFileId, prepared.result, prepared.payload);
+      await logSync(depsWithStart, driveFileId, prepared.result, prepared.payload);
       return prepared.result;
     });
     return "skipped" in logged ? prepared.result : logged;
@@ -2864,13 +2884,13 @@ export async function processOneFile(
       driveFileId,
       mode,
       fileMeta,
-      txBoundProcessDeps(lockedTx, deps, txDeps),
+      txBoundProcessDeps(lockedTx, depsWithStart, txDeps),
       prepared,
     ),
   );
   if ("skipped" in result) {
     const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
-    await logSync(deps, driveFileId, skipped);
+    await logSync(depsWithStart, driveFileId, skipped);
   }
   // Census hop 2 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT,
   // outside the show-lock tx (invariant 10), and FIRST in this tail. Placed ahead of

@@ -112,7 +112,12 @@ export function CrewSections({ initialSection, budgetVisible, sectionNodes }: Cr
       />
       <main
         data-testid="page-container"
-        className={`${CREW_PAGE_CONTAINER} flex flex-1 flex-col gap-section-gap pt-6 pb-[calc(var(--spacing-tap-min)+env(safe-area-inset-bottom)+1rem)] sm:pt-8 min-[720px]:pb-8`}
+        className={
+          // Bar clearance moved to `crew-shell` (below the FOOTER, not below <main>) —
+          // keeping it here too would double-pad at <720px. What remains is the
+          // ordinary bottom rhythm, the same value the >=720px case already used.
+          `${CREW_PAGE_CONTAINER} flex flex-1 flex-col gap-section-gap pt-6 pb-8 sm:pt-8`
+        }
       >
         <CrewSectionTransition sectionId={effectiveActive}>{body}</CrewSectionTransition>
       </main>
