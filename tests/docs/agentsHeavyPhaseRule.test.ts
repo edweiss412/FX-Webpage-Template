@@ -142,14 +142,10 @@ const CLASSIFIED: Array<[string, Side]> = [
     { side: "must" },
   ],
   ["tests/admin/build-artifact-gate.test.ts:73", { side: "must" }],
-  [
-    "node scripts/share-link-flash-adversary-matrix.mjs",
-    {
-      side: "ignore",
-      why: "the transitive member is pinned by its cited file:line instead",
-      pinnedBy: /scripts\/share-link-flash-adversary-matrix\.mjs:1014/,
-    },
-  ],
+  // Same shape as the build-artifact-gate member above: what an agent has to
+  // recognize is the INVOCATION, and its heaviness is conditional on the MODE.
+  // A file:line citation can support the claim but cannot BE the shape.
+  ["node scripts/share-link-flash-adversary-matrix.mjs", { side: "must" }],
   ["scripts/share-link-flash-adversary-matrix.mjs:1014", { side: "must" }],
   [
     "--quick",
@@ -381,29 +377,34 @@ export function locateRule(agents: string): Located {
   const tree = remark().parse(agents) as unknown as MdNode;
   const blocks = tree.children ?? [];
 
-  const heading = blocks.find(
+  // EVERY heading whose text matches, not the first. Taking the first made an
+  // unrelated "## Cross-cutting discipline background" inserted above the real
+  // section report the rule missing while it sat untouched one section down.
+  const headings = blocks.filter(
     (node) => node.type === "heading" && /cross-cutting discipline/i.test(plainText(node)),
   );
-  if (!heading) return { problem: "AGENTS.md has no cross-cutting-discipline section" };
+  if (headings.length === 0) return { problem: "AGENTS.md has no cross-cutting-discipline section" };
 
-  const headingEnd = heading.position?.end.offset ?? 0;
-  const depth = heading.depth ?? 2;
-  const after = blocks.filter((node) => (node.position?.start.offset ?? 0) > headingEnd);
-  const next = after.find((node) => node.type === "heading" && (node.depth ?? 6) <= depth);
-  const nextAt = next?.position?.start.offset ?? Number.POSITIVE_INFINITY;
-  const section = after.filter((node) => (node.position?.start.offset ?? 0) < nextAt);
+  for (const heading of headings) {
+    const headingEnd = heading.position?.end.offset ?? 0;
+    const depth = heading.depth ?? 2;
+    const after = blocks.filter((node) => (node.position?.start.offset ?? 0) > headingEnd);
+    const next = after.find((node) => node.type === "heading" && (node.depth ?? 6) <= depth);
+    const nextAt = next?.position?.start.offset ?? Number.POSITIVE_INFINITY;
+    const section = after.filter((node) => (node.position?.start.offset ?? 0) < nextAt);
 
-  for (const list of section.filter((node) => node.type === "list")) {
-    for (const item of list.children ?? []) {
-      // Normalized, because a reflowed bold opener carries a newline inside its
-      // own text and a raw startsWith would fail to find a rule that is right there.
-      if (!normalize(plainText(item)).startsWith(OPENER_TEXT)) continue;
-      const from = item.position?.start.offset;
-      const to = item.position?.end.offset;
-      if (from === undefined || to === undefined) {
-        return { problem: "the heavy-phase rule item has no source position" };
+    for (const list of section.filter((node) => node.type === "list")) {
+      for (const item of list.children ?? []) {
+        // Normalized, because a reflowed bold opener carries a newline inside its
+        // own text and a raw startsWith would fail to find a rule right there.
+        if (!normalize(plainText(item)).startsWith(OPENER_TEXT)) continue;
+        const from = item.position?.start.offset;
+        const to = item.position?.end.offset;
+        if (from === undefined || to === undefined) {
+          return { problem: "the heavy-phase rule item has no source position" };
+        }
+        return { source: agents.slice(from, to), item };
       }
-      return { source: agents.slice(from, to), item };
     }
   }
   return { problem: "the heavy-phase rule bullet is absent from the cross-cutting section" };
@@ -627,9 +628,19 @@ describe("AGENTS.md heavy-phase rule", () => {
       editRule(" Classification is by INVOCATION SHAPE, never by alias.", ""),
     ],
     ["delete the shard-batch rule", editRule(", one slot per concurrently-running shard batch", "")],
-    ["delete the `--quick` exception", editRule("; `--quick` spawns none and stays unwrapped", "")],
+    [
+      "delete the `--quick` exception",
+      editRule("; the mode is load-bearing — `--quick` spawns none and stays unwrapped, line 1215", ""),
+    ],
     ["delete the pre-warmed dev server instruction", editRule(", and pre-warmed dev servers", "")],
     ["delete the spec/plan authoring exclusion", editRule(", and spec/plan authoring", "")],
+    [
+      "reduce a transitive member to its citation, dropping the invocation shape",
+      editRule(
+        "`node scripts/share-link-flash-adversary-matrix.mjs` in full mode",
+        "`scripts/share-link-flash-adversary-matrix.mjs:1014` in full mode",
+      ),
+    ],
     // The round-3 class: an ignored span's cover deleted. One row per ignore
     // reason that names something deletable, not just the instance reported.
     ["drop <cmd> from the entry point", editRule("`pnpm heavy <cmd>`", "`pnpm heavy`")],
@@ -749,6 +760,15 @@ describe("AGENTS.md heavy-phase rule", () => {
       "body text is reflowed",
       (text) =>
         text.replace("Any non-interactive playwright run:", "Any non-interactive\n  playwright run:"),
+    ],
+    [
+      "an unrelated section with a similar heading is inserted above this one",
+      (text) =>
+        text.replace(
+          "## Cross-cutting discipline (from milestone retrospectives)",
+          "## Cross-cutting discipline background\n\nA short background note.\n\n" +
+            "## Cross-cutting discipline (from milestone retrospectives)",
+        ),
     ],
     [
       "the section heading is written as a Setext heading",

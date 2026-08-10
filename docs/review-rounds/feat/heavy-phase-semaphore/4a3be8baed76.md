@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 8 rounds
+## diff — 9 rounds
 
-**Examined:** eight counted rounds on the implementation diff, dispatched as two
+**Examined:** nine counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3/5/3 findings across rounds 1-8 — nineteen in total.
+string-presence guard, 4/1/1/1/1/3/5/3/2 findings across rounds 1-9 — twenty-one in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned seven is a paragraph of
+spec rounds had probed each one. The half that burned eight is a paragraph of
 English and a regex list.
 
-**Judgment:** eight of the nineteen diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the twenty-one diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -194,10 +194,29 @@ rounds went to discovering that a regex cannot enumerate a grammar. The check fo
 whether you are in this situation is short — if the guard is matching on syntax
 rather than on content, and the document has a parser, use it.
 
+Round 9 found the two residues the AST rewrite left, and both are worth recording
+because neither is about markdown. The first was a CLASS-SWEEP MISS charged
+squarely to this session: round 6 established that a member whose heaviness is
+conditional cannot be stated as a file:line citation, and the repair fixed the
+build-artifact-gate member while leaving its only peer — the share-link-flash
+matrix — in exactly the state round 6 had just rejected. The rule the repo already
+carries says to sweep the shape, not the instance, and the sweep here was two
+entries long. The second was `blocks.find(...)` taking the FIRST heading matching
+`/cross-cutting discipline/i` rather than the one containing the rule, so inserting
+an unrelated similarly-named section above it reported the rule missing while it
+sat untouched one section down — the AST removed the syntax enumeration but not
+the obligation to pick the right node.
+
+Also worth recording: repairing round 9 F1 required rewording the `--quick` clause,
+and the guard immediately failed on its own pinned phrase and its own operator row.
+That is the pin and the operator table working exactly as intended on their author,
+one round after being written, and it is the clearest evidence in this arc that the
+mechanism is load-bearing rather than decorative.
+
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
 registry catches a shape added to §4.6, block structure comes from `remark` rather
-than from a regex over syntax, and 50 cases — 32 `OPERATORS` rows plus sixteen
+than from a regex over syntax, and 52 cases — 33 `OPERATORS` rows plus seventeen
 stays-quiet rows — run on every suite, so no repair can silently regress an earlier
 one in either direction. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
