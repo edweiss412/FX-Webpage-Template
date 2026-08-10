@@ -72,7 +72,9 @@ probe-settled (§4.0), including R1-driven reversals. Reviewers verify, not re-d
   as a documented limit (§8); the constraint is about arc wall-clock, not about no
   command ever waiting.
 - **C2 — Full-speed holders.** A slot holder is never worker-starved. (Satisfied
-  structurally: the wrapper modifies nothing about the command's environment or flags.)
+  structurally: the wrapper adds exactly one env marker — `FX_HEAVY_SLOT_HELD`, the
+  §4.1 reentrancy guard, which no test or build tool reads — and modifies nothing
+  else about the command's environment or flags.)
 - **C3 — Nearest-merge priority.** A closeout/CI-stage arc's heavy run jumps ahead of
   round-1 implementation suites (best-effort, §4.4 — not a strict queue).
 - **C4 — Cross-account safe.** All four Claude accounts run as the same macOS user;
@@ -146,31 +148,51 @@ scripts/with-heavy-slot.py — new in this arc (invoked as `python3 scripts/with
    transcripts, so a token-bearing argument or credential URL must have no path into
    either. `os.write` is a direct syscall — nothing to flush across `exec`.
 5. If all slots are held: sleep `FX_HEAVY_POLL_MS` (default 3000 ms normal, 1000 ms when
-   priority) with ±20% jitter, retry. On first wait and every `FX_HEAVY_WAIT_WARN_S`
-   (default 300 s) thereafter, emit one stderr line naming each slot's recorded holder
+   priority) with ±`FX_HEAVY_JITTER_PCT`% jitter (default 20), retry. Warning cadence
+   is evaluated AT EACH WAKE: emit when `now - lastWarn >= FX_HEAVY_WAIT_WARN_S` —
+   the effective cadence is therefore `max(poll interval, FX_HEAVY_WAIT_WARN_S)`, and
+   a poll interval above the warn interval simply warns once per wake rather than
+   promising an impossible sub-poll cadence (R4 F5). First wait always warns
+   immediately. Each warning names each slot's recorded holder
    metadata, read via a SEPARATE `os.open(path, O_RDONLY)` fd closed after reading
    (never the locking fd). A slot whose metadata is empty, torn, or unparseable is
    reported as `holder unknown (metadata unreadable)` — imprecise-but-surfaced is the
    §8 documented limit; silent omission is not permitted (R1 F5). The warning also
    states that a recorded PID may have exited while a shell descendant retains the
    lock (§4.2).
-6. **Post-acquire topology validation (R3 F1):** after `flock` succeeds on slot *i*,
-   re-read `config`; if *i* >= the CURRENT slot count, this acquisition is outside the
-   live topology (the §4.5 resize race) — emit a one-line stderr notice, `os.close`
-   the fd (releasing the lock), and restart the resolution loop from step 2. An
-   acquisition can only proceed to exec when its slot index is valid under a config
-   value read AFTER the lock was taken, which closes both race instances (initial
-   resolve→scan and per-poll re-resolve→scan): a stale-topology waiter can win a
-   higher-numbered slot momentarily but can never RUN holding one.
+6. **Post-acquire topology validation (R3 F1, identity per R4 F1):** after `flock`
+   succeeds on slot *i*, validate BOTH properties, in order:
+   (a) **identity** — `os.fstat(fd)` and `os.stat(path)` agree on `(st_dev, st_ino)`:
+   the locked inode is still the one linked at the slot's pathname. A waiter that
+   opened a slot file before a directory recreation holds a lock on an ORPHANED
+   inode — same-size recreation, growth, and shrink all produce this shape (R4 F1),
+   and an index check alone passes it;
+   (b) **index** — *i* < the slot count read from `config` AFTER the lock was taken.
+   On either failure: one-line stderr notice, `os.close(fd)` (releasing the lock),
+   restart the resolution loop from step 2. An acquisition proceeds to exec only
+   holding the CURRENT inode at a CURRENTLY-valid index, which closes the resize race
+   in every recreation class, not just the shrink subset.
 7. On acquire (validated): `os.set_inheritable(fd, True)` (raw integer fd — valid per
    the `os.open` API), then `os.execvp(cmd, args)` — the wrapper process BECOMES the heavy
    command. The flock fd rides through exec; the kernel releases it when the last
    process holding the fd exits. Crash of the holder (any signal, including SIGKILL) =
    immediate release (§4.0 P2). Zero cleanup code (C5).
 
-Exit code, signals, stdio: fully transparent — `execvp` means the caller sees the heavy
-command's exit status directly; no forwarding logic exists to get wrong. The command's
-environment is untouched (C2).
+**Reentrancy — outermost-owns (R4 F2):** before exec, the wrapper sets
+`FX_HEAVY_SLOT_HELD=1` in the command's environment (its ONLY env addition). A wrapper
+invocation that starts with `FX_HEAVY_SLOT_HELD` already set acquires NOTHING: it
+emits one stderr note (`nested under held slot — passing through`) and execs the
+command directly. Environment — unlike fds — survives every spawn layer, so the guard
+reaches arbitrarily deep children. This makes nested qualifying phases
+(`pnpm build → next build`, `test:fast → vitest`, playwright web servers,
+`mutation:guards → vitest` children) structurally incapable of the
+outer-holds-inner-waits self-deadlock: the outermost wrapped command owns the slot;
+every inner wrap is a surfaced no-op. The AGENTS.md rule says "wrap the outermost
+command"; wrapping an inner one anyway is harmless by construction.
+
+Exit code, signals, stdio: otherwise fully transparent — `execvp` means the caller
+sees the heavy command's exit status directly; no forwarding logic exists to get
+wrong. Beyond `FX_HEAVY_SLOT_HELD`, the command's environment is untouched (C2).
 
 ### 4.2 Lock lifetime — measured semantics and both failure directions
 
@@ -215,11 +237,19 @@ AGENTS.md rule):
   Non-priority waiters that see a fresh priority marker add one extra poll interval
   before each attempt, yielding the next free slot to the priority waiter with high
   probability.
+- A non-priority waiter that backs off for a fresh marker emits a one-line stderr
+  notice (`yielding to priority waiter`) — the marker mechanism's own observable
+  surface (R4 F3).
+- Marker freshness window: `max(10 min, 2 × the waiter's effective poll interval)` —
+  a fixed 10-minute window goes stale between two polls at the 600 s poll ceiling and
+  would silently cancel the bias (R4 F5 interaction class).
 - No lock handoff, no queue file, no strict ordering guarantee. A starved normal waiter
   still acquires as soon as no fresh priority marker exists.
 - Discriminability requirement for §7: the marker back-off must be observable
-  INDEPENDENTLY of the faster poll rate — the priority test pins the marker mechanism
-  with both waiters at EQUAL poll intervals (R1 F8).
+  INDEPENDENTLY of timing — the priority test runs both waiters at EQUAL poll
+  intervals with jitter DISABLED (`FX_HEAVY_JITTER_PCT=0`) AND asserts the yielding
+  notice on the normal waiter's stderr, so a marker-deletion implementation fails on
+  the missing notice regardless of any schedule (R1 F8, R4 F3).
 
 ### 4.5 Knobs and the consistency protocol
 
@@ -231,6 +261,8 @@ AGENTS.md rule):
 | `FX_HEAVY_POLL_MS` | `3000` / `1000` (prio) | wait-poll interval, ±20% jitter. |
 | `FX_HEAVY_WAIT_WARN_S` | `300` | repeat-warning cadence while waiting. |
 | `FX_HEAVY_DISABLE` | unset | `1` = exec the command directly, no locking (escape hatch; also the CI posture). |
+| `FX_HEAVY_JITTER_PCT` | `20` | poll jitter percent; `0` = deterministic (test posture). |
+| `FX_HEAVY_SLOT_HELD` | (set by wrapper) | NOT a user knob — the §4.1 reentrancy signal. Written by the wrapper into the exec'd env; read by nested wrapper invocations, which pass through without acquiring. Never set it by hand. |
 
 **Slot-count consistency (R1 F9, atomicity per R2 F2):** publication of `config` (one
 JSON line `{"slots": N}`) is ATOMIC first-writer-wins: an invocation that finds no
@@ -239,7 +271,9 @@ then attempts `os.link(tmp, config)` — `link(2)` fails with `EEXIST` if any ot
 writer already published, so exactly one creator can ever win, and a published `config`
 is complete by construction (a reader can never observe a partial write; the
 check-then-write race and the torn-read "repair" overwrite from R2 F2 are both
-structurally impossible). The loser unlinks its tmp, reads the winner's value, and on
+structurally impossible). BOTH outcomes unlink the tmp name: the winner after its
+successful `link` (link creates a second name, it does not consume the source —
+R4 F4), the loser after `EEXIST`. The loser then reads the winner's value, and on
 mismatch with its own `FX_HEAVY_SLOTS` emits a one-line stderr warning and ADOPTS the
 recorded value. Waiters RE-RESOLVE `config` on every poll iteration (R2 F2 third
 instance): a waiter that outlives a dir removal/recreation converges on the new
@@ -255,7 +289,10 @@ never a crash and never silence:
   make the acquire loop empty and wait forever — rejected, R2 F4.)
 - `FX_HEAVY_POLL_MS`: integer in [50, 600000]; else warn + default. (0 busy-spins;
   negatives break sleep — rejected.)
-- `FX_HEAVY_WAIT_WARN_S`: integer in [10, 86400]; else warn + default 300.
+- `FX_HEAVY_WAIT_WARN_S`: integer in [10, 86400]; else warn + default 300. (Effective
+  cadence is `max(poll, warn)` — §4.1.5, R4 F5.)
+- `FX_HEAVY_JITTER_PCT`: integer in [0, 50]; else warn + default 20. `0` disables
+  jitter (deterministic polling — the §7 priority case depends on it).
 - `FX_HEAVY_PRIORITY`, `FX_HEAVY_DISABLE`: the string `1` means on; UNSET means off
   silently; any other set value means off WITH a stderr warning naming the expected
   value (a typo like `true` must not silently disable requested behavior — R2 F4).
@@ -279,6 +316,9 @@ invocation shape, not alias (R1 F7):
   belong to the MUST-NOT class below.
 - Mutation harness: `pnpm mutation:guards`, any `--project mutation` run; one slot per
   concurrently-running shard batch.
+
+Wrap the OUTERMOST command only (§4.1 reentrancy guard makes inner wraps surfaced
+no-ops — R4 F2).
 
 MUST NOT be wrapped:
 
@@ -342,13 +382,16 @@ real `/tmp/fx-heavy-slots`.
    wrapped command CAN acquire (spawn children do not retain the lock). Pins the
    measured early-release semantics so a future runtime change surfaces as a test
    failure, not a silent behavior shift.
-5. **Priority bias — marker mechanism only (R1 F8).** Slots=1 held; normal waiter and
-   priority waiter at EQUAL `FX_HEAVY_POLL_MS`; barrier premise: start the normal
-   waiter, wait for its first-wait stderr line (readiness signal), start the priority
-   waiter, wait for ITS first-wait line, then release the holder. Assert the priority
-   waiter acquires first. Equal intervals mean only the marker back-off can produce
-   the bias — deleting the marker logic fails this test. `.retry(2)` retained for
-   scheduler noise; the barrier removes the start-order race.
+5. **Priority bias — marker mechanism only (R1 F8, R4 F3).** Slots=1 held; normal and
+   priority waiters at EQUAL `FX_HEAVY_POLL_MS` with `FX_HEAVY_JITTER_PCT=0`
+   (deterministic — independent jitter could hand priority the win with the marker
+   logic deleted); barrier premise: start the normal waiter, wait for its first-wait
+   stderr line, start the priority waiter, wait for ITS first-wait line, release the
+   holder. Assert BOTH: the priority waiter acquires first, AND the normal waiter's
+   stderr contains the `yielding to priority waiter` notice — the notice only exists
+   if the marker mechanism ran, so a marker-deletion implementation fails on it
+   regardless of scheduling. `.retry(2)` retained for scheduler noise on the ordering
+   arm; the notice arm is timing-independent.
 6. **Disable hatch.** `FX_HEAVY_DISABLE=1`: two slots=1 commands overlap (no locking).
 7. **Metadata surfacing and secret absence (R1 F5, R2 F5).** Slots=1 held with
    deliberately truncated/garbage slot-file content (test writes over it via a separate
@@ -372,13 +415,21 @@ real `/tmp/fx-heavy-slots`.
    (pins the `os.link` first-writer-wins publication).
 10. **pnpm forwarding.** `pnpm heavy -- node -e "process.exit(0)"` exits 0. (The plan
     owns task numbering; this spec references cases, never plan tasks.)
-11. **Resize-race containment (R3 F1).** Dir at `FX_HEAVY_SLOTS=3`; start a waiter
-    (all three slots held by test-owned flocks so it waits with resolved N=3); remove
-    and recreate the dir with config N=1 and a test-owned holder on slot-0; release
-    ONE of the old slot fds so the stale waiter can win a higher-numbered slot.
-    Assert: the waiter's command does NOT run concurrently with the slot-0 holder's
-    (overlap log as in case 1), and its stderr contains the topology-restart notice —
-    a stale-topology acquisition is released, never exec'd.
+11. **Resize-race containment (R3 F1, R4 F1).** Two arms sharing the case-1 overlap
+    oracle. Shrink arm: dir at `FX_HEAVY_SLOTS=3`; waiter blocks with resolved N=3
+    (all slots test-held); recreate dir with config N=1 and a test-owned holder on
+    new slot-0; release one OLD slot fd. Identity arm (same-size recreation): dir at
+    N=1, waiter blocked on the held slot; recreate dir with config N=1 and a
+    test-owned holder locking the NEW slot-0 inode; release the OLD inode's flock so
+    the stale waiter's already-open fd can win its orphaned inode — the index check
+    alone would pass (`0 < 1`); only the `(st_dev, st_ino)` identity check rejects
+    it. Both arms assert: the stale waiter's command never runs concurrently with the
+    new topology's holder, and its stderr carries the topology-restart notice.
+12. **Nested pass-through (R4 F2).** Slots=1: an outer wrapped command's child
+    invokes the wrapper again (inherits `FX_HEAVY_SLOT_HELD=1`); assert the inner
+    command RUNS (no self-deadlock on the single slot), the inner wrapper's stderr
+    carries the `nested under held slot` note, and slot-file lock state shows one
+    holder throughout.
 
 The suite spawns ≤3 tiny node children per case — it is itself light and needs no slot.
 
