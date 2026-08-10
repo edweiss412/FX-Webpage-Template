@@ -50,7 +50,7 @@ describe("sync_log sink — show attribution and duration (spec §3.1, §3.3)", 
       .trim();
 
   test("resolves show_id by subselect and binds duration_ms — exact statement, not containment", async () => {
-    const unsafe = vi.fn(async (): Promise<unknown[]> => []);
+    const unsafe = vi.fn(async (_sql: string, _params?: unknown[]): Promise<unknown[]> => []);
     const sink = makePostgresSyncLogSink({ unsafe });
 
     await sink({ driveFileId: "file-1", outcome: "applied", durationMs: 42 } as never);
@@ -72,7 +72,7 @@ describe("sync_log sink — show attribution and duration (spec §3.1, §3.3)", 
     // postgres.js raises UNDEFINED_VALUE for an undefined bind parameter and
     // writeSyncLog sets no transform.undefined, so every NULL-duration writer in
     // spec §3.3.1 would THROW rather than persist. `?? null`, never the bare read.
-    const unsafe = vi.fn(async (): Promise<unknown[]> => []);
+    const unsafe = vi.fn(async (_sql: string, _params?: unknown[]): Promise<unknown[]> => []);
     const sink = makePostgresSyncLogSink({ unsafe });
 
     await sink({ driveFileId: "file-2", outcome: "skipped" } as never);
@@ -84,7 +84,7 @@ describe("sync_log sink — show attribution and duration (spec §3.1, §3.3)", 
   });
 
   test("a null drive_file_id still binds, and resolves to a null show_id", async () => {
-    const unsafe = vi.fn(async (): Promise<unknown[]> => []);
+    const unsafe = vi.fn(async (_sql: string, _params?: unknown[]): Promise<unknown[]> => []);
     const sink = makePostgresSyncLogSink({ unsafe });
 
     await sink({ driveFileId: null, outcome: "skipped", durationMs: 7 } as never);

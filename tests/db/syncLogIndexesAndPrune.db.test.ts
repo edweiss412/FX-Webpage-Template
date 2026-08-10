@@ -130,14 +130,14 @@ describe("prune_sync_log (spec §3.5)", () => {
         // The oracle: a GLOBAL count read inside this same transaction, immediately
         // before the prune. Equality against a measured number, not `>= 1`, so an
         // off-by-one or a wrong cutoff fails.
-        const [{ n: expected }] = await tx<{ n: number }[]>`
+        const [expectedRow] = await tx<{ n: number }[]>`
         select count(*)::int as n from public.sync_log
         where occurred_at < now() - interval '60 days'
       `;
-        const [{ prune_sync_log: returned }] = await tx<{ prune_sync_log: number }[]>`
+        const [prunedRow] = await tx<{ prune_sync_log: number }[]>`
         select public.prune_sync_log()
       `;
-        expect(returned).toBe(expected);
+        expect(prunedRow!.prune_sync_log).toBe(expectedRow!.n);
 
         // Survival, scoped to the fixture marker - where scoping IS correct.
         const survivors = await tx<{ drive_file_id: string }[]>`
@@ -155,10 +155,10 @@ describe("prune_sync_log (spec §3.5)", () => {
       });
 
     // Proof the rollback happened, not just that it was requested.
-    const [{ n }] = await sql<{ n: number }[]>`
+    const [outsideRow] = await sql<{ n: number }[]>`
       select count(*)::int as n from public.sync_log where drive_file_id like ${`${MARKER}%`}
     `;
-    expect(n).toBe(0);
+    expect(outsideRow!.n).toBe(0);
   });
 
   test("an explicit cutoff is honoured, distinct from the default", async () => {
@@ -171,15 +171,15 @@ describe("prune_sync_log (spec §3.5)", () => {
       `;
         // 10 days old: retained by the 60-day default, deleted by a 5-day cutoff. That
         // difference is what proves the parameter is read rather than ignored.
-        const [{ n: before }] = await tx<{ n: number }[]>`
+        const [beforeRow] = await tx<{ n: number }[]>`
         select count(*)::int as n from public.sync_log where drive_file_id = ${`${MARKER}-a`}
       `;
-        expect(before).toBe(1);
+        expect(beforeRow!.n).toBe(1);
         await tx`select public.prune_sync_log(interval '5 days')`;
-        const [{ n: after }] = await tx<{ n: number }[]>`
+        const [afterRow] = await tx<{ n: number }[]>`
         select count(*)::int as n from public.sync_log where drive_file_id = ${`${MARKER}-a`}
       `;
-        expect(after).toBe(0);
+        expect(afterRow!.n).toBe(0);
         throw new RollbackSignal();
       })
       .catch((e: unknown) => {

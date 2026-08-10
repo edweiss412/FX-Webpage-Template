@@ -39,7 +39,7 @@ const sink = makePostgresSyncLogSink(
 );
 
 /** Per-run marker. Every fixture row carries it, and every cleanup is scoped to it. */
-const RUN = `synclogattr-${process.pid}-${(process.hrtime.bigint() % 1_000_000n).toString()}`;
+const RUN = `synclogattr-${process.pid}-${process.hrtime()[1]}`;
 const FILE_WITH_SHOW = `${RUN}-with-show`;
 const FILE_NO_SHOW = `${RUN}-no-show`;
 const FILE_NULL_DURATION = `${RUN}-null-duration`;

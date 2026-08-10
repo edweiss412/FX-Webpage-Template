@@ -80,13 +80,13 @@ describe("app_events schema", () => {
         // oracle for it. Measure the baseline inside this same transaction,
         // immediately before the prune, and assert equality - not `>= 1`, which any
         // over-deletion also satisfies.
-        const [{ n: expected }] = await tx<{ n: number }[]>`
+        const [expectedRow] = await tx<{ n: number }[]>`
           select count(*)::int as n from public.app_events
           where occurred_at < now() - interval '60 days'`;
-        const [{ n: returned }] = await tx<
+        const [returnedRow] = await tx<
           { n: number }[]
         >`select public.prune_app_events(interval '60 days') as n`;
-        expect(Number(returned)).toBe(expected);
+        expect(Number(returnedRow!.n)).toBe(expectedRow!.n);
 
         // Survival stays fixture-scoped, where scoping IS correct.
         const remaining = await tx<{ message: string }[]>`
@@ -100,9 +100,9 @@ describe("app_events schema", () => {
       });
 
     // Proof the rollback happened, rather than proof it was requested.
-    const [{ n }] = await sql<{ n: number }[]>`
+    const [outsideRow] = await sql<{ n: number }[]>`
       select count(*)::int as n from public.app_events where source = 'prune-test'`;
-    expect(n).toBe(0);
+    expect(outsideRow!.n).toBe(0);
   });
 
   test("prune cron job is registered", async () => {

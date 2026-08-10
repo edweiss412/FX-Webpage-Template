@@ -430,7 +430,10 @@ export async function handleLivePendingIngestionRetry(
           row.drive_file_id,
           "manual",
           metadata,
-          { logSync: writeSyncLog },
+          // NESTED: the 5th parameter is RunManualSyncForShowDeps, which exposes
+          // processDeps?: ProcessOneFileDeps - a top-level logSync typechecks against
+          // nothing and would silently write no row.
+          { processDeps: { logSync: writeSyncLog } },
         );
         // nav-perf tag-caching (whole-diff R2): capture ANY showId-carrying outcome —
         // applied AND the parse_error/source_gone recovery outcomes (which now carry
