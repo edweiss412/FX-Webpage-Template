@@ -599,6 +599,55 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 ---
 
+## BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST — Structural meta-test for `lib/data` Supabase call-boundary discipline — CLOSED 2026-08-10 (`test/libdata-call-boundary-metatest`, PR #770, IMPLEMENTED)
+
+**Status:** CLOSED · **Filed:** 2026-06-19, crew-page redesign Phase 2 Task 02.5 (`getShowForViewer.runOfShow` projection) · **Effort:** M
+
+**Resolution: IMPLEMENTED.** `tests/data/_metaLibDataCallBoundary.test.ts` ships per
+`docs/superpowers/specs/ci/2026-08-09-libdata-call-boundary-metatest-design.md`. It walks `lib/data/**`
+from disk and requires every Supabase `.from(...)` / `.rpc(...)` site to be shape-pinned in an in-file
+registry, discharged to a named behavioral suite, or waivered inline — converting the per-read
+behavioral fail-soft coverage into a class-wide, fails-by-default CI guard. All 17 live sites are
+registered (13 pins + 4 `coveredBy`).
+
+The entry's promotion prerequisite said "extend the `_metaInfraContract` pattern, don't write a parallel
+scanner", and that is what shipped: the registry + orphan-scan + waiver topology, reused with the shared
+`tests/_shared/stripComments.ts` and `tests/_shared/premise.ts` helpers, with
+`tests/auth/_metaInfraContract.test.ts` left byte-identical.
+
+Two assumptions in the original entry needed correcting, and the spec ratified both. The entry described
+the contract as "destructures `{ data, error }`"; `getShowForViewer.ts` uses the result-object form,
+which distinguishes returned-error from thrown identically and is pinned as written — the guard does not
+force a style migration. And the entry's own **Context** paragraph is the stale-waiver claim this arc
+repaired: the `// not-subject-to-meta:` comment said `lib/data` sits outside every scan, true when
+written and false the moment this suite landed.
+
+**What the review cost, and what it bought.** Twenty-two diff rounds. Twelve went into four separate
+instances of one mistake — a text pattern used to answer a question about program structure — in the site
+scanner, the waiver recognition, the mention check and the pin coupling; each was widened until it was
+replaced by asking the TypeScript parse instead. The round record
+(`docs/review-rounds/test/libdata-call-boundary-metatest/0d8d239abcba.md`) tabulates all four and states
+the lesson: "the recognizer missed a spelling" is a finding about the recognizer's category, and the
+second occurrence is the signal, not the fourth. R17 is the round that justified the train — until it,
+the guard required one pin to depend on the call, so a row could pin its own call and borrow a
+neighbour's error check, which is exactly what invariant 9 exists to prevent.
+
+**Not closed by this arc, deliberately:** the sibling hardening entries the promotion prerequisite offered
+as a bundling trigger — `BL-ADMIN-POSTGREST-DML-LOCKDOWN` and `BL-RLS-COVERAGE-CROSSCUTTING` — stay open
+and untouched. Sibling domains (`lib/notify`, `lib/sync`, `app/api/**`) remain owned by their own
+meta-tests.
+
+**Documented limits, recorded rather than filed:** the accepted limits in the design spec's §6 — dynamic
+call arguments; file-grain waivers on unregistered files; pins are text pins, not control-flow proofs;
+`supabase.auth.*` and storage out of scan scope; `coveredBy` proves mention, not exercise; duplicate
+literals distinguished by position (enforced, after R16 showed the earlier "noted" form was silent); pin
+strength beyond coupling is human territory, including the result-claim residue R18 established; and other
+built-in `from` receivers reported loudly rather than enumerated. Each has a conservative worst case and
+each is pinned executable by a planted self-test. Per the ledger filing bar these belong in the owning
+surface's limits record, not the open queue; grep the id to reach this entry.
+
+---
+
 ## BL-TWO-WAY-SHEET-SYNC — Write corrections back to the source Google Sheet — CLOSED 2026-08-09 (`docs/demote-two-way-sheet-sync`, DEMOTED: accepted limit)
 
 **Resolution: DEMOTED to an accepted limit, by owner call 2026-08-09.** The canonical method for
