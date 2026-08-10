@@ -55,7 +55,16 @@ export function specWrapShapes(spec: string): string[] {
 type Side =
   | { side: "must"; as?: string }
   | { side: "must-not"; as?: string }
-  | { side: "ignore"; why: string };
+  /**
+   * `pinnedBy` is REQUIRED, and asserted. Three consecutive review rounds landed
+   * on the same shape: an ignore row whose prose `why` claimed the span was
+   * "pinned by its own clause" while the clause in question pinned something
+   * weaker, so the span was in fact unpinned and the completeness test could not
+   * tell — an ignore row IS an accounted-for span. Making the claim executable is
+   * what closes that class: a row cannot assert coverage it does not have,
+   * because asserting it IS the coverage.
+   */
+  | { side: "ignore"; why: string; pinnedBy: RegExp };
 
 /**
  * Every spec §4.6 span, classified. `as` gives the literal the BULLET spells it
@@ -66,14 +75,22 @@ type Side =
 const CLASSIFIED: Array<[string, Side]> = [
   [
     "pnpm heavy -- <cmd>",
-    { side: "ignore", why: "the entry point itself, pinned by its own clause" },
+    {
+      side: "ignore",
+      why: "the entry point itself; the bullet spells it `pnpm heavy <cmd>`",
+      pinnedBy: /`pnpm heavy <cmd>`/,
+    },
   ],
   ["pnpm test", { side: "must" }],
   ["pnpm test:fast", { side: "must" }],
   ["vitest run", { side: "must" }],
   [
     "pnpm exec vitest run",
-    { side: "ignore", why: "a spelling of `vitest run`; the bullet states the shape once" },
+    {
+      side: "ignore",
+      why: "a spelling of `vitest run`; the bullet states that shape once",
+      pinnedBy: /`vitest run`/,
+    },
   ],
   // The spec writes the glob; the bullet spells the base alias and then covers
   // the rest with "and its scoped-config aliases". Classifying the glob `ignore`
@@ -98,23 +115,46 @@ const CLASSIFIED: Array<[string, Side]> = [
     "rg -n -U 'execFileSync\\(\"pnpm\",\\s*\\[\"build\"\\]|execFileSync\\(\"pnpm\",\\s*\\[\"test:e2e'",
     { side: "must" },
   ],
-  ["tests/", { side: "ignore", why: "a path argument of the sweep command above" }],
-  ["scripts/", { side: "ignore", why: "a path argument of the sweep command above" }],
+  [
+    "tests/",
+    {
+      side: "ignore",
+      why: "a path argument of the sweep command",
+      pinnedBy: /over `tests\/` \+ `scripts\/`/,
+    },
+  ],
+  [
+    "scripts/",
+    {
+      side: "ignore",
+      why: "a path argument of the sweep command",
+      pinnedBy: /over `tests\/` \+ `scripts\/`/,
+    },
+  ],
   [
     "RUN_BUILD_ARTIFACT_GATE_TEST=1 pnpm vitest run tests/admin/build-artifact-gate.test.ts",
-    { side: "ignore", why: "the transitive member is pinned below by its cited file:line" },
+    {
+      side: "ignore",
+      why: "the transitive member is pinned by its cited file:line instead",
+      pinnedBy: /tests\/admin\/build-artifact-gate\.test\.ts:73/,
+    },
   ],
   ["tests/admin/build-artifact-gate.test.ts:73", { side: "must" }],
   [
     "node scripts/share-link-flash-adversary-matrix.mjs",
-    { side: "ignore", why: "the transitive member is pinned below by its cited file:line" },
+    {
+      side: "ignore",
+      why: "the transitive member is pinned by its cited file:line instead",
+      pinnedBy: /scripts\/share-link-flash-adversary-matrix\.mjs:1014/,
+    },
   ],
   ["scripts/share-link-flash-adversary-matrix.mjs:1014", { side: "must" }],
   [
     "--quick",
     {
       side: "ignore",
-      why: "the transitive member's UNWRAPPED mode, stated inside the MUST-side clause that names it; pinned by its own clause instead",
+      why: "the transitive member's UNWRAPPED mode, stated inside the MUST-side clause that names it",
+      pinnedBy: /`--quick` spawns none and stays unwrapped/,
     },
   ],
   ["--ui", { side: "must-not" }],
@@ -124,9 +164,20 @@ const CLASSIFIED: Array<[string, Side]> = [
   ["format:check", { side: "must-not", as: "pnpm format:check" }],
   [
     '"heavy": "python3 scripts/with-heavy-slot.py --"',
-    { side: "ignore", why: "the package.json script body, not an invocation shape" },
+    {
+      side: "ignore",
+      why: "the package.json script body, not an invocation shape; the bullet names the wrapper it runs",
+      pinnedBy: /`python3 scripts\/with-heavy-slot\.py -- <cmd>`/,
+    },
   ],
-  ["pnpm heavy pnpm test", { side: "ignore", why: "an example invocation of the entry point" }],
+  [
+    "pnpm heavy pnpm test",
+    {
+      side: "ignore",
+      why: "an example invocation of the entry point, whose accepting form is pinned above",
+      pinnedBy: /`pnpm heavy <cmd>`/,
+    },
+  ],
 ];
 
 /**
@@ -141,7 +192,7 @@ const EXTRA_MEMBERS: Array<[string, "must" | "must-not"]> = [
 
 /** Semantics that a token-presence check reads as intact while they are gone. */
 const MUST_CLAUSES: Array<[string, RegExp]> = [
-  ["entry point", /`pnpm heavy\b/],
+  ["entry point, stated as the form that accepts a command", /`pnpm heavy <cmd>`/],
   ["wrapper path", /scripts\/with-heavy-slot\.py/],
   ["classification is by shape, not alias", /Classification is by INVOCATION SHAPE/],
   ["full-suite vitest shape", /not scoped to an explicit file list/],
@@ -240,6 +291,18 @@ export function checkHeavyPhaseRule(agents: string): string[] {
     // which a presence-only check reads as still-present.
     if (pattern.test(other)) {
       problems.push(`${side.toUpperCase()} member \`${literal}\` appears on the wrong side`);
+    }
+  }
+
+  // Every ignore row's claim, executed. A span excused because "something else
+  // pins it" is only excused while that something else is actually there.
+  for (const [span, entry] of CLASSIFIED) {
+    if (entry.side !== "ignore") continue;
+    if (!entry.pinnedBy.test(rule)) {
+      problems.push(
+        `ignored span \`${span}\` claims coverage that is absent (${entry.why}); ` +
+          `expected ${String(entry.pinnedBy)}`,
+      );
     }
   }
 
@@ -365,6 +428,17 @@ describe("AGENTS.md heavy-phase rule", () => {
     ["delete the `--quick` exception", editRule("; `--quick` spawns none and stays unwrapped", "")],
     ["delete the pre-warmed dev server instruction", editRule(", and pre-warmed dev servers", "")],
     ["delete the spec/plan authoring exclusion", editRule(", and spec/plan authoring", "")],
+    // The round-3 class: an ignored span's cover deleted. One row per ignore
+    // reason that names something deletable, not just the instance reported.
+    ["drop <cmd> from the entry point", editRule("`pnpm heavy <cmd>`", "`pnpm heavy`")],
+    [
+      "drop the wrapper's direct-invocation form",
+      editRule(" (equivalently `python3 scripts/with-heavy-slot.py -- <cmd>`)", ""),
+    ],
+    [
+      "drop the sweep's path arguments",
+      editRule(" over `tests/` + `scripts/`", ""),
+    ],
   ];
 
   it.each(OPERATORS)("rejects a mutant that would %s", (_label, mutate) => {

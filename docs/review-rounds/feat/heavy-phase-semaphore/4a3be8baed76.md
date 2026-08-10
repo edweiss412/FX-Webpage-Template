@@ -49,3 +49,59 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 **Mechanizable:** none new — green-scope-vs-case ownership requires reading both the
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
+
+## diff — 3 rounds
+
+**Examined:** three counted rounds so far on the implementation diff, dispatched as two
+tight-scope reviews per the split-review default. The wrapper half
+(`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
+the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
+reviewed scope is byte-identical from that verdict to merge. Every counted round
+after round 1 belongs to the other half: the AGENTS.md prose rule and its
+string-presence guard, 4/1/1 findings across rounds 1-3.
+
+That split is the finding. The half with kernel semantics, fd lifetimes across
+`execvp`, inode identity, and an atomic swap protocol converged immediately, because
+spec §7 had already enumerated its defect classes as executable cases and thirteen
+spec rounds had probed each one. The half that burned three rounds is a paragraph of
+English and a regex list.
+
+**Judgment:** all six diff findings are one class — *the guard's stated coverage is
+wider than its enforced coverage* — and the arc kept re-entering it because each
+repair changed WHERE the gap lived rather than removing the possibility of one. R1
+found members the hand-written list omitted; the repair derived the member set from
+spec §4.6 spans, which closed omission and opened misclassification. R2 found a span
+misclassified `ignore`, introduced BY that repair. R3 found an `ignore` row whose
+prose reason ("pinned by its own clause") named a clause that pinned something
+weaker. The bidirectional completeness test cannot see either, because an `ignore`
+row IS an accounted-for span — the registry was complete and wrong.
+
+R3's repair is the first one that removes the possibility rather than the instance:
+`pinnedBy` is now a REQUIRED, ASSERTED field on every `ignore` row, so a row cannot
+claim coverage it does not have — asserting the claim IS the coverage. The peers were
+swept in the same commit (three operator rows, not the one reported). The
+transferable rule: when an exemption carries a prose justification, the justification
+is the next defect site, and the fix is to make the exemption's own claim executable.
+This is the same shape as the repo's `// not-subject-to-meta: <reason>` and
+`ADMIN_SURFACE_EXEMPTIONS` conventions, and it should have been the round-1 design.
+
+Worth stating plainly against the round-1 brief: it named the mutation-family closure
+as the convergence criterion and demanded a surviving mutant per finding, and every
+round complied — six findings, six mutants, zero speculation, no ratchet into a
+markdown parser. The criterion worked. What it could not do was stop a repair from
+introducing its own gap, which is why rounds 2 and 3 exist at all.
+
+**Mechanizable:** the specific defect is now mechanized in-repo — `pinnedBy` is
+type-required, so an unpinned `ignore` row is a compile error, and the eleven mutants
+three review rounds produced are `OPERATORS` rows rather than prose. The general form
+(a prose exemption reason that no assertion backs) has no static signature a linter
+could match across the repo's other registries without knowing what each reason
+claims; it belongs in authoring guidance, not a gate.
+
+**Infra:** the sandboxed reviewer could not start Vitest (`EPERM` creating its temp
+dir) in any of the three rounds and transpiled the exported pure checker in memory
+instead. That worked only because the guard was authored as an exported pure function
+over text with the file-reading confined to two module-level constants. A guard
+written as a terminal script would have been unverifiable under the same sandbox — the
+same shape the source-mutation registry requires for enrolment, arrived at
+independently.
