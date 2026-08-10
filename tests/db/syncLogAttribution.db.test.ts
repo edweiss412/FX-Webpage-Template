@@ -43,6 +43,8 @@ const RUN = `synclogattr-${process.pid}-${process.hrtime()[1]}`;
 const FILE_WITH_SHOW = `${RUN}-with-show`;
 const FILE_NO_SHOW = `${RUN}-no-show`;
 const FILE_NULL_DURATION = `${RUN}-null-duration`;
+/** Run-scoped discriminator for the one fixture row that cannot carry the RUN marker. */
+const NULL_DRIVE_MS = 900_000 + (process.pid % 90_000);
 
 let showId = "";
 let otherShowId = "";
@@ -77,7 +79,7 @@ afterAll(async () => {
     if (showId && otherShowId && nullDurationShowId) {
       await sql`delete from public.sync_log where show_id in (${showId}, ${otherShowId}, ${nullDurationShowId})`;
     }
-    await sql`delete from public.sync_log where drive_file_id is null and duration_ms = 5 and status = 'skipped'`;
+    await sql`delete from public.sync_log where drive_file_id is null and duration_ms = ${NULL_DRIVE_MS} and status = 'skipped'`;
     await sql`delete from public.shows where client_label = ${RUN}`;
   } finally {
     await sql.end({ timeout: 5 });
@@ -132,17 +134,24 @@ describe("sync_log attribution — write through the real sink, read through que
     // Paired with the positive case above deliberately: today's sink never binds
     // show_id at all, so a NULL readback ALONE proves nothing. A sink that always
     // writes NULL fails the positive case; one that rejects NULL fails this one.
+    // The row carries no drive_file_id, so it cannot carry the RUN marker either. It
+    // gets a run-scoped discriminator instead: a duration_ms unique to this process
+    // (whole-diff r2 finding 6). Selecting the latest global (NULL, 5, 'skipped') row
+    // let a PRIOR aborted run satisfy this assertion, so a no-op sink mutant passed
+    // from stale state — and the cleanup then deleted every matching row, including
+    // rows this run never wrote.
     await expect(
-      sink({ driveFileId: null, outcome: "skipped", durationMs: 5 } as never),
+      sink({ driveFileId: null, outcome: "skipped", durationMs: NULL_DRIVE_MS } as never),
     ).resolves.toBeUndefined();
 
-    const [row] = await sql<{ show_id: string | null }[]>`
+    const rows = await sql<{ show_id: string | null }[]>`
       select l.show_id from public.sync_log l
-      where l.drive_file_id is null and l.duration_ms = 5 and l.status = 'skipped'
-      order by l.occurred_at desc limit 1
+      where l.drive_file_id is null and l.duration_ms = ${NULL_DRIVE_MS} and l.status = 'skipped'
     `;
-    expect(row).toBeDefined();
-    expect(row!.show_id).toBeNull();
+    // EXACTLY one, so a stale row from an earlier run fails loudly instead of
+    // standing in for the write this test claims to prove.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.show_id).toBeNull();
   });
 
   test("an entry with no durationMs persists NULL — the ?? null bind, against the real driver", async () => {

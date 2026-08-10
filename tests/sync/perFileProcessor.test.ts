@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { ARCHIVED_SKIP_REASON } from "@/lib/sync/lifecycleGuards";
 
@@ -1052,10 +1055,37 @@ describe("attempt duration — branch-complete (spec §3.3)", () => {
     expect(logged[0]!.durationMs).not.toBeLessThan(0);
   });
 
-  test("branch 5b — the value is a finite number, never NaN", async () => {
+  test("branch 5b — a non-finite delta becomes NULL, never NaN", async () => {
+    // whole-diff r2 finding 5: the earlier version injected two FINITE dates, so
+    // deleting `Number.isFinite` at runScheduledCronSync.ts:2271 still produced 10 and
+    // passed. A guard's test has to make the guard's condition TRUE, or it pins nothing.
+    // An Invalid Date is the ordinary way this happens: getTime() is NaN.
+    const queue = [new Date(1_000_000), new Date(Number.NaN)];
+    const now = () => (queue.length > 1 ? queue.shift()! : queue[0]!);
+    const { logged } = await runPreparedSkip({ now });
+    expect(logged[0]!.durationMs).toBeNull();
+    expect(Number.isNaN(logged[0]!.durationMs as unknown as number)).toBe(false);
+  });
+
+  test("branch 5c — a finite delta stays a finite number", async () => {
     const { logged } = await runPreparedSkip({ now: clockOf(1_000_000, 1_000_010) });
-    expect(Number.isNaN(logged[0]!.durationMs)).toBe(false);
-    expect(Number.isFinite(logged[0]!.durationMs)).toBe(true);
+    expect(logged[0]!.durationMs).toBe(10);
+  });
+
+  test("the NORMAL locked path threads the captured start, not the raw deps", async () => {
+    // whole-diff r2 finding 5: reverting runScheduledCronSync.ts:2778 from
+    // depsWithStart to raw `deps` left every duration assertion green, because they all
+    // exercise prepared-skip, contention, or manual first-seen. Driving a full locked
+    // applied attempt through this harness would need the whole Phase-1/Phase-2 stack,
+    // so this is deliberately a SOURCE pin, stated as one rather than dressed as a
+    // behavioural test - it catches exactly the named mutant and claims nothing more.
+    const src = stripCommentsForFile(
+      readFileSync(join(process.cwd(), "lib/sync/runScheduledCronSync.ts"), "utf8"),
+      "lib/sync/runScheduledCronSync.ts",
+    );
+    const call = src.match(/txBoundProcessDeps\(\s*lockedTx\s*,\s*([A-Za-z_$][\w$]*)\s*,/);
+    expect(call, "the locked-path txBoundProcessDeps call was not found").not.toBeNull();
+    expect(call![1]).toBe("depsWithStart");
   });
 
   test("branch 2 — the lock-contended skip carries the injected delta", async () => {

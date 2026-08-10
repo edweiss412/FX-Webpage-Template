@@ -27,7 +27,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { stripComments } from "@/tests/_shared/stripCommentsAndStrings";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 
 /** The eight repaired sites. Fixed, deliberate, and not a completeness claim. */
 const SITES = [
@@ -53,7 +53,7 @@ const ALREADY_INSTRUMENTED = [
  * commented out pins nothing.
  */
 function read(rel: string): string {
-  return stripComments(readFileSync(join(process.cwd(), rel), "utf8"));
+  return stripCommentsForFile(readFileSync(join(process.cwd(), rel), "utf8"), rel);
 }
 
 describe("manual sync entry points install a sync_log sink (regression pin)", () => {

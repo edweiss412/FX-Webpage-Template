@@ -30,7 +30,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
-import { stripComments } from "@/tests/_shared/stripCommentsAndStrings";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 
 const TESTS_ROOT = join(process.cwd(), "tests");
 
@@ -84,8 +84,8 @@ const files = walk(TESTS_ROOT).map((path) => ({ path, source: readFileSync(path,
 // `sql.unsafe("select public.prune_sync_log()")` from discovery, un-discovering a
 // genuinely unsafe file (whole-diff r1 finding 2). The shared scanner is string-aware.
 
-const destructive = files.filter(({ source }) => {
-  const code = stripComments(source);
+const destructive = files.filter(({ path, source }) => {
+  const code = stripCommentsForFile(source, path);
   return EXECUTES_WIPE.test(code) || ENABLES_WIPE_GATE.test(code) || EXECUTES_PRUNE.test(code);
 });
 

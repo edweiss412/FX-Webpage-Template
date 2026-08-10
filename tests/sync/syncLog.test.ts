@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import { stripSqlComments } from "@/tests/_shared/stripComments";
 import { makePostgresSyncLogSink } from "@/lib/sync/syncLog";
 
 describe("sync_log sink", () => {
@@ -43,11 +44,10 @@ describe("sync_log sink — show attribution and duration (spec §3.1, §3.3)", 
   // mandatory — the shipped statement carries an explanatory comment, so a
   // whitespace-only normalizer fails on correct code, and a comment-blind one lets a
   // commented-out subselect satisfy the assertion.
-  const normalize = (raw: string) =>
-    raw
-      .replace(/--[^\n]*/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+  // SQL comments come off through THE shared module (spec
+  // 2026-07-26-stripcomments-shared-design); _metaStripCommentsSingleSource forbids a
+  // local `--` regex, and the shared one is quote-aware where a naive one is not.
+  const normalize = (raw: string) => stripSqlComments(raw).replace(/\s+/g, " ").trim();
 
   test("resolves show_id by subselect and binds duration_ms — exact statement, not containment", async () => {
     const unsafe = vi.fn(async (_sql: string, _params?: unknown[]): Promise<unknown[]> => []);

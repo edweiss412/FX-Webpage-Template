@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { stripSqlComments } from "@/tests/_shared/stripComments";
 import {
   emitSuccessfulPhase2Tail,
   makeSyncPipelineTx,
@@ -266,11 +267,10 @@ describe("recovery sink — show_id by subselect, explicit parameter retired (sp
   // whitespace. Exact equality, not containment - an appended suffix or a subselect
   // parked in a comment satisfies containment while the live statement still binds
   // $1::uuid.
-  const normalize = (raw: string) =>
-    raw
-      .replace(/--[^\n]*/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+  // SQL comments come off through THE shared module (spec
+  // 2026-07-26-stripcomments-shared-design); _metaStripCommentsSingleSource forbids a
+  // local `--` regex, and the shared one is quote-aware where a naive one is not.
+  const normalize = (raw: string) => stripSqlComments(raw).replace(/\s+/g, " ").trim();
 
   function capturing() {
     const calls: Array<{ sql: string; params: unknown[] }> = [];

@@ -105,6 +105,40 @@ ${PRUNE}`;
     expect(analyseDestructiveFile(P, src).ok).toBe(false);
   });
 
+  it("(h) the guard is shadowed by a FUNCTION PARAMETER whose default is a no-op", () => {
+    // whole-diff r2 finding 3: `parameter_shadow` returned ok:true against the
+    // regex analyzer. A parameter is a declaration like any other; the AST sees it.
+    const src = `${IMPORT}
+async function run(assertLocalDbUrl = (u: string | undefined) => u!) {
+  const url = assertLocalDbUrl(process.env.TEST_DATABASE_URL);
+  const sql = postgres(url, { max: 1 });
+  ${PRUNE}
+}`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
+  it("(i) the guarded binding is rebound via ARRAY destructuring", () => {
+    // whole-diff r2 finding 4: `array_rebind`. Not a simple `url = ...`, so a
+    // regex for that form misses it entirely.
+    const src = `${IMPORT}
+let url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+[url] = [process.env.TEST_DATABASE_URL!];
+const sql = postgres(url, { max: 1 });
+${PRUNE}`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
+  it("(j) the guarded binding is rebound via OBJECT destructuring", () => {
+    // whole-diff r2 finding 4: `object_rebind`. Same class, third syntax - which is
+    // why the check now asks the parser for assignments rather than matching text.
+    const src = `${IMPORT}
+let url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+({ url } = { url: process.env.TEST_DATABASE_URL! });
+const sql = postgres(url, { max: 1 });
+${PRUNE}`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.

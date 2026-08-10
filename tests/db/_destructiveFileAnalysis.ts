@@ -1,179 +1,213 @@
 /**
- * tests/db/_destructiveFileAnalysis.ts (Task 5b, 2026-08-09)
+ * tests/db/_destructiveFileAnalysis.ts (Task 5b, 2026-08-09; rewritten on the AST 2026-08-10)
  *
- * `CALLS_LOCAL_GUARD` in the destructive-target guard matches a CALL WHOSE NAME LOOKS
- * RIGHT. That is three holes wide, and each one lets a file wipe or prune the
- * validation project while the meta-test stays green:
+ * `CALLS_LOCAL_GUARD` in the destructive-target guard matched a CALL WHOSE NAME LOOKS
+ * RIGHT. That is three holes wide, and each one lets a file wipe or prune the validation
+ * project while the meta-test stays green:
  *
  *   (a) binding — the guard runs on a different string than the one connected.
- *       `assertLocalDbUrl("postgresql://localhost:.../")` next to
- *       `postgres(process.env.TEST_DATABASE_URL)` satisfies a name match.
  *   (b) ordering — the guard runs AFTER the connection is opened.
- *   (c) provenance — the name resolves to a local same-named function, not the
- *       imported guard.
+ *   (c) provenance — the name resolves to something local, not the imported guard.
  *
- * This module is the analysis, extracted so it can be driven by fixture strings.
- * Asserting only that the two real files pass proves nothing: both are already
- * correct, so an analyzer returning `ok` unconditionally satisfies every positive.
+ * **Why this is a parser and not a pile of regexes.** The first version was regex-based
+ * and leaked twice to the same class of finding: whole-diff r1 caught a commented-out
+ * guard, a reassigned binding, and a second unguarded client; r2 then caught a guard
+ * shadowed by a FUNCTION PARAMETER and rebinding via array and object DESTRUCTURING.
+ * Every one is an ordinary JavaScript binding form, and each regex repair invited the
+ * next escape. Enumerating binding syntax does not terminate; asking the parser which
+ * declaration a name resolves to does.
  *
- * The FILE PATH is a parameter, not a convenience. Closure (c) resolves the callee to
- * the guard module, and both live positives spell the import RELATIVELY
- * (`./_localDbUrl`). Resolving that from source text alone forces a choice between
- * accepting the bare relative spelling from anywhere — which is the provenance hole —
- * and demanding the absolute alias, which rejects both live positives.
- *
- * Threat model: ordinary authoring mistakes by a contributor. Adversarial obfuscation
- * (computed member access, aliased re-export chains, eval) is out of scope and files
- * to documented limits.
+ * Threat model: ordinary authoring mistakes by a contributor. Documented limits, stated
+ * rather than pretended away: a guard reached through computed member access
+ * (`mod["assertLocalDbUrl"]`), an aliased re-export chain, or a URL laundered through a
+ * helper function are out of scope. Those are obfuscation, not mistakes.
  */
+import ts from "typescript";
 import { dirname, resolve } from "node:path";
-import { stripComments } from "@/tests/_shared/stripCommentsAndStrings";
 
 export type DestructiveFileVerdict = { ok: true } | { ok: false; reason: string };
 
 /** The guard module every destructive file must actually call into. */
-const GUARD_MODULE_ABS = "tests/db/_localDbUrl";
+const GUARD_MODULE = "tests/db/_localDbUrl";
 
-const GUARD_NAMES = ["assertLocalDbUrl", "assertSafeDestructiveTarget"] as const;
-
-/** `import { assertLocalDbUrl } from "<spec>";` — captures names and the specifier. */
-const IMPORT_RE = /import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
-
-/** `postgres(<arg>` — the connection open. */
-const CONNECT_RE = /\bpostgres\s*\(\s*([A-Za-z_$][\w$]*|[^)]*?)\s*[),]/;
-const CONNECT_RE_G = /\bpostgres\s*\(\s*([A-Za-z_$][\w$]*|[^)]*?)\s*[),]/g;
-
-/** `const <id> = <guard>(` — the guard's return bound to a name. */
-function guardBindingName(source: string): string | null {
-  for (const name of GUARD_NAMES) {
-    const m = source.match(
-      new RegExp(String.raw`\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*${name}\s*\(`),
-    );
-    if (m) return m[1]!;
-    // `<id> = guard(<id>)` — reassignment, not a declaration. Still a binding.
-    const r = source.match(new RegExp(String.raw`\b([A-Za-z_$][\w$]*)\s*=\s*${name}\s*\(`));
-    if (r) return r[1]!;
-  }
-  return null;
-}
-
-/**
- * Resolve whether the guard NAME in this file refers to the real guard module.
- *
- * Accepts a relative specifier by resolving it against the file's own directory,
- * which is exactly what the runtime does and what the two live positives rely on.
- */
-function importsRealGuard(filePath: string, source: string): boolean {
-  IMPORT_RE.lastIndex = 0;
-  for (let m = IMPORT_RE.exec(source); m; m = IMPORT_RE.exec(source)) {
-    const names = m[1]!.split(",").map((n) =>
-      n
-        .trim()
-        .split(/\s+as\s+/)[0]!
-        .trim(),
-    );
-    if (!names.some((n) => (GUARD_NAMES as readonly string[]).includes(n))) continue;
-    const spec = m[2]!;
-    const resolved = spec.startsWith(".")
-      ? resolve(dirname(filePath), spec).replace(process.cwd() + "/", "")
-      : spec.replace(/^@\//, "");
-    if (resolved === GUARD_MODULE_ABS) return true;
-  }
-  return false;
-}
-
-/** A local declaration that SHADOWS the guard name. */
-function declaresLocalShadow(source: string): boolean {
-  return GUARD_NAMES.some((name) =>
-    new RegExp(String.raw`\b(?:const|let|var|function)\s+${name}\b`).test(source),
-  );
-}
+const GUARD_NAMES: readonly string[] = ["assertLocalDbUrl", "assertSafeDestructiveTarget"];
 
 export function analyseDestructiveFile(
   filePath: string,
   rawSource: string,
 ): DestructiveFileVerdict {
-  // Every check below runs on COMMENT-STRIPPED source. A guard that exists only inside a
-  // comment is not a guard; whole-diff r1 finding 2 demonstrated `commented_guard` passing.
-  const source = stripComments(rawSource);
+  const sf = ts.createSourceFile(
+    filePath,
+    rawSource,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
 
-  const called = GUARD_NAMES.some((n) => new RegExp(String.raw`\b${n}\s*\(`).test(source));
-  if (!called) return { ok: false, reason: "no loopback guard is called" };
+  // ── (c) provenance ────────────────────────────────────────────────────────────
+  const imported = new Set<string>();
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const spec = stmt.moduleSpecifier.text;
+    const resolved = spec.startsWith(".")
+      ? resolve(dirname(filePath), spec).replace(process.cwd() + "/", "")
+      : spec.replace(/^@\//, "");
+    if (resolved !== GUARD_MODULE) continue;
+    const named = stmt.importClause?.namedBindings;
+    if (named && ts.isNamedImports(named)) {
+      for (const el of named.elements) {
+        if (GUARD_NAMES.includes(el.name.text)) imported.add(el.name.text);
+      }
+    }
+  }
 
-  // (c) provenance. Checked FIRST, because a shadowed name makes every other check
-  // meaningless — the "guard" being ordered and bound correctly is a no-op function.
-  if (declaresLocalShadow(source)) {
+  // Any LOCAL declaration of a guard name shadows it, whatever its syntax — a `const`,
+  // a `function`, a parameter (r2 finding 3), a destructured binding element. Asking the
+  // parser for declarations covers every form at once, including ones not yet invented
+  // as an escape.
+  const shadowed = new Set<string>();
+  const noteDeclared = (name: ts.BindingName): void => {
+    if (ts.isIdentifier(name)) {
+      if (GUARD_NAMES.includes(name.text)) shadowed.add(name.text);
+      return;
+    }
+    for (const el of name.elements) {
+      if (ts.isBindingElement(el)) noteDeclared(el.name);
+    }
+  };
+  const walkDecls = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) || ts.isParameter(n)) noteDeclared(n.name);
+    else if ((ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) && n.name) {
+      if (GUARD_NAMES.includes(n.name.text)) shadowed.add(n.name.text);
+    }
+    ts.forEachChild(n, walkDecls);
+  };
+  ts.forEachChild(sf, walkDecls);
+
+  /** Trustworthy only if imported from the guard module AND not shadowed anywhere. */
+  const trusted = (name: string): boolean => imported.has(name) && !shadowed.has(name);
+
+  const guardCalls: ts.CallExpression[] = [];
+  const connects: ts.CallExpression[] = [];
+  const collect = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+      const callee = n.expression.text;
+      if (GUARD_NAMES.includes(callee)) guardCalls.push(n);
+      else if (callee === "postgres") connects.push(n);
+    }
+    ts.forEachChild(n, collect);
+  };
+  ts.forEachChild(sf, collect);
+
+  if (guardCalls.length === 0) return { ok: false, reason: "no loopback guard is called" };
+  if (!guardCalls.some((c) => trusted((c.expression as ts.Identifier).text))) {
     return {
       ok: false,
-      reason: "the guard name resolves to a local declaration, not the imported guard",
+      reason:
+        shadowed.size > 0
+          ? "the guard name resolves to a local declaration, not the imported guard"
+          : `the guard name is not imported from ${GUARD_MODULE}`,
     };
   }
-  if (!importsRealGuard(filePath, source)) {
-    return { ok: false, reason: `the guard name is not imported from ${GUARD_MODULE_ABS}` };
-  }
 
-  // EVERY connection, not just the first. whole-diff r1 finding 2 demonstrated
-  // `second_unguarded_client`: a correctly guarded client followed by an unguarded one
-  // that executes the prune. Checking `match` (first only) blessed the file.
-  const connects = [...source.matchAll(CONNECT_RE_G)];
   if (connects.length === 0) return { ok: false, reason: "no postgres(...) connection found" };
-  for (const c of connects) {
-    const verdict = checkOneConnection(source, c[1]!.trim(), c.index!);
+
+  // EVERY connection, not just the first (r1 finding 2: a safe client followed by an
+  // unguarded one that runs the prune).
+  for (const connect of connects) {
+    const verdict = checkConnection(sf, connect, trusted);
     if (!verdict.ok) return verdict;
   }
   return { ok: true };
 }
 
-function checkOneConnection(
-  source: string,
-  connectArg: string,
-  connectIdx: number,
+function checkConnection(
+  sf: ts.SourceFile,
+  connect: ts.CallExpression,
+  trusted: (name: string) => boolean,
 ): DestructiveFileVerdict {
-  // The inline form `postgres(assertLocalDbUrl(...))` satisfies (a) and (b) by
-  // construction: the connected value IS the guard's return, evaluated before the
-  // call it feeds.
-  if (GUARD_NAMES.some((n) => connectArg.startsWith(n))) return { ok: true };
+  const arg = connect.arguments[0];
+  if (!arg) return { ok: false, reason: "postgres() is called with no target" };
 
-  // (a) binding. The connected identifier must be the one the guard call assigns.
-  const bound = guardBindingName(source);
-  if (!bound) {
-    return {
-      ok: false,
-      reason: "the guard's return value is discarded, so it cannot be the connected value",
-    };
-  }
-  if (connectArg !== bound) {
-    return {
-      ok: false,
-      reason: `postgres() receives \`${connectArg}\`, not the guard's return \`${bound}\``,
-    };
+  // Inline form: postgres(guard(...)). Satisfies binding and ordering by construction.
+  if (ts.isCallExpression(arg) && ts.isIdentifier(arg.expression) && trusted(arg.expression.text)) {
+    return { ok: true };
   }
 
-  // (b) ordering. The ASSIGNMENT that produces the connected binding must precede the
-  // connection. A `let` reassigned after `postgres(...)` keeps binding equality while
-  // opening the connection unguarded.
-  const assignIdx = GUARD_NAMES.map((n) =>
-    source.search(new RegExp(String.raw`\b${bound}\s*=\s*${n}\s*\(`)),
-  ).filter((i) => i >= 0);
-  if (assignIdx.length === 0 || Math.min(...assignIdx) > connectIdx) {
+  if (!ts.isIdentifier(arg)) {
+    return { ok: false, reason: "postgres() receives an expression that is not a guarded binding" };
+  }
+  const bound = arg.text;
+  const connectPos = connect.getStart(sf);
+
+  // ── (a) binding + (b) ordering ────────────────────────────────────────────────
+  let declaredFromGuard = false;
+  let declPos = Number.POSITIVE_INFINITY;
+  const findDecl = (n: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === bound &&
+      n.initializer &&
+      ts.isCallExpression(n.initializer) &&
+      ts.isIdentifier(n.initializer.expression) &&
+      trusted(n.initializer.expression.text)
+    ) {
+      declaredFromGuard = true;
+      declPos = Math.min(declPos, n.getStart(sf));
+    }
+    ts.forEachChild(n, findDecl);
+  };
+  ts.forEachChild(sf, findDecl);
+
+  if (!declaredFromGuard) {
+    return { ok: false, reason: `\`${bound}\` is not bound to a trusted guard call` };
+  }
+  if (declPos > connectPos) {
     return { ok: false, reason: "the guard call runs after the connection is opened" };
   }
 
-  // A guarded binding that is REASSIGNED before the connection is no longer guarded.
-  // whole-diff r1 finding 2 demonstrated `reassigned_after_guard`: `url` guarded, then
-  // overwritten with TEST_DATABASE_URL, then connected. Binding equality and ordering
-  // both still held; the VALUE did not.
-  const rebind = new RegExp(String.raw`\b${bound}\s*=\s*(?!${GUARD_NAMES.join("|")})`, "g");
-  for (const m of source.matchAll(rebind)) {
-    // Skip the declaration itself (`const url = guard(...)` is matched by assignIdx).
-    if (/\b(?:const|let|var)\s*$/.test(source.slice(Math.max(0, m.index! - 12), m.index!)))
-      continue;
-    if (m.index! < connectIdx) {
-      return {
-        ok: false,
-        reason: `\`${bound}\` is reassigned from a non-guard expression before the connection`,
-      };
+  // ── rebinding, in EVERY assignment form (r1 finding 2, r2 finding 4) ──────────
+  // Simple assignment, array destructuring, and object destructuring are all
+  // AssignmentExpressions to the parser, so one check covers the class rather than one
+  // regex per syntax.
+  let rebound = false;
+  const writesTo = (target: ts.Node): boolean => {
+    if (ts.isIdentifier(target)) return target.text === bound;
+    if (ts.isArrayLiteralExpression(target)) return target.elements.some(writesTo);
+    if (ts.isObjectLiteralExpression(target)) {
+      return target.properties.some((prop) => {
+        if (ts.isShorthandPropertyAssignment(prop)) return prop.name.text === bound;
+        if (ts.isPropertyAssignment(prop)) return writesTo(prop.initializer);
+        return false;
+      });
     }
+    if (ts.isParenthesizedExpression(target)) return writesTo(target.expression);
+    return false;
+  };
+  const findRebind = (n: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      writesTo(n.left) &&
+      n.getStart(sf) < connectPos
+    ) {
+      // A re-assignment FROM a trusted guard call is still guarded.
+      const fromGuard =
+        ts.isCallExpression(n.right) &&
+        ts.isIdentifier(n.right.expression) &&
+        trusted(n.right.expression.text);
+      if (!fromGuard) rebound = true;
+    }
+    ts.forEachChild(n, findRebind);
+  };
+  ts.forEachChild(sf, findRebind);
+
+  if (rebound) {
+    return {
+      ok: false,
+      reason: `\`${bound}\` is reassigned from a non-guard expression before the connection`,
+    };
   }
 
   return { ok: true };

@@ -16,22 +16,22 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { stripComments } from "@/tests/_shared/stripCommentsAndStrings";
+import { stripCommentsForFile, stripSqlComments } from "@/tests/_shared/stripComments";
 
 // COMMENT-STRIPPED. Whole-diff r1 finding 4: commenting out all seven `driveFileId`
 // properties still returned {"matched":7,"bare":0}, and restoring the OLD unattributed
 // SQL while parking the expected form in an SQL block comment still satisfied both
 // exact pins. Both are the same defect - source text read as if it were code.
-const SOURCE = stripComments(
+const SOURCE = stripCommentsForFile(
   readFileSync(join(process.cwd(), "lib/sync/runOnboardingScan.ts"), "utf8"),
+  "lib/sync/runOnboardingScan.ts",
 );
 
 describe("onboarding-scan sink — show attribution (spec §3.1)", () => {
-  const normalize = (raw: string) =>
-    raw
-      .replace(/--[^\n]*/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+  // SQL comments come off through THE shared module (spec
+  // 2026-07-26-stripcomments-shared-design); _metaStripCommentsSingleSource forbids a
+  // local `--` regex, and the shared one is quote-aware where a naive one is not.
+  const normalize = (raw: string) => stripSqlComments(raw).replace(/\s+/g, " ").trim();
 
   it("resolves show_id by subselect, with drive_file_id reused as $1", () => {
     const insert = SOURCE.match(/insert into public\.sync_log[\s\S]*?\$4::jsonb\s*\)/);
