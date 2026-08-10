@@ -432,6 +432,25 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 **Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
 
+### BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal
+
+**Severity:** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S
+
+**Probed, not theorized.** With `localStorage.setItem` throwing (restrictive in-app browser, private mode, third-party-storage block):
+
+```
+after-toggle-with-storage-blocked: dark:dark  stored null
+next-load/os-light:                light
+```
+
+The user picks dark, the page turns dark, and the next load is light again with nothing said.
+
+**Why it is filed rather than fixed here.** `components/layout/useAppliedTheme.ts` absorbs the write failure deliberately — throwing would take the whole control down over a preference, and the fallback (follow the OS) is the conservative answer. What is missing is the SIGNAL, and what the signal should say is a product-copy decision this arc cannot settle: a toast is heavy for a preference, an inline note next to a toggle inside a popover has nowhere to live, and "your browser will not remember this" is the kind of technical explanation `PRODUCT.md` §5 rules out of the UI. Class-sweep disposition exception (a): needs a product decision.
+
+**Reachability:** PROBED — the failure mode is reachable in any embedded webview with storage partitioning, which is exactly where crew open a link from a group thread.
+
+---
+
 ### BL-AGENDA-PROSE-SECOND-DAY — a day label can name a second day in free prose
 
 **Status:** OPEN — known limit, accepted in PR #610 review R6 · **Severity:** low · **Class:** FEATURE REACH · **Effort:** S

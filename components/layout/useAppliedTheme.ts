@@ -66,11 +66,37 @@ export function useAppliedTheme(): AppliedTheme {
 
   useEffect(() => {
     // Post-mount sync of the SSR-stable placeholder with the actually-applied
-    // theme. At most once per mount: the dataset attribute is written
-    // pre-hydration and then only by `setTheme` below, so a subscription model
-    // would add ceremony without adding correctness.
+    // theme.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setState({ mounted: true, theme: readAppliedTheme() });
+
+    // AND a live subscription, which an earlier version argued was "ceremony
+    // without correctness". Measured otherwise: with no stored choice, a phone
+    // rolling into scheduled dark mode left the page in light with no signal
+    // that it was stale, until a reload. A visitor who has never touched the
+    // toggle is FOLLOWING the OS, so the OS changing its mind is a real input
+    // this has to answer.
+    //
+    // Guarded on there being no stored choice, and re-read on every event
+    // rather than captured: an explicit pick must keep winning over the OS, and
+    // the pick can happen while this listener is alive.
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const onOsChange = (event: MediaQueryListEvent): void => {
+      let stored: string | null = null;
+      try {
+        stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+      } catch {
+        // Unreadable storage is treated as "no stored choice": following the OS
+        // is the conservative answer when we cannot know the user picked.
+      }
+      if (stored === "light" || stored === "dark") return;
+      const next: Theme = event.matches ? "dark" : "light";
+      document.documentElement.dataset.theme = next;
+      setState({ mounted: true, theme: next });
+    };
+    query.addEventListener("change", onOsChange);
+    return () => query.removeEventListener("change", onOsChange);
   }, []);
 
   function setTheme(next: Theme): void {

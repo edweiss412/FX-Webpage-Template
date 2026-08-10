@@ -72,8 +72,21 @@ export function ThemeToggle() {
     <button
       type="button"
       data-testid="theme-toggle"
-      aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
-      aria-pressed={isDark}
+      /*
+        PRE-HYDRATION THIS CONTROL DOES NOT CLAIM A STATE. The SSR-stable
+        placeholder is `light`, but the no-FOUC script has already painted the
+        palette from the OS — so on an OS-dark first paint the page rendered
+        dark while this button announced "Switch to dark theme" with
+        `aria-pressed="false"`, offering to do what it had already done
+        (measured: stored=null, os=dark, page dark, control said pressed=false).
+
+        Until mounted the label names the control rather than a transition, and
+        `aria-pressed` is omitted rather than sent as `false`: absent is honest
+        about a state we do not yet know, whereas `false` is a wrong claim. One
+        React tick later the real state arrives.
+      */
+      aria-label={mounted ? (isDark ? "Switch to light theme" : "Switch to dark theme") : "Theme"}
+      {...(mounted ? { "aria-pressed": isDark } : {})}
       onClick={flip}
       className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface text-text-subtle transition-colors duration-fast hover:border-border-strong hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >

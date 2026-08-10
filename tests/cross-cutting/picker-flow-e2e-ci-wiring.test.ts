@@ -501,6 +501,54 @@ function expectNoUndeclaredProjectGate(spec: string): void {
     const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
     offenders.push(`${what} at ${spec}:${line + 1}`);
   };
+  // A BARE `return` IN A TEST BODY IS THE DEFECT, whatever drove it — and that
+  // is the check, because naming the drivers does not terminate. The first
+  // version banned the identifiers `project` and `testInfo` plus `test.info()`,
+  // and review R1 walked straight past it with Playwright's `browserName`
+  // fixture: destructure it, `if (browserName === "chromium") return;`, and the
+  // case is an assertion-free PASS that the guard reports clean and the
+  // executed-count oracle credits as coverage. Adding `browserName` to the list
+  // would just move the hole to the next fixture (`test.info()`, `process.env`,
+  // `page.context().browser()`, whatever ships next).
+  //
+  // "Which name identifies the environment" is an open question about
+  // Playwright's API. "Does this test callback return before asserting" is a
+  // closed question about one function's control flow, so that is what is asked.
+  // Nested functions are exempt: a `return` inside a `.filter(...)` callback is
+  // ordinary code, not an early exit from the test.
+  const testCallbackBodies: ts.Node[] = [];
+  const collectTestBodies = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      (ts.isIdentifier(node.expression) ? node.expression.text === "test" : false) &&
+      node.arguments.length >= 2
+    ) {
+      const body = node.arguments[1];
+      if (body && (ts.isArrowFunction(body) || ts.isFunctionExpression(body)) && body.body) {
+        testCallbackBodies.push(body.body);
+      }
+    }
+    ts.forEachChild(node, collectTestBodies);
+  };
+  collectTestBodies(sf);
+
+  for (const body of testCallbackBodies) {
+    const walk = (node: ts.Node): void => {
+      // Do not descend into a nested function: its `return` belongs to it.
+      if (
+        node !== body &&
+        (ts.isArrowFunction(node) ||
+          ts.isFunctionExpression(node) ||
+          ts.isFunctionDeclaration(node))
+      ) {
+        return;
+      }
+      if (ts.isReturnStatement(node)) record(node, "early return in a test body");
+      ts.forEachChild(node, walk);
+    };
+    walk(body);
+  }
+
   const scan = (node: ts.Node): void => {
     if (ts.isIdentifier(node) && (node.text === "project" || node.text === "testInfo")) {
       const isParamName = ts.isParameter(node.parent) && node.parent.name === node;

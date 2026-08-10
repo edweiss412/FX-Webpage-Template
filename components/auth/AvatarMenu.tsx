@@ -293,6 +293,13 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
 
           <div role="menu" data-testid="avatar-menu-items" {...menuNameProps}>
             <button
+              // FOCUS IS THE SOURCE OF TRUTH for the roving index, not the
+              // last key pressed. Tracking them separately desynchronised on
+              // mixed input: open with ArrowUp (index 1), activate this row by
+              // POINTER, then press ArrowDown — the index still said 1, so the
+              // arrow moved from where the user was not, and the first press
+              // read as broken. Anything that focuses an item now says so.
+              onFocus={() => setActiveIndex(0)}
               ref={(el) => {
                 itemRefs.current[0] = el;
               }}
@@ -339,6 +346,7 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
               <input type="hidden" name="shareToken" value={shareToken} />
               <input type="hidden" name="showId" value={showId} />
               <button
+                onFocus={() => setActiveIndex(1)}
                 ref={(el) => {
                   itemRefs.current[1] = el;
                 }}
