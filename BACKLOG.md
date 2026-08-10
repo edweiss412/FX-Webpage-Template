@@ -817,7 +817,7 @@ A working draft exists in the shipping session's scratchpad; the design above is
 
 ### BL-APPEVENTS-PRUNE-TEST-UNGUARDED-TARGET — an existing test can prune the validation project
 
-**Status:** OPEN · **Severity:** HIGH (data loss on a shared project; live today) · **Class:** test safety · **Effort:** S · **Filed:** 2026-08-09
+**Status:** IN PROGRESS · **Branch:** fix/sync-log-show-id-duration · **Severity:** HIGH (data loss on a shared project; live today) · **Class:** test safety · **Effort:** S · **Filed:** 2026-08-09
 
 **Probe.** `tests/log/appEventsSchema.test.ts:5` resolves its connection as `process.env.TEST_DATABASE_URL ?? <loopback default>` with **no `assertLocalDbUrl` guard**, and `:66` executes `select public.prune_app_events(interval '60 days')`. `TEST_DATABASE_URL` on the shipping machine is the persistent validation project (`AGENTS.md:218`), so running that suite with the ambient env deletes 60 days of validation telemetry.
 

@@ -26,7 +26,7 @@ Restated from the spec so every `ac=` id in this plan resolves here. Spec is can
 
 | AC | Claim | Proved by |
 | --- | --- | --- |
-| **AC-1** | A row written for a `drive_file_id` with a committed `shows` row lands that show's id — for the cron, recovery, AND onboarding sinks alike. | Tasks 1, 3, 3b, 4, 8b |
+| **AC-1** | A row written for a `drive_file_id` with a committed `shows` row lands that show's id — for the cron, recovery, AND onboarding sinks alike. | Tasks 1, 3, 3b, 3c, 4 |
 | **AC-2** | `querySyncLog({ showId, sinceHours: null })` returns those rows, and zero for an unrelated show id. | Task 4 |
 | **AC-3** | A `drive_file_id` with no committed `shows` row lands `show_id IS NULL` — no FK violation, no blocking wait. | Tasks 1, 4 |
 | **AC-4** | A row with `drive_file_id IS NULL` lands `show_id IS NULL` and does not fail. | Tasks 1, 4 |
@@ -35,6 +35,7 @@ Restated from the spec so every `ac=` id in this plan resolves here. Spec is can
 | **AC-7** | Both indexes exist on `public.sync_log`, and on `dev.sync_log` when the clone is present; the migration applies cleanly where it is absent. | Tasks 5, 8 |
 | **AC-8** | `prune_sync_log` exists with the `prune_app_events` security posture, deletes exactly the rows past the cutoff, is scheduled, `active`, and registered in the cron gate. | Tasks 5, 8 |
 | **AC-9** | `BL-ADMIN-PER-SHOW-HISTORY` is archived with the UI half recorded as a decision, not a debt. | Task 9 |
+| **AC-10** | The invariant-8 dual gate has run on the three `app/` files Task 3c edits, with findings and dispositions recorded and a valid `RAN`-form marker in the unit's closeout sibling. | Task 10 |
 
 ## Meta-test inventory (mandatory declaration)
 
@@ -76,7 +77,7 @@ New DB-backed tests go in `tests/db/` with the `*.db.test.ts` suffix (template: 
 
 Every new DB test resolves its URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`) and never reads `TEST_DATABASE_URL` directly; otherwise its fixtures mutate the validation project. `tests/db/_metaDestructiveDbTargetGuard.test.ts` and `_metaLocalDbUrlGuard.test.ts` already enforce this class.
 
-Task 8's validation apply is `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260809000000_sync_log_show_attribution.sql` then `notify pgrst, 'reload schema';` — `supabase db push` is blocked on that project.
+Task 8's validation apply is `psql -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -f supabase/migrations/20260809000000_sync_log_show_attribution.sql` then `notify pgrst, 'reload schema';` — `supabase db push` is blocked on that project.
 
 No dev counterpart is needed for `prune_sync_log`: `prune_app_events` has none, and the dev schema is not a deploy target ("Public schema only", `AGENTS.md:218`). The migration's dev block covers indexes only.
 
@@ -228,7 +229,9 @@ So the RED for this task asserts **the sink is installed and reaches the pipelin
 
 **RED validity.** New test asserting each entry point forwards a sink into the pipeline. The production defect is the absent `logSync` property at each call site; the test cannot pass until they carry it. It is NOT test-local — the existing `tests/sync/runOfShowSyncLogChannel.test.ts:172-185` injects `logSync` itself, which is exactly why it proved a test-only path and missed this for the whole arc.
 
-**The entry-point set is DERIVED, not hand-listed.** My own verification grep missed `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` because its callee is `deps.runManualSyncForShowUnlocked` — a different exported name than the four shapes I pattern-matched. That is the fourth instance in this arc of a hand-list coming up short, this time in the verification method rather than the artifact. **The pin is a FIXED fifteen-site enumeration, NOT a derived cover (plan R2 F1).** An earlier revision described both, which let an implementer build the very derived guard the spec descoped. Spec §3.6 and `BACKLOG.md` are explicit: the derived recognizer is filed work; this change ships a fixed list only, and its file-level rule must be per-CALL so one instrumented call cannot launder a sinkless one in the same file.
+**This task uses the FIXED eight-site list below; the derivation discussion is BACKGROUND for the filed guard (plan R3 F1).** An earlier revision presented a derived importer rule here, which contradicts the fixed-pin decision and would let an implementer build the descoped guard. What this task ships is the list.
+
+*Background, retained because `BL-SYNC-LOG-ATTRIBUTION-METATEST` cites it:* My own verification grep missed `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` because its callee is `deps.runManualSyncForShowUnlocked` — a different exported name than the four shapes I pattern-matched. That is the fourth instance in this arc of a hand-list coming up short, this time in the verification method rather than the artifact. **The pin is a FIXED fifteen-site enumeration, NOT a derived cover (plan R2 F1).** An earlier revision described both, which let an implementer build the very derived guard the spec descoped. Spec §3.6 and `BACKLOG.md` are explicit: the derived recognizer is filed work; this change ships a fixed list only, and its file-level rule must be per-CALL so one instrumented call cannot launder a sinkless one in the same file.
 
 **Accept-set reasoning below is BACKGROUND for the filed guard, not an instruction for this task.** It is kept because the filed entry cites it: An export is an entry point iff its own signature accepts a deps object that can carry `logSync`. Transitive reachability had no stopping condition: `unarchiveShow` reaches a writer, so it became an entry point, so ITS caller owed a sink, and so on up the graph — and no marker was truthful there, since once the sink is wired into `unarchiveShow` the attempt does emit. Signature-keyed terminates by construction and is decidable from the callee alone. `unarchiveShow`'s `deps?: { rpc?, runManualSyncForShow? }` carries no `logSync`, so it is a CALLER that must pass one inward — which is this task — and its own callers inherit nothing.
 
@@ -257,13 +260,13 @@ Census — **two of ten** production entry points install a sink today (`app/api
 
 **Also fix the two lying comments** at `app/admin/show/[slug]/_actions/useRaw.ts:162` and `app/admin/show/[slug]/_actions/useRaw.ts:173`, which assert that logging already happens here. They are false today and they are part of why this went unnoticed — a comment claiming a mechanism is the same defect class as a spec claiming one.
 
-**Also install the two fenced gap markers (plan R1 F12).** The approved spec §6.2 requires them and no task owned them; the plan referenced a nonexistent "Task 8b". Add `// sync-log-emission-gap: BL-MANUAL-SYNC-UNEMITTED` at `app/api/admin/staged/[fileId]/apply/route.ts:152` and `app/api/admin/show/staged/[stagedId]/apply/route.ts:164`. Without them the fenced attempts stay silently unemitted rather than explicitly signaled, which is the difference between a documented limit and an undocumented one.
+**Also install the two fenced gap markers (plan R1 F12).** The approved spec §6.2 requires them and no task owned them; the plan referenced a nonexistent "the filed guard". Add `// sync-log-emission-gap: BL-MANUAL-SYNC-UNEMITTED` at `app/api/admin/staged/[fileId]/apply/route.ts:152` and `app/api/admin/show/staged/[stagedId]/apply/route.ts:164`. Without them the fenced attempts stay silently unemitted rather than explicitly signaled, which is the difference between a documented limit and an undocumented one.
 
 **Ordering:** before Task 4, whose DB oracle would otherwise be unable to observe a manual attempt at all. (Task 3a, the meta-test, was descoped — so 3b/3c no longer have a guard turning red before them; their REDs are their own tests.)
 
 ## Task 4 — Attribution integration test (the probe, executable)
 
-<!-- task: red=`pnpm vitest run tests/observe/querySyncLogAttribution.test.ts` ac=AC-1,AC-2,AC-3,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/db/syncLogAttribution.db.test.ts` ac=AC-1,AC-2,AC-3,AC-5 -->
 
 New DB-backed test. Write attempts through the cron sink for a drive file with a known `shows` row, then assert `querySyncLog({ showId })` returns them.
 
@@ -305,6 +308,10 @@ Only a completely unconfigured local dev environment may skip clean.
 
 <!-- task: red=`pnpm vitest run tests/db/syncLogIndexesAndPrune.db.test.ts tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-7,AC-8 -->
 
+**AC-4 needs its own case (plan R3 F3).** No task wrote a row with `drive_file_id = NULL`. Task 1 covers a real show and a nonexistent-but-non-null file id; Task 4's marker omitted AC-4. A regression rejecting NULL, or binding it wrongly, passes every other listed test. Add a run-level case: sink an entry with `driveFileId: null`, read the row back, assert `show_id IS NULL` and that the insert did not throw.
+
+**The prune assertions run inside an always-rolled-back transaction (plan R3 F6).** An uncommitted prune cannot permanently delete unrelated old local rows; a committing one can, and asserting only `>=` on the return leaves that invisible. Roll back, and scope every count to the fixture marker.
+
 **New DB assertions are required — none exist today.** `rg "sync_log_show_id_idx|sync_log_drive_file_id_idx|prune_sync_log|sync_log_prune" tests` returns nothing, and `tests/db/schema.test.ts:293-303` inspects CHECK syntax, not indexes. Per spec §5, assert: both public indexes in `pg_indexes` with column order and DESC; both dev indexes when `to_regclass('dev.sync_log')` is non-null, plus a migration-text assertion that the `to_regclass` guard is present so an ungated form cannot ship; `prune_sync_log` in `pg_proc` with `prosecdef` and `search_path`; `has_function_privilege` positive for `service_role` and negative for `anon`/`authenticated`; prune behavior across the cutoff asserting BOTH the returned count and that newer rows survive; and the `cron.job` row's command, schedule, **and `active = true`** (plan R2 F12: a migration that schedules the correct command and then disables the job satisfies every other assertion while retention never runs). Also assert `proargdefaults` decodes to 60 days AND exercise the no-argument `prune_sync_log()` call the cron command actually issues (plan R1 F15).
 
 the new migration under `supabase/migrations/`:
@@ -335,15 +342,30 @@ const EXECUTES_PRUNE = /\bselect\s+public\.prune_(?:sync_log|app_events)\s*\(/i;
 
 `prune_app_events` is folded in deliberately: identical hazard, no current coverage, one alternation to fix. That is the class-sweep default (repair every instance of the shape in the same PR) rather than filing a peer for something free to fix here.
 
-**Edit C — close the three name-match holes (spec R4 F3).** Extending discovery is necessary but not sufficient: `CALLS_LOCAL_GUARD` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:42-43`) matches a *call whose name looks right*. It does not establish (a) that the guarded value is the URL actually passed to `postgres`, (b) that the call precedes the connection, or (c) that the callee is the imported guard rather than a local same-named function. A prune test can call `assertLocalDbUrl` on an unrelated loopback literal, or after pruning, and pass.
-
-Close (c) the way `_metaLocalDbUrlGuard` already does — resolve the callee to the guard module's export (that file's own whole-diff finding 1b). Close (a) and (b) by asserting, in the discovered file's AST, that the identifier passed to `postgres(...)` is the same binding returned by the guard call. 
-
 **Edit C — close all three name-match holes. No deferral branch (plan R1 F9, restated after R2 F5 found my removal had also deleted this section).** `CALLS_LOCAL_GUARD` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:42-43`) matches a call whose NAME looks right. It does not establish (a) that the guarded value is the URL passed to `postgres`, (b) that the call precedes the connection, or (c) that the callee is the imported guard rather than a local same-named function.
 
 Close (c) by resolving the callee to an import of `@/tests/db/_localDbUrl` — the correction `_metaLocalDbUrlGuard` already made for itself. Close (a) by asserting in the discovered file's AST that the identifier passed to `postgres(...)` is the binding the guard call returned, accepting the inline `postgres(assertLocalDbUrl(...))` form. Close (b) by requiring the guard call's position to precede the `postgres(` call in the same file.
 
 None of these may be filed as a documented limit. The thing guarded is deletion of shared data, and R2 F6 found a live instance already.
+
+**Each closure needs a synthetic negative, or it is a claim (plan R3 F5).** Asserting only that the two real files PASS proves nothing about (a)/(b)/(c) — both real files are already correct, so an analyzer returning `ok` unconditionally satisfies every positive assertion. Extract the per-file analysis as a pure function over source text, `analyseDestructiveFile(source: string): { ok: boolean; reason?: string }`, and drive it with fixture strings in the same suite. Three mutants, each of which MUST be rejected, each named for the hole it demonstrates:
+
+```ts
+// (a) wrong-value binding: guard runs, on a different string than the one connected
+const url = process.env.TEST_DATABASE_URL!;
+assertLocalDbUrl("postgresql://localhost:54322/postgres");
+const sql = postgres(url);
+
+// (b) post-connection ordering: guard runs, but after the connection is open
+const sql = postgres(process.env.TEST_DATABASE_URL!);
+assertLocalDbUrl(process.env.TEST_DATABASE_URL);
+
+// (c) local shadowing: the name resolves to a local no-op, not the imported guard
+const assertLocalDbUrl = (u: string | undefined) => u!;
+const sql = postgres(assertLocalDbUrl(process.env.TEST_DATABASE_URL));
+```
+
+Plus one positive control per accepted form — the two-step `const url = assertLocalDbUrl(...); postgres(url)` and the inline `postgres(assertLocalDbUrl(...))` — so an analyzer cannot pass by rejecting everything. Closure set for Edit C is those three mutants; for Edit A it stays the two regex operators (drop `sync_log`, drop `app_events`). Five operators, each breaking a named assertion.
 
 **Edit B-pre — repair the LIVE hit the new pattern discovers (plan R2 F6).** `EXECUTES_PRUNE` folds in `prune_app_events`, and `tests/log/appEventsSchema.test.ts` executes it at `tests/log/appEventsSchema.test.ts:66` while resolving its URL from `process.env.TEST_DATABASE_URL` with **no loopback guard** (`tests/log/appEventsSchema.test.ts:5`). That is a real, present hazard — the validation project's `app_events` can be pruned by an existing test today, independent of this change — and it means Task 5b **cannot reach green** until that file calls `assertLocalDbUrl`. Repair it in this task and name it in the anti-vacuity list.
 
@@ -375,13 +397,29 @@ An index does not change the manifest; the new `prune_sync_log` function does. R
 
 Apply the migration surgically to the validation project (`supabase db push` is blocked there), then `notify pgrst, 'reload schema';`. Confirm the `validation-schema-parity` gate passes all three layers.
 
+**Tracked output (plan R3 F9).** This task otherwise mutates only an external project and would owe an empty commit under the one-commit-per-task rule. Its commit creates this plan's stem-named closeout sibling (same directory, same stem, closeout suffix — the form `partitionUnits` folds into this unit) with a `## Validation apply` section recording the applied migration filename, the psql exit status, and each parity layer's result. That file is also where Task 10 writes the invariant-8 marker, so the unit gains its closeout sibling here and completes it there. The parity gate is the executable proof; the record is the tracked artifact.
+
 ## Task 9 — Archive the backlog entry
 
 <!-- task: red=`pnpm vitest run tests/docs/backlogArchiveIntegrity.test.ts` ac=AC-9 -->
 
 **RED validity (plan R2 F9).** `_metaLedgerInProgress` is already green and stays green if the archive is skipped — it validates marker shape and origin references, not that this entry moved. The RED is a new assertion that `BL-ADMIN-PER-SHOW-HISTORY` appears in `BACKLOG-archive.md` and no longer in `BACKLOG.md`, which fails until the archive happens.
 
+**The move is only half of AC-9 (plan R3 F11).** Relocating the entry verbatim satisfies a presence check while preserving its UI request as open-style debt, so the decision half goes unproved. Extend the same assertion to the archived entry's own body: it must carry a `**Decision:**` field naming what was built (sink-derived attribution, queryable by `--show`) and what was deliberately NOT built (the operator-facing modal sections, out of scope per the 2026-08-09 audience reframing), and it must NOT carry `**Status:** OPEN` or an `**Effort:**` estimate — the two fields that mark an entry as scheduled work rather than a settled call. Scope the assertion to the entry's own heading-to-heading slice, so a neighbouring OPEN-shaped row can neither satisfy nor break it.
+
 Archive `BL-ADMIN-PER-SHOW-HISTORY` to `BACKLOG-archive.md` with the UI half recorded as a decision, not a debt. The `IN PROGRESS` marker comes off in the **same commit** that archives it — archives categorically reject in-flight entries (invariant 12), and this must be the PR's last commit so the marker never reaches main.
+
+## Task 10 — Invariant-8 UI gate closeout
+
+<!-- task: red=`pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` ac=AC-10 -->
+
+Task 3c edits three non-API files under `app/` (`app/admin/dev/actions.ts`, `app/admin/show/[slug]/_actions/roleToken.ts`, `app/admin/show/[slug]/_actions/useRaw.ts`). `AGENTS.md:20` makes those UI surfaces by LOCATION, not by visual apparency, so invariant 8 applies even though the edits add a dependency argument and change no rendered output (plan R1 F1).
+
+Run both halves of the v3 dual gate on the affected diff, each with the canonical v3 setup gates named in `AGENTS.md:20` — the skill's context load (PRODUCT.md + DESIGN.md), then its reference-register read — and re-verify the pre-code mechanical checklist against the three edited files. Record every finding and its disposition in a `## 12` section of the closeout file Task 8 created, then append the standalone marker line carrying the real counts.
+
+**Why the plan does not arm the gate before this task (plan R3 F8).** `declaresGate` arms on the literal declaration phrases and `unitVerdict` then demands a valid `RAN`/`RAN-DEGRADED` marker in the same unit. A plan that arms at plan-commit time is unsatisfiable by construction: the gate has not run, so no honest marker exists, and the only available forms are the malformed `PENDING` an earlier revision carried or a `RAN` that is a lie. Arming and satisfying must become true in the SAME commit, and this task's commit is that commit — the closeout's §12 prose carries the declaration phrases, the marker line lands beside it. The suite's silence before this point is an un-armed unit behaving correctly, not an evasion.
+
+**RED validity.** The red is observed INSIDE this task, not before it: write the §12 prose first (unit arms, no marker present, `no-marker` verdict, suite red), then append the marker line (green). Both halves land in one commit, so the red is real and witnessed rather than inferred.
 
 <!-- tasks: end -->
 
@@ -389,4 +427,4 @@ Archive `BL-ADMIN-PER-SHOW-HISTORY` to `BACKLOG-archive.md` with the UI half rec
 
 ## Commit discipline
 
-One commit per task, conventional-commits style, `fix(sync):` / `test(sync):` / `feat(db):` scopes. `impeccable-gate: critique=PENDING audit=PENDING p0=0 p1=0 dispositions=none` in the closeout.
+One commit per task, conventional-commits style, `fix(sync):` / `test(sync):` / `feat(db):` scopes. The invariant-8 marker is written by Task 10 into the closeout sibling in the `RAN` form with real counts; `PENDING` is not a legal value (`tests/docs/_invariant8Closeout.ts:45`) and no revision of this plan may carry it.
