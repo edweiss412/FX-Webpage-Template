@@ -49,44 +49,52 @@ const ALIGNMENT_CELL = /^:?-+:?$/;
  * behavior is not in this branch's scope, and widening the blast radius to fix a counting
  * bug here would be the wrong trade.
  */
-function analyzeRow(line: string): { cells: number; alignment: boolean } {
-  // ONE PASS, NO ALLOCATION. This runs for every row of every sheet on the parse path, and
-  // the obvious shape -- split into an array, then re-split again inside flush() to
-  // re-decide alignment -- measured 3x slower on the typo-generator suites, which call
-  // parseSheet tens of thousands of times. Cell boundaries and the alignment verdict come
-  // out of the same scan, and the caller stores both.
-  let cells = 0;
-  let alignment = true;
-  let started = false;
-  let cellStart = 0;
+function splitCellsUnescaped(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
   for (let i = 0; i < line.length; i++) {
     const ch = line[i]!;
     if (ch === "\\" && i + 1 < line.length) {
       // An escaped pipe is TEXT, not a divider. Counting it as one inflates the row and
       // makes a section bimodal, so rows without one land at modal-1 and read as fused.
+      cur += ch + line[i + 1];
       i++;
       continue;
     }
-    if (ch !== "|") continue;
-    if (started) {
-      cells++;
-      // GRAMMAR, NOT CHARACTER MEMBERSHIP. An earlier version tracked "saw a dash", "saw a
-      // colon" and so on, which accepts `--:--`, `::---` and `- - -` — none of them
-      // delimiters. A row of those became a false structural boundary and split a section,
-      // producing a warning on a valid row (probed by cross-model review). ORDER is the
-      // whole content of this rule, so the check is the regex that states it.
-      //
-      // Only evaluated while the row is still a delimiter candidate: an ordinary data row
-      // fails on its first cell and every later cell costs nothing but the pipe scan.
-      if (alignment && !ALIGNMENT_CELL.test(line.slice(cellStart, i).trim())) alignment = false;
+    if (ch === "|") {
+      out.push(cur);
+      cur = "";
+      continue;
     }
-    started = true;
-    cellStart = i + 1;
+    cur += ch;
   }
-  // `cells` counted one per closing pipe, which is exactly the number of real cells; the
-  // fragment after the last pipe is not one.
-  if (cells === 0) alignment = false;
-  return { cells, alignment };
+  out.push(cur);
+  // Drop the fragments outside the leading and trailing pipes, matching `splitRow`'s slice
+  // so these counts stay comparable to the rest of the parser.
+  return out.slice(1, out.length - 1).map((s) => s.trim());
+}
+
+/**
+ * A row's column count and whether it is a delimiter row.
+ *
+ * DELIBERATELY THE OBVIOUS IMPLEMENTATION. An earlier version fused this into one
+ * allocation-free index scan to save time, and that scan produced two separate P1 defects
+ * in review -- it exempted the first cell from validation, and it checked character
+ * membership rather than the `:?-+:?` ORDER, so `--:--` and `- - -` passed as delimiters.
+ * Both split sections that should not have been split.
+ *
+ * The optimization was never justified. Measured over the 17-fixture corpus: this shape
+ * costs 578ms and the clever one 71ms, against 16,868ms for `parseSheet` itself -- 3.4% of
+ * a parse versus 0.4%. The earlier claim that the naive form was "3x slower on the
+ * typo-generator suites" was simply wrong; those suites are slow under machine load and
+ * fail identically on `main`, where this detector does not exist.
+ */
+function analyzeRow(line: string): { cells: number; alignment: boolean } {
+  const cells = splitCellsUnescaped(line);
+  return {
+    cells: cells.length,
+    alignment: cells.length > 0 && cells.every((c) => ALIGNMENT_CELL.test(c)),
+  };
 }
 
 /** Index of the first non-whitespace character, or -1 when the line is blank. */
