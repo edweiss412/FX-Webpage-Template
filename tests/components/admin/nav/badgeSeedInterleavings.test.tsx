@@ -95,12 +95,12 @@ afterEach(() => {
 
 type AttentionProbe = {
   paints: (number | null)[];
-  rerender: (props: { seed?: Promise<NeedsAttentionCountResult> | null }) => void;
+  rerender: (props: { seed: Promise<NeedsAttentionCountResult> | null }) => void;
 };
 
-function renderAttention(seed?: Promise<NeedsAttentionCountResult> | null): AttentionProbe {
+function renderAttention(seed: Promise<NeedsAttentionCountResult> | null = null): AttentionProbe {
   const paints: (number | null)[] = [];
-  function Probe({ seed: s }: { seed?: Promise<NeedsAttentionCountResult> | null }) {
+  function Probe({ seed: s }: { seed: Promise<NeedsAttentionCountResult> | null }) {
     const count = useNeedsAttentionBadge(null, s);
     paints.push(count);
     return null;
@@ -117,13 +117,13 @@ type BellProbe = {
   paints: BellFrame[];
   zeroNow: () => void;
   refetch: () => void;
-  rerender: (props: { seed?: Promise<BellCountResult> | null }) => void;
+  rerender: (props: { seed: Promise<BellCountResult> | null }) => void;
 };
 
-function renderBell(seed?: Promise<BellCountResult> | null): BellProbe {
+function renderBell(seed: Promise<BellCountResult> | null = null): BellProbe {
   const paints: BellFrame[] = [];
   const api = { zeroNow: () => {}, refetch: () => {} };
-  function Probe({ seed: s }: { seed?: Promise<BellCountResult> | null }) {
+  function Probe({ seed: s }: { seed: Promise<BellCountResult> | null }) {
     const bell = useBellBadge(null, s);
     paints.push({ count: bell.count, degraded: bell.degraded });
     api.zeroNow = bell.zeroNow;
