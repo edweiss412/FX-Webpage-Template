@@ -48,9 +48,7 @@ export function clean(s: string): string {
   // Zero-width strip at the shared cell boundary so every stored field — not just
   // hotel names — is paste-safe for maps/search. The character class lives in ONE
   // module (lib/parser/zeroWidth.ts) so the boundaries cannot drift.
-  return stripZeroWidth(s)
-    .replace(/\\(.)/g, "$1")
-    .trim();
+  return stripZeroWidth(s).replace(/\\(.)/g, "$1").trim();
 }
 
 /**

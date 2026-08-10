@@ -323,17 +323,15 @@ describe("zero-width character-class uniqueness (lib/parser, lib/sync, lib/drive
 
   it("premise mutants: the scan detects both literal forms and ignores comments", () => {
     // Planted escaped-form mutant fails by name.
-    expect(
-      hasZwClassLiteral("mutant.ts", 'const zw = /[\\u200B-\\u200D\\uFEFF]/g;\n'),
-    ).toBe(true);
+    expect(hasZwClassLiteral("mutant.ts", "const zw = /[\\u200B-\\u200D\\uFEFF]/g;\n")).toBe(true);
     // Planted raw-glyph mutant fails by name (the form an escaped-only scan misses).
     expect(hasZwClassLiteral("mutant.ts", 'const zw = "\u200B";\n')).toBe(true);
     // Brace variant.
     expect(hasZwClassLiteral("mutant.ts", 'const zw = "\\u{200B}";\n')).toBe(true);
     // A comment MENTION does not hit — escaped form in a line comment...
-    expect(
-      hasZwClassLiteral("clean.ts", "// strips \\u200B and friends\nconst x = 1;\n"),
-    ).toBe(false);
+    expect(hasZwClassLiteral("clean.ts", "// strips \\u200B and friends\nconst x = 1;\n")).toBe(
+      false,
+    );
     // ...and a raw glyph in a block comment.
     expect(hasZwClassLiteral("clean.ts", "/* raw \u200B glyph */\nconst x = 1;\n")).toBe(false);
   });
