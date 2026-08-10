@@ -92,6 +92,7 @@ import {
   rowTone,
   type RowTone,
 } from "@/lib/admin/bellTriage";
+import { cn } from "@/lib/ui/cn";
 
 const FEED_ENDPOINT = "/api/admin/alerts/bell/feed";
 const OPEN_ENDPOINT = "/api/admin/alerts/bell/open";
@@ -147,18 +148,23 @@ function contextParams(context: Record<string, unknown> | null): MessageParams |
 // the §9 scoped side-stripe exception). `label` is the glyph's `title` tooltip.
 const TONE: Record<RowTone, { rail: string; glyph: string; icon: LucideIcon; label: string }> = {
   critical: {
-    rail: "bg-status-degraded",
-    glyph: "text-status-degraded",
+    rail: cn("bg-status-degraded"),
+    glyph: cn("text-status-degraded"),
     icon: CircleAlert,
     label: "Critical",
   },
   notice: {
-    rail: "bg-status-warn",
-    glyph: "text-status-warn",
+    rail: cn("bg-status-warn"),
+    glyph: cn("text-status-warn"),
     icon: TriangleAlert,
     label: "Warning",
   },
-  info: { rail: "bg-accent-on-bg", glyph: "text-accent-on-bg", icon: Info, label: "Notice" },
+  info: {
+    rail: cn("bg-accent-on-bg"),
+    glyph: cn("text-accent-on-bg"),
+    icon: Info,
+    label: "Notice",
+  },
 };
 
 // The resolve route the entry posts to: show-scoped when the row carries a
@@ -219,14 +225,16 @@ function IdentityChip({ entry }: { entry: BellEntry }) {
 
 // Leading text-link CTA (DESIGN.md §16): the action deep link / telemetry link.
 // Accent-on-bg, hover underline; keeps the 44px tap floor for the venue phone.
-const LINK_CTA =
-  "inline-flex min-h-tap-min items-center gap-1 rounded-sm text-[13px] font-semibold text-accent-on-bg transition-colors duration-fast hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+const LINK_CTA = cn(
+  "inline-flex min-h-tap-min items-center gap-1 rounded-sm text-[13px] font-semibold text-accent-on-bg transition-colors duration-fast hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+);
 // Trailing ghost resolve control (DESIGN.md §16): quiet by default, lifts on hover.
 // Ghost styling for the row's resolve control. Named for the ROLE, not a verb:
 // the label itself is intent-driven (lib/adminAlerts/resolveActionLabel.ts) and
 // reads "Confirm" or "Mark resolved" depending on the code.
-const GHOST_RESOLVE =
-  "inline-flex min-h-tap-min items-center rounded-sm px-2 text-[13px] text-text-faint transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60";
+const GHOST_RESOLVE = cn(
+  "inline-flex min-h-tap-min items-center rounded-sm px-2 text-[13px] text-text-faint transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
+);
 // Show-page nav chevron (spec §4.1): reuses LINK_CTA's accent color + focus-ring
 // vocabulary, but sized as an icon-only affordance (`size-tap-min`, the same
 // square-tap-target pattern the `bell-panel-close` button uses) rather than
@@ -244,18 +252,20 @@ const GHOST_RESOLVE =
 // The bleed lands inside the row's own px-4 padding, so it
 // never reaches into the text column. Vertically `self-stretch` makes the target
 // the row's full height (60px+), well past the 44px floor.
-const SHOW_PAGE_LINK =
-  "relative inline-flex w-7 shrink-0 self-stretch items-center justify-center rounded-sm text-accent-on-bg transition-colors duration-fast before:absolute before:inset-y-0 before:-inset-x-2 before:content-[''] hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+const SHOW_PAGE_LINK = cn(
+  "relative inline-flex w-7 shrink-0 self-stretch items-center justify-center rounded-sm text-accent-on-bg transition-colors duration-fast before:absolute before:inset-y-0 before:-inset-x-2 before:content-[''] hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+);
 // Chevron-less rows (global alerts, health rows, every history row) reserve the
 // same 28px so the shared right edge holds. WIDTH ONLY — a square would floor a
 // short row's height at 28px+ for nothing.
-const SHOW_PAGE_SLOT = "w-7 shrink-0";
+const SHOW_PAGE_SLOT = cn("w-7 shrink-0");
 // Low-emphasis wayfinding link (impeccable critique P1 — alert-copy full-sweep):
 // routes to the code's longform /help/errors education. Quiet by default
 // (text-subtle, underline only on hover/focus) so it never competes with
 // LINK_CTA's accent weight or the row's real actions; keeps the 44px tap floor.
-const HELP_LINK =
-  "inline-flex min-h-tap-min items-center rounded-sm text-[13px] text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+const HELP_LINK = cn(
+  "inline-flex min-h-tap-min items-center rounded-sm text-[13px] text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+);
 
 /**
  * The action row, exported so a real-component harness can mount it.
@@ -1077,7 +1087,7 @@ export function BellPanel({
         >
           <span
             aria-hidden="true"
-            className="mx-auto mb-2.5 inline-flex size-11 items-center justify-center rounded-full bg-surface text-status-positive shadow-(--shadow-tile)"
+            className="mx-auto mb-2.5 inline-flex size-11 items-center justify-center rounded-full bg-surface text-status-positive shadow-tile"
           >
             <Check className="size-[22px]" />
           </span>

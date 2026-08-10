@@ -44,6 +44,7 @@
  */
 import { ExternalLink } from "lucide-react";
 import { stripNewTabSuffix } from "@/components/shared/NewTabHint";
+import { cn } from "@/lib/ui/cn";
 
 type SheetIconLinkProps = {
   /** Resolved sheet deep link. Call sites keep their null-gating: null never
@@ -70,8 +71,9 @@ const BACKDROP_SKIN = {
   surface: "focus-visible:ring-offset-surface hover:bg-surface-sunken active:bg-surface-sunken",
 } satisfies Record<SheetIconLinkProps["ringOffset"], string>;
 
-const BASE_CLASSES =
-  "relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text transition-colors duration-fast before:absolute before:-inset-y-3 before:-left-2.5 before:-right-3.5 before:content-[''] hover:text-text-strong active:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+const BASE_CLASSES = cn(
+  "relative inline-grid size-5 shrink-0 place-items-center rounded-sm text-text transition-colors duration-fast before:absolute before:-inset-y-3 before:-left-2.5 before:-right-3.5 before:content-[''] hover:text-text-strong active:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+);
 
 export function SheetIconLink({
   href,

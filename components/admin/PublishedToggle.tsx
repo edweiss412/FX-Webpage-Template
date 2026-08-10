@@ -57,8 +57,9 @@ const RETRY_COPY = "That didn’t go through. Refresh and try again.";
 // This is ERROR-ONLY: errors are momentary. The finalize skin split off to the in-flow
 // FINALIZE_CHIP below (CASP2-4 item 1, BL-CASP2-STRIP-POLISH) so it never overlays the rail
 // content below the strip during the longer-lived finalize window.
-const POPOVER_POSITION =
-  "absolute inset-x-0 top-full z-40 mt-1 overflow-x-hidden overflow-y-auto rounded-sm p-2 text-sm break-words shadow-tile";
+const POPOVER_POSITION = cn(
+  "absolute inset-x-0 top-full z-40 mt-1 overflow-x-hidden overflow-y-auto rounded-sm p-2 text-sm wrap-break-word shadow-tile",
+);
 
 // Inline FINALIZE hint — an IN-FLOW compact chip (a flex sibling of the switch inside the
 // `inline-flex items-center gap-2` container), NOT an absolute overlay. `finalizeOwned` is a
@@ -68,8 +69,9 @@ const POPOVER_POSITION =
 // own bg-surface via the fill step; `border-border` matches the sibling strip badges (archived /
 // alert), not the heavier `border-strong` the old full-width banner needed. whitespace-nowrap +
 // shrink-0 keep it on one line.
-const FINALIZE_CHIP =
-  "inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border border-border bg-surface-sunken px-2 py-0.5 text-xs font-medium text-text-subtle";
+const FINALIZE_CHIP = cn(
+  "inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border border-border bg-surface-sunken px-2 py-0.5 text-xs font-medium text-text-subtle",
+);
 
 export type PublishedToggleProps = {
   /** Slug, for stable identification of the bound action's subject (debug/test affordance). */

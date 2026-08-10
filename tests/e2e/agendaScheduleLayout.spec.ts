@@ -57,10 +57,10 @@ function agendaHtml(): string {
   return `
 <div data-testid="agenda-col" class="flex min-w-0 flex-col gap-3">
   <div data-testid="agenda-embed" class="flex flex-wrap gap-2">
-    <button type="button" class="inline-flex min-h-tap-min items-center gap-2 self-start rounded-sm border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text-strong shadow-(--shadow-tile)">
+    <button type="button" class="inline-flex min-h-tap-min items-center gap-2 self-start rounded-sm border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text-strong shadow-tile">
       <span aria-hidden="true" class="size-4"></span>View agenda<span class="text-text-subtle">· RFI</span>
     </button>
-    <button type="button" class="inline-flex min-h-tap-min items-center gap-2 self-start rounded-sm border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text-strong shadow-(--shadow-tile)">
+    <button type="button" class="inline-flex min-h-tap-min items-center gap-2 self-start rounded-sm border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text-strong shadow-tile">
       <span aria-hidden="true" class="size-4"></span>View agenda<span class="text-text-subtle">· PCF</span>
     </button>
   </div>
