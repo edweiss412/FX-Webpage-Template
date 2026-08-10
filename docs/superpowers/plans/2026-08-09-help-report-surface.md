@@ -153,14 +153,17 @@ And to `tests/components/report/ReportButton.test.tsx`:
 it("help surface defaults: label, accent variant, info-bg ring offset", () => {
   // render <ReportButton surface="help" surfaceId="x" showId={null} ringOffset="info-bg" />
   // button accessible name "Report a recurring error";
-  // className contains "focus-visible:ring-offset-info-bg" (full literal).
+  // className contains "focus-visible:ring-offset-info-bg" (full literal);
+  // className contains "bg-accent" (the accent-variant fill class,
+  // components/shared/ReportButton.tsx accent branch) so
+  // DEFAULT_VARIANT.help = "text" cannot ship while name+ring pass.
 });
 ```
 
-- [ ] **Step 2: Run to verify failure.** Run: `pnpm vitest run tests/components/report/ReportModal.test.tsx tests/components/report/ReportButton.test.tsx`. Expected: type errors (`"help"` not assignable to `ReportSurface`; `null` not assignable to `showId`) — the production union at `components/shared/ReportModal.tsx:40` is the failing line (RED validity: absence of the union member).
+- [ ] **Step 2: Run to verify failure.** Run: `pnpm vitest run tests/components/report/ReportModal.test.tsx tests/components/report/ReportButton.test.tsx`. Expected: RUNTIME failures (vitest strips types — the plan's own closeout note): the help-label assertion fails on `DEFAULT_LABEL` lacking a `help` row, the github-link/success cases fail on the admin-only gates, and the crew-facing-fallback case fails on today's `oppositeSurface` pair — those records and gate lines are the failing production lines. The `"help"`/`null` TYPE violations surface separately in `pnpm typecheck` (run it here too; expected: errors at `components/shared/ReportModal.tsx:40` and `components/shared/ReportModal.tsx:61` until Step 3).
 - [ ] **Step 3: Implement.** In `ReportModal.tsx`: union + `showId: string | null` + the six flips from Sweep 1 (exact replacements listed there). In `ReportButton.tsx`: `showId: string | null`; add `help` rows; extend `RingOffset`/`RING_OFFSET_CLASS` with `"info-bg"` → `"focus-visible:ring-offset-info-bg"`.
 - [ ] **Step 4: Run to verify pass** — same command, plus `pnpm vitest run tests/reports tests/components/report` (includes Task 1's guard, now green). Expected: PASS.
-- [ ] **Step 4b: String-presence mutants (all four, results recorded in the commit message):** for the label/heading/ring-class assertions: (a) empty `DEFAULT_LABEL.help` → label test fails; (b) append a suffix to the label constant → fails; (c) move the ring-offset literal into a comment beside the record → className assertion fails (class absent from output); (d) vary the discriminating parameter (render with `surface="admin"`) → help-label assertion fails.
+- [ ] **Step 4b: String-presence mutants (all four, results recorded in the commit message):** for the label/heading/ring-class assertions: (a) empty `DEFAULT_LABEL.help` → label test fails; (b) append a suffix to the label constant → fails; (c) move the ring-offset literal into a comment beside the record → className assertion fails (class absent from output); (d) vary the discriminating parameter (render with `surface="admin"`) → help-label assertion fails; (e) flip `DEFAULT_VARIANT.help` to `"text"` → the `bg-accent` class assertion fails (R2 F3's demonstrated escape).
 - [ ] **Step 5: Commit** (includes Task 1's guard file). `feat(report): widen ReportSurface with help; crew-vs-rest modal behavior; nullable showId`
 
 ### Task 3: Route — help auth + non-show rejection
@@ -249,8 +252,9 @@ describe("help surface issue body (spec §2.4)", () => {
   it("renders non-show line, help surface, and helpCode; no wizard copy", () => {
     // buildAdminIssueBody(adminAuth, { ...body, surface: "help", show_id: null,
     //   fieldRef: { helpCode: HELP_CODE } }, null, undefined)
-    // contains "**Show:** non-show recurrence report (/help/errors)"
-    // contains "**Surface:** help"
+    // Show line is LINE-ANCHORED (suffix mutant must fail):
+    //   expect(body).toMatch(/^\*\*Show:\*\* non-show recurrence report \(\/help\/errors\)$/m)
+    //   expect(body).toMatch(/^\*\*Surface:\*\* help$/m)
     // contains HELP_CODE
     // does NOT contain "staged wizard sheet"
   });
@@ -274,7 +278,8 @@ return (
 ```
 
 - [ ] **Step 4: Verify GREEN + regression** — `pnpm vitest run tests/reports`. Expected: PASS.
-- [ ] **Step 4b: String-presence mutants (all four, recorded in the commit message):** (a) empty the help fallback string → help row fails; (b) append a suffix to it → fails (assertion is exact-line contains, not prefix); (c) put the phrase in a nearby comment and revert the branch → fails (assertion reads builder OUTPUT, not source); (d) vary the discriminator (`surface: "admin"` with the same body) → wizard-copy row proves the branch, help row fails.
+- [ ] **Step 4b: String-presence mutants (all four, recorded in the commit message):** (a) empty the help fallback string → help row fails; (b) append a suffix to the fallback string → fails because the assertion is LINE-ANCHORED (see Step 1 snippet: the Show line matches `/^\*\*Show:\*\* non-show recurrence report \(\/help\/errors\)$/m`, not a bare `includes`); (c) put the phrase in a nearby comment and revert the branch → fails (assertion reads builder OUTPUT, not source); (d) vary the discriminator (`surface: "admin"` with the same body) → wizard-copy row proves the branch, help row fails.
+- [ ] **Step 5: Commit.** `feat(report): non-show recurrence show line for help surface issues`
 
 ### Task 5: HelpReportCta + page swap
 
@@ -381,7 +386,8 @@ Page edit: in the trailing `Callout`, replace the `mailto:` anchor with `<HelpRe
 - [ ] **Step 1:** Move the full `BL-HELP-NON-SHOW-REPORT-SURFACE` body to `BACKLOG-archive.md` with a dated resolution paragraph (Option A shipped per the 2026-08-09 spec; Option B un-fence trigger = report volume or owner ask; staleness repair + L→S resize noted). **Strip the `**Status:** IN PROGRESS · **Branch:**` marker in this same commit** (invariant 12 — archives reject in-flight entries; the RED above fails by name if the marker rides along).
 - [ ] **Step 2:** M11-I-D-1: append a resolution line (closed by this branch; AC-11.11 r12; spec cross-ref). Follow that DEFERRED.md's local resolution convention (read neighboring resolved entries first).
 - [ ] **Step 3:** graduation meta-test green (registry row satisfied by the archive move); `pnpm vitest run tests/docs` green, except `_metaInvariant8Closeout.test.ts`, which stays red by design until the closeout §12 marker fills (see the marker-lifecycle note there).
-- [ ] **Step 4: Commit — SEQUENCING (invariant 12):** this commit is the PR's LAST commit, full stop. Execute Task 7 only AFTER every §12 closeout step that writes to the tree (impeccable marker fill, DEFERRED entries, review-corpus rows) has committed; the diff review covers the tree through those commits plus this one (review-covers-what-merges: dispatch the final diff round only when this commit exists). `docs(plan): graduate BL-HELP-NON-SHOW-REPORT-SURFACE; close M11-I-D-1`
+- [ ] **Step 4: Commit — SEQUENCING (invariant 12, operational form):** execute Task 7 only AFTER every §12 gate step that writes to the tree (impeccable marker fill, DEFERRED entries, repair-round corpus rows) has committed. Then: (1) this graduation commit lands (marker stripped here); (2) the FINAL confirming diff round dispatches against the tree at this commit (review-covers-what-merges); (3) on APPROVE, that round's machine-emitted corpus row (codex-guard appends it post-verdict) lands as one trailing `docs(review):` commit touching ONLY `docs/review-rounds/**`. Invariant 12's enforced property — no flight marker reaches main (`tests/docs/_metaLedgerInProgress.test.ts` on main) — holds; merged precedent shows trailing corpus/merge commits after the graduation commit (PR #751: merge-from-main after `docs: graduate BL-TASK-ENROLLMENT-SINGLE-DEPTH`; PR #750: graduation last with the merge after). `docs(plan): graduate BL-HELP-NON-SHOW-REPORT-SURFACE; close M11-I-D-1`
+- [ ] **Step 5: Registry-count reconciliation (authored AND run 2026-08-09):** `awk '/^const BACKLOG_GRADUATED = \[/,/^\];/' tests/docs/_metaDeferralLedgerGraduation.test.ts | grep -c 'id: "'` → **76** today; this plan adds exactly 1 row (BL-HELP-NON-SHOW-REPORT-SURFACE), removes 0 → expected count after Task 7: **77**. Re-run at Step 4 and confirm 77.
 
 <!-- tasks: end -->
 
