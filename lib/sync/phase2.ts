@@ -494,6 +494,12 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       }),
     );
     snapshotRevisionId = snapshotAssets.snapshotRevisionId;
+    // Hop 1, SECOND call site (first-seen: no show id existed until this apply).
+    // Carried here as well as at the post-show-id site above — a snapshot that
+    // commits while its failure row is dropped is exactly the silent loss the
+    // census exists to prevent, and this branch serves scheduled first-seen
+    // auto-publish AND the first-seen pending-ingestion retry.
+    variantFailures = snapshotAssets.variantFailures;
     parseResult = {
       ...parseResult,
       diagrams: {

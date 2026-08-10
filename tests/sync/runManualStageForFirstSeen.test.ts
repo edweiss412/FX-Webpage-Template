@@ -20,6 +20,7 @@ vi.mock("@/lib/sync/defaultSnapshotAssetsForApply", () => ({
         snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         runUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         tempPrefix: `diagram-snapshots/shows/${showId}/_pending/run-1/`,
+        variantFailures: [],
         warnings: [],
         pending: {
           revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",

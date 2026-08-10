@@ -117,7 +117,11 @@ const EXEMPT_SITES: ReadonlyArray<{ file: string; fn: string; reason: string }> 
 ];
 
 /** Inline form of the same exemption. POSITIVE marker, MANDATORY reason. */
-const EXEMPT_MARKER = /(?:^|\s)no-variant-stage:\s+\S/;
+// The reason must be REAL words, not the block-comment terminator: `\S` alone
+// accepts `/* no-variant-stage: */`, because `*` is non-whitespace. Requiring
+// three word characters keeps `// no-variant-stage: adapter impl …` valid while
+// rejecting an exemption that says nothing.
+const EXEMPT_MARKER = /(?:^|\s)no-variant-stage:\s+\w{3}/;
 
 /**
  * Method names that write BYTES to storage. `upload` alone was not the closure:
@@ -824,6 +828,25 @@ describe("variant-stage census (spec §3)", () => {
     });
     expect(scan.violations.length).toBeGreaterThan(baseline.violations.length);
     expect(scan.violations.join("\n")).toContain("lib/sync/mutantBareMarker.ts:3");
+  });
+
+  test("a reasonless BLOCK-comment no-variant-stage does NOT exempt", () => {
+    const baseline = withMutatedTree(() => {});
+    const scan = withMutatedTree((root) => {
+      writeFileSync(
+        join(root, "lib", "sync", "mutantBlockMarker.ts"),
+        [
+          "export async function forward(storage: { upload(p: string, b: Uint8Array): Promise<void> }) {",
+          "  /* no-variant-stage: */",
+          "  await storage.upload('p', new Uint8Array());",
+          "}",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+    });
+    expect(scan.violations.length).toBeGreaterThan(baseline.violations.length);
+    expect(scan.violations.join("\n")).toContain("lib/sync/mutantBlockMarker.ts:3");
   });
 
   test("an EXEMPT_SITES row that matches a second same-named site fails as ambiguous", () => {

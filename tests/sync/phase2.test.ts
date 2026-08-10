@@ -511,6 +511,7 @@ describe("runPhase2 destructive snapshot", () => {
         snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         runUuid: "run-1",
         tempPrefix: `diagram-snapshots/shows/${showId}/_pending/run-1/`,
+        variantFailures: [],
         warnings: [],
         pending: {
           revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -1188,6 +1189,55 @@ describe("runPhase2 destructive snapshot", () => {
     await runWith(tx);
 
     expect(tx.operations.join("\n")).not.toMatch(/pg_.*advisory|BEGIN|COMMIT|ROLLBACK/i);
+  });
+
+  test("the FIRST-SEEN snapshot site carries variantFailures out too", async () => {
+    // phase2 has TWO snapshot call sites: one for a show that already exists and
+    // one for a show whose id is minted by this very apply. The second fed
+    // scheduled first-seen auto-publish and the first-seen pending-ingestion
+    // retry, and it copied only snapshotRevisionId — so a snapshot could commit
+    // while its failure row was dropped, with the route's sink present and
+    // receiving nothing. Found in cross-model review round 2.
+    const rows = [
+      { assetKey: "embedded-a.png", reason: "sharp_error" as const, message: "sharp threw" },
+    ];
+    const tx = new FakePhase2Tx();
+    const result = await runWith(tx, {
+      parseResult: parseResult({
+        diagrams: {
+          linkedFolder: null,
+          embeddedImages: [],
+          linkedFolderItems: [
+            {
+              driveFileId: "linked-1",
+              mimeType: "image/png",
+              drive_modified_time: "2026-05-01T00:00:00.000Z",
+              headRevisionId: "rev-linked-1",
+              md5Checksum: "a".repeat(32),
+              snapshotPath: null,
+            },
+          ],
+        },
+      }),
+      snapshotAssetsForApplyForShowId: (showId: string) => async () => ({
+        snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        runUuid: "run-1",
+        tempPrefix: `diagram-snapshots/shows/${showId}/_pending/run-1/`,
+        variantFailures: rows,
+        warnings: [],
+        pending: {
+          revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          snapshot_status: "complete" as const,
+          linkedFolder: null,
+          embeddedImages: [],
+          linkedFolderItems: [],
+        },
+      }),
+    });
+
+    premiseHolds("the first-seen branch actually applied", result.outcome === "applied");
+    expect(result.outcome === "applied" ? result.variantFailures : undefined).toEqual(rows);
   });
 
   test("snapshots diagram assets before writing the pending diagrams sub-payload", async () => {

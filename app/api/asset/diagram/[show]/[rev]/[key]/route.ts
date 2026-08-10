@@ -109,6 +109,25 @@ function objectPath(storagePath: string): string | null {
  * accept-set toward originals-only. Every rejected shape here is a row in the
  * route suite's malformed matrix.
  */
+/**
+ * A variant key is a STORAGE OBJECT NAME we minted (`<assetKey>@<width>.webp`,
+ * over Drive/Slides ids), so it has a known, narrow shape. Anything outside that
+ * shape is rejected here rather than matched and then handed on: the matched path
+ * goes to `createSignedUrl`, which interpolates it into a URL and lets URL
+ * NORMALIZATION rewrite it — probed against the installed @supabase/storage-js,
+ * `v?x.webp` signs `.../v`, `a/../b.webp` signs `.../b.webp`, and `..` climbs out
+ * of the revision prefix entirely. Rejecting at the accept-set means no such key
+ * is ever authorized, so there is nothing for normalization to rewrite. `.` and
+ * `..` are excluded by name because they pass the character class but are
+ * relative-path components rather than object names.
+ */
+const SAFE_VARIANT_KEY = /^[A-Za-z0-9._@-]+$/;
+
+function isSafeVariantKey(key: string): boolean {
+  if (key === "." || key === "..") return false;
+  return SAFE_VARIANT_KEY.test(key);
+}
+
 function listedVariantKeys(entry: { variants?: unknown }): string[] {
   const raw = entry.variants;
   if (!Array.isArray(raw)) return [];
@@ -118,6 +137,7 @@ function listedVariantKeys(entry: { variants?: unknown }): string[] {
     const { width, key } = row as { width?: unknown; key?: unknown };
     if (typeof width !== "number" || !Number.isFinite(width) || width <= 0) continue;
     if (typeof key !== "string" || key.length === 0) continue;
+    if (!isSafeVariantKey(key)) continue;
     keys.push(key);
   }
   return keys;

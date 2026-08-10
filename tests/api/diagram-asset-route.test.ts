@@ -1109,3 +1109,46 @@ describe("/api/asset/diagram — malformed manifest ABOVE the variants field", (
     expect(assetLogRecords.filter((record) => record.level === "error")).toEqual([]);
   });
 });
+
+describe("/api/asset/diagram — variant keys outside the minted shape are never authorized", () => {
+  // The matched path is handed to createSignedUrl, which interpolates it into a
+  // URL and lets normalization rewrite it: `v?x.webp` signs `.../v`,
+  // `a/../b.webp` signs `.../b.webp`, and `..` climbs out of the revision prefix.
+  // Rejecting at the accept-set means no such key is ever authorized, so there is
+  // nothing left for normalization to act on.
+  const UNSAFE = [
+    "v?x.webp",
+    "v#x.webp",
+    "nested/v.webp",
+    "a/../b.webp",
+    "v\\x.webp",
+    "v\tx.webp",
+    "v\nx.webp",
+    ".",
+    "..",
+    "a b.webp",
+    "v%2Fx.webp",
+  ];
+
+  test.each(UNSAFE)("a listed key %j is 410 and signs nothing", async (key) => {
+    const base = currentDiagrams();
+    routeMock.diagrams = {
+      current: {
+        ...base,
+        embeddedImages: [{ ...base.embeddedImages[0]!, variants: [{ width: 512, key }] }],
+      } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+
+    const response = await getDiagram(currentRev, key);
+
+    expect(response.status).toBe(410);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("the minted key shape is still authorized, so the gate is not simply closed", () => {
+    // Premise for the rows above: without this, "everything 410s" would pass a
+    // gate that rejected every key including the real ones.
+    expect(`embedded-obj-1.png@512.webp`).toMatch(/^[A-Za-z0-9._@-]+$/);
+  });
+});
