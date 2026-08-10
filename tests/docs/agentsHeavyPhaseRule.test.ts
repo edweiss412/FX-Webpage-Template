@@ -36,8 +36,9 @@ const PINNED_HEADING_PATH = join(
 );
 
 const RULE_OPENER = "- **Heavy local phases run under the machine-wide slot semaphore.**";
-const MUST_MARKER = "**MUST wrap**";
-const MUST_NOT_MARKER = "**MUST NOT wrap**";
+/** Marker TEXT, without delimiters — the parser drops those either spelling. */
+const MUST_MARKER_TEXT = "MUST wrap";
+const MUST_NOT_MARKER_TEXT = "MUST NOT wrap";
 const TAIL_MARKER = "Wrap the OUTERMOST command only";
 
 /** A backticked code span, so `pnpm test` never matches `pnpm test:e2e:ui`. */
@@ -381,8 +382,23 @@ function stripListMarker(text: string): string {
   return text.replace(/^\s*[-*+]\s+/, "");
 }
 
+/** The item's content with every markdown delimiter dropped by the parser. */
+function contentOf(markdown: string): string {
+  return normalize(plainText(remark().parse(markdown) as unknown as MdNode));
+}
+
 export function pinProblems(rule: string, pinned: string): string[] {
-  if (normalize(stripListMarker(rule)) === normalize(stripListMarker(pinned))) return [];
+  // Compare CONTENT, not source bytes. Fifteen rounds priced the alternative:
+  // every byte a raw pin compares that is markdown SYNTAX rather than content is
+  // a false positive waiting for somebody's reformat — the list marker (R15),
+  // `**` versus `__` (R16), and whatever spelling comes next. Letting the parser
+  // strip delimiters closes that seam once instead of one glyph per round.
+  //
+  // Nothing is lost by it, because what the delimiters carried is asserted
+  // separately and more precisely: code spans are pinned AS PARSED, the four
+  // `strong` markers are asserted as `strong` nodes below, and location is
+  // pinned by heading text and depth.
+  if (contentOf(stripListMarker(rule)) === contentOf(stripListMarker(pinned))) return [];
   return [
     "the rule's text differs from tests/docs/fixtures/agents-heavy-phase-rule.md. " +
       "This bullet is a cross-CLI contract: Codex sessions read it and never read the " +
@@ -590,28 +606,37 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   // irrelevant, and a check that still requires a literal space contradicts it —
   // a reflowed line then passes the pin and fails a clause pattern, which is a
   // red on an edit that changed no words.
-  const rule = normalize(raw);
-  const mustAt = rule.indexOf(MUST_MARKER);
-  const mustNotAt = rule.indexOf(MUST_NOT_MARKER);
+  // Regions are located in the rule's CONTENT for the same reason the pin is:
+  // `**MUST wrap**` and `__MUST wrap__` are the same block to every reader and
+  // to the parser. ("MUST wrap" is not a substring of "MUST NOT wrap", so the
+  // two markers stay distinct without their delimiters.)
+  const rule = contentOf(raw);
+  const mustAt = rule.indexOf(MUST_MARKER_TEXT);
+  const mustNotAt = rule.indexOf(MUST_NOT_MARKER_TEXT);
   const tailAt = rule.indexOf(TAIL_MARKER);
   // The same three boundaries in RAW offsets, so a parsed code span can be
   // placed in a region. Whitespace-tolerant, because the raw text may be
   // reflowed anywhere a space appears.
   const rawAt = (pattern: RegExp): number => raw.search(pattern);
-  const rawMustAt = rawAt(/\*\*MUST\s+wrap\*\*/);
-  const rawMustNotAt = rawAt(/\*\*MUST\s+NOT\s+wrap\*\*/);
+  const rawMustAt = rawAt(/(?:\*\*|__)MUST\s+wrap(?:\*\*|__)/);
+  const rawMustNotAt = rawAt(/(?:\*\*|__)MUST\s+NOT\s+wrap(?:\*\*|__)/);
   const rawTailAt = rawAt(/Wrap\s+the\s+OUTERMOST\s+command\s+only/);
-  if (mustAt === -1) problems.push(`the rule has no ${MUST_MARKER} block`);
-  if (mustNotAt === -1) problems.push(`the rule has no ${MUST_NOT_MARKER} block`);
+  if (mustAt === -1) problems.push(`the rule has no ${MUST_MARKER_TEXT} block`);
+  if (mustNotAt === -1) problems.push(`the rule has no ${MUST_NOT_MARKER_TEXT} block`);
   if (tailAt === -1) problems.push(`the rule has no "${TAIL_MARKER}" tail`);
   if (problems.length > 0) return problems;
   if (!(mustAt < mustNotAt && mustNotAt < tailAt)) {
     return ["the rule's MUST / MUST NOT / tail blocks are out of order"];
   }
 
-  const mustRegion = rule.slice(mustAt, mustNotAt);
-  const mustNotRegion = rule.slice(mustNotAt, tailAt);
-  const tailRegion = rule.slice(tailAt);
+  // TWO representations, deliberately. Marker LOCATION comes from the content
+  // form, where `**x**` and `__x__` are the same thing. Clause PATTERNS run
+  // against the raw form, because they assert backticked commands and the
+  // content form has no backticks left to match. Both are normalized.
+  const mustRegion = normalize(raw.slice(rawMustAt, rawMustNotAt));
+  const mustNotRegion = normalize(raw.slice(rawMustNotAt, rawTailAt));
+  const tailRegion = normalize(raw.slice(rawTailAt));
+  const headRegion = normalize(raw.slice(0, rawMustNotAt));
 
   const members: Array<[string, "must" | "must-not"]> = [
     ...CLASSIFIED.flatMap(([span, entry]): Array<[string, "must" | "must-not"]> =>
@@ -646,7 +671,9 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   // pins it" is only excused while that something else is actually there.
   for (const [span, entry] of CLASSIFIED) {
     if (entry.side !== "ignore") continue;
-    if (!entry.pinnedBy.test(rule)) {
+    // Raw form: these patterns assert backticked spans, which the content form
+    // has already stripped.
+    if (!entry.pinnedBy.test(normalize(raw))) {
       problems.push(
         `ignored span \`${span}\` claims coverage that is absent (${entry.why}); ` +
           `expected ${String(entry.pinnedBy)}`,
@@ -655,7 +682,7 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   }
 
   for (const [label, pattern] of MUST_CLAUSES) {
-    if (!pattern.test(rule.slice(0, mustNotAt))) problems.push(`missing clause: ${label}`);
+    if (!pattern.test(headRegion)) problems.push(`missing clause: ${label}`);
   }
   for (const [label, pattern] of MUST_NOT_CLAUSES) {
     if (!pattern.test(mustNotRegion)) problems.push(`missing clause: ${label}`);
@@ -663,6 +690,22 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   for (const [label, pattern] of TAIL_CLAUSES) {
     if (!pattern.test(tailRegion)) problems.push(`missing clause: ${label}`);
   }
+  // The delimiters are free; the EMPHASIS is not. Dropping the bold entirely
+  // would flatten the rule's two-block structure for every human reader, and the
+  // content pin above cannot see it, so it is asserted as parse-tree structure.
+  const strongTexts = new Set(
+    (function collect(node: MdNode, out: string[] = []): string[] {
+      if (node.type === "strong") out.push(normalize(plainText(node)));
+      for (const child of node.children ?? []) collect(child, out);
+      return out;
+    })(located.item),
+  );
+  for (const marker of [MUST_MARKER_TEXT, MUST_NOT_MARKER_TEXT]) {
+    if (!strongTexts.has(marker)) {
+      problems.push(`"${marker}" is no longer emphasized — the rule's block structure is flat`);
+    }
+  }
+
   problems.push(...exoticSpaceProblems(raw));
   problems.push(...polarityProblems(mustRegion, mustNotRegion));
   const pinnedRule = readFileSync(PINNED_PATH, "utf8");
@@ -720,6 +763,10 @@ describe("AGENTS.md heavy-phase rule", () => {
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
     // Heading edits are REJECTED, per the ratified reversal documented at the pin.
+    [
+      "flatten the MUST/MUST-NOT blocks by dropping their emphasis",
+      editRule("**MUST NOT wrap** — any INTERACTIVE", "MUST NOT wrap — any INTERACTIVE"),
+    ],
     [
       "demote the section heading, nesting the rule in the preceding section",
       (text) =>
@@ -1006,6 +1053,13 @@ describe("AGENTS.md heavy-phase rule", () => {
           "## Cross-cutting discipline (from milestone retrospectives)",
           "Cross-cutting discipline (from milestone retrospectives)\n" + "-".repeat(58),
         ),
+    ],
+    [
+      "strong emphasis is written with underscores instead of asterisks",
+      (text) =>
+        text
+          .replace("**MUST wrap**", "__MUST wrap__")
+          .replace("**MUST NOT wrap**", "__MUST NOT wrap__"),
     ],
     [
       "the rule's own bullet marker is changed from - to *",
