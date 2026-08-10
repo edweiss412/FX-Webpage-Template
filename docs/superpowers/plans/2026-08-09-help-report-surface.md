@@ -19,7 +19,7 @@
 ## Meta-test inventory (declared per docs/agents/writing-plans.md)
 
 - **CREATES:** tests/components/report/_metaSurfaceComparisons.test.ts (Task 2) — crew-vs-rest accept-set scan over `ReportModal.tsx`.
-- **EXTENDS:** none. Not applicable registries: Supabase call boundaries (`tests/reports/_metaInfraContract.test.ts` — no new Supabase call sites; route auth mechanism unchanged), advisory-lock topology (no `pg_advisory*` touched), admin-alert catalog (no `admin_alerts.upsert`), sentinel-hiding (no tile rendering). Mutation-source registry: not enrolled — the new guard is a single-file regex scan with its own planted-fixture premise; enrollment cost exceeds its surface.
+- **EXTENDS:** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — `BACKLOG_GRADUATED` gains `{ id: "BL-HELP-NON-SHOW-REPORT-SURFACE", provenance: "feat/help-report-surface" }` (Task 7); the registry enforces archive-only state and section-scoped branch provenance, which is Task 7's executable RED. Otherwise none: Not applicable registries: Supabase call boundaries (`tests/reports/_metaInfraContract.test.ts` — no new Supabase call sites; route auth mechanism unchanged), advisory-lock topology (no `pg_advisory*` touched), admin-alert catalog (no `admin_alerts.upsert`), sentinel-hiding (no tile rendering). Mutation-source registry: not enrolled — the new guard is a single-file regex scan with its own planted-fixture premise; enrollment cost exceeds its surface.
 
 ## Plan-time sweeps (authored AND run, 2026-08-09)
 
@@ -63,7 +63,49 @@ Sweep 4 — `ReportModal` direct consumers: `components/shared/ReportButton.tsx:
 
 <!-- tasks: depth=3 -->
 
-### Task 1: ReportSurface widening + crew-vs-rest flips (components)
+### Task 1: Structural crew-vs-rest scan (guard, RED against live code)
+
+**Files:**
+- Create: tests/components/report/_metaSurfaceComparisons.test.ts
+
+**Interfaces:**
+- Produces: the accept-set guard Task 2 turns green. Written FIRST so its RED is the live production code: the six admin comparisons in Sweep 1 are the failing production lines (genuine RED, not a planted fixture).
+
+- [ ] **Step 1: Write the guard:**
+
+<!-- task: red=`pnpm vitest run tests/components/report/_metaSurfaceComparisons.test.ts` ac=AC-2 -->
+
+```ts
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { premiseHolds } from "../../_shared/premise";
+
+const SRC = readFileSync("components/shared/ReportModal.tsx", "utf8");
+// Fresh literal per use; no g flag (lastIndex statefulness).
+const ADMIN_COMPARISON = /surface\s*===\s*"admin"|"admin"\s*===\s*surface/;
+
+describe("ReportModal surface accept-set (spec §2.2)", () => {
+  it("scan can fail: planted admin comparison matches", () => {
+    premiseHolds(
+      "planted fixture must match or the scan below is vacuous",
+      ADMIN_COMPARISON.test('x.surface === "admin"'),
+    );
+  });
+
+  it("has no surface === admin comparisons (crew-vs-rest only)", () => {
+    const hits = SRC.match(new RegExp(ADMIN_COMPARISON.source, "g")) ?? [];
+    expect(hits, "behavior must key on crew-vs-rest; an admin comparison silently gives help the crew arm").toEqual([]);
+  });
+});
+```
+
+(API verified at plan time: `tests/_shared/premise.ts:36` exports `premiseHolds(description: string, condition: boolean)`; the numeric `premise(description, actual, mustExceed)` form at :26 is not used here.)
+
+- [ ] **Step 2: Pre-dispatch mutants (string-presence guard — all four, record results in the commit message):** (a) empty the regex source → scan passes vacuously → premise case must FAIL; (b) append a suffix to a flipped site (`surface !== "crew!"`) → typecheck fails (not this guard's job — note); (c) re-add `surface === "admin"` in a comment inside ReportModal.tsx → scan FAILS (comment hits are in-scope by design — the accept-set is textual; note this as intended strictness); (d) vary the scanned path to a missing file → readFileSync throws (loud).
+- [ ] **Step 3: Run** `pnpm vitest run tests/components/report/_metaSurfaceComparisons.test.ts`. Expected: FAIL listing the six live comparison hits (Sweep 1) — commit the guard RED with an expected-fail annotation is NOT the house pattern; instead keep the guard file staged/uncommitted until Task 2 flips the sites, then commit guard + flips together in Task 2 Step 5 (TDD red-green within one commit pair).
+- [ ] **Step 4: Hold the commit** — lands with Task 2 Step 5 (the guard and the flips are one red-green cycle).
+
+### Task 2: ReportSurface widening + crew-vs-rest flips (components)
 
 **Files:**
 - Modify: `components/shared/ReportModal.tsx` (types :40, :61; sites 154/324/442/589/615/653)
@@ -71,7 +113,8 @@ Sweep 4 — `ReportModal` direct consumers: `components/shared/ReportButton.tsx:
 - Test: `tests/components/report/ReportModal.test.tsx`, `tests/components/report/ReportButton.test.tsx`
 
 **Interfaces:**
-- Produces: `ReportSurface = "crew" | "admin" | "help"`; `ReportModalProps.showId: string | null`; `ReportButtonProps.showId: string | null`; `RingOffset` gains `"info-bg"`; `DEFAULT_LABEL.help = "Report a recurring error"`, `DEFAULT_VARIANT.help = "accent"`. Tasks 3-5 rely on these exact values.
+- Consumes: Task 1's guard (red until this task's flips land).
+- Produces: `ReportSurface = "crew" | "admin" | "help"`; `ReportModalProps.showId: string | null`; `ReportButtonProps.showId: string | null`; `RingOffset` gains `"info-bg"`; `DEFAULT_LABEL.help = "Report a recurring error"`, `DEFAULT_VARIANT.help = "accent"`. Tasks 3-5 rely on these exact values. This task turns Task 1's guard green.
 
 - [ ] **Step 1: Write failing tests** — add to `tests/components/report/ReportModal.test.tsx` (follow the file's existing harness helpers for mounting/submitting; reuse its fetch-mock pattern):
 
@@ -116,49 +159,9 @@ it("help surface defaults: label, accent variant, info-bg ring offset", () => {
 
 - [ ] **Step 2: Run to verify failure.** Run: `pnpm vitest run tests/components/report/ReportModal.test.tsx tests/components/report/ReportButton.test.tsx`. Expected: type errors (`"help"` not assignable to `ReportSurface`; `null` not assignable to `showId`) — the production union at `components/shared/ReportModal.tsx:40` is the failing line (RED validity: absence of the union member).
 - [ ] **Step 3: Implement.** In `ReportModal.tsx`: union + `showId: string | null` + the six flips from Sweep 1 (exact replacements listed there). In `ReportButton.tsx`: `showId: string | null`; add `help` rows; extend `RingOffset`/`RING_OFFSET_CLASS` with `"info-bg"` → `"focus-visible:ring-offset-info-bg"`.
-- [ ] **Step 4: Run to verify pass** — same command, plus `pnpm vitest run tests/reports tests/components/report` for regression. Expected: PASS.
-- [ ] **Step 5: Commit.** `feat(report): widen ReportSurface with help; crew-vs-rest modal behavior; nullable showId`
-
-### Task 2: Structural crew-vs-rest scan (guard)
-
-**Files:**
-- Create: tests/components/report/_metaSurfaceComparisons.test.ts
-
-**Interfaces:**
-- Consumes: Task 1's flipped `ReportModal.tsx` (zero remaining admin comparisons).
-
-- [ ] **Step 1: Write the guard (RED against pre-Task-1 code, GREEN after; if executing after Task 1, verify RED by `git stash`-ing Task 1's ReportModal edit or by the planted-fixture premise below):
-
-<!-- task: red=`pnpm vitest run tests/components/report/_metaSurfaceComparisons.test.ts` ac=AC-2 -->
-
-```ts
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { premise } from "../../_shared/premise";
-
-const SRC = readFileSync("components/shared/ReportModal.tsx", "utf8");
-const ADMIN_COMPARISON = /surface\s*===\s*"admin"|"admin"\s*===\s*surface/g;
-
-describe("ReportModal surface accept-set (spec §2.2)", () => {
-  it("scan can fail: planted admin comparison matches", () => {
-    premise(
-      ADMIN_COMPARISON.test('x.surface === "admin"'),
-      "planted fixture must match or the scan below is vacuous",
-    );
-  });
-
-  it("has no surface === admin comparisons (crew-vs-rest only)", () => {
-    const hits = SRC.match(ADMIN_COMPARISON) ?? [];
-    expect(hits, "behavior must key on crew-vs-rest; an admin comparison silently gives help the crew arm").toEqual([]);
-  });
-});
-```
-
-(Adjust the `premise` import to the actual export shape of `tests/_shared/premise.ts` — verify with a read before writing; regex uses a fresh literal per call if `.test` statefulness with the `g` flag bites — drop the `g` flag on the premise line.)
-
-- [ ] **Step 2: Pre-dispatch mutants (string-presence guard — all four, record results in the commit message):** (a) empty the regex source → scan passes vacuously → premise case must FAIL; (b) append a suffix to a flipped site (`surface !== "crew!"`) → typecheck fails (not this guard's job — note); (c) re-add `surface === "admin"` in a comment inside ReportModal.tsx → scan FAILS (comment hits are in-scope by design — the accept-set is textual; note this as intended strictness); (d) vary the scanned path to a missing file → readFileSync throws (loud).
-- [ ] **Step 3: Run** `pnpm vitest run tests/components/report/_metaSurfaceComparisons.test.ts`. Expected: PASS (post-Task-1).
-- [ ] **Step 4: Commit.** `test(report): structural crew-vs-rest scan for ReportModal surface comparisons`
+- [ ] **Step 4: Run to verify pass** — same command, plus `pnpm vitest run tests/reports tests/components/report` (includes Task 1's guard, now green). Expected: PASS.
+- [ ] **Step 4b: String-presence mutants (all four, results recorded in the commit message):** for the label/heading/ring-class assertions: (a) empty `DEFAULT_LABEL.help` → label test fails; (b) append a suffix to the label constant → fails; (c) move the ring-offset literal into a comment beside the record → className assertion fails (class absent from output); (d) vary the discriminating parameter (render with `surface="admin"`) → help-label assertion fails.
+- [ ] **Step 5: Commit** (includes Task 1's guard file). `feat(report): widen ReportSurface with help; crew-vs-rest modal behavior; nullable showId`
 
 ### Task 3: Route — help auth + non-show rejection
 
@@ -192,6 +195,13 @@ describe("help surface (spec §2.3)", () => {
     // requireAdminIdentity NOT called (rejection is in readRequestBody).
   });
 });
+```
+
+And to `tests/reports/auth.test.ts` (help rides the admin error contract unchanged; both rows mirror the file's existing admin-surface arms):
+
+```ts
+// help + requireAdminIdentity throwing plain error → 403 { ok: false }
+// help + requireAdminIdentity throwing AdminInfraError → 500 { ok: false, code: <the error's code> }
 ```
 
 - [ ] **Step 2: Verify RED** — `pnpm vitest run tests/reports/nullShow.test.ts`. Expected: the accept case fails 400 (route line `if (body.surface !== "admin") return null` rejects help — the failing production line).
@@ -264,7 +274,7 @@ return (
 ```
 
 - [ ] **Step 4: Verify GREEN + regression** — `pnpm vitest run tests/reports`. Expected: PASS.
-- [ ] **Step 5: Commit.** `feat(report): non-show recurrence show line for help surface issues`
+- [ ] **Step 4b: String-presence mutants (all four, recorded in the commit message):** (a) empty the help fallback string → help row fails; (b) append a suffix to it → fails (assertion is exact-line contains, not prefix); (c) put the phrase in a nearby comment and revert the branch → fails (assertion reads builder OUTPUT, not source); (d) vary the discriminator (`surface: "admin"` with the same body) → wizard-copy row proves the branch, help row fails.
 
 ### Task 5: HelpReportCta + page swap
 
@@ -304,7 +314,7 @@ return (
 
 Update `tests/help/page-errors.test.tsx`: src-scan case now asserts the page mounts `HelpReportCta` and has NO `mailto:`; rendered case asserts the CTA button (accessible name "Report a recurring error") renders exactly once; keep the no-useState/no-"use client" case for the page file itself. Update `tests/help/errors-grouping.test.tsx` single-CTA cases the same way.
 
-- [ ] **Step 2: Verify RED** — component file absent; page still renders mailto.
+- [ ] **Step 2: Verify RED** — the DECLARED RED is the two updated page suites: their new assertions fail against the live mailto anchor (`app/help/errors/page.tsx:107` region is the failing production line). The new component suite fails at collection until Step 3 creates the file; that collection failure is scaffolding, not the RED of record.
 - [ ] **Step 3: Implement** HelpReportCta:
 
 ```tsx
@@ -343,6 +353,7 @@ export function HelpReportCta() {
 Page edit: in the trailing `Callout`, replace the `mailto:` anchor with `<HelpReportCta />`; prose becomes "Read your code&rsquo;s explanation above. Still seeing it after that?" (server component unchanged otherwise). Intro line :58-59 becomes "Still stuck after reading it? There is a report button at the foot of the page."
 
 - [ ] **Step 4: Verify GREEN** — `pnpm vitest run tests/help tests/components/report`. Expected: PASS.
+- [ ] **Step 4b: String-presence mutants (all four, recorded in the commit message):** (a) empty the CTA label override path (blank accessible name) → rendered-name assertion fails; (b) suffix the label → fails; (c) leave the mailto in a JSX comment → mailto-absence assertion still passes on rendered DOM but the src-scan case pins `mailto:` absent from the page source, so it fails (the pair covers both layers); (d) vary the hash (case 3's A→B) → helpCode assertion fails on the stale value.
 - [ ] **Step 5: Commit.** `feat(help): hash-scoped report CTA replaces mailto on /help/errors`
 
 ### Task 6: Master-spec amendments
@@ -351,29 +362,30 @@ Page edit: in the trailing `Callout`, replace the `mailto:` anchor with `<HelpRe
 - Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§13.1 at :3400 region; §13.2.1)
 - Modify: `docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md` (AC-11.11 row :709)
 
-<!-- task: red=`rg -q 'non-show-scoped' docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md && rg -q 'r12' docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md` ac=AC-6 -->
+<!-- task: red=`rg -q 'Recurring-error report on .?/help/errors' docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md && rg -q '2026-08-09-help-report-surface-design' docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md` ac=AC-6 -->
 
-- [ ] **Step 1: RED** — both `rg` probes above fail before the edit.
+- [ ] **Step 1: RED** — both `rg` probes above fail before the edit (verified 2026-08-09: the surface-5 heading phrase appears nowhere in the master spec, and this design-spec's path appears nowhere in the AC-11.11 doc — unlike a bare `r12` token, which that doc already contains at :158/:292 for unrelated amendments). Mutant check: each probe anchors on a phrase unique to ITS required edit, so omitting either edit fails its own probe.
 - [ ] **Step 2: Edit** per spec §2.5, verbatim scope: §13.1 gains "**Doug-facing (admin), non-show-scoped:** 5. **Recurring-error report on `/help/errors`.**..." (spec §2.5 carries the full sentence); §13.2.1 gains the one-line help note; AC-11.11 row gains the r12 amendment sentence citing `docs/superpowers/specs/2026-08-09-help-report-surface-design.md`.
-- [ ] **Step 3: GREEN** — probes pass; run `pnpm vitest run tests/help/spec-citation-integrity.test.ts tests/cross-cutting/codes.test.ts` (catalog untouched — x1 must stay green).
+- [ ] **Step 3: GREEN** — probes pass (probe 2's match must be inside the AC-11.11 row, verified by eye at edit time); run `pnpm vitest run tests/help/spec-citation-integrity.test.ts tests/cross-cutting/codes.test.ts` (catalog untouched — x1 must stay green).
 - [ ] **Step 4: Commit.** `docs(spec): §13.1 surface 5 + AC-11.11 r12 for the help report surface`
 
 ### Task 7: Ledger graduation
 
 **Files:**
-- Modify: `BACKLOG.md` (remove entry), `BACKLOG-archive.md` (add resolution)
+- Modify: `BACKLOG.md` (remove entry), `BACKLOG-archive.md` (add resolution), `tests/docs/_metaDeferralLedgerGraduation.test.ts` (BACKLOG_GRADUATED row)
 - Modify: `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/DEFERRED.md` (M11-I-D-1 resolution note)
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-7 -->
+<!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` ac=AC-7 -->
 
+- [ ] **Step 0 (RED):** Add `{ id: "BL-HELP-NON-SHOW-REPORT-SURFACE", provenance: "feat/help-report-surface" }` to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` (follow the file's dated comment convention). Run the marker command: FAILS — the id is still in `BACKLOG.md` and absent from the archive (the registry's archive-only + provenance cases are the failing production state).
 - [ ] **Step 1:** Move the full `BL-HELP-NON-SHOW-REPORT-SURFACE` body to `BACKLOG-archive.md` with a dated resolution paragraph (Option A shipped per the 2026-08-09 spec; Option B un-fence trigger = report volume or owner ask; staleness repair + L→S resize noted). **Strip the `**Status:** IN PROGRESS · **Branch:**` marker in this same commit** (invariant 12 — archives reject in-flight entries; the RED above fails by name if the marker rides along).
 - [ ] **Step 2:** M11-I-D-1: append a resolution line (closed by this branch; AC-11.11 r12; spec cross-ref). Follow that DEFERRED.md's local resolution convention (read neighboring resolved entries first).
-- [ ] **Step 3:** `pnpm vitest run tests/docs` green, except `_metaInvariant8Closeout.test.ts`, which stays red by design until the closeout §12 marker fills (see the marker-lifecycle note there).
-- [ ] **Step 4: Commit** (the PR's LAST content commit, so the marker never reaches main). `docs(plan): graduate BL-HELP-NON-SHOW-REPORT-SURFACE; close M11-I-D-1`
+- [ ] **Step 3:** graduation meta-test green (registry row satisfied by the archive move); `pnpm vitest run tests/docs` green, except `_metaInvariant8Closeout.test.ts`, which stays red by design until the closeout §12 marker fills (see the marker-lifecycle note there).
+- [ ] **Step 4: Commit — SEQUENCING (invariant 12):** this commit is the PR's LAST commit, full stop. Execute Task 7 only AFTER every §12 closeout step that writes to the tree (impeccable marker fill, DEFERRED entries, review-corpus rows) has committed; the diff review covers the tree through those commits plus this one (review-covers-what-merges: dispatch the final diff round only when this commit exists). `docs(plan): graduate BL-HELP-NON-SHOW-REPORT-SURFACE; close M11-I-D-1`
 
 <!-- tasks: end -->
 
-## 12. Closeout (invariant 8 + gates)
+## 12. Closeout (invariant 8 + gates) — runs BEFORE Task 7's final commit (see Task 7 Step 4 sequencing)
 
 - [ ] **Impeccable dual gate FIRST:** `/impeccable critique` AND `/impeccable audit` on the affected diff (`app/help/**`, `components/shared/**`) with the canonical v3 setup gates (context.mjs → register read). Fix or defer P0/P1 via DEFERRED.md, then ADD the filled marker line directly below this step, on its own line (grammar: `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`, RAN-DEGRADED where a half ran degraded; `dispositions=none` only when p0+p1 = 0). Marker-lifecycle note: this plan names both gate halves, so `tests/docs/_metaInvariant8Closeout.test.ts` reds on this file from this commit until the filled marker lands here — that is the guard's intended in-flight state; the marker MUST be filled before the full-gates step below, and no line starting with the marker prefix may exist before then.
 
