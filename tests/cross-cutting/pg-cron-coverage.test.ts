@@ -193,7 +193,11 @@ const liveDbTest =
  * tested — inline, an adversarial round showed that deleting its `fn()` call
  * left every guard green while each case ran nothing.
  */
-const { liveCase, count: liveCaseCount } = makeLiveCaseCounter(liveDbTest, () => queryCount);
+const {
+  liveCase,
+  count: liveCaseCount,
+  expectedQueries,
+} = makeLiveCaseCounter(liveDbTest, () => queryCount);
 
 beforeAll(() => {
   if (coverageTarget === "validation") {
@@ -258,10 +262,15 @@ afterAll(() => {
   // — four adversarial rounds each defeated the next proxy (source patterns,
   // then case names, then this count). Recorded as
   // BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION.
-  if (isCi && queryCount < liveCaseCount()) {
+  // Compared against the DECLARED floor sum, not the case count: a
+  // multi-query case (the all-nine firing smoke) would otherwise donate slack
+  // that hides an inert case once per-case attribution is deleted — the exact
+  // mutant pgCronCiVacuity's aggregate case plants.
+  if (isCi && queryCount < expectedQueries()) {
     throw new Error(
       `pg-cron-coverage: ${liveCaseCount()} live cases ran but only ${queryCount} ` +
-        "database queries were issued — cases are executing without touching the database.",
+        `database queries were issued (declared floor ${expectedQueries()}) — ` +
+        "cases are executing without touching the database.",
     );
   }
 });
@@ -521,6 +530,9 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
         ).toBe(canonical.route);
       }
     },
+    // One census fetch + one smoke per canonical job, declared so the
+    // aggregate backstop keeps a zero-slack floor.
+    { queries: 1 + CANONICAL_JOBS.length },
   );
 
   // Orphan-absent (R25 F49 + R26 F51): cleanup-bootstrap-nonces unscheduled by T3.
