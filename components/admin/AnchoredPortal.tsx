@@ -1,0 +1,206 @@
+"use client";
+/**
+ * components/admin/AnchoredPortal.tsx — admin-dashboard-row-actions Task 2.
+ *
+ * A trigger-anchored surface that renders OUTSIDE its clipping ancestors.
+ *
+ * Why it exists (spec §3.1): the dashboard's rows wrapper carries
+ * `overflow-hidden`, so an absolutely-positioned in-row menu is unreachable on
+ * the bottom rows — it is clipped away exactly where the admin needs it. This
+ * primitive portals the surface to `document.body` and anchors it to the
+ * trigger's live rect instead.
+ *
+ * It COMPOSES the tree's shipped placement infrastructure rather than
+ * reinventing it: `lib/popover/place.ts` (bounds + the never-newly-hidden
+ * zoom guarantee), `lib/popover/position.ts` (the pure placement algebra,
+ * including the vertical flip when the preferred side lacks room),
+ * `lib/popover/rafCoalescer.ts` (leading-edge throttle) and
+ * `lib/popover/viewport.ts` (visual-viewport engine gate). The body-portal
+ * shape follows the `HoverHelp` precedent.
+ *
+ * Coordinate space: the panel is `position: absolute` under `document.body`,
+ * so its offsets are DOCUMENT coordinates — the placement core returns viewport
+ * coordinates, and the page scroll offset is added here.
+ */
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
+import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
+import { isVisualViewportEngine } from "@/lib/popover/viewport";
+import { GAP, type Rect } from "@/lib/popover/position";
+
+export type AnchoredPortalProps = {
+  /** Closed renders NOTHING: no node, no listeners, no focusable descendants. */
+  open: boolean;
+  /** The element the surface anchors to (the menu trigger). */
+  anchorRef: RefObject<HTMLElement | null>;
+  /** `data-testid` on the portaled panel. */
+  testId: string;
+  children: ReactNode;
+  /** Horizontal edge the panel aligns to. Right-aligned suits a row-end kebab. */
+  align?: "left" | "right";
+  /** Side tried first; the core flips to the other when this one lacks room. */
+  preferredSide?: "top" | "bottom";
+  /** Panel classes. Positioning + z-index are owned here, not by the caller. */
+  className?: string;
+};
+
+type Applied = {
+  left: number;
+  top: number;
+  side: "top" | "bottom";
+  maxHeight: number | null;
+  maxWidth: number | null;
+};
+
+const toRect = (r: DOMRect): Rect => ({
+  left: r.left,
+  top: r.top,
+  width: r.width,
+  height: r.height,
+  right: r.right,
+  bottom: r.bottom,
+});
+
+export function AnchoredPortal({
+  open,
+  anchorRef,
+  testId,
+  children,
+  align = "right",
+  preferredSide = "bottom",
+  className = "",
+}: AnchoredPortalProps): ReactNode {
+  const [mounted, setMounted] = useState(false);
+  const [applied, setApplied] = useState<Applied | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  // Portals need a DOM; the first client render is the earliest safe moment.
+  useEffect(() => setMounted(true), []);
+
+  const measureAndApply = useCallback(() => {
+    const anchor = anchorRef.current;
+    const panel = panelRef.current;
+    if (!anchor || !panel) return;
+    // Measure NATURAL size: clear the constraints a previous placement applied,
+    // then restore them, so the measurement is never a function of the last
+    // answer. React owns these via the style prop and will not re-write an
+    // unchanged value, which is why the restore happens here and not on the
+    // next render.
+    const heldMaxWidth = panel.style.maxWidth;
+    const heldMaxHeight = panel.style.maxHeight;
+    panel.style.maxWidth = "";
+    panel.style.maxHeight = "";
+    const triggerRect = toRect(anchor.getBoundingClientRect());
+    const naturalRect = panel.getBoundingClientRect();
+    const placement = placeWithinVisibleViewport(window, {
+      hostRect: null, // body host degenerates to the viewport (place.ts contract)
+      trigger: triggerRect,
+      naturalSize: { width: naturalRect.width, height: naturalRect.height },
+      wrappedHeightAt: (w) => {
+        panel.style.maxWidth = `${w}px`;
+        const h = panel.getBoundingClientRect().height; // border-box, caps active
+        panel.style.maxWidth = "";
+        return h;
+      },
+      preferredSide,
+      align,
+    });
+    panel.style.maxWidth = heldMaxWidth;
+    panel.style.maxHeight = heldMaxHeight;
+
+    if (placement.kind === "hidden") {
+      // DIVERGENCE FROM HoverHelp, deliberately: a help tooltip may hide itself
+      // when it cannot be placed, but a menu the admin just opened must never
+      // vanish under them — that is the silent-outcome class the spec's
+      // consequence bound forbids. An unplaceable measurement (a detached or
+      // not-yet-laid-out panel) falls back to the plain below-the-trigger
+      // anchor and recovers on the next frame like any other placement.
+      setApplied({
+        left: triggerRect.left + window.scrollX,
+        top: triggerRect.bottom + GAP + window.scrollY,
+        side: "bottom",
+        maxHeight: null,
+        maxWidth: null,
+      });
+      return;
+    }
+    setApplied({
+      left: placement.viewport.x + window.scrollX,
+      top: placement.viewport.y + window.scrollY,
+      side: placement.side,
+      maxHeight: placement.maxHeight,
+      maxWidth: placement.maxWidth,
+    });
+  }, [anchorRef, align, preferredSide]);
+
+  // Pre-paint placement on open, then re-place from every source that can move
+  // the anchor under the panel. The open-gate stays at the CALL SITE: a
+  // listener firing from a stale capture after a close must not schedule.
+  useLayoutEffect(() => {
+    if (!open || !mounted) return;
+    measureAndApply();
+    const coalescer = createRafCoalescer(measureAndApply);
+    const schedule = () => {
+      if (!open) return;
+      coalescer.schedule();
+    };
+    // Capture-phase scroll catches scrolling ANCESTORS (a scroll event on an
+    // element does not bubble). Window-scroll DISMISSAL is a separate contract
+    // and lands with the geometry e2e.
+    window.addEventListener("scroll", schedule, { capture: true, passive: true });
+    window.addEventListener("resize", schedule);
+    // Pinch-zoom pan fires no window scroll, so the visual viewport is its own
+    // source. Gated on the ENGINE, never on current dimensions.
+    const vv = isVisualViewportEngine(window) ? window.visualViewport : null;
+    vv?.addEventListener("scroll", schedule);
+    vv?.addEventListener("resize", schedule);
+    const ro = new ResizeObserver(schedule);
+    const anchor = anchorRef.current;
+    const panel = panelRef.current;
+    if (anchor) ro.observe(anchor);
+    if (panel) ro.observe(panel);
+    return () => {
+      window.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("resize", schedule);
+      vv?.removeEventListener("scroll", schedule);
+      vv?.removeEventListener("resize", schedule);
+      ro.disconnect();
+      coalescer.cancel();
+    };
+  }, [open, mounted, measureAndApply, anchorRef]);
+
+  // A closed surface holds no stale placement: the next open measures fresh.
+  useEffect(() => {
+    if (!open) setApplied(null);
+  }, [open]);
+
+  if (!mounted || !open) return null;
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      data-testid={testId}
+      data-portal-side={applied?.side ?? preferredSide}
+      style={{
+        position: "absolute",
+        left: applied?.left ?? 0,
+        top: applied?.top ?? 0,
+        ...(applied?.maxHeight != null ? { maxHeight: applied.maxHeight } : {}),
+        ...(applied?.maxWidth != null ? { maxWidth: applied.maxWidth } : {}),
+      }}
+      className={`z-50 ${className}`}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
