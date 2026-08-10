@@ -69,6 +69,12 @@ on:
       - "lib/popover/position.ts"
       - "lib/popover/viewport.ts"
       - "lib/popover/rafCoalescer.ts"
+      # The geometry spec measures the Archive confirm and the held decision,
+      # and BOTH panels are sized by their copy. A copy-only edit can therefore
+      # break containment, so the modules that spell those sentences trigger the
+      # gate too — naming only the components would leave that path dark.
+      - "lib/admin/archiveCopy.ts"
+      - "lib/admin/syncRequest.ts"
       # Every production surface the needs-attention holds rollup touches: a
       # later regression in any of them must not leave the holds spec dark.
       - "lib/admin/identityHolds.ts"

@@ -156,9 +156,13 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // was true when it STARTED; the answer has to be judged against the row as
   // it is when the answer arrives.
   const eligibleRef = useRef(showMutatingActions);
-  useEffect(() => {
-    eligibleRef.current = showMutatingActions;
-  }, [showMutatingActions]);
+  // Written during RENDER, not in an effect. A passive effect runs after the
+  // commit, and an awaited request can resolve in that window — it would then
+  // read the pre-commit value, store a decision the row no longer accepts, and
+  // the gate would hide it forever. This ref is never read while rendering, so
+  // the "latest value" pattern is safe here and closes the window entirely.
+  // eslint-disable-next-line react-hooks/refs -- deliberate "latest value" ref: the effect form loses the commit-to-effect race an awaited request can land in, and this ref is never read during rendering.
+  eligibleRef.current = showMutatingActions;
 
   const crew = row.crew ?? [];
   const shownCrew = crew.slice(0, CREW_SUBMENU_CAP);
@@ -167,7 +171,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
 
   // ONE in-flight action per row (spec §3.1 guard conditions). A pending
   // request and an undecided shrink hold both mean "this row is mid-action".
-  const busy = pending || heldShrink !== null;
+  // `confirmingArchive` belongs here: a confirm step that takes focus and claims
+  // the surface for keyboard users, while a pointer user can still fire Re-sync
+  // beside it, is only half a confirm — and a Re-sync that then returns
+  // `shrink_held` would render two decision panels at once.
+  const busy = pending || heldShrink !== null || confirmingArchive;
 
   /** Unconditional close. Only the flows that OWN the outcome call this. */
   const closeMenu = (restoreFocus: boolean) => {
@@ -469,16 +477,16 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       }
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      items[(idx + 1 + items.length) % items.length]?.focus();
+      items[(idx + 1 + items.length) % items.length]?.focus({ preventScroll: true });
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      items[(idx - 1 + items.length) % items.length]?.focus();
+      items[(idx - 1 + items.length) % items.length]?.focus({ preventScroll: true });
     } else if (e.key === "Home") {
       e.preventDefault();
-      items[0]?.focus();
+      items[0]?.focus({ preventScroll: true });
     } else if (e.key === "End") {
       e.preventDefault();
-      items[items.length - 1]?.focus();
+      items[items.length - 1]?.focus({ preventScroll: true });
     } else if (e.key === "Enter" || e.key === " ") {
       // Space does not natively activate an <a>, so both keys route through
       // click and every item behaves identically regardless of its element.
@@ -503,16 +511,16 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       dismissMenu(false);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      items[(idx + 1 + items.length) % items.length]?.focus();
+      items[(idx + 1 + items.length) % items.length]?.focus({ preventScroll: true });
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      items[(idx - 1 + items.length) % items.length]?.focus();
+      items[(idx - 1 + items.length) % items.length]?.focus({ preventScroll: true });
     } else if (e.key === "Home") {
       e.preventDefault();
-      items[0]?.focus();
+      items[0]?.focus({ preventScroll: true });
     } else if (e.key === "End") {
       e.preventDefault();
-      items[items.length - 1]?.focus();
+      items[items.length - 1]?.focus({ preventScroll: true });
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       (document.activeElement as HTMLElement | null)?.click();
@@ -892,14 +900,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         <div
           ref={submenuRef}
           role="menu"
-          aria-labelledby={`${triggerId}-preview`}
+          aria-label={`Preview ${label} as`}
           data-testid={`row-action-preview-menu-${slug}`}
           onKeyDown={onSubmenuKeyDown}
           className="min-w-52 rounded-md border border-border bg-surface-raised p-1.5 shadow-popover"
         >
-          <span id={`${triggerId}-preview`} className="sr-only">
-            {`Preview ${label} as`}
-          </span>
           {shownCrew.map((member) => (
             <Link
               key={member.id}

@@ -274,6 +274,25 @@ describe("ShowRowActions — the menu element holds only menu content", () => {
     }
   });
 
+  test("the Preview submenu names itself and owns no generic child", () => {
+    render(<ShowRowActions row={row({ slug: "sub" })} />);
+    openMenu("sub");
+    fireEvent.click(document.body.querySelector('[data-testid="row-action-preview-sub"]')!);
+    const submenu = document.body.querySelector<HTMLElement>(
+      '[data-testid="row-action-preview-menu-sub"]',
+    )!;
+    expect(submenu).not.toBeNull();
+    // An sr-only label span inside the menu is a GENERIC child, which the menu
+    // content model does not own. The menu carries its own name instead.
+    expect(submenu.getAttribute("aria-label")).toBe("Preview Title sub as");
+    for (const kid of Array.from(submenu.children)) {
+      expect(
+        ["menuitem", "separator", "none"],
+        `unexpected role="${kid.getAttribute("role")}" child of the submenu`,
+      ).toContain(kid.getAttribute("role"));
+    }
+  });
+
   test("the empty-crew hint is the ONLY presentational child, and it is described-by-referenced", () => {
     const r = row({ slug: "hint", crew: [], crewCount: 0 });
     premiseHolds("the fixture has an empty roster", (r.crew ?? []).length === 0);

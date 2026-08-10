@@ -378,3 +378,28 @@ describe("Archive — a row that loses eligibility under an open menu", () => {
     expect(q("row-action-archive-banner")).toBeNull();
   });
 });
+
+// ── whole-diff review R6 F2 ────────────────────────────────────────────────
+describe("Archive confirm — owning the surface means owning it for the pointer too", () => {
+  test("while the confirm is open, the sibling items are inert and fire nothing", () => {
+    render(<ShowRowActions row={row({ slug: "own" })} />);
+    const menu = openMenu("own");
+    enterConfirm("own");
+    const siblings = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    premise("the menu still renders sibling items behind the confirm", siblings.length, 0);
+    for (const item of siblings) {
+      expect(
+        item.getAttribute("aria-disabled"),
+        `${item.dataset["testid"]} must be inert while a confirm owns the surface`,
+      ).toBe("true");
+    }
+    // A confirm that takes focus for the keyboard while a POINTER user can
+    // still fire Re-sync beside it is only half a confirm — and a Re-sync
+    // returning shrink_held would put two decision panels on screen at once.
+    fireEvent.click(q("row-action-resync-own")!);
+    expect(q("row-actions-shrink-confirm-own")).toBeNull();
+    fireEvent.click(q("row-action-preview-own")!);
+    expect(q("row-action-preview-menu-own")).toBeNull();
+    expect(q("row-actions-archive-confirm-own")).not.toBeNull();
+  });
+});

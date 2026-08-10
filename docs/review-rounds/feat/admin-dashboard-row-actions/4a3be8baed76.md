@@ -4,7 +4,7 @@ Second base for this arc. The spec and plan stages, and the first whole-diff rou
 `7e04cd6f04e9` and are filed there; merging `origin/main` moved the merge-base, so the corpus keys
 the later diff rounds here. Round numbers restart with the base, as the corpus is keyed by it.
 
-## diff — 4 rounds
+## diff — 5 rounds
 
 **Examined:** (R1 ran against the previous base and its row lives in `7e04cd6f04e9.jsonl`; it is
 summarized here because the vector below runs through it.) R1: six (empty alert for codes with no catalog copy; a pending request dismissable out
@@ -15,7 +15,14 @@ and a backdrop trapped in the row's `z-10` seat below the mobile tab bar; one `p
 shared by two actions, so Archive made Re-sync announce "Syncing…"; a flip pin implied by
 containment). R3: one (`router.refresh()` preserves React state and the row keeps its `row.id` key,
 so a background refresh does NOT remount the row — the §3.5 compound row assumed it did, leaving the
-Archive confirm and held decision actionable on a row that had become ineligible). R5: two (invariant 12 violated — the ledger entry was archived at what turned
+Archive confirm and held decision actionable on a row that had become ineligible). R6: six (an eligibility mirror updated in a passive
+effect, losing the commit-to-effect race an awaited answer can land in; a confirm that owned the
+surface for the keyboard but not the pointer, so Re-sync could still fire beside it and put two
+decision panels on screen; eight arrow-key focus moves ignoring the `preventScroll` contract; a
+generic sr-only span owned by the submenu's `role="menu"`; `lib/admin/archiveCopy.ts` missing from
+the geometry gate's path filter although the confirm it measures is SIZED by that copy; and the
+§3.5 row still saying failure banners close on eligibility loss, contradicting §6, the code, the
+tests and the standing rule). R5: two (invariant 12 violated — the ledger entry was archived at what turned
 out to be eight commits before the end, leaving live work unclaimed; and the ARIA content-model
 guard running only a crew-populated fixture, so it never saw the empty-roster hint as a direct child
 of `role="menu"`). R4: six (a position-only reorder leaving the portal on the wrong row; an outcome landing after eligibility loss
@@ -45,6 +52,11 @@ file, which is why the counted rounds here trail the narrative's numbering) with
 harness-tracked background runner, which does. The third was killed by a machine crash mid-run,
 which also wiped the scratchpad holding the brief. Per the guard's own contract these are
 infrastructure faults and were re-dispatched, not read as clean rounds.
+
+**Disposition (post-R6):** ship. R6's six are repaired. Two are worth naming: the eligibility mirror
+moved from a passive effect to a render-time "latest value" ref, because the effect form loses the
+exact window an awaited answer lands in; and `busy` gained `confirmingArchive`, since a confirm that
+takes focus while a pointer can still fire the item beside it is only half a confirm.
 
 **Disposition (post-R5):** ship. R5's two findings are repaired — the ledger claim is live again and
 graduates in the genuinely final commit, and the content-model guard now runs both crew states.
