@@ -35,7 +35,8 @@
  * transaction is the only lock holder on this path — nothing wraps it. The
  * `show_share_tokens` update/read stays on the PostgREST admin client: that
  * table is not lock-governed (invariant 2 names shows / crew_members /
- * crew_member_auth / pending_syncs / pending_ingestions), and it runs after
+ * pending_syncs / pending_ingestions and the dropped M9.5 auth table this
+ * comment deliberately does not spell), and it runs after
  * the seeding transaction committed.
  */
 import { execFileSync } from "node:child_process";
