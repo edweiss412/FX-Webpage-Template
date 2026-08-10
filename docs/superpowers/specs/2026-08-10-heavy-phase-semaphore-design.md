@@ -134,30 +134,40 @@ scripts/with-heavy-slot.py — new in this arc (invoked as `python3 scripts/with
 
 1. Ensure slot dir exists: `FX_HEAVY_SLOT_DIR` (default `/tmp/fx-heavy-slots`), mode
    0755, `os.makedirs(exist_ok=True)`.
-2. Resolve slot count N via the §4.5 consistency protocol (dir-recorded value wins).
-3. **Acquisition span holds `recreate.lock` SHARED (R7 F1):** before resolving config,
-   open `recreate.lock` (create on demand) and take a BLOCKING `LOCK_SH` on it. The
-   shared lock brackets each ATTEMPT — resolve, scan, and (on a win) validate — and
-   is released before every poll sleep and before exec (never held while sleeping,
-   so a pending `LOCK_EX` recreator is never starved by patient waiters; never
-   inherited by the command). A recreator holds `LOCK_EX` on the same file for its
-   entire swap (§4.5), so no wrapper can resolve, publish a config, or acquire a
-   slot inside the destructive window — the fresh-wrapper-publishes-into-the-gap
-   race is excluded by the kernel, not by convention. Multiple wrappers share the SH
-   lock freely; only recreation serializes against them.
-   Then the acquire loop, all raw-fd API (R1 F4): for each slot index,
+2. **Take the attempt bracket: `recreate.lock` SHARED (R7 F1, ordering per R8 F1,
+   surfacing per R8 F2):** open `recreate.lock` (create on demand) and try
+   `LOCK_SH | LOCK_NB` FIRST. NB failure means an exclusive recreation swap is in
+   progress: emit the first-wait warning (`waiting: recreation in progress`)
+   immediately — BEFORE any blocking — then retry `LOCK_SH | LOCK_NB` on the same
+   warn-at-each-wake loop as slot waiting (step 6 cadence), so a wedged recreation
+   is never a silent block (R8 F2 second instance). The SH lock, once held,
+   brackets one ATTEMPT — resolve, scan, and (on a win) validate — and is released
+   before every poll sleep and before exec (never inherited by the command). A
+   recreator holds `LOCK_EX` for its entire swap (§4.5), so no wrapper can resolve,
+   publish a config, or acquire a slot inside a swap — excluded by the kernel, not
+   convention. Liveness is stated honestly (R8 F2 first instance): macOS `flock`
+   has no writer preference — a later SH can be granted while an EX waits — so EX
+   admission is NOT ordered; it is prompt in practice because SH brackets are
+   microsecond-scale and every waiter spends its poll sleeps (≥50 ms) holding
+   nothing, so zero-SH windows recur every interval. No fairness guarantee is
+   claimed; a recreation that waits abnormally long is visible through its own
+   §4.5 swap-begin line having not yet appeared.
+3. Resolve slot count N via the §4.5 consistency protocol (dir-recorded value wins) —
+   under the SH bracket (R8 F1: the bracket precedes resolution; the previous
+   numbering said both orders at once).
+4. The acquire scan, all raw-fd API (R1 F4): for each slot index,
    `fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)` then
    `fcntl.flock(fd, LOCK_EX | LOCK_NB)`. First success wins. A LOSING fd is
    `os.close`d immediately before trying the next slot (R1 F4 lifecycle note). There
    are no probe fds anywhere in the design (sizing is removed).
-4. On success, write holder metadata with unbuffered raw-fd calls (R1 F5):
+5. On success, write holder metadata with unbuffered raw-fd calls (R1 F5):
    `os.ftruncate(fd, 0)` then a single `os.write(fd, …)` of one JSON line —
    `pid`, `cmd` (BASENAME of argv[0] only), `argc` (argument count), ISO timestamp,
    priority flag. Full argv is deliberately NEVER recorded and never echoed to stderr
    (R2 F5): slot files are world-readable shared state and wait warnings land in
    transcripts, so a token-bearing argument or credential URL must have no path into
    either. `os.write` is a direct syscall — nothing to flush across `exec`.
-5. If all slots are held: sleep `FX_HEAVY_POLL_MS` (default 3000 ms normal, 1000 ms when
+6. If all slots are held: sleep `FX_HEAVY_POLL_MS` (default 3000 ms normal, 1000 ms when
    priority) with ±`FX_HEAVY_JITTER_PCT`% jitter (default 20), retry. Warning cadence
    is evaluated AT EACH WAKE: emit when `now - lastWarn >= FX_HEAVY_WAIT_WARN_S` —
    the effective cadence is therefore `max(poll interval, FX_HEAVY_WAIT_WARN_S)`, and
@@ -170,7 +180,7 @@ scripts/with-heavy-slot.py — new in this arc (invoked as `python3 scripts/with
    §8 documented limit; silent omission is not permitted (R1 F5). The warning also
    states that a recorded PID may have exited while a shell descendant retains the
    lock (§4.2).
-6. **Post-acquire topology validation (R3 F1, identity per R4 F1):** after `flock`
+7. **Post-acquire topology validation (R3 F1, identity per R4 F1):** after `flock`
    succeeds on slot *i*, validate BOTH properties, in order:
    (a) **identity** — `os.fstat(fd)` and `os.stat(path)` agree on `(st_dev, st_ino)`:
    the locked inode is still the one linked at the slot's pathname. A waiter that
@@ -187,7 +197,7 @@ scripts/with-heavy-slot.py — new in this arc (invoked as `python3 scripts/with
    live holder's flock — a process past validation holds a current-inode flock, so a
    rule-following recreation cannot overlap its execution at all (R5 F1). Manual
    `rm -rf` of the slot dir is out of contract (§8).
-7. On acquire (validated): `os.set_inheritable(fd, True)` (raw integer fd — valid per
+8. On acquire (validated), release the SH bracket, then: `os.set_inheritable(fd, True)` (raw integer fd — valid per
    the `os.open` API), then `os.execvp(cmd, args)` — the wrapper process BECOMES the heavy
    command. The flock fd rides through exec; the kernel releases it when the last
    process holding the fd exits. Crash of the holder (any signal, including SIGKILL) =
@@ -236,7 +246,7 @@ Two failure directions follow, both documented limits (§8), both surfaced:
   playwright children are defects in their own right. The §4.6 rule keeps long-lived
   processes out of wrapped commands, which removes the deliberate version of this case.
 - **Retention (wedge):** a shell-layer descendant that outlives the command keeps the
-  slot held. Surfaced by the §4.1.5 wait warning (holder metadata + the
+  slot held. Surfaced by the §4.1.6 wait warning (holder metadata + the
   may-have-exited caveat). Deliberately NOT auto-broken — breaking a live lock
   reintroduces the stale-lock class C5 exists to kill.
 
@@ -251,7 +261,7 @@ would unwrapped.
 `--priority` flag or `FX_HEAVY_PRIORITY=1` (set by arcs in closeout/CI stage per the
 AGENTS.md rule):
 
-- Priority waiters poll faster (§4.1.5 defaults), so on a release they statistically
+- Priority waiters poll faster (§4.1.6 defaults), so on a release they statistically
   win the race.
 - Each priority waiter maintains a marker `prio-wait-<pid>` in the slot dir while
   waiting — created on first wait and its mtime REFRESHED on every poll attempt
@@ -291,7 +301,7 @@ AGENTS.md rule):
 | `FX_HEAVY_DISABLE` | unset | `1` = exec the command directly, no locking (escape hatch; also the CI posture). |
 | `FX_HEAVY_JITTER_PCT` | `20` | poll jitter percent; `0` = deterministic (test posture). |
 | `FX_HEAVY_SLOT_HELD` | (set by wrapper) | NOT a user knob — the §4.1 reentrancy signal (`<slot-path>:<pid>`). Written by the wrapper into the exec'd env; nested invocations VALIDATE it (metadata pid + liveness + lock probe) before passing through. Never set it by hand. |
-| `FX_HEAVY_TEST_HOLD_OPEN_MS` | unset | NOT a user knob — test-only race-injection point: sleep this many ms (a) between a slot `open` and its `flock` attempt (makes the §7 case 11 orphaned-inode window reproducible, R5 F2) and (b) inside `--recreate` between the unlink and the publish (makes the §7 case 13 destructive-window arm reproducible, R7 F1). Integer [0, 60000]; out-of-domain warns + ignores. Production sessions never set it. |
+| `FX_HEAVY_TEST_HOLD_OPEN_MS` | unset | NOT a user knob — test-only race-injection point: sleep this many ms (a) between a slot `open` and its `flock` attempt (makes the §7 case 11 orphaned-inode window reproducible, R5 F2) and (b) inside `--recreate`'s swap, between the config `os.replace` and the slot-file adjustment (makes the §7 case 13 swap-window, serialization-premise, and crash arms reproducible, R7 F1 / R8 F3/F5). Integer [0, 60000]; out-of-domain warns + ignores. Production sessions never set it. |
 
 **Slot-count consistency (R1 F9, atomicity per R2 F2):** publication of `config` (one
 JSON line `{"slots": N}`) is ATOMIC first-writer-wins: an invocation that finds no
@@ -318,23 +328,41 @@ run — R6 F3, which also closes the `--slots 0` empty-topology wedge). Procedur
 1. Take a BLOCKING `LOCK_EX` on `recreate.lock` in the slot dir (created on demand,
    NEVER unlinked by any operation). Recreators serialize on it against each other
    (R6 F1) AND against every ordinary acquisition, which holds `LOCK_SH` on the same
-   file for its acquisition span (§4.1.3, R7 F1): the exclusive lock is granted only
+   file per attempt (§4.1.2, R7 F1): the exclusive lock is granted only
    when no acquisition is in flight, and no acquisition can begin until the swap
    completes — the destructive window admits nobody.
 2. Flock every current slot file in index order (blocking — waits for every live
    holder, including one in the validate→exec window), and after EACH slot flock
-   apply the step-6 identity check (`fstat` vs `stat`): an orphaned-inode lock —
+   apply the step-7 identity check (`fstat` vs `stat`): an orphaned-inode lock —
    possible if this recreator opened a path before a prior recreator's swap — is
    closed and the slot re-opened from the current pathname before proceeding, so a
    recreator can never hold a stale generation while mutating the live one (R6 F1).
-3. Holding recreate.lock + all current-generation slot locks: unlink the old slot
-   files and `config`, publish the new `config` (same tmp+link discipline), create
-   the new slot files, release everything.
+3. **Atomic swap — there is NO all-unlinked window (R8 F3):** holding recreate.lock +
+   all current-generation slot locks, emit `swap begin <monotonic-ns>` to stderr,
+   then: (a) write the new config content to `config.tmp.<pid>` and `os.replace` it
+   onto `config` — an atomic REPLACE, so a valid `config` exists at every instant
+   and a crash at any point leaves either the old or the new value, never an
+   uninitialized dir for a later wrapper to seed with its own `FX_HEAVY_SLOTS`
+   (`os.replace` consumes the tmp name — no residue); (b) shrink: unlink slot files
+   with index >= newN (their locked fds die with this process; any stale winner is
+   rejected by step-7 validation); grow: create missing slot files with `O_CREAT`
+   (the acquire scan's own `O_CREAT` also self-heals a crash here); (c) emit
+   `swap end <monotonic-ns>`, release everything. A recreator crash mid-procedure
+   therefore leaves a consistent dir at worst one generation behind on slot-file
+   adjustment, self-healed by the next acquisition or recreation — no recovery step,
+   no journal (C5's zero-cleanup posture extends to recreation).
 
 Any waiter mid-acquisition either blocks behind these locks or wins an orphaned
-inode and is rejected by step 6 validation on its next attempt. Reboot (`/tmp`
+inode and is rejected by step 7 validation on its next attempt. Reboot (`/tmp`
 clears) is the other supported reset. Manual `rm -rf` of a live slot dir is OUT OF
 CONTRACT — it reintroduces the recreation races by hand and files to §8.
+
+**Runtime stderr contract for the shared-state protocol (R8 F4)** — every §7 oracle
+line is a specified emission, not a test invention: the first-boot publisher emits
+`config created (slots=N)`; every later invocation that reads an existing config
+emits `config adopted (slots=N)` (plus the mismatch WARNING when its own env
+differs); a successful acquisition emits `acquired slot-<i> (slots=N)` just before
+exec; `--recreate` emits the `swap begin/end <monotonic-ns>` pair around step 3.
 
 **Knob domains (R2 F4).** All knobs are read at startup (except the per-poll `config`
 re-resolve above); every out-of-domain value falls back with a one-line stderr warning,
@@ -345,7 +373,7 @@ never a crash and never silence:
 - `FX_HEAVY_POLL_MS`: integer in [50, 600000]; else warn + default. (0 busy-spins;
   negatives break sleep — rejected.)
 - `FX_HEAVY_WAIT_WARN_S`: integer in [10, 86400]; else warn + default 300. (Effective
-  cadence is `max(poll, warn)` — §4.1.5, R4 F5.)
+  cadence is `max(poll, warn)` — §4.1.6, R4 F5.)
 - `FX_HEAVY_JITTER_PCT`: integer in [0, 50]; else warn + default 20. `0` disables
   jitter (deterministic polling — the §7 priority case depends on it).
 - `FX_HEAVY_PRIORITY`, `FX_HEAVY_DISABLE`: the string `1` means on; UNSET means off
@@ -464,13 +492,17 @@ real `/tmp/fx-heavy-slots`.
    naming the expected value AND locking still active (observable: the case-1 mutual
    exclusion holds under it). `FX_HEAVY_POLL_MS=0`: warn + default (asserted via the
    warning line; no busy-spin).
-9. **Slot-count consistency (R1 F9, R2 F2).** Sequential arm: dir created under
-   `FX_HEAVY_SLOTS=3` (config records 3); a second invocation with `FX_HEAVY_SLOTS=1`
-   warns and ADOPTS 3 — observable: with two holders live it still acquires. Race arm:
-   N simultaneous first invocations (no pre-existing dir, mixed `FX_HEAVY_SLOTS`
-   values) — after all complete, exactly one `config` value exists, every process's
-   stderr shows either creation or adopt, and no `config.tmp.*` residue remains
-   (pins the `os.link` first-writer-wins publication).
+9. **Slot-count consistency (R1 F9, R2 F2; discriminators per R8 F5).** Sequential
+   arm: dir created under `FX_HEAVY_SLOTS=3` (config records 3); a second invocation
+   with `FX_HEAVY_SLOTS=1` warns and ADOPTS 3 — observable: with two holders live it
+   still acquires. Race arm: N simultaneous first invocations (no pre-existing dir,
+   mixed `FX_HEAVY_SLOTS` values) — after all complete, assert: EXACTLY ONE process
+   emitted `config created (slots=X)` (the §4.5 stderr contract line) and every
+   other emitted `config adopted (slots=X)` with the SAME X as the creator; one
+   `config` holding X exists; no `config.tmp.*` residue. A last-writer-wins
+   overwrite implementation fails the exactly-one-creator count and the same-X
+   agreement (R8 F5 first instance); the tmp+`os.link` EEXIST protocol is the only
+   shape that passes.
 10. **pnpm forwarding.** `pnpm heavy -- node -e "process.exit(0)"` exits 0. (The plan
     owns task numbering; this spec references cases, never plan tasks.)
 11. **Resize-race containment (R3 F1, R4 F1, fixture per R5 F2).** The orphaned-inode
@@ -500,17 +532,27 @@ real `/tmp/fx-heavy-slots`.
     (timestamps), completes after, and the dir then holds slot-0/slot-1 + config 2 +
     no tmp residue.
     Serialization arm (replaces the R6 overlap oracle, which the mandated
-    lock-ordering makes unreachable — R7 F2): two `--recreate` invocations started
-    together serialize on recreate.lock — assert non-overlapping swap windows
-    (timestamps around each swap, emitted on stderr) and final dir exactly matching
-    the LAST completed recreation (one config, matching slot files, no
-    orphaned-generation files).
-    Destructive-window arm (pins the SH/EX exclusion, R7 F1): a recreator delayed
-    INSIDE its destructive window (injection hook active between unlink and
-    publish); an ordinary wrapped command started during the delay — assert it
-    neither publishes a config nor runs before the swap completes, and afterwards
-    runs admitted under the recreator's NEW generation (its resolved slot count is
-    the recreator's target, observable via the acquisition stderr line).
+    lock-ordering makes unreachable — R7 F2; premise per R8 F5): BOTH recreators run
+    with the in-swap injection delay D (hook site (b)) where D exceeds an entire
+    undelayed recreation — unserialized execution would therefore produce
+    OVERLAPPING swap windows by construction, which is the premise the R8 F5 probe
+    showed the bare started-together fixture lacks. Assert: the two `swap begin/end`
+    stderr windows are disjoint AND each spans >= D (proving the delay was live
+    inside both), and the final dir exactly matches the LAST completed recreation
+    (one config, matching slot files, no orphaned-generation files).
+    Swap-window arm (pins the SH/EX exclusion, R7 F1): a recreator delayed INSIDE
+    its swap (injection site (b), now between the config `os.replace` and slot-file
+    adjustment); an ordinary wrapped command started during the delay — assert its
+    `waiting: recreation in progress` warning appears (the §4.1.2 NB-first
+    surfacing, R8 F2), it does not run before `swap end`, and it then runs admitted
+    under the recreator's NEW generation (its `acquired slot-<i> (slots=N)` line
+    carries the recreator's target N).
+    Crash arm (pins the atomic swap, R8 F3): SIGKILL a recreator inside its
+    injected swap delay; assert `config` still holds a valid JSON slot count (old
+    or new generation, never absent), a subsequent wrapped command runs normally
+    with `config adopted`, never `config created` (an uninitialized-dir reseed —
+    the R8 F3 silent capacity loss — would emit `created`), and a rerun of
+    `--recreate` converges the dir.
     Domain arm (complete accept-set coverage, R7 F4): `--recreate` with missing
     `--slots`, `--recreate --slots 0`, `--recreate --slots 65`, and
     `--recreate --slots banana` each exit 2 with a stderr error and a byte-identical
@@ -528,7 +570,7 @@ The suite spawns ≤3 tiny node children per case — it is itself light and nee
   design; fenced by the AGENTS.md never-set rule (§4.5). `FX_HEAVY_SLOTS` divergence is
   detected and reconciled (§4.5 protocol).
 - Metadata may name an exited PID or be unreadable; the warning says so rather than
-  guessing (§4.1.5). Never silent.
+  guessing (§4.1.6). Never silent.
 - `/tmp` clears on reboot — by design (locks are runtime state; the kernel released
   them at death anyway).
 - Manual `rm -rf` of a live slot dir is out of contract (§4.5) — it hand-builds the
