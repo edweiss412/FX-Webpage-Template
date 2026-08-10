@@ -369,7 +369,11 @@ export function ReportModal(props: ReportModalProps) {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
-      // Detached mid-flight: leave every shared surface untouched.
+      // Detached mid-flight: leave every shared surface untouched. Checked
+      // after EVERY await, not just the first: the response can arrive with its
+      // body still streaming, so `response.json()` is a second suspension point
+      // and an unmount inside it would otherwise reach the terminal branches
+      // below (diff review R4 F1).
       if (!mountedRef.current) return;
       let parsed: { ok?: boolean; code?: string; status?: string; github_issue_url?: string } = {};
       try {
@@ -377,6 +381,7 @@ export function ReportModal(props: ReportModalProps) {
       } catch {
         parsed = {};
       }
+      if (!mountedRef.current) return;
 
       const isTerminalSuccess =
         response.status >= 200 && response.status < 300 && parsed.ok === true;

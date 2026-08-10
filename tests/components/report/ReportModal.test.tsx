@@ -1051,6 +1051,46 @@ describe("G. help surface (spec §2.2)", () => {
     expect(JSON.parse(persistedAfter!).draft).toBe("in flight");
   });
 
+  test.each([
+    ["succeeded", 201, { ok: true, status: "created" }],
+    ["expired", 410, { ok: false, code: "REPORT_HORIZON_EXPIRED" }],
+  ])(
+    "unmounting while the response BODY is still arriving does not clear the scope (%s)",
+    async (_label, status, payload) => {
+      // Diff review R4 F1: the response can arrive with its body still
+      // streaming, so response.json() is a SECOND suspension point. A guard
+      // checked only after fetch lets an unmount inside the body read reach the
+      // terminal branches, which is the same key-rotating corruption R3 fixed
+      // for the first await.
+      let resolveJson: (v: unknown) => void = () => {};
+      fetchMock.mockImplementationOnce(
+        async () =>
+          ({
+            status,
+            ok: status >= 200 && status < 300,
+            json: () => new Promise((resolve) => (resolveJson = resolve)),
+          }) as unknown as Response,
+      );
+      const { getByTestId, unmount } = render(
+        <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+      );
+      fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "body pending" } });
+      fireEvent.click(getByTestId("report-modal-submit"));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      unmount();
+      await act(async () => {
+        resolveJson(payload);
+        await Promise.resolve();
+      });
+
+      const persisted = sessionStorage.getItem(STORAGE_KEY);
+      expect(persisted, "a detached body read must not clear the live scope").not.toBeNull();
+      expect(JSON.parse(persisted!).idempotencyKey).toBe(uuids[0]);
+      expect(JSON.parse(persisted!).draft).toBe("body pending");
+    },
+  );
+
   test("a detached attempt does not clear the scope on the expired branch either", async () => {
     let resolveFetch: (r: Response) => void = () => {};
     fetchMock.mockImplementationOnce(

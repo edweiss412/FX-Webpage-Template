@@ -1,0 +1,1 @@
+{"stage":"diff","round":4,"branch":"feat/help-report-surface","baseSha":"bdcd336f3f9c","label":null,"status":"verdict","verdict":"NEEDS-ATTENTION","failureReason":null,"findingCount":1,"startedAt":"2026-08-10T07:56:12.615Z","endedAt":"2026-08-10T08:29:41.194Z","briefPath":"/tmp/hrs-review/diff-brief-r4.md","outDir":"/tmp/hrs-review/r4","guardVersion":1,"recoveredFrom":null}
