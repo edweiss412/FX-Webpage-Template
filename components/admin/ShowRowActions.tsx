@@ -127,30 +127,39 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const closeMenu = (restoreFocus: boolean) => {
     setOpen(false);
     setSubmenuOpen(false);
-    if (restoreFocus) triggerRef.current?.focus();
+    // preventScroll on EVERY focus move in this component: the menu is a
+    // portaled panel, and a focus() that scrolls drags the page out from under
+    // the admin at the exact moment they opened a menu. Measured on the real
+    // dashboard: without it, opening a menu on a scrolled row jumped the page
+    // to the top before the panel had been placed.
+    if (restoreFocus) triggerRef.current?.focus({ preventScroll: true });
   };
 
   const closeSubmenu = () => {
     setSubmenuOpen(false);
-    previewItemRef.current?.focus();
+    previewItemRef.current?.focus({ preventScroll: true });
   };
 
   // APG: opening a menu button moves focus to the first item.
   useEffect(() => {
     if (!open) return;
-    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    menuRef.current
+      ?.querySelector<HTMLElement>('[role="menuitem"]')
+      ?.focus({ preventScroll: true });
   }, [open]);
 
   useEffect(() => {
     if (!submenuOpen) return;
-    submenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    submenuRef.current
+      ?.querySelector<HTMLElement>('[role="menuitem"]')
+      ?.focus({ preventScroll: true });
   }, [submenuOpen]);
 
   // Accidental-accept safety (WCAG 2.4.3 + §3.8): when the hold prompt appears,
   // focus lands on the SAFE control, never on the destructive accept, so a
   // stray Enter keeps last-good rather than clobbering it.
   useEffect(() => {
-    if (heldShrink && !errorCode) keepCurrentRef.current?.focus();
+    if (heldShrink && !errorCode) keepCurrentRef.current?.focus({ preventScroll: true });
   }, [heldShrink, errorCode]);
 
   // A closed menu forgets its transient result state; the next open starts
@@ -170,7 +179,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // focus falls to <body>, and the next Enter can land on Confirm — the
   // stray-second-Enter vector on a destructive control.
   useEffect(() => {
-    if (confirmingArchive) archiveCancelRef.current?.focus();
+    if (confirmingArchive) archiveCancelRef.current?.focus({ preventScroll: true });
   }, [confirmingArchive]);
 
   // C5 (close focus): only a CANCEL restores, and it must run AFTER the item
@@ -178,7 +187,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   useEffect(() => {
     if (confirmingArchive || !restoreArchiveFocusRef.current) return;
     restoreArchiveFocusRef.current = false;
-    archiveItemRef.current?.focus();
+    archiveItemRef.current?.focus({ preventScroll: true });
   }, [confirmingArchive]);
 
   const runSync = async (accept?: { expectedModifiedTime: string }) => {
@@ -246,7 +255,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     } else if (e.key === "Tab") {
       // APG menu-button: Tab closes. Focusing the trigger BEFORE the default
       // Tab action lets focus continue in document order from the trigger.
-      triggerRef.current?.focus();
+      triggerRef.current?.focus({ preventScroll: true });
       closeMenu(false);
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
@@ -285,7 +294,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       e.stopPropagation();
       closeSubmenu();
     } else if (e.key === "Tab") {
-      triggerRef.current?.focus();
+      triggerRef.current?.focus({ preventScroll: true });
       closeMenu(false);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -359,6 +368,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         testId={`row-actions-portal-${slug}`}
         align="right"
         preferredSide="bottom"
+        // Page scroll dismisses (spec §3.1): a menu that chases its trigger down
+        // the page can end up somewhere the admin never pointed. Focus returns
+        // to the trigger so it is never stranded on a removed node — with
+        // preventScroll, so the dismissal does not fight the scroll that caused it.
+        onDismiss={() => closeMenu(true)}
       >
         <div
           ref={menuRef}
@@ -571,7 +585,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                   onClick={() => {
                     // Focus the still-mounted item BEFORE unmounting the panel
                     // that holds the focused safe control (the C5 idiom).
-                    resyncItemRef.current?.focus();
+                    resyncItemRef.current?.focus({ preventScroll: true });
                     setHeldShrink(null);
                   }}
                   className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3.5 text-[13px] font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
@@ -605,6 +619,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         testId={`row-action-preview-portal-${slug}`}
         align="right"
         preferredSide="bottom"
+        onDismiss={() => closeMenu(true)}
       >
         <div
           ref={submenuRef}

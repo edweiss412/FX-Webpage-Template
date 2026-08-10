@@ -51,6 +51,15 @@ export type AnchoredPortalProps = {
   preferredSide?: "top" | "bottom";
   /** Panel classes. Positioning + z-index are owned here, not by the caller. */
   className?: string;
+  /**
+   * Called when the PAGE scrolls under an open surface (spec §3.1). A menu that
+   * merely re-places on window scroll follows its trigger around the screen and
+   * can end up somewhere the admin never pointed; dismissing is the honest
+   * answer. Scrolling ANCESTORS still re-place — only the document's own scroll
+   * dismisses, because that is the one the user drives with the page itself.
+   * Omitted → the surface never dismisses on scroll.
+   */
+  onDismiss?: () => void;
 };
 
 type Applied = {
@@ -78,10 +87,15 @@ export function AnchoredPortal({
   align = "right",
   preferredSide = "bottom",
   className = "",
+  onDismiss,
 }: AnchoredPortalProps): ReactNode {
   const [mounted, setMounted] = useState(false);
   const [applied, setApplied] = useState<Applied | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  // Held in a ref so a caller passing an inline arrow does not re-subscribe
+  // every listener on every render.
+  const onDismissRef = useRef<(() => void) | undefined>(onDismiss);
+  onDismissRef.current = onDismiss;
 
   // Portals need a DOM; the first client render is the earliest safe moment.
   useEffect(() => setMounted(true), []);
@@ -154,9 +168,21 @@ export function AnchoredPortal({
       coalescer.schedule();
     };
     // Capture-phase scroll catches scrolling ANCESTORS (a scroll event on an
-    // element does not bubble). Window-scroll DISMISSAL is a separate contract
-    // and lands with the geometry e2e.
-    window.addEventListener("scroll", schedule, { capture: true, passive: true });
+    // element does not bubble). The DOCUMENT's own scroll is the one case that
+    // DISMISSES rather than re-places — the event target discriminates the two,
+    // so one listener serves both and they cannot disagree about what happened.
+    const onScrollCapture = (e: Event) => {
+      if (!open) return;
+      const t = e.target;
+      const isDocumentScroll =
+        t === document || t === document.documentElement || t === document.body;
+      if (isDocumentScroll && onDismissRef.current) {
+        onDismissRef.current();
+        return;
+      }
+      coalescer.schedule();
+    };
+    window.addEventListener("scroll", onScrollCapture, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
     // Pinch-zoom pan fires no window scroll, so the visual viewport is its own
     // source. Gated on the ENGINE, never on current dimensions.
@@ -169,7 +195,7 @@ export function AnchoredPortal({
     if (anchor) ro.observe(anchor);
     if (panel) ro.observe(panel);
     return () => {
-      window.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("scroll", onScrollCapture, { capture: true });
       window.removeEventListener("resize", schedule);
       vv?.removeEventListener("scroll", schedule);
       vv?.removeEventListener("resize", schedule);
