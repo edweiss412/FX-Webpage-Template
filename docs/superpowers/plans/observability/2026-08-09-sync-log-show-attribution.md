@@ -14,7 +14,7 @@ The invariant-8 dual gate runs at close-out on the affected diff, and its marker
 
 Per the authored-AND-RUN rule, every sweep below was executed at plan time and its output pasted.
 
-**Sweep A — every `sync_log` writer.** Command and full output in the shipping session's findings log SF-4. Seven write sites; four are session-lifecycle (`lib/onboarding/sessionLifecycle.ts:306`) and write neither `show_id` nor `drive_file_id`. Disposition: the cron sink (`lib/sync/syncLog.ts:43`), the recovery sink (`lib/sync/runScheduledCronSync.ts:1217`), and the onboarding-scan sink (`lib/sync/runOnboardingScan.ts:662`) are all IN scope — all three supply a `drive_file_id`, so spec §3.2's derived rule requires all three to attribute. Only the four session-lifecycle sites are OUT, because they write neither `show_id` nor `drive_file_id`. (An earlier draft fenced the onboarding sink as pre-promotion; spec R1 finding 2 refuted that — `runOnboardingScan.ts:536-540` supports re-onboarding a file that already has a `shows` row.)
+**Sweep A — every `sync_log` writer.** Command and full output in the shipping session's findings log SF-4. Seven write sites; four are session-lifecycle (`lib/onboarding/sessionLifecycle.ts:306`) and write neither `show_id` nor `drive_file_id`. Disposition: the cron sink (`lib/sync/syncLog.ts:43`), the recovery sink (`lib/sync/runScheduledCronSync.ts:1217`), and the onboarding-scan sink (`lib/sync/runOnboardingScan.ts:662`) are all IN scope — all three supply a `drive_file_id`, so spec §3.2's derived rule requires all three to attribute. Only the four session-lifecycle sites are OUT, because they write neither `show_id` nor `drive_file_id`. (An earlier draft fenced the onboarding sink as pre-promotion; spec R1 finding 2 refuted that — `lib/sync/runOnboardingScan.ts:536-540` supports re-onboarding a file that already has a `shows` row.)
 
 **Sweep B — cron registry.** `tests/cross-cutting/pg-cron-coverage.test.ts:456-461` asserts exact array equality on live non-`fxav_` job names excluding `cleanup-bootstrap-nonces`, against `EXPECTED_NON_FXAV_NON_ORPHAN_CRONS` (`tests/cross-cutting/pg-cron-coverage.test.ts:107` = `["app_events_prune"]`). Registry diff this plan makes: `["app_events_prune"]` → `["app_events_prune", "sync_log_prune"]`. One row added, none removed.
 
@@ -58,7 +58,7 @@ Two consequences: the first-seen NULL limit (spec §6) applies **only** to the s
 
 ## Downstream readers of `sync_log` (verified unaffected)
 
-`lib/notify/monitorDigest.ts:247-250` and `lib/notify/monitorDigest.ts:261-263` join `sync_log` to `shows` **on `drive_file_id`**, never on `show_id` — so populating `show_id` is purely additive and changes no behavior. The new `sync_log_drive_file_id_idx` positively helps both queries, which today drive that join off a sequential scan. **Out of scope:** rewriting those joins to use `show_id`. Fixtures at `tests/notify/monitorDigest.drift.db.test.ts:64`, `monitorDigest.autofix.db.test.ts:73`, `monitorNewShowGaps.db.test.ts:65` insert without `show_id` and continue to pass — confirm during implementation rather than assume.
+`lib/notify/monitorDigest.ts:247-250` and `lib/notify/monitorDigest.ts:261-263` join `sync_log` to `shows` **on `drive_file_id`**, never on `show_id` — so populating `show_id` is purely additive and changes no behavior. The new `sync_log_drive_file_id_idx` positively helps both queries, which today drive that join off a sequential scan. **Out of scope:** rewriting those joins to use `show_id`. Fixtures at `tests/notify/monitorDigest.drift.db.test.ts:64`, `tests/notify/monitorDigest.autofix.db.test.ts:73`, `tests/notify/monitorNewShowGaps.db.test.ts:65` insert without `show_id` and continue to pass — confirm during implementation rather than assume.
 
 ## Advisory-lock topology (mandatory declaration)
 
@@ -178,7 +178,7 @@ Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → 
 
 **RED validity.** `tests/sync/runOfShowSyncLogChannel.test.ts:199-250` structurally pins `insertSyncLog`'s insert. Production line: `lib/sync/runScheduledCronSync.ts:1216-1219`.
 
-`insertSyncLog(entry, showId?)` currently takes an explicit id (`runScheduledCronSync.ts:490`). **Retire that parameter** and resolve by the same subselect, so the recovery sink cannot reintroduce the uncommitted-reference hazard from a future caller. Update the four call sites (`runScheduledCronSync.ts:2581`, `runScheduledCronSync.ts:2636`; `runManualSyncForShow.ts:175`, `runScheduledCronSync.ts:224`).
+`insertSyncLog(entry, showId?)` currently takes an explicit id (`lib/sync/runScheduledCronSync.ts:490`). **Retire that parameter** and resolve by the same subselect, so the recovery sink cannot reintroduce the uncommitted-reference hazard from a future caller. Update the four call sites (`lib/sync/runScheduledCronSync.ts:2581`, `lib/sync/runScheduledCronSync.ts:2636`; `lib/sync/runManualSyncForShow.ts:175`, `lib/sync/runManualSyncForShow.ts:224`).
 
 ## Task 3b — Onboarding-scan sink + its seven callers (with their regression pin)
 
