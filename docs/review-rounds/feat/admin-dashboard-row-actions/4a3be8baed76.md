@@ -4,7 +4,7 @@ Second base for this arc. The spec and plan stages, and the first whole-diff rou
 `7e04cd6f04e9` and are filed there; merging `origin/main` moved the merge-base, so the corpus keys
 the later diff rounds here. Round numbers restart with the base, as the corpus is keyed by it.
 
-## diff — 3 rounds
+## diff — 4 rounds
 
 **Examined:** (R1 ran against the previous base and its row lives in `7e04cd6f04e9.jsonl`; it is
 summarized here because the vector below runs through it.) R1: six (empty alert for codes with no catalog copy; a pending request dismissable out
@@ -15,8 +15,10 @@ and a backdrop trapped in the row's `z-10` seat below the mobile tab bar; one `p
 shared by two actions, so Archive made Re-sync announce "Syncing…"; a flip pin implied by
 containment). R3: one (`router.refresh()` preserves React state and the row keeps its `row.id` key,
 so a background refresh does NOT remount the row — the §3.5 compound row assumed it did, leaving the
-Archive confirm and held decision actionable on a row that had become ineligible). R4: six (a
-position-only reorder leaving the portal on the wrong row; an outcome landing after eligibility loss
+Archive confirm and held decision actionable on a row that had become ineligible). R5: two (invariant 12 violated — the ledger entry was archived at what turned
+out to be eight commits before the end, leaving live work unclaimed; and the ARIA content-model
+guard running only a crew-populated fixture, so it never saw the empty-roster hint as a direct child
+of `role="menu"`). R4: six (a position-only reorder leaving the portal on the wrong row; an outcome landing after eligibility loss
 being swallowed by the R3 gate; that same transition stranding focus; a §12 row claiming a separator
 repair the ARIA restructure had removed; a "close after `router.refresh()` resolves" contract the
 framework cannot offer, `refresh(): void`; and two documents left contradicting themselves by R3).
@@ -38,11 +40,14 @@ earlier assertions, written at R3, that had the rule backwards. A new region can
 answering the question.
 
 **Infra:** three dispatches produced `no_verdict` (two of them the rows numbered 1 and 2 in this
-file, which is why the counted rounds here are three while the narrative names four) without reviewer fault. Two died to SIGTERM at 0s:
+file, which is why the counted rounds here trail the narrative's numbering) without reviewer fault. Two died to SIGTERM at 0s:
 `nohup` + `disown` does NOT survive the Bash tool call's shell exiting, and the fix was the
 harness-tracked background runner, which does. The third was killed by a machine crash mid-run,
 which also wiped the scratchpad holding the brief. Per the guard's own contract these are
 infrastructure faults and were re-dispatched, not read as clean rounds.
+
+**Disposition (post-R5):** ship. R5's two findings are repaired — the ledger claim is live again and
+graduates in the genuinely final commit, and the content-model guard now runs both crew states.
 
 **Disposition (post-R4):** ship. Every finding across the four rounds is repaired, the recurring
 vector is closed by an executable rule rather than a fifth instance fix, and the remaining evidence
