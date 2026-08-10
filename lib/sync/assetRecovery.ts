@@ -28,6 +28,7 @@ import {
 import { emitDiagramVariantFailures } from "@/lib/log/emitDiagramVariantFailures";
 import { generateDiagramVariants } from "@/lib/sync/diagramVariants";
 import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
+import { log } from "@/lib/log";
 
 export { CONCURRENT_SYNC_SKIPPED };
 
