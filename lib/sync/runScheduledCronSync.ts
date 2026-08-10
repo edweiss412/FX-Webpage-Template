@@ -494,11 +494,12 @@ type CronRecoveryTx = SyncPipelineTx & {
     driveFileId: string,
     code: string,
   ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
-  /** Parse-family status writer (BL-CRON-WORKBOOK-FAULT-CODE arm). */
+  /** Parse-family status writer (BL-CRON-WORKBOOK-FAULT-CODE arm). `| void` mirrors
+   * the phase1 declaration so pre-existing void-returning tx mocks stay assignable. */
   updateShowParseError(
     driveFileId: string,
     error: { code: string; message: string },
-  ): Promise<string | null>;
+  ): Promise<string | null | void>;
   insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
@@ -2669,10 +2670,12 @@ async function handleFetchFailure_unlocked(
   // the pending_ingestions (live-partition:n/a — doc reference, no statement) row
   // keeps SYNC_FILE_FAILED.
   if (show && code === "PARSE_ERROR_LAST_GOOD") {
-    const showId = await recoveryTx.updateShowParseError(driveFileId, {
+    // `?? null` + cast: the tx contract tolerates void-returning mocks (phase1
+    // precedent); production returns the touched row id or null.
+    const showId = ((await recoveryTx.updateShowParseError(driveFileId, {
       code,
       message: errorMessage(error),
-    });
+    })) ?? null) as string | null;
     await recoveryTx.insertSyncLog(
       {
         driveFileId,
@@ -2691,7 +2694,9 @@ async function handleFetchFailure_unlocked(
       code: "PARSE_ERROR_LAST_GOOD",
       context: buildParseErrorContext({
         driveFileId,
-        sheetName: show.title ?? null,
+        // Phase1ShowRow carries no bare title; the prior parse's show title is the
+        // §12.4 <sheet-name> the alert interpolates (hard_fail-branch precedent).
+        sheetName: show.priorParseResult?.show?.title ?? null,
         failureCode: code,
       }),
     });
@@ -2769,17 +2774,31 @@ async function handleFetchFailure_unlocked(
     return { ...result, showId };
   }
 
-  const firstSeenCode = code === "PARSE_ERROR_LAST_GOOD" ? SYNC_FILE_FAILED : code;
+  if (code === "PARSE_ERROR_LAST_GOOD") {
+    // FIRST-SEEN carve: no show row means no last-good, so PARSE_ERROR_LAST_GOOD's
+    // "previous version is still live" copy would be a wrong instruction on the
+    // pending_ingestions panel — the ingestion row keeps today's generic code.
+    await tx.upsertLivePendingIngestion({
+      driveFileId,
+      wizardSessionId: null,
+      driveFileName: fileMeta.name,
+      lastErrorCode: SYNC_FILE_FAILED,
+      lastErrorMessage: errorMessage(error),
+      lastWarnings: [],
+      lastSeenModifiedTime: binding.modifiedTime,
+    });
+    return { outcome: "parse_error", code: SYNC_FILE_FAILED };
+  }
   await tx.upsertLivePendingIngestion({
     driveFileId,
     wizardSessionId: null,
     driveFileName: fileMeta.name,
-    lastErrorCode: firstSeenCode,
+    lastErrorCode: code,
     lastErrorMessage: errorMessage(error),
     lastWarnings: [],
     lastSeenModifiedTime: binding.modifiedTime,
   });
-  return firstSeenCode === code ? result : { outcome: "parse_error", code: firstSeenCode };
+  return result;
 }
 
 export async function processOneFile(

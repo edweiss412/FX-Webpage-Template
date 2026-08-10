@@ -104,7 +104,7 @@ describe("buildPublishedSectionData — header + mode fields", () => {
           last_seen_modified_time: "2026-05-08T12:00:00.000Z",
         },
       } as never),
-      SLUG,
+      { slug: SLUG },
     );
     expect(d.sourceAnchors).toEqual({});
   });
@@ -114,7 +114,7 @@ describe("buildPublishedSectionData — header + mode fields", () => {
       baseSnapshot({
         show: { source_anchors_modified_time: null },
       } as never),
-      SLUG,
+      { slug: SLUG },
     );
     expect(d.sourceAnchors).toEqual({});
   });

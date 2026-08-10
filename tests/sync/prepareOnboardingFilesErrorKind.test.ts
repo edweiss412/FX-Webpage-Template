@@ -234,7 +234,6 @@ describe("prepareOnboardingFiles fault classification (spec §4.2)", () => {
         fetchMarkdownWithBinding: async () => ({
           binding: { bindingToken: "rev-1", modifiedTime: SHEET.modifiedTime },
           markdown: "| SHOW | Fixture |",
-          bytes: undefined,
           // One NOT-included archived tab → emitArchivedTabWarnings produces a
           // warning → the push into the frozen array throws inside finalize.
           archivedPullSheetTabs: [
@@ -273,7 +272,6 @@ describe("prepareOnboardingFiles fault classification (spec §4.2)", () => {
         fetchMarkdownWithBinding: async () => ({
           binding: { bindingToken: "rev-1", modifiedTime: SHEET.modifiedTime },
           markdown: "| SHOW | Fixture |",
-          bytes: undefined,
           archivedPullSheetTabs: poisonedTabs,
         }),
       }),
@@ -354,7 +352,6 @@ describe("prepareOnboardingFiles fault classification (spec §4.2)", () => {
         fetchMarkdownWithBinding: async () => ({
           binding: { bindingToken: "rev-1", modifiedTime: SHEET.modifiedTime },
           markdown: "| SHOW | Fixture |",
-          bytes: undefined,
           archivedPullSheetTabs: poisonedTabs,
         }),
       }),
