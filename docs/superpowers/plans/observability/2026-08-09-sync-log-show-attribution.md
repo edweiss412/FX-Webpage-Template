@@ -145,18 +145,18 @@ values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::
 
 **RED validity.** The exact-object `toHaveBeenCalledWith` assertions at `tests/sync/runScheduledCronSync.test.ts:2643-2680` fail the moment the entry gains a field. The production line is the entry construction inside `logSync` (`lib/sync/runScheduledCronSync.ts:2241-2249`).
 
-Add `showId?: string | null` and `durationMs?: number` to `SyncLogEntry` (`lib/sync/runScheduledCronSync.ts:446-456`); add `attemptStartedAtMs?: number` to `SyncLogDeps` (`lib/sync/runScheduledCronSync.ts:2218-2220`).
+Add `showId?: string | null` and `durationMs?: number` to `SyncLogEntry` (`tests/sync/runScheduledCronSync.test.ts:446-456`); add `attemptStartedAtMs?: number` to `SyncLogDeps` (`tests/sync/runScheduledCronSync.test.ts:2218-2220`).
 
-**Exact injection point.** `processOneFile(driveFileId, mode, fileMeta, deps: ProcessOneFileDeps = {})` (`lib/sync/runScheduledCronSync.ts:2707-2712`). Capture at the top, before `prepareProcessOneFile`, then bind once:
+**Exact injection point.** `processOneFile(driveFileId, mode, fileMeta, deps: ProcessOneFileDeps = {})` (`tests/sync/runScheduledCronSync.test.ts:2707-2712`). Capture at the top, before `prepareProcessOneFile`, then bind once:
 
 ```ts
 const attemptStartedAtMs = (deps.now?.() ?? new Date()).getTime();
 const depsWithStart: ProcessOneFileDeps = { ...deps, attemptStartedAtMs };
 ```
 
-**Both call sites must use `depsWithStart`, not `deps`** — this is the easy miss. The archived/skip branch calls `logSync(deps, ...)` with the RAW deps at `lib/sync/runScheduledCronSync.ts:2742`, while the main branch routes through `txBoundProcessDeps(lockedTx, deps, txDeps)` at `lib/sync/runScheduledCronSync.ts:2755`. Substituting only the second leaves every skip-path row with a NULL duration while the tests (which mostly exercise the main path) stay green. Propagation past `lib/sync/runScheduledCronSync.ts:2755` is then free, since `txBoundProcessDeps` returns a `ProcessOneFileDeps` (`lib/sync/runScheduledCronSync.ts:2301-2306`).
+**Both call sites must use `depsWithStart`, not `deps`** — this is the easy miss. The archived/skip branch calls `logSync(deps, ...)` with the RAW deps at `tests/sync/runScheduledCronSync.test.ts:2742`, while the main branch routes through `txBoundProcessDeps(lockedTx, deps, txDeps)` at `tests/sync/runScheduledCronSync.test.ts:2755`. Substituting only the second leaves every skip-path row with a NULL duration while the tests (which mostly exercise the main path) stay green. Propagation past `tests/sync/runScheduledCronSync.test.ts:2755` is then free, since `txBoundProcessDeps` returns a `ProcessOneFileDeps` (`tests/sync/runScheduledCronSync.test.ts:2301-2306`).
 
-**Do not** confuse this with the outer `SyncPipelineTxBoundDeps` param (`lib/sync/runScheduledCronSync.ts:457-459`) — it carries no `logSync`, and since `logSync?` is optional, a change routed there typechecks and silently no-ops.
+**Do not** confuse this with the outer `SyncPipelineTxBoundDeps` param (`tests/sync/runScheduledCronSync.test.ts:457-459`) — it carries no `logSync`, and since `logSync?` is optional, a change routed there typechecks and silently no-ops.
 
 Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → clamp at 0.
 
@@ -218,15 +218,15 @@ await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURIN
 await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN, driveFileId: file.driveFileId }));
 ```
 
-Sites: `lib/sync/runScheduledCronSync.ts:740`, `lib/sync/runScheduledCronSync.ts:826`, `lib/sync/runScheduledCronSync.ts:842`, `lib/sync/runScheduledCronSync.ts:863`, `lib/sync/runScheduledCronSync.ts:896`, `lib/sync/runScheduledCronSync.ts:922`, `lib/sync/runScheduledCronSync.ts:1019`. **Scope verified per site** — six are inside `scanPreparedFileWithTx` (`lib/sync/runScheduledCronSync.ts:719`), one inside `recordLiveRowConflict` (`lib/sync/runScheduledCronSync.ts:1001`), and all seven have `file.driveFileId` in lexical scope. **Assert exactly 7 replacements**; 6 or 8 means the file moved and the site list must be re-derived, not patched.
+Sites: `lib/sync/runOnboardingScan.ts:740`, `lib/sync/runOnboardingScan.ts:826`, `lib/sync/runOnboardingScan.ts:842`, `lib/sync/runOnboardingScan.ts:863`, `lib/sync/runOnboardingScan.ts:896`, `lib/sync/runOnboardingScan.ts:922`, `lib/sync/runOnboardingScan.ts:1019`. **Scope verified per site** — six are inside `scanPreparedFileWithTx` (`lib/sync/runOnboardingScan.ts:719`), one inside `recordLiveRowConflict` (`lib/sync/runOnboardingScan.ts:1001`), and all seven have `file.driveFileId` in lexical scope. **Assert exactly 7 replacements**; 6 or 8 means the file moved and the site list must be re-derived, not patched.
 
-**Do NOT touch `lib/sync/runScheduledCronSync.ts:1134`** — the run-level readiness emit is genuinely unattributable and is a seed row in `RUN_LEVEL_SYNC_LOG_SITES` (Task 8b).
+**Do NOT touch `lib/sync/runOnboardingScan.ts:1134`** — the run-level readiness emit is genuinely unattributable and is a seed row in `RUN_LEVEL_SYNC_LOG_SITES` (Task 8b).
 
 ## Task 3c — Manual entry points install a sync_log sink
 
 <!-- task: red=`pnpm vitest run tests/sync/manualSyncInstallsSink.test.ts` ac=AC-1 -->
 
-**Scope fence, ratified 2026-08-09 (spec §6.2).** This task wires sinks. It does **not** make manual sync observable, and must not claim to. Spec R8 F1 measured `logSyncCalls: 0` on four `runManualStageForFirstSeen` branches even with a sink installed, because those branches return before the sole emission at `lib/sync/runScheduledCronSync.ts:147`; and `runManualSyncForShow` awaits `runOne` with no catch, so a throw escapes unlogged. That gap is filed as `BL-MANUAL-SYNC-UNEMITTED`.
+**Scope fence, ratified 2026-08-09 (spec §6.2).** This task wires sinks. It does **not** make manual sync observable, and must not claim to. Spec R8 F1 measured `logSyncCalls: 0` on four `runManualStageForFirstSeen` branches even with a sink installed, because those branches return before the sole emission at `lib/sync/runOnboardingScan.ts:147`; and `runManualSyncForShow` awaits `runOne` with no catch, so a throw escapes unlogged. That gap is filed as `BL-MANUAL-SYNC-UNEMITTED`.
 
 So the RED for this task asserts **the sink is installed and reaches the pipeline**, not that a row appears for every manual outcome. A test asserting rows-per-outcome would fail for reasons this task does not own, and "fixing" it would silently pull the filed work back in.
 
@@ -299,14 +299,14 @@ Only a completely unconfigured local dev environment may skip clean.
 
 <!-- task: red=`pnpm vitest run tests/db/syncLogIndexesAndPrune.test.ts` ac=AC-7,AC-8 -->
 
-**New DB assertions are required — none exist today.** `rg "sync_log_show_id_idx|sync_log_drive_file_id_idx|prune_sync_log|sync_log_prune" tests` returns nothing, and `tests/db/schema.test.ts:293-303` inspects CHECK syntax, not indexes. Per spec §5, assert: both public indexes in `pg_indexes` with column order and DESC; both dev indexes when `to_regclass('dev.sync_log')` is non-null, plus a migration-text assertion that the `to_regclass` guard is present so an ungated form cannot ship; `prune_sync_log` in `pg_proc` with `prosecdef` and `search_path`; `has_function_privilege` positive for `service_role` and negative for `anon`/`authenticated`; prune behavior across the cutoff — marker-scoped survival assertions, with the returned count asserted only as `>= fixtureOldCount` (it is GLOBAL; equality is unsatisfiable on a database holding pre-existing old rows), plus an unmarked recent row that must survive; and the `cron.job` row's command and schedule.
+**New DB assertions are required — none exist today.** `rg "sync_log_show_id_idx|sync_log_drive_file_id_idx|prune_sync_log|sync_log_prune" tests` returns nothing, and `tests/db/schema.test.ts:293-303` inspects CHECK syntax, not indexes. Per spec §5, assert: both public indexes in `pg_indexes` with column order and DESC; both dev indexes when `to_regclass('dev.sync_log')` is non-null, plus a migration-text assertion that the `to_regclass` guard is present so an ungated form cannot ship; `prune_sync_log` in `pg_proc` with `prosecdef` and `search_path`; `has_function_privilege` positive for `service_role` and negative for `anon`/`authenticated`; prune behavior across the cutoff asserting BOTH the returned count and that newer rows survive; and the `cron.job` row's command and schedule.
 
-the new migration file `20260809000000_sync_log_show_attribution` under `supabase/migrations/`:
+the new migration under `supabase/migrations/`:
 
 - `create index if not exists sync_log_show_id_idx on public.sync_log (show_id, occurred_at desc);` plus the `drive_file_id` companion. Naming mirrors `sync_audit_show_id_idx` (`supabase/migrations/20260501001000_internal_and_admin.sql:218`).
 - **dev block MUST be existence-guarded** (SF-1). A bare `create index ... on dev.sync_log` raises on any target lacking the clone, and the validation project is exactly that. There is no `if exists` form of `create index` that guards the table, so use `do $$ ... if to_regclass('dev.sync_log') is not null then ... end if; $$`.
 - `prune_sync_log(retain interval default interval '60 days')` mirroring `prune_app_events` (`supabase/migrations/20260629000002_app_events.sql:32-45`) exactly: `returns integer`, `language sql`, `security definer`, `set search_path = public, pg_temp`, revoke from `public, anon, authenticated`, grant execute to `service_role`.
-- Self-guarded `do $$` unschedule-then-schedule for job `sync_log_prune`, mirroring `lib/sync/runScheduledCronSync.ts:53-64`, on an off-peak minute distinct from `17 4 * * *`.
+- Self-guarded `do $$` unschedule-then-schedule for job `sync_log_prune`, mirroring `supabase/migrations/20260629000002_app_events.sql:53-64`, on an off-peak minute distinct from `17 4 * * *`.
 
 ## Task 5b — Extend the destructive-target guard to cover prune
 
@@ -314,9 +314,9 @@ the new migration file `20260809000000_sync_log_show_attribution` under `supabas
 
 **Why this is a deliverable, not an assumption.** Spec R3 F6: the spec had claimed the existing meta-guards already covered the prune hazard. They do not. `EXECUTES_WIPE` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:35`) matches only `reset_validation_data`, and `tests/db/_metaLocalDbUrlGuard.test.ts:122` scans only `LOCAL_TEST_DATABASE_URL` — never the `TEST_DATABASE_URL` that points at validation and that `lib/sync/syncLog.ts:8-14` prefers. A prune test wired through it passes both guards and deletes shared validation history.
 
-**RED validity.** Before this task, the new prune test (Task 5) executes `select public.prune_sync_log(...)` and is NOT discovered by the guard, so the guard's `test.each` never asserts a loopback call for it. The production line making the RED fail is the discovery filter at `lib/sync/runScheduledCronSync.ts:60-62`, which enumerates two patterns and not this one.
+**RED validity.** Before this task, the new prune test (Task 5) executes `select public.prune_sync_log(...)` and is NOT discovered by the guard, so the guard's `test.each` never asserts a loopback call for it. The production line making the RED fail is the discovery filter at `tests/db/_metaDestructiveDbTargetGuard.test.ts:60-62`, which enumerates two patterns and not this one.
 
-**Edit A** — third discovery pattern beside `EXECUTES_WIPE` (`lib/sync/runScheduledCronSync.ts:35`) and `ENABLES_WIPE_GATE` (`lib/sync/runScheduledCronSync.ts:39-41`), and widen the filter at `lib/sync/runScheduledCronSync.ts:60-62`:
+**Edit A** — third discovery pattern beside `EXECUTES_WIPE` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:35`) and `ENABLES_WIPE_GATE` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:39-41`), and widen the filter at `tests/db/_metaDestructiveDbTargetGuard.test.ts:60-62`:
 
 ```ts
 /** Executes a retention prune. Deletes by time window against whatever DB it is
@@ -326,13 +326,13 @@ const EXECUTES_PRUNE = /\bselect\s+public\.prune_(?:sync_log|app_events)\s*\(/i;
 
 `prune_app_events` is folded in deliberately: identical hazard, no current coverage, one alternation to fix. That is the class-sweep default (repair every instance of the shape in the same PR) rather than filing a peer for something free to fix here.
 
-**Edit C — close the three name-match holes (spec R4 F3).** Extending discovery is necessary but not sufficient: `CALLS_LOCAL_GUARD` (`lib/sync/runScheduledCronSync.ts:42-43`) matches a *call whose name looks right*. It does not establish (a) that the guarded value is the URL actually passed to `postgres`, (b) that the call precedes the connection, or (c) that the callee is the imported guard rather than a local same-named function. A prune test can call `assertLocalDbUrl` on an unrelated loopback literal, or after pruning, and pass.
+**Edit C — close the three name-match holes (spec R4 F3).** Extending discovery is necessary but not sufficient: `CALLS_LOCAL_GUARD` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:42-43`) matches a *call whose name looks right*. It does not establish (a) that the guarded value is the URL actually passed to `postgres`, (b) that the call precedes the connection, or (c) that the callee is the imported guard rather than a local same-named function. A prune test can call `assertLocalDbUrl` on an unrelated loopback literal, or after pruning, and pass.
 
 Close (c) the way `_metaLocalDbUrlGuard` already does — resolve the callee to the guard module's export (that file's own whole-diff finding 1b). Close (a) and (b) by asserting, in the discovered file's AST, that the identifier passed to `postgres(...)` is the same binding returned by the guard call. If (a)/(b) prove disproportionate, they are a DOCUMENTED LIMIT recorded in the guard's header with a `BL-` filing — not silence, and not a claim of coverage the guard does not have. That distinction is the whole lesson of R3 F6.
 
-**Edit B** — extend the anti-vacuity list at `lib/sync/runScheduledCronSync.ts:66-72` with the new prune test file, so the pattern is proven to match something. Without it the extension can rot into a silent no-op, which is precisely what that test's own comment warns about: *"If this fails, the regexes drifted and every assertion below is vacuous."*
+**Edit B** — extend the anti-vacuity list at `tests/db/_metaDestructiveDbTargetGuard.test.ts:66-72` with the new prune test file, so the pattern is proven to match something. Without it the extension can rot into a silent no-op, which is precisely what that test's own comment warns about: *"If this fails, the regexes drifted and every assertion below is vacuous."*
 
-The existing inline exemption (`lib/sync/runScheduledCronSync.ts:46`, `// not-subject-to-destructive-target-guard:`) remains the escape hatch for a genuinely local-only helper.
+The existing inline exemption (`tests/db/_metaDestructiveDbTargetGuard.test.ts:46`, `// not-subject-to-destructive-target-guard:`) remains the escape hatch for a genuinely local-only helper.
 
 ## Task 6 — Cron registry row
 
