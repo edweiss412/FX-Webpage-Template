@@ -38,6 +38,8 @@ import {
 
 import type { GalleryItem } from "@/components/diagrams/Gallery";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
+import Image from "next/image";
+import { makeDiagramLoader } from "@/lib/images/diagramLoader";
 
 type LightboxProps = {
   showId: string;
@@ -47,8 +49,23 @@ type LightboxProps = {
   onClose: () => void;
 };
 
-function assetUrl(showId: string, rev: string, key: string): string {
-  return `/api/asset/diagram/${showId}/${rev}/${key}`;
+/**
+ * The §4 dims guard. Both axes must be finite and positive, or the image falls
+ * back to the `fill` + object-contain branch — a partial or nonsense aspect
+ * ratio would reserve the wrong box and jump on load.
+ */
+function validDims(item: GalleryItem): { width: number; height: number } | null {
+  const { intrinsicWidth: width, intrinsicHeight: height } = item;
+  if (typeof width !== "number" || !Number.isFinite(width) || width <= 0) return null;
+  if (typeof height !== "number" || !Number.isFinite(height) || height <= 0) return null;
+  return { width, height };
+}
+
+/** next/image blur props, only when the manifest actually carried a blur. */
+function blurProps(item: GalleryItem): { placeholder: "blur"; blurDataURL: string } | object {
+  return typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
+    ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
+    : {};
 }
 
 // Embla's `duration` parameter is in its own scrub units. 22 ≈ 220ms
@@ -630,13 +647,24 @@ export function GalleryLightbox({
                           wrapperClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
                           contentClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={assetUrl(showId, snapshotRevisionId, item.key)}
+                          <Image
+                            loader={makeDiagramLoader({
+                              showId,
+                              rev: snapshotRevisionId,
+                              key: item.key,
+                              variants: item.variants,
+                              // The zoomable slide needs full resolution, so it
+                              // pins the original and ignores every candidate width.
+                              pinOriginal: true,
+                            })}
+                            src={item.key}
                             alt={item.alt || `Diagram ${i + 1}`}
-                            loading="eager"
-                            decoding="async"
+                            priority
                             draggable={false}
+                            {...blurProps(item)}
+                            {...(validDims(item)
+                              ? validDims(item)!
+                              : { fill: true as const, sizes: "100vw" })}
                             onError={() => {
                               // Codex R2 HIGH: when the active image
                               // errors mid-zoom, the slide flips to
@@ -699,22 +727,37 @@ export function GalleryLightbox({
                       // both disqualifying for authenticated private
                       // assets. Per C6b round-1 P0 finding, the raw
                       // <img> tag is correct here.
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={assetUrl(showId, snapshotRevisionId, item.key)}
-                        alt={item.alt || `Diagram ${i + 1}`}
-                        loading="lazy"
-                        decoding="async"
-                        onError={() =>
-                          setFailedKeys((prev) => {
-                            if (prev.has(item.id)) return prev;
-                            const next = new Set(prev);
-                            next.add(item.id);
-                            return next;
-                          })
-                        }
-                        className="max-h-full max-w-full object-contain"
-                      />
+                      // Inactive slides: no zoom state, clamped variant tier.
+                      // The `fill` fallback needs a positioned ancestor, and it
+                      // must NOT be the figure: `inset-0` resolves against the
+                      // padding box, and the figure carries px-4 — so an image
+                      // filling it would sit 32px wider than the active tier
+                      // does inside the zoom wrapper. This dedicated wrapper
+                      // occupies the figure's CONTENT area, so both tiers agree.
+                      <div className="relative flex size-full items-center justify-center">
+                        <Image
+                          loader={makeDiagramLoader({
+                            showId,
+                            rev: snapshotRevisionId,
+                            key: item.key,
+                            variants: item.variants,
+                          })}
+                          src={item.key}
+                          alt={item.alt || `Diagram ${i + 1}`}
+                          sizes="100vw"
+                          {...blurProps(item)}
+                          {...(validDims(item) ? validDims(item)! : { fill: true as const })}
+                          onError={() =>
+                            setFailedKeys((prev) => {
+                              if (prev.has(item.id)) return prev;
+                              const next = new Set(prev);
+                              next.add(item.id);
+                              return next;
+                            })
+                          }
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
                     )
                   ) : (
                     <div className="flex flex-col items-center gap-2 text-text-subtle">
