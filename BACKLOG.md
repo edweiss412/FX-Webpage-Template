@@ -59,7 +59,7 @@ redesign of two surfaces the PR does not otherwise touch.
 
 ## BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES — promotion compares list lengths, not the names the manifest requires
 
-**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** medium · **Class:** CORRECTNESS · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** fix/promote-identity-validation · **Filed:** from cross-model review of PR #761 · **Severity:** medium · **Class:** CORRECTNESS · **Effort:** S
 
 `promoteSnapshot` computes how many objects the manifest describes and compares that number to the
 temp listing's length and then to the canonical listing's length. It never checks that each
