@@ -442,3 +442,113 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     ).toBeGreaterThanOrEqual(TAP_MIN - TOL);
   });
 });
+
+/**
+ * ARM (b) — the theme switch inside the header AVATAR MENU.
+ *
+ * Spec: docs/superpowers/specs/2026-08-09-crew-chrome-wizard-connector.md §2.3
+ * Plan: docs/superpowers/plans/2026-08-09-quick-wins-2/plan.md, Task B4
+ *
+ * The suite above drives the STANDALONE toggle, because its admin-fixture recipe
+ * resolves `identityChip=null`. A crew member with a resolved identity gets a
+ * different control entirely — the switch lives behind the avatar — and that
+ * form has no coverage anywhere else. So this arm establishes a real crew
+ * identity through the picker and drives the menu.
+ *
+ * CHROMIUM-GATED, and the reason is a measured browser limit rather than a
+ * preference: over plain http WebKit refuses to STORE the server's own
+ * Set-Cookie for the `__Host-`-prefixed, Secure picker envelope, so a selection
+ * never persists and a correct implementation reads as broken. That is why
+ * `picker-flow.spec.ts` lives in desktop-chromium too. Skipping is declared out
+ * loud rather than silently returning early, so this never counts as coverage it
+ * does not provide.
+ *
+ * THE 44px FLOOR IS MEASURED HERE, NOT ASSERTED AS CLASSES. The jsdom suite
+ * (tests/components/auth/avatarMenu.test.tsx) pins that the trigger and both
+ * rows carry the tap-floor TOKENS; jsdom computes no layout, so a control the
+ * cascade had collapsed would pass there. Real geometry is this file's job.
+ */
+test.describe("crew avatar menu — theme switch behind a resolved identity", () => {
+  test("opens the menu, flips the theme, and every target clears the tap floor at 390px", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop-chromium",
+      "picker identity does not persist under WebKit over plain http (__Host- cookie); " +
+        "picker-flow.spec.ts is desktop-chromium for the same reason",
+    );
+
+    const { slug, shareToken } = await lookupSeededShow();
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    // Establish a crew identity the way a crew member does: land unauthenticated,
+    // meet the picker, tap a name.
+    await signOut(page);
+    await expect(async () => {
+      const res = await page.goto(`/show/${slug}/${shareToken}`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status(), `crew route must render`).toBe(200);
+      await expect(page.getByTestId("picker-interstitial-root")).toBeVisible({ timeout: 15_000 });
+    }).toPass({ timeout: 90_000 });
+
+    const firstRow = page.locator('[data-testid="picker-roster-row"]').first();
+    await expect(firstRow).toBeVisible();
+    await firstRow.click();
+    await expect(page.getByTestId("crew-shell")).toBeVisible({ timeout: 30_000 });
+
+    // HYDRATION GATE on the island itself, not `networkidle`: the picker recipe's
+    // own gates prove the crew shell rendered, which is a SERVER fact and says
+    // nothing about whether this client island has hydrated. The bounded
+    // open-retry is the actual readiness signal — a menu that never opens fails
+    // on the outer timeout naming this locator, rather than on a click that
+    // silently did nothing.
+    const trigger = page.getByTestId("avatar-menu-trigger");
+    await expect(trigger).toBeVisible({ timeout: 15_000 });
+    await expect(async () => {
+      await trigger.click();
+      await expect(page.getByRole("menu")).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+
+    const themeRow = page.getByTestId("avatar-menu-theme");
+    const personRow = page.getByTestId("avatar-menu-switch-person");
+    await expect(themeRow).toBeVisible();
+
+    // Geometry, at the mobile width, on all three targets — the half jsdom cannot do.
+    for (const [label, locator] of [
+      ["avatar trigger", trigger],
+      ["theme row", themeRow],
+      ["switch-person row", personRow],
+    ] as const) {
+      const box = await locator.boundingBox();
+      expect(box, `${label} must have a laid-out box`).not.toBeNull();
+      expect(
+        box!.height,
+        `${label} height must clear the ${TAP_MIN}px tap floor; got ${box!.height}`,
+      ).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+    }
+    // The trigger is a circular target, so its WIDTH is a floor too; the rows are
+    // full-width menu items and their width is not the constraint.
+    const triggerBox = await trigger.boundingBox();
+    expect(
+      triggerBox!.width,
+      `avatar trigger width must clear the ${TAP_MIN}px tap floor; got ${triggerBox!.width}`,
+    ).toBeGreaterThanOrEqual(TAP_MIN - TOL);
+
+    // The switch itself: activating the row flips the applied theme and does NOT
+    // close the menu.
+    const before = await page.evaluate(() => document.documentElement.dataset.theme ?? null);
+    await themeRow.click();
+    await expect
+      .poll(async () => page.evaluate(() => document.documentElement.dataset.theme ?? null))
+      .not.toBe(before);
+    await expect(
+      page.getByRole("menu"),
+      "the menu must stay open across a theme flip",
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => window.localStorage.getItem("fxav-theme")),
+      "the flip must persist through the same localStorage key the standalone toggle uses",
+    ).toBe(await page.evaluate(() => document.documentElement.dataset.theme ?? null));
+  });
+});
