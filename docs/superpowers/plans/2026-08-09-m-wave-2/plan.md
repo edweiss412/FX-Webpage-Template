@@ -202,7 +202,7 @@ Order: U1 → U2 → U3 → U4 → U5 → U6. `/impeccable` setup gates before A
 **Files:** create `tests/styles/_metaZIndexBands.test.ts`, `tests/styles/zIndexExemptions.ts`; modify `app/globals.css` (@theme) + every census site.
 1. **RED first:** the band guard — walks `app/**`+`components/**` for numeric z in BOTH idioms (utility `z-<n>` in className context AND inline `zIndex:` numerics), plus a planted-fixture premise row.
    Run: `pnpm vitest run tests/styles/_metaZIndexBands.test.ts` — Expected: FAIL listing the AST-derived census (38 className-context utility sites + the 1 inline `zIndex: 100` site at `components/admin/PreviewBanner.tsx:69`; comment mentions — `z-100`/`z-0`/one `z-60` — are outside the recognition universe and appear in no expected list; the guard's own first output is the census of record).
-2. Implement: the FIXED band set (`--z-raised:10 · --z-dropdown:20 · --z-nav:30 · --z-banner:40 · --z-overlay:50 · --z-dev-controls:60 · --z-sticky-banner:100`) in `app/globals.css` `@theme`; sweep every site to its numeral's band (name substitution, zero stacking change); `z-0` → exemption row (stacking reset, not a band).
+2. Implement: the FIXED band set (`--z-raised:10 · --z-dropdown:20 · --z-nav:30 · --z-banner:40 · --z-overlay:50 · --z-dev-controls:60 · --z-sticky-banner:100`) in `app/globals.css` `@theme`; sweep every site to its numeral's band (name substitution, zero stacking change); exemption rows only for sites the guard's own output surfaces that map to no band (none expected — the AST census maps 1:1 onto the band set; `z-0` exists only as a comment and is no site).
 3. Run again — Expected: PASS. Commit `feat(admin): semantic z-index band tokens + dual-idiom sweep and guard`.
 
 ### Task U2 — STEP3-GALLERY-TAP-TARGETS-1 item (d)
