@@ -131,10 +131,10 @@ export function findingFor(siteId: string): string {
 //     plus 7 new text_drift rows for the REF_ERROR_LITERAL sites, each mechanism-named.
 //     35 rows discriminated as GENUINE signal_loss and were left alone. ────
 // ─── SHRUNK 2026-08-09/10 by the ROW_CELLS_FUSED width discriminator
-//     (`feat/mutation-merged-cell`, mutation wave 3/5): 2287 holes closed, 3708 → 1421.
-//     The class it targeted is `merged-cell` (2281 of its 2407 rows). The shrink is NOT
+//     (`feat/mutation-merged-cell`, mutation wave 3/5): 2294 holes closed, 3708 → 1414.
+//     The class it targeted is `merged-cell` (2285 of its 2407 rows). The shrink is NOT
 //     scoped to that operator, deliberately: short-by-one is the SHAPE the discriminator
-//     recognizes, and `column-shift` produces it too (6 rows). That is a real coverage win
+//     recognizes, and `column-shift` produces it too (9 rows). That is a real coverage win
 //     for a class branch 4 owns, so branch 4 should re-derive its blast radius from this
 //     ledger rather than trust the figure in its plan.
 //
@@ -147,7 +147,7 @@ export function findingFor(siteId: string): string {
 //     what the CURRENT parser actually catches, and a row whose mutant survives again
 //     belongs in it. Quietly keeping the smaller number would have been 101 silent holes.
 //
-//     RESIDUE: 126 merged-cell mutants survive by design (spec §5.3). The fused row sits
+//     RESIDUE: 122 merged-cell mutants survive by design (spec §5.3). The fused row sits
 //     where the discriminator has no well-defined modal to be short of — a section under
 //     the 3-data-row floor (every `B0:L0` row is the one-data-row title block), a section
 //     whose width distribution ties, a HEADER row (excluded from the population, since a
@@ -155,21 +155,21 @@ export function findingFor(siteId: string): string {
 //     delimiter-shaped row, which is ambiguous by construction and abandoned whole.
 //
 //     Say what that means precisely, because an earlier draft of this note said "zero
-//     corruption" and that was WRONG: these 126 rows are ledgered holes, so the MUTANTS do
+//     corruption" and that was WRONG: these 122 rows are ledgered holes, so the MUTANTS do
 //     corrupt payload silently. What is zero is the DETECTOR'S OUTPUT — it abstains where
 //     it cannot tell rather than guessing. The corruption is real, still ledgered, and
 //     still owed to a future pass. ────
-// 1421 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
+// 1414 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
 // hole) or a FIX (a resolved hole → stale row) both fail the nightly harness. Stored as
 // pipe-delimited rows inside a TEMPLATE LITERAL (prettier leaves its interior intact, so each hole
-// stays ONE line instead of prettier exploding 1421 object literals to ~12k lines). Row format:
+// stays ONE line instead of prettier exploding 1414 object literals to ~12k lines). Row format:
 //   siteId|kind|fingerprint|finding|note      (fields are pipe-free: siteId uses ':', fp is hex)
 // finding = OPERATOR_FINDING_MAP[operator] (audit #N or BL-MUTATION-* — never a blanket "unaudited",
 // Codex R3). Fingerprints use the EXHAUSTIVE-by-type signal redaction (oracle.ts redactNode) so an
 // in-ledger drift on ANY signal field is caught (Codex R3). Ratchet: SHRINK this list as holes are
 // fixed; never grow it silently. Breakdown: 6 domain-scoped corrupting ops + section-reorder;
-// section-reorder (order-sensitivity, reclassified corrupting) = 82; all others = 1339;
-// by kind: 1356 wrong + 35 signal_loss + 30 text_drift.
+// section-reorder (order-sensitivity, reclassified corrupting) = 82; all others = 1332;
+// by kind: 1349 wrong + 35 signal_loss + 30 text_drift.
 const RAW_HOLES = `
 blank-row:inject:2024-05-east-coast-family-office:B10:L69:Xgap0|wrong|73d9f07eed068f65|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B10:L70:Xgap1|wrong|c1155b75248f6c82|#10|blank-row wrong @ inject
@@ -1055,7 +1055,6 @@ column-shift:2024-05-east-coast-family-office:B6:L25:X0|wrong|dbddaf22a585fd86|B
 column-shift:2024-05-east-coast-family-office:B8:L49:X0|wrong|bc50b4c7f5fd910d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B9:L61:X0|wrong|9d40bb589fd5794d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2025-03-dci-rpas-central:B0:L0:X0|wrong|dafefeccec2a6311|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B10:L220:X0|wrong|e2704aaefb5487b4|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B11:L229:X0|wrong|d4c38c60cab160e0|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B12:L231:X0|wrong|60c0d30a471d8aff|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B14:L238:X0|wrong|22524792c3ffa344|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
@@ -1118,7 +1117,6 @@ column-shift:2025-10-consultants-roundtable:B28:L209:X0|signal_loss|6f44ca82bbb6
 column-shift:2025-10-consultants-roundtable:B29:L225:X0|signal_loss|66121741a4d0f501|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
 column-shift:2025-10-consultants-roundtable:B4:L16:X0|wrong|bd2b99b82548a44a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
 column-shift:2025-10-consultants-roundtable:B6:L44:X0|wrong|495510fbce033df8|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B8:L55:X0|wrong|9b0c3e41b4d3845f|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
 column-shift:2025-10-fixed-income-trading-summit:B0:L0:X0|wrong|37669a0346bf8842|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
 column-shift:2025-10-fixed-income-trading-summit:B10:L83:X0|wrong|ffe4dbbf6925ef5b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
 column-shift:2025-10-fixed-income-trading-summit:B1:L8:X0|wrong|42e1caea0731c22b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
@@ -1222,7 +1220,6 @@ column-shift:redefining-fi:B5:L30:X0|wrong|a1e59804ba382189|BL-MUTATION-COLUMN-S
 column-shift:redefining-fi:B7:L37:X0|wrong|8f8b151ee53f5dde|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
 column-shift:ria:B0:L0:X0|wrong|00c587b86d33cc86|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
 column-shift:ria:B12:L58:X0|wrong|b023606aaaeb6a34|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B13:L63:X0|wrong|8a06dd4f905065ef|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
 column-shift:ria:B15:L67:X0|wrong|a1f568e0cb8776ef|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
 column-shift:ria:B16:L88:X0|wrong|dc753f8687083fee|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
 column-shift:ria:B17:L101:X0|wrong|987fc9c2e6c74182|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
@@ -1384,25 +1381,21 @@ header-typo:rpas:B54:L339:X0|wrong|914b54f95e8da03c|#5|header-typo wrong @ rpas
 header-typo:rpas:B55:L340:X0|wrong|e179809f247ab536|#5|header-typo wrong @ rpas
 header-typo:rpas:B7:L39:X0|wrong|48111a5326869bf0|#5|header-typo wrong @ rpas
 header-typo:rpas:B8:L42:X0|wrong|61ca0f9f79a61c08|#5|header-typo wrong @ rpas
-merged-cell:2025-03-dci-rpas-central:B17:L259:X0|wrong|41695751c913674d|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B20:L317:X0|wrong|fdb856438b94ada3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B20:L317:X1|wrong|df2f02ed58b4e9f8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B20:L318:X1|wrong|fdb856438b94ada3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B24:L373:X1|text_drift|ded02cbae3b57301|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-03-dci-rpas-central
-merged-cell:2025-04-asset-mgmt-cfo-coo:B18:L229:X0|wrong|39bac8945c6cf2df|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
 merged-cell:2025-04-asset-mgmt-cfo-coo:B20:L312:X0|wrong|ca66d6ff13628daa|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
 merged-cell:2025-04-asset-mgmt-cfo-coo:B20:L312:X1|wrong|ed8019454240891c|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
 merged-cell:2025-04-asset-mgmt-cfo-coo:B20:L313:X1|wrong|ca66d6ff13628daa|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
 merged-cell:2025-05-redefining-fixed-income-private-credit:B15:L199:X0|wrong|2b3473ed7cc584d8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-05-redefining-fixed-income-private-credit
 merged-cell:2025-05-redefining-fixed-income-private-credit:B15:L199:X1|wrong|0fac62bfdfb618e3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-05-redefining-fixed-income-private-credit
 merged-cell:2025-05-redefining-fixed-income-private-credit:B15:L200:X1|wrong|2b3473ed7cc584d8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-05-redefining-fixed-income-private-credit
-merged-cell:2025-05-redefining-fixed-income-private-credit:B18:L218:X0|wrong|2fbfad8d30e9d22e|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-05-redefining-fixed-income-private-credit
 merged-cell:2025-06-ria-investment-forum:B0:L0:X0|wrong|430b36c42d5ce9b4|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
 merged-cell:2025-06-ria-investment-forum:B7:L35:X0|wrong|dd2732ec709a8af3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
 merged-cell:2025-06-ria-investment-forum:B7:L35:X1|wrong|1fe370c32ba6f959|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
 merged-cell:2025-06-ria-investment-forum:B7:L36:X1|wrong|dd2732ec709a8af3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
 merged-cell:2025-06-ria-investment-forum:B8:L38:X1|text_drift|e690e3c8f99dd8d0|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-06-ria-investment-forum
-merged-cell:2025-10-consultants-roundtable:B11:L77:X0|wrong|abef54b985ccdac1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B15:L97:X0|wrong|f9fc8ad04d9beef5|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B15:L97:X1|wrong|25f65f0110755e1e|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B15:L98:X1|wrong|f9fc8ad04d9beef5|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
