@@ -275,6 +275,12 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
           const [r, g, b] = m[1]!.split(",").map((v) => parseFloat(v));
           return [r ?? 0, g ?? 0, b ?? 0];
         };
+        const alphaOf = (c: string): number => {
+          const m = c.match(/rgba\(([^)]+)\)/);
+          if (!m) return 1;
+          const parts = m[1]!.split(",");
+          return parts.length > 3 ? parseFloat(parts[3]!) : 1;
+        };
         const lum = (rgb: [number, number, number]): number => {
           const [r, g, b] = rgb.map((v) => {
             const c = v / 255;
@@ -284,6 +290,22 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
         };
         const el = document.querySelectorAll(sel)[index] as HTMLElement | undefined;
         if (!el) return null;
+        // EFFECTIVE opacity, not just the nominal colour. Review R2's mutant:
+        // `opacity-0` on the connector preserves the 60x1 rect, the resolved
+        // token AND the computed `backgroundColor`, so every value the first
+        // version of this helper looked at was unchanged while the line was
+        // invisible in both themes. Alpha is part of "can this be seen", so it
+        // is composited rather than ignored — and `visibility` is checked too,
+        // since `visibility: hidden` also preserves the rect.
+        let alpha = 1;
+        let vis: HTMLElement | null = el;
+        let hidden = false;
+        while (vis) {
+          const cs = getComputedStyle(vis);
+          alpha *= parseFloat(cs.opacity || "1");
+          if (cs.visibility === "hidden" || cs.visibility === "collapse") hidden = true;
+          vis = vis.parentElement;
+        }
         const fg = getComputedStyle(el).backgroundColor;
         // First ANCESTOR that actually paints — a transparent parent is not the
         // backdrop, and treating it as one would compare the line to nothing.
@@ -297,10 +319,27 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
           }
           node = node.parentElement;
         }
-        const l1 = lum(parse(fg));
-        const l2 = lum(parse(bg));
+        // Composite the line over its backdrop at its EFFECTIVE alpha: a fully
+        // transparent line is its backdrop, which is a contrast of 1.0 with
+        // itself — exactly what "invisible" should measure as.
+        const fgRgb = parse(fg);
+        const bgRgb = parse(bg);
+        const fgAlpha = alphaOf(fg) * alpha;
+        const composited: [number, number, number] = [
+          fgRgb[0] * fgAlpha + bgRgb[0] * (1 - fgAlpha),
+          fgRgb[1] * fgAlpha + bgRgb[1] * (1 - fgAlpha),
+          fgRgb[2] * fgAlpha + bgRgb[2] * (1 - fgAlpha),
+        ];
+        const l1 = lum(composited);
+        const l2 = lum(bgRgb);
         const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
-        return { fg, bg, ratio: Math.round(ratio * 100) / 100 };
+        return {
+          fg,
+          bg,
+          alpha: Math.round(fgAlpha * 100) / 100,
+          hidden,
+          ratio: Math.round(ratio * 100) / 100,
+        };
       },
       { sel: selector, index: nth },
     );
@@ -443,6 +482,13 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
           `connector ${n} and its backdrop both resolve to real colours in ${theme}`,
           c !== null && c.bg !== "rgba(0, 0, 0, 0)",
         );
+        // Not folded into the ratio: `visibility: hidden` is not a low-contrast
+        // line, it is an absent one, and reporting it as a contrast number
+        // would name the wrong defect.
+        premiseHolds(
+          `connector ${n} is not hidden by \`visibility\` in ${theme}`,
+          (c as { hidden: boolean }).hidden === false,
+        );
         measured.push({ connector: n, ...(c as { fg: string; bg: string; ratio: number }) });
       }
       expect(
@@ -521,9 +567,7 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
     return { "right-now-hero-card": await rectOf(hero) };
   }
 
-  test("rest-state rects match the pre-canonicalization baseline within 0.5px", async ({
-    page,
-  }, testInfo) => {
+  test("rest-state rects match the committed baseline within 0.5px", async ({ page }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
 
     const measured: Baseline = {
@@ -618,8 +662,10 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
         "(`--spacing-confirm-box: 60px` is exactly what `max-w-[60px]` encoded; " +
         "`min-h-right-now-min-h` is the same token the arrow form referenced). A drift here " +
         "means that claim is wrong — re-derive spec §6 and §9.4. Do NOT recapture the baseline " +
-        "to get past this: the baseline is the pre-change measurement, and rewriting it erases " +
-        "the only evidence the change was safe.",
+        "to get past a surprise: it is the committed record of what these surfaces measure, and " +
+        "rewriting it to match a change erases the only evidence the change was safe. It was " +
+        "recaptured ONCE, deliberately, when the step connectors went from 0-width to their " +
+        "token width — a move the change intended and the band asserts independently.",
     ).toEqual([]);
   });
 });

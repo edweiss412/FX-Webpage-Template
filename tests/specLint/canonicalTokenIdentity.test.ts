@@ -51,11 +51,11 @@ const GLOBALS = path.join(process.cwd(), "app/globals.css");
 /**
  * The two production sites whose class token this file's token assertions are supposed to
  * prove. Without binding them, the proof is answering a question nobody asked: a rebase
- * changing the connector to `max-w-16` (64px, canonical, so ESLint stays silent) leaves
+ * changing the connector to `w-16` (64px, canonical, so ESLint stays silent) leaves
  * `--spacing-confirm-box: 60px` intact while the rendered constraint changes. That swap
- * was invisible to EVERY C1 assertion when the rect keys were 0-width; the e2e band now
- * catches it too (64 > 60 fails the upper bound), but this binding is still what ties the
- * token to the site rather than to nothing. The token identity and the SITE THAT USES IT
+ * was invisible to EVERY C1 assertion when the rect keys were 0-width; the e2e width
+ * equality catches it now (64 != 60), but this binding is still what ties the token to
+ * the site rather than to nothing. The token identity and the SITE THAT USES IT
  * are two halves of one claim.
  */
 const CANONICAL_USE_SITES = [
@@ -125,8 +125,9 @@ function unconditionalClassLiterals(
         // is the one callee whose arguments are known to reach the class attribute.
         // ...and `cn` must be THE sanctioned import, not merely the spelling. A local `cn`
         // that discards its arguments would otherwise satisfy both assertions while the
-        // element renders something else — and C1 has no browser fallback, its connector
-        // being zero-width by construction.
+        // element renders something else. C1's browser coverage is now real (the
+        // connector renders at a fixed 60px and the e2e spec measures it), but this
+        // binding is still the only thing tying the TOKEN to the SITE.
         if (
           ts.isIdentifier(init.expression) &&
           init.expression.text === "cn" &&

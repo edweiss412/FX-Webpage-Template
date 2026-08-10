@@ -171,8 +171,10 @@ export function StepIndicator({
   // The 44px TAP TARGET a reachable pill exposes (spec 2026-08-07-step3-a11y-cluster
   // §2.2). The painted 28px pill moves to an inner <span> and this anchor becomes
   // the hit box; `-m-2` cancels the growth exactly, so the pill's margin box stays
-  // 28×28 and the stepper's layout is untouched — required, not incidental, because
-  // the connectors measure 0px wide at 320 and 390 (probe P3) and there is no slack.
+  // 28×28 and the stepper's layout is untouched — required, not incidental. The
+  // original reason was that the connectors measured 0px (probe P3), leaving no
+  // slack; they are a fixed 60px now, and the reason is stronger: the pill is
+  // `shrink-0`, so it is out of flex distribution entirely.
   //
   // `group` is mandatory, not stylistic: the visual span's hover utilities are
   // rewritten `group-hover:*`, which Tailwind emits as `:is(:where(.group):hover *)`.
