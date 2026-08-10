@@ -2,13 +2,13 @@
   "wizard-step-connector-0": {
     "x": 130.09375,
     "y": 102.5,
-    "width": 0,
+    "width": 60,
     "height": 1
   },
   "wizard-step-connector-1": {
-    "x": 174.09375,
+    "x": 234.09375,
     "y": 102.5,
-    "width": 0,
+    "width": 60,
     "height": 1
   },
   "right-now-hero-card": {
