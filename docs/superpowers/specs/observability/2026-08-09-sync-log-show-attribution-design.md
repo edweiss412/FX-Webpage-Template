@@ -309,6 +309,10 @@ Keying on the parameter fixes it structurally and terminates by construction. `u
 
 The rule reads: **a call to a function whose signature accepts a sink must supply one, or carry a site marker.** One level, decidable from the callee's signature, no graph walk.
 
+**A signature that cannot carry a sink is a defect to repair, not a reason to exclude the path.** `RunManualStageForFirstSeenDeps` (`lib/sync/runManualStageForFirstSeen.ts:52-62`) carries `upsertAdminAlert` and `publishShowInvalidation` but **no `logSync`** — so read naively, the signature-keyed rule would exclude the very path §6.2 shows needs a sink. That inverts the rule into an excuse.
+
+So the deliverable widens the type: `RunManualStageForFirstSeenDeps` gains `logSync?: ProcessOneFileDeps["logSync"]`, after which the accept-set admits it and its callers owe a sink like everyone else. The general form: **when the accept-set excludes a path that demonstrably reaches a writer, the signature is wrong and the repair widens it** — the alternative is a rule that quietly launders missing plumbing into "not an entry point".
+
 **The derivation is function-granular, and that is a DOCUMENTED LIMIT (R12 F2).** It cannot see branch conditions: `applyStaged` reaches a writer on its live branch, so the rule admits *every* call to it — including the wizard call, which fixes `sourceScope: "wizard"` and cannot reach that branch. Making the derivation branch-aware would mean tracking a literal argument through a callee's control flow, which is a data-flow analysis this guard deliberately does not attempt.
 
 The consequence is handled at the site rather than in the recognizer: a call the rule admits but that cannot produce an attributable attempt carries `// sync-log-no-attempt: <reason>` — a marker distinct from `run-level-sync-log`, which keeps its original single meaning: *no show is knowable at this site*.
