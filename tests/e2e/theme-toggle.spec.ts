@@ -497,10 +497,15 @@ test.describe("crew avatar menu — theme switch behind a resolved identity", ()
     await page.setViewportSize({ width: 390, height: 844 });
 
     // Establish a crew identity the way a crew member does: land unauthenticated,
-    // meet the picker, tap a name.
+    // take the first-contact gate's skip path, meet the picker, tap a name.
+    // `?gate=skip` is load-bearing: an unauthenticated first contact WITHOUT it
+    // renders SignInOrSkipGate, not the picker (page.tsx honors gateSkip only
+    // for reason === 'first_contact'), and this arm would wait out its whole
+    // budget on an interstitial that is never coming. Same recipe as
+    // picker-flow.spec.ts's "first_contact -> picker directly" cases.
     await signOut(page);
     await expect(async () => {
-      const res = await page.goto(`/show/${slug}/${shareToken}`, {
+      const res = await page.goto(`/show/${slug}/${shareToken}?gate=skip`, {
         waitUntil: "domcontentloaded",
       });
       expect(res?.status(), `crew route must render`).toBe(200);
@@ -528,6 +533,20 @@ test.describe("crew avatar menu — theme switch behind a resolved identity", ()
     const themeRow = page.getByTestId("avatar-menu-theme");
     const personRow = page.getByTestId("avatar-menu-switch-person");
     await expect(themeRow).toBeVisible();
+
+    // Let the popover's enter animation finish before measuring: `avatar-menu-in`
+    // scales from 0.96, so a boundingBox read inside its 120ms window reports
+    // 44 x 0.96..1 (measured 43.06 mid-flight) and fails the floor on a row whose
+    // at-rest height is compliant. Waiting on the element's own animations is
+    // exact and self-derived (same idiom as tap-target-floor.layout.spec.ts),
+    // and resolves immediately under `motion-reduce:animate-none`.
+    await page
+      .getByTestId("avatar-menu-popover")
+      .evaluate(async (el) =>
+        Promise.all(
+          el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => undefined)),
+        ).then(() => undefined),
+      );
 
     // Geometry, at the mobile width, on all three targets — the half jsdom cannot do.
     for (const [label, locator] of [
