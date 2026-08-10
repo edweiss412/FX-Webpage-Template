@@ -26,12 +26,12 @@ import type { ParseWarning } from "@/lib/parser/types";
  * display order. Curated allow-list (NOT "all warn-severity" — five autocorrect
  * codes are warn yet benign); see the spec's §2 for the verified taxonomy and the
  * drift-guard meta-test (tests/parser/dataGapsClassCompleteness.test.ts) that pins
- * the full 57-code persisted-ParseWarning partition.
+ * the full 59-code persisted-ParseWarning partition.
  */
 export const GAP_CLASSES = [
   { code: "FIELD_UNREADABLE", label: "unreadable field" },
   { code: "REF_ERROR_LITERAL", label: "broken reference in sheet" },
-  { code: "ROW_CELLS_FUSED", label: "two columns merged into one" },
+  { code: "ROW_CELLS_FUSED", label: "merged cell" },
   { code: "UNKNOWN_SECTION_HEADER", label: "unknown section" },
   { code: "ORPHANED_CREW_ROWS", label: "cut-off crew rows" },
   { code: "BLOCK_DISAPPEARED", label: "removed section" },

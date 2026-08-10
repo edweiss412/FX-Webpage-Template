@@ -33,7 +33,7 @@ import { familyFor } from "@/app/help/errors/_families";
 
 // ── Layer 1: the editorial partition (every PERSISTED ParseWarning code) ──────
 
-/** 37 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
+/** 39 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
 const DATA_GAP_CODES = new Set<string>(GAP_CLASSES.map((g) => g.code));
 
 /** 7 — warn-severity but semantically benign (parser fixed/adjusted; data landed). */
@@ -65,7 +65,7 @@ const ASSET_WARN_CODES = new Set<string>([
   "OPENING_REEL_NOT_VIDEO",
 ]);
 
-/** The full persisted-ParseWarning universe (57) — every code lands in exactly one bucket. */
+/** The full persisted-ParseWarning universe (59) — every code lands in exactly one bucket. */
 const ALL_PERSISTED_WARNING_CODES = new Set<string>([
   ...DATA_GAP_CODES,
   ...BENIGN_WARN_CODES,

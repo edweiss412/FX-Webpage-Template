@@ -141,7 +141,11 @@ export function findingFor(siteId: string): string {
 //     the fused row sits in a section the discriminator SKIPS, either under the 3-data-row
 //     floor (every `B0:L0` row is the one-data-row title block) or in a section whose width
 //     distribution ties, so "short by one against the section's normal width" has no
-//     referent. Not a gap: a skipped section yields zero output and zero corruption.
+//     referent. Say what that means precisely, because an earlier draft of this note said
+//     "zero corruption" and that was WRONG: these 38 rows are ledgered holes, 37 `wrong`
+//     and 1 `text_drift`, so the MUTANTS do corrupt payload silently. What is zero is the
+//     detector's output -- it abstains where it has no well-defined modal rather than
+//     guessing. The corruption is real, still ledgered, and still owed to a future pass.
 //     ONE ROW CAME BACK, deliberately and by measurement: `column-shift:ria:B13:L63:X0`
 //     was deleted in the first pass, then reported as a `newHoles` REGRESSION by the
 //     confirming run, because the shrink had been derived against a parser that changed

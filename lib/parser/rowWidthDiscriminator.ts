@@ -32,6 +32,9 @@ import type { ParseWarning } from "./types";
 /** The minimum data rows for a modal to mean anything. Below this the section is skipped. */
 const MIN_DATA_ROWS_FOR_MODAL = 3;
 
+/** A delimiter cell: optional leading colon, one or more dashes, optional trailing colon. */
+const ALIGNMENT_CELL = /^:?-+:?$/;
+
 /**
  * Split a row on UNESCAPED pipes only.
  *
@@ -54,49 +57,34 @@ function analyzeRow(line: string): { cells: number; alignment: boolean } {
   // out of the same scan, and the caller stores both.
   let cells = 0;
   let alignment = true;
-  // Per-cell alignment state: a cell is a dash run with optional leading/trailing colon.
-  let dashes = 0;
-  let sawTrailingColon = false;
-  let cellEmptyOrValid = true;
-  const endCell = (): void => {
-    // EVERY cell must be dash-shaped, including the first. An earlier version guarded this
-    // with `cells > 0` — but `cells` is incremented AFTER this runs, so on the first cell
-    // it was still 0 and the check was skipped entirely. The consequence was not cosmetic:
-    // `| Placeholder | --- | --- | --- | --- |` passed as an alignment row, so an ordinary
-    // data row became a table boundary and split a section in two, reporting a valid row
-    // in the remainder as fused. Probed by cross-model review.
-    if (dashes === 0 || !cellEmptyOrValid) alignment = false;
-    dashes = 0;
-    sawTrailingColon = false;
-    cellEmptyOrValid = true;
-  };
   let started = false;
+  let cellStart = 0;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i]!;
     if (ch === "\\" && i + 1 < line.length) {
       // An escaped pipe is TEXT, not a divider. Counting it as one inflates the row and
       // makes a section bimodal, so rows without one land at modal-1 and read as fused.
       i++;
-      cellEmptyOrValid = false;
       continue;
     }
-    if (ch === "|") {
-      if (started) {
-        endCell();
-        cells++;
-      }
-      started = true;
-      // The fragment after the LAST pipe is not a cell; `cells` is decremented below.
-      continue;
+    if (ch !== "|") continue;
+    if (started) {
+      cells++;
+      // GRAMMAR, NOT CHARACTER MEMBERSHIP. An earlier version tracked "saw a dash", "saw a
+      // colon" and so on, which accepts `--:--`, `::---` and `- - -` — none of them
+      // delimiters. A row of those became a false structural boundary and split a section,
+      // producing a warning on a valid row (probed by cross-model review). ORDER is the
+      // whole content of this rule, so the check is the regex that states it.
+      //
+      // Only evaluated while the row is still a delimiter candidate: an ordinary data row
+      // fails on its first cell and every later cell costs nothing but the pipe scan.
+      if (alignment && !ALIGNMENT_CELL.test(line.slice(cellStart, i).trim())) alignment = false;
     }
-    if (!started) continue;
-    if (ch === " " || ch === "\t" || ch === "\r") continue;
-    if (ch === "-") dashes++;
-    else if (ch === ":" && dashes === 0) continue;
-    else if (ch === ":" && !sawTrailingColon) sawTrailingColon = true;
-    else cellEmptyOrValid = false;
+    started = true;
+    cellStart = i + 1;
   }
-  // `cells` counted one per closing pipe, which is exactly the number of real cells.
+  // `cells` counted one per closing pipe, which is exactly the number of real cells; the
+  // fragment after the last pipe is not one.
   if (cells === 0) alignment = false;
   return { cells, alignment };
 }

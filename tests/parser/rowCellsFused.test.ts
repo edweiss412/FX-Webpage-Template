@@ -314,6 +314,55 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     expect(w[0]!.rawSnippet).toBe("| C | r | c | o |");
   });
 
+  it("requires delimiter cells to be well FORMED, not merely dash-flavored", () => {
+    // KILLS: validating alignment by character membership instead of grammar. Tracking
+    // "saw a dash" / "saw a colon" accepts `--:--`, `::---` and `- - -`, none of which are
+    // delimiters; a row of them became a false structural boundary, split the section, and
+    // reported a valid row. Probed by cross-model review, which named all three shapes.
+    //
+    // The fixture makes the split OBSERVABLE: split, C lands at modal-1 in the leading
+    // half and is reported; unsplit, the whole section ties and is skipped. Each shape is
+    // asserted separately so a rule that fixes one and not the others still fails.
+    for (const token of ["--:--", "::---", "- - -", ":-:-:", "---x"]) {
+      const md = [
+        "| CREW | Role | Call | Out | Note |",
+        "| --- | --- | --- | --- | --- |",
+        "| A | r | c | o | n |",
+        "| B | r | c | o | n |",
+        "| C | r | c | o |",
+        "| P | r | c | o | n |",
+        `| ${token} | ${token} | ${token} | ${token} | ${token} |`,
+        "| Q | r | c | o |",
+        "| R | r | c | o |",
+        "| S | r | c | o |",
+        "",
+      ].join("\n");
+      expect(fused(md, "calibration.md"), `token ${token}`).toEqual([]);
+    }
+  });
+
+  it("does not let a stray cell-less pipe line become a boundary", () => {
+    // KILLS: dropping `if (cells === 0) alignment = false`. A lone `|` closes no cell, so
+    // a grammar check over zero cells is vacuously satisfied and the line would read as a
+    // delimiter — splitting the table and promoting the row above it to a header. The
+    // input is malformed, but it is reachable (any line starting with `|` is a row here),
+    // and the failure it causes is a warning on well-formed rows around it.
+    const md = [
+      "| CREW | Role | Call | Out | Note |",
+      "| --- | --- | --- | --- | --- |",
+      "| A | r | c | o | n |",
+      "| B | r | c | o | n |",
+      "| C | r | c | o |",
+      "| P | r | c | o | n |",
+      "|",
+      "| Q | r | c | o |",
+      "| R | r | c | o |",
+      "| S | r | c | o |",
+      "",
+    ].join("\n");
+    expect(fused(md, "calibration.md")).toEqual([]);
+  });
+
   it("measures the modal over DATA rows, letting a narrower header be narrower", () => {
     // KILLS: including the table header in the measured population. A section title
     // spanning fewer cells than its columns is ordinary sheet authoring, and counted as
