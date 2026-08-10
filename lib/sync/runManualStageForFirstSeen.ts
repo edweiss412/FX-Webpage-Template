@@ -22,6 +22,7 @@ import {
   type ProcessOneFileDeps,
   type ProcessOneFileResult,
 } from "@/lib/sync/runScheduledCronSync";
+import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
 
 export type RunManualStageForFirstSeenTx = Phase2Tx & {
   readShowId?(driveFileId: string): Promise<string | null>;
@@ -46,7 +47,15 @@ export type RunManualStageForFirstSeenResult =
   // (invariant 10). It therefore CARRIES the notice out and the caller emits once that lock resolves
   // (app/api/admin/pending-ingestions/[id]/retry/route.ts). OPTIONAL, mirroring the same field on
   // Phase2Result / ProcessOneFileResult — absent means "no capability change to report".
-  | { outcome: "applied"; showId: string; roleFlagsNotice?: RoleFlagsNotice }
+  // Census hop 5 (spec §3): like the notice above, the diagram variant failures are
+  // produced inside the retry route's withRowTryLock, so they are CARRIED OUT and the
+  // caller emits once that lock resolves (invariant 10).
+  | {
+      outcome: "applied";
+      showId: string;
+      roleFlagsNotice?: RoleFlagsNotice;
+      variantFailures?: DiagramVariantFailureRow[];
+    }
   | { outcome: "parsed"; stagedId?: string };
 
 export type RunManualStageForFirstSeenDeps = {
@@ -144,6 +153,9 @@ async function toResult(
     };
     if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
     if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
+    if (phase2.variantFailures && phase2.variantFailures.length > 0) {
+      applied.variantFailures = phase2.variantFailures;
+    }
     await emitSuccessfulPhase2Tail({
       tx,
       result: applied,
@@ -180,6 +192,8 @@ async function toResult(
       outcome: "applied",
       showId: phase2.showId,
       ...(applied.roleFlagsNotice ? { roleFlagsNotice: applied.roleFlagsNotice } : {}),
+      // Census hop 5: same carry-out as the notice — the caller emits post-lock.
+      ...(applied.variantFailures?.length ? { variantFailures: applied.variantFailures } : {}),
     };
   }
   if (result.outcome === "defer") {

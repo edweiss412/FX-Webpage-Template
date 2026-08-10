@@ -908,3 +908,227 @@ describe("F. Resume UX", () => {
     );
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// G. help surface (2026-08-09 spec §2.2) — admin-LIKE by the accept-set
+//    rule: crew behavior iff surface === "crew"; everything else gets
+//    the admin arm.
+// ──────────────────────────────────────────────────────────────────────
+describe("G. help surface (spec §2.2)", () => {
+  const HELP_CODE = "AMBIGUOUS_EMAIL_BINDING";
+
+  test("submits show_id: null and spreads the autocapture fieldRef", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { ok: true, status: "created" }));
+    const { getByTestId } = render(
+      <ReportModal
+        {...defaultProps({
+          surface: "help",
+          showId: null,
+          autocapture: { fieldRef: { helpCode: HELP_CODE } },
+        })}
+      />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), {
+      target: { value: "keeps happening" },
+    });
+    fireEvent.click(getByTestId("report-modal-submit"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.show_id).toBeNull();
+    expect(body.surface).toBe("help");
+    expect(body.fieldRef).toEqual({ helpCode: HELP_CODE });
+  });
+
+  test("heading names the same act as the trigger that opened it", () => {
+    const { container } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    const heading = container.querySelector("#report-modal-heading")?.textContent ?? "";
+    // aria-labelledby points at this node, so a dialog reading "Report this"
+    // after a button reading "Report a recurring error" renames the act
+    // mid-flow (impeccable critique P1).
+    expect(heading).toBe("Report a recurring error");
+    expect(heading).not.toMatch(/something looks wrong/i);
+  });
+
+  test("subhead names the captured code through the catalog, never the raw code", () => {
+    const { container } = render(
+      <ReportModal
+        {...defaultProps({
+          surface: "help",
+          showId: null,
+          autocapture: { fieldRef: { helpCode: HELP_CODE } },
+        })}
+      />,
+    );
+    const subhead = container.querySelector("#report-modal-heading")?.nextElementSibling;
+    const text = subhead?.textContent ?? "";
+    // Fixture-derived: the catalog title is the human copy for this code
+    // (invariant 5 — the raw code never renders).
+    expect(text).toContain(MESSAGE_CATALOG[HELP_CODE].title!);
+    expect(text).not.toContain(HELP_CODE);
+  });
+
+  test("subhead says so when nothing was captured (conservative, not silent)", () => {
+    const { container } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null, autocapture: {} })} />,
+    );
+    const text =
+      container.querySelector("#report-modal-heading")?.nextElementSibling?.textContent ?? "";
+    // A find-in-page arrival sets no fragment; the modal must say the capture
+    // is empty rather than imply a code travelled.
+    expect(text).toMatch(/no error code was captured/i);
+  });
+
+  test("admin and crew headings are unchanged by the record", () => {
+    const { container, rerender } = render(<ReportModal {...defaultProps({ surface: "admin" })} />);
+    expect(container.querySelector("#report-modal-heading")?.textContent).toBe("Report this");
+    rerender(<ReportModal {...defaultProps({ surface: "crew" })} />);
+    expect(container.querySelector("#report-modal-heading")?.textContent).toBe(
+      "Something looks wrong?",
+    );
+  });
+
+  test("renders the github_issue_url success link (flipped :324/:589)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, { ok: true, status: "created", github_issue_url: ISSUE_URL }),
+    );
+    const { getByTestId } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => getByTestId("report-modal-success"));
+    const link = getByTestId("report-modal-success-link") as HTMLAnchorElement;
+    expect(link.href).toBe(ISSUE_URL);
+  });
+
+  test("uses dougFacing copy on error (help is not crew)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(429, { ok: false, code: "REPORT_RATE_LIMITED_ADMIN" }),
+    );
+    const { getByTestId } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => getByTestId("report-modal-retry"));
+    expect(getByTestId("report-modal-error").textContent).toContain(
+      MESSAGE_CATALOG.REPORT_RATE_LIMITED_ADMIN.dougFacing!,
+    );
+  });
+
+  test("a submission that outlives its modal leaves the attempt row intact", async () => {
+    // Diff review R3 F1: the parent can unmount this modal while the POST is in
+    // flight (the keyed remount on /help/errors, or an ordinary close). If the
+    // detached attempt still ran its terminal branch it would clear the scope
+    // key, and the next open would mint a FRESH idempotency key -- a second
+    // GitHub issue for one report, with Doug never seeing the first succeed.
+    let resolveFetch: (r: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (resolveFetch = resolve)),
+    );
+    const { getByTestId, unmount } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "in flight" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const persistedBefore = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
+    expect(persistedBefore.idempotencyKey).toBe(uuids[0]);
+
+    unmount();
+    await act(async () => {
+      resolveFetch(jsonResponse(201, { ok: true, status: "created" }));
+      await Promise.resolve();
+    });
+
+    const persistedAfter = sessionStorage.getItem(STORAGE_KEY);
+    expect(persistedAfter, "a detached attempt must not clear the live scope").not.toBeNull();
+    expect(JSON.parse(persistedAfter!).idempotencyKey).toBe(uuids[0]);
+    expect(JSON.parse(persistedAfter!).draft).toBe("in flight");
+  });
+
+  test.each([
+    ["succeeded", 201, { ok: true, status: "created" }],
+    ["expired", 410, { ok: false, code: "REPORT_HORIZON_EXPIRED" }],
+  ])(
+    "unmounting while the response BODY is still arriving does not clear the scope (%s)",
+    async (_label, status, payload) => {
+      // Diff review R4 F1: the response can arrive with its body still
+      // streaming, so response.json() is a SECOND suspension point. A guard
+      // checked only after fetch lets an unmount inside the body read reach the
+      // terminal branches, which is the same key-rotating corruption R3 fixed
+      // for the first await.
+      let resolveJson: (v: unknown) => void = () => {};
+      fetchMock.mockImplementationOnce(
+        async () =>
+          ({
+            status,
+            ok: status >= 200 && status < 300,
+            json: () => new Promise((resolve) => (resolveJson = resolve)),
+          }) as unknown as Response,
+      );
+      const { getByTestId, unmount } = render(
+        <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+      );
+      fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "body pending" } });
+      fireEvent.click(getByTestId("report-modal-submit"));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      unmount();
+      await act(async () => {
+        resolveJson(payload);
+        await Promise.resolve();
+      });
+
+      const persisted = sessionStorage.getItem(STORAGE_KEY);
+      expect(persisted, "a detached body read must not clear the live scope").not.toBeNull();
+      expect(JSON.parse(persisted!).idempotencyKey).toBe(uuids[0]);
+      expect(JSON.parse(persisted!).draft).toBe("body pending");
+    },
+  );
+
+  test("a detached attempt does not clear the scope on the expired branch either", async () => {
+    let resolveFetch: (r: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (resolveFetch = resolve)),
+    );
+    const { getByTestId, unmount } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "in flight" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    unmount();
+    await act(async () => {
+      resolveFetch(jsonResponse(410, { ok: false, code: "REPORT_HORIZON_EXPIRED" }));
+      await Promise.resolve();
+    });
+    // The other terminal branch clears the same scope; both are guarded.
+    expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+  });
+
+  // Spec §3 test 5b. NOT a live baseline RED (plan R5 F2): today's
+  // copyForCode sends a runtime "help" down its crew arm and renders the
+  // same string by coincidence. Its stated failure mode is a PARTIAL
+  // implementation — flipping copyForCode (:154) without flipping
+  // oppositeSurface (:442) makes the audience fallback resolve
+  // dougFacing-then-dougFacing and render "".
+  test("falls back to crew-facing copy when dougFacing is null (test 5b)", async () => {
+    const expected = MESSAGE_CATALOG.ADMIN_SESSION_LOOKUP_FAILED.crewFacing!;
+    expect(MESSAGE_CATALOG.ADMIN_SESSION_LOOKUP_FAILED.dougFacing).toBeNull();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(500, { ok: false, code: "ADMIN_SESSION_LOOKUP_FAILED" }),
+    );
+    const { getByTestId } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => getByTestId("report-modal-retry"));
+    expect(getByTestId("report-modal-error").textContent).toContain(expected);
+  });
+});

@@ -211,4 +211,37 @@ describe("POST /api/report auth skeleton", () => {
       code: "ADMIN_SESSION_LOOKUP_FAILED",
     });
   });
+
+  // help rides the admin error contract unchanged (2026-08-09 spec §2.3):
+  // same requireAdminIdentity gate, same AdminInfraError mapping. show_id is
+  // null because a help body carrying one is rejected before auth.
+  const helpBody = { ...validBody, surface: "help", show_id: null };
+
+  test("help surface rejects with 403 when admin auth fails, without touching the picker", async () => {
+    authMock.picker = {
+      kind: "resolved",
+      crewMemberId: "018f2f4c-0000-4000-9000-000000000002",
+    };
+
+    const response = await POST(request(helpBody));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ ok: false });
+    expect(authMock.pickerCalls).toEqual([]);
+    expect(authMock.submitReport).not.toHaveBeenCalled();
+  });
+
+  test("help surface preserves admin auth infra failures as cataloged 500 responses", async () => {
+    authMock.requireAdminIdentity.mockRejectedValueOnce(
+      new AdminInfraError("requireAdmin: getUser failed"),
+    );
+
+    const response = await POST(request(helpBody));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+  });
 });

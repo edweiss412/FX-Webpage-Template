@@ -6,7 +6,9 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ## Phase I close-out (2026-05-22) — Codex R1 cross-CLI adversarial review dispositions
 
-### M11-I-D-1: `/help/errors` trailing CTA uses `mailto:` until non-show-scoped report surface lands
+### M11-I-D-1: `/help/errors` trailing CTA uses `mailto:` until non-show-scoped report surface lands — ✅ RESOLVED 2026-08-09 (`feat/help-report-surface`)
+
+**Resolution (2026-08-09, non-show report surface):** re-open trigger (a) fired by design — the owner promoted the companion backlog entry and ratified a fifth, non-show-scoped bug-report surface. The trailing CTA is now the master-spec §13.1 surface-5 report button: the standard M8 report modal at `surface: "help"`, `show_id: null`, capturing the page's URL fragment as `fieldRef.helpCode`, admin-authenticated through the same `requireAdminIdentity()` gate, with the admin rate-limit bucket and the GitHub issue routing this entry named as the mailto path's losses. Design: `docs/superpowers/specs/2026-08-09-help-report-surface-design.md`; AC-11.11 carries the **r12 amendment** retiring the r11 mailto stopgap. `BL-HELP-NON-SHOW-REPORT-SURFACE` graduated in the same branch. The blocking premise recorded below — that `ReportButton` requires `showId: string` — was resolved by widening it to `string | null`, not by a new endpoint or schema: `reports.show_id` had been nullable since the founding migration. Original entry preserved below.
 
 - **Severity:** MEDIUM (spec-amendment-by-deferral; user-visible UI works)
 - **File:line:** `app/help/errors/page.tsx:45-49` (the trailing `<a href="mailto:edweiss412@gmail.com…">If this keeps happening, tell Eric →</a>` per entry)

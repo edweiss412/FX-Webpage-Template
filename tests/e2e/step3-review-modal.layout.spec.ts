@@ -373,7 +373,7 @@ for (const { mode, width, height, maxRatio } of MODES) {
     for (const [corner, point] of Object.entries(geom.corners)) {
       const px = await pixelAt(page, point as [number, number]);
       // Compared against the BAND, not against the scrim: the panel casts
-      // `shadow-(--shadow-tile)`, which darkens the scrim in exactly this ring,
+      // `shadow-tile`, which darkens the scrim in exactly this ring,
       // so a correct render reads scrim-plus-shadow (neither pure colour). What
       // can never be true is a band fill landing here.
       if (rgbEq(px, band!)) painted.push(corner);

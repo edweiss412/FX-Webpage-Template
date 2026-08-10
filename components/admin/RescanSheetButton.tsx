@@ -33,6 +33,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { cn } from "@/lib/ui/cn";
 
 export type RescanSheetButtonProps = {
   driveFileId: string;
@@ -172,8 +173,9 @@ export function RescanSheetButton({
   // 390px clipped coded results past the left viewport edge in the normal
   // footer branch (and `left-0` on the wrapper would mirror-clip the demoted
   // right-aligned branch). ≥sm restores today's wrapper-anchored `right-0`.
-  const overlayClass =
-    "absolute bottom-full left-0 sm:left-auto sm:right-0 mb-2 z-10 w-max max-w-[min(20rem,80vw)] shadow-(--shadow-tile) pr-10";
+  const overlayClass = cn(
+    "absolute bottom-full left-0 sm:left-auto sm:right-0 mb-2 z-10 w-max max-w-[min(20rem,80vw)] shadow-tile pr-10",
+  );
 
   return (
     <div
