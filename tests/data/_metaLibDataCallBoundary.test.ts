@@ -223,13 +223,29 @@ const WAIVER_WITH_REASON_RE = /^\/\/ not-subject-to-meta: \S/;
 function lineCommentTexts(file: string, source: string): string[] {
   const sourceFile = parse(file, source);
   const full = sourceFile.getFullText();
+
+  // JSX TEXT is content, not trivia — but `getLeadingCommentRanges` scans from a
+  // position and has no way to know that, so a line-leading `//` among an
+  // element's children reads to it as a line comment. On a MULTILINE child that
+  // silently waived a live call site (R21 F1); the same-line case was already
+  // caught, which is exactly why the parse has to say where the text is rather
+  // than the scan guessing.
+  const jsxText: Array<[number, number]> = [];
+  const collectJsxText = (node: ts.Node): void => {
+    if (ts.isJsxText(node)) jsxText.push([node.getStart(sourceFile), node.getEnd()]);
+    ts.forEachChild(node, collectJsxText);
+  };
+  collectJsxText(sourceFile);
+  const insideJsxText = (at: number): boolean =>
+    jsxText.some(([from, to]) => at >= from && at < to);
+
   const seen = new Set<number>();
   const texts: string[] = [];
   const visit = (node: ts.Node): void => {
     for (const range of ts.getLeadingCommentRanges(full, node.getFullStart()) ?? []) {
       if (seen.has(range.pos)) continue;
       seen.add(range.pos);
-      if (range.kind === ts.SyntaxKind.SingleLineCommentTrivia) {
+      if (range.kind === ts.SyntaxKind.SingleLineCommentTrivia && !insideJsxText(range.pos)) {
         texts.push(full.slice(range.pos, range.end).trim());
       }
     }
@@ -1181,13 +1197,40 @@ describe("META lib/data Supabase call boundary", () => {
     // JSX text is the other place a context-free lexer sees a comment that is
     // not one. Planted through a .tsx path so the parse uses the JSX grammar
     // (whole-diff R5 F2).
-    test("a marker in JSX text does not waive", () => {
+    // JSX text is content, not trivia. The same-line form was caught at R5; the
+    // MULTILINE forms were not, and there a line-leading marker among an
+    // element's children silently waived a live call site (whole-diff R21 F1).
+    test("a marker in JSX text does not waive, on one line or many", () => {
       const source =
         'export const C = () => <div>// not-subject-to-meta: fake</div>;\nawait sb.from("x");';
       expect(isWaived("planted.tsx", source)).toBe(false);
       expect(undischargedFiles([scan("lib/data/__planted.tsx", source)], {})).toEqual([
         "lib/data/__planted.tsx",
       ]);
+
+      const call = 'const r = await sb.from("y");\nif (r.error) throw r.error;\n';
+      for (const [name, body] of [
+        ["element child", "<div>\n// not-subject-to-meta: displayed documentation\n</div>"],
+        ["indented child", "<div>\n  // not-subject-to-meta: displayed documentation\n</div>"],
+        ["fragment child", "<>\n// not-subject-to-meta: displayed documentation\n</>"],
+        [
+          "after an expression child",
+          "<div>\n{x}\n// not-subject-to-meta: displayed documentation\n</div>",
+        ],
+        [
+          "after an element child",
+          "<div>\n<span />\n// not-subject-to-meta: displayed documentation\n</div>",
+        ],
+      ] as const) {
+        for (const ext of ["tsx", "jsx"] as const) {
+          const multiline = `export const C = () => (\n${body}\n);\n${call}`;
+          expect(isWaived(`planted.${ext}`, multiline), `${name} (${ext})`).toBe(false);
+          expect(
+            undischargedFiles([scan(`lib/data/__planted.${ext}`, multiline)], {}),
+            `${name} (${ext})`,
+          ).toEqual([`lib/data/__planted.${ext}`]);
+        }
+      }
     });
   });
 
