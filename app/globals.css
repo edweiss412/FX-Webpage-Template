@@ -524,6 +524,21 @@
   }
 }
 
+/* Avatar-menu enter (UI spec §2.3 transition inventory). Paired with
+   `motion-reduce:animate-none` at the call site, so reduced motion gets the
+   INSTANT alternative rather than the absence of one. Transform + opacity only:
+   both composite, neither reflows the header it hangs off. */
+@keyframes avatar-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 /* Telemetry auto-refresh live-pulse ring (NOT a @theme token — a local
    keyframe for the AutoRefreshControl "actively refreshing" indicator, spec
    §7.1/§9). Expanding fade ring behind the accent dot; suppressed under

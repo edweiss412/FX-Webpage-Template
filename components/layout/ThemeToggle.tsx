@@ -19,10 +19,11 @@
  *   React hydrates and stamps `<html data-theme="…">` from localStorage
  *   when present. This component reads that dataset attribute on mount
  *   so the rendered icon agrees with the already-applied theme — no
- *   visual flash, no hydration mismatch (we render an SSR-stable Moon
- *   placeholder and let `useEffect` swap to the correct icon on first
- *   client tick; `aria-label` and `aria-pressed` are the source of truth
- *   for the accessibility tree).
+ *   visual flash, no hydration mismatch. That read lives in
+ *   `useAppliedTheme` now, shared with the header avatar menu: we render
+ *   an SSR-stable Moon placeholder and the hook swaps to the correct icon
+ *   on the first client tick; `aria-label` and `aria-pressed` are the
+ *   source of truth for the accessibility tree.
  *
  * Hydration mismatch handling:
  *
@@ -47,79 +48,24 @@
  */
 
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
 
-type Theme = "light" | "dark";
-
-const STORAGE_KEY = "fxav-theme";
+import { useAppliedTheme } from "./useAppliedTheme";
 
 /**
- * Resolve the currently-applied theme on the client. The no-FOUC script
- * in app/layout.tsx stamps `data-theme` UNCONDITIONALLY (localStorage
- * value if present, else derived from `matchMedia`), so post-hydration
- * the dataset attribute is always the live truth — no fallback path
- * needed. The defensive matchMedia branch below is kept ONLY for the
- * pathological case where the no-FOUC script failed (e.g., the IIFE
- * threw before the dataset write because of a synchronous storage
- * access exception in some sandboxed iframe). In normal operation it
- * never fires.
+ * The standalone theme control.
+ *
+ * Since 2026-08-09 this is the IDENTITY-LESS form: crew pages with a resolved
+ * identity carry the switch inside the header avatar menu instead (UI spec
+ * §2.3), and admin surfaces keep their own instance. The dataset/localStorage
+ * handshake it used to own now lives in `useAppliedTheme` so the two controls
+ * cannot drift apart on what "dark" means.
  */
-function readAppliedTheme(): Theme {
-  if (typeof document !== "undefined") {
-    const ds = document.documentElement.dataset.theme;
-    if (ds === "light" || ds === "dark") return ds;
-  }
-  // Defensive fallback only — the no-FOUC script normally beats us here.
-  if (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  ) {
-    return "dark";
-  }
-  return "light";
-}
-
-type ToggleState = { mounted: false; theme: "light" } | { mounted: true; theme: Theme };
-
 export function ThemeToggle() {
-  // SSR + first-client-render fallback: { mounted: false, theme: 'light' }.
-  // The post-mount useEffect rewrites this to { mounted: true, theme:
-  // <actually-applied> } in ONE setState call so we don't trigger a
-  // cascading-renders lint error. Markup stays stable across SSR/CSR —
-  // only the icon glyph inside the button can change, and that span
-  // carries `suppressHydrationWarning`.
-  const [state, setState] = useState<ToggleState>({ mounted: false, theme: "light" });
-
-  useEffect(() => {
-    // Post-mount sync of SSR-stable placeholder ('light') with the
-    // actually-applied theme. This is the canonical "read DOM/window
-    // post-hydration" pattern — the no-FOUC inline script in
-    // app/layout.tsx already wrote the correct data-theme to <html>
-    // before React hydrated, so this setState happens at most once
-    // per mount. The rule below would prefer useSyncExternalStore,
-    // but the dataset attribute is one-shot (set pre-hydration, never
-    // mutated by anything except this component's flip()), so a sub-
-    // scription model would only add ceremony.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setState({ mounted: true, theme: readAppliedTheme() });
-  }, []);
-
-  const { mounted, theme } = state;
-  const isDark = theme === "dark";
+  const { mounted, theme, isDark, setTheme } = useAppliedTheme();
+  void theme;
 
   function flip() {
-    const next: Theme = isDark ? "light" : "dark";
-    setState({ mounted: true, theme: next });
-    document.documentElement.dataset.theme = next;
-    try {
-      window.localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      // localStorage may be unavailable (private browsing, storage
-      // quota, third-party-cookie blocks). Silent fail: the theme
-      // still applies for this tab via the dataset write above; only
-      // persistence across reloads is lost.
-    }
+    setTheme(isDark ? "light" : "dark");
   }
 
   return (

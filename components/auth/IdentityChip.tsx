@@ -21,6 +21,7 @@
  */
 
 import { clearIdentity } from "@/lib/auth/picker/clearIdentity";
+import { AvatarMenu } from "@/components/auth/AvatarMenu";
 
 async function clearIdentityFormAction(formData: FormData): Promise<void> {
   "use server";
@@ -29,6 +30,20 @@ async function clearIdentityFormAction(formData: FormData): Promise<void> {
   await clearIdentity(formData);
 }
 
+/**
+ * The crew header's identity control.
+ *
+ * Since 2026-08-09 this Server Component is a THIN SEAM: it declares the
+ * `clearIdentity` form action (only a Server Component can) and hands it to the
+ * `AvatarMenu` client island, which owns the rendering. The name is kept because
+ * two suites, the picker e2e recipe and the header contract all cite it — a
+ * rename would cost more than the slightly-stale name saves.
+ *
+ * What used to render here — the name/role text stack plus an always-visible
+ * `Not you?` button — moved INTO the menu (UI spec §2.3, Menu A). The form
+ * boundary did not move: the same hidden `slug`/`shareToken`/`showId` inputs and
+ * the same typed wrapper submit from inside the menu's person row.
+ */
 export function IdentityChip({
   name,
   role,
@@ -43,51 +58,13 @@ export function IdentityChip({
   showId: string;
 }) {
   return (
-    <div data-testid="identity-chip" className="flex flex-col items-end gap-0.5 text-right">
-      {/* The middle dot is `aria-hidden`, which is right — nobody wants "middle
-          dot" spoken — but it leaves the accessible name as one run-on phrase,
-          "Eric Weiss Lead A2", with no boundary between the person and the job.
-
-          The separator is a real sr-only TEXT NODE, not an `aria-label`. A
-          <span> with no role maps to `role=generic`, which PROHIBITS
-          aria-label/labelledby (ARIA 1.2; axe-core `aria-prohibited-attr`).
-          Chrome and Safari commonly honor it anyway, but nothing requires them
-          to, and browse-mode AT frequently does not — so the first version of
-          this fix may never have reached a reader. A text node is honored
-          everywhere and needs no role override.
-
-          It cannot be caught by the suite alone: this repo runs no axe gate, and
-          `toHaveAccessibleName` resolves through jsdom's accname implementation,
-          which does not enforce the prohibition. The test therefore asserts this
-          DOM shape rather than a computed name.
-
-          Rendered only when BOTH parts are present, so a picker round-trip that
-          leaves one blank does not speak a leading or trailing comma. */}
-      <span data-testid="identity-chip-identity" className="text-sm font-semibold text-text-strong">
-        {name}
-        {name.trim() !== "" && role.trim() !== "" && (
-          <span data-testid="identity-chip-sr-separator" className="sr-only">
-            {", "}
-          </span>
-        )}
-        <span className="text-text-subtle font-medium" aria-hidden="true">
-          {" · "}
-        </span>
-        <span className="font-medium text-text-subtle">{role}</span>
-      </span>
-      <form action={clearIdentityFormAction}>
-        <input type="hidden" name="slug" value={slug} />
-        <input type="hidden" name="shareToken" value={shareToken} />
-        <input type="hidden" name="showId" value={showId} />
-        <button
-          type="submit"
-          data-testid="identity-chip-not-you"
-          aria-label="Switch crew member"
-          className="min-h-tap-min text-xs text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-        >
-          Not you?
-        </button>
-      </form>
-    </div>
+    <AvatarMenu
+      name={name}
+      role={role}
+      slug={slug}
+      shareToken={shareToken}
+      showId={showId}
+      clearAction={clearIdentityFormAction}
+    />
   );
 }
