@@ -1,0 +1,344 @@
+// @vitest-environment jsdom
+/**
+ * tests/components/crew/sections/VenueSection.wifiRoom.test.tsx — AC-3 / AC-4.
+ *
+ * Two display-time enrichments to the Venue Facilities card:
+ *
+ *   - the `event_details.internet` cell splits into "Wi-Fi network" /
+ *     "Wi-Fi password" / retained "Crew Wi-Fi" notes rows when it carries the
+ *     observed label vocabulary, and renders BYTE-IDENTICALLY to the pre-split
+ *     component when it does not (the fail-soft regression pin);
+ *   - the general-session room's already-parsed name surfaces as a "Room" row,
+ *     suppressed for a synthesized name, an empty name, zero rooms, and a rooms
+ *     fetch failure.
+ *
+ * Plus the §3.5 transition audit for the rows this change adds.
+ *
+ * Values are the §4 corpus, and the synthesized-name case runs the REAL parser
+ * over a raw fixture rather than hand-authoring `{ kind, name }`: a hand-authored
+ * literal would keep passing if the parser's fallback name were ever changed,
+ * which is the exact regression the suppression exists to track.
+ */
+import { readFileSync } from "node:fs";
+
+import { afterEach, describe, expect, test } from "vitest";
+import { cleanup, render } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+
+import { VenueSection } from "@/components/crew/sections/VenueSection";
+import { parseSheet } from "@/lib/parser";
+import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
+import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
+import {
+  makeRawWifiShow,
+  RAW_WIFI_SHOW_ID,
+  RAW_WIFI_TODAY,
+  RAW_WIFI_VALUE,
+} from "@/tests/fixtures/venueRawWifiShow";
+import { ledgerProp } from "./_ledgerProp";
+
+afterEach(cleanup);
+
+const TODAY = new Date("2026-05-14T15:00:00Z");
+const SHOW_ID = "show-abc";
+
+/** A raw fixture whose GS block has no nameable room, so the parser synthesizes. */
+const SYNTHESIZED_FIXTURE = "fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md";
+/** A raw fixture whose GS block names a real room. */
+const REAL_NAME_FIXTURE = "fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md";
+/** A raw fixture carrying breakout rooms alongside its GS room. */
+const BREAKOUT_FIXTURE = "fixtures/shows/raw/2025-10-fixed-income-trading-summit.md";
+
+function roomsFromFixture(file: string): ProjectedRoomRow[] {
+  const { rooms } = parseSheet(readFileSync(file, "utf8"), file);
+  return rooms.map((room, i) => ({ ...room, id: `r${i}` }));
+}
+
+function renderVenue(data: ReturnType<typeof makeShowForViewer>): HTMLElement {
+  const { container } = render(
+    <VenueSection
+      {...ledgerProp()}
+      data={data}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  return container;
+}
+
+function withInternet(internet: string): ReturnType<typeof makeShowForViewer> {
+  return makeShowForViewer({
+    show: { venue: { name: "Test Venue", address: "1 Main St" }, event_details: { internet } },
+  });
+}
+
+function withRooms(rooms: ProjectedRoomRow[], tileErrors?: Record<string, string>) {
+  return makeShowForViewer({
+    show: { venue: { name: "Test Venue", address: "1 Main St" } },
+    rooms,
+    ...(tileErrors ? { tileErrors } : {}),
+  });
+}
+
+/** Only the general-session rooms — the ones the Venue row is allowed to name. */
+const gsNamesOf = (rooms: ProjectedRoomRow[]): string[] =>
+  rooms.filter((r) => r.kind === "gs").map((r) => r.name);
+
+/**
+ * A fact row's LABEL and VALUE read separately and compared exactly. Reading the
+ * row's whole textContent with `toContain` would pass on a value that merely
+ * embeds the expected string — a truncated SSID, a value with the next label
+ * appended, or the value leaking into the label slot all survive containment.
+ */
+const labelOf = (row: Element | null): string | undefined =>
+  row?.querySelector("dt")?.textContent ?? undefined;
+const valueOf = (row: Element | null): string | undefined =>
+  row?.querySelector("dd")?.textContent ?? undefined;
+
+// ---------------------------------------------------------------------------
+// Wi-Fi split (AC-3)
+// ---------------------------------------------------------------------------
+
+describe("Wi-Fi split rows", () => {
+  test("a labeled value renders network / password / notes rows", () => {
+    // The live Fixed Income cell, verbatim.
+    const container = renderVenue(
+      withInternet("Hardline from Encore\n\nSSID: Hyatt_Meeting\nCode: FITS2025"),
+    );
+
+    const ssid = container.querySelector('[data-testid="venue-wifi-ssid"]');
+    const password = container.querySelector('[data-testid="venue-wifi-password"]');
+    const notes = container.querySelector('[data-testid="venue-wifi-notes"]');
+
+    expect(labelOf(ssid)).toBe("Wi-Fi network");
+    expect(valueOf(ssid)).toBe("Hyatt_Meeting");
+    expect(labelOf(password)).toBe("Wi-Fi password");
+    expect(valueOf(password)).toBe("FITS2025");
+    expect(labelOf(notes)).toBe("Crew Wi-Fi");
+    expect(valueOf(notes)).toBe("Hardline from Encore");
+
+    // Nothing anywhere in the card still shows the unsplit cell.
+    expect(container.textContent).not.toContain("SSID: Hyatt_Meeting");
+    expect(container.textContent).not.toContain("Code: FITS2025");
+  });
+
+  test("the password row is absent when the value carries no password label", () => {
+    const container = renderVenue(withInternet("SSID: Hyatt_Meeting"));
+    expect(valueOf(container.querySelector('[data-testid="venue-wifi-ssid"]'))).toBe(
+      "Hyatt_Meeting",
+    );
+    expect(container.querySelector('[data-testid="venue-wifi-password"]')).toBeNull();
+    expect(container.querySelector('[data-testid="venue-wifi-notes"]')).toBeNull();
+  });
+
+  test("the notes row is absent when the value carries no prose", () => {
+    // The RIA exporter cell, verbatim — labeled pairs only.
+    const container = renderVenue(withInternet("SSID - Hyatt_Meeting Password: PHC2025"));
+    expect(valueOf(container.querySelector('[data-testid="venue-wifi-ssid"]'))).toBe(
+      "Hyatt_Meeting",
+    );
+    expect(valueOf(container.querySelector('[data-testid="venue-wifi-password"]'))).toBe("PHC2025");
+    expect(container.querySelector('[data-testid="venue-wifi-notes"]')).toBeNull();
+  });
+
+  test("an unsplittable value renders the pre-split markup byte for byte", () => {
+    // Captured from the component BEFORE the split landed, with this exact
+    // fixture. Equality here is the whole fail-soft contract: the raw row keeps
+    // its label, its icon, its position and its markup.
+    const expected = readFileSync("tests/fixtures/venueSectionRawWifi.html", "utf8");
+    premise("the captured baseline is a real render", expected.length, 1000);
+    premiseHolds(
+      "the baseline carries the raw internet value, so the comparison can see a change to it",
+      expected.includes(RAW_WIFI_VALUE),
+    );
+
+    const { container } = render(
+      <VenueSection
+        {...ledgerProp()}
+        data={makeRawWifiShow()}
+        viewer={{ kind: "admin" }}
+        today={RAW_WIFI_TODAY}
+        showId={RAW_WIFI_SHOW_ID}
+      />,
+    );
+    expect(container.innerHTML).toBe(expected);
+  });
+
+  test("an empty internet value renders no Wi-Fi row at all", () => {
+    const container = renderVenue(withInternet(""));
+    expect(container.querySelector('[data-testid="venue-wifi-ssid"]')).toBeNull();
+    expect(container.textContent).not.toContain("Crew Wi-Fi");
+    expect(container.textContent).not.toContain("Wi-Fi network");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Room row (AC-4)
+// ---------------------------------------------------------------------------
+
+describe("Room row", () => {
+  test("a real general-session room name renders", () => {
+    const rooms = roomsFromFixture(REAL_NAME_FIXTURE);
+    const gsNames = gsNamesOf(rooms);
+    premise("the fixture parses a general-session room", gsNames.length, 0);
+    premiseHolds(
+      "the fixture's GS name is a real one, not the parser's synthesized fallback",
+      gsNames[0]!.toLowerCase() !== "general session",
+    );
+
+    const container = renderVenue(withRooms(rooms));
+    const row = container.querySelector('[data-testid="venue-room"]');
+    expect(labelOf(row)).toBe("Room");
+    // Expected value comes from the parsed fixture, never a hardcoded string.
+    expect(valueOf(row)).toBe(gsNames[0]!);
+  });
+
+  test("a parser-synthesized general-session name is suppressed", () => {
+    const rooms = roomsFromFixture(SYNTHESIZED_FIXTURE);
+    const gsNames = gsNamesOf(rooms);
+    premise("the fixture parses a general-session room", gsNames.length, 0);
+    premiseHolds(
+      "the fixture's GS name IS the parser's synthesized fallback — otherwise this " +
+        "case tests suppression against a name that was never synthesized",
+      gsNames[0]!.toLowerCase() === "general session",
+    );
+
+    const container = renderVenue(withRooms(rooms));
+    expect(container.querySelector('[data-testid="venue-room"]')).toBeNull();
+  });
+
+  test("zero rooms renders no row", () => {
+    expect(renderVenue(withRooms([])).querySelector('[data-testid="venue-room"]')).toBeNull();
+  });
+
+  test("an empty general-session name renders no row", () => {
+    const rooms = roomsFromFixture(REAL_NAME_FIXTURE).map((room) =>
+      room.kind === "gs" ? { ...room, name: "   " } : room,
+    );
+    expect(renderVenue(withRooms(rooms)).querySelector('[data-testid="venue-room"]')).toBeNull();
+  });
+
+  test("a rooms fetch failure suppresses the row rather than implying no room", () => {
+    const rooms = roomsFromFixture(REAL_NAME_FIXTURE);
+    premiseHolds(
+      "the same rooms DO render a row when the fetch succeeded, so this case " +
+        "isolates the failure and not an unnameable room",
+      renderVenue(withRooms(rooms)).querySelector('[data-testid="venue-room"]') !== null,
+    );
+    cleanup();
+
+    const container = renderVenue(withRooms(rooms, { rooms: "read failed" }));
+    expect(container.querySelector('[data-testid="venue-room"]')).toBeNull();
+  });
+
+  test("a breakout-only show renders no row", () => {
+    const rooms = roomsFromFixture(BREAKOUT_FIXTURE).filter((room) => room.kind !== "gs");
+    premise("the fixture leaves at least one non-GS room", rooms.length, 0);
+    premiseHolds(
+      "those rooms carry real names, so a suppressed row is about kind and not an empty name",
+      rooms.every((room) => room.name.trim().length > 0),
+    );
+    expect(renderVenue(withRooms(rooms)).querySelector('[data-testid="venue-room"]')).toBeNull();
+  });
+
+  test("multiple general-session rooms surface the first by compareRooms", () => {
+    // compareRooms orders same-kind rooms by lowercased name, then id — so the
+    // expected winner is derived by sorting, never by picking a literal.
+    const rooms: ProjectedRoomRow[] = [
+      {
+        ...roomsFromFixture(REAL_NAME_FIXTURE).find((r) => r.kind === "gs")!,
+        id: "r9",
+        name: "ZULU HALL",
+      },
+      {
+        ...roomsFromFixture(REAL_NAME_FIXTURE).find((r) => r.kind === "gs")!,
+        id: "r1",
+        name: "ALPHA HALL",
+      },
+    ];
+    const expectedName = [...rooms].sort((a, b) => a.name.localeCompare(b.name))[0]!.name;
+    premiseHolds(
+      "the two GS names differ, so 'first by compareRooms' is a decidable claim",
+      rooms[0]!.name !== rooms[1]!.name,
+    );
+
+    const row = renderVenue(withRooms(rooms)).querySelector('[data-testid="venue-room"]');
+    expect(valueOf(row)).toBe(expectedName);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Transition audit (spec §3.5 / plan Task 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * | Transition                                  | Treatment                       |
+ * | ------------------------------------------- | ------------------------------- |
+ * | any state → any state (across server re-render) | instant — server-rendered fact list, no animation, no client state (matches every existing VenueSection row) |
+ *
+ * State pairs, each a server-render delta and therefore instant: Wi-Fi raw ↔
+ * split ↔ absent; password row present ↔ absent; notes row present ↔ absent;
+ * room row present ↔ absent. No compound transitions exist because the section
+ * holds no client state.
+ */
+describe("transition audit — the new rows are instant by construction", () => {
+  const source = readFileSync("components/crew/sections/VenueSection.tsx", "utf8");
+
+  test("VenueSection is a server component with no motion and no transition classes", () => {
+    premiseHolds(
+      "the audited source was actually read",
+      source.includes("export function VenueSection"),
+    );
+    expect(source).not.toContain('"use client"');
+    expect(source).not.toContain("AnimatePresence");
+    expect(source).not.toContain("framer-motion");
+    expect(source).not.toContain("motion.");
+    // `transition-colors` on the Maps anchor predates this change and is a CSS
+    // hover treatment, not a row appear/disappear animation — the rows this
+    // change adds introduce no `transition-` class of their own.
+    const factRowSection = source.slice(
+      source.indexOf("const factRows: FactRow[] = []"),
+      source.indexOf("const hasWhere ="),
+    );
+    premise("the fact-row construction block was located", factRowSection.length, 0);
+    expect(factRowSection).not.toContain("transition-");
+    expect(factRowSection).not.toContain("animate");
+  });
+
+  test("every fact row is pushed under a plain conditional, one per documented state", () => {
+    const factRowSection = source.slice(
+      source.indexOf("const factRows: FactRow[] = []"),
+      source.indexOf("const hasWhere ="),
+    );
+    // The imperative push-guard style, not JSX ternaries: enumerate the guards
+    // so a new row cannot be added without appearing in this audit.
+    const conditions = [...factRowSection.matchAll(/^\s*(?:} else )?if \((.+?)\) \{$/gm)].map((m) =>
+      m[1]!.trim(),
+    );
+    expect(conditions).toEqual([
+      "loadingDock",
+      "parking",
+      "roomName",
+      "internet && wifi",
+      "wifi.password",
+      "wifi.notes",
+      "internet",
+      "power",
+    ]);
+  });
+
+  test("both Wi-Fi branches and both room states render without any client boundary", () => {
+    for (const internet of [
+      "Hardline from Encore\n\nSSID: Hyatt_Meeting\nCode: FITS2025",
+      RAW_WIFI_VALUE,
+      "",
+    ]) {
+      const container = renderVenue(withInternet(internet));
+      expect(container.querySelector("[data-framer-appear-id]")).toBeNull();
+      expect(container.querySelector('[style*="opacity"]')).toBeNull();
+      cleanup();
+    }
+  });
+});

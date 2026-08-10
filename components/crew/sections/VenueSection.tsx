@@ -58,6 +58,8 @@ import {
 } from "@/components/crew/icons/sectionIcons";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
+import { compareRooms } from "@/lib/crew/resolveKeyTimes";
+import { parseWifiValue } from "@/lib/crew/wifiDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
@@ -72,6 +74,18 @@ type VenueSectionProps = {
   ledger: TileRenderLedger;
   cardReport?: CardReportContext;
 };
+
+/**
+ * The name the parser synthesizes when a v1 / metadata-trimmed sheet heads its
+ * general-session block with nothing nameable (`lib/parser/blocks/rooms.ts` —
+ * "fall back to 'General Session' rather than mis-naming the GS room"). Five of
+ * the ten raw fixtures parse to exactly this. A row reading "Room: General
+ * Session" restates the block heading and tells a crew member nothing, so it is
+ * suppressed. Held locally rather than imported because the parser is out of
+ * scope for this change; the suppression test is fixture-derived (it runs the
+ * real parser) so a renamed fallback fails loudly instead of passing vacuously.
+ */
+const SYNTHESIZED_GS_ROOM_NAME = "General Session";
 
 /**
  * URL-validity guard for the Maps anchor. Byte-identical to VenueTile's
@@ -146,8 +160,31 @@ export function VenueSection({
   // --- Connectivity: Wi-Fi (internet) + power --------------------------------
   const rawInternet = data.show.event_details["internet"] ?? null;
   const internet = shouldHideGenericOptional(rawInternet) ? null : rawInternet!.trim();
+  // Display-time split into SSID / password / notes. `null` means the value is
+  // outside the observed label vocabulary, and the raw row below renders it
+  // verbatim — the value is never silently reshaped.
+  const wifi = internet !== null ? parseWifiValue(internet) : null;
   const rawPower = data.show.event_details["power"] ?? null;
   const power = shouldHideGenericOptional(rawPower) ? null : rawPower!.trim();
+
+  // --- Room: the general-session room's name ---------------------------------
+  // Already parsed (ROOMS header line 2, section prefix stripped) — surfaced
+  // here, never re-derived. Suppressed on a rooms fetch failure: `readRooms`
+  // fail-softs to `[]` with `tileErrors.rooms`, so the array alone cannot tell
+  // "no rooms" from "we could not read them", and the failure is already
+  // surfaced by the rooms-consuming tiles' SectionTileError. Suppressed for the
+  // parser's synthesized fallback name too: a v1 sheet that never named its room
+  // gets the literal "General Session" from the parser, and echoing that back is
+  // noise, not information.
+  const roomsFetchFailed = Boolean(data.tileErrors["rooms"]);
+  const gsRoom = roomsFetchFailed
+    ? null
+    : (data.rooms.filter((room) => room.kind === "gs").sort(compareRooms)[0] ?? null);
+  const gsRoomName = gsRoom?.name.trim() ?? "";
+  const roomName =
+    gsRoomName.length > 0 && gsRoomName.toLowerCase() !== SYNTHESIZED_GS_ROOM_NAME.toLowerCase()
+      ? gsRoomName
+      : null;
 
   // --- COI status — sentinel-guarded; span omitted entirely when hidden ------
   const rawCoi = data.show.coi_status ?? null;
@@ -180,7 +217,28 @@ export function VenueSection({
   if (parking) {
     factRows.push({ k: "Parking", v: parking, icon: <CarIcon /> });
   }
-  if (internet) {
+  if (roomName) {
+    factRows.push({ k: "Room", v: roomName, testId: "venue-room" });
+  }
+  if (internet && wifi) {
+    // Split: labeled network + password rows, with any surrounding prose kept as
+    // the value of the retained "Crew Wi-Fi" row. The prose is operationally
+    // load-bearing (hardline vs Wi-Fi for streaming) and is never dropped.
+    factRows.push({
+      k: "Wi-Fi network",
+      v: wifi.ssid,
+      icon: <WifiIcon />,
+      testId: "venue-wifi-ssid",
+    });
+    if (wifi.password) {
+      factRows.push({ k: "Wi-Fi password", v: wifi.password, testId: "venue-wifi-password" });
+    }
+    if (wifi.notes) {
+      factRows.push({ k: "Crew Wi-Fi", v: wifi.notes, testId: "venue-wifi-notes" });
+    }
+  } else if (internet) {
+    // Fail-soft: byte-identical to the pre-split row (no testId — adding one
+    // would change the markup this branch exists to preserve).
     factRows.push({ k: "Crew Wi-Fi", v: internet, icon: <WifiIcon /> });
   }
   if (power) {
