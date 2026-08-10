@@ -207,6 +207,38 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
  * (parity, and the declared-gate scan in expectNoUndeclaredProjectGate).
  */
 /**
+ * DOCUMENTED LIMITS of this guard, owner-ratified 2026-08-10 after four review
+ * rounds each surfaced a narrower bypass and no product code changed.
+ *
+ * WHAT IT CLOSES. An UNDECLARED spec may not consult the environment at all
+ * (`project` / `testInfo` / `test.info()` / `browserName` are banned outright).
+ * A DECLARED one must bind each `PROJECT_GATED` row to a live `test.skip` in the
+ * callback of the test it names, and no test body may return early or hide every
+ * assertion behind a conditional. Each of those was probed with a surviving
+ * mutant before and after.
+ *
+ * WHAT IT DOES NOT CLOSE, stated rather than left to be rediscovered:
+ *
+ * - A `test.skip(...)` is accepted as live without proving its CONDITION can
+ *   actually exclude the registered projects. `test.skip(false, "...")` binds a
+ *   row while gating nothing.
+ * - A row relaxes the identifier ban for the WHOLE FILE, and the body scans skip
+ *   nested callbacks. A gate placed inside a `test.step` in a different test of
+ *   the same file is therefore unscanned.
+ *
+ * WHY THEY ARE LIMITS AND NOT BUGS. Both require deliberately writing a gate
+ * that looks like a declaration but is not — outside this guard's threat model,
+ * which is ordinary authoring mistakes by a contributor adding or gating a test.
+ * The consequence bound still holds for the accidental cases: they are caught,
+ * loudly, with the offending file and line. Chasing the deliberate ones is the
+ * recognizer ratchet this repo's round-economy rule names explicitly: "no bypass
+ * exists" ranges over an open class and does not terminate.
+ *
+ * Filed as BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES with both mutants recorded, so a
+ * future round starts from the probe rather than from scratch.
+ */
+
+/**
  * A row must point at a test that ACTUALLY carries a runtime gate. Review R2
  * removed the `test.skip` and the row went on "subtracting" a gate that no
  * longer existed — the derived count still came to 9, and the guard reported
