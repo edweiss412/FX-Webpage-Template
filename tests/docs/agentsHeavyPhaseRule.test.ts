@@ -197,6 +197,11 @@ const MUST_CLAUSES: Array<[string, RegExp]> = [
   ["classification is by shape, not alias", /Classification is by INVOCATION SHAPE/],
   ["full-suite vitest shape", /not scoped to an explicit file list/],
   ["scoped-config playwright aliases", /scoped-config aliases/],
+  ["the playwright qualifier: only NON-interactive runs are wrapped", /Any non-interactive playwright run/],
+  [
+    "the direct playwright shape carries its qualifier",
+    /`playwright test` without an interactive flag/,
+  ],
   ["mutation shard-batch rule", /one slot per concurrently-running shard batch/],
   ["worktree-local build lock, cited where it is established", /`ROOT = process\.cwd\(\)`/],
   ["build-lock citation: the ROOT definition", /with-admin-dev-flag\.mjs:42/],
@@ -218,6 +223,7 @@ const MUST_NOT_CLAUSES: Array<[string, RegExp]> = [
   ["CI-polling exclusion", /CI polling/],
   ["git/gh exclusion", /git\/gh operations/],
   ["pre-warmed dev servers start outside", /pre-warmed dev servers/],
+  ["long-lived servers start OUTSIDE, not inside", /Long-lived servers start OUTSIDE the wrapper/],
   ["why interactive runs are excluded", /unbounded-lived/],
 ];
 
@@ -238,6 +244,45 @@ const TAIL_CLAUSES: Array<[string, RegExp]> = [
   ["spec citation", /docs\/superpowers\/specs\/2026-08-10-heavy-phase-semaphore-design\.md/],
   ["guard citation", /tests\/docs\/agentsHeavyPhaseRule\.test\.ts/],
 ];
+
+/**
+ * Polarity, asserted as an AXIS rather than as a list of phrasings.
+ *
+ * Round 4's mutant deleted three characters — the `non-` in "non-interactive" —
+ * putting interactive Playwright on the MUST side in direct contradiction with
+ * the MUST-NOT side, while every registered code span survived untouched. Token
+ * presence cannot see that, and a longer clause list would not survive the next
+ * rewording, because the words move. What does not move is the axis: on the MUST
+ * side every mention of interactivity is NEGATED, and on the MUST-NOT side at
+ * least one is not. Assert that, and any future wording that flips the sense
+ * fails whatever sentence it is flipped in.
+ */
+export function polarityProblems(mustRegion: string, mustNotRegion: string): string[] {
+  const problems: string[] = [];
+  const negated = (text: string, at: number): boolean => {
+    const before = text.slice(Math.max(0, at - 12), at);
+    return /non-$/.test(before) || /without an $/.test(before);
+  };
+
+  for (const match of mustRegion.matchAll(/interactive/gi)) {
+    const at = match.index ?? 0;
+    if (!negated(mustRegion, at)) {
+      problems.push(
+        "the MUST side mentions interactivity WITHOUT negating it " +
+          `(...${mustRegion.slice(Math.max(0, at - 40), at + 20).replace(/\s+/g, " ")}...); ` +
+          "interactive runs belong to the MUST-NOT class",
+      );
+    }
+  }
+
+  const unNegated = [...mustNotRegion.matchAll(/interactive/gi)].some(
+    (match) => !negated(mustNotRegion, match.index ?? 0),
+  );
+  if (!unNegated) {
+    problems.push("the MUST-NOT side no longer excludes INTERACTIVE runs in the positive sense");
+  }
+  return problems;
+}
 
 export function extractRule(agents: string): string | null {
   const start = agents.indexOf(RULE_OPENER);
@@ -315,6 +360,7 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   for (const [label, pattern] of TAIL_CLAUSES) {
     if (!pattern.test(tailRegion)) problems.push(`missing clause: ${label}`);
   }
+  problems.push(...polarityProblems(mustRegion, mustNotRegion));
   return problems;
 }
 
@@ -438,6 +484,28 @@ describe("AGENTS.md heavy-phase rule", () => {
     [
       "drop the sweep's path arguments",
       editRule(" over `tests/` + `scripts/`", ""),
+    ],
+    // The round-4 class: a qualifier whose deletion INVERTS a clause while every
+    // registered token survives. One row per polarity-bearing qualifier found by
+    // sweeping the bullet, not just the one reported.
+    [
+      "delete the `non-` that makes the playwright rule non-interactive",
+      editRule("Any non-interactive playwright run", "Any interactive playwright run"),
+    ],
+    [
+      "drop the interactive-flag qualifier from the direct playwright shape",
+      editRule("`playwright test` without an interactive flag", "`playwright test`"),
+    ],
+    [
+      "negate the MUST-NOT side's interactivity qualifier",
+      editRule(
+        "any INTERACTIVE playwright invocation",
+        "any non-interactive playwright invocation",
+      ),
+    ],
+    [
+      "move long-lived servers INSIDE the wrapper",
+      editRule("Long-lived servers start OUTSIDE the wrapper", "Long-lived servers start inside the wrapper"),
     ],
   ];
 

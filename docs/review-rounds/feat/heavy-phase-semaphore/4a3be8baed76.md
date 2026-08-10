@@ -50,15 +50,15 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 3 rounds
+## diff — 4 rounds
 
-**Examined:** three counted rounds so far on the implementation diff, dispatched as two
+**Examined:** four counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1 findings across rounds 1-3.
+string-presence guard, 4/1/1/1 findings across rounds 1-4.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
@@ -76,27 +76,50 @@ prose reason ("pinned by its own clause") named a clause that pinned something
 weaker. The bidirectional completeness test cannot see either, because an `ignore`
 row IS an accounted-for span — the registry was complete and wrong.
 
-R3's repair is the first one that removes the possibility rather than the instance:
-`pinnedBy` is now a REQUIRED, ASSERTED field on every `ignore` row, so a row cannot
-claim coverage it does not have — asserting the claim IS the coverage. The peers were
-swept in the same commit (three operator rows, not the one reported). The
-transferable rule: when an exemption carries a prose justification, the justification
-is the next defect site, and the fix is to make the exemption's own claim executable.
-This is the same shape as the repo's `// not-subject-to-meta: <reason>` and
-`ADMIN_SURFACE_EXEMPTIONS` conventions, and it should have been the round-1 design.
+R3's repair — `pinnedBy` as a REQUIRED, ASSERTED field on every `ignore` row, so a
+row cannot claim coverage it does not have because asserting the claim IS the
+coverage — was filed here after round 3 as closing the class. **Round 4 disproved
+that claim, and the correction is the most useful thing in this filing.** It closed
+the ignore-row SUBCASE. The wider class had another member the ignore rows could not
+reach: R4 deleted three characters, the `non-` in "non-interactive", putting
+interactive Playwright on the MUST side in direct contradiction with the MUST-NOT
+side, with every registered code span and every clause pattern intact.
+
+So the class has at least two axes, and each needed its own structural close rather
+than a longer list:
+
+- *An exemption claims coverage nothing enforces* — closed by making the claim
+  executable (`pinnedBy`, type-required).
+- *A qualifier's deletion INVERTS a clause while its tokens survive* — closed by
+  asserting the AXIS instead of the phrasing: on the MUST side every mention of
+  interactivity must be negated, on the MUST-NOT side at least one must not be. A
+  clause list would not have survived the next rewording, because the words move
+  and the axis does not.
+
+The transferable rule is narrower and more honest than the round-3 version: when a
+guard's coverage is stated in prose — an exemption's reason, a qualifier's sense —
+the prose is the next defect site, and the repair is to make that specific claim
+executable. Each such claim is its own axis. Declaring the class closed after
+closing one axis is what produced round 4, and it is worth noting that the round-3
+filing made exactly that error in writing, one round before being refuted by it.
 
 Worth stating plainly against the round-1 brief: it named the mutation-family closure
 as the convergence criterion and demanded a surviving mutant per finding, and every
-round complied — six findings, six mutants, zero speculation, no ratchet into a
-markdown parser. The criterion worked. What it could not do was stop a repair from
-introducing its own gap, which is why rounds 2 and 3 exist at all.
+round complied — seven findings, seven mutants, zero speculation, no ratchet into a
+markdown parser, and each round's cost bounded by a concrete accepted document. The
+criterion worked. What it could not do was stop a repair from introducing or leaving
+a gap, which is why rounds 2, 3, and 4 exist. Against the alternative — an
+enumeration-shaped criterion over "documents a contributor might write" — this arc
+terminated in four rounds with every finding demonstrated rather than argued.
 
-**Mechanizable:** the specific defect is now mechanized in-repo — `pinnedBy` is
-type-required, so an unpinned `ignore` row is a compile error, and the eleven mutants
-three review rounds produced are `OPERATORS` rows rather than prose. The general form
-(a prose exemption reason that no assertion backs) has no static signature a linter
-could match across the repo's other registries without knowing what each reason
-claims; it belongs in authoring guidance, not a gate.
+**Mechanizable:** both axes are mechanized in-repo — `pinnedBy` is type-required, so
+an unpinned `ignore` row is a compile error; the polarity check asserts the
+interactivity axis directly; and all eighteen mutants four review rounds produced are
+`OPERATORS` rows rather than prose, so no repair can silently regress. The general
+form (a guard whose coverage is stated in prose that no assertion backs) has no
+static signature a linter could match across the repo's other registries without
+knowing what each piece of prose claims; it belongs in authoring guidance, not a
+gate.
 
 **Infra:** the sandboxed reviewer could not start Vitest (`EPERM` creating its temp
 dir) in any of the three rounds and transpiled the exported pure checker in memory
