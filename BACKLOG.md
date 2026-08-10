@@ -873,6 +873,8 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-NON-CREW-UNDO — Undo for non-crew feed rows (section shrinkage / field degradation / asset drift)
 
+**Status:** IN PROGRESS · **Branch:** docs/demote-non-crew-undo
+
 **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ — waits on the operator explicitly wanting non-crew undo; the capture-widening cost is judged then, not now.
 **park-review 2026-08-07:** trigger re-checked with the owner — unfired. No operator has wanted to un-apply a non-crew change in-app; "edit the sheet to change this" remains the intended path (the feed spec's §6.2 rationale — sheet stays the source of truth, and even crew undo is only a temporary `undo_override` pin that releases when the sheet reconciles or moves on, §4.3). Stays PREREQ-fenced. The gate field below was split out of the compound "Technical home + promotion prerequisite" label in this pass so the ledger viewer classifies the row as gated (watch) rather than open.
