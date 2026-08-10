@@ -553,27 +553,37 @@ describe("no `@theme`-token arrow forms survive in class strings (spec §2.2)", 
     // than by waiting for a third round to land on it. The two walkers are
     // deliberately different code, so the fixture cannot vouch for this one; a
     // floor on what it returns can.
-    // DERIVED from the tree, not picked. The first version floored this at a
-    // literal 200, and a mutant that dropped an entire root still returned 362 —
-    // over the bound, so the guard passed while a third of the codebase went
-    // unscanned (review R3). A number chosen by hand cannot know how big the
-    // repo is; the OTHER walker does.
+    // SETS, not sizes. A RATIO is the wrong instrument and review R4 proved it:
+    // dropping the whole `components/admin/settings/` subtree (7 of 858 files)
+    // left the ratio at 0.99, over any sane floor, while a planted offender in
+    // that subtree went unreported. A proportion cannot notice a small subtree,
+    // and small subtrees are where a walker bug lives.
     //
-    // `walkFiles` reads the same roots from disk with completely different code
-    // (readdir, no git), so it is an independent count of what SHOULD be there.
-    // Tracked files are a subset of walked ones (an untracked scratch file is
-    // walked but not tracked), and the gap between them is small and stable —
-    // so the tracked walk must return nearly everything the disk walk finds.
-    const walkedCount = walkFiles(ROOT, UI_ROOTS).length;
-    const trackedCount = trackedFiles(ROOT, UI_ROOTS).length;
-    premise("files the disk walk finds under app/, components/, lib/", walkedCount, 200);
-    premiseHolds(
-      `the live git-tracked scan opened ${trackedCount} of the ${walkedCount} .ts/.tsx files on ` +
-        `disk under ${UI_ROOTS.join(", ")}. A walker that lost a root, an extension, or its git ` +
-        `invocation returns a plausible-looking number that a hand-picked floor accepts — this ` +
-        `bound moves with the repository instead.`,
-      trackedCount >= walkedCount * 0.9,
+    // So the check is exact. `walkFiles` reads the roots from disk with entirely
+    // different code (readdir, no git). Every file it finds is either TRACKED —
+    // and must therefore appear in the live scan — or reported untracked by an
+    // independent git query. Anything in neither set is a file the live scan
+    // lost, named individually.
+    const walked = new Set(walkFiles(ROOT, UI_ROOTS));
+    const tracked = new Set(trackedFiles(ROOT, UI_ROOTS));
+    const untracked = new Set(
+      execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z", ...UI_ROOTS], {
+        cwd: ROOT,
+        maxBuffer: 64 * 1024 * 1024,
+      })
+        .toString("utf8")
+        .split("\0")
+        .filter((f) => f.length > 0),
     );
+    premise("files the disk walk finds under app/, components/, lib/", walked.size, 200);
+    const lost = [...walked].filter((f) => !tracked.has(f) && !untracked.has(f)).sort();
+    expect(
+      lost.slice(0, 20),
+      `the live git-tracked scan did not open these files, and git does not report them as ` +
+        `untracked — so the walker lost them. ${lost.length} total. A walker that drops a root, ` +
+        `an extension, or its git invocation loses whole subtrees, which no proportion of the ` +
+        `tree can notice.`,
+    ).toEqual([]);
 
     const offenders = scanRoots({ root: ROOT, roots: UI_ROOTS, tracked: true }).map(
       (s) => `${s.file}:${s.line} — ${s.token}`,

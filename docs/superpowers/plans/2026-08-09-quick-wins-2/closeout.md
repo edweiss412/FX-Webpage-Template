@@ -111,6 +111,19 @@ That is the ratchet the round-economy retrospective names, and round 3 is where 
 
 Round 3 also confirmed the round-1 and round-2 repairs held: both token readers returned all four planted tokens where the old ones returned two, `[--spacing:3px]` was detected, `min-[720px]:gap-0` was collected, and an empty tracked walker failed its floor.
 
+### §12.1f Cross-model diff review — round 4
+
+Guards only; the resolver closed at APPROVE in round 3 and the docs findings were repaired there. Four findings, all real, and one of them is a correction to THIS RECORD rather than to code.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| R4-1 | **My round-3 commit transcript claimed a `md:hover:gap-0` mutant had been killed. What I actually ran was `md:gap-0`.** The media-query variant is settled by resizing; the hover one is not — Tailwind puts the override under `&:hover`, and the probe is a hidden, un-hovered element, so it would report the resting gap and call it clearance. | The claim is corrected here, and a pseudo-state-gated gap is now REFUSED rather than measured: `hover`/`focus`/`active`/`group-*`/`peer-*` on a gap utility fails the premise. It does not try to compute such a gap — that is the recognizer road this file left — it declines to vouch, the same posture as the `--spacing` tripwire. The real `md:hover:gap-0` mutant now fails. |
+| R4-2 | `immediateParentClassOf` took the FIRST element carrying the testid, so a duplicate earlier in AST order bound the wrong element. A closed question with two answers is not closed. | Ambiguity refused: exactly one match or `null`, which is a premise failure. A planted duplicate now fails. |
+| R4-3 | The `0.9` ratio was still a PICKED number, and the probe was decisive — dropping the whole `components/admin/settings/` subtree (7 of 858 files) left the ratio at 0.99, over any sane floor, while a planted offender in that subtree went unreported. A proportion cannot notice a small subtree, and small subtrees are where a walker bug lives. | Sets, not sizes. Every file the independent disk walk finds is either tracked — and must appear in the live scan — or reported untracked by a separate git query; anything in neither is named individually. The subtree-drop mutant now fails. |
+| R4-4 | Uniqueness still did not establish IDENTITY: rename the intended `base` to `stepBase`, leave an unrelated wrapped `base` behind, and the row finds exactly one declaration, passes every premise, and binds a different constant. | Rows bind by name AND enclosing scope, so a row names a place rather than a word. The rename-plus-decoy mutant now fails. |
+
+Round 4 also confirmed the round-3 repairs held: unsupported object members were checked exhaustively (spread, shorthand, method, getter, setter all surface as unwrappable rather than vanishing), and both static pins and the mounted case iterate all four declared viewports.
+
 ### §12.2 Observed-RED transcripts index
 
 Every RED in this branch was observed against the live tree, and both observations recorded in the task's own commit message.

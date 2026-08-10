@@ -1651,19 +1651,22 @@ function immediateParentClassOf(relPath: string, testId: string): string | null 
         attr.initializer.text === testId,
     );
 
-  let anchor: ts.Node | null = null;
-  const findAnchor = (node: ts.Node): void => {
-    if (anchor !== null) return;
+  // EVERY match, not the first. Taking the first answers "which element?"
+  // silently: a duplicate testid earlier in AST order binds the wrong element and
+  // the pin then measures a container it was never about (review R4). A closed
+  // question with two answers is not closed, so ambiguity is REFUSED.
+  const anchors: ts.Node[] = [];
+  const findAnchors = (node: ts.Node): void => {
     if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && carriesTestId(node)) {
-      anchor = ts.isJsxOpeningElement(node) ? node.parent : node;
-      return;
+      anchors.push(ts.isJsxOpeningElement(node) ? node.parent : node);
     }
-    ts.forEachChild(node, findAnchor);
+    ts.forEachChild(node, findAnchors);
   };
-  findAnchor(sourceFile);
-  if (anchor === null) return null;
+  findAnchors(sourceFile);
+  if (anchors.length !== 1) return null;
+  const anchor = anchors[0] as ts.Node;
 
-  let parent: ts.Node | undefined = (anchor as ts.Node).parent;
+  let parent: ts.Node | undefined = anchor.parent;
   while (
     parent !== undefined &&
     (ts.isJsxExpression(parent) || ts.isParenthesizedExpression(parent))
@@ -1717,6 +1720,36 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
         classText !== null,
       );
       const className = classText as string;
+
+      // A gap gated on a PSEUDO-STATE is not measurable this way and must not be
+      // measured anyway. The probe is a hidden, un-hovered element, so Tailwind's
+      // `&:hover` (and `:focus`, `group-*`, `peer-*`) branches never apply — the
+      // measurement would report the resting gap and call it clearance.
+      //
+      // Review R4 caught this against my own commit transcript: it claimed a
+      // `md:hover:gap-0` mutant had been killed, and what was actually run was
+      // `md:gap-0`. The media-query variant IS settled by resizing; the hover one
+      // is not, and the record said otherwise.
+      //
+      // This does NOT try to compute such a gap — that is the recognizer road
+      // this file left. It refuses to vouch, which is the same conservative
+      // posture as the `--spacing` tripwire: a state-gated gap fails loudly here
+      // instead of passing quietly.
+      const stateGatedGap = className
+        .split(/\s+/)
+        .filter((t) => /:gap(?:-[xy])?-/.test(t))
+        .filter((t) =>
+          /(?:^|:)(?:hover|focus|focus-visible|focus-within|active|visited|target|group-[^:]*|peer-[^:]*)(?::|$)/.test(
+            t.slice(0, t.lastIndexOf(":") + 1),
+          ),
+        );
+      premiseHolds(
+        `${pin.label}: the container declares no pseudo-state-gated gap (found ` +
+          `${stateGatedGap.join(", ") || "none"}). A hidden probe never enters :hover/:focus, so ` +
+          `such a gap cannot be settled here and is refused rather than measured at its resting ` +
+          `value.`,
+        stateGatedGap.length === 0,
+      );
 
       // A TRIPWIRE on the one assumption the probe below still makes, with its
       // reach stated rather than implied. The probe is a detached element on

@@ -46,23 +46,56 @@ const SITES = [
     file: "components/admin/settings/DeveloperToggleButton.tsx",
     name: "TRACK_BASE",
     kind: "string",
+    scope: "<module>",
   },
   {
     file: "components/admin/settings/DeveloperToggleButton.tsx",
     name: "THUMB_BASE",
     kind: "string",
+    scope: "<module>",
   },
   {
     file: "components/admin/settings/DeveloperToggleButton.tsx",
     name: "TAP_TARGET",
     kind: "string",
+    scope: "<module>",
   },
-  { file: "components/shared/AccentButton.tsx", name: "SIZE_CLASS", kind: "record" },
-  { file: "components/shared/AccentButton.tsx", name: "WEIGHT_CLASS", kind: "record" },
-  { file: "components/shared/AccentButton.tsx", name: "RING_OFFSET_CLASS", kind: "record" },
-  { file: "components/shared/AccentButton.tsx", name: "BASE_CLASS", kind: "string" },
-  { file: "components/admin/OnboardingWizard.tsx", name: "base", kind: "string" },
-  { file: "components/admin/OnboardingWizard.tsx", name: "focusRing", kind: "string" },
+  {
+    file: "components/shared/AccentButton.tsx",
+    name: "SIZE_CLASS",
+    kind: "record",
+    scope: "<module>",
+  },
+  {
+    file: "components/shared/AccentButton.tsx",
+    name: "WEIGHT_CLASS",
+    kind: "record",
+    scope: "<module>",
+  },
+  {
+    file: "components/shared/AccentButton.tsx",
+    name: "RING_OFFSET_CLASS",
+    kind: "record",
+    scope: "<module>",
+  },
+  {
+    file: "components/shared/AccentButton.tsx",
+    name: "BASE_CLASS",
+    kind: "string",
+    scope: "<module>",
+  },
+  {
+    file: "components/admin/OnboardingWizard.tsx",
+    name: "base",
+    kind: "string",
+    scope: "StepIndicator",
+  },
+  {
+    file: "components/admin/OnboardingWizard.tsx",
+    name: "focusRing",
+    kind: "string",
+    scope: "StepIndicator",
+  },
 ] as const;
 
 /** The callees the lint rule traverses. `cn` is this repo's wrapper (`lib/ui/cn`). */
@@ -92,10 +125,46 @@ function sourceFileFor(rel: string): ts.SourceFile {
  * Deliberately not module-scope-only: `base` and `focusRing` are declared inside
  * `StepIndicator`, and the rule's blind spot does not care about scope.
  */
-function findDeclarations(sourceFile: ts.SourceFile, name: string): ts.VariableDeclaration[] {
+/**
+ * The nearest enclosing function's name, or `"<module>"` at top level.
+ *
+ * A NAME IS NOT AN IDENTITY, which uniqueness alone does not fix: rename the
+ * intended `base` to `stepBase` and leave an unrelated wrapped `base` behind, and
+ * the row still finds exactly one declaration, still passes every premise, and is
+ * now bound to a completely different constant (review R4). Recording the scope
+ * makes the row name a PLACE as well as a word, so a rename fails loudly instead
+ * of re-binding.
+ */
+function enclosingScopeName(node: ts.Node, sourceFile: ts.SourceFile): string {
+  for (let cur: ts.Node | undefined = node.parent; cur; cur = cur.parent) {
+    if (ts.isFunctionDeclaration(cur) && cur.name !== undefined)
+      return cur.name.getText(sourceFile);
+    if (
+      (ts.isFunctionExpression(cur) || ts.isArrowFunction(cur)) &&
+      cur.parent !== undefined &&
+      ts.isVariableDeclaration(cur.parent) &&
+      ts.isIdentifier(cur.parent.name)
+    ) {
+      return cur.parent.name.text;
+    }
+    if (ts.isMethodDeclaration(cur) && ts.isIdentifier(cur.name)) return cur.name.text;
+  }
+  return "<module>";
+}
+
+function findDeclarations(
+  sourceFile: ts.SourceFile,
+  name: string,
+  scope: string,
+): ts.VariableDeclaration[] {
   const found: ts.VariableDeclaration[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name &&
+      enclosingScopeName(node, sourceFile) === scope
+    ) {
       found.push(node);
     }
     ts.forEachChild(node, visit);
@@ -148,7 +217,7 @@ function isBareStringLiteral(
 describe("class-string consts stay inside the lint rule's reach (spec §2.3)", () => {
   const parsed = SITES.map((site) => {
     const sourceFile = sourceFileFor(site.file);
-    const all = findDeclarations(sourceFile, site.name);
+    const all = findDeclarations(sourceFile, site.name, site.scope);
     return {
       site,
       sourceFile,
@@ -160,7 +229,7 @@ describe("class-string consts stay inside the lint rule's reach (spec §2.3)", (
   it("premise: every named declaration is present, UNIQUE in its file, and the shape its row expects", () => {
     const missing = parsed
       .filter((p) => p.count === 0)
-      .map((p) => `${p.site.file} — ${p.site.name}`);
+      .map((p) => `${p.site.file} — ${p.site.name} in ${p.site.scope}`);
     premiseHolds(
       `every named class-string const is present: missing ${missing.join(", ") || "(none)"}`,
       missing.length === 0,
@@ -174,7 +243,7 @@ describe("class-string consts stay inside the lint rule's reach (spec §2.3)", (
     // position: a second declaration means the row no longer names one thing.
     const ambiguous = parsed
       .filter((p) => p.count > 1)
-      .map((p) => `${p.site.file} — ${p.site.name} (${p.count} declarations)`);
+      .map((p) => `${p.site.file} — ${p.site.name} in ${p.site.scope} (${p.count} declarations)`);
     premiseHolds(
       `every named const resolves to exactly ONE declaration: ambiguous ${ambiguous.join(", ") || "(none)"}`,
       ambiguous.length === 0,
