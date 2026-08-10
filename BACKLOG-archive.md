@@ -8,6 +8,18 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-MUTATION-LEDGERGIT-SITE-DRIFT — the `ledgerGit` source-mutation gate is red on main: relocated sites, an uncovered new constant, and a CI-only survivor pair — CLOSED 2026-08-09 (`fix/mutation-ledgergit-site-drift`)
+
+**Status:** CLOSED · **Filed:** 2026-08-08 (parser mutation-hardening wave; PRE-EXISTING on `main`, not introduced by that wave) · **Severity:** medium · **Class:** CI / GUARD SURFACE · **Effort:** M
+
+`tests/mutation/guardSurfaces.gate.test.ts` failed for the `ledgerGit` surface (`tests/mutation/source/registry.ts`, source `scripts/lib/ledger-git.ts`) from the 2026-08-05 nightly onward. Three distinct causes, resolved as one class-sweep:
+
+1. **Relocated sites (6 rows, mechanical) — RE-KEYED.** `229563b76` ("fix(scripts): CLIs set exitCode instead of exit()") inserted ~16-19 lines into `scripts/lib/ledger-git.ts` without re-pointing the registry's `accepted` rows, which key on line numbers. Every one of the six was verified byte-identical at its new line (`git show 229563b76~1:scripts/lib/ledger-git.ts`), so each `reason` survived verbatim: `67:12`→`83:12`, `114:18`→`130:18`, `176:32`→`192:32`, `202:17`→`219:17`, `261:11`→`280:11`, `306:14`→`325:14` (cited intra-reason refs updated `:88`→`:104`, `:89`→`:105`, `:177`→`:193`).
+2. **The uncovered `MAX_GIT_STDOUT` constant (3 mutants) — LEDGERED accepted-gap.** The same commit added `const MAX_GIT_STDOUT = 64 * 1024 * 1024;`, handed straight to `spawnSync`'s `maxBuffer` — the same unassertable-through-surface spawn-bound family as `BL-LEDGER-GIT-TIMEOUT-CONSTANTS`, which was extended to cover it as its fourth constant; the injectable spawn seam described there closes all four at once. Not killed with a 64 MiB-emitting child on a merge-gating suite, for the same reason the timeouts are not waited out.
+3. **The CI-only survivor pair (`integer-literal:284:60:2>3`, `284:93:2>3`) — KILLED deterministically.** The pair mutates `diffHunks`' hunk-count group (`hm[2]`) to the never-present group 3; the suite had no case that deterministically produced a hunk with an explicit count, so the kill depended on the environment — falsifying the surface's L-6 environment-independence claim (CI 11 survivors / 0.8333, full clone 9 / 0.8571). A constructed-repo multi-line hunk case in `tests/scripts/ledgerClaimsCheck.test.ts` now kills both everywhere (each mutant verified red by hand before landing), re-establishing the claim, which the registry comment records.
+
+Post-fix measurement: 72/78 counted (84 mutants, 6 equivalent, 6 accepted-gap), score ≈ 0.923 ≥ floor 0.9. The parser-shard half of the same nightly red (drifted fingerprints) was healed separately by the wave itself (PR #736: zero-width strip + ledger re-bless `cdab19a29`).
+
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
 **Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
