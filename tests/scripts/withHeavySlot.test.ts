@@ -1,0 +1,325 @@
+/**
+ * tests/scripts/withHeavySlot.test.ts — executable proof for the heavy-phase
+ * concurrency semaphore (scripts/with-heavy-slot.py).
+ *
+ * Spec: docs/superpowers/specs/2026-08-10-heavy-phase-semaphore-design.md — §7 is
+ * CANONICAL for every case body; the `describe` titles carry the §7 case numbers.
+ *
+ * Scaffolding contract (plan "Shared test scaffolding"):
+ *  - Every case builds its OWN `mkdtemp` slot dir and passes it as
+ *    `FX_HEAVY_SLOT_DIR`; the real `/tmp/fx-heavy-slots` is never touched.
+ *  - `runWrapped` spawns the wrapper with a SANITIZED environment: every ambient
+ *    `FX_HEAVY_*` (including `FX_HEAVY_SLOT_HELD`) is stripped before the case's own
+ *    vars are applied. The closeout gate dogfoods this suite under `pnpm heavy`, so
+ *    without the strip a test-spawned wrapper would inherit a LIVE outer marker,
+ *    validate it, and pass through — every mutual-exclusion fixture silently vacuous.
+ *    Cases therefore behave identically wrapped or unwrapped.
+ *  - Assertions read child-written artifact files and the SPEC-CONTRACTED stderr
+ *    lines (§4.5 runtime stderr contract), never incidental output.
+ *  - Timing bounds derive from the case's own `FX_HEAVY_POLL_MS`;
+ *    `FX_HEAVY_JITTER_PCT=0` wherever determinism is asserted.
+ */
+import { type ChildProcess, spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterAll, describe, expect, it } from "vitest";
+
+import { premiseHolds } from "@/tests/_shared/premise";
+
+const REPO_ROOT = process.cwd();
+const WRAPPER = join(REPO_ROOT, "scripts", "with-heavy-slot.py");
+
+const createdDirs: string[] = [];
+
+/** A per-case slot dir. Never the production `/tmp/fx-heavy-slots`. */
+function slotDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "fx-heavy-slot-test-"));
+  createdDirs.push(dir);
+  return dir;
+}
+
+afterAll(() => {
+  for (const dir of createdDirs) rmSync(dir, { recursive: true, force: true });
+});
+
+/**
+ * The strip is load-bearing, not hygiene: see the file header. Ambient
+ * `FX_HEAVY_*` from an outer `pnpm heavy` would otherwise silently rewrite every
+ * case's topology and reentrancy posture.
+ */
+function sanitizedEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith("FX_HEAVY_")) continue;
+    env[key] = value;
+  }
+  return { ...env, ...extra };
+}
+
+type Run = {
+  child: ChildProcess;
+  pid: number;
+  stdout: () => string;
+  stderr: () => string;
+  exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+};
+
+function spawnRun(command: string, args: string[], env: Record<string, string>): Run {
+  const child = spawn(command, args, {
+    cwd: REPO_ROOT,
+    env: sanitizedEnv(env),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let out = "";
+  let err = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    out += chunk;
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    err += chunk;
+  });
+  // `close` (not `exit`) so the stdio pipes are fully drained before the promise
+  // settles — an assertion on the last stderr line is otherwise a race.
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.on("close", (code, signal) => resolve({ code, signal }));
+  });
+  return { child, pid: child.pid ?? -1, stdout: () => out, stderr: () => err, exited };
+}
+
+/** Spawn `python3 scripts/with-heavy-slot.py [wrapperArgs] -- <argv>`. */
+function runWrapped(env: Record<string, string>, argv: string[], wrapperArgs: string[] = []): Run {
+  return spawnRun("python3", [WRAPPER, ...wrapperArgs, "--", ...argv], env);
+}
+
+/** The same child, with no wrapper in the chain — the premise probe's arm. */
+function runUnwrapped(argv: string[]): Run {
+  return spawnRun(argv[0]!, argv.slice(1), {});
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForStderr(run: Run, needle: string, timeoutMs: number): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (run.stderr().includes(needle)) return Date.now();
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `timed out after ${timeoutMs}ms waiting for stderr ${JSON.stringify(needle)}.\n` +
+          `stderr so far:\n${run.stderr()}`,
+      );
+    }
+    await sleep(20);
+  }
+}
+
+async function waitUntil(
+  label: string,
+  predicate: () => boolean,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() >= deadline)
+      throw new Error(`timed out after ${timeoutMs}ms waiting for ${label}`);
+    await sleep(20);
+  }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The overlap oracle. Children append `start:<tag>:<ms>` / `end:<tag>:<ms>` to one
+ * shared log; `O_APPEND` writes of this size are atomic, so line interleaving
+ * cannot corrupt a record.
+ */
+const LOG_WINDOW_JS = `
+const fs = require("node:fs");
+const [tag, log, ms] = process.argv.slice(1);
+fs.appendFileSync(log, "start:" + tag + ":" + Date.now() + "\\n");
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(ms));
+fs.appendFileSync(log, "end:" + tag + ":" + Date.now() + "\\n");
+`;
+
+type Window = { start: number; end: number };
+
+function windows(logPath: string): Map<string, Window> {
+  const found = new Map<string, Window>();
+  let raw = "";
+  try {
+    raw = readFileSync(logPath, "utf8");
+  } catch {
+    return found;
+  }
+  for (const line of raw.split("\n")) {
+    const match = /^(start|end):([^:]+):(\d+)$/.exec(line.trim());
+    if (!match) continue;
+    const [, kind, tag, stamp] = match;
+    const entry = found.get(tag!) ?? { start: Number.NaN, end: Number.NaN };
+    if (kind === "start") entry.start = Number(stamp);
+    else entry.end = Number(stamp);
+    found.set(tag!, entry);
+  }
+  return found;
+}
+
+function overlaps(a: Window | undefined, b: Window | undefined): boolean {
+  if (!a || !b) return false;
+  if ([a.start, a.end, b.start, b.end].some((n) => !Number.isFinite(n))) return false;
+  return a.start < b.end && b.start < a.end;
+}
+
+function logWindowArgs(tag: string, log: string, holdMs: number): string[] {
+  return [process.execPath, "-e", LOG_WINDOW_JS, tag, log, String(holdMs)];
+}
+
+// ---------------------------------------------------------------------------
+
+describe("spec §7 case 1 — mutual exclusion (premise-carrying)", () => {
+  it("serializes two wrapped commands at slots=1, and the fixture can see overlap", async () => {
+    const dir = slotDir();
+    const holdMs = 900;
+
+    // Premise arm: the IDENTICAL two children, unwrapped, must overlap. If they do
+    // not, the fixture cannot observe overlap at all and the wrapped assertion
+    // below proves nothing.
+    const premiseLog = join(dir, "premise.log");
+    const pa = runUnwrapped(logWindowArgs("a", premiseLog, holdMs));
+    const pb = runUnwrapped(logWindowArgs("b", premiseLog, holdMs));
+    await Promise.all([pa.exited, pb.exited]);
+    const premiseWindows = windows(premiseLog);
+    premiseHolds(
+      "unwrapped children overlap — the overlap oracle is blind otherwise",
+      overlaps(premiseWindows.get("a"), premiseWindows.get("b")),
+    );
+
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const log = join(dir, "wrapped.log");
+    const wa = runWrapped(env, logWindowArgs("a", log, holdMs));
+    const wb = runWrapped(env, logWindowArgs("b", log, holdMs));
+    const [ra, rb] = await Promise.all([wa.exited, wb.exited]);
+    expect(ra.code).toBe(0);
+    expect(rb.code).toBe(0);
+
+    const got = windows(log);
+    expect(got.get("a")).toBeDefined();
+    expect(got.get("b")).toBeDefined();
+    expect(overlaps(got.get("a"), got.get("b"))).toBe(false);
+  }, 60_000);
+});
+
+describe("spec §7 case 2 — crash release", () => {
+  it("releases the slot on SIGKILL with no cleanup, inside the jitter-aware bound", async () => {
+    const dir = slotDir();
+    const pollMs = 500;
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: String(pollMs) };
+
+    const holder = runWrapped(env, [
+      process.execPath,
+      "-e",
+      "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,60000)",
+    ]);
+    await waitForStderr(holder, "acquired slot-", 20_000);
+
+    const waiter = runWrapped(env, [process.execPath, "-e", "process.exit(0)"]);
+    // The waiter must be genuinely blocked before the kill, else the measurement
+    // times its own startup rather than the release.
+    await sleep(pollMs);
+    premiseHolds(
+      "waiter is still blocked when the holder is killed",
+      !waiter.stderr().includes("acquired slot-"),
+    );
+
+    const killedAt = Date.now();
+    holder.child.kill("SIGKILL");
+    const acquiredAt = await waitForStderr(waiter, "acquired slot-", 20_000);
+    await waiter.exited;
+
+    // §7 case 2: within poll × 1.2 (jitter) + 2000 ms (spawn latency).
+    expect(acquiredAt - killedAt).toBeLessThanOrEqual(pollMs * 1.2 + 2000);
+  }, 60_000);
+});
+
+describe("spec §7 case 3 — exit-code and argv transparency", () => {
+  it("propagates the command's exit code", async () => {
+    const dir = slotDir();
+    const run = runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1" }, [
+      process.execPath,
+      "-e",
+      "process.exit(7)",
+    ]);
+    const { code } = await run.exited;
+    expect(code).toBe(7);
+  }, 30_000);
+
+  it("passes argv through intact, including arguments containing spaces", async () => {
+    const dir = slotDir();
+    const run = runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1" }, [
+      process.execPath,
+      "-e",
+      "console.log(JSON.stringify(process.argv.slice(1)))",
+      "hello world",
+      "--flag=a b",
+      "-- literal",
+    ]);
+    const { code } = await run.exited;
+    expect(code).toBe(0);
+    expect(JSON.parse(run.stdout().trim())).toEqual(["hello world", "--flag=a b", "-- literal"]);
+  }, 30_000);
+});
+
+describe("spec §7 case 4 — descendant lock-lifetime pin (§4.0 P3 / §4.2)", () => {
+  it("frees the slot when the wrapped parent exits, even with a detached child still alive", async () => {
+    const dir = slotDir();
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const pidFile = join(dir, "orphan.pid");
+    const orphanJs =
+      "const fs=require('node:fs');" +
+      "fs.writeFileSync(process.argv[1],String(process.pid));" +
+      "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,15000);";
+    const parentJs =
+      "const {spawn}=require('node:child_process');" +
+      "const c=spawn(process.execPath,['-e',process.argv[1],process.argv[2]],{detached:true,stdio:'ignore'});" +
+      "c.unref();";
+
+    const parent = runWrapped(env, [process.execPath, "-e", parentJs, orphanJs, pidFile]);
+    expect((await parent.exited).code).toBe(0);
+
+    await waitUntil(
+      "the detached orphan to record its pid",
+      () => {
+        try {
+          return readFileSync(pidFile, "utf8").trim().length > 0;
+        } catch {
+          return false;
+        }
+      },
+      10_000,
+    );
+    const orphanPid = Number(readFileSync(pidFile, "utf8").trim());
+
+    premiseHolds(
+      "the detached child outlives its wrapped parent — otherwise nothing could have retained the lock",
+      alive(orphanPid),
+    );
+
+    const next = runWrapped(env, [process.execPath, "-e", "process.exit(0)"]);
+    const { code } = await next.exited;
+    expect(next.stderr()).toContain("acquired slot-");
+    expect(code).toBe(0);
+
+    // Housekeeping: the orphan sleeps 15 s and would otherwise outlive the run.
+    if (alive(orphanPid)) process.kill(orphanPid, "SIGKILL");
+  }, 60_000);
+});
