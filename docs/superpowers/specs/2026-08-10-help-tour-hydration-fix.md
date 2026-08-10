@@ -5,7 +5,7 @@
 
 ## 1.1 Resolved scope — do not relitigate
 
-- **The fix is a formatting normalization of `app/help/tour/page.mdx`, not a rewrite.** Link targets, aria-labels, and classNames are byte-identical after the change; user-visible copy is preserved up to whitespace normalization — moving a text child onto one line replaces its embedded newlines-plus-indentation with single spaces, which is the same collapse HTML rendering applies, so the RENDERED text is unchanged (R4 F1). Only JSX line structure changes — multi-line attribute lists collapse to one line and text children move inline with their tags (both halves of the §4 recipe). Any finding proposing copy or layout changes is out of scope.
+- **The fix is a formatting normalization of `app/help/tour/page.mdx`, not a rewrite.** Link targets, aria-labels, and classNames are byte-identical after the change; user-visible copy is preserved up to whitespace normalization — moving a text child onto one line replaces its embedded newlines-plus-indentation with single spaces, which is the same collapse HTML rendering applies, so the RENDERED text is unchanged (R4 F1). The changes are JSX line structure plus, on the one card Prettier re-expands, expression-wrapping of text children (§4's per-card recipe, probe-selected at R5). Any finding proposing copy or layout changes is out of scope.
 - **The CI promotion rides in the same arc.** BACKLOG.md (`BL-HELP-TOUR-HYDRATION-MISMATCH`, "Closing this unblocks a one-line follow-up") names the allowlist-row deletion + workflow wiring as the un-defer payload; folding it here is the ratified disposition, not scope creep.
 - **No new test files.** The red test already exists: `tests/e2e/help-pages.spec.ts` asserts zero page errors per `/help/*` route and currently fails on `/help/tour` (probed 2026-08-09, both server postures, per the backlog entry). Green is the same suite passing. A bespoke MDX-compile unit guard was considered and rejected (YAGNI: the e2e page-error assertion is the durable guard once promoted to CI).
 - **The backlog entry's causal guess is superseded by the probe below.** The entry hypothesized column-0 `<a>` elements being wrapped in `<p>`. The confirmed mechanism is different (text children on their own lines inside JSX flow elements are parsed as markdown paragraphs). Do not relitigate the old hypothesis.
@@ -32,14 +32,14 @@ Note on probe fidelity: the probe used raw `@mdx-js/mdx` while the app compiles 
 
 ## 4. Fix
 
-Reformat the three expanded cards to the exact style of their compact siblings, in place:
+**The recipe must be Prettier-stable (R5 F1 — BLOCKING probe): staged MDX is auto-formatted (the lint-staged block at line 147 of the root package.json) and CI runs `pnpm format:check` (`.github/workflows/quality.yml:42`), so any fix Prettier undoes either resurrects the bug via the hook or leaves CI red.** The R5 probe measured stability per card, and the recipe follows the measurement:
 
-- attributes on one line;
-- every text child inline between its opening and closing tag on a single line (`<p className="…">The text…</p>`), so MDX emits it as a plain JSX text child instead of a markdown paragraph.
+- **"Review queues" and "Preview as crew" cards:** reformat to the compact sibling style — attributes on one line, every text child inline with its tags — which the probe shows Prettier PRESERVES for these two when reindented like their siblings.
+- **"Onboarding wizard" card:** Prettier re-expands the compact form at every tested indentation, recreating its three invalid paragraphs. This card takes the formatter-stable form instead: its text children become JSX expression children (`{"…"}`), which compile as expressions (never markdown flow) and which Prettier does not unwrap. **This REVERSES the earlier draft's rejection of the expression form, for this card only, on probe evidence — fenced both directions: do not propose converting the other cards to expressions (unnecessary; probe says compact survives), and do not propose de-expressing the wizard card back to compact (the probe says Prettier destroys it).**
 
-No word of user-visible copy, no href, no aria-label, no className changes; within text children, newline-plus-indentation runs become single spaces (the §1.1 normalization). The diff is whitespace/line-structure only. (Equivalent alternative — wrapping text children in `{"…"}` expressions — rejected: it diverges from the sibling style instead of converging on it.)
+No word of user-visible copy, no href, no aria-label, no className changes; within text children, newline-plus-indentation runs become single spaces (the §1.1 normalization), and the wizard card's text additionally gains expression braces.
 
-Acceptance for this section: recompiling the fixed file with the §3 probe yields exactly **one** `_components.p` in the whole module (the legitimate intro paragraph, `app/help/tour/page.mdx:3`), and none nested inside a JSX element.
+Acceptance for this section: recompiling the fixed file with the §3 probe yields exactly **one** `_components.p` in the whole module (the legitimate intro paragraph, `app/help/tour/page.mdx:3`), and none nested inside a JSX element — **both before AND after running the repo's Prettier over the file** (idempotence: `pnpm format:check` green on the committed form, and formatting the committed form changes nothing).
 
 ## 5. CI promotion (the unblocked follow-up)
 
