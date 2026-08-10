@@ -307,6 +307,27 @@ await target.unsafe("select public.prune_sync_log()");`;
     }
   });
 
+  it("(w) named-default and namespace imports of the driver are rejected", () => {
+    // whole-diff r10: `import { default as pg2 } from "postgres"` and
+    // `import * as pg2 from "postgres"` are ordinary static ECMAScript, both yield a
+    // callable driver, and both were invisible - so a guarded first connection covered
+    // an unguarded second. One permitted import form now; the rest are rejected rather
+    // than traced.
+    for (const imp of [
+      'import { default as pg2 } from "postgres";',
+      'import * as pg2 from "postgres";',
+    ]) {
+      const src = `import postgres from "postgres";
+${imp}
+import { assertLocalDbUrl } from "./_localDbUrl";
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const local = postgres(url, { max: 1 });
+const target = pg2(process.env.TEST_DATABASE_URL!);
+await target.unsafe("select public.prune_sync_log()");`;
+      expect(analyseDestructiveFile(P, src).ok, imp).toBe(false);
+    }
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.

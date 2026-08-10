@@ -93,11 +93,34 @@ export function analyseDestructiveFile(
   // TEST_DATABASE_URL. Trusting a call because of its NAME is the same mistake on the
   // other participant, so it gets the same answer - provenance, not spelling.
   const driverNames = new Set<string>();
+  let nonDefaultDriverImport = false;
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
     if (stmt.moduleSpecifier.text !== "postgres") continue;
     const clause = stmt.importClause;
     if (clause?.name) driverNames.add(clause.name.text);
+    // ONE permitted import form. `import { default as pg2 }` and `import * as pg2`
+    // are ordinary static ECMAScript and both produced a callable driver the analyzer
+    // could not see, so a guarded first connection covered an unguarded second
+    // (whole-diff r10). Rather than teach it to follow each aliasing form - the same
+    // enumeration that has failed here repeatedly - a destructive file may import the
+    // driver only as a default binding. Everything else is rejected, so there is no
+    // alias route left to trace.
+    // TYPE-only bindings are erased and cannot produce a callable driver, so
+    // `import postgres, { type Sql } from "postgres"` - which the real destructive
+    // files use - stays legal. Only a VALUE binding can open a connection.
+    const nb = clause?.namedBindings;
+    if (nb && !clause?.isTypeOnly) {
+      if (ts.isNamespaceImport(nb)) nonDefaultDriverImport = true;
+      else if (nb.elements.some((el) => !el.isTypeOnly)) nonDefaultDriverImport = true;
+    }
+  }
+  if (nonDefaultDriverImport) {
+    return {
+      ok: false,
+      reason:
+        'the postgres driver is imported by a named or namespace binding; a destructive file must use the default form `import postgres from "postgres"` so every connection is visible',
+    };
   }
   // A local declaration of an imported driver name shadows it, exactly as for the guard.
   const driverShadowed = new Set<string>();
