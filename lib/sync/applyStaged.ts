@@ -87,6 +87,8 @@ import {
   type ShowForApply,
   type Timestampish,
 } from "@/lib/sync/applyStagedCore";
+import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
+import { emitDiagramVariantFailures } from "@/lib/log/emitDiagramVariantFailures";
 
 export {
   DUPLICATE_REVIEWER_CHOICE,
@@ -269,6 +271,8 @@ export type ApplyStagedResult =
       // region below. OPTIONAL, mirroring roleFlagsNotice? — absent and [] both mean "nothing
       // unlanded"; consumers default with `?? []`.
       unlandedRenames?: UnlandedRename[];
+      // Census hop 3b (spec §3): the dashboard Apply surface's carry-out.
+      variantFailures?: DiagramVariantFailureRow[];
       snapshotRevisionId?: string;
       // §10 point 5: gate-passing ROLE_TOKEN_MAPPED entries carried to the live post-commit emit
       // region. Optional — only the applied path sets it; absent = nothing gated.
@@ -1459,6 +1463,9 @@ export async function applyStaged_unlocked(
   if (coreResult.unlandedRenames && coreResult.unlandedRenames.length > 0) {
     applied.unlandedRenames = coreResult.unlandedRenames;
   }
+  if (coreResult.variantFailures && coreResult.variantFailures.length > 0) {
+    applied.variantFailures = coreResult.variantFailures;
+  }
   if (coreResult.snapshotRevisionId) applied.snapshotRevisionId = coreResult.snapshotRevisionId;
 
   // Task 4.4: emit SHOW_FIRST_PUBLISHED + reach first-published parity through the shared tail, using the
@@ -2022,6 +2029,13 @@ export async function applyStaged(
         showId: result.showId,
         driveFileId: args.driveFileId,
       });
+    }
+    // Census hop 3 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT, outside the
+    // held lock tx (invariant 10; applyLiveWithDriveReverify has fully awaited every
+    // withPipelineLock before returning). A rolled-back staged apply never reaches here and so
+    // emits nothing, which is the whole reason the produce site stays silent.
+    if (!("skipped" in result) && result.outcome === "applied" && result.variantFailures?.length) {
+      await emitDiagramVariantFailures(result.variantFailures, { showId: result.showId });
     }
     // §10 point 5: ROLE_TOKEN_MAPPED emission — POST-COMMIT, outside the held lock tx (invariant 10;
     // the withPipelineLock resolved before this point). A non-applied outcome carries no entries.

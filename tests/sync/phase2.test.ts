@@ -1,6 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { CrewMemberRow, ParseResult, RoomRow } from "@/lib/parser/types";
+import type { Phase2Result } from "@/lib/sync/phase2";
+import type { LogRecord } from "@/lib/log/types";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 type FakeShow = {
   id: string;
@@ -606,6 +609,98 @@ describe("runPhase2 destructive snapshot", () => {
     expect(unlanded[0]?.pair).toEqual({ removedName: "Old", addedName: "Nowhere" });
   });
 
+  // Task 2 hop 1 of 5 (spec 2026-08-09-private-image-pipeline §3). snapshotAssets produces
+  // `variantFailures` INSIDE the show-lock tx, so nothing on this path may LOG them: a durable
+  // warn inside a tx that later rolls back persists a failure record for an apply that never
+  // happened (invariant 10). They therefore travel as DATA on Phase2Result and the post-commit
+  // sinks emit. Same narrowing style as the unlandedRenames hop row above; same failure mode —
+  // a phase2 that consumes SnapshotAssetsResult and drops the field leaves EVERY downstream sink
+  // dark while the emitter's own unit test stays green.
+  test("phase2 forwards snapshotAssets' variantFailures verbatim and emits nothing itself", async () => {
+    const tx = new FakePhase2Tx();
+    const linkedItem = {
+      driveFileId: "linked-1",
+      mimeType: "image/png",
+      drive_modified_time: "2026-05-01T00:00:00.000Z",
+      headRevisionId: "rev-linked-1",
+      md5Checksum: "a".repeat(32),
+      snapshotPath: null,
+    };
+    // TWO rows with distinct keys/reasons/messages: a forwarder that returns a constant, or that
+    // collapses the list to its first entry, cannot pass the verbatim comparison below.
+    const variantFailures = [
+      {
+        assetKey: "folder-linked-1.png",
+        reason: "sharp_error" as const,
+        message: "sharp pipeline threw: unsupported input",
+      },
+      {
+        assetKey: "embedded-obj-1.png",
+        reason: "blur_oversize" as const,
+        message: "blur 24x18 exceeds the 16px cap",
+      },
+    ];
+    let snapshotCalls = 0;
+
+    // The suite's runWith() calls vi.resetModules() and THEN imports phase2, so a sink registered
+    // on the statically-imported logger would be installed on a different module instance than the
+    // one phase2 loads — and the "emits nothing" assertion below would pass vacuously against a
+    // phase2 that emits. Inline the same reset → import sequence with the sink registered in
+    // between so the capture is on the instance actually under test.
+    vi.resetModules();
+    const { setLogSink, resetLogSink } = await import("@/lib/log");
+    const records: LogRecord[] = [];
+    setLogSink((record) => {
+      records.push(record);
+    });
+    let result: Phase2Result;
+    try {
+      const { runPhase2: run } = await import("@/lib/sync/phase2");
+      result = await run(
+        tx as never,
+        {
+          ...baseArgs,
+          parseResult: parseResult({
+            diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [linkedItem] },
+          }),
+          snapshotAssetsForApply: async () => {
+            snapshotCalls += 1;
+            return {
+              snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+              runUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+              tempPrefix:
+                "diagram-snapshots/shows/show-1/_pending/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/",
+              warnings: [],
+              pending: {
+                revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                snapshot_status: "complete",
+                linkedFolder: null,
+                embeddedImages: [],
+                linkedFolderItems: [],
+              },
+              variantFailures,
+            };
+          },
+        } as never,
+      );
+    } finally {
+      resetLogSink();
+    }
+
+    // Phase2Result is a DISCRIMINATED UNION — narrow before dereferencing (TS2339).
+    if (result.outcome !== "applied") throw new Error(`expected applied, got ${result.outcome}`);
+    // Verbatim: same contents AND same order, compared against the very rows the producer stub
+    // returned — a hardcoded literal on the implementation side cannot satisfy this.
+    expect(result.variantFailures).toEqual(variantFailures);
+    // The zero-emit claim only discriminates if the producer actually handed rows to this apply.
+    premiseHolds(
+      "the producer stub ran and returned at least one variant-failure row",
+      snapshotCalls === 1 && variantFailures.length > 0,
+    );
+    expect(records.filter((r) => r.code === "DIAGRAM_VARIANT_GENERATION_FAILED")).toEqual([]);
+  });
+
   test("newly-added crew auth rows enter no-live-link state", async () => {
     const tx = new FakePhase2Tx();
     tx.shows.set("file-1", {
@@ -1123,6 +1218,10 @@ describe("runPhase2 destructive snapshot", () => {
           tempPrefix:
             "diagram-snapshots/shows/show-1/_pending/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/",
           warnings: [],
+          // Required on SnapshotAssetsResult (spec §3): every producer supplies it,
+          // so the consuming hop reads it directly rather than defaulting a missing
+          // field to [] — a dropped channel must fail loudly, not silently empty.
+          variantFailures: [],
           pending: {
             revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
             snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",

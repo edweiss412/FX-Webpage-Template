@@ -29,6 +29,7 @@ import {
   type ReelWarningCode,
   type VerifyReelOnApplyResult,
 } from "@/lib/sync/verifyReelOnApply";
+import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
 
 export type Phase2Mode = Exclude<ResolvedSyncMode, "asset_recovery">;
 export type StaleWriteCode =
@@ -172,6 +173,10 @@ export type Phase2Result =
       // signal an unlanded pair produces, so this must survive every hop out to that sink. OPTIONAL,
       // exactly mirroring roleFlagsNotice? above — consumers default with `?? []`.
       unlandedRenames?: UnlandedRename[];
+      // Diagram variant generation failures produced by snapshotAssets inside this
+      // tx. OPTIONAL, mirroring unlandedRenames above — the consuming surface emits
+      // DIAGRAM_VARIANT_GENERATION_FAILED post-commit, never here (invariant 10).
+      variantFailures?: DiagramVariantFailureRow[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 cross-boundary thread): the post-apply parseResult.warnings (including any
       // AGENDA_DAY_EMPTIED the apply appended). runPhase2 works on LOCAL rebound parseResult copies,
@@ -400,6 +405,10 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   }
   const appliedRoleMappingsStamp = stampByToken.size > 0 ? [...stampByToken.values()] : null;
   let snapshotRevisionId: string | undefined;
+  // Hop 1 of the failure-signal census (spec §3): the variant stage runs inside
+  // this lock-held tx and may not log, so its rows ride the result out to each
+  // surface's post-commit sink (invariant 10).
+  let variantFailures: DiagramVariantFailureRow[] = [];
   const verifyReelOnApply =
     args.verifyReelOnApply === false ? null : (args.verifyReelOnApply ?? defaultVerifyReelOnApply);
   if (verifyReelOnApply && parseResult.openingReel) {
@@ -429,6 +438,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       }),
     );
     snapshotRevisionId = snapshot.snapshotRevisionId;
+    variantFailures = snapshot.variantFailures;
     const current = tx.readCurrentDiagrams
       ? await callTx("readCurrentDiagrams", () => tx.readCurrentDiagrams!(args.driveFileId))
       : null;
@@ -651,6 +661,9 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     appliedRoleMappings,
   };
   if (snapshotRevisionId) applied.snapshotRevisionId = snapshotRevisionId;
+  // Set only when non-empty, mirroring unlandedRenames — absent and [] both mean
+  // "nothing failed", and every consumer defaults with `?? []`.
+  if (variantFailures.length > 0) applied.variantFailures = variantFailures;
   if (roleFlagsNotice) applied.roleFlagsNotice = roleFlagsNotice;
   // Unit A: carry the pairs the apply did NOT land out to the post-commit sinks that emit the
   // forensic event. Set only when non-empty, mirroring roleFlagsNotice — absent and [] both mean
