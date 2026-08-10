@@ -28,7 +28,7 @@
 
 - [ ] **Step 1:** Verify the authoring PR is merged: `git fetch origin && git show origin/main:BACKLOG.md | rg -c "BL-SPECLINT-RED-EXECUTABILITY-ARM"` → expect `1`. If 0, STOP: the authoring PR has not merged; do not branch.
 - [ ] **Step 2:** `git worktree add -b feat/round-economy-followups-2 ../FX-worktrees/round-economy-followups-2 origin/main`, then `pnpm install` in the new worktree. Docs-only: skip `worktree:link-env`/`preflight`, declare in the PR body.
-- [ ] **Step 3:** `[ -n "$HERDR_PANE_ID" ] && herdr pane rename "$HERDR_PANE_ID" "feat/round-economy-followups-2" && herdr agent rename "$HERDR_PANE_ID" "feat/round-economy-followups-2"`; write `.claude/ship-state.json` (branch, stage, tasksRemaining, next, blockedOn:"", cronJobId, your sessionId); register the 10-minute cron nudge per the AGENTS.md Stage-0 contract (off-minute schedule, date-first, supersession check, discard stale framing).
+- [ ] **Step 3:** `[ -n "$HERDR_PANE_ID" ] && herdr pane rename "$HERDR_PANE_ID" "feat/round-economy-followups-2" && herdr agent rename "$HERDR_PANE_ID" "feat/round-economy-followups-2"`; write the ship-state marker file in the worktree's untracked .claude directory (branch, stage, tasksRemaining, next, blockedOn:"", cronJobId, your sessionId); register the 10-minute cron nudge per the AGENTS.md Stage-0 contract (off-minute schedule, date-first, supersession check, discard stale framing).
 - [ ] **Step 4:** `pnpm ledger:claims --check` for zero ids — this arc claims nothing; a non-empty result is new information, stop and reconcile.
 
 ### Task 1: P1 — the red-cycle bullet into writing-plans.md
@@ -46,7 +46,7 @@
 
 - [ ] **Step 2: Verify.** `rg -n "red-then-green ON THE SAME COMMAND" docs/agents/writing-plans.md` → 1 hit, positioned after the Typecheck bullet; `rg -c "RED validity" docs/agents/writing-plans.md` → unchanged (1).
 - [ ] **Step 3: Guard suite.** `pnpm vitest run tests/docs` → green.
-- [ ] **Step 4: Commit.** `git add docs/agents/writing-plans.md && git commit -m "docs(plan): promote P1 — executable red-cycle validation at plan time (followups-2)"`
+- [ ] **Step 4: Commit.** `git add docs/agents/writing-plans.md && git commit -m "docs(plan): promote P1: executable red-cycle validation at plan time (followups-2)"`
 
 ### Task 2: P2 — enrolment-precedes-review into AGENTS.md bullet 3
 
@@ -63,7 +63,7 @@ Enrolment precedes review, and it includes SHAPE: the runner overlays a target o
 
 - [ ] **Step 2: Verify.** `rg -n "Enrolment precedes review, and it includes SHAPE" AGENTS.md` → 1 hit inside bullet 3; the bullet's original text (mutation score, surviving-mutant admissibility) intact above the append.
 - [ ] **Step 3: Guard suite.** `pnpm vitest run tests/docs` → green.
-- [ ] **Step 4: Commit.** `git add AGENTS.md && git commit -m "docs(plan): promote P2 — enrolment precedes review, including surface shape (followups-2)"`
+- [ ] **Step 4: Commit.** `git add AGENTS.md && git commit -m "docs(plan): promote P2: enrolment precedes review, including surface shape (followups-2)"`
 
 ### Task 3: P3 — executable single source into spec-self-review.md
 
@@ -80,12 +80,12 @@ Where a count exists in BOTH an executable declaration and prose, the executable
 
 - [ ] **Step 2: Verify.** `rg -n "EXPECTED_SITE_TOTAL" docs/agents/spec-self-review.md` → 1 hit inside the numeric-sweep bullet.
 - [ ] **Step 3: Guard suite + self-consistency sweep.** `pnpm vitest run tests/docs` → green; grep the three edited files for every count and label the edits could have staled (`rg -n "three|fifty|fourteen|nineteen|93 seconds|25 minutes" docs/agents/writing-plans.md AGENTS.md docs/agents/spec-self-review.md`) and confirm each against spec §2.
-- [ ] **Step 4: Commit.** `git add docs/agents/spec-self-review.md && git commit -m "docs(plan): promote P3 — executable single source for re-derived counts (followups-2)"`
+- [ ] **Step 4: Commit.** `git add docs/agents/spec-self-review.md && git commit -m "docs(plan): promote P3: executable single source for re-derived counts (followups-2)"`
 
 ### Task 4: Whole-diff cross-model review to APPROVE
 
 - [ ] **Step 1:** Dispatch codex-guard whole-diff review (`--stage diff --round 1`, fresh timestamped `--out` per round, DETACHED `nohup … & disown` — this box SIGTERMs harness background tasks). Brief carries: REVIEWER ONLY; fresh-eyes; the canonical CONSEQUENCE BOUND and THREAT MODEL FENCE paragraphs; spec §1.1 do-not-relitigate list; AC-1 as the acceptance oracle ("each P-row preserves every normative element of spec §2, filing citations inline"); `FINDINGS:`/`VERDICT:` output contract; the fresh `pnpm spec:lint` result for the spec, advisory count acknowledged exactly.
-- [ ] **Step 2:** Per round: read `result.json` (a `no_verdict` is infrastructure, not a review outcome — re-dispatch detached); repair findings with the between-round self-consistency sweep; commit corpus rows with the arc; iterate to APPROVE (0). Four counted diff rounds trigger a diff-stage section in the arc's filing at `docs/review-rounds/feat/round-economy-followups-2/<baseSha12>.md`.
+- [ ] **Step 2:** Per round: read the dispatch's result file (a `no_verdict` is infrastructure, not a review outcome — re-dispatch detached); repair findings with the between-round self-consistency sweep; commit corpus rows with the arc; iterate to APPROVE (0). Four counted diff rounds trigger a diff-stage section in the arc's own filing beside its corpus file under docs/review-rounds (feat branch directory, baseSha12-named).
 
 ### Task 5: Closeout
 
