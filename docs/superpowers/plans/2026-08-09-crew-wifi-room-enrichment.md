@@ -34,7 +34,7 @@ RED: VenueSection RTL cases — split value renders `venue-wifi-ssid` ("Wi-Fi ne
 
 | Transition | Treatment |
 | --- | --- |
-| any state to any state (across server re-render) | instant — server-rendered fact list, no animation, no client state (matches every existing VenueSection row) |
+| any state → any state (across server re-render) | instant — server-rendered fact list, no animation, no client state (matches every existing VenueSection row) |
 
 State pairs enumerated for the audit (each is a server-render delta, all instant): Wi-Fi raw ↔ split ↔ absent; password row present ↔ absent; notes row present ↔ absent; room row present ↔ absent. Conditional-branch enumeration covers the IMPERATIVE `factRows.push` conditions in `VenueSection.tsx` (:172-188 region — the push-guard style, not just JSX ternaries) plus every new push this task adds; the audit test lists each condition and asserts the new rows introduce NO client component, NO AnimatePresence, NO transition classes. Anti-tautology: the raw-fallback snapshot is captured from the CURRENT component before the change lands (committed as a fixture), so the byte-identical claim is against the true pre-change render. **Commit:** `feat(crew-page): venue Wi-Fi split rows + room row`.
 
