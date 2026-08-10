@@ -977,6 +977,18 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation in a case whose real-world frequency has not been measured. **Promotion prerequisite:** a corpus probe over live `flight_info` values establishing how often a leg fails to structure. If it is rare, this closes as a documented limit; if it is common, the probe also tells you which shapes to teach the parser, which is the cheaper of the two directions.
 
+### BL-WIFI-FLATTENED-TRAILING-PROSE — prose after a credential on one flattened line is absorbed into it
+
+**Effort:** S
+
+**Filed:** 2026-08-10, whole-diff review of `feat/crew-field-enrichment` (post-merge segment, F1), probe-demonstrated against the shipped `lib/crew/wifiDisplay.ts`.
+
+**Reachability: INFERRED, NOT PROBED against live data.** The behavior is proven — `"SSID: Guest Hardline from Encore"` yields the network name `Guest Hardline from Encore`, and `"SSID: Guest Password: secret Hardline from Encore"` yields the password `secret Hardline from Encore` — but NO corpus value has this shape. The full-corpus probe (10 fixture shows across both families, 4 live sheets) found prose only BEFORE the labels on flattened lines, or on its own line in the multi-line live cells, where it is correctly recovered as notes. **The probe that would settle it:** re-run the §4 corpus sweep looking specifically for a flattened `event_details.internet` value with text after the last credential.
+
+**Why it was not fixed in the originating branch.** The corpus contains `Network: Institutional Investor Passcode: Investor2025` — a genuine two-word SSID, structurally indistinguishable from `Guest Hardline`. Every candidate rule is a word-count or position cap calibrated on zero instances, which is the number-bounded recognizer this repo's writing-plans rule says the next reviewer defeats, and which spec §4 already rejected once on the same reasoning (the `/` rule that "would have been calibrated on nothing"). The consequence is also bounded: the text renders in full under the wrong row label, rather than vanishing or being silently rewritten.
+
+**Scope if promoted:** if the probe finds real instances, their shape supplies the discriminator (a trailing sentence-cased clause, a known prose lead-in like "Hardline"/"Encore", or a separator the corpus actually uses). If it finds none, this closes as a permanent documented limit — spec §6.7 already carries it.
+
 ### BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row has no transcription affordance
 
 **Effort:** S

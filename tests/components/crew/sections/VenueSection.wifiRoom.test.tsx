@@ -243,6 +243,13 @@ describe("Room row", () => {
       const rooms = roomsFromFixture(REAL_NAME_FIXTURE).map((room) =>
         room.kind === "gs" ? { ...room, name: sentinel } : room,
       );
+      // Premise on THIS case's own inputs: the transform must actually have left
+      // a GS room carrying the sentinel. A mis-typed `kind` would suppress the
+      // row for an unrelated reason and the assertion would still pass.
+      const gs = rooms.filter((room) => room.kind === "gs");
+      premise(`${sentinel}: the transformed rooms still carry a GS room`, gs.length, 0);
+      premiseHolds(`${sentinel}: that room carries the sentinel name`, gs[0]!.name === sentinel);
+
       const container = renderVenue(withRooms(rooms));
       expect(container.querySelector('[data-testid="venue-room"]'), sentinel).toBeNull();
       // No Facilities card at all — not a card containing zero rows.
@@ -296,22 +303,25 @@ describe("Room row", () => {
   test("multiple general-session rooms surface the first by compareRooms", () => {
     // compareRooms orders same-kind rooms by lowercased name, then id — so the
     // expected winner is derived by sorting, never by picking a literal.
+    // Name order and ID order are deliberately OPPOSED: the alphabetically first
+    // room carries the LAST id. Correlated fixtures let a comparator that sorts
+    // by id pick the same winner as one that sorts by name, so the case would
+    // pass against the wrong mechanism (review F2).
+    const gsTemplate = roomsFromFixture(REAL_NAME_FIXTURE).find((r) => r.kind === "gs")!;
     const rooms: ProjectedRoomRow[] = [
-      {
-        ...roomsFromFixture(REAL_NAME_FIXTURE).find((r) => r.kind === "gs")!,
-        id: "r9",
-        name: "ZULU HALL",
-      },
-      {
-        ...roomsFromFixture(REAL_NAME_FIXTURE).find((r) => r.kind === "gs")!,
-        id: "r1",
-        name: "ALPHA HALL",
-      },
+      { ...gsTemplate, id: "r9", name: "ALPHA HALL" },
+      { ...gsTemplate, id: "r1", name: "ZULU HALL" },
     ];
-    const expectedName = [...rooms].sort((a, b) => a.name.localeCompare(b.name))[0]!.name;
+    const byName = [...rooms].sort((a, b) => a.name.localeCompare(b.name))[0]!;
+    const byId = [...rooms].sort((a, b) => a.id.localeCompare(b.id))[0]!;
+    const expectedName = byName.name;
     premiseHolds(
       "the two GS names differ, so 'first by compareRooms' is a decidable claim",
       rooms[0]!.name !== rooms[1]!.name,
+    );
+    premiseHolds(
+      "name order and id order DISAGREE, so this case can tell the two apart",
+      byName.name !== byId.name,
     );
 
     const row = renderVenue(withRooms(rooms)).querySelector('[data-testid="venue-room"]');

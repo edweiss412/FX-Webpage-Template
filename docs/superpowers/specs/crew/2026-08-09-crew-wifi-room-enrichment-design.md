@@ -99,6 +99,17 @@ Room-within-venue: identifiable in 4/4 live sheets; across the 10 fixture shows,
 3. **Trailing punctuation in passwords is preserved** (`ORDTG. `→`ORDTG.`). The probe cannot distinguish sentence-period from password-period; showing exactly what the sheet says is the conservative choice.
 4. **On a rooms fetch failure the Venue room row is absent, identical to no-room.** Deliberate: Venue adds information only from healthy data; the failure is surfaced by the rooms-consuming tiles' existing `SectionTileError`, so the state is signaled, just not twice.
 5. **A synthesized `General Session` name is suppressed, so v1 sheets show no room row.** Their sheets never named the room; showing the placeholder would be noise. If a real venue room is ever literally named "General Session", the raw fallback posture applies: the sheet can rename it, and the suppression is a one-line literal to revisit with a probe.
+7. **On a SINGLE FLATTENED line, text following a value is absorbed into that value.** Prose is recovered as `notes` when it sits on its own line — before OR after the label lines, which is the shape every multi-line corpus value has — but on one flattened line there is no structural signal separating trailing prose from a multi-word value. Probed against the shipped module (diff review, post-merge segment F1):
+
+   ```text
+   "SSID: Guest Hardline from Encore"                  => ssid "Guest Hardline from Encore"
+   "SSID: Guest Password: secret Hardline from Encore" => password "secret Hardline from Encore"
+   "Hardline from Encore\nSSID: Guest\nPassword: secret" => notes "Hardline from Encore"  (correct)
+   "SSID: Guest\nPassword: secret\nHardline from Encore" => notes "Hardline from Encore"  (correct)
+   ```
+
+   **Why this is documented rather than fixed.** The corpus contains `Network: Institutional Investor Passcode: Investor2025`, whose SSID is genuinely two words — structurally identical to "Guest Hardline". Any rule separating them is a word-count or position cap calibrated on NOTHING (no corpus value has trailing prose on a flattened line), and a recognizer bounded by a number is the shape this project's own writing-plans rule tells us the next reviewer will defeat. The consequence is bounded and weaker than the defects that were fixed: the text is still rendered in full and nothing vanishes — it is attributed to the wrong row. Tracked as `BL-WIFI-FLATTENED-TRAILING-PROSE`, whose promotion prerequisite is a corpus probe finding a real flattened value with trailing prose; that probe, not a guess, would supply the discriminator.
+
 6. **The room row surfaces the general-session room only.** Breakout/additional rooms stay in their own tiles; a show whose crew works only breakouts sees no Venue room row (their room appears in room-scoped tiles). Accepted scope line.
 
 ## §7 Out of scope

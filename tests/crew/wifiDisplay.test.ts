@@ -352,3 +352,51 @@ describe("parseWifiValue — unresolved syntax inside a value falls back raw (re
     });
   });
 });
+
+/**
+ * Documented limit, spec §6.7 (whole-diff review, post-merge segment F1). Prose
+ * on its OWN line is recovered as notes, before or after the label lines — the
+ * shape every multi-line corpus value has. On a single FLATTENED line there is
+ * no structural signal separating trailing prose from a multi-word value, and
+ * the corpus itself proves it: `Institutional Investor` is a genuine two-word
+ * SSID. These cases pin the limit so the behavior is DECLARED rather than
+ * accidental, and so the day a probe supplies a real discriminator, the change
+ * shows up here as a deliberate edit.
+ */
+describe("parseWifiValue — flattened trailing prose (documented limit, spec §6.7)", () => {
+  it("prose on its own line is recovered as notes, before OR after the labels", () => {
+    expect(parseWifiValue("Hardline from Encore\nSSID: Guest\nPassword: secret")).toEqual({
+      ssid: "Guest",
+      password: "secret",
+      notes: "Hardline from Encore",
+    });
+    expect(parseWifiValue("SSID: Guest\nPassword: secret\nHardline from Encore")).toEqual({
+      ssid: "Guest",
+      password: "secret",
+      notes: "Hardline from Encore",
+    });
+  });
+
+  it("prose trailing a value on ONE line is absorbed into that value", () => {
+    // The limit. Nothing is lost or hidden — the whole text renders, attributed
+    // to the wrong row. Fixing it needs a probe, not a guess (BL-WIFI-FLATTENED-
+    // TRAILING-PROSE); a word-count cap would reject the real corpus value
+    // asserted immediately below.
+    expect(parseWifiValue("SSID: Guest Hardline from Encore")).toEqual({
+      ssid: "Guest Hardline from Encore",
+      password: null,
+      notes: null,
+    });
+    expect(parseWifiValue("SSID: Guest Password: secret Hardline from Encore")).toEqual({
+      ssid: "Guest",
+      password: "secret Hardline from Encore",
+      notes: null,
+    });
+  });
+
+  it("the corpus value that makes the limit unfixable-by-guessing still splits", () => {
+    // A genuine two-word SSID, structurally identical to "Guest Hardline". Any
+    // rule that rejected the case above on word count would break this.
+    expect(parseWifiValue(FIXTURE_CONSULTANTS)?.ssid).toBe("Institutional Investor");
+  });
+});
