@@ -51,7 +51,27 @@ import type {
 type DiagramsTileProps = {
   showId: string;
   diagrams: PersistedDiagrams | null;
+  /** Passed through to the Gallery; see GalleryProps.sizes for why the caller owns it. */
+  thumbnailSizes?: string;
 };
+
+/**
+ * The §4 manifest fields, carried through to the Gallery item verbatim.
+ *
+ * `variants` is normalised to an array here (never undefined) because the loader
+ * treats it as one; the other three are OMITTED when absent, matching the
+ * manifest's own serialization rule — a null would read as "generated, empty".
+ */
+function variantFields(
+  entry: PersistedEmbeddedImage | PersistedLinkedFolderItem,
+): Pick<GalleryItem, "variants" | "blurDataURL" | "intrinsicWidth" | "intrinsicHeight"> {
+  return {
+    variants: entry.variants ?? [],
+    ...(entry.blurDataURL !== undefined ? { blurDataURL: entry.blurDataURL } : {}),
+    ...(entry.intrinsicWidth !== undefined ? { intrinsicWidth: entry.intrinsicWidth } : {}),
+    ...(entry.intrinsicHeight !== undefined ? { intrinsicHeight: entry.intrinsicHeight } : {}),
+  };
+}
 
 function embeddedItem(entry: PersistedEmbeddedImage, ordinal: number): GalleryItem {
   return {
@@ -71,6 +91,7 @@ function embeddedItem(entry: PersistedEmbeddedImage, ordinal: number): GalleryIt
     // entry with a non-null snapshotPath would render as `<img>` here
     // but always 410 at the proxy → broken image with no admin signal.
     available: entry.snapshotPath !== null && isAllowedDiagramMime(entry.mimeType),
+    ...variantFields(entry),
   };
 }
 
@@ -84,10 +105,11 @@ function linkedItem(entry: PersistedLinkedFolderItem, ordinal: number): GalleryI
     // availability so a linked-folder SVG entry never renders as a
     // broken proxy URL on the crew page.
     available: entry.snapshotPath !== null && isAllowedDiagramMime(entry.mimeType),
+    ...variantFields(entry),
   };
 }
 
-export function DiagramsTile({ showId, diagrams }: DiagramsTileProps) {
+export function DiagramsTile({ showId, diagrams, thumbnailSizes }: DiagramsTileProps) {
   const embedded = diagrams?.embeddedImages ?? [];
   const linked = diagrams?.linkedFolderItems ?? [];
   const items: GalleryItem[] = [
@@ -126,7 +148,12 @@ export function DiagramsTile({ showId, diagrams }: DiagramsTileProps) {
       }
     >
       {diagrams ? (
-        <Gallery showId={showId} snapshotRevisionId={diagrams.snapshot_revision_id} items={items} />
+        <Gallery
+          showId={showId}
+          snapshotRevisionId={diagrams.snapshot_revision_id}
+          items={items}
+          {...(thumbnailSizes ? { sizes: thumbnailSizes } : {})}
+        />
       ) : null}
     </Section>
   );

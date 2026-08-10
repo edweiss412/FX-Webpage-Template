@@ -34,6 +34,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { BellCountResult } from "@/lib/admin/bellFeed";
+import type { NeedsAttentionCountResult } from "@/lib/admin/needsAttentionCount";
 import type { HealthStatus } from "@/lib/admin/healthRollup";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { NAV, isNavItemActive, shouldRenderOverflow } from "./navConfig";
@@ -44,14 +45,31 @@ import { UserMenu } from "./UserMenu";
 
 export function AdminNav({
   email,
-  bellCount,
+  bellCount = null,
+  bellCountPromise = null,
   initialBadgeCount = null,
+  attentionCountPromise = null,
   viewerIsDeveloper = false,
   healthRollup,
 }: {
   email: string;
-  bellCount: BellCountResult;
+  /**
+   * Synchronous first-paint count. `null` is the PENDING shape (count unknown),
+   * distinct from `{kind:"infra_error"}` (read failed) and from a count of 0 —
+   * see admin-nav-badge-streaming §3.2. The layout streams instead of passing
+   * this; callers with a resolved value (tests, any future synchronous mount)
+   * still may.
+   */
+  bellCount?: BellCountResult | null;
+  /**
+   * admin-nav-badge-streaming §3.2: the un-awaited layout read. Resolves to the
+   * same discriminated result `bellCount` carries; the hook commits it through
+   * its existing prop-ingestion path, but only into a virgin badge.
+   */
+  bellCountPromise?: Promise<BellCountResult> | null;
   initialBadgeCount?: number | null;
+  /** §3.2 twin of `bellCountPromise` for the "Needs attention" tab badge. */
+  attentionCountPromise?: Promise<NeedsAttentionCountResult> | null;
   /**
    * developer-tier Task 15 (spec §6 row 8): gates `developerOnly` NavItems
    * (currently Telemetry). Absent → `false` (safe default), so a
@@ -68,7 +86,7 @@ export function AdminNav({
   healthRollup?: HealthStatus;
 }) {
   const pathname = usePathname();
-  const badgeCount = useNeedsAttentionBadge(initialBadgeCount);
+  const badgeCount = useNeedsAttentionBadge(initialBadgeCount, attentionCountPromise);
   // developerOnly items are hidden from non-developers in BOTH navs.
   const visibleNav = NAV.filter((item) => !item.developerOnly || viewerIsDeveloper);
   // The mobile bottom tab bar shows only non-desktopOnly items (Telemetry is a
@@ -183,7 +201,11 @@ export function AdminNav({
             {healthRollup ? (
               <AppHealthIndicator rollup={healthRollup} isDeveloper={viewerIsDeveloper} />
             ) : null}
-            <NotifBell initialCount={bellCount} viewerIsDeveloper={viewerIsDeveloper} />
+            <NotifBell
+              initialCount={bellCount}
+              countPromise={bellCountPromise}
+              viewerIsDeveloper={viewerIsDeveloper}
+            />
           </div>
           <ThemeToggle />
           <UserMenu email={email} />

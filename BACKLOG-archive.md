@@ -8,6 +8,61 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
+
+**Status:** SHIPPED 2026-08-10 · PR #761 · **Effort (as shipped):** L
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — needs its own private-image-pipeline design session.
+
+**Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
+
+**Scope:** Migrate `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` from `<img>` to `next/image` to gain LCP optimization on the mobile crew page. Currently they use `<img loading="lazy" decoding="async">` as the manual equivalent — works correctly but doesn't get Next's `/_next/image` optimizer benefits.
+
+Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-checked bytes with `private, max-age=0, must-revalidate`. The `next/image` optimizer would either need to bypass the auth proxy OR add a second redirect layer — neither is straightforward.
+
+**Why backlog, not deferred:** The in-cluster M9 attempt failed P0 because the obvious paths (declare proxy origin as `next.config.ts` remote pattern; let `/_next/image` proxy through it) break the auth + cache contract. The right fix requires a private-image-pipeline design — custom loader + transform service, OR signed-URL CDN, OR architectural decision to accept the LCP cost of un-optimized images. Each path is a multi-day brainstorming session.
+
+**Promotion prerequisite:** Private-image-pipeline brainstorming (custom loader vs signed-URL CDN vs accept-the-cost). May fold into a broader "v1.5 perf-and-polish" milestone rather than standalone.
+
+---
+
+**RESOLVED 2026-08-10 — SHIPPED** on `feat/private-image-pipeline` (PR #761). Spec:
+`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md`; plan:
+`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`.
+
+**The entry's own premise was right about the obstacle and wrong about the cost.** It framed the
+M9 P0 correctly — `/_next/image` does not forward the picker cookie and rewrites
+`private, max-age=0, must-revalidate` to a public header — and concluded the fix needed "a custom
+loader + transform service, OR signed-URL CDN, OR accepting the LCP cost". The shipped answer is
+the first half of option one WITHOUT a transform service: with a per-component `loader` prop,
+`next/image` never routes through the optimizer at all, so the loader's return value is the URL the
+BROWSER fetches directly and every cookie flows exactly as it did for the raw `<img>`. No
+`next.config.ts` change, no `remotePatterns`, no second redirect layer. The transform half moved to
+INGEST — sharp generates a `[256, 512, 1024]` webp ladder plus a blur placeholder at snapshot time,
+so nothing is transformed per request.
+
+What shipped, beyond the entry's scope: the variant ladder and blur are generated for BOTH the sync
+and the asset-recovery paths, with a structural census guard (`tests/sync/_metaVariantStageCensus.ts`
+sibling) that fails by default when a new original-byte upload path skips the stage; the private
+asset route's accept-set widened to manifest-listed variant paths with a shared key-shape predicate
+(`lib/images/diagramKey.ts`) used by route and loader alike; and promotion was repaired — its
+expected-count SQL counted originals only and its storage listings were unpaginated, either of which
+would have failed every variant-bearing snapshot before cutover.
+
+**Three defects worth remembering**, none of which a green local suite would have caught: `sharp`
+sat in `devDependencies` while `lib/sync` imports it at runtime (a production-only install has no
+sharp; now pinned by a derived guard); WebKit resolves a `height: 100%` child against the gallery
+cell's aspect-ratio BORDER box, so a `fill` image containing-blocked by the button cropped 2px while
+Chromium hid it entirely; and Supabase Storage's `createSignedUrl` NORMALIZES the path it is handed,
+so a manifest key containing `?` or `..` could sign a different object — closed by requiring the
+minted key shape at the accept-set rather than sanitizing at the URL layer.
+
+**Filed forward:** `BL-ADMIN-DIAGRAM-NEXT-IMAGE` (the two admin wizard `<img>` sites, class-sweep
+exception (c)), `BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE` and `BL-DIAGRAM-BLUR-EDGE-SIZE` (both
+need a spec amendment), `BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE`, and three pre-existing sync
+classes this arc's review surfaced with probe evidence:
+`BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES`, `BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS`,
+`BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES`.
+
 ## BL-MUTATION-LEDGERGIT-SITE-DRIFT — the `ledgerGit` source-mutation gate is red on main: relocated sites, an uncovered new constant, and a CI-only survivor pair — CLOSED 2026-08-09 (`fix/mutation-ledgergit-site-drift`)
 
 **Status:** CLOSED · **Filed:** 2026-08-08 (parser mutation-hardening wave; PRE-EXISTING on `main`, not introduced by that wave) · **Severity:** medium · **Class:** CI / GUARD SURFACE · **Effort:** M
@@ -19,6 +74,34 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 3. **The CI-only survivor pair (`integer-literal:284:60:2>3`, `284:93:2>3`) — KILLED deterministically.** The pair mutates `diffHunks`' hunk-count group (`hm[2]`) to the never-present group 3; the suite had no case that deterministically produced a hunk with an explicit count, so the kill depended on the environment — falsifying the surface's L-6 environment-independence claim (CI 11 survivors / 0.8333, full clone 9 / 0.8571). A constructed-repo multi-line hunk case in `tests/scripts/ledgerClaimsCheck.test.ts` now kills both everywhere (each mutant verified red by hand before landing), re-establishing the claim, which the registry comment records.
 
 Post-fix measurement: 72/78 counted (84 mutants, 6 equivalent, 6 accepted-gap), score ≈ 0.923 ≥ floor 0.9. The parser-shard half of the same nightly red (drifted fingerprints) was healed separately by the wave itself (PR #736: zero-width strip + ledger re-bless `cdab19a29`).
+
+### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts out of the blocking layout
+
+**Status:** SHIPPED 2026-08-10 — `feat/admin-nav-badge-suspense` (PR #768). **The GOAL shipped; the entry's named MECHANISM was rejected on evidence and must not be revived from this text.**
+
+Spec `docs/superpowers/specs/nav-perf/2026-08-09-admin-nav-badge-suspense-design.md`, plan `docs/superpowers/plans/2026-08-09-admin-nav-badge-suspense.md`.
+
+What shipped: `app/admin/layout.tsx` issues `loadBellUnseenCount` and `loadNeedsAttentionCount` without awaiting and passes their PROMISES into the client tree; `useBellBadge` and `useNeedsAttentionBadge` each gained one arm that commits a resolved promise through the hook's existing prop-ingestion path, guarded by promise identity and a virgin-state rule. The nav chrome now paints on the identity/health wall-time and each count arrives when its read lands. The onboarding early-return also stopped paying for two reads it discarded.
+
+**Two premises in the row below were FALSE and are corrected here rather than preserved:**
+
+1. _"the repo has zero `<Suspense>` precedent"_ — stale when written. Real boundaries already shipped in the admin tree (`app/admin/page.tsx`, `app/admin/dev/telemetry/page.tsx`, `app/admin/dev/telemetry-dim/page.tsx`).
+2. _`<Suspense>` is the mechanism_ — REJECTED on evidence, not on cost. The resolved counts drive behavior far outside any leaf (the bell's trigger branch, the parent link's count-aware `aria-label`, `zeroNow()` firing before resolution), so nothing on this surface may suspend; and a pre-mount navigation would initialize `lastPathRef` on the destination and silently skip the first refetch. Spec §3.2 "Why the hooks own the pending state" is the record. **Do not re-file this as a Suspense task.**
+
+Original entry text below, with ONE normalization: the meta line is quoted as it stood on the branch at
+archive time (`**Status:** OPEN · **Effort:** M`) rather than as it stands on `origin/main`
+(`**Effort:** M`) — the status field was added by this arc's invariant-12 flight marker and then
+cleared. Every other line is verbatim.
+
+> ### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
+>
+> **Status:** OPEN · **Effort:** M
+>
+> **Filed:** 2026-06-23 (nav-perf Phase 2 — the descoped half of E). Phase 2's E-lite parallelized the admin layout's two badge reads (`Promise.all`), so first `/admin` entry blocks on one wall-time instead of three sequential round-trips. The further win is to stream the badges entirely OUT of the blocking layout path via `<Suspense>` so the nav chrome paints immediately and the counts arrive after.
+>
+> **Why backlog, not now:** `components/admin/nav/AdminNav.tsx` is a `"use client"` component with a stateful refetch hook (`useNeedsAttentionBadge`), and the repo has **zero `<Suspense>` precedent** — streaming needs a server-child + slot bridge (refactor AdminNav's prop/slot contract) for a first-`/admin`-entry-only gain (the layout is reused across sibling navs, so its awaits don't re-run per nav). Invasive relative to the payoff.
+>
+> **Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
 
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
@@ -6572,6 +6655,97 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 **Why backlog, not now:** both were ALREADY ungated before `unit-suite.yml`, so excluding them is not a regression — the gate's job was to cover the 6800+ tests that had NO gate at all. Wiring the two excluded files needs either a remote-validation job variant (TEST_DATABASE_URL pointed at the validation project, mirroring `validation-schema-parity`/`postgrest-dml-lockdown`) or a live-auth setup that provisions the matching service-role key. The `test-auth-gate` 501 may also indicate the Layer-2 tests have drifted since a route change — investigate before gating (don't freeze a possibly-broken security test green).
 
 **Promotion prerequisite:** a CI pass that adds (a) a remote-validation matrix leg for `pg-cron-coverage` + (b) a live-auth setup (or a root-cause fix) for `test-auth-gate` Layer 2, each verified green in real CI before being added to the gate's run set.
+
+### BL-ZERO-WIDTH-POST-PARSE-ENRICHMENT — zero-width text still reaches the PERSISTED payload through the sync/Drive enrichment layer — RESOLVED 2026-08-10 (`feat/m2-payload-hygiene`)
+
+**Status:** RESOLVED (2026-08-10; filed 2026-08-09, surfaced by codex-guard round 4 on `feat/mutation-unicode`, PR #736) · **Severity:** medium · **Class:** PARSER ROBUSTNESS / SYNC · **Effort:** M
+
+The parser-side hole is closed: `parseSheet` strips `[\u200B-\u200D\uFEFF]` from both of its inputs, so nothing invisible survives a parse. But `ParsedSheet` is not finished when `parseSheet` returns. The sync layer attaches Drive-derived fields afterwards (`lib/parser/index.ts` header: those fields are "NEVER populated here"), and every one of them carries author-controlled text that no boundary strips:
+
+- `embeddedImages[].sheetTab` — both the XLSX and Sheets-API branches (`lib/sync/enrichWithDrivePins.ts:232`, `:311`)
+- `embeddedImages[].alt` (`enrichWithDrivePins.ts:314`)
+- `linkedFolderItems[].alt` (`enrichWithDrivePins.ts:380`)
+- `archivedPullSheetTabs[].tabName` and `.headerPreviews[]` (`lib/drive/exportSheetToMarkdown.ts:382`), attached post-parse by `lib/sync/pullSheetOverride.ts:229`
+
+**Probe evidence** (codex-guard round 4, `--stage diff --round 4`). Clean-vs-dirty runs through `enrichWithDrivePins` and through `buildXlsx → parseSheet → finalizeArchivedTabs`, both scored with the mutation oracle:
+
+```
+{"verdict":"SILENT_WRONG","paths":["payload.diagrams.embeddedImages[0].sheetTab","payload.diagrams.embeddedImages[0].alt","payload.diagrams.linkedFolderItems[0].alt"]}
+{"verdict":"SILENT_WRONG","paths":["payload.archivedPullSheetTabs[0].tabName","payload.archivedPullSheetTabs[0].headerPreviews[0]"]}
+```
+
+The archived-tab fingerprint also rekeys silently: `{"clean":"705848ac…f97c25","dirty":"80fd09c3…28058","equal":false}`.
+
+This is the SAME consequence the wave exists to remove — invisible characters defeat equality, so a sheet tab or alt text carrying one fails exact comparison while rendering identically.
+
+**Why filed rather than repaired in the branch that found it** (AGENTS.md class-sweep disposition, exception (b) — a ratified scope decision already fences it): the wave's spec fences every branch to the parser (`docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md` §3.1 scopes the strip to `parseSheet` entry), and plan-wide invariant 7 makes the spec canonical, directing an out-of-scope discovery to a question rather than a silent fix. `lib/sync/**` and `lib/drive/**` are a different subsystem that no branch of this wave otherwise touches. Note this is NOT the "same defect, different file" case the rule forbids deferring: the fence is a ratified scope decision, not convenience.
+
+**Shape (M):** strip at the point Drive-supplied strings enter the payload (five call sites across the three files above, sharing one helper with the parser's `stripZeroWidth` so the boundaries cannot drift), plus a guard in the shape of `tests/parser/payloadZeroWidth.test.ts` covering the enriched payload rather than the parse output, plus a decision on whether the archived-tab fingerprint rekey needs a one-time migration note.
+
+**Resolution (2026-08-10, `feat/m2-payload-hygiene`, M-wave 2 W-PARSE).** Fixed as the
+entry's Shape describes. `stripZeroWidth` extracted to `lib/parser/zeroWidth.ts` — the ONE
+production definition site; the parser entry (`lib/parser/index.ts`), the cell boundary
+(`blocks/_helpers.ts` `clean()`), and the hotel cell normalizer (`blocks/hotelConfTokens.ts`,
+which carried the raw-glyph form of the same class) now import it, and all five Drive-string
+payload boundaries strip through it: `embeddedImages[].sheetTab` (both branches),
+`embeddedImages[].alt`, `linkedFolderItems[].alt`, `archivedPullSheetTabs[].tabName` +
+`.headerPreviews[]`. The archived-tab inclusion match compares stripped forms on BOTH sides,
+so a stored override round-tripping the stripped name still matches its tab (and a legacy
+override captured pre-strip does too). Guard: `tests/parser/payloadZeroWidthEnriched.test.ts`
+— planted U+200B at every covered field (observed failing pre-fix at all four seeded arms),
+clean-fixture verbatim pass, plus a comment-stripped dual-form uniqueness scan (escaped AND
+raw-glyph literals) pinning `lib/parser/zeroWidth.ts` as the only definition site across
+`lib/parser/**`, `lib/sync/**`, `lib/drive/**`, with planted-mutant premise rows both ways.
+
+**One-time fingerprint note (wave spec §4 limit 2).** Stripping rekeys archived-tab
+fingerprints ONLY for payloads that actually carried zero-width characters in Drive-derived
+fields; the consequence is one extra staged re-sync diff per affected show, surfaced through
+the normal review flow. NO migration, NO fingerprint-compat shim — ratified in spec
+`docs/superpowers/specs/2026-08-09-m-wave-2-design.md` §2.2.
+
+**Class-sweep round 0 (recorded).** `enrichAgenda` persists only parser-stripped labels
+(Sheets chip labels are match-only and never stored); the geocode city is a Google Geocoding
+response, not a Drive-supplied string. No additional Drive-string entry points found.
+
+### BL-MUTATION-DRIFT-TRIAGE — mechanism-triage the 143 ledger rows re-kinded to `text_drift` — RESOLVED 2026-08-10 (`feat/m2-payload-hygiene`)
+
+**Status:** RESOLVED (2026-08-10; filed 2026-08-09, created by the warning-shape amendment ratified for `feat/mutation-ref-sub`) · **Severity:** low · **Class:** CI / LEDGER HYGIENE · **Effort:** M
+
+The mutation harness gained a verdict class. `SIGNAL_TEXT_DRIFT` (payload equal, every code count exactly preserved, only a warning's human-readable text moved) is now distinct from `SILENT_SIGNAL_LOSS` (the parser genuinely went quieter), which stays never-deferrable. Spec: `docs/superpowers/specs/parser/2026-08-09-warning-shape-mutation-stability.md` §11.
+
+Landing that classifier re-kinded **143 existing ledger rows** from `signal_loss` to `text_drift` — a machine-generated flip carrying zero author judgement, since the classifier's own output decides eligibility (§11.5(iv)). Each flipped row keeps its original `finding` so it stays resolvable through `OPERATOR_FINDING_MAP`, and carries `[re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]` in its note.
+
+**What is owed:** each of the 143 gets its mechanism named in the note, replacing the migration marker. §11.5(iii) requires that of every ADDED drift row; the flip was a migration rather than an addition, so the bar arrives here instead of blocking the branch.
+
+**Probe evidence — the shape histogram, machine-derived from the warning objects (never authored):**
+
+| Drift shape                              | Count |
+| ---------------------------------------- | ----- |
+| Snippet moved                            | 125   |
+| Reorder-only, multiset identical         | 14    |
+| `blockRef.index` moved, `kind` unchanged | 4     |
+| **Mis-anchor (`blockRef.kind` changed)** | **0** |
+
+Replay: classify each `signal_loss` row's mutant under the new tier, then diff the baseline and mutant warning objects field-by-field. Zero mis-anchors is the safety result that made the flip admissible — §11.5 marks mis-anchor-shaped drift as likely-regression, so a non-zero count would have meant real regressions sitting mislabelled in the ledger today, needing extraction BEFORE the classifier landed. The 4 `blockRef.index` rows were checked individually rather than left as an unexplained residue: `kind` multisets are equal and only the positional ordinal moves.
+
+**Why this is triage and not investigation:** the histogram already assigns every row a shape, so the work is confirming 143 derived classifications, not deriving them. The 35 rows that stayed `signal_loss` are NOT in scope — the classifier discriminated them as genuine loss, which is itself evidence it is not a rubber stamp.
+
+**Not urgent.** These rows were already ledgered and already failing nothing; the flip corrects a label the instrument had been getting wrong since day one. Their notes are honest about what is owed.
+
+**Resolution (2026-08-10, `feat/m2-payload-hygiene`, M-wave 2 W-PARSE).** All 143 rows
+triaged. Replay (scratch script over the harness's own `boundedMutants` + `capture` +
+`verdict` + `fingerprint`): every marked row's mutant regenerated from its siteId, verdict
+re-confirmed `SIGNAL_TEXT_DRIFT` and the committed fingerprint reproduced — 0 mismatches —
+then the baseline-vs-mutant signal channels diffed and classified. The confirmation agreed
+with the machine-derived histogram EXACTLY: 125 snippet moved / 14 reorder-only (multiset
+identical) / 4 `blockRef.index` moved (`kind` unchanged), 0 mis-anchors, 0 disagreeing rows
+— nothing to escalate. Each note now carries `[triaged 2026-08-10: <mechanism>]` in place of
+the migration marker; zero `re-kinded by classifier` markers remain (grep-provable), and
+`knownHoles.test.ts` gained a durable assertion rejecting any future row that parks the
+marker. The 35 rows that stayed `signal_loss` are untouched (out of scope by this entry's
+own text).
+
+---
 
 ---
 

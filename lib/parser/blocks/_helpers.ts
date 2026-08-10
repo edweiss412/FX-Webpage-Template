@@ -1,3 +1,5 @@
+import { stripZeroWidth } from "@/lib/parser/zeroWidth";
+
 /**
  * Shared parser helpers used across block extractors.
  *
@@ -43,13 +45,10 @@ export function splitRow(line: string): string[] {
 
 /** Normalize whitespace, strip zero-width chars, and strip markdown escape backslashes. */
 export function clean(s: string): string {
-  // Strip zero-width junk (ZWSP \u200B - ZWJ \u200D, plus BOM \uFEFF) at the shared
-  // cell boundary so every stored field — not just hotel names — is paste-safe for
-  // maps/search. Matches the coverage of the former hotel-local strip.
-  return s
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .replace(/\\(.)/g, "$1")
-    .trim();
+  // Zero-width strip at the shared cell boundary so every stored field — not just
+  // hotel names — is paste-safe for maps/search. The character class lives in ONE
+  // module (lib/parser/zeroWidth.ts) so the boundaries cannot drift.
+  return stripZeroWidth(s).replace(/\\(.)/g, "$1").trim();
 }
 
 /**

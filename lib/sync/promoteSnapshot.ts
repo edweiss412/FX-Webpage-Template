@@ -13,7 +13,6 @@ type PendingPromotionRow = {
   temp_prefix: string;
   snapshot_revision_id: string;
   asset_count: number;
-  expected_asset_count?: number;
   claim_token?: string | null;
 };
 
@@ -49,6 +48,42 @@ function databaseUrl(): string {
   return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 }
 
+/**
+ * Expected object count for a pending snapshot: every entry with a non-null
+ * `snapshotPath`, PLUS its listed variants (spec §3 promotion change (a)).
+ *
+ * Exported because the mocked `showTx.queryOne` seam in the unit suite returns a
+ * canned count for ANY `jsonb_array_elements` SQL — SQL semantics are untestable
+ * through it, so the real-DB suite evaluates THIS text against Postgres. A copy
+ * of the query in the test would prove only that two copies agree.
+ *
+ * Integrity semantics are unchanged: a missing or extra object still mismatches,
+ * now against the variant-inclusive count.
+ */
+export const EXPECTED_ASSET_COUNT_SQL = `
+        select (
+          select coalesce(sum(
+                   1 + jsonb_array_length(
+                         case when jsonb_typeof(e->'variants') = 'array'
+                              then e->'variants' else '[]'::jsonb end)
+                 ), 0)::int
+            from public.shows s,
+                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'embeddedImages', '[]'::jsonb)) e
+           where s.id = $1::uuid
+             and e->>'snapshotPath' is not null
+        ) + (
+          select coalesce(sum(
+                   1 + jsonb_array_length(
+                         case when jsonb_typeof(l->'variants') = 'array'
+                              then l->'variants' else '[]'::jsonb end)
+                 ), 0)::int
+            from public.shows s,
+                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'linkedFolderItems', '[]'::jsonb)) l
+           where s.id = $1::uuid
+             and l->>'snapshotPath' is not null
+        ) as count
+      `;
+
 function canonicalPrefix(showId: string, snapshotRevisionId: string): string {
   return `diagram-snapshots/shows/${showId}/${snapshotRevisionId}/`;
 }
@@ -71,6 +106,42 @@ function toObjectKey(path: string): string {
   return path.startsWith(`${DIAGRAM_BUCKET}/`) ? path.slice(DIAGRAM_BUCKET.length + 1) : path;
 }
 
+/**
+ * The SDK's `list` defaults to 100 objects per call and silently truncates —
+ * the live cap is 60 diagrams (MAX_TOTAL_DIAGRAM_ITEMS) x (1 original + up to 3
+ * variants) = up to 240 objects, so an unpaginated listing would under-count
+ * every variant-bearing snapshot and fail its manifest check. Same limit/offset
+ * page loop diagramGc's listPaths already uses.
+ */
+const STORAGE_PAGE_SIZE = 100;
+
+async function listAllObjectNames(
+  bucket: {
+    list: (
+      prefix: string,
+      options: { limit: number; offset: number },
+    ) => Promise<{ data: Array<{ name: string }> | null; error: unknown }>;
+  },
+  objectPrefix: string,
+): Promise<string[]> {
+  const names: string[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await bucket.list(objectPrefix, {
+      limit: STORAGE_PAGE_SIZE,
+      offset,
+    });
+    if (error) throw error;
+    const page = data ?? [];
+    for (const entry of page) {
+      if (entry.name) names.push(entry.name);
+    }
+    if (page.length < STORAGE_PAGE_SIZE) break;
+    offset += page.length;
+  }
+  return names;
+}
+
 export function defaultStorage(
   supabase: ReturnType<typeof createSupabaseServiceRoleClient> = createSupabaseServiceRoleClient(),
 ): PromoteSnapshotStorage {
@@ -79,10 +150,10 @@ export function defaultStorage(
     async list(prefix) {
       // List by the stripped object key, but return the caller-facing path
       // (with the bucket prefix) so `move` — which re-strips — sees the shape
-      // it expects.
-      const { data, error } = await bucket.list(toObjectKey(prefix));
-      if (error) throw error;
-      return (data ?? []).filter((entry) => entry.name).map((entry) => `${prefix}${entry.name}`);
+      // it expects. Paginated: this listing feeds the promote manifest check and
+      // the rollback-repair rewind, both of which must see EVERY object.
+      const names = await listAllObjectNames(bucket, toObjectKey(prefix));
+      return names.map((name) => `${prefix}${name}`);
     },
     async move(fromPath, toPath) {
       const fromObject = fromPath.startsWith(`${DIAGRAM_BUCKET}/`)
@@ -98,11 +169,9 @@ export function defaultStorage(
       const objectPrefix = prefix.startsWith(`${DIAGRAM_BUCKET}/`)
         ? prefix.slice(DIAGRAM_BUCKET.length + 1)
         : prefix;
-      const { data, error } = await bucket.list(objectPrefix);
-      if (error) throw error;
-      const objectPaths = (data ?? [])
-        .filter((entry) => entry.name)
-        .map((entry) => `${objectPrefix}${entry.name}`);
+      const objectPaths = (await listAllObjectNames(bucket, objectPrefix)).map(
+        (name) => `${objectPrefix}${name}`,
+      );
       if (objectPaths.length === 0) return;
       const { error: removeError } = await bucket.remove(objectPaths);
       if (removeError) throw removeError;
@@ -115,18 +184,8 @@ async function readRow(snapshotRevisionId: string): Promise<PendingPromotionRow 
   try {
     const rows = await sql<PendingPromotionRow[]>`
       select p.id::text, p.show_id::text, p.drive_file_id, p.temp_prefix,
-             p.snapshot_revision_id::text, p.asset_count,
-             (
-               select count(*)::int
-                 from jsonb_array_elements(coalesce(s.diagrams->'pending'->'embeddedImages', '[]'::jsonb)) e
-                where e->>'snapshotPath' is not null
-             ) + (
-               select count(*)::int
-                 from jsonb_array_elements(coalesce(s.diagrams->'pending'->'linkedFolderItems', '[]'::jsonb)) l
-                where l->>'snapshotPath' is not null
-             ) as expected_asset_count
+             p.snapshot_revision_id::text, p.asset_count
         from public.pending_snapshot_uploads p
-        left join public.shows s on s.id = p.show_id
        where p.snapshot_revision_id = ${snapshotRevisionId}::uuid
        limit 1
     `;
@@ -232,24 +291,9 @@ export async function promoteSnapshotUpload(
       const promoted = await withShowLock(
         row.drive_file_id,
         async (tx) => {
-          const expected = await tx.queryOne<{ count: number }>(
-            `
-        select (
-          select count(*)::int
-            from public.shows s,
-                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'embeddedImages', '[]'::jsonb)) e
-           where s.id = $1::uuid
-             and e->>'snapshotPath' is not null
-        ) + (
-          select count(*)::int
-            from public.shows s,
-                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'linkedFolderItems', '[]'::jsonb)) l
-           where s.id = $1::uuid
-             and l->>'snapshotPath' is not null
-        ) as count
-      `,
-            [row.show_id],
-          );
+          const expected = await tx.queryOne<{ count: number }>(EXPECTED_ASSET_COUNT_SQL, [
+            row.show_id,
+          ]);
 
           const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
           const paths = await storage.list(row.temp_prefix);
