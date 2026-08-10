@@ -20,3 +20,4 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-17-rpc-crew-lifecycle-guard.md`](./2026-07-17-rpc-crew-lifecycle-guard.md) | 2026-07-17 |
 | [`2026-07-17-venue-card-vcr2-vcr3-fixes.md`](./2026-07-17-venue-card-vcr2-vcr3-fixes.md) | 2026-07-17 |
 | [`2026-07-17-venue-degraded-tile-glyph.md`](./2026-07-17-venue-degraded-tile-glyph.md) | 2026-07-17 |
+| [`2026-08-09-private-image-pipeline.md`](./2026-08-09-private-image-pipeline.md) | 2026-08-09 |

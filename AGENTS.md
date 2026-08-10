@@ -295,3 +295,13 @@ Any task whose primary deliverable is UI code is owned by Opus, regardless of wh
 - `app/globals.css`, `tailwind.config.ts`, `postcss.config.mjs`, `DESIGN.md`, design-token / theme files
 
 If you are running under Codex and a task you are about to start lands in any of those locations, **stop**. The task belongs to Opus + the **impeccable v3** skill (`/impeccable` slash command and its setup gates: `context.mjs` context load (PRODUCT.md + DESIGN.md) → register identification). Impeccable v3 superseded the legacy `frontend-design` skill as the canonical UI workflow on this project; do NOT load `frontend-design` for new UI work. Hand back to the orchestrator (Claude Code) for that task. The handoff doc records which tasks split which way.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
