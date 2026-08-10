@@ -36,7 +36,17 @@ export function useNeedsAttentionBadge(
   // issued (see the abort in ingestPropValue), stranding the badge on the stale
   // seed value with nothing left to correct it.
   const claimedRef = useRef(false);
-  const propSyncMountedRef = useRef(false);
+  // The prop value this effect has already accounted for. Initialized to the
+  // MOUNT prop, which `useState` above already holds — so the mount run, and
+  // any later run that sees an unchanged prop, commits nothing.
+  //
+  // This is an identity compare rather than a "skip the first run" flag because
+  // React invokes effects TWICE on mount under StrictMode (dev) and may replay
+  // them on Fast Refresh. A first-run flag reads the replay as a prop change and
+  // ingests the pending value, which CLAIMS the hook (below) and makes it drop
+  // the streamed seed for the rest of the mount — measured in a real browser:
+  // the count route returned 8 and the chip never rendered.
+  const lastPropRef = useRef(initialBadgeCount);
 
   // The ONE commit path for prop-delivered values — the synchronous prop and
   // the resolved seed take exactly the same route, so any future prop-handling
@@ -53,14 +63,8 @@ export function useNeedsAttentionBadge(
   }, []);
 
   useEffect(() => {
-    if (!propSyncMountedRef.current) {
-      // Mount run: useState already holds this exact value and no fetch is in
-      // flight to invalidate, so the commit would be a no-op — but it would
-      // mark the hook claimed before any real source ran, and the seed would
-      // then never be ingested at all. Behavior-identical, virginity-preserving.
-      propSyncMountedRef.current = true;
-      return;
-    }
+    if (Object.is(initialBadgeCount, lastPropRef.current)) return; // mount or effect replay
+    lastPropRef.current = initialBadgeCount;
     ingestPropValue(initialBadgeCount);
   }, [initialBadgeCount, ingestPropValue]);
 

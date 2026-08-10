@@ -169,6 +169,52 @@ const countFetches = () => fetchSpy.mock.calls.filter((c) => c[0] === COUNT_ENDP
 
 // ---------------------------------------------------------------------------
 
+/**
+ * StrictMode replays every mount effect (dev, and Fast Refresh). A prop-sync
+ * effect that detects "the mount run" with a first-run FLAG reads that replay as
+ * a prop change and ingests the PENDING value — which claims the hook, so the
+ * streamed seed is then dropped for the rest of the mount and the badge never
+ * arrives at all.
+ *
+ * Found in a real browser, not here: the count route returned 8 and the chip
+ * never rendered, because `render()` from RTL does not wrap in StrictMode. These
+ * two cases are the standing guard, and each fails against the flag version.
+ */
+describe("StrictMode effect replay does not claim either hook", () => {
+  it("attention: a seed resolving under StrictMode still commits", async () => {
+    const seed = deferred<NeedsAttentionCountResult>();
+    const paints: (number | null)[] = [];
+    function Probe() {
+      paints.push(useNeedsAttentionBadge(null, seed.promise));
+      return null;
+    }
+    render(
+      <React.StrictMode>
+        <Probe />
+      </React.StrictMode>,
+    );
+    await settle(() => seed.resolve({ kind: "ok", count: 8 }));
+    expect(paints.at(-1)).toBe(8);
+  });
+
+  it("bell: a seed resolving under StrictMode still commits", async () => {
+    const seed = deferred<BellCountResult>();
+    const paints: BellFrame[] = [];
+    function Probe() {
+      const bell = useBellBadge(null, seed.promise);
+      paints.push({ count: bell.count, degraded: bell.degraded });
+      return null;
+    }
+    render(
+      <React.StrictMode>
+        <Probe />
+      </React.StrictMode>,
+    );
+    await settle(() => seed.resolve({ kind: "ok", count: 6 }));
+    expect(paints.at(-1)).toEqual({ count: 6, degraded: false });
+  });
+});
+
 describe("useNeedsAttentionBadge — async seed arm (AC-3, AC-5)", () => {
   it("mounts in the pending shape (null) while the seed is unresolved", () => {
     const seed = deferred<NeedsAttentionCountResult>();

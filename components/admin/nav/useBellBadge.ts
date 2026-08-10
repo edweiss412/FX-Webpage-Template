@@ -70,7 +70,10 @@ export function useBellBadge(
   // useNeedsAttentionBadge.ts. Set when a source COMMITS and when a fetch
   // STARTS; a seed resolving after any of that is stale by construction.
   const claimedRef = useRef(false);
-  const propSyncMountedRef = useRef(false);
+  // See the twin comment in useNeedsAttentionBadge.ts: identity compare, not a
+  // first-run flag, because StrictMode replays mount effects and a replay is
+  // not a prop change.
+  const lastPropRef = useRef(initial);
   // Set by the FIRST zeroNow() open gesture and never cleared for the rest
   // of the mount. While set, props DEMOTE from count VALUES to fetch
   // TRIGGERS: a router.refresh() that started BEFORE the open click can
@@ -171,14 +174,8 @@ export function useBellBadge(
 
   // Source 1/2: initial prop + prop changes (router.refresh path).
   useEffect(() => {
-    if (!propSyncMountedRef.current) {
-      // Mount run: useState already holds this exact state and no fetch is in
-      // flight to invalidate. Committing here would only mark the hook claimed
-      // before any real source ran, and the streamed seed would never be
-      // ingested. Behavior-identical, virginity-preserving.
-      propSyncMountedRef.current = true;
-      return;
-    }
+    if (Object.is(initial, lastPropRef.current)) return; // mount or effect replay
+    lastPropRef.current = initial;
     // `initial === null` is the streaming PENDING shape: the layout has no
     // synchronous count to deliver, the seed promise carries it instead.
     if (initial === null) return;
