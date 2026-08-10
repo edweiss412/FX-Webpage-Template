@@ -18,6 +18,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
+
 import "@testing-library/jest-dom/vitest";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,12 +53,16 @@ const LAYOUT_SRC = readFileSync(resolve(REPO_ROOT, "app/admin/layout.tsx"), "utf
  * this layout's prose is full of route globs (`/admin/*`) and the very
  * identifiers under test.
  *
- * LINE comments are stripped FIRST: `// … /admin/* additions …` contains a `/*`
- * that opens a bogus block comment, and a block-first stripper swallowed 10 KB
- * of real code behind it — every assertion below then passed or failed for a
- * reason having nothing to do with the layout.
+ * Hand-rolled stripping is what got this wrong the first time: a naive
+ * block-comment regex treated the `/*` inside `// … /admin/* additions …` as a
+ * comment opener and swallowed 10 KB of real code, so every assertion below
+ * passed or failed for a reason having nothing to do with the layout. The
+ * shared module parses instead of pattern-matching, and
+ * tests/cross-cutting/_metaStripCommentsSingleSource.test.ts forbids local
+ * copies precisely so that class of bug lands once.
  */
-const LAYOUT_CODE = LAYOUT_SRC.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+const LAYOUT_PATH = "app/admin/layout.tsx";
+const LAYOUT_CODE = stripCommentsForFile(LAYOUT_SRC, LAYOUT_PATH);
 
 const never = <T,>(): Promise<T> => new Promise<T>(() => {});
 const resolved = <T,>(value: T): Promise<T> => Promise.resolve(value);
