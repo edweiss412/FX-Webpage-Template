@@ -612,11 +612,11 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 25 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 24 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
-**The `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts` are e2e specs named by no CI workflow** — that allowlist is the population, and the count is whatever it holds (the table below records the measured figures; it was 43, then 32 after PR #743, and 25 after this batch). No number is restated in this sentence, because a narrative copy of a machine-held count is exactly what went stale here. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
+**The `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts` are e2e specs named by no CI workflow** — that allowlist is the population, and the count is whatever it holds (the table below records the measured figures; it was 43, then 32 after PR #743, 25 after that batch, and 24 after M-wave 2 W-E2E). No number is restated in this sentence, because a narrative copy of a machine-held count is exactly what went stale here. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
 
 **Census, RESTATED 2026-08-09 by counting the allowlist rather than by arithmetic** (the "~60" this
 entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated;
@@ -634,8 +634,12 @@ the 2026-08-06 counts are kept alongside so the delta is auditable):
 The 11-row drop in `UNSEEN` and the 9-row drop in the total are `BL-RESURRECT-MOBILE-SAFARI-E2E`
 (archived 2026-08-09): NINE rows removed with their deleted spec files, and TWO reclassified
 `UNSEEN` → `PATH_GATED_BY_EXCLUSION` as `crew-e2e.yml` grew crew-page and theme-toggle.
-`right-now-transitions` stays `UNSEEN` — its whole-file valve fired, so it is named by no workflow
-and is statically skipped (`BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). Only the NINE deletions move the
+`right-now-transitions` stayed `UNSEEN` at that count — its whole-file valve had fired
+(`BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). **RESTATED 2026-08-10 (M-wave 2 W-E2E):** that verdict was
+overturned by probe (the inertness was `getShowForViewer`'s per-show `unstable_cache` tag, not the
+anchor source); the spec is un-skipped, wired desktop-chromium in `crew-e2e.yml`, and reclassified
+`UNSEEN` → `PATH_GATED_BY_EXCLUSION` — `UNSEEN` 25 → **24**, `PATH_GATED_BY_EXCLUSION` 8 → **9**,
+total unchanged at 50. Only the NINE deletions move the
 TOTAL (66 → 57); the two reclassifications move a row between buckets and cannot change it. A first
 draft of this table said 54 by counting only rows whose value is a bare constant, which silently
 dropped the three custom-reason rows — recorded because an uncounted bucket is exactly how the

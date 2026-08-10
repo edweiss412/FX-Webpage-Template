@@ -44,7 +44,7 @@
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "vitest";
-import { firingSmokeSql, NO_OP_MUTANT_COMMAND, queuedUrlFromSmokeOutput } from "./pgCronSmokes";
+import { firingSmokeSql, NO_OP_MUTANT_COMMAND, queuedUrlsFromSmokeOutput } from "./pgCronSmokes";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -481,7 +481,7 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
     () => {
       // The entry's planted mutant — the exact shape the text assertions pass.
       const raw = psql(firingSmokeSql(NO_OP_MUTANT_COMMAND));
-      expect(queuedUrlFromSmokeOutput(raw)).toBe("");
+      expect(queuedUrlsFromSmokeOutput(raw)).toEqual([]);
     },
   );
 
@@ -500,15 +500,25 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
         const canonical = canonicalByName.get(row.jobname);
         expect(canonical, `${row.jobname} missing from the canonical table`).toBeDefined();
         if (!canonical) continue;
-        const url = queuedUrlFromSmokeOutput(psql(firingSmokeSql(row.command)));
+        const urls = queuedUrlsFromSmokeOutput(psql(firingSmokeSql(row.command)));
         expect(
-          url,
+          urls,
           `${row.jobname}: executing the stored command queued no request under this transaction — ` +
             `its net.http_get body does not execute (commented out, unreachable, or erroring)`,
-        ).not.toBe("");
-        expect(url, `${row.jobname}: the queued request targets the wrong route`).toContain(
-          canonical.route,
-        );
+        ).not.toHaveLength(0);
+        // Exactly ONE request, and its parsed path+query EQUALS the canonical
+        // route (review r2 F1: substring containment admitted /api/cron/sync-evil
+        // and /not-sync?next=/api/cron/sync; newest-row-only admitted a wrong
+        // request queued before the canonical one).
+        expect(
+          urls,
+          `${row.jobname}: the stored command queued ${urls.length} requests — the canonical command issues exactly one`,
+        ).toHaveLength(1);
+        const parsed = new URL(urls[0] ?? "");
+        expect(
+          parsed.pathname + parsed.search,
+          `${row.jobname}: the queued request targets the wrong route`,
+        ).toBe(canonical.route);
       }
     },
   );

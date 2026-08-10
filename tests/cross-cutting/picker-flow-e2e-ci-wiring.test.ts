@@ -24,8 +24,10 @@
  * carries a `PATH_GATED_BY_EXCLUSION` allowlist row that says what it actually is.
  * BL-RESURRECT-MOBILE-SAFARI-E2E closed 2026-08-09: crew-page.spec (mobile-safari
  * only) and the rewritten theme-toggle.spec are now wired here too, nine specs
- * were deleted as superseded, and right-now-transitions stays UNSEEN and
- * statically skipped under its own valve. What remains dark is the NON-mobile-safari
+ * were deleted as superseded. right-now-transitions followed 2026-08-10
+ * (M-wave 2 W-E2E): un-skipped, wired desktop-chromium-only (WebKit refuses the
+ * __Host- picker-bootstrap cookie over plain http), classified
+ * PATH_GATED_BY_EXCLUSION. What remains dark is the NON-mobile-safari
  * residual of BL-E2E-APP-DEPENDENT-SPECS-CI-DARK.
  */
 import { execFileSync } from "node:child_process";

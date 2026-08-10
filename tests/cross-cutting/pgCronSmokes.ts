@@ -14,8 +14,10 @@
  * row's `xmin` equals THIS transaction's xid, so a concurrently-firing real
  * cron (both the local stack and the validation project run these jobs every
  * minute) can never satisfy the probe, and the probe can never miss its own
- * row. A commented-out body queues nothing under this xid and returns the
- * empty string — the planted-mutant premise the suite asserts.
+ * rows. ALL rows queued under this xid come back, so a wrong request queued
+ * alongside the canonical one is visible, not shadowed. A commented-out body
+ * queues nothing under this xid and returns the empty list — the
+ * planted-mutant premise the suite asserts.
  *
  * DOCUMENTED LIMIT (the spec's consequence bound, stated rather than silent):
  * this proves the SCHEDULED COMMAND live-issues an HTTP request to its
@@ -28,15 +30,18 @@
  * half is covered by name here, uniformly.
  */
 
-/** One transaction: execute the stored command, read back OUR queued row, roll back. */
+/** One transaction: execute the stored command, read back ALL rows WE queued, roll back. */
 export function firingSmokeSql(command: string): string {
   return [
     "BEGIN;",
     `${command.trim().replace(/;\s*$/, "")};`,
-    // Only a row inserted by THIS transaction can match (xmin = our xid). The
-    // sentinel prefix makes the probe line findable regardless of what the
-    // command itself printed (a request id, the mutant's bare 1, ...).
-    "SELECT 'SMOKE_URL:' || coalesce((SELECT url FROM net.http_request_queue WHERE xmin = pg_current_xact_id()::xid ORDER BY id DESC LIMIT 1), '');",
+    // Only rows inserted by THIS transaction can match (xmin = our xid). ALL of
+    // them come back, unit-separator-joined in queue order — a command that
+    // queues a wrong request AND the canonical one must not pass on the newest
+    // row alone (review r2 F1). The sentinel prefix makes the probe line
+    // findable regardless of what the command itself printed (a request id,
+    // the mutant's bare 1, ...); chr(31) cannot appear in a URL.
+    "SELECT 'SMOKE_URLS:' || coalesce((SELECT string_agg(url, chr(31) ORDER BY id) FROM net.http_request_queue WHERE xmin = pg_current_xact_id()::xid), '');",
     "ROLLBACK;",
   ].join("\n");
 }
@@ -56,17 +61,18 @@ export const NO_OP_MUTANT_COMMAND = `
       1
 `;
 
-/** The smoke's verdict: the sentinel-prefixed probe line's payload ('' = nothing queued). */
-export function queuedUrlFromSmokeOutput(raw: string): string {
+/** The smoke's verdict: EVERY url this transaction queued, in queue order ([] = nothing). */
+export function queuedUrlsFromSmokeOutput(raw: string): string[] {
   const probe = raw
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l.startsWith("SMOKE_URL:"))
+    .filter((l) => l.startsWith("SMOKE_URLS:"))
     .at(-1);
   if (probe === undefined) {
     throw new Error(
-      "pgCronSmokes: the smoke output carries no SMOKE_URL probe line — the smoke SQL did not run to its probe statement",
+      "pgCronSmokes: the smoke output carries no SMOKE_URLS probe line — the smoke SQL did not run to its probe statement",
     );
   }
-  return probe.slice("SMOKE_URL:".length);
+  const payload = probe.slice("SMOKE_URLS:".length);
+  return payload === "" ? [] : payload.split("\u001f");
 }

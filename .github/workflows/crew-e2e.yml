@@ -1,5 +1,5 @@
 name: Crew e2e (mobile-safari + desktop-chromium)
-# Runs EIGHT e2e spec files against a real browser + a seeded local Supabase. Both
+# Runs NINE e2e spec files against a real browser + a seeded local Supabase. Both
 # projects are passed to one invocation and each project's testMatch claims its own
 # specs, so the per-project split is a RESOLUTION, not a list maintained here —
 # verify it with `--list` rather than trusting this comment:

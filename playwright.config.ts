@@ -42,10 +42,10 @@ export default defineConfig({
   // (superseded — spec docs/superpowers/specs/ci/
   // 2026-08-09-resurrect-mobile-safari-e2e-design.md §2.3). The constraint
   // still binds: crew-page.spec.ts mutates the seed's room A/V in beforeAll.
-  // (right-now-transitions.spec.ts also mutates shows_internal.run_of_show, but
-  // its only suite is statically skipped as of 2026-08-09, so it currently writes
-  // nothing — it is named here because un-skipping it would make it a writer
-  // again, not because it is one today.)
+  // (right-now-transitions.spec.ts is a live DB writer too — un-skipped
+  // 2026-08-10, M-wave 2 W-E2E — but it seeds a fresh per-test show and writes
+  // only its own rows, never the shared Waldorf seed. It is serialized here for
+  // the shared dev.* stack, not for seed contention.)
   workers: 1,
   retries: process.env.CI ? 2 : 0,
   use: {
