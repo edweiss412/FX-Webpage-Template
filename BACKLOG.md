@@ -1046,7 +1046,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-WIFI-FLATTENED-TRAILING-PROSE — prose after a credential on one flattened line is absorbed into it
 
-**Effort:** S
+**Status:** IN PROGRESS · **Branch:** feat/wifi-password-legibility · **Effort:** S
 
 **Filed:** 2026-08-10, whole-diff review of `feat/crew-field-enrichment` (post-merge segment, F1), probe-demonstrated against the shipped `lib/crew/wifiDisplay.ts`.
 
@@ -1062,7 +1062,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row has no transcription affordance
 
-**Effort:** S
+**Status:** IN PROGRESS · **Branch:** feat/wifi-password-legibility · **Effort:** S
 
 **Filed:** 2026-08-10, impeccable critique P2 during `feat/crew-field-enrichment` close-out (the arc that introduced the row).
 
