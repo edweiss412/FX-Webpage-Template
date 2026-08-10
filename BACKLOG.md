@@ -870,25 +870,111 @@ plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then l
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
 
-### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
+### BL-SYNC-LOG-EMIT-UNGUARDED — a failed observability write can fail the sync it observes
 
-**Effort:** L (scope floor — design-gated)
-**l-wave-screen 2026-08-06:** PREREQ — scope floor — a schema/data-model decision, and the store is part of what must be decided. This entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`; sync history and warnings persist to `sync_log` (`lib/sync/syncLog.ts:43`), NOT to `app_events`. A possible bundle with BL-OPS-LOG-DASHBOARD-BANNER is worth evaluating because both surface operator history to an admin, but they read DIFFERENT stores today, so the bundle is a design question rather than a shared read path. (Corrected 2026-08-06: an earlier version of this stamp asserted a shared `app_events` read path, which pre-selected a store that does not hold this history.)
+**Status:** OPEN · **Severity:** MEDIUM (availability of manual sync under a transient DB fault) · **Class:** error handling · **Effort:** S · **Filed:** 2026-08-10
 
-**Store correction 2026-08-06 (L-wave, cross-model review R3):** the body below proposes a new table or view and states schema work is mandatory. That is no longer established. `public.sync_log` already carries `show_id`, `drive_file_id`, status/code, warnings, and `occurred_at`, and `querySyncLog` (`lib/observe/query/syncLog.ts:24`) already filters per show/file and orders newest-first — so a per-show history view may need no new schema at all. What remains genuinely open is whether that store's COMPLETENESS, RETENTION, and INDEXING suit an operator-facing history, which is a design question rather than a schema prerequisite. Read the body's schema framing as superseded by this note.
+**Probe evidence.** `lib/sync/runScheduledCronSync.ts:2273` is `await deps.logSync?.(entry);` — no try/catch. `logSync` is called from inside the lock callback at `lib/sync/runScheduledCronSync.ts:3339` and `lib/sync/runScheduledCronSync.ts:3346` (both in `processOneFile_unlocked`, which `withShowLock` invokes), and the installed sink is `writeSyncLog`, which opens its OWN postgres connection (`lib/sync/syncLog.ts:51`). A transient connection fault at emit time therefore throws out of the lock callback and rolls the sync transaction back: **the log write can fail the thing it exists to observe.**
 
-**Origin:** M11-E-D4 (MEDIUM) filed 2026-05-20. M11 `/help/admin/per-show-panel` documents per-spec §9.2 a "sync health" section (last 5 sync attempts) and a dedicated parse-warnings history section. Shipped `app/admin/show/[slug]/page.tsx` renders `PerShowAlertSection` + `ReSyncButton` + `ParsePanel` + `HelpTooltip` only; no historical-aggregate views.
+**Why it is filed now.** The behavior predates this work, but `fix/sync-log-show-id-duration` widened its blast radius from two entry points to ten — every manual re-sync path now installs the sink. Surfaced by the invariant-8 critique on that branch.
 
-**Scope:** Add two new sections to `app/admin/show/[slug]/page.tsx`:
+**Why NOT fixed in that branch (disposition reason (a) — needs a product decision the PR cannot settle).** Both dispositions are defensible and the choice is not the implementer's:
 
-- **Sync health (last 5)** — render the most recent 5 sync attempts for the show with timestamp + outcome (success / partial / hard-fail) + (if failed) the canonical error code. Data source TBD: most likely a new `sync_history` table OR a derived view over existing `pending_syncs` + `shows.last_seen_modified_time` change events. Either path requires schema work.
-- **Parse warnings (history)** — distinct from the live `ParsePanel` view (which shows currently-blocked-on-warnings pending_syncs rows), this would show the historical aggregate of parse warnings emitted by previous sync attempts. Data source: extend `shows_internal.parse_warnings` to be append-only history OR query `pending_syncs` history.
+- **Guard the emit** (`try { await deps.logSync?.(entry) } catch { /* observability must not break the observed action */ }`) — a sync never fails because logging failed, but an observability outage becomes invisible, which is the exact failure mode the whole sync-log attribution arc exists to eliminate.
+- **Leave it loud** — a DB fault stops syncs, which is arguably correct since a sync that cannot record itself is a sync nobody can audit.
 
-Both surfaces need a schema decision (new table vs derived view vs append-only column) before implementation.
+A middle option exists (guard, but emit a `log.error` with a durable code so the gap is itself observable) and is probably right — but it needs a §12.4 code and therefore its own scoped change.
 
-**Why backlog, not deferred:** No v1 ops gap. Doug has `admin_alerts` for high-signal failure notification (active and surfaced above the page chrome); historical-aggregate diagnostics are observability polish, not ops requirement. Both sections need schema/data-model work that's outside small mechanical fix scope.
+**Related, same emit path (fold into whichever fix lands):** each emit opens and closes a dedicated postgres connection while the per-show advisory lock is held, lengthening lock hold on every manual sync. Cheap to fix by reusing the transaction's connection for the sink, but that changes the sink's isolation semantics — the row would then roll back with a failed sync rather than recording the failure, which is a behavior decision, not a refactor.
 
-**Promotion prerequisite:** Either (a) FXAV operator feedback surfaces "I can't tell if sync has been silently failing" pattern (real observability gap), OR (b) a v1.x admin-UX or admin-observability milestone bundles this with BL-OPS-LOG. The data-model question (new table vs derived view vs append-only column) needs a brainstorming session.
+### BL-DESTRUCTIVE-GUARD-EXECUTION-SITE — the destructive-target guard checks connections, when it should check execution sites
+
+**Status:** OPEN · **Severity:** MEDIUM (a guard that raises the cost of a mistake without proving absence) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-10
+
+**Probe evidence.** `tests/db/_destructiveFileAnalysis.ts` verifies that every `postgres(...)` call it can SEE connects to a guarded loopback URL. Whole-diff review of PR #767 found five distinct ways to obtain a driver the analyzer cannot see — `import()`, `require()`, `import { default as … }`, `import * as … `, `createRequire`, and `process.getBuiltinModule("node:module").createRequire` — each demonstrated returning `{"ok":true}` on a file that pruned `TEST_DATABASE_URL`. Every one is now rejected, and round 11 of that review claimed the set was closed at four; round 12 disproved it. **The acquisition enumeration does not terminate**, so the current module raises the cost of writing an unchecked connection by accident without proving none exists.
+
+**The sound framing, which does terminate.** Check the EXECUTION SITE rather than the connections: every destructive statement must run on a client bound to a connection the analyzer already checked. Acquisition then stops mattering — a client obtained by any route simply is not in the checked set.
+
+**Why it was not done in that PR (disposition reason (c) — a redesign of a surface the PR does not otherwise touch).** It was attempted and reverted. Real destructive files build clients through local factories: `tests/db/resetValidationDataConcurrency.test.ts:64` uses `const b = newConn()`. Propagating "checked" through a local factory needs interprocedural analysis, without which the invariant rejects correct code. That is a proper piece of work, not a follow-on tweak, and the PR it surfaced in was about sync-log attribution.
+
+**A SECOND open limit, same root cause (added 2026-08-10 after whole-diff r16).** Discovery is spelling-sensitive: the patterns require the schema-qualified, unquoted `public.<name>(` form, so `select prune_sync_log()` and `select "public"."prune_sync_log"()` are not discovered and no safety analysis runs on such a file. Nine other spellings were closed in that PR by keying on the function name instead of a statement shape, but quoting and qualification remain. Chasing SQL spellings has the same non-termination as the aliasing enumerations, so it is recorded rather than pursued.
+
+The terminating framing is the same one below, applied one layer up: **discover files by the fact that they OPEN A DATABASE CONNECTION**, and require the guard of all of them. That removes SQL spelling from the question entirely — a file cannot execute destructive SQL without a connection. It is a cross-cutting change over every DB test in the repo, which is why it is filed rather than done in a sync-log attribution PR.
+
+**Acceptance.** Every current fixture in `tests/db/destructiveFileAnalysis.test.ts` still rejects, all real destructive files still pass, AND a file acquiring a driver by a route not in the current rejection list is rejected because its client is not in the checked set. If that lands, the acquisition rules (dynamic import, require, createRequire, getBuiltinModule, non-default import form) can all be DELETED — the redesign should make the module smaller, not larger.
+
+### BL-SPEC-LINT-CITATION-INTENT — spec:lint checks that a citation resolves, never that it resolves to the right file
+
+**Status:** OPEN · **Severity:** MEDIUM (silent wrong-anchor citations in specs and plans) · **Class:** tooling gate · **Effort:** M · **Filed:** 2026-08-09
+
+**Probe evidence, measured on this arc.** `pnpm spec:lint` reports `CITATION_FILE_MISSING` when a path does not exist and `CITATION_SYMBOL_UNMATCHED` as an ADVISORY when no identifier sits on the cited line. Neither fires when a citation resolves to the WRONG file at a line that happens to exist. Measured: the plan for `fix/sync-log-show-id-duration` carried mis-filed anchors through two adversarial rounds at `0 hard` — plan R1 F4/F5 and R2 F11 between them named eleven citations pointing at `lib/sync/runScheduledCronSync.ts` whose subjects live in `runManualSyncForShow.ts`, `runOnboardingScan.ts`, `runManualStageForFirstSeen.ts`, `supabase/migrations/20260629000002_app_events.sql`, and `tests/db/_metaDestructiveDbTargetGuard.test.ts`. Every one resolved. `runScheduledCronSync.ts:224` and `runManualSyncForShow.ts:224` are both real lines, so existence cannot discriminate them.
+
+**Live surface.** `scripts/spec-lint.ts`, run on every spec and plan in `docs/superpowers/`.
+
+**Sketch, not a design.** Compare the cited line's enclosing symbol against the identifiers named in the citing sentence, and demote to advisory when the sentence names none. The prior art is the advisory `CITATION_SYMBOL_UNMATCHED` already computes the enclosing-line identifier set; what is missing is the comparison against the prose. Note the trap this arc hit twice: a verifier written by the same author who made the mistake tends to inherit its blind spot — the first one I wrote checked resolution, which is exactly what already passed. Any implementation must be validated against the eleven known-bad citations above as a fixture, not against the corrected plan.
+
+### BL-SYNC-LOG-ATTRIBUTION-METATEST — structural guard that every sync_log writer names its show
+
+**Status:** OPEN · **Severity:** MEDIUM (regression prevention; the defects it guards are repaired in `fix/sync-log-show-id-duration`) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-09
+
+**Why filed rather than shipped with the repair it guards.** Descoped under the three-round prose cap (`docs/agents/spec-self-review.md:22`) after its _definition_ — not the change it guards — consumed spec review rounds 11, 12, and 13 plus two self-found findings. Each repair to the guard's accept-set or marker vocabulary introduced the next round's edge case, which is exactly the negative-marginal-value pattern that rule describes. The attribution repairs themselves are correct with or without it; the guard prevents future regressions.
+
+**The design is done and should be implemented as specified, not re-derived.** Six rounds of work, preserved:
+
+- **Writers are DERIVED from the exports of `lib/sync/syncLog.ts`**, plus the `logSync`/`insertSyncLog` method and callback forms, plus a literal `insert into … sync_log` (schema qualifier optional). A hand-listed writer set omitted `writeSyncLog` and `makePostgresSyncLogSink` while `app/api/cron/sync/route.ts:4,21` imports and wires the former (spec R4 F4).
+- **Emission vs construction:** `makePostgresSyncLogSink(sql)(entry)` is immediately invoked with no binding (`lib/sync/syncLog.ts:54`), so for `f(a)(b)` the OUTER call is the emission and the inner is construction (spec R6 F2).
+- **Only inline object literals are judged.** Measured on the live tree: 37 sites, 12 non-attributing, of which 3 were false positives — `lib/sync/runPushSyncForShow.ts:246`, `lib/sync/runScheduledCronSync.ts:2250`, `lib/sync/syncLog.ts:54` — because a variable argument hides a present `driveFileId`. A variable argument is a documented limit, not a finding.
+- **Exemption is site-precise**, never a file-level registry: a file-scoped row for `lib/sync/runOnboardingScan.ts` (which needs one for `:1134`) would exempt the seven superseded sites in the same file — the very sites the guard exists to catch.
+- **Three disjoint markers**, none substitutable: `run-level-sync-log` (no show is knowable), `sync-log-no-attempt` (a show may be knowable but this call reaches no attempt — the wizard `applyStaged` call), `sync-log-emission-gap: <BL-id>` (an attempt happens, is unemitted, gap filed).
+- **Entry-point rule keys on the SINK PARAMETER**, not transitive reachability, which is recursive and unsatisfiable — `unarchiveShow` reaches a writer, so its callers would owe sinks up the whole graph (spec R13 F1). A signature that cannot carry a sink is a defect to widen, not grounds to exempt the path.
+- **Scope bound:** roots `lib`, `app/api`, `app/admin`; ~150 lines, and past ~250 narrow the claim rather than widen the recognizer. Threat model is ordinary authoring; deliberate obfuscation files to documented limits.
+- Mechanism: `walkSourceFiles` (`lib/messages/__internal__/walkSourceFiles.ts:8-11`) + TypeScript AST, per `tests/log/_metaMutationSurfaceObservability.test.ts`.
+
+A working draft exists in the shipping session's scratchpad; the design above is authoritative.
+
+**Two open definitional questions the shipping arc did NOT settle (spec R14 F2/F3) — resolve these before implementing, do not treat the design above as complete on them:**
+
+- **The signature-keyed accept-set is not yet decidable.** If "carries `logSync`" means a DIRECT property it excludes real entry points whose sink is nested — `runManualSyncForShow`/`_unlocked` via `processDeps.logSync` (`lib/sync/runManualSyncForShow.ts:48-72`), `applyStaged`/`_unlocked`/`applyStagedParse` via `firstPublishedTailDeps.logSync` (`lib/sync/applyStaged.ts:369`, `:950`, `:1152`, `:1940`, `:2073`). If nested properties count, a checker probe admitted five non-runners — `evaluateQualityRegression_unlocked` (`lib/sync/runScheduledCronSync.ts:316-381`), `runPhase1_unlocked` (`:2543-2549`), `runPhase2_unlocked` (`:2551-2557`), `prepareProcessOneFile` (`:2858`), `prepareOnboardingFiles` (`lib/sync/runOnboardingScan.ts:1194-1204`) — plus `runOnboardingScan`, whose production caller passes only `{ onProgress }` (`app/api/admin/onboarding/scan/route.ts:282-284`) while the callee opens its own logging transaction, leaving no truthful disposition.
+- **The three markers are not disjoint in the current tree.** Every run-level seed also reaches no per-file attempt, so `run-level-sync-log` and `sync-log-no-attempt` are both defensible at all eight seeds (`lib/sync/runScheduledCronSync.ts:3780`, `:3796`; the four `lib/onboarding/sessionLifecycle.ts` sites; `lib/sync/runOnboardingScan.ts:1134`; `app/api/drive/webhook/route.ts:224`). Either collapse them or find a predicate that separates them.
+
+**Promotion prerequisite:** none for scheduling, but the two questions above are the first work, not an afterthought — they are why this was descoped.
+
+**Interim coverage:** `fix/sync-log-show-id-duration` ships `tests/sync/syncLogRepairSites.test.ts`, an enumerated pin over the fifteen sites it repairs. Delete it when this guard lands.
+
+### BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches
+
+**Status:** OPEN · **Severity:** HIGH (Doug's deliberate actions are invisible to `observe synclog`) · **Class:** sync observability · **Effort:** M · **Filed:** 2026-08-09
+
+**Probe (cross-model review R8 F1, `fix/sync-log-show-id-duration`).** Installing a `logSync` sink is NOT sufficient for a manual attempt to be recorded. `runManualStageForFirstSeen` returns before its sole emission at `lib/sync/runManualStageForFirstSeen.ts:147` on four branches — `stage` (`:81-83`), `hard_fail` (`:84-85`), `pass` (`:87`), `defer` (`:185-186`) — plus phase-2 `stale` (`:133-135`). A probe supplying `logSync` and exercising the first four reported `logSyncCalls: 0` for every one. Thrown phase-1/phase-2 failures escape through unguarded awaits at `:117` and `:205`. Separately, `runManualSyncForShow` awaits `runOne` with no catch (`lib/sync/runManualSyncForShow.ts:431`); a probe with `processDeps.logSync` installed and `runOne` throwing produced `{"thrown":"probe-prepare-failure","logSyncCalls":0}`.
+
+**Why the arc that found it did not fix it.** `fix/sync-log-show-id-duration` makes every sync writer attribute its show and wires a sink into all eight entry points that lacked one. That is necessary and, for the cron and Drive-webhook paths, sufficient. It is NOT sufficient for manual sync, because these branches never reach an emission at all. Repairing them means adding emission at each early return and deciding what a thrown attempt should record — a change to what the pipeline reports, not to how a row is attributed. Scope decision taken by the user 2026-08-09: ship attribution, file this.
+
+**Third surface, same defect (cross-model R10 F1):** the staged-apply path. `lib/sync/applyStaged.ts:1468-1498` invokes `emitSuccessfulPhase2Tail` with only `upsertAdminAlert` injected (`:1485-1493`) — no sink, no start, no clock — and neither of its two LIVE-CAPABLE callers supplies tail dependencies (`app/api/admin/staged/[fileId]/apply/route.ts:152` omits the argument; `app/api/admin/show/staged/[stagedId]/apply/route.ts:164` passes `{}`). The wizard caller at `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts:153` is NOT affected — it fixes `sourceScope: "wizard"`, which stages approval and manifest metadata only and never reaches `emitSuccessfulPhase2Tail`; the show apply happens later at finalize (`lib/sync/applyStaged.ts:2047-2066`). `rg -n "firstPublishedTailDeps" app lib` finds only the declaration, defaulting, and use inside `applyStaged.ts` — no production injection anywhere. A first-seen apply therefore records no attempt row.
+
+**Scope of a real fix:** emit at each early-return branch of `runManualStageForFirstSeen`; inject a sink and start into `applyStaged`'s tail from both live apply routes; wrap `runOne` in `runManualSyncForShow` so a throw records an `error` outcome. Verify with a live manual sync per branch — the existing tests inject `logSync` at the helper level and so never exercise the early returns.
+
+**Related:** `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` §6.2 fences this and scopes AC-1/AC-6 to the paths that do emit. Sibling defect on the same surface: `BL-PENDING-RETRY-EXISTING-SHOW-THROWS`.
+
+### BL-PENDING-RETRY-EXISTING-SHOW-THROWS — existing-show pending-ingestion retry throws before any sync work
+
+**Status:** OPEN · **Severity:** HIGH (a shipped admin action appears to work and cannot) · **Class:** sync pipeline · **Effort:** M · **Filed:** 2026-08-09
+
+**Probe.** `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` calls `runManualSyncForShow_unlocked(tx, driveFileId, "manual", metadata, {})`. That function invokes `processOneFile_unlocked` with **five** arguments (`lib/sync/runManualSyncForShow.ts:287-294`) — it never passes the sixth `prepared` parameter. `processOneFile_unlocked` throws unconditionally when `prepared` is absent (`lib/sync/runScheduledCronSync.ts:3299-3304`):
+
+```
+if (!prepared) {
+  throw new SyncInfraError("processOneFile_unlocked", "thrown_error",
+    new Error("prepared process data is required before acquiring the show lock"));
+}
+```
+
+So for any non-archived show, the existing-show retry path throws `SyncInfraError` before doing any sync work. Only the archived-skip early return at `:3296` avoids it.
+
+**Why this is not fixed by the arc that found it.** Surfaced by cross-model review R7 (F2/F3) during `fix/sync-log-show-id-duration`. That change makes every sync writer attribute its show, and it wires a `logSync` sink into this site along with seven others — but the throw precedes emission, so the sink is inert here. Repairing it means deciding what `prepared` data this route should construct before taking the lock, which is a design question about the retry flow rather than about logging. Class-sweep disposition exception (a): needs a design decision the current PR cannot settle.
+
+**Scope of a real fix:** decide whether the route should call `prepareProcessOneFile` itself, or use the locked `runManualSyncForShow` entry point instead of the `_unlocked` variant. Then verify with a live retry against an existing show — the current tests inject `processOneFile_unlocked`, which is why this never surfaced.
+
+**Related:** the same path is the third duration-capture boundary noted in `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` §6.1; duration there is moot until the path executes.
 
 ### BL-PICKER-LOCK-ICON-LUCIDIFY — replace U+1F512 emoji with lucide-react Lock in PickerInterstitial
 

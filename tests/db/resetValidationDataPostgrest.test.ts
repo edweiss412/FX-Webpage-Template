@@ -22,24 +22,37 @@
  * safeupdate) so a regression to bare deletes fails CI loudly.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 import postgres, { type Sql } from "postgres";
 import { randomUUID } from "node:crypto";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-
-// SAFETY: this test WIPES all shows via the reset RPC — never run it against a remote DB.
-const LOCAL_DB_URL_REGEX =
-  /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i;
-if (!LOCAL_DB_URL_REGEX.test(DB_URL)) {
-  throw new Error(
-    `resetValidationDataPostgrest.test.ts: TEST_DATABASE_URL='${DB_URL}' is not local. ` +
-      "reset_validation_data() wipes ALL shows — refusing to run against a remote URL.",
-  );
-}
+// SAFETY: this test WIPES all shows via the reset RPC — never run it against a remote
+// DB. The loopback check goes through the SHARED guard rather than a local regex: this
+// file hand-rolled its own until 2026-08-10, which is the duplication
+// _metaStripCommentsSingleSource-style single-sourcing exists to prevent, and it is
+// also what the destructive-target guard resolves to when checking provenance.
+const DB_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // Local PostgREST + the well-known local demo service_role JWT (role=service_role).
-const REST_URL = "http://127.0.0.1:54321/rest/v1";
+//
+// The wipe travels over REST_URL, NOT over DB_URL — so guarding only the database URL
+// left the destructive call itself unguarded: pointing REST_URL at a remote project
+// wiped it while the loopback assert stayed green (whole-diff r16). The endpoint the
+// mutation actually uses is asserted loopback here, at module load, on the same terms.
+const REST_URL = assertLocalRestUrl("http://127.0.0.1:54321/rest/v1");
+
+function assertLocalRestUrl(url: string): string {
+  const host = new URL(url).hostname;
+  if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(host)) {
+    throw new Error(
+      `resetValidationDataPostgrest.test.ts: REST_URL host '${host}' is not loopback. ` +
+        "reset_validation_data() wipes ALL shows — refusing to run against a remote PostgREST.",
+    );
+  }
+  return url;
+}
 const LOCAL_SERVICE_ROLE_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 

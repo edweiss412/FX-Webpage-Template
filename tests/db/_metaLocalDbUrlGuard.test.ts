@@ -419,8 +419,17 @@ describe(
           "captures/restores drive_watch_channels, app_settings and the orphan alert, " +
           "local-only) " +
           "+ tests/sync/backfillAnchorsToctou.db.test.ts (the anchor-backfill TOCTOU rows, " +
-          "2026-08-10; seeds and deletes one fixture shows row, local-only)",
-      ).toBe(68);
+          "2026-08-10; seeds and deletes one fixture shows row, local-only) " +
+          "+ tests/db/syncLogAttribution.db.test.ts + tests/db/syncLogIndexesAndPrune.db.test.ts " +
+          "(the sync-log attribution oracle and its migration suite, 2026-08-10; both write and " +
+          "prune sync_log rows, local-only) " +
+          "+ tests/log/appEventsSchema.test.ts (swept off TEST_DATABASE_URL onto the loopback-only " +
+          "variable 2026-08-10 - it executes prune_app_events and had been pruning the VALIDATION " +
+          "project's history on a plain `pnpm test`) " +
+          "+ tests/db/resetValidationDataPostgrest.test.ts (the fifth whole-DB-wipe suite, swept " +
+          "2026-08-10; it wipes over PostgREST rather than a postgres connection, so its REST " +
+          "endpoint is asserted loopback too)",
+      ).toBe(72);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {

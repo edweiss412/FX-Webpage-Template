@@ -89,15 +89,12 @@ type ManualRecoveryTx = SyncPipelineTx & {
     driveFileId: string,
     code: string,
   ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
-  insertSyncLog(
-    entry: {
-      driveFileId: string | null;
-      outcome: string;
-      code?: string;
-      payload?: Record<string, unknown>;
-    },
-    showId?: string | null,
-  ): Promise<void>;
+  insertSyncLog(entry: {
+    driveFileId: string | null;
+    outcome: string;
+    code?: string;
+    payload?: Record<string, unknown>;
+  }): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
 
@@ -172,15 +169,12 @@ async function markManualSheetUnavailable_unlocked(
   };
   if (error) payload.message = errorMessage(error);
 
-  await recoveryTx.insertSyncLog(
-    {
-      driveFileId,
-      outcome: "error",
-      code,
-      payload,
-    },
-    showId,
-  );
+  await recoveryTx.insertSyncLog({
+    driveFileId,
+    outcome: "error",
+    code,
+    payload,
+  });
 
   await recoveryTx.upsertAdminAlert({
     showId,
@@ -221,15 +215,12 @@ async function markManualDriveError_unlocked(
     previousLastSeenModifiedTime: updated.lastSeenModifiedTime ?? null,
   };
   if (error) payload.message = errorMessage(error);
-  await recoveryTx.insertSyncLog(
-    {
-      driveFileId,
-      outcome: "parse_error",
-      code: SYNC_INFRA_ERROR,
-      payload,
-    },
-    updated.showId,
-  );
+  await recoveryTx.insertSyncLog({
+    driveFileId,
+    outcome: "parse_error",
+    code: SYNC_INFRA_ERROR,
+    payload,
+  });
   await recoveryTx.upsertAdminAlert({
     showId: updated.showId,
     code: "DRIVE_FETCH_FAILED",
@@ -285,8 +276,16 @@ export async function runManualSyncForShow_unlocked(
 ): Promise<ProcessOneFileResult> {
   await assertShowLockHeld(tx, driveFileId);
   const runUnlocked = deps.processOneFile_unlocked ?? defaultProcessOneFile_unlocked;
+  // Spec §3.3: this entry point owns its own attempt boundary. It bypasses
+  // processOneFile, which is where the cron path captures its start, so without this
+  // every emitting outcome on the pending-ingestion retry path persists
+  // duration_ms = NULL despite having a sink (whole-diff r4 finding 1). A caller that
+  // already captured one wins - it knows the wider boundary.
+  const attemptStartedAtMs =
+    deps.processDeps?.attemptStartedAtMs ?? (deps.processDeps?.now?.() ?? new Date()).getTime();
   return await runUnlocked(tx, driveFileId, mode, fileMeta, {
     ...(deps.processDeps ?? {}),
+    attemptStartedAtMs,
     ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
     ...(deps.expectedModifiedTime !== undefined
       ? { expectedModifiedTime: deps.expectedModifiedTime }
