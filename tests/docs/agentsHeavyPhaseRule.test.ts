@@ -344,6 +344,33 @@ function exoticSpaceProblems(rule: string): string[] {
  * broke, and because the pin cannot see the one thing they can: a shape added to
  * spec §4.6 that the bullet never picked up.
  */
+/**
+ * The code spans, pinned AS PARSED.
+ *
+ * Round 11 made classified MEMBERS immune to a blank line ending their span, but
+ * `pinnedBy` and the clause patterns still read normalized text, so the same
+ * mutation survived on the entry point, the direct wrapper invocation, and the
+ * recreate command — every span a clause references rather than a member. Rather
+ * than convert each pattern, the whole class closes once: the sequence of parsed
+ * `inlineCode` values must equal the fixture's. Any span that stops being a span,
+ * or changes value, fails here regardless of which check happens to name it.
+ */
+export function spanPinProblems(item: MdNode, pinnedRule: string): string[] {
+  const live = codeSpans(item).map((span) => normalize(span.value));
+  const pinnedItem = remark().parse(pinnedRule) as unknown as MdNode;
+  const pinned = codeSpans(pinnedItem).map((span) => normalize(span.value));
+  if (live.length === pinned.length && live.every((value, i) => value === pinned[i])) return [];
+  const firstDiff = pinned.findIndex((value, i) => live[i] !== value);
+  const expected = firstDiff === -1 ? "(fewer spans than pinned)" : pinned[firstDiff];
+  const got = firstDiff === -1 ? "(none)" : (live[firstDiff] ?? "(missing)");
+  return [
+    `the rule's code spans differ from the pinned fixture: expected \`${expected}\` ` +
+      `but parsed \`${got}\` at position ${firstDiff === -1 ? live.length : firstDiff}. ` +
+      "A span that stops parsing as one — a blank line inside it is enough — leaves " +
+      "the words in place while the command it documents ceases to exist.",
+  ];
+}
+
 export function pinProblems(rule: string, pinned: string): string[] {
   if (normalize(rule) === normalize(pinned)) return [];
   return [
@@ -421,7 +448,7 @@ function containsType(node: MdNode, type: string): boolean {
 const OPENER_TEXT = "Heavy local phases run under the machine-wide slot semaphore.";
 
 type Located =
-  | { source: string; item: MdNode; at: number; heading: string }
+  | { source: string; item: MdNode; at: number; heading: string; depth: number }
   | { problem: string };
 
 /** Locate the rule's list item through the markdown AST. */
@@ -464,7 +491,13 @@ export function locateRule(agents: string): Located {
         if (from === undefined || to === undefined) {
           return { problem: "the heavy-phase rule item has no source position" };
         }
-        return { source: agents.slice(from, to), item, at: from, heading: plainText(heading) };
+        return {
+          source: agents.slice(from, to),
+          item,
+          at: from,
+          heading: plainText(heading),
+          depth: heading.depth ?? 0,
+        };
       }
     }
   }
@@ -509,7 +542,19 @@ export function checkHeavyPhaseRule(agents: string): string[] {
    * that costs one fixture line to record. Fenced in BOTH directions: do not
    * re-loosen this to a tier match, and do not propose a disclaimer word list.
    */
-  const pinnedHeading = readFileSync(PINNED_HEADING_PATH, "utf8").replace(/^#+\s*/, "");
+  const pinnedHeadingRaw = readFileSync(PINNED_HEADING_PATH, "utf8");
+  const pinnedDepth = (/^#+/.exec(pinnedHeadingRaw)?.[0] ?? "").length;
+  const pinnedHeading = pinnedHeadingRaw.replace(/^#+\s*/, "");
+  // Depth is location, not formatting: demoting the H2 to an H3 nests this
+  // cross-CLI contract inside whatever section precedes it — in the live file,
+  // "Codex-specific notes" — while every word of it stays identical.
+  if (located.depth !== pinnedDepth) {
+    problems.push(
+      `the rule's section is at heading depth ${located.depth} but the pinned ` +
+        `heading is depth ${pinnedDepth}; demoting it nests this contract inside ` +
+        "the preceding section",
+    );
+  }
   if (normalize(located.heading) !== normalize(pinnedHeading)) {
     problems.push(
       `the rule's section heading is "${normalize(located.heading)}" but the pinned ` +
@@ -610,7 +655,9 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   }
   problems.push(...exoticSpaceProblems(raw));
   problems.push(...polarityProblems(mustRegion, mustNotRegion));
-  problems.push(...pinProblems(raw, readFileSync(PINNED_PATH, "utf8")));
+  const pinnedRule = readFileSync(PINNED_PATH, "utf8");
+  problems.push(...pinProblems(raw, pinnedRule));
+  problems.push(...spanPinProblems(located.item, pinnedRule));
   return problems;
 }
 
@@ -663,6 +710,32 @@ describe("AGENTS.md heavy-phase rule", () => {
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
     // Heading edits are REJECTED, per the ratified reversal documented at the pin.
+    [
+      "demote the section heading, nesting the rule in the preceding section",
+      (text) =>
+        text.replace(
+          "## Cross-cutting discipline (from milestone retrospectives)",
+          "### Cross-cutting discipline (from milestone retrospectives)",
+        ),
+    ],
+    [
+      "break the entry point's code span with a blank line",
+      editRule("`pnpm heavy <cmd>`", "`pnpm\n\n  heavy <cmd>`"),
+    ],
+    [
+      "break the direct wrapper invocation's code span",
+      editRule(
+        "`python3 scripts/with-heavy-slot.py -- <cmd>`",
+        "`python3 scripts/with-heavy-slot.py --\n\n  <cmd>`",
+      ),
+    ],
+    [
+      "break the capacity command's code span",
+      editRule(
+        "`python3 scripts/with-heavy-slot.py --recreate --slots <N>`",
+        "`python3 scripts/with-heavy-slot.py --recreate\n\n  --slots <N>`",
+      ),
+    ],
     [
       "rename the section heading within the same tier",
       (text) =>
