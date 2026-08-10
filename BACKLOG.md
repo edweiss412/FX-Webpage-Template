@@ -115,7 +115,7 @@ Every writer of `shows.source_anchors` preserves the stored map rather than clea
 
 **Why backlog, not deferred:** the failure needs an empty-anchor scan AND a row-moving sheet edit in the same window, and the visible symptom is a deep link that opens the wrong range — not data loss. No trigger scheduled. Documented as an accepted limit at `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md` §4.1.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/m2-sync-fault-codes
 
 ---
 
@@ -397,7 +397,7 @@ alert-audience-split (spec §6.7) makes health-alert resolution developer-gated 
 
 ### BL-PREPARE-INTERNAL-FAULT-KIND — a third fault kind for post-parse internal helpers
 
-**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
+**Status:** IN PROGRESS (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M · **Branch:** feat/m2-sync-fault-codes
 
 `PrepareOnboardingFileError` has two kinds, `drive_fetch` and `parse`, and the post-parse internal helpers (`finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun`'s fix-up, `applyRoleTokenMappings`) currently fall to `drive_fetch` — today's unchanged behavior. Neither code is right for them: a bug in the role-mapping overlay is not a Drive failure, and it is not something Doug fixes by editing his sheet either, so `STAGED_PARSE_FAILED` ("fix its structure", `warn` severity) would be a new wrong instruction. **Fix (when prioritized):** a third `internal` kind mapped to a code that tells the operator to contact the developer, with the finalize severity staying `error`. Needs a new §12.4 row and the full four-gate CI fan-out, which is why it was not folded into the batch that surfaced it.
 
@@ -405,7 +405,7 @@ screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is determini
 
 ### BL-CRON-WORKBOOK-FAULT-CODE — a corrupt workbook on the cron path reports SYNC_FILE_FAILED
 
-**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
+**Status:** IN PROGRESS (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M · **Branch:** feat/m2-sync-fault-codes
 
 The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
 
