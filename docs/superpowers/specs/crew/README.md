@@ -18,3 +18,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-17-venue-card-vcr2-vcr3-fixes-design.md`](./2026-07-17-venue-card-vcr2-vcr3-fixes-design.md) | 2026-07-17 |
 | [`2026-07-17-venue-degraded-tile-glyph.md`](./2026-07-17-venue-degraded-tile-glyph.md) | 2026-07-17 |
 | [`2026-08-09-crew-wifi-room-enrichment-design.md`](./2026-08-09-crew-wifi-room-enrichment-design.md) | 2026-08-09 |
+| [`2026-08-09-private-image-pipeline-design.md`](./2026-08-09-private-image-pipeline-design.md) | 2026-08-09 |

@@ -8,6 +8,61 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
+
+**Status:** SHIPPED 2026-08-10 · PR #761 · **Effort (as shipped):** L
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — needs its own private-image-pipeline design session.
+
+**Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
+
+**Scope:** Migrate `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` from `<img>` to `next/image` to gain LCP optimization on the mobile crew page. Currently they use `<img loading="lazy" decoding="async">` as the manual equivalent — works correctly but doesn't get Next's `/_next/image` optimizer benefits.
+
+Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-checked bytes with `private, max-age=0, must-revalidate`. The `next/image` optimizer would either need to bypass the auth proxy OR add a second redirect layer — neither is straightforward.
+
+**Why backlog, not deferred:** The in-cluster M9 attempt failed P0 because the obvious paths (declare proxy origin as `next.config.ts` remote pattern; let `/_next/image` proxy through it) break the auth + cache contract. The right fix requires a private-image-pipeline design — custom loader + transform service, OR signed-URL CDN, OR architectural decision to accept the LCP cost of un-optimized images. Each path is a multi-day brainstorming session.
+
+**Promotion prerequisite:** Private-image-pipeline brainstorming (custom loader vs signed-URL CDN vs accept-the-cost). May fold into a broader "v1.5 perf-and-polish" milestone rather than standalone.
+
+---
+
+**RESOLVED 2026-08-10 — SHIPPED** on `feat/private-image-pipeline` (PR #761). Spec:
+`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md`; plan:
+`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`.
+
+**The entry's own premise was right about the obstacle and wrong about the cost.** It framed the
+M9 P0 correctly — `/_next/image` does not forward the picker cookie and rewrites
+`private, max-age=0, must-revalidate` to a public header — and concluded the fix needed "a custom
+loader + transform service, OR signed-URL CDN, OR accepting the LCP cost". The shipped answer is
+the first half of option one WITHOUT a transform service: with a per-component `loader` prop,
+`next/image` never routes through the optimizer at all, so the loader's return value is the URL the
+BROWSER fetches directly and every cookie flows exactly as it did for the raw `<img>`. No
+`next.config.ts` change, no `remotePatterns`, no second redirect layer. The transform half moved to
+INGEST — sharp generates a `[256, 512, 1024]` webp ladder plus a blur placeholder at snapshot time,
+so nothing is transformed per request.
+
+What shipped, beyond the entry's scope: the variant ladder and blur are generated for BOTH the sync
+and the asset-recovery paths, with a structural census guard (`tests/sync/_metaVariantStageCensus.ts`
+sibling) that fails by default when a new original-byte upload path skips the stage; the private
+asset route's accept-set widened to manifest-listed variant paths with a shared key-shape predicate
+(`lib/images/diagramKey.ts`) used by route and loader alike; and promotion was repaired — its
+expected-count SQL counted originals only and its storage listings were unpaginated, either of which
+would have failed every variant-bearing snapshot before cutover.
+
+**Three defects worth remembering**, none of which a green local suite would have caught: `sharp`
+sat in `devDependencies` while `lib/sync` imports it at runtime (a production-only install has no
+sharp; now pinned by a derived guard); WebKit resolves a `height: 100%` child against the gallery
+cell's aspect-ratio BORDER box, so a `fill` image containing-blocked by the button cropped 2px while
+Chromium hid it entirely; and Supabase Storage's `createSignedUrl` NORMALIZES the path it is handed,
+so a manifest key containing `?` or `..` could sign a different object — closed by requiring the
+minted key shape at the accept-set rather than sanitizing at the URL layer.
+
+**Filed forward:** `BL-ADMIN-DIAGRAM-NEXT-IMAGE` (the two admin wizard `<img>` sites, class-sweep
+exception (c)), `BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE` and `BL-DIAGRAM-BLUR-EDGE-SIZE` (both
+need a spec amendment), `BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE`, and three pre-existing sync
+classes this arc's review surfaced with probe evidence:
+`BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES`, `BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS`,
+`BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES`.
+
 ## BL-MUTATION-LEDGERGIT-SITE-DRIFT — the `ledgerGit` source-mutation gate is red on main: relocated sites, an uncovered new constant, and a CI-only survivor pair — CLOSED 2026-08-09 (`fix/mutation-ledgergit-site-drift`)
 
 **Status:** CLOSED · **Filed:** 2026-08-08 (parser mutation-hardening wave; PRE-EXISTING on `main`, not introduced by that wave) · **Severity:** medium · **Class:** CI / GUARD SURFACE · **Effort:** M
@@ -19,6 +74,34 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 3. **The CI-only survivor pair (`integer-literal:284:60:2>3`, `284:93:2>3`) — KILLED deterministically.** The pair mutates `diffHunks`' hunk-count group (`hm[2]`) to the never-present group 3; the suite had no case that deterministically produced a hunk with an explicit count, so the kill depended on the environment — falsifying the surface's L-6 environment-independence claim (CI 11 survivors / 0.8333, full clone 9 / 0.8571). A constructed-repo multi-line hunk case in `tests/scripts/ledgerClaimsCheck.test.ts` now kills both everywhere (each mutant verified red by hand before landing), re-establishing the claim, which the registry comment records.
 
 Post-fix measurement: 72/78 counted (84 mutants, 6 equivalent, 6 accepted-gap), score ≈ 0.923 ≥ floor 0.9. The parser-shard half of the same nightly red (drifted fingerprints) was healed separately by the wave itself (PR #736: zero-width strip + ledger re-bless `cdab19a29`).
+
+### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts out of the blocking layout
+
+**Status:** SHIPPED 2026-08-10 — `feat/admin-nav-badge-suspense` (PR #768). **The GOAL shipped; the entry's named MECHANISM was rejected on evidence and must not be revived from this text.**
+
+Spec `docs/superpowers/specs/nav-perf/2026-08-09-admin-nav-badge-suspense-design.md`, plan `docs/superpowers/plans/2026-08-09-admin-nav-badge-suspense.md`.
+
+What shipped: `app/admin/layout.tsx` issues `loadBellUnseenCount` and `loadNeedsAttentionCount` without awaiting and passes their PROMISES into the client tree; `useBellBadge` and `useNeedsAttentionBadge` each gained one arm that commits a resolved promise through the hook's existing prop-ingestion path, guarded by promise identity and a virgin-state rule. The nav chrome now paints on the identity/health wall-time and each count arrives when its read lands. The onboarding early-return also stopped paying for two reads it discarded.
+
+**Two premises in the row below were FALSE and are corrected here rather than preserved:**
+
+1. _"the repo has zero `<Suspense>` precedent"_ — stale when written. Real boundaries already shipped in the admin tree (`app/admin/page.tsx`, `app/admin/dev/telemetry/page.tsx`, `app/admin/dev/telemetry-dim/page.tsx`).
+2. _`<Suspense>` is the mechanism_ — REJECTED on evidence, not on cost. The resolved counts drive behavior far outside any leaf (the bell's trigger branch, the parent link's count-aware `aria-label`, `zeroNow()` firing before resolution), so nothing on this surface may suspend; and a pre-mount navigation would initialize `lastPathRef` on the destination and silently skip the first refetch. Spec §3.2 "Why the hooks own the pending state" is the record. **Do not re-file this as a Suspense task.**
+
+Original entry text below, with ONE normalization: the meta line is quoted as it stood on the branch at
+archive time (`**Status:** OPEN · **Effort:** M`) rather than as it stands on `origin/main`
+(`**Effort:** M`) — the status field was added by this arc's invariant-12 flight marker and then
+cleared. Every other line is verbatim.
+
+> ### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
+>
+> **Status:** OPEN · **Effort:** M
+>
+> **Filed:** 2026-06-23 (nav-perf Phase 2 — the descoped half of E). Phase 2's E-lite parallelized the admin layout's two badge reads (`Promise.all`), so first `/admin` entry blocks on one wall-time instead of three sequential round-trips. The further win is to stream the badges entirely OUT of the blocking layout path via `<Suspense>` so the nav chrome paints immediately and the counts arrive after.
+>
+> **Why backlog, not now:** `components/admin/nav/AdminNav.tsx` is a `"use client"` component with a stateful refetch hook (`useNeedsAttentionBadge`), and the repo has **zero `<Suspense>` precedent** — streaming needs a server-child + slot bridge (refactor AdminNav's prop/slot contract) for a first-`/admin`-entry-only gain (the layout is reused across sibling navs, so its awaits don't re-run per nav). Invasive relative to the payoff.
+>
+> **Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
 
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 

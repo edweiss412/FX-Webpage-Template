@@ -87,6 +87,8 @@ import {
   type ShowForApply,
   type Timestampish,
 } from "@/lib/sync/applyStagedCore";
+import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
+import { emitDiagramVariantFailures } from "@/lib/log/emitDiagramVariantFailures";
 
 export {
   DUPLICATE_REVIEWER_CHOICE,
@@ -269,6 +271,8 @@ export type ApplyStagedResult =
       // region below. OPTIONAL, mirroring roleFlagsNotice? — absent and [] both mean "nothing
       // unlanded"; consumers default with `?? []`.
       unlandedRenames?: UnlandedRename[];
+      // Census hop 3b (spec §3): the dashboard Apply surface's carry-out.
+      variantFailures?: DiagramVariantFailureRow[];
       snapshotRevisionId?: string;
       // §10 point 5: gate-passing ROLE_TOKEN_MAPPED entries carried to the live post-commit emit
       // region. Optional — only the applied path sets it; absent = nothing gated.
@@ -1459,6 +1463,9 @@ export async function applyStaged_unlocked(
   if (coreResult.unlandedRenames && coreResult.unlandedRenames.length > 0) {
     applied.unlandedRenames = coreResult.unlandedRenames;
   }
+  if (coreResult.variantFailures && coreResult.variantFailures.length > 0) {
+    applied.variantFailures = coreResult.variantFailures;
+  }
   if (coreResult.snapshotRevisionId) applied.snapshotRevisionId = coreResult.snapshotRevisionId;
 
   // Task 4.4: emit SHOW_FIRST_PUBLISHED + reach first-published parity through the shared tail, using the
@@ -1958,6 +1965,27 @@ export async function applyStaged(
         driveFileId: args.driveFileId,
       });
       return result;
+    }
+    // Census hop 3 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT,
+    // outside the held lock tx (invariant 10), and FIRST in this tail. This region is
+    // a sequence of un-isolated awaits (alert upserts, a landed-status read, two other
+    // emits); behind them, any throw would drop the variant rows, and a dropped signal
+    // is what the hop census exists to prevent. Isolated so it cannot take the rest of
+    // the tail down either.
+    if (!("skipped" in result) && result.outcome === "applied" && result.variantFailures?.length) {
+      try {
+        await emitDiagramVariantFailures(result.variantFailures, { showId: result.showId });
+      } catch (error) {
+        const escalation = log.error("diagram variant failure emit failed", {
+          source: "sync.diagramVariants",
+          code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
+          showId: result.showId,
+          error,
+        });
+        await escalation.catch(() => {
+          /* best-effort: the escalation must never change the apply outcome */
+        });
+      }
     }
     if (!("skipped" in result) && result.outcome === "applied" && result.adminAlertCode) {
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;

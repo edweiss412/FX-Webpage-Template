@@ -926,3 +926,229 @@ describe("/api/asset/diagram — ASSET_UNAVAILABLE breadcrumb (finding #8)", () 
     expect(breadcrumbs()).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Variant accept-set (spec §5).
+//
+// The accept-set is EXACTLY the manifest-listed original and variant paths for
+// the live revision, over entries with a non-null snapshotPath. A variant match
+// must sign the VARIANT's own object path — serving original bytes under a
+// variant URL would silently defeat the whole pipeline while looking correct.
+// ---------------------------------------------------------------------------
+
+describe("/api/asset/diagram — manifest-listed variants", () => {
+  const variantKey = `${assetKey}@512.webp`;
+  const variantPath = `diagram-snapshots/shows/${showId}/${currentRev}/${variantKey}`;
+
+  function withVariants(variants: unknown, overrides: Record<string, unknown> = {}) {
+    const base = currentDiagrams();
+    return {
+      current: {
+        ...base,
+        embeddedImages: [{ ...base.embeddedImages[0]!, variants, ...overrides }],
+      } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+  }
+
+  test("a listed variant key serves webp from the VARIANT object path", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+
+    const response = await getDiagram(currentRev, variantKey);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/webp");
+    expect(response.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    // The signed object is the variant itself — not the original it was derived from.
+    expect(routeMock.storageDownloads).toEqual([variantPath]);
+  });
+
+  test("HEAD on a listed variant key matches GET's status", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+
+    expect((await headDiagram(currentRev, variantKey)).status).toBe(200);
+  });
+
+  test("an unlisted but plausible variant key is 410", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+
+    // Same shape, a tier that was never generated: plausibility is not authorization.
+    expect((await getDiagram(currentRev, `${assetKey}@256.webp`)).status).toBe(410);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("a listed variant under a STALE revision is 410", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+
+    expect((await getDiagram(pendingRev, variantKey)).status).toBe(410);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("an entry without a variants field is 410 for any variant key", async () => {
+    routeMock.diagrams = { current: currentDiagrams(), pending: null };
+
+    expect((await getDiagram(currentRev, variantKey)).status).toBe(410);
+  });
+
+  test("a null snapshotPath with plausible variants is 410 and never throws", async () => {
+    // The null-path gate must run BEFORE any dirname derivation (spec §5 R2 F2):
+    // deriving a directory from null is the throw this row exists to prevent.
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }], { snapshotPath: null });
+
+    expect((await getDiagram(currentRev, variantKey)).status).toBe(410);
+  });
+
+  // The full §4 malformed matrix. Every row must 410 WITHOUT throwing — a malformed
+  // manifest field shrinks the accept-set toward originals-only, it never 500s.
+  const MALFORMED: Array<[string, unknown]> = [
+    ["a non-array variants value", "not-an-array"],
+    ["a null variants value", null],
+    ["an object variants value", { width: 512, key: variantKey }],
+    ["a null row", [null]],
+    ["a non-object row", ["nope"]],
+    ["a non-finite width", [{ width: Number.NaN, key: variantKey }]],
+    ["an infinite width", [{ width: Number.POSITIVE_INFINITY, key: variantKey }]],
+    ["a zero width", [{ width: 0, key: variantKey }]],
+    ["a negative width", [{ width: -512, key: variantKey }]],
+    ["an empty-string key", [{ width: 512, key: "" }]],
+    ["a non-string key", [{ width: 512, key: 512 }]],
+    ["a missing key", [{ width: 512 }]],
+  ];
+
+  test.each(MALFORMED)("%s is 410 without throwing", async (_label, variants) => {
+    routeMock.diagrams = withVariants(variants);
+
+    const response = await getDiagram(currentRev, variantKey);
+
+    expect(response.status).toBe(410);
+    expect(assetLogRecords.filter((record) => record.level === "error")).toEqual([]);
+  });
+
+  test("the ORIGINAL still serves when a malformed variants field sits beside it", async () => {
+    // The accept-set shrinks toward originals-only; it does not collapse to nothing.
+    routeMock.diagrams = withVariants("not-an-array");
+
+    const response = await getDiagram(currentRev, assetKey);
+
+    expect(response.status).toBe(200);
+    expect(routeMock.storageDownloads).toEqual([canonicalPath]);
+  });
+
+  test("a picker session is still required for a variant URL", async () => {
+    routeMock.diagrams = withVariants([{ width: 512, key: variantKey }]);
+    routeMock.link = { kind: "continue" };
+
+    expect((await getDiagram(currentRev, variantKey)).status).toBe(401);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+});
+
+describe("/api/asset/diagram — malformed manifest ABOVE the variants field", () => {
+  // resolveCurrentDiagrams duck-types on the revision id alone, so a persisted
+  // manifest can be missing a collection, hold a null entry, or carry a
+  // non-string mimeType and still resolve. Each of these used to reach a
+  // TypeError and a 500 — the one outcome the never-throw contract forbids.
+  // The collection that HOLDS the requested asset: losing it shrinks the
+  // accept-set to nothing for this key, so 410 is correct.
+  const SHAPES: Array<[string, Record<string, unknown>]> = [
+    ["a missing embeddedImages", { embeddedImages: undefined }],
+    ["a null embeddedImages", { embeddedImages: null }],
+    ["a non-array embeddedImages", { embeddedImages: "nope" }],
+    ["a null entry", { embeddedImages: [null] }],
+    ["a non-object entry", { embeddedImages: ["nope"] }],
+  ];
+
+  // The OTHER collection: the accept-set shrinks, it does not collapse, so the
+  // valid original still serves. Same no-throw property, opposite status —
+  // asserting 410 here would have pinned an over-broad failure as correct.
+  const SIBLING_SHAPES: Array<[string, Record<string, unknown>]> = [
+    ["a missing linkedFolderItems", { linkedFolderItems: undefined }],
+    ["a null linkedFolderItems", { linkedFolderItems: null }],
+    ["a non-array linkedFolderItems", { linkedFolderItems: 42 }],
+  ];
+
+  test.each(SIBLING_SHAPES)("%s still serves the valid original", async (_label, override) => {
+    const base = currentDiagrams();
+    routeMock.diagrams = {
+      current: { ...base, ...override } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+
+    const response = await getDiagram(currentRev, assetKey);
+
+    expect(response.status).toBe(200);
+    expect(assetLogRecords.filter((record) => record.level === "error")).toEqual([]);
+  });
+
+  test.each(SHAPES)("%s yields 410, never a 500", async (_label, override) => {
+    const base = currentDiagrams();
+    routeMock.diagrams = {
+      current: { ...base, ...override } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+
+    const response = await getDiagram(currentRev, assetKey);
+
+    expect(response.status).toBe(410);
+    expect(assetLogRecords.filter((record) => record.level === "error")).toEqual([]);
+  });
+
+  test("a matching entry with a non-string mimeType is 410, not a 500", async () => {
+    const base = currentDiagrams();
+    routeMock.diagrams = {
+      current: {
+        ...base,
+        embeddedImages: [{ ...base.embeddedImages[0]!, mimeType: { evil: true } }],
+      } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+
+    const response = await getDiagram(currentRev, assetKey);
+
+    expect(response.status).toBe(410);
+    expect(assetLogRecords.filter((record) => record.level === "error")).toEqual([]);
+  });
+});
+
+describe("/api/asset/diagram — variant keys outside the minted shape are never authorized", () => {
+  // The matched path is handed to createSignedUrl, which interpolates it into a
+  // URL and lets normalization rewrite it: `v?x.webp` signs `.../v`,
+  // `a/../b.webp` signs `.../b.webp`, and `..` climbs out of the revision prefix.
+  // Rejecting at the accept-set means no such key is ever authorized, so there is
+  // nothing left for normalization to act on.
+  const UNSAFE = [
+    "v?x.webp",
+    "v#x.webp",
+    "nested/v.webp",
+    "a/../b.webp",
+    "v\\x.webp",
+    "v\tx.webp",
+    "v\nx.webp",
+    ".",
+    "..",
+    "a b.webp",
+    "v%2Fx.webp",
+  ];
+
+  test.each(UNSAFE)("a listed key %j is 410 and signs nothing", async (key) => {
+    const base = currentDiagrams();
+    routeMock.diagrams = {
+      current: {
+        ...base,
+        embeddedImages: [{ ...base.embeddedImages[0]!, variants: [{ width: 512, key }] }],
+      } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+
+    const response = await getDiagram(currentRev, key);
+
+    expect(response.status).toBe(410);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("the minted key shape is still authorized, so the gate is not simply closed", () => {
+    // Premise for the rows above: without this, "everything 410s" would pass a
+    // gate that rejected every key including the real ones.
+    expect(`embedded-obj-1.png@512.webp`).toMatch(/^[A-Za-z0-9._@-]+$/);
+  });
+});

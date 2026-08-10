@@ -55,14 +55,28 @@ export type UseBellBadgeResult = {
   pingSignal: number;
 };
 
-export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
+export function useBellBadge(
+  initial: BellCountResult | null,
+  seedPromise?: Promise<BellCountResult> | null,
+): UseBellBadgeResult {
   const pathname = usePathname();
-  const [count, setCount] = useState<number | null>(initial.kind === "ok" ? initial.count : null);
-  const [degraded, setDegraded] = useState<boolean>(initial.kind === "infra_error");
+  const [count, setCount] = useState<number | null>(initial?.kind === "ok" ? initial.count : null);
+  const [degraded, setDegraded] = useState<boolean>(initial?.kind === "infra_error");
   const [pingSignal, setPingSignal] = useState(0);
   const tokenRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastPathRef = useRef(pathname);
+  // admin-nav-badge-streaming §3.2 virgin-state rule — see the twin comment in
+  // useNeedsAttentionBadge.ts. Set when a source COMMITS and when a fetch
+  // STARTS; a seed resolving after any of that is stale by construction.
+  // Starts CLAIMED when the caller hands over a synchronous result — see the twin
+  // comment in useNeedsAttentionBadge.ts (diff review R2 F1). `null` is the
+  // pending shape and claims nothing.
+  const claimedRef = useRef(initial !== null);
+  // See the twin comment in useNeedsAttentionBadge.ts: identity compare, not a
+  // first-run flag, because StrictMode replays mount effects and a replay is
+  // not a prop change.
+  const lastPropRef = useRef(initial);
   // Set by the FIRST zeroNow() open gesture and never cleared for the rest
   // of the mount. While set, props DEMOTE from count VALUES to fetch
   // TRIGGERS: a router.refresh() that started BEFORE the open click can
@@ -80,6 +94,7 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   // token + abort pattern as useNeedsAttentionBadge; the one behavioral
   // difference is the catch branch (spec §5.4: keep last-known, don't null).
   const runFetch = useCallback((): (() => void) => {
+    claimedRef.current = true; // claimed at INITIATION — see claimedRef's comment
     tokenRef.current += 1;
     const token = tokenRef.current;
     abortRef.current?.abort();
@@ -124,39 +139,83 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
     tokenRef.current += 1;
     abortRef.current?.abort();
     zeroedRef.current = true;
+    claimedRef.current = true;
     setCount(0);
   }, []);
 
-  // Source 1/2: initial prop + prop changes (router.refresh path). Commits
-  // "newest server truth wins" — until the first zeroNow() gesture, after
-  // which props no longer commit `count` (ordering vs the open watermark is
-  // unknowable client-side; see the ref's comment). An infra_error prop marks
-  // degraded but leaves `count` untouched (keeps last-known; see file header
-  // deviation note).
-  useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect -- coordinated prop sync; mirrors useNeedsAttentionBadge */
-    if (zeroedRef.current) {
-      // Post-open: the prop's VALUE never commits (unorderable vs the open
-      // watermark, R5/R6); instead an `ok` prop TRIGGERS a token-guarded
-      // count fetch so same-route router.refresh() still refreshes the badge
-      // when realtime is down (R7). An infra_error prop only syncs degraded.
-      if (initial.kind === "ok") {
-        runFetch();
+  // The ONE commit path for prop-delivered values (synchronous prop AND
+  // resolved seed). Commits "newest server truth wins" — until the first
+  // zeroNow() gesture, after which props no longer commit `count`. An
+  // infra_error prop marks degraded but leaves `count` untouched (keeps
+  // last-known; see file header deviation note).
+  const ingestPropValue = useCallback(
+    (value: BellCountResult) => {
+      claimedRef.current = true;
+      if (zeroedRef.current) {
+        // Post-open: the prop's VALUE never commits (unorderable vs the open
+        // watermark, R5/R6); instead an `ok` prop TRIGGERS a token-guarded
+        // count fetch so same-route router.refresh() still refreshes the badge
+        // when realtime is down (R7). An infra_error prop only syncs degraded.
+        if (value.kind === "ok") {
+          runFetch();
+        } else {
+          setDegraded(true);
+        }
+        return;
+      }
+      tokenRef.current += 1;
+      abortRef.current?.abort();
+      if (value.kind === "ok") {
+        setCount(value.count);
+        setDegraded(false);
       } else {
         setDegraded(true);
       }
-    } else if (initial.kind === "ok") {
-      tokenRef.current += 1;
-      abortRef.current?.abort();
-      setCount(initial.count);
-      setDegraded(false);
-    } else {
-      tokenRef.current += 1;
-      abortRef.current?.abort();
-      setDegraded(true);
-    }
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [initial, runFetch]);
+    },
+    [runFetch],
+  );
+
+  // Source 1/2: initial prop + prop changes (router.refresh path).
+  useEffect(() => {
+    if (Object.is(initial, lastPropRef.current)) return; // mount or effect replay
+    lastPropRef.current = initial;
+    // `initial === null` is the streaming PENDING shape: the layout has no
+    // synchronous count to deliver, the seed promise carries it instead.
+    if (initial === null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- coordinated prop sync; the commit is coordinated with a token bump + in-flight abort inside ingestPropValue (see its comment)
+    ingestPropValue(initial);
+  }, [initial, ingestPropValue]);
+
+  // Source 5: the streamed seed (admin-nav-badge-streaming §3.2). Keyed on
+  // PROMISE IDENTITY, so a newer promise invalidates the older subscription at
+  // the instant it arrives and an older resolution can never paint over it.
+  useEffect(() => {
+    if (!seedPromise) return;
+    let current = true;
+    void seedPromise.then((value) => {
+      if (!current) return; // superseded by a newer promise
+      if (claimedRef.current && value.kind !== "ok") {
+        // A KNOWN failed read: apply the bell's ratified posture at once (keep
+        // the last-known count, mark it degraded) instead of deferring the
+        // signal to a demoted fetch that can hang. `ingestPropValue` is the same
+        // path a synchronous infra_error prop takes.
+        ingestPropValue(value);
+        return;
+      }
+      if (claimedRef.current) {
+        // Non-virgin: the seed is stale by the time it arrives. The bell's
+        // stale-value posture is DEMOTE-to-fresh-fetch (never a direct paint),
+        // matching its post-zero prop contract — a fetch issued now is always
+        // newer than the seed, so server truth lands instead of the snapshot.
+        runFetch();
+        return;
+      }
+      ingestPropValue(value);
+    });
+    return () => {
+      current = false;
+    };
+  }, [seedPromise, ingestPropValue, runFetch]);
 
   // Source 3: pathname change.
   useEffect(() => {

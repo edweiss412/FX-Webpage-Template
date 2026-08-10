@@ -436,6 +436,16 @@ export function VenueSection({
           DiagramsTile({
             showId,
             diagrams: data.diagrams,
+            // Only this component knows which branch rendered: in the split the
+            // gallery sits in the narrow 1fr column (~92px thumbnails at 1440px),
+            // so declaring the full-width default would make every thumbnail
+            // fetch a 1024 variant where 256 suffices.
+            ...(useSplit
+              ? {
+                  thumbnailSizes:
+                    "(min-width: 1200px) 92px, (min-width: 720px) 8vw, (min-width: 640px) 21vw, 29vw",
+                }
+              : {}),
           })
         }
       />
