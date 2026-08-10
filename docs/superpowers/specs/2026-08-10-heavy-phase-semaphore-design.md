@@ -331,14 +331,19 @@ management posture: out-of-domain or missing input is a stderr error and exit 2 
 NO swap (a management command fails loud; only the wrap path must never block a gate
 run — R6 F3, which also closes the `--slots 0` empty-topology wedge). Procedure:
 
-1. Take a BLOCKING `LOCK_EX` on `recreate.lock` in the slot dir (created on demand,
-   NEVER unlinked by any operation). Recreators serialize on it against each other
-   (R6 F1) AND against every ordinary acquisition, which holds `LOCK_SH` on the same
-   file per attempt (§4.1.2, R7 F1): the exclusive lock is granted only
-   when no acquisition is in flight, and no acquisition can begin until the swap
-   completes — the destructive window admits nobody.
-2. Flock every current slot file in index order (blocking — waits for every live
-   holder, including one in the validate→exec window), and after EACH slot flock
+1. Take `LOCK_EX` on `recreate.lock` in the slot dir (created on demand, NEVER
+   unlinked by any operation) — NB-FIRST with surfaced waiting (R10 F2): on NB
+   failure emit `waiting: recreate.lock held` immediately and retry on the standard
+   warn-cadence loop. Recreators serialize on it against each other (R6 F1) AND
+   against every ordinary acquisition, which holds `LOCK_SH` on the same file per
+   attempt (§4.1.2, R7 F1): the exclusive lock is granted only when no acquisition
+   is in flight, and no acquisition can begin until the swap completes.
+2. Flock every PRESENT slot file — enumerated by GLOB over `slot-*` in the dir, not
+   by the 0..N-1 index range, so residue from a crashed shrink is locked and
+   removable too (R10 F3) — in index order, each NB-first: on NB failure emit
+   `waiting: slot-<i> held by <metadata>` (same metadata read as §4.1.6) and retry
+   on the warn cadence, so a live or retained holder wedging recreation is surfaced
+   from the first attempt, never a silent block (R10 F2). After EACH slot flock
    apply the step-7 identity check (`fstat` vs `stat`): an orphaned-inode lock —
    possible if this recreator opened a path before a prior recreator's swap — is
    closed and the slot re-opened from the current pathname before proceeding, so a
@@ -349,14 +354,18 @@ run — R6 F3, which also closes the `--slots 0` empty-topology wedge). Procedur
    onto `config` — an atomic REPLACE, so a valid `config` exists at every instant
    and a crash at any point leaves either the old or the new value, never an
    uninitialized dir for a later wrapper to seed with its own `FX_HEAVY_SLOTS`
-   (`os.replace` consumes the tmp name — no residue); (b) shrink: unlink slot files
-   with index >= newN (their locked fds die with this process; any stale winner is
-   rejected by step-7 validation); grow: create missing slot files with `O_CREAT`
+   (`os.replace` consumes the tmp name — no residue); (b) unlink EVERY locked slot
+   file with index >= newN — the step-2 glob means this covers residue from any
+   earlier crashed shrink, not just the immediately-previous generation (R10 F3:
+   an index-range enumeration left files `T..O-1` behind forever whenever a later
+   target satisfied `S <= T < O`); create missing slot files < newN with `O_CREAT`
    (the acquire scan's own `O_CREAT` also self-heals a crash here); (c) emit
    `swap end <monotonic-ns>`, release everything. A recreator crash mid-procedure
-   therefore leaves a consistent dir at worst one generation behind on slot-file
-   adjustment, self-healed by the next acquisition or recreation — no recovery step,
-   no journal (C5's zero-cleanup posture extends to recreation).
+   therefore leaves a consistent dir at worst carrying inert extra slot files
+   (indices >= the recorded count are unacquirable by step-7 validation), and ANY
+   later `--recreate` — equal, growing, or shrinking — removes them, restoring the
+   exact-slot-set postcondition. No recovery step, no journal (C5's zero-cleanup
+   posture extends to recreation).
 
 Any waiter mid-acquisition either blocks behind these locks or wins an orphaned
 inode and is rejected by step 7 validation on its next attempt. Reboot (`/tmp`
@@ -408,6 +417,21 @@ invocation shape, not alias (R1 F7):
 
 Wrap the OUTERMOST command only (§4.1 reentrancy guard makes inner wraps surfaced
 no-ops — R4 F2).
+
+**Transitive shape rule (R10 F1):** a command is classified by what it TRANSITIVELY
+launches, not by its own surface shape — an explicitly-scoped or non-suite outer
+command whose body spawns a heavy phase is wrapped at its own outermost entry.
+Current known members, found by the subprocess sweep
+`rg -n -U 'execFileSync\("pnpm",\s*\["build"\]|execFileSync\("pnpm",\s*\["test:e2e'`
+over `tests/` + `scripts/` (the sweep command is the derived cover — rerun it when
+authoring changes to either tree):
+
+- `RUN_BUILD_ARTIFACT_GATE_TEST=1 pnpm vitest run tests/admin/build-artifact-gate.test.ts`
+  — scoped vitest, but its helper runs `pnpm build` twice
+  (`tests/admin/build-artifact-gate.test.ts:73`): wrapped.
+- `node scripts/share-link-flash-adversary-matrix.mjs` (full mode) — runs
+  non-interactive playwright (`scripts/share-link-flash-adversary-matrix.mjs:1014`):
+  wrapped. `--quick` mode spawns no playwright and stays unwrapped.
 
 MUST NOT be wrapped:
 
@@ -544,7 +568,9 @@ real `/tmp/fx-heavy-slots`.
     Holder arm: slots=1 with a wrapped command running; `--recreate --slots 2`
     started concurrently must not complete before the holder's command exits
     (timestamps), completes after, and the dir then holds slot-0/slot-1 + config 2 +
-    no tmp residue.
+    no tmp residue — AND its stderr carries `waiting: slot-0 held by <metadata>`
+    from the first blocked attempt (the R10 F2 surfacing; a silently-blocking
+    implementation fails this line).
     Serialization arm (replaces the R6 overlap oracle, which the mandated
     lock-ordering makes unreachable — R7 F2; premise per R8 F5): BOTH recreators run
     with the in-swap injection delay D (hook site (b)) where D exceeds an entire
@@ -561,12 +587,16 @@ real `/tmp/fx-heavy-slots`.
     surfacing, R8 F2), it does not run before `swap end`, and it then runs admitted
     under the recreator's NEW generation (its `acquired slot-<i> (slots=N)` line
     carries the recreator's target N).
-    Crash arm (pins the atomic swap, R8 F3): SIGKILL a recreator inside its
-    injected swap delay; assert `config` still holds a valid JSON slot count (old
-    or new generation, never absent), a subsequent wrapped command runs normally
-    with `config adopted`, never `config created` (an uninitialized-dir reseed —
-    the R8 F3 silent capacity loss — would emit `created`), and a rerun of
-    `--recreate` converges the dir.
+    Crash arm (pins the atomic swap, R8 F3; residue convergence per R10 F3): from
+    slots=5, SIGKILL a recreator targeting 2 inside its injected swap delay (config
+    already replaced to 2, slot files 0-4 still present); assert `config` holds a
+    valid JSON slot count (never absent), a subsequent wrapped command runs
+    normally with `config adopted`, never `config created` (an uninitialized-dir
+    reseed — the R8 F3 silent capacity loss — would emit `created`), then run
+    `--recreate --slots 3` (a target strictly between the recorded 2 and the old 5,
+    the R10 F3 non-convergent region) and assert the dir holds EXACTLY
+    slot-0..slot-2 + config 3 — the glob enumeration removed the crash residue that
+    an index-range implementation leaves forever.
     Domain arm (complete accept-set coverage, R7 F4): `--recreate` with missing
     `--slots`, `--recreate --slots 0`, `--recreate --slots 65`, and
     `--recreate --slots banana` each exit 2 with a stderr error and a byte-identical
