@@ -908,3 +908,94 @@ describe("F. Resume UX", () => {
     );
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// G. help surface (2026-08-09 spec §2.2) — admin-LIKE by the accept-set
+//    rule: crew behavior iff surface === "crew"; everything else gets
+//    the admin arm.
+// ──────────────────────────────────────────────────────────────────────
+describe("G. help surface (spec §2.2)", () => {
+  const HELP_CODE = "AMBIGUOUS_EMAIL_BINDING";
+
+  test("submits show_id: null and spreads the autocapture fieldRef", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { ok: true, status: "created" }));
+    const { getByTestId } = render(
+      <ReportModal
+        {...defaultProps({
+          surface: "help",
+          showId: null,
+          autocapture: { fieldRef: { helpCode: HELP_CODE } },
+        })}
+      />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), {
+      target: { value: "keeps happening" },
+    });
+    fireEvent.click(getByTestId("report-modal-submit"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.show_id).toBeNull();
+    expect(body.surface).toBe("help");
+    expect(body.fieldRef).toEqual({ helpCode: HELP_CODE });
+  });
+
+  test("renders the admin heading (crew-vs-rest, not crew copy)", () => {
+    const { container } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    const heading = container.querySelector("#report-modal-heading")?.textContent ?? "";
+    expect(heading).toBe("Report this");
+    expect(heading).not.toMatch(/something looks wrong/i);
+  });
+
+  test("renders the github_issue_url success link (flipped :324/:589)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(201, { ok: true, status: "created", github_issue_url: ISSUE_URL }),
+    );
+    const { getByTestId } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => getByTestId("report-modal-success"));
+    const link = getByTestId("report-modal-success-link") as HTMLAnchorElement;
+    expect(link.href).toBe(ISSUE_URL);
+  });
+
+  test("uses dougFacing copy on error (help is not crew)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(429, { ok: false, code: "REPORT_RATE_LIMITED_ADMIN" }),
+    );
+    const { getByTestId } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => getByTestId("report-modal-retry"));
+    expect(getByTestId("report-modal-error").textContent).toContain(
+      MESSAGE_CATALOG.REPORT_RATE_LIMITED_ADMIN.dougFacing!,
+    );
+  });
+
+  // Spec §3 test 5b. NOT a live baseline RED (plan R5 F2): today's
+  // copyForCode sends a runtime "help" down its crew arm and renders the
+  // same string by coincidence. Its stated failure mode is a PARTIAL
+  // implementation — flipping copyForCode (:154) without flipping
+  // oppositeSurface (:442) makes the audience fallback resolve
+  // dougFacing-then-dougFacing and render "".
+  test("falls back to crew-facing copy when dougFacing is null (test 5b)", async () => {
+    const expected = MESSAGE_CATALOG.ADMIN_SESSION_LOOKUP_FAILED.crewFacing!;
+    expect(MESSAGE_CATALOG.ADMIN_SESSION_LOOKUP_FAILED.dougFacing).toBeNull();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(500, { ok: false, code: "ADMIN_SESSION_LOOKUP_FAILED" }),
+    );
+    const { getByTestId } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => getByTestId("report-modal-retry"));
+    expect(getByTestId("report-modal-error").textContent).toContain(expected);
+  });
+});

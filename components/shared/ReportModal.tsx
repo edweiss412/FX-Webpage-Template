@@ -37,7 +37,16 @@ import { isMessageCode, messageFor, type MessageCode } from "@/lib/messages/look
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { NewTabHint } from "@/components/shared/NewTabHint";
 
-export type ReportSurface = "crew" | "admin";
+/**
+ * Accept-set rule (2026-08-09 spec §2.2): crew behavior iff
+ * `surface === "crew"`; EVERY other surface (admin, help, any future
+ * admin-authenticated surface) gets the admin arm. An equality comparison
+ * against the admin literal in this file is a defect — it silently gives a new
+ * surface the crew arm. The scan is textual and deliberately strict (a
+ * commented-out comparison fails it too), so this note states the rule without
+ * writing the pattern: tests/components/report/_metaSurfaceComparisons.test.ts.
+ */
+export type ReportSurface = "crew" | "admin" | "help";
 
 export type ReportAutocapture = {
   crewPreview?: unknown;
@@ -58,7 +67,8 @@ export type ReportModalProps = {
   surface: ReportSurface;
   /** Stable per-button-instance id; the sessionStorage scope. */
   surfaceId: string;
-  showId: string;
+  /** Null for non-show-scoped surfaces (help). */
+  showId: string | null;
   autocapture?: ReportAutocapture;
   /**
    * When true, the freeform note is OPTIONAL — Submit is enabled with an empty
@@ -151,7 +161,7 @@ function isKnownCode(code: unknown): code is MessageCode {
 
 function copyForCode(code: MessageCode, surface: ReportSurface): string | null {
   const entry = messageFor(code);
-  return surface === "admin" ? entry.dougFacing : entry.crewFacing;
+  return surface === "crew" ? entry.crewFacing : entry.dougFacing;
 }
 
 // Network-failure rendering routes through the §12.4 catalog as
@@ -321,7 +331,7 @@ export function ReportModal(props: ReportModalProps) {
         setStatus("succeeded");
         setSuccess({
           kind: "succeeded",
-          ...(surface === "admin" && parsed.github_issue_url
+          ...(surface !== "crew" && parsed.github_issue_url
             ? { github_issue_url: parsed.github_issue_url }
             : {}),
         });
@@ -439,7 +449,7 @@ export function ReportModal(props: ReportModalProps) {
     if (error.kind === "network") {
       return copyForCode("NETWORK_UNREACHABLE", surface) ?? "";
     }
-    const oppositeSurface: ReportSurface = surface === "admin" ? "crew" : "admin";
+    const oppositeSurface: ReportSurface = surface === "crew" ? "admin" : "crew";
     return copyForCode(error.code, surface) ?? copyForCode(error.code, oppositeSurface) ?? "";
   })();
 
@@ -586,7 +596,7 @@ export function ReportModal(props: ReportModalProps) {
               <path d="M5 12.5l4.5 4.5L19 7" />
             </svg>
             <p className="text-base font-medium text-text-strong">Report submitted.</p>
-            {surface === "admin" && success?.kind === "succeeded" && success.github_issue_url ? (
+            {surface !== "crew" && success?.kind === "succeeded" && success.github_issue_url ? (
               <a
                 data-testid="report-modal-success-link"
                 href={success.github_issue_url}
@@ -612,7 +622,7 @@ export function ReportModal(props: ReportModalProps) {
             <p className="text-base font-medium text-text-strong">
               {errorCopy ?? "This report attempt has expired."}
             </p>
-            {surface === "admin" && error && error.kind === "code" ? (
+            {surface !== "crew" && error && error.kind === "code" ? (
               <HelpAffordance code={error.code} />
             ) : null}
             <button
@@ -650,7 +660,7 @@ export function ReportModal(props: ReportModalProps) {
                   className="mt-2 flex flex-col gap-1 text-sm text-warning-text"
                 >
                   <p>{errorCopy}</p>
-                  {surface === "admin" && error.kind === "code" ? (
+                  {surface !== "crew" && error.kind === "code" ? (
                     <HelpAffordance code={error.code} />
                   ) : null}
                 </div>
