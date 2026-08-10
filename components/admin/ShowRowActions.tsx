@@ -172,7 +172,13 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
 
   // Guard condition (spec §3.1): a row with no title is named by its slug, so
   // the trigger never announces "Actions for null".
-  const label = row.title ?? row.slug;
+  // `?? ` catches null but not `""`, and an EMPTY title is a reachable value
+  // (pinned at tests/components/admin/showpage/publishedReviewModal.test.tsx).
+  // Unhandled it produced `aria-label="Actions for "`, `This re-sync would
+  // reduce :` and `Archived .` — and an archive confirm that cannot say WHICH
+  // show is the one thing AC-5 forbids. Blank and whitespace-only titles are
+  // treated exactly like null, once, at the shared derivation.
+  const label = row.title?.trim() ? row.title : row.slug;
   const slug = row.slug;
   // §1.3: the four-item menu is a PUBLISHED-row surface.
   const showMutatingActions = row.published;

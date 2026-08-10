@@ -298,6 +298,20 @@ describe("Archive — a rejected action still speaks, and the confirm always nam
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
+  test("a BLANK-titled row still names the show, by its slug (AC-5)", () => {
+    const r = row({ slug: "blank", title: "" });
+    premiseHolds("the fixture title is present but empty", r.title === "");
+    render(<ShowRowActions row={r} />);
+    openMenu("blank");
+    enterConfirm("blank");
+    const prose = q("row-actions-archive-consequence-blank")!.textContent ?? "";
+    // The unnamed sentence is what an untrimmed `?? ` produced here, and a
+    // destructive confirm that cannot say WHICH show is the defect AC-5 names.
+    expect(prose).toBe(archiveConsequenceProse(r.slug));
+    expect(prose).toContain(r.slug);
+    expect(prose).not.toBe(archiveConsequenceProse(null));
+  });
+
   test("a NULL-titled row still names the show, by its slug", () => {
     const r = row({ slug: "no-title", title: null });
     // PREMISE (own inputs): the fallback is only exercised by a null title, and

@@ -97,6 +97,19 @@ describe("ShowRowActions — trigger contract (AC-1, AC-7)", () => {
     expect(triggerNode("no-title")!.getAttribute("aria-label")).toBe("Actions for no-title");
   });
 
+  test.each([
+    ["an empty title", ""],
+    ["a whitespace-only title", "   "],
+  ])("%s falls back to the slug, exactly as null does", (_label, title) => {
+    const r = row({ slug: "blank-title", title });
+    // PREMISE (own inputs): `?? ` already handles null, so the case only tests
+    // anything if the title is present-but-blank.
+    premiseHolds("the fixture title is present but blank", r.title !== null && !r.title!.trim());
+    render(<ShowRowActions row={r} />);
+    // Not "Actions for " — a control whose name trails off is unusable.
+    expect(triggerNode("blank-title")!.getAttribute("aria-label")).toBe("Actions for blank-title");
+  });
+
   test("aria-expanded tracks BOTH states", () => {
     render(<ShowRowActions row={row({ slug: "s1" })} />);
     expect(triggerNode("s1")!.getAttribute("aria-expanded")).toBe("false");
