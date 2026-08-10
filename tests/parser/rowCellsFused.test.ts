@@ -46,8 +46,12 @@ function fuseEligibleRow(md: string): { mutated: string; line: number } {
       const dataIdx: number[] = [];
       for (let j = start; j < i; j++) if (!isAlign(lines[j]!)) dataIdx.push(j);
       const widths = dataIdx.map((j) => lines[j]!.split("|").length);
-      if (dataIdx.length >= 3 && widths[0]! - 2 >= 3 && widths.every((w) => w === widths[0])) {
-        const t = dataIdx[1]!;
+      // >= 4 non-alignment rows, because the FIRST is the table header and the detector
+      // measures DATA rows only -- a run of exactly 3 leaves 2 data rows, under the floor,
+      // and the section is skipped. Fuse dataIdx[2]: a middle DATA row, so its siblings
+      // keep the modal anchored where it was.
+      if (dataIdx.length >= 4 && widths[0]! - 2 >= 3 && widths.every((w) => w === widths[0])) {
+        const t = dataIdx[2]!;
         const cells = lines[t]!.split("|");
         lines[t] = ["", cells[1]! + " " + cells[2]!, ...cells.slice(3)].join("|");
         return { mutated: lines.join("\n"), line: t };
@@ -97,7 +101,10 @@ describe("ROW_CELLS_FUSED (spec §5)", () => {
     premise("corpus fixtures discovered", FIXTURES.length, 16);
     const hits = FIXTURES.flatMap((f) => fused(readFixture(f), f.path).map(() => f.path));
     expect(hits).toEqual([]);
-  });
+    // Explicit budget: this parses all 17 fixtures, which exceeds the 30s default on a
+    // loaded machine. A timeout here is a machine fact, not a detector fact, and letting
+    // it read as a failure wastes a triage cycle every time the box is busy.
+  }, 180_000);
 });
 
 // The corpus arm above is a CALIBRATION gate, not a discriminator, and it must not be
@@ -275,6 +282,57 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
       "",
     ].join("\n");
     expect(fused(md, "calibration.md")).toEqual([]);
+  });
+
+  it("does not read an ordinary row of dashes as a table boundary", () => {
+    // KILLS: guarding the per-cell alignment check with `cells > 0`. `cells` increments
+    // AFTER the check runs, so on the FIRST cell it was still 0 and the check was skipped
+    // -- any row whose first cell was text and whose remaining cells were dashes passed as
+    // an alignment row. Probed by cross-model review.
+    //
+    // The fixture is built so misclassification CHANGES THE ANSWER, which the reviewer's
+    // original shape no longer does now that headers are excluded from the population:
+    //   correct  -> one section; C is the lone row at modal-1 and is reported.
+    //   mutant   -> the placeholder splits the table, C becomes the next section's HEADER,
+    //               and the leading half drops to 2 data rows, under the floor. Silence.
+    // So the arm fails on a SUPPRESSED true positive rather than on an extra false one,
+    // and it names the row, so the detector cannot pass by warning about something else.
+    const md = [
+      "| CREW | Role | Call | Out | Note |",
+      "| --- | --- | --- | --- | --- |",
+      "| A | r | c | o | n |",
+      "| B | r | c | o | n |",
+      "| C | r | c | o |",
+      "| Placeholder | --- | --- | --- | --- |",
+      "| X | r | c | o | n |",
+      "| Y | r | c | o | n |",
+      "| Z | r | c | o | n |",
+      "",
+    ].join("\n");
+    const w = fused(md, "calibration.md");
+    expect(w).toHaveLength(1);
+    expect(w[0]!.rawSnippet).toBe("| C | r | c | o |");
+  });
+
+  it("measures the modal over DATA rows, letting a narrower header be narrower", () => {
+    // KILLS: including the table header in the measured population. A section title
+    // spanning fewer cells than its columns is ordinary sheet authoring, and counted as
+    // data it is the single row at modal-1 -- so the detector reported the HEADER as a
+    // fused data row. Probed by cross-model review.
+    //
+    // The control matters: with a full-width header the same fixture must stay silent, so
+    // the arm cannot pass by the detector having gone quiet altogether.
+    const rows = (header: string) =>
+      [
+        header,
+        "| --- | --- | --- | --- | --- |",
+        "| A | r | c | o | n |",
+        "| B | r | c | o | n |",
+        "| C | r | c | o | n |",
+        "",
+      ].join("\n");
+    expect(fused(rows("| CREW | Role | Call | Out |"), "calibration.md")).toEqual([]);
+    expect(fused(rows("| CREW | Role | Call | Out | Note |"), "calibration.md")).toEqual([]);
   });
 
   it("DOCUMENTED EQUIVALENCE: the 3-row floor is redundant with the tie-guard", () => {

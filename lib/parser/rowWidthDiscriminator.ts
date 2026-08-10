@@ -59,7 +59,13 @@ function analyzeRow(line: string): { cells: number; alignment: boolean } {
   let sawTrailingColon = false;
   let cellEmptyOrValid = true;
   const endCell = (): void => {
-    if (cells > 0 && (dashes === 0 || !cellEmptyOrValid)) alignment = false;
+    // EVERY cell must be dash-shaped, including the first. An earlier version guarded this
+    // with `cells > 0` — but `cells` is incremented AFTER this runs, so on the first cell
+    // it was still 0 and the check was skipped entirely. The consequence was not cosmetic:
+    // `| Placeholder | --- | --- | --- | --- |` passed as an alignment row, so an ordinary
+    // data row became a table boundary and split a section in two, reporting a valid row
+    // in the remainder as fused. Probed by cross-model review.
+    if (dashes === 0 || !cellEmptyOrValid) alignment = false;
     dashes = 0;
     sawTrailingColon = false;
     cellEmptyOrValid = true;
@@ -124,7 +130,7 @@ function kindOfFirstCell(rawCol0: string): string | null {
   return resolved;
 }
 
-type Row = { line: string; cells: number; alignment: boolean };
+type Row = { line: string; cells: number; alignment: boolean; header: boolean };
 
 export function detectFusedRows(markdown: string): ParseWarning[] {
   const warnings: ParseWarning[] = [];
@@ -134,7 +140,17 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
   let sectionKind: string = GENERIC_SECTION_KIND;
 
   const flush = (): void => {
-    const data = section.filter((r) => !r.alignment);
+    // DATA rows only: neither the delimiter row nor the table's HEADER row. The
+    // discriminator is defined against the modal width of the section's DATA rows, and a
+    // header is legitimately allowed to be narrower than the columns beneath it (a section
+    // title spanning fewer cells is ordinary sheet authoring). Measuring it reported that
+    // header as a fused data row, and on a wide-data/narrow-header section it was the only
+    // row at modal-1. Probed by cross-model review.
+    //
+    // The cost is a documented §5.3 miss rather than a wrong answer: a merged cell in a
+    // HEADER row is not reported. Same trade this file makes everywhere — a conservative
+    // miss beats a false positive, which is what teaches an operator to ignore the warning.
+    const data = section.filter((r) => !r.alignment && !r.header);
     if (data.length < MIN_DATA_ROWS_FOR_MODAL) return;
 
     const freq = new Map<number, number>();
@@ -181,8 +197,9 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
       // stays, but only for the ROUTING KEY on the warning, which is what it is for.
       const info = analyzeRow(line);
       if (info.alignment && section.length > 0) {
-        // The last row pushed is this table's header, so it belongs to the NEW section.
-        const header = section[section.length - 1]!;
+        // The last row pushed is this table's header, so it belongs to the NEW section —
+        // and is marked as its header so the modal is taken over data rows alone.
+        const header = { ...section[section.length - 1]!, header: true };
         section = section.slice(0, -1);
         flush();
         section = [header];
@@ -190,7 +207,7 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
       }
       if (section.length === 0)
         sectionKind = kindOfFirstCell(firstCell(line)) ?? GENERIC_SECTION_KIND;
-      section.push({ line, cells: info.cells, alignment: info.alignment });
+      section.push({ line, cells: info.cells, alignment: info.alignment, header: false });
       continue;
     }
 
