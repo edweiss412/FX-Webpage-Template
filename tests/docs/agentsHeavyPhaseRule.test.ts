@@ -371,8 +371,18 @@ export function spanPinProblems(item: MdNode, pinnedRule: string): string[] {
   ];
 }
 
+/**
+ * The list marker is CommonMark syntax, not content: `-`, `*`, and `+` all
+ * produce the same `listItem`. The pin compares raw source, so without this the
+ * glyph was in the comparison and swapping it turned an unrelated formatting
+ * edit red.
+ */
+function stripListMarker(text: string): string {
+  return text.replace(/^\s*[-*+]\s+/, "");
+}
+
 export function pinProblems(rule: string, pinned: string): string[] {
-  if (normalize(rule) === normalize(pinned)) return [];
+  if (normalize(stripListMarker(rule)) === normalize(stripListMarker(pinned))) return [];
   return [
     "the rule's text differs from tests/docs/fixtures/agents-heavy-phase-rule.md. " +
       "This bullet is a cross-CLI contract: Codex sessions read it and never read the " +
@@ -995,6 +1005,14 @@ describe("AGENTS.md heavy-phase rule", () => {
         text.replace(
           "## Cross-cutting discipline (from milestone retrospectives)",
           "Cross-cutting discipline (from milestone retrospectives)\n" + "-".repeat(58),
+        ),
+    ],
+    [
+      "the rule's own bullet marker is changed from - to *",
+      (text) =>
+        text.replace(
+          "- **Heavy local phases run under the machine-wide slot semaphore.**",
+          "* **Heavy local phases run under the machine-wide slot semaphore.**",
         ),
     ],
     [

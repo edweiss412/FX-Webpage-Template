@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 14 rounds
+## diff — 15 rounds
 
-**Examined:** fourteen counted rounds on the implementation diff, dispatched as two
+**Examined:** fifteen counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1/1/2 findings across rounds 1-14 — twenty-eight in total.
+string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1/1/2/1 findings across rounds 1-15 — twenty-nine in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned thirteen is a paragraph of
+spec rounds had probed each one. The half that burned fourteen is a paragraph of
 English and a regex list.
 
-**Judgment:** eight of the twenty-eight diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the twenty-nine diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -297,6 +297,13 @@ any span that stops being a span fails regardless of which check happens to
 reference it. That is the same move as the text pin, one structural level down, and
 it should have been made in round 11 rather than hardening one call site.
 
+Round 15 found the last false positive the raw-text pin carried: the rule's own
+bullet marker. `-`, `*`, and `+` all produce the same `listItem`, so swapping the
+glyph is a formatting edit — but the pin compares raw source, and the marker was in
+the comparison. Stripped from both sides. It is a one-line fix and a fair summary
+of what a pin costs: every byte it compares that is syntax rather than content is a
+false positive waiting for someone else's reformat.
+
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
 registry catches a shape added to §4.6, block structure comes from `remark` rather
@@ -307,9 +314,10 @@ content ends at the first heading of any depth so the rule cannot be nested into
 non-normative prose, the section heading is pinned alongside the rule body so the
 contract cannot be disclaimed out from over it, the heading's DEPTH is pinned so it
 cannot be nested into the preceding section, the code spans are pinned AS PARSED so
-no clause-referenced span can quietly stop being one, and 62 cases — 42 `OPERATORS`
-rows plus eighteen stays-quiet rows — run on every suite, so no repair can silently
-regress an earlier one in either direction. What
+no clause-referenced span can quietly stop being one, the pin ignores the list
+marker glyph because that is syntax rather than content, and 63 cases — 42
+`OPERATORS` rows plus nineteen stays-quiet rows — run on every suite, so no repair
+can silently regress an earlier one in either direction. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
 than a pattern list when the guard's subject is prose. That has no static signature;
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and
