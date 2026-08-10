@@ -420,6 +420,18 @@ describe("META lib/data Supabase call boundary", () => {
     ).toEqual([]);
   });
 
+  // A waiver reason is read by the next human deciding whether a site is really
+  // exempt, so a reason that has silently become FALSE is worse than no reason
+  // at all. This one claimed lib/data sits outside every structural scan — true
+  // until this file landed, false the moment it did.
+  test("the getShowForViewer waiver names its real discharge, not a stale scan-scope claim", () => {
+    const source = readFromDisk("lib/data/getShowForViewer.ts");
+    expect(source).not.toMatch(/outside _metaInfraContract/);
+    expect(source).toMatch(
+      /\/\/ not-subject-to-meta:[\s\S]{0,240}?tests\/data\/_metaLibDataCallBoundary\.test\.ts/,
+    );
+  });
+
   describe("scanner self-tests", () => {
     const plantSites = (source: string): Site[] =>
       extractSites(stripCommentsForFile(source, "planted.ts"));
