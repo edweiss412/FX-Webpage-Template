@@ -33,7 +33,7 @@ const REGISTRY: Record<string, SiteRow[]> = {
   ],
   "lib/data/loadShowShareToken.ts": [
     { kind: "rpc", literal: "admin_read_share_token",
-      pin: [/supabase\.rpc\("admin_read_share_token"/, /const \{ data, error \} = result/, /if \(error\)/] },
+      pin: [/try \{[\s\S]{0,160}?supabase\.rpc\("admin_read_share_token"/, /\} catch \(error\) \{/, /const \{ data, error \} = result/, /if \(error\)/] },
   ],
   "lib/data/listShowsForCrew.ts": [
     { kind: "rpc", literal: "my_share_tokens_for_email",
@@ -60,31 +60,29 @@ Registry count reconciliation (authored AND run): rows per file 4/1/2/10 = 17 to
 
 <!-- tasks: depth=2 -->
 
-## Task 1 — scanner + validation self-tests (Layer 3 first, RED)
+## Task 1 — scanner, validation, self-tests, walk, reconciliation (corpus RED)
 
-<!-- task: red=`pnpm vitest run tests/data/_metaLibDataCallBoundary.test.ts` ac=AC-5,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/data/_metaLibDataCallBoundary.test.ts` ac=AC-1,AC-5,AC-7 -->
 
-Create `tests/data/_metaLibDataCallBoundary.test.ts` starting with the planted self-test describes (spec §3.5): scanner positives (`.from("x")`, `.rpc('x')`, `` .from(`x`) ``, `.rpc<T>("x")`, `.from<A, B>("x")` incl. multi-line generic), scanner negatives (`Array.from(iterable)`, `Array.from({length:n})`, commented call, `.from(tableVar)`, `` .from(`${t}`) ``, parenthesized generic), `validateRows()` rejections (empty `pin`/`coveredBy`, pins lacking the literal, empty/prefix-typo `via`, suites mentioning neither literal nor via), waiver recognition (blank-reason NO, in-string NO, well-formed comment YES). RED: the scanner/validateRows/waiver functions don't exist yet — the import fails, then each planted assertion fails against a stub. Implement `SUPABASE_CALL_RE` (spec §3.2 final form with generic segment), `extractSites()`, `validateRows()`, `isWaived()` in the same file until green. Both premises (`premise("lib/data files walked", files.length, 3)`, `premise("Supabase call sites found", totalSites, 10)`) execute unconditionally in the suite body — NOT inside `.each` callbacks. Anti-tautology: each planted negative states the concrete failure mode it catches (comment-strip removal, `$`-class removal, generic-segment removal).
+Create `tests/data/_metaLibDataCallBoundary.test.ts` complete EXCEPT the registry (empty `REGISTRY`): scanner (`SUPABASE_CALL_RE` final form incl. generic segment), `extractSites()`, `validateRows()`, `isWaived()` (comment-proof recognition), the disk walk (extension set `/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/`), Layer 1 orphan scan, Layer 2 reconciliation, both §3.7 premises (unconditional in the suite body, satisfiable in this task because the walk lands here), and ALL §3.5 planted self-tests (scanner positives/negatives incl. backtick, generic, substitution-template and parenthesized-generic limits; validateRows rejections; waiver shapes). **RED (corpus-derived, the plan's validity anchor): the orphan scan names EXACTLY THREE live files — `lib/data/adminEmails.ts`, `lib/data/listShowsForCrew.ts`, `lib/data/loadShowShareToken.ts` — as undischarged.** `lib/data/getShowForViewer.ts` is NOT an orphan at this stage: its live `// not-subject-to-meta:` comment is a well-formed file-grain waiver under §3.3 semantics, and registry precedence cannot apply while it has no rows (spec R1 finding on the plan corrected the four-file claim). This RED fails because of live corpus content, not any test-local fixture. Planted self-tests go green within this task; the orphan-scan assertion stays red into Task 2.
 
-## Task 2 — registry + reconciliation + orphan scan (RED against live corpus)
+## Task 2 — registry rows discharge the corpus (green + AC-2 proofs)
 
-<!-- task: red=`pnpm vitest run tests/data/_metaLibDataCallBoundary.test.ts` ac=AC-1,AC-2,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/data/_metaLibDataCallBoundary.test.ts` ac=AC-2,AC-3,AC-4 -->
 
-Add the disk walk (extension set `/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/`), Layer 1 orphan scan, and Layer 2 reconciliation with an EMPTY registry first — RED names all four live files as undischarged (a real-corpus RED: it fails because `lib/data/getShowForViewer.ts` etc. contain live call sites the registry doesn't cover, not because of any test-local fixture). Then paste the authoritative REGISTRY snippet above; green. Assert ordered deep-equality both directions per file; `coveredBy` executable checks (path exists, contains literal-or-via as whole word, `via` ∈ anchored export set of the source file). During this task's RED verification, also delete one registry row and confirm red (AC-2's self-test), restoring it before commit.
+Paste the authoritative REGISTRY snippet (above) — all 17 rows including `getShowForViewer.ts`'s 10 (registry precedence now overrides its file-grain waiver, so its sites become individually reconciled). Suite goes green. AC-2's BOTH proof mechanisms, executed and then restored: (a) the planted in-memory undischarged-file fixture (a source string with a call site and no discharge, fed through the same classification path, asserted flagged — this is a permanent Layer 3 self-test, not a tree mutation); (b) transiently delete one registered file's rows, run, confirm red naming that file, restore before commit. Count reconciliation asserted by the deep-equal itself (no authored counts).
 
 ## Task 3 — stale-waiver reword (only production-file edit)
 
 <!-- task: red=`pnpm vitest run tests/data/_metaLibDataCallBoundary.test.ts tests/data/getShowForViewerRunOfShow.test.ts` ac=AC-6 -->
 
-In `lib/data/getShowForViewer.ts`, reword the `run_of_show` waiver comment (currently `// not-subject-to-meta: lib/data is outside _metaInfraContract's auth-domain scan …`) to name the real discharge: registry-pinned by `tests/data/_metaLibDataCallBoundary.test.ts`, behaviorally covered by `tests/data/getShowForViewerRunOfShow.test.ts`. RED step: first ADD a temporary assertion to the meta-test that the file's waiver text does not contain the stale phrase "outside _metaInfraContract" — red against current tree; reword; green. (The assertion stays: it pins the reword.) The second waiver comment (`projected from the already-fetched shows row`, non-call site) is untouched. Comment-only diff to production; `tests/data/getShowForViewerRunOfShow.test.ts` must stay green (fail-soft behavior unchanged).
-
-## Task 4 — gates + ship
-
-<!-- task: red=`pnpm test` ac=AC-8 -->
-
-Full local gates before push: `pnpm test` (full suite), `pnpm exec tsc --noEmit` (typecheck incl. the test file), `pnpm exec eslint tests/data/_metaLibDataCallBoundary.test.ts lib/data/getShowForViewer.ts`, `pnpm format:check`. Whole-diff codex review (fresh-eyes brief; REVIEWER ONLY; consequence bound + fence from spec §1.3-1.4; convergence = the §5 F1-F12 family table, each family's kill mechanism demonstrated by the planted self-tests). Push → real CI green (all 12 required contexts) → invariant-12 marker off in the last commit → `gh pr merge --merge` → fast-forward main, verify `0  0`.
+Add the permanent meta-test assertion that `lib/data/getShowForViewer.ts`'s waiver text does not contain the stale phrase "outside _metaInfraContract" — RED against the current tree (live corpus text). Reword the comment to name the real discharge (registry-pinned by this suite; behaviorally covered by `tests/data/getShowForViewerRunOfShow.test.ts`); green. The second waiver comment (non-call site) is untouched; `getShowForViewerRunOfShow.test.ts` stays green (fail-soft unchanged).
 
 <!-- tasks: end -->
+
+## Close-out (not a TDD task — no RED exists; gates verify, they do not drive)
+
+Full pre-push ladder: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check` (repo-wide, not file-scoped — the canonical gate set). Whole-diff codex review (fresh-eyes brief; REVIEWER ONLY; consequence bound + fence from spec §1.3-1.4; convergence = spec §5 F1-F12, each family's kill demonstrated by the planted self-tests). Push → real CI green (all 12 required contexts) → invariant-12 marker off in the last commit → `gh pr merge --merge` → fast-forward main, verify `0  0` (AC-8).
 
 ## Invariant checklist
 
@@ -94,4 +92,4 @@ Full local gates before push: `pnpm test` (full suite), `pnpm exec tsc --noEmit`
 - Invariant 10: N/A — no mutation surface.
 - Invariant 11: work in `../FX-worktrees/libdata-call-boundary-metatest` (this worktree).
 - Invariant 12: marker on `BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST` comes off in the PR's last commit.
-- AC map (spec §7): AC-1 (suite exists, unit-suite wired, green on tree — Task 2); AC-2 (disk discovery + row-deletion red — Task 2); AC-3 (17 rows, 13 pins + 4 coveredBy with via symbols — Task 2); AC-4 (ordered deep-equality both directions, no authored count, executable coveredBy — Task 2); AC-5 (planted positives/negatives incl. documented-limit shapes — Task 1); AC-6 (stale waiver reworded — Task 3); AC-7 (both premises unconditional — Task 1); AC-8 (full suite + real CI green — Task 4).
+- AC map (spec §7): AC-1 (suite exists, unit-suite wired — Task 1; green on tree — Task 2); AC-2 (disk discovery + planted in-memory fixture + row-deletion red — Task 2); AC-3 (17 rows, 13 pins + 4 coveredBy with via symbols — Task 2); AC-4 (ordered deep-equality both directions, no authored count, executable coveredBy — Task 2); AC-5 (planted positives/negatives incl. documented-limit shapes — Task 1); AC-6 (stale waiver reworded — Task 3); AC-7 (both premises unconditional — Task 1); AC-8 (full suite + real CI green — Close-out).
