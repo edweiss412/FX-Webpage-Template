@@ -37,6 +37,13 @@ const mockState = vi.hoisted(() => ({
     note: string | null;
   }>,
   fromError: null as string | null,
+  // The THROWN arm of the `.from()` boundary, in both shapes invariant 9
+  // distinguishes: `.from()` raising synchronously (a client-construction or
+  // builder fault) and the awaited query chain rejecting. Without these the
+  // mock could only ever produce a returned error, so the thrown half of the
+  // contract was unreachable through `listAdminEmails` (whole-diff R4 F1).
+  throwOnFrom: false,
+  rejectOnFrom: false,
 }));
 
 vi.mock("@/lib/supabase/server", () => {
@@ -54,17 +61,24 @@ vi.mock("@/lib/supabase/server", () => {
           }
           return { data: mockState.rpcResponse, error: null };
         },
-        from: () => ({
-          select: () => ({
-            order: () => ({
-              order: () =>
-                Promise.resolve({
-                  data: mockState.fromError ? null : mockState.fromRows,
-                  error: mockState.fromError ? { message: mockState.fromError } : null,
-                }),
+        from: () => {
+          if (mockState.throwOnFrom) {
+            throw new Error("META: simulated from() sync fault");
+          }
+          return {
+            select: () => ({
+              order: () => ({
+                order: () =>
+                  mockState.rejectOnFrom
+                    ? Promise.reject(new Error("META: simulated query rejection"))
+                    : Promise.resolve({
+                        data: mockState.fromError ? null : mockState.fromRows,
+                        error: mockState.fromError ? { message: mockState.fromError } : null,
+                      }),
+              }),
             }),
-          }),
-        }),
+          };
+        },
       };
     },
   };
@@ -80,6 +94,8 @@ beforeEach(() => {
   mockState.throwOnRpc = false;
   mockState.fromRows = [];
   mockState.fromError = null;
+  mockState.throwOnFrom = false;
+  mockState.rejectOnFrom = false;
 });
 
 describe("addAdminEmail (M9 C9 / M2-D1 R1)", () => {
@@ -367,6 +383,20 @@ describe("listAdminEmails (M9 C9 / M2-D1)", () => {
 
   test("throws AdminEmailsInfraError on listAdminEmails error", async () => {
     mockState.fromError = "list failed";
+    await expect(listAdminEmails()).rejects.toBeInstanceOf(AdminEmailsInfraError);
+  });
+
+  // The THROWN arm of the read boundary. The test above covers the RETURNED
+  // error; invariant 9 requires both to be distinguished and both to surface as
+  // a typed infra fault, and the `admin_emails` registry row in
+  // tests/data/_metaLibDataCallBoundary.test.ts cites this suite for it.
+  test("throws AdminEmailsInfraError when .from() throws synchronously", async () => {
+    mockState.throwOnFrom = true;
+    await expect(listAdminEmails()).rejects.toBeInstanceOf(AdminEmailsInfraError);
+  });
+
+  test("throws AdminEmailsInfraError when the query chain rejects", async () => {
+    mockState.rejectOnFrom = true;
     await expect(listAdminEmails()).rejects.toBeInstanceOf(AdminEmailsInfraError);
   });
 });
