@@ -89,15 +89,12 @@ type ManualRecoveryTx = SyncPipelineTx & {
     driveFileId: string,
     code: string,
   ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
-  insertSyncLog(
-    entry: {
-      driveFileId: string | null;
-      outcome: string;
-      code?: string;
-      payload?: Record<string, unknown>;
-    },
-    showId?: string | null,
-  ): Promise<void>;
+  insertSyncLog(entry: {
+    driveFileId: string | null;
+    outcome: string;
+    code?: string;
+    payload?: Record<string, unknown>;
+  }): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
 
@@ -172,15 +169,12 @@ async function markManualSheetUnavailable_unlocked(
   };
   if (error) payload.message = errorMessage(error);
 
-  await recoveryTx.insertSyncLog(
-    {
-      driveFileId,
-      outcome: "error",
-      code,
-      payload,
-    },
-    showId,
-  );
+  await recoveryTx.insertSyncLog({
+    driveFileId,
+    outcome: "error",
+    code,
+    payload,
+  });
 
   await recoveryTx.upsertAdminAlert({
     showId,
@@ -221,15 +215,12 @@ async function markManualDriveError_unlocked(
     previousLastSeenModifiedTime: updated.lastSeenModifiedTime ?? null,
   };
   if (error) payload.message = errorMessage(error);
-  await recoveryTx.insertSyncLog(
-    {
-      driveFileId,
-      outcome: "parse_error",
-      code: SYNC_INFRA_ERROR,
-      payload,
-    },
-    updated.showId,
-  );
+  await recoveryTx.insertSyncLog({
+    driveFileId,
+    outcome: "parse_error",
+    code: SYNC_INFRA_ERROR,
+    payload,
+  });
   await recoveryTx.upsertAdminAlert({
     showId: updated.showId,
     code: "DRIVE_FETCH_FAILED",

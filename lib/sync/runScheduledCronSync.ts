@@ -491,7 +491,7 @@ type CronRecoveryTx = SyncPipelineTx & {
     driveFileId: string,
     code: string,
   ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
-  insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
+  insertSyncLog(entry: SyncLogEntry): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
 
@@ -1219,14 +1219,17 @@ class PostgresPipelineTx implements SyncPipelineTx {
     };
   }
 
-  async insertSyncLog(entry: SyncLogEntry, showId?: string | null) {
+  async insertSyncLog(entry: SyncLogEntry) {
     await this.rows(
       `
         insert into public.sync_log (show_id, drive_file_id, status, message, parse_warnings)
-        values ($1::uuid, $2, $3, $4, $5::jsonb)
+        values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::jsonb)
       `,
+      // §3.1: show_id is DERIVED, and the explicit parameter is RETIRED rather than
+      // merely unused. An explicit id lets a caller pass one read from an uncommitted
+      // `shows` insert; the FK check would then block on that row's transaction from a
+      // separate connection. Removing the channel makes that unrepresentable.
       [
-        showId ?? null,
         entry.driveFileId,
         entry.code ?? entry.outcome,
         entry.code ? `${entry.outcome}:${entry.code}` : entry.outcome,
@@ -2598,15 +2601,12 @@ async function markMissingShow_unlocked(
     driveFileId: show.driveFileId,
     previousLastSeenModifiedTime,
   };
-  await recoveryTx.insertSyncLog(
-    {
-      driveFileId: show.driveFileId,
-      outcome: "error",
-      code: SHEET_UNAVAILABLE,
-      payload,
-    },
-    showId,
-  );
+  await recoveryTx.insertSyncLog({
+    driveFileId: show.driveFileId,
+    outcome: "error",
+    code: SHEET_UNAVAILABLE,
+    payload,
+  });
   await recoveryTx.upsertAdminAlert({
     showId,
     code: "SHEET_UNAVAILABLE",
@@ -2653,19 +2653,16 @@ async function handleFetchFailure_unlocked(
     const showId = updated.showId;
     const previousLastSeenModifiedTime =
       updated.lastSeenModifiedTime ?? show.lastSeenModifiedTime ?? null;
-    await recoveryTx.insertSyncLog(
-      {
+    await recoveryTx.insertSyncLog({
+      driveFileId,
+      outcome: "error",
+      code,
+      payload: {
         driveFileId,
-        outcome: "error",
-        code,
-        payload: {
-          driveFileId,
-          message: errorMessage(error),
-          previousLastSeenModifiedTime,
-        },
+        message: errorMessage(error),
+        previousLastSeenModifiedTime,
       },
-      showId,
-    );
+    });
     if (code === STAGED_PARSE_SOURCE_GONE) {
       await recoveryTx.upsertAdminAlert({
         showId,

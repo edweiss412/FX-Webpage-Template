@@ -176,17 +176,16 @@ function fakeTx(held = true): FakeTx {
         title: show.title,
       };
     },
-    async insertSyncLog(
-      entry: {
-        driveFileId: string | null;
-        outcome: string;
-        code?: string;
-        payload?: Record<string, unknown>;
-      },
-      showId?: string | null,
-    ) {
+    async insertSyncLog(entry: {
+      driveFileId: string | null;
+      outcome: string;
+      code?: string;
+      payload?: Record<string, unknown>;
+    }) {
+      // showId is no longer a parameter (2026-08-09); attribution is asserted in
+      // tests/db/syncLogAttribution.db.test.ts, where it can be observed.
       this.operations.push(`insertSyncLog:${entry.driveFileId ?? "global"}`);
-      this.syncLog.push(showId === undefined ? entry : { ...entry, showId });
+      this.syncLog.push(entry);
     },
     async upsertAdminAlert(input: {
       showId: string | null;
@@ -469,7 +468,6 @@ describe("runManualSyncForShow", () => {
           driveFileId: "drive-file-1",
           previousLastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
         },
-        showId: "show-1",
       },
     ]);
     expect(tx.alerts).toEqual([
@@ -526,7 +524,6 @@ describe("runManualSyncForShow", () => {
           message: "Drive file not found",
           previousLastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
         },
-        showId: "show-1",
       },
     ]);
   });
