@@ -5,7 +5,7 @@
 
 ## 1.1 Resolved scope — do not relitigate
 
-- **The fix is a formatting normalization of `app/help/tour/page.mdx`, not a rewrite.** Copy, link targets, aria-labels, and classNames are byte-identical after the change; only JSX text-child line placement changes. Any finding proposing copy or layout changes is out of scope.
+- **The fix is a formatting normalization of `app/help/tour/page.mdx`, not a rewrite.** Copy, link targets, aria-labels, and classNames are byte-identical after the change; only JSX line structure changes — multi-line attribute lists collapse to one line and text children move inline with their tags (both halves of the §4 recipe). Any finding proposing copy or layout changes is out of scope.
 - **The CI promotion rides in the same arc.** BACKLOG.md (`BL-HELP-TOUR-HYDRATION-MISMATCH`, "Closing this unblocks a one-line follow-up") names the allowlist-row deletion + workflow wiring as the un-defer payload; folding it here is the ratified disposition, not scope creep.
 - **No new test files.** The red test already exists: `tests/e2e/help-pages.spec.ts` asserts zero page errors per `/help/*` route and currently fails on `/help/tour` (probed 2026-08-09, both server postures, per the backlog entry). Green is the same suite passing. A bespoke MDX-compile unit guard was considered and rejected (YAGNI: the e2e page-error assertion is the durable guard once promoted to CI).
 - **The backlog entry's causal guess is superseded by the probe below.** The entry hypothesized column-0 `<a>` elements being wrapped in `<p>`. The confirmed mechanism is different (text children on their own lines inside JSX flow elements are parsed as markdown paragraphs). Do not relitigate the old hypothesis.
@@ -17,7 +17,7 @@
 
 ## 3. Root cause — CONFIRMED by compile probe, 2026-08-10
 
-`app/help/tour/page.mdx` contains seven link cards across three grids. Three of the seven were at some point reformatted (prettier-style: multi-line attributes, each text child on its own line) — the "Review queues" card (`app/help/tour/page.mdx:18`), the "Preview as crew" card (`app/help/tour/page.mdx:65`), and the "Onboarding wizard" card (`app/help/tour/page.mdx:101`). The other four keep the compact style: single-line attributes, text children inline with their tags.
+`app/help/tour/page.mdx` contains seven link cards across three groups (two grid containers at `app/help/tour/page.mdx:7` and `app/help/tour/page.mdx:54`, plus a single-card plain div at `app/help/tour/page.mdx:100`). Three of the seven were at some point reformatted (prettier-style: multi-line attributes, each text child on its own line) — the "Review queues" card (`app/help/tour/page.mdx:18`), the "Preview as crew" card (`app/help/tour/page.mdx:65`), and the "Onboarding wizard" card (`app/help/tour/page.mdx:101`). The other four keep the compact style: single-line attributes, text children inline with their tags.
 
 MDX parses the children of a JSX flow element as markdown **flow** content. A text child sitting on its own line becomes a markdown paragraph and compiles to `<_components.p>` — nested inside whatever JSX element holds it. Compile probe (`@mdx-js/mdx` `compile`, `jsx: true`, run against the live file 2026-08-10) shows, for each of the three reformatted cards, output of the shape:
 
@@ -60,7 +60,7 @@ Acceptance for this section: recompiling the fixed file with the §3 probe yield
 - **Red (exists today):** `BASELINE_SERVER_ONLY=1 pnpm exec playwright test tests/e2e/help-pages.spec.ts --project=mobile-safari` — fails: `/help/tour: page errors observed` (13 entries). This is the pre-existing failing case; the fix task writes no new test (invariant-1 shape: the failing test predates the fix).
 - **Green:** same command passes; run the full spec file (all 14 routes + the NAV-parity guard) to confirm no sibling route regressed. Coverage is **mobile-safari only**: `help-pages` resolves in the mobile-safari `testMatch` (`playwright.config.ts:78`) and is deliberately absent from desktop-chromium's (`playwright.config.ts:91`); the spec's own header declares mobile-safari (`tests/e2e/help-pages.spec.ts:34`). This arc does not widen project coverage.
 - **Compile probe:** §4's one-`_components.p` assertion, run ad hoc (not committed — the e2e page-error assertion is the durable guard).
-- **Visual delta:** none intended. Pre-fix, users already see the client-re-rendered (correct) DOM after the hydration flash; post-fix the server HTML is identical to it. Impeccable critique + audit dual gate on the diff verifies (invariant 8).
+- **Visual delta:** none intended, but the DOM does change — the fix removes the nine nested markdown `<p>` wrappers, so pre- and post-fix trees are structurally different (R3 F3). The removed wrappers are markdown-default paragraphs nested inside elements that are already block containers, so the expected rendered delta is nil-to-minimal; that expectation is VERIFIED by the impeccable critique + audit dual gate on the diff (invariant 8), not assumed.
 - **CI:** real `app-e2e.yml` green on the PR (local-passes-CI-fails is its own bug class — AGENTS.md cross-cutting discipline).
 
 ## 7. Documented limits
