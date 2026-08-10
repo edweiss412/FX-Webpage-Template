@@ -16,6 +16,24 @@ Layout barriers + onboarding early-return (`app/admin/layout.tsx` ~:77-181), Adm
 
 Throwaway probe in this worktree (deleted before the PR): a `force-dynamic` layout passes an artificially-slow promise prop to a client component consuming it via `.then` in an effect. Prove in `next dev` AND `next build && next start`: (a) chrome flushes before resolution (streaming holds), (b) the client thenable RESOLVES when the RSC payload arrives — the `.then` callback observably fires with the loader's value after the artificial delay (plan R1 F1), (c) no hydration error/double-fetch, (d) a navigation issued before resolution still fires the pathname refetch. Paste the measurements into this plan file as an amendment commit. The spike FAILS CLOSED on ANY of the four properties (plan R2 F2) — a failed thenable delivery, a hydration error/double-fetch, or a broken pre-resolution navigation each triggers the fallback exactly as a failed flush does. Fallback (client-side first-fetch seeding), honestly stated (plan R2 F3 — it is NOT a source-swap): the hooks gain NO async-seed arm at all; the layout stops awaiting and passes nothing; each hook mounts in the pending shape and issues its own first fetch through its EXISTING commit paths (the token gates already govern it — `useNeedsAttentionBadge.ts:35-55`, `useBellBadge.ts:82-107`). Under fallback, Task 2 SHRINKS to: pending-shape rendering + first-fetch population + the interleaving subset that exists without promises (navigate-during-first-fetch, zeroNow-during-first-fetch); every promise-specific case (P1/P2 supersession, virgin-state seed drop/demote) is N/A and the spec is amended by one commit to record the reduced state machine. Task 3's layout half shrinks to not-awaiting + pending-shape assertions.
 
+### Task 0 result — RATIFIED (run 2026-08-09, Next 16.3.0 / React 19.2.4)
+
+All four properties hold in `next dev` AND `next build && next start`. The streaming half proceeds as specified; the fallback is NOT taken.
+
+Probe: `app/spike-promise/{layout,page,other/page}.tsx` + `components/spike/SpikeConsumer.tsx` (a `force-dynamic` layout passing a promise resolving after an artificial 2500ms delay to a client component consuming it via `.then` in a promise-identity-keyed effect), driven headless by `spike-drive.mjs`. All five files are throwaway and deleted before the PR.
+
+| Property | `next dev` | `next build && next start` |
+| --- | --- | --- |
+| (a) chrome flushes before resolution | chrome marker on the wire at **96ms**, resolved value at **2578ms**, stream end 2579ms; in-browser chrome visible at **222ms** with the count still `PENDING` | chrome marker at **2202ms**, value at **4502ms** (gap **2300ms** ≈ the artificial delay; the absolute figure carries first-request warm-up); in-browser chrome visible at **717ms**, count `PENDING` |
+| (b) the client thenable RESOLVES with the loader's value | `.then` fired with `count: 7` at **2578ms** | fired with `count: 7` at **3308ms** |
+| (c) no hydration error / no double-fetch | 0 hydration errors, 0 page errors, `.then` callback fired exactly **1×** (React StrictMode's dev double-mount invalidated the first subscription, as the identity guard intends) | 0 hydration errors, 0 page errors, exactly **1×** |
+| (d) navigation issued BEFORE resolution still fires the pathname refetch | refetch counter **1**, instance id unchanged (**no remount**), count still `PENDING` at nav time | refetch counter **1**, instance id unchanged, count still `PENDING` at nav time |
+
+Two measurement artifacts worth recording, because each produced a false reading first:
+
+1. **The dev server 403s subresources whose `Origin` is `127.0.0.1`** (Next 16's dev cross-origin check; `localhost` is accepted). The first dev run showed `resolves: 0` and a permanently `PENDING` count — not a framework property, just an unhydrated page: every `/_next/static/chunks/*.js` had returned 403. Drive dev probes at `http://localhost`.
+2. **A click on a `<Link>` before hydration is a native full-document navigation**, not a client-side one — it remounts the tree, so `lastPathRef` initializes on the destination and the pathname effect correctly does not fire. The first (d) reading (`refetches: 0`) measured that, not the property. The probe now gates the click on a hydration marker, and the instance id distinguishes "effect fired" from "component remounted" for good.
+
 <!-- tasks: depth=2 -->
 
 ## Task 1 — onboarding branch stops paying badge reads
