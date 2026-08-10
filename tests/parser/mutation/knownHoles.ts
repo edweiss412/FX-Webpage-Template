@@ -130,40 +130,46 @@ export function findingFor(siteId: string): string {
 //     PRESERVED so they stay resolvable; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE),
 //     plus 7 new text_drift rows for the REF_ERROR_LITERAL sites, each mechanism-named.
 //     35 rows discriminated as GENUINE signal_loss and were left alone. ────
-// ─── SHRUNK 2026-08-09 by the ROW_CELLS_FUSED width discriminator
-//     (`feat/mutation-merged-cell`, mutation wave 3/5): 2388 holes closed, taking
-//     3708 → 1320. The class it targeted is `merged-cell` (2369 of its 2407 rows), but the
-//     shrink deliberately is NOT scoped to that operator: a short-by-one row is the shape
-//     the discriminator recognizes, and `column-shift` (17) and `blank-row:remove` (2)
-//     produce it too. Those 19 rows are a real coverage win for classes branches 4 and 1
-//     own, so branch 4 inherits a smaller `column-shift` blast radius than its plan states.
-//     RESIDUE: 38 merged-cell mutants survive by design (spec §5.3) —
-//     the fused row sits in a section the discriminator SKIPS, either under the 3-data-row
-//     floor (every `B0:L0` row is the one-data-row title block) or in a section whose width
-//     distribution ties, so "short by one against the section's normal width" has no
-//     referent. Say what that means precisely, because an earlier draft of this note said
-//     "zero corruption" and that was WRONG: these 38 rows are ledgered holes, 37 `wrong`
-//     and 1 `text_drift`, so the MUTANTS do corrupt payload silently. What is zero is the
-//     detector's output -- it abstains where it has no well-defined modal rather than
-//     guessing. The corruption is real, still ledgered, and still owed to a future pass.
-//     ONE ROW CAME BACK, deliberately and by measurement: `column-shift:ria:B13:L63:X0`
-//     was deleted in the first pass, then reported as a `newHoles` REGRESSION by the
-//     confirming run, because the shrink had been derived against a parser that changed
-//     afterwards (the section boundary moved from the routing table to the header
-//     registry). Restoring it is the ratchet working as designed -- the ledger records
-//     what the CURRENT parser actually catches, so a row whose mutant survives again
-//     belongs in it, and quietly leaving it out would have been a silent hole. ────
-// 1320 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
+// ─── SHRUNK 2026-08-09/10 by the ROW_CELLS_FUSED width discriminator
+//     (`feat/mutation-merged-cell`, mutation wave 3/5): 2287 holes closed, 3708 → 1421.
+//     The class it targeted is `merged-cell` (2281 of its 2407 rows). The shrink is NOT
+//     scoped to that operator, deliberately: short-by-one is the SHAPE the discriminator
+//     recognizes, and `column-shift` produces it too (6 rows). That is a real coverage win
+//     for a class branch 4 owns, so branch 4 should re-derive its blast radius from this
+//     ledger rather than trust the figure in its plan.
+//
+//     DERIVED TWICE, and the second derivation is the one that counts. The first pass ran
+//     against a parser that cross-model review then rewrote — escape-aware cell counting,
+//     structural rather than lexical section boundaries, the header excluded from the
+//     measured population, and abstention on an ambiguous run. 101 mutants that the first
+//     parser caught survive the final one, and every one of them was ADDED BACK by the
+//     re-derivation rather than left out. That is the ratchet working: the ledger records
+//     what the CURRENT parser actually catches, and a row whose mutant survives again
+//     belongs in it. Quietly keeping the smaller number would have been 101 silent holes.
+//
+//     RESIDUE: 126 merged-cell mutants survive by design (spec §5.3). The fused row sits
+//     where the discriminator has no well-defined modal to be short of — a section under
+//     the 3-data-row floor (every `B0:L0` row is the one-data-row title block), a section
+//     whose width distribution ties, a HEADER row (excluded from the population, since a
+//     narrower section title is ordinary authoring), or a run holding a second
+//     delimiter-shaped row, which is ambiguous by construction and abandoned whole.
+//
+//     Say what that means precisely, because an earlier draft of this note said "zero
+//     corruption" and that was WRONG: these 126 rows are ledgered holes, so the MUTANTS do
+//     corrupt payload silently. What is zero is the DETECTOR'S OUTPUT — it abstains where
+//     it cannot tell rather than guessing. The corruption is real, still ledgered, and
+//     still owed to a future pass. ────
+// 1421 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
 // hole) or a FIX (a resolved hole → stale row) both fail the nightly harness. Stored as
 // pipe-delimited rows inside a TEMPLATE LITERAL (prettier leaves its interior intact, so each hole
-// stays ONE line instead of prettier exploding 1320 object literals to ~11k lines). Row format:
+// stays ONE line instead of prettier exploding 1421 object literals to ~12k lines). Row format:
 //   siteId|kind|fingerprint|finding|note      (fields are pipe-free: siteId uses ':', fp is hex)
 // finding = OPERATOR_FINDING_MAP[operator] (audit #N or BL-MUTATION-* — never a blanket "unaudited",
 // Codex R3). Fingerprints use the EXHAUSTIVE-by-type signal redaction (oracle.ts redactNode) so an
 // in-ledger drift on ANY signal field is caught (Codex R3). Ratchet: SHRINK this list as holes are
 // fixed; never grow it silently. Breakdown: 6 domain-scoped corrupting ops + section-reorder;
-// section-reorder (order-sensitivity, reclassified corrupting) = 82; all others = 1238;
-// by kind: 1271 wrong + 31 signal_loss + 18 text_drift.
+// section-reorder (order-sensitivity, reclassified corrupting) = 82; all others = 1339;
+// by kind: 1356 wrong + 35 signal_loss + 30 text_drift.
 const RAW_HOLES = `
 blank-row:inject:2024-05-east-coast-family-office:B10:L69:Xgap0|wrong|73d9f07eed068f65|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B10:L70:Xgap1|wrong|c1155b75248f6c82|#10|blank-row wrong @ inject
@@ -1029,6 +1035,7 @@ blank-row:inject:rpas:B8:L52:Xgap8|wrong|73f6cec1e456a17c|#10|blank-row wrong @ 
 blank-row:inject:rpas:B8:L53:Xgap9|wrong|73f6cec1e456a17c|#10|blank-row wrong @ inject
 blank-row:inject:rpas:B8:L54:Xgap10|wrong|aacec5b7a82104a4|#10|blank-row wrong @ inject
 blank-row:inject:rpas:B8:L55:Xgap11|wrong|aacec5b7a82104a4|#10|blank-row wrong @ inject
+blank-row:remove:2024-05-east-coast-family-office:B2:L24:Xgap|wrong|e43544c3d07ae7ae|#10|blank-row:remove wrong @ 2024-05-east-coast-family-office
 blank-row:remove:2025-03-dci-rpas-central:B0:L5:Xgap|wrong|95cf315b569f7a90|#10|blank-row wrong @ remove
 blank-row:remove:2025-03-dci-rpas-central:B17:L338:Xgap|wrong|b5dbe60934fe0024|#10|blank-row wrong @ remove
 blank-row:remove:2025-10-consultants-roundtable:B21:L208:Xgap|text_drift|f4a04ae746ad05b4|#10|section fused: warning anchor moved
@@ -1036,19 +1043,23 @@ blank-row:remove:2026-03-rpas-central-four-seasons:B3:L38:Xgap|wrong|ebfc6cc22e1
 blank-row:remove:east-coast:B14:L88:Xgap|wrong|4f6e132d00be45bf|#10|blank-row wrong @ remove
 blank-row:remove:east-coast:B21:L265:Xgap|wrong|43e5b699c0b71d29|#10|blank-row wrong @ remove
 blank-row:remove:fintech:B24:L276:Xgap|text_drift|0714e12baed4a061|#10|section fused: warning anchor moved
+blank-row:remove:fixed-income:B22:L245:Xgap|text_drift|0714e12baed4a061|#10|blank-row:remove text_drift @ fixed-income
 blank-row:remove:rpas:B25:L229:Xgap|text_drift|0563a9eeee8deaa1|#10|section fused: warning anchor moved
 column-shift:2024-05-east-coast-family-office:B0:L0:X0|wrong|a021768c83b0d05d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B10:L67:X0|wrong|dc5cd8285b10cb13|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B14:L206:X0|wrong|9f6be2826ef677bd|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B1:L7:X0|wrong|68e579f71b9de87f|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B2:L12:X0|wrong|284049b458711a70|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
+column-shift:2024-05-east-coast-family-office:B4:L18:X0|wrong|a57db9af11930d1d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B6:L25:X0|wrong|dbddaf22a585fd86|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B8:L49:X0|wrong|bc50b4c7f5fd910d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B9:L61:X0|wrong|9d40bb589fd5794d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2025-03-dci-rpas-central:B0:L0:X0|wrong|dafefeccec2a6311|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B10:L220:X0|wrong|e2704aaefb5487b4|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B11:L229:X0|wrong|d4c38c60cab160e0|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
+column-shift:2025-03-dci-rpas-central:B12:L231:X0|wrong|60c0d30a471d8aff|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B14:L238:X0|wrong|22524792c3ffa344|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
+column-shift:2025-03-dci-rpas-central:B16:L250:X0|wrong|44b9e035f4ec0a3a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B19:L294:X0|wrong|fe0bab58235fc2bc|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B20:L315:X0|wrong|64c883ffa95e3f1d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B21:L320:X0|wrong|b1ccc572ccb57238|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
@@ -1061,6 +1072,7 @@ column-shift:2025-03-dci-rpas-central:B7:L182:X0|wrong|07dd75a9bd021802|BL-MUTAT
 column-shift:2025-03-dci-rpas-central:B8:L197:X0|wrong|3972d7e601867e71|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B9:L206:X0|wrong|8a411f48a341af7a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-04-asset-mgmt-cfo-coo:B0:L0:X0|wrong|19a0c810fb623afc|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
+column-shift:2025-04-asset-mgmt-cfo-coo:B11:L120:X0|wrong|809c152599e75750|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
 column-shift:2025-04-asset-mgmt-cfo-coo:B17:L223:X0|wrong|2a70086c556d3969|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
 column-shift:2025-04-asset-mgmt-cfo-coo:B20:L310:X0|wrong|00c017711272376e|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
 column-shift:2025-04-asset-mgmt-cfo-coo:B21:L315:X0|signal_loss|1ed369f76bca5f67|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-04-asset-mgmt-cfo-coo
@@ -1077,6 +1089,7 @@ column-shift:2025-05-redefining-fixed-income-private-credit:B2:L27:X0|wrong|e9d8
 column-shift:2025-05-redefining-fixed-income-private-credit:B34:L359:X0|wrong|5e470c637c875e07|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
 column-shift:2025-05-redefining-fixed-income-private-credit:B3:L42:X0|wrong|3f97337b9013b0df|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
 column-shift:2025-05-redefining-fixed-income-private-credit:B4:L54:X0|wrong|3f97337b9013b0df|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
+column-shift:2025-05-redefining-fixed-income-private-credit:B8:L79:X0|wrong|b4ae64e0367024d4|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
 column-shift:2025-06-ria-investment-forum:B10:L122:X0|wrong|f28ece7a5d31848a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-06-ria-investment-forum
 column-shift:2025-06-ria-investment-forum:B11:L136:X0|signal_loss|a98d978500e4b72e|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-06-ria-investment-forum
 column-shift:2025-06-ria-investment-forum:B12:L215:X0|wrong|21795940d8e1340b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-06-ria-investment-forum
@@ -1100,6 +1113,7 @@ column-shift:2025-10-consultants-roundtable:B23:L151:X0|signal_loss|1a13d6366ff6
 column-shift:2025-10-consultants-roundtable:B24:L158:X0|wrong|f98b2b54190c9541|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
 column-shift:2025-10-consultants-roundtable:B25:L164:X0|signal_loss|dc6866a157252169|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
 column-shift:2025-10-consultants-roundtable:B26:L171:X0|signal_loss|7f7510469198b9b1|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
+column-shift:2025-10-consultants-roundtable:B27:L173:X0|wrong|db40750d837b58c1|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
 column-shift:2025-10-consultants-roundtable:B28:L209:X0|signal_loss|6f44ca82bbb6c746|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
 column-shift:2025-10-consultants-roundtable:B29:L225:X0|signal_loss|66121741a4d0f501|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
 column-shift:2025-10-consultants-roundtable:B4:L16:X0|wrong|bd2b99b82548a44a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
@@ -1163,8 +1177,10 @@ column-shift:east-coast:B15:L66:X0|wrong|eb8dfeed61369e79|BL-MUTATION-COLUMN-SHI
 column-shift:east-coast:B16:L77:X0|wrong|76cd218c32f14c7b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
 column-shift:east-coast:B17:L80:X0|wrong|cca02890cc945052|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
 column-shift:east-coast:B18:L89:X0|wrong|4f6e132d00be45bf|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
+column-shift:east-coast:B2:L5:X0|wrong|1ad62fcd6705ac5a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
 column-shift:east-coast:B3:L8:X0|wrong|68e579f71b9de87f|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
 column-shift:east-coast:B5:L20:X0|wrong|9d40bb589fd5794d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
+column-shift:east-coast:B7:L28:X0|wrong|065f21e8009b7bf5|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
 column-shift:east-coast:B9:L34:X0|wrong|5677484ee3eb6b08|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
 column-shift:fintech:B0:L0:X0|wrong|a3813a868dcaabef|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
 column-shift:fintech:B11:L77:X0|wrong|3ce9bef31602be59|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
@@ -1172,6 +1188,7 @@ column-shift:fintech:B14:L89:X0|wrong|80fff035b9e1f8ae|BL-MUTATION-COLUMN-SHIFT|
 column-shift:fintech:B20:L144:X0|wrong|a6a26a1b01ae4194|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
 column-shift:fintech:B22:L162:X0|wrong|a6a26a1b01ae4194|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
 column-shift:fintech:B23:L199:X0|wrong|de3d7b81462bd4ae|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
+column-shift:fintech:B2:L5:X0|wrong|8102847038cc7e4d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
 column-shift:fintech:B3:L12:X0|wrong|3e3826d204a404a4|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
 column-shift:fintech:B46:L299:X0|wrong|405a25847fdde412|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
 column-shift:fintech:B6:L33:X0|wrong|c016a10cfab87f52|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
@@ -1188,6 +1205,7 @@ column-shift:fixed-income:B20:L165:X0|wrong|be86e1fac0d16e8a|BL-MUTATION-COLUMN-
 column-shift:fixed-income:B21:L171:X0|wrong|63f7e9f75ae793f9|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
 column-shift:fixed-income:B23:L194:X0|wrong|dc361dcac001d2af|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
 column-shift:fixed-income:B2:L11:X0|wrong|0c2c144ed262a7c9|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
+column-shift:fixed-income:B35:L221:X0|wrong|0973fc08eb8c4fc3|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
 column-shift:fixed-income:B4:L25:X0|wrong|b6fe529063922871|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
 column-shift:fixed-income:B5:L33:X0|wrong|bfefa8606c0be6fd|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
 column-shift:fixed-income:B8:L43:X0|wrong|3d573f9888d5655e|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
@@ -1229,6 +1247,7 @@ column-shift:rpas:B25:L207:X0|wrong|7b427e901065ae89|BL-MUTATION-COLUMN-SHIFT|co
 column-shift:rpas:B2:L11:X0|wrong|40a8b26c1aaa062b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
 column-shift:rpas:B36:L263:X0|wrong|ce0d1036f46ff827|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
 column-shift:rpas:B45:L315:X0|wrong|4d5e12d7b6900b17|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
+column-shift:rpas:B57:L342:X0|wrong|8cf7a962704fb721|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
 column-shift:rpas:B5:L32:X0|wrong|dfff2dd439906e1e|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
 column-shift:rpas:B8:L42:X0|wrong|61ca0f9f79a61c08|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
 header-typo:2024-05-east-coast-family-office:B10:L67:X0|wrong|4c612f1b1af54662|#5|header-typo wrong @ 2024-05-east-coast-family-office
@@ -1366,19 +1385,80 @@ header-typo:rpas:B55:L340:X0|wrong|e179809f247ab536|#5|header-typo wrong @ rpas
 header-typo:rpas:B7:L39:X0|wrong|48111a5326869bf0|#5|header-typo wrong @ rpas
 header-typo:rpas:B8:L42:X0|wrong|61ca0f9f79a61c08|#5|header-typo wrong @ rpas
 merged-cell:2025-03-dci-rpas-central:B17:L259:X0|wrong|41695751c913674d|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
+merged-cell:2025-03-dci-rpas-central:B20:L317:X0|wrong|fdb856438b94ada3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
+merged-cell:2025-03-dci-rpas-central:B20:L317:X1|wrong|df2f02ed58b4e9f8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
+merged-cell:2025-03-dci-rpas-central:B20:L318:X1|wrong|fdb856438b94ada3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
+merged-cell:2025-03-dci-rpas-central:B24:L373:X1|text_drift|ded02cbae3b57301|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-03-dci-rpas-central
 merged-cell:2025-04-asset-mgmt-cfo-coo:B18:L229:X0|wrong|39bac8945c6cf2df|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
+merged-cell:2025-04-asset-mgmt-cfo-coo:B20:L312:X0|wrong|ca66d6ff13628daa|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
+merged-cell:2025-04-asset-mgmt-cfo-coo:B20:L312:X1|wrong|ed8019454240891c|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
+merged-cell:2025-04-asset-mgmt-cfo-coo:B20:L313:X1|wrong|ca66d6ff13628daa|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
+merged-cell:2025-05-redefining-fixed-income-private-credit:B15:L199:X0|wrong|2b3473ed7cc584d8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-05-redefining-fixed-income-private-credit
+merged-cell:2025-05-redefining-fixed-income-private-credit:B15:L199:X1|wrong|0fac62bfdfb618e3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-05-redefining-fixed-income-private-credit
+merged-cell:2025-05-redefining-fixed-income-private-credit:B15:L200:X1|wrong|2b3473ed7cc584d8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-05-redefining-fixed-income-private-credit
 merged-cell:2025-05-redefining-fixed-income-private-credit:B18:L218:X0|wrong|2fbfad8d30e9d22e|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-05-redefining-fixed-income-private-credit
 merged-cell:2025-06-ria-investment-forum:B0:L0:X0|wrong|430b36c42d5ce9b4|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
+merged-cell:2025-06-ria-investment-forum:B7:L35:X0|wrong|dd2732ec709a8af3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
+merged-cell:2025-06-ria-investment-forum:B7:L35:X1|wrong|1fe370c32ba6f959|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
+merged-cell:2025-06-ria-investment-forum:B7:L36:X1|wrong|dd2732ec709a8af3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
+merged-cell:2025-06-ria-investment-forum:B8:L38:X1|text_drift|e690e3c8f99dd8d0|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-06-ria-investment-forum
 merged-cell:2025-10-consultants-roundtable:B11:L77:X0|wrong|abef54b985ccdac1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B15:L97:X0|wrong|f9fc8ad04d9beef5|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B15:L97:X1|wrong|25f65f0110755e1e|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B15:L98:X1|wrong|f9fc8ad04d9beef5|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B22:L139:X1|text_drift|63065c807cd899cd|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B26:L171:X1|text_drift|0ca6f92b4ad7bac5|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-10-consultants-roundtable:B28:L209:X10|wrong|eb0bfcf84084e8d6|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X11|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X12|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X13|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X14|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X17|signal_loss|e75876f92572d8e6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X18|signal_loss|e75876f92572d8e6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X19|signal_loss|e75876f92572d8e6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X20|signal_loss|e75876f92572d8e6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X2|wrong|83fc2f5bb6efbc56|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X3|wrong|ca0add650ac94b65|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X4|wrong|ca0add650ac94b65|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X5|wrong|ec823e2c1587ba3f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X6|wrong|ec823e2c1587ba3f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X7|wrong|ec823e2c1587ba3f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X8|wrong|ec823e2c1587ba3f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X9|wrong|eb0bfcf84084e8d6|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
+merged-cell:2025-10-fixed-income-trading-summit:B32:L251:X0|text_drift|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-fixed-income-trading-summit
+merged-cell:2025-10-fixed-income-trading-summit:B4:L34:X0|wrong|0686d041df2bfcc1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
+merged-cell:2025-10-fixed-income-trading-summit:B4:L34:X1|wrong|18b7626a778bbfa7|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
+merged-cell:2025-10-fixed-income-trading-summit:B4:L35:X1|wrong|0686d041df2bfcc1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
+merged-cell:2026-03-rpas-central-four-seasons:B22:L237:X0|text_drift|db4a66ca6d4f08bd|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2026-03-rpas-central-four-seasons
+merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B29:L339:X0|text_drift|eed1b676c4101ccf|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2026-04-asset-mgmt-cfo-coo-waldorf
+merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B36:L744:X0|wrong|a650160ebe389e85|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
+merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B36:L744:X6|wrong|a650160ebe389e85|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
+merged-cell:2026-05-fintech-forum-cto-summit:B30:L311:X0|text_drift|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2026-05-fintech-forum-cto-summit
 merged-cell:consultants:B0:L0:X0|wrong|ba4474d228b1c8b4|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:consultants:B0:L0:X1|wrong|ba4474d228b1c8b4|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:consultants:B0:L0:X2|wrong|ba4474d228b1c8b4|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:consultants:B0:L0:X3|wrong|ba4474d228b1c8b4|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:consultants:B22:L141:X0|wrong|b9d37d95158886ee|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:consultants:B22:L141:X1|wrong|b9d37d95158886ee|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B24:L146:X0|wrong|3ab09d2cdba44d4d|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:consultants:B26:L184:X0|wrong|00d689d32d72b296|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:consultants:B26:L184:X6|wrong|5f8273f6873e9e18|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B28:L190:X0|wrong|4f25e286599f7c40|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B28:L190:X6|wrong|3fc79bbafe1f7dc5|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B2:L11:X0|wrong|a9ee5f39a3d1e994|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B2:L11:X1|wrong|76245e28778bd0ce|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B2:L12:X1|wrong|a9ee5f39a3d1e994|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B30:L199:X0|wrong|002ccaa2fe900576|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B30:L199:X6|wrong|b5e2d30ba489a4a9|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B32:L208:X0|wrong|ed753489e45faaa0|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B32:L208:X6|wrong|9a4b9e0b4319240a|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B34:L217:X0|wrong|8b30da879a0bcbe2|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B34:L217:X6|wrong|9fbad0a046915e44|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B34:L219:X0|wrong|726c3d8176e439b9|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B34:L219:X6|wrong|5e8a2b5b05a8bb0b|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B34:L220:X0|wrong|16b308b85ef08402|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B34:L220:X6|wrong|bd71371eaa14f677|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
+merged-cell:consultants:B36:L225:X0|wrong|936fa0676c789f4c|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:east-coast:B0:L0:X0|wrong|41f7383f77475555|BL-MUTATION-MERGED-CELL|merged-cell wrong @ east-coast
 merged-cell:east-coast:B2:L6:X0|wrong|c9cc24cdd0c7b34f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ east-coast
 merged-cell:east-coast:B7:L29:X0|wrong|9b78a93c06d4a10f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ east-coast
@@ -1386,21 +1466,48 @@ merged-cell:fintech:B0:L0:X0|wrong|a3813a868dcaabef|BL-MUTATION-MERGED-CELL|merg
 merged-cell:fintech:B0:L0:X1|wrong|a3813a868dcaabef|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
 merged-cell:fintech:B0:L0:X2|wrong|a3813a868dcaabef|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
 merged-cell:fintech:B0:L0:X3|wrong|a3813a868dcaabef|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
+merged-cell:fintech:B22:L162:X0|wrong|f9d5ef3bcc22080a|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
+merged-cell:fintech:B46:L299:X0|wrong|405a25847fdde412|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
+merged-cell:fintech:B46:L299:X1|wrong|405a25847fdde412|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
+merged-cell:fintech:B46:L299:X2|wrong|405a25847fdde412|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
+merged-cell:fintech:B46:L299:X3|wrong|405a25847fdde412|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
+merged-cell:fintech:B46:L299:X4|wrong|405a25847fdde412|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
+merged-cell:fintech:B46:L299:X5|wrong|405a25847fdde412|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
+merged-cell:fintech:B46:L299:X7|wrong|405a25847fdde412|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
 merged-cell:fintech:B6:L35:X0|wrong|6cffcbcd2dd4b7f0|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
 merged-cell:fintech:B6:L35:X1|wrong|0d5b77daa73cf5a7|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fintech
 merged-cell:fixed-income:B0:L0:X0|wrong|b78890acf4e3e4cf|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fixed-income
 merged-cell:fixed-income:B0:L0:X1|wrong|b78890acf4e3e4cf|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fixed-income
 merged-cell:fixed-income:B0:L0:X2|wrong|b78890acf4e3e4cf|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fixed-income
 merged-cell:fixed-income:B0:L0:X3|wrong|b78890acf4e3e4cf|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fixed-income
+merged-cell:fixed-income:B18:L127:X0|wrong|f9d5ef3bcc22080a|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fixed-income
+merged-cell:fixed-income:B20:L165:X0|wrong|4dbaceb74033d6b6|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fixed-income
 merged-cell:fixed-income:B5:L35:X0|wrong|6cffcbcd2dd4b7f0|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fixed-income
 merged-cell:fixed-income:B5:L35:X1|wrong|0d5b77daa73cf5a7|BL-MUTATION-MERGED-CELL|merged-cell wrong @ fixed-income
+merged-cell:redefining-fi:B2:L11:X0|wrong|2b3473ed7cc584d8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ redefining-fi
+merged-cell:redefining-fi:B2:L11:X1|wrong|0fac62bfdfb618e3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ redefining-fi
+merged-cell:redefining-fi:B2:L12:X1|wrong|2b3473ed7cc584d8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ redefining-fi
 merged-cell:ria:B0:L0:X0|wrong|631fa7c927ce79ce|BL-MUTATION-MERGED-CELL|merged-cell wrong @ ria
+merged-cell:ria:B2:L12:X0|wrong|15f4f83672024a41|BL-MUTATION-MERGED-CELL|merged-cell wrong @ ria
+merged-cell:ria:B2:L12:X1|wrong|d73fe2cc00cd6764|BL-MUTATION-MERGED-CELL|merged-cell wrong @ ria
+merged-cell:ria:B2:L13:X1|wrong|15f4f83672024a41|BL-MUTATION-MERGED-CELL|merged-cell wrong @ ria
 merged-cell:ria:B5:L31:X0|wrong|14c65cf385185186|BL-MUTATION-MERGED-CELL|merged-cell wrong @ ria
 merged-cell:ria:B5:L31:X1|wrong|42919f2f21ba1af8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ ria
 merged-cell:rpas:B0:L0:X0|wrong|94730c40c9c1ddfc|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
 merged-cell:rpas:B0:L0:X1|wrong|94730c40c9c1ddfc|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
 merged-cell:rpas:B0:L0:X2|wrong|94730c40c9c1ddfc|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
 merged-cell:rpas:B0:L0:X3|wrong|94730c40c9c1ddfc|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B20:L152:X0|wrong|4dc1d07b5320ef75|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B22:L192:X0|wrong|447ce5aaa2751614|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B24:L201:X0|wrong|44b60ef4cefa70e5|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B36:L263:X0|wrong|ce0d1036f46ff827|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B36:L263:X1|wrong|ce0d1036f46ff827|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B36:L263:X2|wrong|ce0d1036f46ff827|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B36:L263:X3|wrong|ce0d1036f46ff827|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B36:L263:X4|wrong|ce0d1036f46ff827|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B36:L263:X5|wrong|ce0d1036f46ff827|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B36:L263:X6|wrong|ce0d1036f46ff827|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
+merged-cell:rpas:B36:L263:X8|wrong|ce0d1036f46ff827|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
 merged-cell:rpas:B5:L34:X0|wrong|c524f6e7c197ada1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
 merged-cell:rpas:B5:L34:X1|wrong|416fc91c9fb792f1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
 section-reorder:2025-03-dci-rpas-central:B0:L0:Xpair0|wrong|95cf315b569f7a90|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-03-dci-rpas-central
