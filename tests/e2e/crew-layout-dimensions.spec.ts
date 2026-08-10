@@ -65,6 +65,7 @@ import {
   reconcilePhantomLedger,
   type PhantomLedgerRow,
 } from "./helpers/phantomGap";
+import { premise, premiseHolds } from "../_shared/premise";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -1346,5 +1347,740 @@ test.describe("crew gear scope grid — Scenic/Other 5-card stretch (Task 10)", 
       }
     }
     expect(rows.length, "5 cards in grid-cols-3 must wrap to 2 rows (3 + 2)").toBe(2);
+  });
+});
+
+/**
+ * ── Private image pipeline — gallery `next/image` geometry + variant network gate
+ *
+ * Spec: docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md
+ * §6 (Dimensional Invariants), §9 (real-browser layout assertion), AC-2 / AC-3 /
+ * AC-12. Plan Task 9, docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md.
+ *
+ * WHY A REAL BROWSER. Both migrated components render `fill` images — absolutely
+ * positioned, `inset-0`, resolved against the nearest POSITIONED ancestor. jsdom
+ * computes no layout at all, so every `fill` box there is 0×0 and an equality
+ * assertion between two zero boxes passes tautologically. The invariants below
+ * only exist as facts in a layout engine — and they are ENGINE-SPECIFIC: the
+ * thumbnail case passes in Chromium and fails in WebKit (see its own docblock),
+ * which is precisely why this file's crew describes run on mobile-safari.
+ *
+ * THE ORACLE IS THE CONTAINING BLOCK, NEVER THE OUTER ELEMENT (spec §6 R3 F2).
+ * The lightbox `figure` carries `px-4`, and `inset-0` resolves against a
+ * positioned ancestor's PADDING box — so comparing an image rect to the figure's
+ * OUTER rect would bake the 32px horizontal padding into the expected value and
+ * silently pass on the exact defect the assertion exists to catch. Each row below
+ * therefore compares to the inner wrapper / `TransformComponent` wrapper, and each
+ * carries an executable premise that the two candidate oracles are actually
+ * DISTINGUISHABLE in this environment (the figure's content box strictly narrower
+ * than its border box) — otherwise the choice of oracle would itself be untested.
+ * The thumbnail row is the same shape one level down: the grid cell `li` carries a
+ * 1px `border`, so the cell's CONTENT box — derived from the cell's own computed
+ * border and padding, never from a literal — is the containing block, not its
+ * border box, and the same premise pins that the two differ.
+ *
+ * FIXTURE. `supabase/seed.ts` + `supabase/seedDiagramAssets.ts` seed the Waldorf
+ * show with two AVAILABLE manifest entries carrying real §4 fields and real bytes
+ * in the local `diagram-snapshots` bucket — one WITH `intrinsicWidth/Height` (the
+ * `width`/`height` branch) and one WITHOUT (the `fill` fallback branch these cases
+ * measure). Every expected value below is read back from THAT manifest at runtime;
+ * no ladder, key, or dimension is restated here. Seeding first is deliberate: a
+ * missing fixture must fail as a PREMISE, never as a feature regression.
+ *
+ * HARNESS. Same as the suites above: `signInAs(ADMIN_FIXTURE)`, `lookupSeededShow`,
+ * share token from `show_share_tokens`, mobile-safari only (single-writer). The
+ * marker command carries `CREW_E2E_ONLY=1` so ONLY the :3000 webServer boots —
+ * without it the :3001-:3004 build servers cold-build and a failure can come from
+ * port contention rather than from the code under test.
+ */
+test.describe("crew diagrams gallery — next/image variant tiers (private image pipeline)", () => {
+  test.setTimeout(180_000);
+
+  /** Geometry tolerance, matching the §9 contract. */
+  const TOL_TIGHT = 0.5;
+
+  type SeededDiagramEntry = {
+    /** Last path segment of `snapshotPath` — the `<key>` URL segment. */
+    key: string;
+    variantKeys: string[];
+    hasDims: boolean;
+  };
+
+  type GalleryContext = {
+    slug: string;
+    shareToken: string;
+    showId: string;
+    /** Manifest entries with a non-null `snapshotPath` (the renderable ones). */
+    entries: SeededDiagramEntry[];
+    /** Every manifest-listed variant key across every available entry. */
+    variantKeys: Set<string>;
+  };
+
+  /**
+   * Read the fixture back out of the DB rather than restating it here. A case that
+   * hardcoded the ladder would keep passing after a seed change that stopped
+   * producing variants at all — the fixture-shaped failure that seeding first, then
+   * asserting, exists to make impossible.
+   */
+  async function loadGalleryContext(): Promise<GalleryContext> {
+    const seeded = await lookupSeededShow();
+    const shareToken = await lookupShareToken(seeded.showId);
+    const res = await admin.from("shows").select("diagrams").eq("id", seeded.showId).maybeSingle();
+    if (res.error || !res.data) {
+      throw new Error(
+        `diagram gallery: could not read shows.diagrams for ${seeded.showId} (run \`pnpm db:seed\`). error=${res.error?.message ?? "no row"}`,
+      );
+    }
+    const diagrams = (res.data as { diagrams?: unknown }).diagrams as {
+      embeddedImages?: unknown[];
+      linkedFolderItems?: unknown[];
+    } | null;
+    const rows = [...(diagrams?.embeddedImages ?? []), ...(diagrams?.linkedFolderItems ?? [])];
+    const entries: SeededDiagramEntry[] = [];
+    for (const row of rows) {
+      const entry = row as {
+        snapshotPath?: unknown;
+        variants?: unknown;
+        intrinsicWidth?: unknown;
+        intrinsicHeight?: unknown;
+      };
+      if (typeof entry.snapshotPath !== "string" || entry.snapshotPath.length === 0) continue;
+      const variantKeys = Array.isArray(entry.variants)
+        ? entry.variants
+            .map((variant) => (variant as { key?: unknown }).key)
+            .filter((key): key is string => typeof key === "string" && key.length > 0)
+        : [];
+      entries.push({
+        key: entry.snapshotPath.slice(entry.snapshotPath.lastIndexOf("/") + 1),
+        variantKeys,
+        hasDims:
+          typeof entry.intrinsicWidth === "number" && typeof entry.intrinsicHeight === "number",
+      });
+    }
+    return {
+      slug: seeded.slug,
+      shareToken,
+      showId: seeded.showId,
+      entries,
+      variantKeys: new Set(entries.flatMap((entry) => entry.variantKeys)),
+    };
+  }
+
+  /** The fixture premises every case in this describe depends on. Stated
+   *  executably so a seed that stopped emitting variants fails HERE — loudly, as
+   *  an environment fault — instead of turning each assertion below into a
+   *  vacuous pass. */
+  function assertFixturePremises(ctx: GalleryContext): void {
+    premise(
+      "the seeded show carries ≥2 AVAILABLE diagram entries (both lightbox branches reachable)",
+      ctx.entries.length,
+      1,
+    );
+    premise("the seeded manifest lists variant keys", ctx.variantKeys.size, 0);
+    premiseHolds(
+      "the seed spans BOTH lightbox branches: one entry with intrinsic dims and one without",
+      ctx.entries.some((entry) => entry.hasDims) && ctx.entries.some((entry) => !entry.hasDims),
+    );
+  }
+
+  /**
+   * READINESS (a): the page-container hydration gate this file already uses for
+   * every other section, before any geometry read.
+   */
+  async function gotoVenue(
+    page: import("@playwright/test").Page,
+    ctx: GalleryContext,
+  ): Promise<void> {
+    const res = await page.goto(`/show/${ctx.slug}/${ctx.shareToken}?s=venue`, {
+      waitUntil: "domcontentloaded",
+    });
+    expect(res?.status(), "crew venue route must render").toBe(200);
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await expect(page.getByTestId("page-container")).toBeVisible();
+    await expect(page.getByTestId("section-venue")).toBeVisible();
+    await expect(page.getByTestId("diagrams-tile")).toBeVisible();
+    await expect
+      .poll(async () => (await rectOf(page.getByTestId("section-venue"))).height, {
+        timeout: 8000,
+      })
+      .toBeGreaterThan(1);
+  }
+
+  /**
+   * READINESS (b): per-image decode. `toBeVisible()` is satisfied by a laid-out
+   * `fill` box whose bytes never arrived — measuring then would report the box the
+   * CSS reserved rather than a loaded image, so a 410 on every variant URL would
+   * read as a pass.
+   */
+  async function waitForDecodedGalleryImages(
+    page: import("@playwright/test").Page,
+  ): Promise<number> {
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            const images = [
+              ...document.querySelectorAll<HTMLImageElement>('[data-testid^="diagram-slot-"] img'),
+            ];
+            if (images.length === 0) return 0;
+            return images.every((image) => image.complete && image.naturalWidth > 0)
+              ? images.length
+              : 0;
+          }),
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThan(0);
+    return page.evaluate(
+      () => document.querySelectorAll('[data-testid^="diagram-slot-"] img').length,
+    );
+  }
+
+  type BoxSample = {
+    testId: string;
+    src: string;
+    complete: boolean;
+    naturalWidth: number;
+    position: string;
+    imgRect: Rect;
+    /**
+     * The PADDING box of `img.offsetParent` — the box `inset-0` actually resolves
+     * against. Deliberately not its border box: an ancestor that carries a border
+     * would make a border-box oracle encode that border as a permanent failure,
+     * and would flip this row red the moment the containing block moves to an
+     * element that has one.
+     */
+    offsetParentPaddingRect: Rect | null;
+    offsetParentInsideCell: boolean;
+    /** The cell's CONTENT box, derived from its own computed border + padding. */
+    cellContentRect: Rect;
+    cellRect: Rect;
+  };
+
+  /** One atomic read per frame: sampling rects across separate round-trips can
+   *  straddle a layout change and produce a torn comparison that is neither a
+   *  pass nor a real failure. */
+  async function sampleThumbnails(page: import("@playwright/test").Page): Promise<BoxSample[]> {
+    return page.evaluate(() => {
+      const toRect = (el: Element): Rect => {
+        const r = el.getBoundingClientRect();
+        return {
+          top: r.top,
+          left: r.left,
+          right: r.right,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+        };
+      };
+      const paddingRect = (el: Element): Rect => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const px = (value: string) => Number.parseFloat(value) || 0;
+        // `inset-0` resolves against the PADDING box: border box minus borders,
+        // padding NOT removed.
+        const left = r.left + px(cs.borderLeftWidth);
+        const top = r.top + px(cs.borderTopWidth);
+        const right = r.right - px(cs.borderRightWidth);
+        const bottom = r.bottom - px(cs.borderBottomWidth);
+        return { top, left, right, bottom, width: right - left, height: bottom - top };
+      };
+      const contentRect = (el: Element): Rect => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const px = (value: string) => Number.parseFloat(value) || 0;
+        const left = r.left + px(cs.borderLeftWidth) + px(cs.paddingLeft);
+        const top = r.top + px(cs.borderTopWidth) + px(cs.paddingTop);
+        const right = r.right - px(cs.borderRightWidth) - px(cs.paddingRight);
+        const bottom = r.bottom - px(cs.borderBottomWidth) - px(cs.paddingBottom);
+        return { top, left, right, bottom, width: right - left, height: bottom - top };
+      };
+      const out: BoxSample[] = [];
+      for (const cell of document.querySelectorAll('[data-testid^="diagram-slot-"]')) {
+        const image = cell.querySelector("img");
+        if (!image) continue;
+        const offsetParent = image.offsetParent;
+        out.push({
+          testId: cell.getAttribute("data-testid") ?? "",
+          src: image.currentSrc || image.getAttribute("src") || "",
+          complete: image.complete,
+          naturalWidth: image.naturalWidth,
+          position: getComputedStyle(image).position,
+          imgRect: toRect(image),
+          offsetParentPaddingRect: offsetParent ? paddingRect(offsetParent) : null,
+          offsetParentInsideCell: offsetParent ? cell.contains(offsetParent) : false,
+          cellContentRect: contentRect(cell),
+          cellRect: toRect(cell),
+        });
+      }
+      return out;
+    }) as Promise<BoxSample[]>;
+  }
+
+  function expectSameBox(actual: Rect, expected: Rect, label: string): void {
+    for (const edge of ["top", "left", "right", "bottom"] as const) {
+      expect(
+        Math.abs(actual[edge] - expected[edge]),
+        `${label}: ${edge} edge ${actual[edge]} must equal ${expected[edge]} (±${TOL_TIGHT}px)`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+    }
+  }
+
+  /** The `<key>` segment of an `/api/asset/diagram/<show>/<rev>/<key>` URL. */
+  function assetKeyOf(url: string): string {
+    const path = new URL(url, "http://127.0.0.1").pathname;
+    return decodeURIComponent(path.slice(path.lastIndexOf("/") + 1));
+  }
+
+  /**
+   * §6 row 1: thumbnail image box === its grid cell's box, on BOTH axes.
+   *
+   * KNOWN RED ON WEBKIT (measured 2026-08-09, mobile-safari, this seed): the
+   * `fill` image resolves `inset-0` against the BUTTON inside the cell, and that
+   * button is `relative block size-full` inside an `aspect-square` `li` that also
+   * carries a 1px `border`. WebKit resolves the button's `height: 100%` against the
+   * aspect-ratio-derived BORDER-box height (100px) instead of the containing
+   * block's content height (98px), so the image is 98×100 where the cell's content
+   * box is 98×98 — the bottom 2px of every thumbnail is cropped by the cell's
+   * `overflow-hidden`. Chromium resolves the same markup to 98×98 and passes, which
+   * is exactly why this assertion lives on the mobile-primary project.
+   *
+   * The image box therefore matches NEITHER candidate oracle (98×98 content box,
+   * 100×100 border box), so the failure is not an oracle-choice quibble. The repair
+   * is in `components/diagrams/Gallery.tsx` and is the option the spec's own
+   * Dimensional Invariants row already permits — put `relative` on the `li` (whose
+   * padding box is engine-independently 98×98) rather than on the `size-full`
+   * button. VERIFIED in this same WebKit build by overriding
+   * `[data-testid^="diagram-slot-"]{position:relative}` +
+   * `[data-testid^="diagram-slot-"] > button{position:static}` at runtime and
+   * re-measuring: image 98×98, cell content box 98×98, at both viewports. The
+   * containing-block assertion below reads the ancestor's PADDING box precisely so
+   * it stays green through that repair. Left RED deliberately: weakening it to a
+   * containment check would retire the only gate that can see this class.
+   */
+  test("T-DIAGRAM-VARIANTS thumbnails: every gallery image box === its grid-cell content box", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return; // single-writer
+    const ctx = await loadGalleryContext();
+    assertFixturePremises(ctx);
+
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+
+    // Both sides of the grid's 640px column-count breakpoint (`grid-cols-3` →
+    // `sm:grid-cols-4`), which is also where the thumbnail `sizes` string changes
+    // branch. The srcset candidates and the cell width both differ across it, so a
+    // geometry bug that only bites one side would survive a single-width run. The
+    // widths are viewports, not a restatement of the `sizes` string — that string
+    // is the component's to choose and this case must not pin it.
+    for (const width of [390, 1000] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoVenue(page, ctx);
+      const decoded = await waitForDecodedGalleryImages(page);
+      premise(`@${width}px the gallery rendered at least one Image element`, decoded, 0);
+
+      const samples = await sampleThumbnails(page);
+      premise(`@${width}px the thumbnail sample is non-empty`, samples.length, 0);
+
+      for (const sample of samples) {
+        premiseHolds(
+          `@${width}px ${sample.testId} decoded its bytes (complete && naturalWidth > 0) before measurement`,
+          sample.complete && sample.naturalWidth > 0,
+        );
+        // The two candidate oracles must be DISTINGUISHABLE, or comparing to the
+        // content box rather than the border box proves nothing.
+        premiseHolds(
+          `@${width}px ${sample.testId}'s border box is strictly larger than its content box (the oracles differ)`,
+          sample.cellRect.width > sample.cellContentRect.width &&
+            sample.cellRect.height > sample.cellContentRect.height,
+        );
+        // `fill` is what makes image box === cell box true at all; an
+        // intrinsically-sized image that happens to fit would not be the invariant.
+        expect(
+          sample.position,
+          `${sample.testId} @${width}px: a \`fill\` thumbnail must be absolutely positioned`,
+        ).toBe("absolute");
+        premiseHolds(
+          `@${width}px ${sample.testId} resolves inset-0 against an ancestor INSIDE its own cell`,
+          sample.offsetParentInsideCell && sample.offsetParentPaddingRect !== null,
+        );
+
+        // (1) The containing block: image box === the positioned ancestor's PADDING box.
+        expectSameBox(
+          sample.imgRect,
+          sample.offsetParentPaddingRect as Rect,
+          `${sample.testId} @${width}px image box vs its positioned ancestor's padding box`,
+        );
+        // (2) The documented invariant: that ancestor fills the grid cell, so the
+        // image box === the CELL's content box. See the docblock for why this is
+        // currently RED on WebKit and green on Chromium.
+        expectSameBox(
+          sample.imgRect,
+          sample.cellContentRect,
+          `${sample.testId} @${width}px image box vs cell content box` +
+            ` [cell border box ${sample.cellRect.width}x${sample.cellRect.height},` +
+            ` cell content box ${sample.cellContentRect.width}x${sample.cellContentRect.height},` +
+            ` image ${sample.imgRect.width}x${sample.imgRect.height}]`,
+        );
+      }
+    }
+  });
+
+  /**
+   * AC-2 + AC-3, kept as its OWN case rather than folded into the geometry one: a
+   * geometry failure must not take the network gate down with it, or a red box
+   * assertion would hide whether the loader is still emitting variant URLs.
+   */
+  test("T-DIAGRAM-VARIANTS network: thumbnails fetch manifest-listed variant URLs with zero /_next/image requests", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return; // single-writer
+    const ctx = await loadGalleryContext();
+    assertFixturePremises(ctx);
+
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+
+    const assetRequests: string[] = [];
+    const optimizerRequests: string[] = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (url.includes("/_next/image")) optimizerRequests.push(url);
+      else if (url.includes("/api/asset/diagram/")) assetRequests.push(url);
+    });
+
+    for (const width of [390, 1000] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoVenue(page, ctx);
+      premise(
+        `@${width}px the gallery rendered at least one Image element`,
+        await waitForDecodedGalleryImages(page),
+        0,
+      );
+    }
+
+    // ── AC-3: the optimizer is never involved. A `/_next/image` request would mean
+    // the custom loader was dropped — and that endpoint neither forwards the picker
+    // cookie nor preserves `private` Cache-Control (spec §1, the M9 P0).
+    expect(
+      optimizerRequests,
+      `no gallery request may target /_next/image; got ${JSON.stringify(optimizerRequests)}`,
+    ).toEqual([]);
+
+    // ── AC-2: thumbnails fetch VARIANT URLs. UNCONDITIONAL — the seed guarantees
+    // every available entry carries a ladder, so "the original is acceptable when
+    // no variant exists" is not a live branch here and is not written as one.
+    premise("the browser issued diagram asset requests", assetRequests.length, 0);
+    const requestedKeys = [...new Set(assetRequests.map(assetKeyOf))];
+    const originalKeys = new Set(ctx.entries.map((entry) => entry.key));
+    for (const key of requestedKeys) {
+      expect(
+        ctx.variantKeys.has(key),
+        `thumbnail request for "${key}" must be a manifest-listed variant key` +
+          `${originalKeys.has(key) ? " — this is the ORIGINAL key, so the loader fell through to it" : ""}` +
+          `; listed variants: ${JSON.stringify([...ctx.variantKeys])}`,
+      ).toBe(true);
+    }
+  });
+
+  type SlideSample = {
+    active: boolean;
+    src: string;
+    complete: boolean;
+    naturalWidth: number;
+    position: string;
+    hasWidthAttr: boolean;
+    imgRect: Rect;
+    /** The containing block: `TransformComponent`'s wrapper (active) or the inner
+     *  `relative size-full` wrapper (inactive). */
+    containerRect: Rect | null;
+    containerPosition: string | null;
+    containerClass: string;
+    /** The figure's OUTER box (the WRONG oracle) and its CONTENT box (the box the
+     *  right oracle must coincide with). */
+    figureRect: Rect;
+    figureContentRect: Rect;
+  };
+
+  async function sampleLightbox(
+    page: import("@playwright/test").Page,
+  ): Promise<SlideSample[] | null> {
+    return page.evaluate(() => {
+      const root = document.querySelector('[data-testid="diagrams-lightbox"]');
+      if (!root) return null;
+      const toRect = (el: Element): Rect => {
+        const r = el.getBoundingClientRect();
+        return {
+          top: r.top,
+          left: r.left,
+          right: r.right,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+        };
+      };
+      const paddingRect = (el: Element): Rect => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const px = (value: string) => Number.parseFloat(value) || 0;
+        // `inset-0` resolves against the PADDING box: border box minus borders,
+        // padding NOT removed.
+        const left = r.left + px(cs.borderLeftWidth);
+        const top = r.top + px(cs.borderTopWidth);
+        const right = r.right - px(cs.borderRightWidth);
+        const bottom = r.bottom - px(cs.borderBottomWidth);
+        return { top, left, right, bottom, width: right - left, height: bottom - top };
+      };
+      const contentRect = (el: Element): Rect => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const px = (value: string) => Number.parseFloat(value) || 0;
+        const left = r.left + px(cs.borderLeftWidth) + px(cs.paddingLeft);
+        const top = r.top + px(cs.borderTopWidth) + px(cs.paddingTop);
+        const right = r.right - px(cs.borderRightWidth) - px(cs.paddingRight);
+        const bottom = r.bottom - px(cs.borderBottomWidth) - px(cs.paddingBottom);
+        return { top, left, right, bottom, width: right - left, height: bottom - top };
+      };
+      const out: SlideSample[] = [];
+      for (const figure of root.querySelectorAll("figure")) {
+        const image = figure.querySelector("img");
+        if (!image) continue;
+        // The ACTIVE slide is the one whose image sits inside the zoom library's
+        // wrapper (`react-transform-wrapper`) — the branch that mounts only for
+        // `i === activeIndex`. Derived from the live tree, never from an index this
+        // case remembers across a swipe.
+        const transformWrapper = figure.querySelector(".react-transform-wrapper");
+        const active = Boolean(transformWrapper && transformWrapper.contains(image));
+        // NOT `image.parentElement` for the active tier: TransformComponent renders
+        // wrapper > content > img, and the CONTENT div is `position: static`, so the
+        // containing block is the wrapper one level up.
+        const container = active ? transformWrapper : image.parentElement;
+        out.push({
+          active,
+          src: image.currentSrc || image.getAttribute("src") || "",
+          complete: image.complete,
+          naturalWidth: image.naturalWidth,
+          position: getComputedStyle(image).position,
+          hasWidthAttr: image.hasAttribute("width"),
+          imgRect: toRect(image),
+          containerRect: container ? paddingRect(container) : null,
+          containerPosition: container ? getComputedStyle(container).position : null,
+          containerClass: container ? (container as HTMLElement).className : "",
+          figureRect: toRect(figure),
+          figureContentRect: contentRect(figure),
+        });
+      }
+      return out;
+    }) as Promise<SlideSample[] | null>;
+  }
+
+  /**
+   * DETACH-SAFETY + SETTLE. Embla replaces the active slide's DOM on every swipe
+   * and framer-motion animates the dialog open, so a rect read taken at an
+   * arbitrary moment can land mid-transform or on a node being replaced. This
+   * retries transient evaluate failures and returns only once TWO consecutive
+   * frames produced byte-identical geometry AND the caller's expectation holds —
+   * never `networkidle`, which says nothing about whether a transform finished.
+   */
+  async function settledLightboxSample(
+    page: import("@playwright/test").Page,
+    expectation: (slides: SlideSample[]) => boolean,
+  ): Promise<SlideSample[]> {
+    let previous: string | null = null;
+    let lastError: unknown = null;
+    let lastSlides: SlideSample[] | null = null;
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      let slides: SlideSample[] | null = null;
+      try {
+        slides = await sampleLightbox(page);
+      } catch (error) {
+        lastError = error; // node detached mid-read — resample, never fail on it
+        slides = null;
+      }
+      if (slides) {
+        lastSlides = slides;
+        const fingerprint = JSON.stringify(slides);
+        if (previous === fingerprint && expectation(slides)) return slides;
+        previous = fingerprint;
+      } else {
+        previous = null;
+      }
+      // Two rAFs: one to let a pending style change commit, one to let the next
+      // frame's layout land, so the comparison spans a real frame boundary.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+    }
+    throw new Error(
+      `lightbox geometry never settled into the expected state across two consecutive frames. ` +
+        `last sample=${JSON.stringify(lastSlides)} lastError=${String(lastError)}`,
+    );
+  }
+
+  /**
+   * §6 rows 2 and 3 + AC-12: the SAME no-dims entry measured in BOTH tiers, each
+   * against its own containing block. One case rather than two because the second
+   * measurement's premise — that this entry has become an inactive slide — is only
+   * reachable by first making it the active one and then swiping away.
+   */
+  test("T-DIAGRAM-VARIANTS lightbox: the no-dims fill image measures equal to its containing block as the ACTIVE slide (TransformComponent wrapper) and as an INACTIVE slide (inner relative wrapper)", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return; // single-writer
+    const ctx = await loadGalleryContext();
+    assertFixturePremises(ctx);
+    const noDims = ctx.entries.find((entry) => !entry.hasDims);
+    premiseHolds(
+      "the seed carries an AVAILABLE entry WITHOUT intrinsic dims (the `fill` fallback branch)",
+      noDims !== undefined,
+    );
+    premise(
+      "that entry lists variant keys (so the inactive tier is a clamped variant, not the original)",
+      noDims!.variantKeys.length,
+      0,
+    );
+
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+
+    const optimizerRequests: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/_next/image")) optimizerRequests.push(request.url());
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoVenue(page, ctx);
+    premise(
+      "the gallery rendered Image elements before the lightbox is opened",
+      await waitForDecodedGalleryImages(page),
+      0,
+    );
+
+    // Open ON the no-dims entry, located by matching the manifest key against the
+    // live thumbnail src — never by a remembered slot index.
+    const targetTestId = await page.evaluate((key: string) => {
+      for (const cell of document.querySelectorAll('[data-testid^="diagram-slot-"]')) {
+        const image = cell.querySelector("img");
+        const src = image ? image.currentSrc || image.getAttribute("src") || "" : "";
+        if (src.includes(key)) return cell.getAttribute("data-testid");
+      }
+      return null;
+    }, noDims!.key);
+    premiseHolds(
+      `a gallery thumbnail renders the no-dims entry (${noDims!.key})`,
+      typeof targetTestId === "string" && targetTestId.length > 0,
+    );
+    await page
+      .getByTestId(targetTestId as string)
+      .getByRole("button")
+      .click();
+    await expect(page.getByTestId("diagrams-lightbox")).toBeVisible();
+
+    // ── ACTIVE tier ──────────────────────────────────────────────────────────
+    const openSlides = await settledLightboxSample(page, (slides) =>
+      slides.some(
+        (slide) =>
+          slide.active &&
+          slide.src.includes(noDims!.key) &&
+          slide.complete &&
+          slide.naturalWidth > 0,
+      ),
+    );
+    const activeSlide = openSlides.find(
+      (slide) => slide.active && slide.src.includes(noDims!.key),
+    )!;
+    premiseHolds(
+      "the ACTIVE no-dims slide took the `fill` branch (absolute, no width attribute)",
+      activeSlide.position === "absolute" && !activeSlide.hasWidthAttr,
+    );
+    premiseHolds(
+      "the ACTIVE slide's containing block is the TransformComponent wrapper, not the figure",
+      activeSlide.containerClass.includes("react-transform-wrapper") &&
+        activeSlide.containerPosition !== "static",
+    );
+    // The two candidate oracles must differ, or comparing to the wrapper instead of
+    // the figure proves nothing: the figure's `px-4` makes its content box strictly
+    // narrower than its border box.
+    premiseHolds(
+      "the figure's horizontal padding makes wrapper-box and figure-box distinguishable (ACTIVE)",
+      activeSlide.figureContentRect.width < activeSlide.figureRect.width - 1,
+    );
+    expectSameBox(
+      activeSlide.imgRect,
+      activeSlide.containerRect as Rect,
+      "ACTIVE no-dims image box vs its TransformComponent wrapper box",
+    );
+    // AC-12: the active tier is `pinOriginal` — the ORIGINAL key, never a variant.
+    expect(
+      assetKeyOf(activeSlide.src),
+      `the ACTIVE slide must request the ORIGINAL key (pinOriginal); got ${activeSlide.src}`,
+    ).toBe(noDims!.key);
+
+    // ── Swipe away: the SAME entry becomes an INACTIVE slide. Everything below is
+    // re-queried from the settled tree; a locator captured before this click would
+    // point at DOM Embla has already replaced.
+    const previousButton = page.getByRole("button", { name: "Previous diagram" });
+    const nextButton = page.getByRole("button", { name: "Next diagram" });
+    const canGoPrevious = await previousButton.isEnabled().catch(() => false);
+    premiseHolds(
+      "the lightbox offers a reachable neighbouring slide (≥2 items), so an inactive tier exists",
+      canGoPrevious || (await nextButton.isEnabled().catch(() => false)),
+    );
+    if (canGoPrevious) await previousButton.click();
+    else await nextButton.click();
+
+    const swipedSlides = await settledLightboxSample(
+      page,
+      (slides) =>
+        slides.some((slide) => slide.active && !slide.src.includes(noDims!.key)) &&
+        slides.some(
+          (slide) =>
+            !slide.active &&
+            slide.src.includes(noDims!.key) &&
+            slide.complete &&
+            slide.naturalWidth > 0,
+        ),
+    );
+    const inactiveSlide = swipedSlides.find(
+      (slide) => !slide.active && slide.src.includes(noDims!.key),
+    )!;
+    premiseHolds(
+      "the INACTIVE no-dims slide took the `fill` branch (absolute, no width attribute)",
+      inactiveSlide.position === "absolute" && !inactiveSlide.hasWidthAttr,
+    );
+    premiseHolds(
+      "the INACTIVE slide's containing block is the inner `relative size-full` wrapper",
+      inactiveSlide.containerPosition === "relative" &&
+        !inactiveSlide.containerClass.includes("react-transform-wrapper"),
+    );
+    premiseHolds(
+      "the figure's horizontal padding makes wrapper-box and figure-box distinguishable (INACTIVE)",
+      inactiveSlide.figureContentRect.width < inactiveSlide.figureRect.width - 1,
+    );
+    expectSameBox(
+      inactiveSlide.imgRect,
+      inactiveSlide.containerRect as Rect,
+      "INACTIVE no-dims image box vs its inner `relative size-full` wrapper box",
+    );
+    // The inner wrapper occupies the figure's CONTENT area — the second half of the
+    // §6 invariant, and what makes the two tiers agree by construction.
+    expectSameBox(
+      inactiveSlide.containerRect as Rect,
+      inactiveSlide.figureContentRect,
+      "INACTIVE inner wrapper box vs the figure's CONTENT box",
+    );
+    // AC-12: the inactive tier is a CLAMPED VARIANT, never the original.
+    expect(
+      noDims!.variantKeys.includes(assetKeyOf(inactiveSlide.src)),
+      `the INACTIVE slide must request a manifest-listed variant; got ${inactiveSlide.src}, listed ${JSON.stringify(noDims!.variantKeys)}`,
+    ).toBe(true);
+
+    expect(
+      optimizerRequests,
+      `no lightbox request may target /_next/image; got ${JSON.stringify(optimizerRequests)}`,
+    ).toEqual([]);
   });
 });
