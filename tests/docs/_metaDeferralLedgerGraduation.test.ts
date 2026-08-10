@@ -1149,10 +1149,18 @@ describe("graduated entries carry no in-flight marker", () => {
     // has to REPLACE it rather than delete it — deleting breaks provenance.
     const archive = read("BACKLOG-archive.md");
     for (const { id, provenance } of BACKLOG_GRADUATED) {
-      const start = archive.indexOf(`## ${id}`);
-      expect(start, `${id} missing from the archive`).toBeGreaterThan(-1);
-      const next = archive.indexOf("\n## ", start + 1);
-      const section = archive.slice(start, next === -1 ? undefined : next);
+      // Anchor on the HEADING at either level, and terminate on the next heading
+      // at either level. Terminating only on `\n## ` ran the slice straight
+      // through following `### BL-*` entries, so two adjacent graduations from
+      // one branch satisfied each other's provenance and a section that had lost
+      // its own mention still passed (probed: removing the provenance from
+      // BL-CREW-FIELD-ENRICHMENT alone left this assertion green).
+      const heading = new RegExp(`^#{2,3} ~{0,2}${id}\\b`, "m").exec(archive);
+      expect(heading, `${id} missing from the archive`).not.toBeNull();
+      const start = heading!.index;
+      const rest = archive.slice(start);
+      const next = rest.slice(1).search(/\n#{2,3} /);
+      const section = next === -1 ? rest : rest.slice(0, next + 1);
       expect(section, `${id}'s section does not name ${provenance}`).toContain(provenance);
     }
   });

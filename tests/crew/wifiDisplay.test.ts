@@ -341,6 +341,29 @@ describe("parseWifiValue — unresolved syntax inside a value falls back raw (re
     }
   });
 
+  it("the accept-set is EXACTLY the vocabulary the spec ratifies", () => {
+    // Behavioral cases cannot see a WIDENED vocabulary: adding `WLAN` or `PIN`
+    // to the matcher leaves every other test green while newly structuring
+    // `WLAN: Guest Password: secret` (review S5 R2, probed). Spec §1.2 ratifies
+    // the exact sets, and widening requires a corpus probe, so the constants are
+    // pinned here — a change to either must be a deliberate edit to this line.
+    const source = readFileSync(path.join(REPO_ROOT, "lib/crew/wifiDisplay.ts"), "utf8");
+    expect(source).toContain('const NET = "SSID|Network";');
+    expect(source).toContain('const PWD = "Code|PW|Passcode|Password";');
+    // ...and the matcher must consume the shared separator, not its own copy.
+    expect(source, "LABEL_RE must use the shared SEP").toMatch(
+      /const LABEL_RE = new RegExp\(`[^`]*\$\{SEP\}`, "gi"\)/,
+    );
+
+    // Behaviorally: spellings OUTSIDE the ratified sets do not structure a cell.
+    const unobserved = ["WLAN", "PIN", "WPA", "Login", "Passphrase"];
+    premise("unobserved spellings swept", unobserved.length, 0);
+    for (const word of unobserved) {
+      expect(parseWifiValue(`${word}: Guest Password: secret`), word).toBeNull();
+      expect(parseWifiValue(`SSID: Guest ${word}: secret`), word).toBeNull();
+    }
+  });
+
   it("the leftover-separator rule is DERIVED from the accepted separators", () => {
     // The guard and the label matcher must read the same separator class, or the
     // guard silently stops covering a separator the grammar accepts. Asserted
