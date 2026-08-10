@@ -210,15 +210,21 @@ export function StepIndicator({
         // No success/green token exists (DESIGN.md) — a completed pill is neutral
         // (surface + strong border + a check glyph), NOT green. Accent is reserved
         // for the single active pill (≤10% accent budget).
+        // EVERY branch is `cn(...)`-wrapped, not the ternary as a whole: the
+        // canonical-class rule follows a recognized callee's ARGUMENTS, and a
+        // ternary handed to `cn` is one argument whose branches it does not
+        // enter. Wrapping each branch is what puts these strings in reach.
         const pillState = isActive
-          ? "border-accent-edge bg-accent text-accent-text"
+          ? cn("border-accent-edge bg-accent text-accent-text")
           : isDone
-            ? "border-border-strong bg-surface text-text-subtle"
+            ? cn("border-border-strong bg-surface text-text-subtle")
             : isVisited
               ? // `group-hover:`, not `hover:` — the visual span is no longer the
                 // element the pointer is over across the 8px expansion band.
-                "border-transparent bg-surface-sunken text-text-subtle group-hover:text-text-strong"
-              : "border-transparent bg-surface-sunken text-text-faint";
+                cn(
+                  "border-transparent bg-surface-sunken text-text-subtle group-hover:text-text-strong",
+                )
+              : cn("border-transparent bg-surface-sunken text-text-faint");
         // The check replaces the number on done pills; label sits beside the pill.
         const glyph = isDone ? <Check aria-hidden="true" className="size-3.5" /> : n;
         const pill = isVisited ? (
@@ -726,7 +732,7 @@ export async function OnboardingWizard({
   // it holds a 768px base (max-w-3xl) on laptops/tablets and widens to 1024px
   // (xl:max-w-5xl, ≥1280px) so the list stops looking lost in the max-w-[1600px]
   // admin shell on large desktops.
-  const containerMaxWidth = step === 3 ? "max-w-3xl xl:max-w-5xl" : "max-w-2xl";
+  const containerMaxWidth = step === 3 ? cn("max-w-3xl xl:max-w-5xl") : cn("max-w-2xl");
 
   return (
     // `pb-32` reserves space for the fixed full-width <WizardFooter> each step

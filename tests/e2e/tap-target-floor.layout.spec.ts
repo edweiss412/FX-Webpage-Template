@@ -1831,9 +1831,17 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
         measured.some((m) => Number.isFinite(m.column) && m.column > 0),
       );
 
-      const below = measured.filter((m) => !(m.column >= EXPANSION_BAND_PER_SIDE));
+      // BOTH AXES. The probe measured `row` all along and the assertion threw it
+      // away, which is not a recognizer gap — the engine and the probe agree —
+      // it is an assertion ignoring a number it already had. `gap-x-2 gap-y-0`
+      // measures 8/0 and passed (review R5). It matters for a real container:
+      // StagedReviewCard's row is `flex-wrap`, so when it wraps, the ROW gap is
+      // what separates the wrapped lines from each other.
+      const below = measured.filter(
+        (m) => !(m.column >= EXPANSION_BAND_PER_SIDE) || !(m.row >= EXPANSION_BAND_PER_SIDE),
+      );
       expect(
-        below.map((m) => `${m.width}px: ${m.column}px`),
+        below.map((m) => `${m.width}px: column=${m.column}px row=${m.row}px`),
         `${pin.label} — its immediate container ("${className}") stops keeping the ` +
           `${EXPANSION_BAND_PER_SIDE}px expansion band off its neighbour at these widths. This is ` +
           `mutant #14 from the tap-target arc: a grown target overlaps the control beside it, and ` +

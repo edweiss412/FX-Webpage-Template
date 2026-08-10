@@ -124,6 +124,18 @@ Guards only; the resolver closed at APPROVE in round 3 and the docs findings wer
 
 Round 4 also confirmed the round-3 repairs held: unsupported object members were checked exhaustively (spread, shorthand, method, getter, setter all surface as unwrappable rather than vanishing), and both static pins and the mounted case iterate all four declared viewports.
 
+### §12.1g Cross-model diff review — round 5, and the end of the name-lookup mechanism
+
+Three findings. Two were exact holes in assertions I had already written; the third ended a class that had now recurred five times.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| R5-1 | **"Name + enclosing scope" is still not identity** — an ordinary same-scope rename re-binds a row to a decoy, and the reviewer named it the FIFTH instance of this class with the right conclusion attached: "another collision tuple will not close it; replace row lookup with consumer-derived symbol/use-site binding." | Taken. The row list is GONE as a lookup key. The guard now discovers class-bearing constants from the USE SITES — every `className` expression, the identifiers it references, resolved the way the language resolves them, followed TRANSITIVELY through composers. A rename is followed automatically because the reference moves with it; a decoy is irrelevant because nothing references it. The nine names survive only as an expected SUBSET, asserted as a floor so the walk going quiet is a failure rather than a smaller clean set. |
+| R5-2 | An EMPTY object literal yields zero rows, and zero rows satisfy the non-empty premise and the wrap assertion at once — the class text can leave the record entirely and the guard stays green. | Surfaced as an unwrappable row, the same handling as a member the reader cannot express. |
+| R5-3 | The probe measured BOTH axes and the assertion discarded `row`. Not a recognition escape — the reviewer was explicit that engine and probe agree — an assertion ignoring a number it already had. `gap-x-2 gap-y-0` measures 8/0 and passed, and it matters for a real container: StagedReviewCard's row is `flex-wrap`, so when it wraps, the ROW gap separates the wrapped lines. | Both axes asserted. |
+
+**The use-site rewrite immediately found two sites the nine-name enumeration never covered**, both genuinely dark under the lint rule: `pillState` (a nested per-state ternary behind `cn(base, pillState)` — the rule follows a callee's arguments but does not enter a ternary) and `containerMaxWidth` (a ternary interpolated into a template-literal className). Both are now wrapped per BRANCH, because wrapping a ternary as a whole exposes neither branch. That is the derived cover paying for itself on the first run — the enumeration had been complete against its own list and wrong about the world.
+
 ### §12.2 Observed-RED transcripts index
 
 Every RED in this branch was observed against the live tree, and both observations recorded in the task's own commit message.

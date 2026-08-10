@@ -126,65 +126,41 @@ function sourceFileFor(rel: string): ts.SourceFile {
  * `StepIndicator`, and the rule's blind spot does not care about scope.
  */
 /**
- * The nearest enclosing function's name, or `"<module>"` at top level.
+ * Every class-bearing constant that actually FEEDS a `className`, discovered
+ * from the use sites.
  *
- * A NAME IS NOT AN IDENTITY, which uniqueness alone does not fix: rename the
- * intended `base` to `stepBase` and leave an unrelated wrapped `base` behind, and
- * the row still finds exactly one declaration, still passes every premise, and is
- * now bound to a completely different constant (review R4). Recording the scope
- * makes the row name a PLACE as well as a word, so a rename fails loudly instead
- * of re-binding.
+ * WHY THIS REPLACED A LIST OF NINE NAMES. Rounds 3, 4 and 5 each found the same
+ * defect one level deeper — a name is not an identity. First the first match
+ * anywhere satisfied a row; then uniqueness did not help, because a rename plus
+ * a surviving decoy re-bound it; then name-plus-enclosing-scope did not help
+ * either, because an ordinary same-scope rename re-bound it again. That is five
+ * instances of one class, and the reviewer's summary was right: another
+ * collision tuple will not close it.
+ *
+ * So the question changed. The old one — "is the declaration called `base`
+ * wrapped?" — is about a WORD, and words move. The real question is the one the
+ * lint rule cares about: *which constants reach a `className` through an
+ * identifier, where the rule cannot follow them?* That is answered from the use
+ * sites, so a rename is followed automatically (the reference moves with it) and
+ * a decoy is irrelevant (nothing references it).
+ *
+ * It also retires the enumeration. The nine names are no longer a registry to
+ * maintain; they are an expected SUBSET, asserted as a floor so this walk going
+ * quiet is a failure rather than a pass.
  */
-function enclosingScopeName(node: ts.Node, sourceFile: ts.SourceFile): string {
-  for (let cur: ts.Node | undefined = node.parent; cur; cur = cur.parent) {
-    if (ts.isFunctionDeclaration(cur) && cur.name !== undefined)
-      return cur.name.getText(sourceFile);
-    if (
-      (ts.isFunctionExpression(cur) || ts.isArrowFunction(cur)) &&
-      cur.parent !== undefined &&
-      ts.isVariableDeclaration(cur.parent) &&
-      ts.isIdentifier(cur.parent.name)
-    ) {
-      return cur.parent.name.text;
-    }
-    if (ts.isMethodDeclaration(cur) && ts.isIdentifier(cur.name)) return cur.name.text;
-  }
-  return "<module>";
-}
-
-function findDeclarations(
-  sourceFile: ts.SourceFile,
-  name: string,
-  scope: string,
-): ts.VariableDeclaration[] {
-  const found: ts.VariableDeclaration[] = [];
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === name &&
-      enclosingScopeName(node, sourceFile) === scope
-    ) {
-      found.push(node);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return found;
-}
-
 /** The initializer(s) the wrap has to cover: the value itself, or every Record value. */
 function initializersOf(declaration: ts.VariableDeclaration, name: string): Initializer[] {
   const init = declaration.initializer;
   if (init === undefined) return [];
   if (ts.isObjectLiteralExpression(init)) {
+    // An EMPTY object yields zero rows, and zero rows satisfy every premise and
+    // the wrap assertion at once — the class text can move out of the record
+    // entirely and the guard stays green (review R5). Surfaced as an unwrappable
+    // row so it fails loudly.
+    if (init.properties.length === 0) return [{ label: `${name}.<empty record>`, node: null }];
     return init.properties.flatMap((prop): Initializer[] => {
-      // A member this reader does not understand used to be dropped SILENTLY,
-      // which is the worst possible handling: moving the dark values behind
-      // `{ ...DARK, sm }` emptied the result list, and an empty list satisfies
-      // the shape premise, the non-empty premise AND the wrap assertion at once
-      // (review R3). Unsupported members are now surfaced as a row that cannot
-      // be wrapped, so they fail loudly instead of vanishing.
+      // A member this reader cannot express used to be dropped SILENTLY, which
+      // empties the list and passes everything (review R3). Surfaced instead.
       if (!ts.isPropertyAssignment(prop)) {
         return [{ label: `${name}.<${ts.SyntaxKind[prop.kind]}>`, node: null }];
       }
@@ -196,7 +172,164 @@ function initializersOf(declaration: ts.VariableDeclaration, name: string): Init
       return [{ label: `${name}.${key}`, node: prop.initializer }];
     });
   }
+  // A ternary is TWO values, not one. `cond ? "a" : "b"` behind an identifier is
+  // two class strings the rule cannot see, and wrapping the whole ternary would
+  // expose neither — a recognized callee follows its ARGUMENTS, and a ternary is
+  // one argument whose branches it does not enter. So each branch is its own row,
+  // recursively, which also covers the nested ternaries this codebase uses for
+  // per-state pill classes.
+  if (ts.isConditionalExpression(init)) {
+    const branch = (node: ts.Expression, label: string): Initializer[] =>
+      ts.isConditionalExpression(node)
+        ? [...branch(node.whenTrue, `${label}.<t>`), ...branch(node.whenFalse, `${label}.<f>`)]
+        : [{ label, node }];
+    return [
+      ...branch(init.whenTrue, `${name}.<when-true>`),
+      ...branch(init.whenFalse, `${name}.<when-false>`),
+    ];
+  }
   return [{ label: name, node: init }];
+}
+
+interface ClassFeed {
+  /** `<file> — <identifier>` or `<file> — <identifier>.<key>`. */
+  label: string;
+  /** The initializer the wrap must cover, or `null` when it cannot be read. */
+  node: ts.Expression | null;
+}
+
+/** Resolve an identifier the way the LANGUAGE does: nearest enclosing binding. */
+function resolveIdentifier(
+  id: ts.Identifier,
+  sourceFile: ts.SourceFile,
+): ts.VariableDeclaration | null {
+  const name = id.text;
+  for (let cur: ts.Node | undefined = id.parent; cur; cur = cur.parent) {
+    let found: ts.VariableDeclaration | null = null;
+    const scan = (node: ts.Node): void => {
+      if (found !== null) return;
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+        found = node;
+        return;
+      }
+      // Do not descend into nested functions: their bindings are not in scope here.
+      if (
+        node !== cur &&
+        (ts.isFunctionDeclaration(node) ||
+          ts.isFunctionExpression(node) ||
+          ts.isArrowFunction(node))
+      )
+        return;
+      ts.forEachChild(node, scan);
+    };
+    scan(cur);
+    if (found !== null) return found;
+    if (ts.isSourceFile(cur)) break;
+  }
+  return null;
+}
+
+/** Identifiers referenced anywhere inside a `className` expression. */
+function classNameIdentifiers(attr: ts.JsxAttribute): { id: ts.Identifier; key: string | null }[] {
+  const out: { id: ts.Identifier; key: string | null }[] = [];
+  const init = attr.initializer;
+  if (init === undefined || !ts.isJsxExpression(init) || init.expression === undefined) return out;
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+      out.push({ id: node.expression, key: node.name.text });
+      return;
+    }
+    if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression)) {
+      // `SIZE_CLASS[size]` — the KEY is dynamic, so every value is in play.
+      out.push({ id: node.expression, key: null });
+      return;
+    }
+    if (ts.isIdentifier(node)) {
+      out.push({ id: node, key: null });
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(init.expression);
+  return out;
+}
+
+function classFeedsOf(sourceFile: ts.SourceFile, rel: string): ClassFeed[] {
+  const feeds = new Map<string, ClassFeed>();
+  const seen = new Set<ts.VariableDeclaration>();
+
+  // TRANSITIVE, because composition is the normal shape. `AccentButton` builds
+  // `const classes = cn(BASE_CLASS, SIZE_CLASS[size], …)` and renders
+  // `className={classes}`. A one-hop walk finds `classes` — already wrapped, so
+  // it reports clean — and never reaches the four constants that are actually
+  // dark. The lint rule stops at the first identifier; the walk must not.
+  const follow = (id: ts.Identifier, key: string | null, depth: number): void => {
+    if (depth > 6) return;
+    const decl = resolveIdentifier(id, sourceFile);
+    if (decl === null || seen.has(decl)) return;
+    const init = decl.initializer;
+    if (init === undefined) return;
+    seen.add(decl);
+
+    for (const entry of initializersOf(decl, id.text)) {
+      if (key !== null && ts.isObjectLiteralExpression(init) && !entry.label.endsWith(`.${key}`)) {
+        continue;
+      }
+      if (entry.node !== null) {
+        // Descend into the identifiers this value itself references BEFORE
+        // judging it, so a wrapped composer can never hide an unwrapped part.
+        const nested: ts.Identifier[] = [];
+        const scan = (n: ts.Node): void => {
+          if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression)) {
+            follow(n.expression, n.name.text, depth + 1);
+            return;
+          }
+          if (ts.isElementAccessExpression(n) && ts.isIdentifier(n.expression)) {
+            follow(n.expression, null, depth + 1);
+            return;
+          }
+          if (ts.isIdentifier(n)) nested.push(n);
+          ts.forEachChild(n, scan);
+        };
+        scan(entry.node);
+        for (const n of nested) follow(n, null, depth + 1);
+
+        // Only class-BEARING values. A const feeding a className can legitimately
+        // hold a non-class string, and the rule would not judge that either.
+        if (!holdsClassText(entry.node)) continue;
+      }
+      feeds.set(`${rel} — ${entry.label}`, {
+        label: `${rel} — ${entry.label}`,
+        node: entry.node,
+      });
+    }
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxAttribute(node) && node.name.getText(sourceFile) === "className") {
+      for (const { id, key } of classNameIdentifiers(node)) follow(id, key, 0);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return [...feeds.values()];
+}
+
+/** Does this initializer carry Tailwind-looking class text the rule would judge? */
+function holdsClassText(node: ts.Expression): boolean {
+  const texts: string[] = [];
+  const collect = (n: ts.Node): void => {
+    if (isBareStringLiteral(n as ts.Expression)) texts.push((n as ts.StringLiteral).text);
+    ts.forEachChild(n, collect);
+  };
+  collect(node);
+  const tokens = texts.join(" ").trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return false;
+  return tokens.some((t) =>
+    /^(?:[a-z0-9-]+:)*-?(?:m|p|px|py|pt|pb|pl|pr|w|h|size|min-w|min-h|max-w|max-h|gap|inset|top|bottom|left|right|z|flex|grid|items|justify|self|text|font|leading|tracking|bg|border|outline|ring|shadow|opacity|rounded|transition|duration|ease|animate|translate|cursor|select|overflow|underline|absolute|relative|fixed|sticky|block|inline|inline-flex|inline-block|hidden)(?:-[^\s]+)?$/.test(
+      t,
+    ),
+  );
 }
 
 function isRecognizedCall(node: ts.Expression): boolean {
@@ -215,96 +348,47 @@ function isBareStringLiteral(
 }
 
 describe("class-string consts stay inside the lint rule's reach (spec §2.3)", () => {
-  const parsed = SITES.map((site) => {
-    const sourceFile = sourceFileFor(site.file);
-    const all = findDeclarations(sourceFile, site.name, site.scope);
-    return {
-      site,
-      sourceFile,
-      declaration: all.length === 1 ? (all[0] as ts.VariableDeclaration) : null,
-      count: all.length,
-    };
+  const FILES = [...new Set(SITES.map((s) => s.file))];
+  const feeds = FILES.flatMap((rel) => classFeedsOf(sourceFileFor(rel), rel));
+
+  it("premise: the walk finds class-bearing constants, and covers every historically-named site", () => {
+    // A discovery walk whose passing state is "nothing unwrapped" cannot prove
+    // itself by finding an empty set — "found nothing" is both the pass and what
+    // a broken walk reports.
+    premiseHolds(
+      `the use-site walk found ${feeds.length} class-bearing constants across ${FILES.length} files`,
+      feeds.length >= SITES.length,
+    );
+
+    // The nine names this arc was filed against are no longer a registry to
+    // maintain — they are an expected SUBSET, asserted as a FLOOR. If the walk
+    // stops seeing one of them it has gone quiet somewhere, and that is a
+    // failure rather than a smaller clean set.
+    const labels = feeds.map((f) => f.label);
+    const missing = SITES.filter(
+      (site) => !labels.some((l) => l.startsWith(`${site.file} — ${site.name}`)),
+    ).map((site) => `${site.file} — ${site.name}`);
+    expect(
+      missing,
+      "the use-site walk no longer reaches these historically-named constants. Either they stopped " +
+        "feeding a className (in which case delete the row and say why) or the walk regressed.",
+    ).toEqual([]);
   });
 
-  it("premise: every named declaration is present, UNIQUE in its file, and the shape its row expects", () => {
-    const missing = parsed
-      .filter((p) => p.count === 0)
-      .map((p) => `${p.site.file} — ${p.site.name} in ${p.site.scope}`);
-    premiseHolds(
-      `every named class-string const is present: missing ${missing.join(", ") || "(none)"}`,
-      missing.length === 0,
-    );
-
-    // UNIQUE, because a row identifies its target BY NAME and the reader used to
-    // take the first match anywhere in the file. Adding an unrelated wrapped
-    // `base` above `StepIndicator` let the intended `base` go bare while the row
-    // stayed green (review R3) — and `base`/`focusRing` are exactly the names
-    // most likely to collide. Ambiguity is refused rather than resolved by
-    // position: a second declaration means the row no longer names one thing.
-    const ambiguous = parsed
-      .filter((p) => p.count > 1)
-      .map((p) => `${p.site.file} — ${p.site.name} in ${p.site.scope} (${p.count} declarations)`);
-    premiseHolds(
-      `every named const resolves to exactly ONE declaration: ambiguous ${ambiguous.join(", ") || "(none)"}`,
-      ambiguous.length === 0,
-    );
-
-    const wrongShape = parsed.flatMap((p) => {
-      const init = p.declaration?.initializer;
-      if (init === undefined) return [];
-      const isRecord = ts.isObjectLiteralExpression(init);
-      // A `cn(...)`-wrapped Record is still an ObjectLiteral; a wrapped string is a
-      // CallExpression. So the shape test reads through the wrap.
-      const effective = isRecognizedCall(init) ? "string" : isRecord ? "record" : "string";
-      return effective === p.site.kind
-        ? []
-        : [`${p.site.file} — ${p.site.name}: expected ${p.site.kind}, found ${effective}`];
-    });
-    premiseHolds(
-      `every row's initializer shape matches: ${wrongShape.join(" | ") || "(all match)"}`,
-      wrongShape.length === 0,
-    );
-  });
-
-  it("premise: each site really does carry Tailwind class text, so the wrap assertion is not vacuous", () => {
-    // A row whose value is an empty string would satisfy "is a cn() call" while proving
-    // nothing about class-string coverage.
-    const empty = parsed.flatMap(({ site, declaration }) => {
-      if (declaration === null) return [];
-      return initializersOf(declaration, site.name).flatMap((entry) => {
-        if (entry.node === null) return [`${site.file} — ${entry.label} (unreadable member)`];
-        const args: readonly ts.Expression[] = ts.isCallExpression(entry.node)
-          ? entry.node.arguments
-          : [entry.node];
-        const text = args
-          .flatMap((a) => (isBareStringLiteral(a) ? [a.text] : []))
-          .join(" ")
-          .trim();
-        return text.length > 0 ? [] : [`${site.file} — ${entry.label}`];
-      });
-    });
-    premiseHolds(
-      `every site carries non-empty class text: empty at ${empty.join(", ") || "(none)"}`,
-      empty.length === 0,
-    );
-  });
-
-  it("wraps every class-string const (and every Record value) in a recognized callee", () => {
-    const unwrapped = parsed.flatMap(({ site, declaration }) => {
-      if (declaration === null) return [];
-      return initializersOf(declaration, site.name)
-        .filter((entry) => entry.node === null || !isRecognizedCall(entry.node))
-        .map((entry) => `${site.file} — ${entry.label}`);
-    });
+  it("wraps every constant that reaches a className through an identifier", () => {
+    const unwrapped = feeds
+      .filter((f) => f.node === null || !isRecognizedCall(f.node))
+      .map((f) => f.label);
     expect(
       unwrapped,
-      "these class-string declarations are invisible to " +
-        "`better-tailwindcss/enforce-canonical-classes`: the rule traverses recognized callees " +
-        "(`cn`/`clsx`/`cva`) and direct JSX attributes, never a bare const initializer or an " +
-        "object VALUE. Tailwind drift inside one escapes `pnpm lint` and therefore CI — which " +
+      "these constants reach a `className` through an IDENTIFIER, which is precisely where " +
+        "`better-tailwindcss/enforce-canonical-classes` stops following: it traverses recognized " +
+        "callees (`cn`/`clsx`/`cva`) and direct JSX attributes, never a bare const initializer or " +
+        "an object VALUE. Tailwind drift inside one escapes `pnpm lint` and therefore CI — which " +
         "is how `THUMB_BASE` kept `h-5 w-5` while its three sibling switches moved to `size-5`. " +
         "Wrap the value in `cn(...)` from @/lib/ui/cn; `cn` of one string is that string, so " +
-        "runtime is unchanged.",
+        "runtime is unchanged. A row with no readable initializer (an empty record, a spread) is " +
+        "listed here too: it cannot be vouched for, so it is not.",
     ).toEqual([]);
   });
 });
