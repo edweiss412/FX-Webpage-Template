@@ -26,7 +26,16 @@
  */
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { premise } from "../_shared/premise";
 import { stripCommentsForFile } from "../_shared/stripComments";
@@ -628,6 +637,12 @@ function reconciliationMismatches(scanned: ScannedFile[], registry: Registry): M
   return mismatches;
 }
 
+/** Registry rows naming a file the walk no longer finds. */
+function staleRegistryFiles(scanned: ScannedFile[], registry: Registry): string[] {
+  const present = new Set(scanned.map((entry) => entry.file));
+  return Object.keys(registry).filter((file) => !present.has(file));
+}
+
 function undischargedFiles(scanned: ScannedFile[], registry: Registry): string[] {
   return scanned
     .filter((entry) => entry.sites.length > 0)
@@ -809,10 +824,10 @@ describe("META lib/data Supabase call boundary", () => {
   });
 
   test("every registered file's site sequence deep-equals its registry rows", () => {
-    const byFile = new Map(SCANNED.map((entry) => [entry.file, entry]));
-
-    const stale = Object.keys(REGISTRY).filter((file) => !byFile.has(file));
-    expect(stale, "registry names files that no longer exist under lib/data").toEqual([]);
+    expect(
+      staleRegistryFiles(SCANNED, REGISTRY),
+      "registry names files that no longer exist under lib/data",
+    ).toEqual([]);
 
     expect(
       reconciliationMismatches(SCANNED, REGISTRY),
@@ -1151,6 +1166,96 @@ describe("META lib/data Supabase call boundary", () => {
       expect(undischargedFiles([scan("lib/data/__planted.tsx", source)], {})).toEqual([
         "lib/data/__planted.tsx",
       ]);
+    });
+  });
+
+  describe("Layer 1 and Layer 2 foundations", () => {
+    // The walk is what makes this guard fail by default, and the extension set
+    // is how wide that default reaches. Neither was planted, so mutating
+    // `LIVE_FILES` to the registry's own keys, or narrowing the filter to `.ts`,
+    // survived the whole suite (whole-diff R19 F2). Built on a real throwaway
+    // tree rather than a premise, per the construct-the-environment rule.
+    test("the walk finds files from DISK, recursively, across every compiled extension", () => {
+      const root = mkdtempSync(join(tmpdir(), "meta-walk-"));
+      try {
+        mkdirSync(join(root, "nested"));
+        const expected: string[] = [];
+        for (const name of ["a.ts", "b.tsx", "c.mts", "d.cts", "e.js", "f.jsx", "g.mjs", "h.cjs"]) {
+          writeFileSync(join(root, name), "export const x = 1;\n");
+          expected.push(join(root, name));
+        }
+        writeFileSync(join(root, "nested", "deep.mts"), "export const y = 2;\n");
+        expected.push(join(root, "nested", "deep.mts"));
+        // Not a module the toolchain compiles, so not walked.
+        writeFileSync(join(root, "notes.md"), "# not a module\n");
+
+        expect(walk(root).sort()).toEqual(expected.sort());
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    // …and the LIVE corpus is that walk's output, not the registry's key set.
+    // Without this, sourcing `LIVE_FILES` from `Object.keys(REGISTRY)` survives
+    // the entire suite: every registered file still reconciles, and nothing else
+    // is ever looked at — which is precisely the fails-by-default property gone
+    // (whole-diff R19 F2). `nameMatch.ts` is a real `lib/data` module with no
+    // Supabase call and no registry row, so it can only be here via the walk.
+    test("the live corpus is the walk's output, not the registry's key set", () => {
+      const scannedFiles = SCANNED.map((entry) => entry.file);
+      expect(scannedFiles).toContain("lib/data/nameMatch.ts");
+      const unregistered = scannedFiles.filter((file) => REGISTRY[file] === undefined);
+      expect(unregistered.length).toBeGreaterThan(0);
+    });
+
+    // Reconciliation is claimed to run BOTH directions. Only extracted-surplus
+    // was planted, so a mutant comparing lengths one way survived, as did
+    // disabling the stale-file check entirely (whole-diff R19 F1).
+    test("reconciliation reports surplus on either side, and a stale registry file", () => {
+      const file = "lib/data/__planted.ts";
+      const scanned = [scan(file, 'await sb.from("one");\n')];
+      const oneRow: SiteRow = { kind: "from", literal: "one", pin: [/from\("one"\)/] };
+
+      // Registry surplus: a row with no site to match it.
+      expect(
+        reconciliationMismatches(scanned, {
+          [file]: [oneRow, { kind: "from", literal: "two", pin: [/from\("two"\)/] }],
+        }),
+      ).toEqual([
+        {
+          file,
+          extracted: [{ kind: "from", literal: "one" }],
+          expected: [
+            { kind: "from", literal: "one" },
+            { kind: "from", literal: "two" },
+          ],
+        },
+      ]);
+
+      // Extracted surplus: a site with no row.
+      expect(
+        reconciliationMismatches([scan(file, 'await sb.from("one");\nawait sb.from("two");\n')], {
+          [file]: [oneRow],
+        }),
+      ).toEqual([
+        {
+          file,
+          extracted: [
+            { kind: "from", literal: "one" },
+            { kind: "from", literal: "two" },
+          ],
+          expected: [{ kind: "from", literal: "one" }],
+        },
+      ]);
+
+      // Control: equal sequences reconcile.
+      expect(reconciliationMismatches(scanned, { [file]: [oneRow] })).toEqual([]);
+
+      // A registry naming a file the walk no longer finds.
+      expect(staleRegistryFiles(scanned, { "lib/data/__gone.ts": [oneRow] })).toEqual([
+        "lib/data/__gone.ts",
+      ]);
+      expect(staleRegistryFiles(scanned, { [file]: [oneRow] })).toEqual([]);
     });
   });
 
