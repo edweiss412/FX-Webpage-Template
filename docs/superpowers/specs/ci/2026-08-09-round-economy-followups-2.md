@@ -16,8 +16,11 @@ files the two buildable lint arms as ordinary `BL-` rows.
 The user ratified the batch 2026-08-09 in-session and granted full autonomy ("Yes, fully
 autonomous. This fable session owns spec + plan, launches new pane for opus implementation +
 closeout"). Docs-only diff: `docs/agents/writing-plans.md`, `AGENTS.md`,
-`docs/agents/spec-self-review.md`, `BACKLOG.md`, this spec, and the
-`docs/superpowers/specs/ci/README.md` index row.
+`docs/agents/spec-self-review.md`, `BACKLOG.md`, this spec, the
+`docs/superpowers/specs/ci/README.md` index row, the implementation plan, and the arc's own
+review-round process record under `docs/review-rounds/docs/round-economy-followups-2-specs/`
+(corpus rows written by each dispatch, plus the stage filing once owed — added, never
+edited).
 
 ## §1.1 Resolved scope — do not relitigate
 
@@ -229,8 +232,10 @@ immediately via P3. Design and opt-in mechanics belong to the implementing arc.
 - AC-4: the docs test suite is green on the branch (at minimum `pnpm vitest run tests/docs`),
   covering the ledger guards and the review-round economy gate.
 - AC-5: this spec gains its `docs/superpowers/specs/ci/README.md` index row in the same PR.
-- AC-6: no file under `docs/review-rounds/` is edited (filings are the immutable evidence
-  base), and no lint arm implementation lands (invariant: §1.1.2).
+- AC-6: no EXISTING file under `docs/review-rounds/` is modified (filings are the immutable
+  evidence base); the arc's own process record under
+  `docs/review-rounds/docs/round-economy-followups-2-specs/` is ADDED per the corpus
+  contract. No lint arm implementation lands (invariant: §1.1.2).
 
 ## §5 Non-goals
 
