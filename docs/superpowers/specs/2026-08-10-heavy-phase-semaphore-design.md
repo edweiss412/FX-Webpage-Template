@@ -525,8 +525,12 @@ real `/tmp/fx-heavy-slots`.
    token-shaped argument (`node -e … --token=hunter2-sentinel`); assert the sentinel
    appears in NEITHER the slot file NOR any waiter stderr (only the `cmd` basename and
    `argc` do).
-8. **Knob domains (R2 F4).** `FX_HEAVY_SLOTS=banana` and `FX_HEAVY_SLOTS=0`: warn +
-   default 2 + command runs (exit 0). `FX_HEAVY_DISABLE=true` (not `1`): stderr warning
+8. **Knob domains (R2 F4; upper bound per R12 F1).** `FX_HEAVY_SLOTS=banana`,
+   `FX_HEAVY_SLOTS=0`, AND `FX_HEAVY_SLOTS=65`: warn + default 2 + command runs
+   (exit 0) — the 65 arm is env-side (warn+default posture), distinct from the
+   case 13 management-CLI exit-2 posture; without it an implementation could cap
+   `--slots` yet accept a 65-slot env and silently defeat the machine-wide bound.
+   Companion boundary: `FX_HEAVY_SLOTS=64` accepted (config records 64, no warning). `FX_HEAVY_DISABLE=true` (not `1`): stderr warning
    naming the expected value AND locking still active (observable: the case-1 mutual
    exclusion holds under it). `FX_HEAVY_POLL_MS=0`: warn + default (asserted via the
    warning line; no busy-spin).
