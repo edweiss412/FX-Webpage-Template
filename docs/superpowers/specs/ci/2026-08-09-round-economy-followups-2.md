@@ -70,14 +70,20 @@ edit MUST cite its source filing paths inline.
 snippets + verify CI wiring" (`docs/agents/writing-plans.md:25`). **Action:** new bullet.
 
 **Substance:** Before a plan is dispatched for review, every task's `red=` command (the
-declared task contract, `docs/agents/spec-self-review.md:27-36`) is RUN against the live tree
-and must fail for the stated reason — an exit from `No test files found` is not red, and a
-`red=` that already exits 0 is a plan defect. Three never-red-by-construction shapes are
-rejected at authoring time without running anything: a `red=` naming a file the same task
-creates from scratch with no pre-existing failing counterpart; a conjunct behind `&&` where an
-earlier expected failure short-circuits it (RED observes each conjunct separately; the
-conjunction is the GREEN criterion); and a task body with no one-line "what is red and why"
-statement. Declared gate commands (merge gates, closeout checks, CI probes) get the same
+declared task contract, `docs/agents/spec-self-review.md:27-36`) is validated executably,
+split by what exists on the live tree. A `red=` whose target test EXISTS at plan time is RUN
+and must fail for the stated reason — one that already exits 0 is a plan defect. A `red=`
+whose test file the task itself CREATES is the ordinary TDD shape (invariant 1 writes the
+failing test inside the task): it is NOT run at plan time — `No test files found` is its
+expected plan-time state — and the plan-time check is static instead: the task names the
+production line whose absence or defect will make the new test fail (the RED-validity bullet
+in the same file), that absence or defect is verified against the live tree, and the
+observed-red obligation lands in the task's RED step. Three never-red-by-construction shapes
+are rejected statically in either case: a `red=` that can never be OBSERVED red at any point
+(a guard test that passes the moment it is authored; a command naming the very file its GREEN
+deletes, so it errors identically before and after); a conjunct behind `&&` where an earlier
+expected failure short-circuits it (RED observes each conjunct separately; the conjunction is
+the GREEN criterion); and a task body with no one-line "what is red and why" statement. Declared gate commands (merge gates, closeout checks, CI probes) get the same
 treatment as a test's mutant-red: probe each against a CONSTRUCTED failing input and confirm
 non-zero exit — a bare `gh run list`, an unresolvable sha that empties a diff into a passing
 `test -z`, and a fail-open shell chain all exit 0 on the exact failure they name. Mechanical
@@ -165,11 +171,15 @@ gate commands exiting 0 on the failure they name).
 
 Description: extend `spec:lint`'s declared-task-contract arm (`pnpm spec:lint`,
 `scripts/spec-lint.ts`; task-region grammar per `docs/agents/spec-self-review.md:27-36`). For
-an enrolled plan: (a) an execution mode that RUNS each `red=` command and reports a new code
-(e.g. `RED_ALREADY_GREEN`) when it exits 0 against the live tree — opt-in per invocation, since
-a `red=` may be expensive; (b) static never-red shapes needing no execution: a `red=` naming a
-file the plan itself creates with no pre-existing failing counterpart, an `&&` conjunct
-behind an expected failure, and a task body with no one-line "what is red and why" statement;
+an enrolled plan: (a) an execution mode that RUNS each `red=` command whose target test
+EXISTS on the live tree and reports a new code (e.g. `RED_ALREADY_GREEN`) when it exits 0 —
+opt-in per invocation, since a `red=` may be expensive; a `red=` targeting a test the plan
+itself creates is the ordinary TDD shape and is exempt from execution, not from validation:
+the arm instead checks the task names a production line verifiable as absent or defective on
+the live tree; (b) static never-red shapes needing no execution: a `red=` that can never be
+OBSERVED red (a guard test passing the moment it is authored; a command naming the very file
+its GREEN deletes), an `&&` conjunct behind an expected failure, and a task body with no
+one-line "what is red and why" statement;
 (c) an advisory listing declared gate commands that carry no
 "probed against a constructed failing input" annotation. The rule half binds immediately via
 P1; this row is the mechanical enforcement. Design and thresholds belong to the implementing
