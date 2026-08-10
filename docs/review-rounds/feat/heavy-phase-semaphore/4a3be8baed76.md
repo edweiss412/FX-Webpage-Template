@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 12 rounds
+## diff — 13 rounds
 
-**Examined:** twelve counted rounds on the implementation diff, dispatched as two
+**Examined:** thirteen counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1 findings across rounds 1-12 — twenty-five in total.
+string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1/1 findings across rounds 1-13 — twenty-six in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned eleven is a paragraph of
+spec rounds had probed each one. The half that burned twelve is a paragraph of
 English and a regex list.
 
-**Judgment:** eight of the twenty-five diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the twenty-six diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -256,6 +256,31 @@ Three rounds, three levels — blocks, inlines, then containment. Each was the s
 error in a different place: the guard knew what it wanted and asked the document a
 question that did not mean that.
 
+Round 13 is the fourth level and the most interesting, because it collides head-on
+with an earlier accepted finding. It renamed the parent heading to "Retired
+cross-cutting guidance (non-normative)" — still the `cross-cutting` tier the round-10
+repair had loosened the match to, rule byte-identical beneath it, now explicitly
+non-normative, guard green.
+
+**Round 10 and round 13 are both right, and together they prove a pattern cannot
+decide this.** R10: requiring the literal phrase "cross-cutting discipline" fails an
+ordinary rename to "Cross-cutting rules". R13: accepting any heading containing the
+tier admits a disclaimer. Distinguishing a harmless rename from a disclaiming one is
+semantics; the only pattern-shaped alternative is a vocabulary of disclaimer words
+("retired", "deprecated", "historical", …), open by construction, re-opening on the
+next synonym — the same enumeration trap rounds 3-5 already paid for once.
+
+**Ratified reversal, fenced both directions:** the heading is now PINNED, exactly
+like the rule body. A rename to "Cross-cutting rules" fails — not because it is
+wrong, but because moving a cross-CLI contract is a decision worth one fixture line
+to record. Do not re-loosen this to a tier match; do not propose a disclaimer word
+list. The reasoning lives at the check itself so neither side can be relitigated
+without reading it.
+
+Both heading-rename cases moved from stays-quiet rows to operator rows in the same
+commit, which is the honest form of a reversal: the old expectation is not deleted,
+it is inverted where a reader will see it.
+
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
 registry catches a shape added to §4.6, block structure comes from `remark` rather
@@ -263,9 +288,10 @@ than from a regex over syntax, normalization collapses only ASCII whitespace so 
 smuggled U+00A0 cannot read as a space, members are matched against parsed
 `inlineCode` values rather than backticked substrings, the section's direct
 content ends at the first heading of any depth so the rule cannot be nested into
-non-normative prose, and 58 cases — 36 `OPERATORS` rows plus twenty stays-quiet
-rows — run on every suite, so no repair can silently regress an earlier one in
-either direction. What
+non-normative prose, the section heading is pinned alongside the rule body so the
+contract cannot be disclaimed out from over it, and 58 cases — 38 `OPERATORS` rows
+plus eighteen stays-quiet rows — run on every suite, so no repair can silently
+regress an earlier one in either direction. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
 than a pattern list when the guard's subject is prose. That has no static signature;
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and

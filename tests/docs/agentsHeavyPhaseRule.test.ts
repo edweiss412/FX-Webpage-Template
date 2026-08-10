@@ -30,6 +30,10 @@ const ROOT = process.cwd();
 const AGENTS_PATH = join(ROOT, "AGENTS.md");
 const SPEC_PATH = join(ROOT, "docs/superpowers/specs/2026-08-10-heavy-phase-semaphore-design.md");
 const PINNED_PATH = join(ROOT, "tests/docs/fixtures/agents-heavy-phase-rule.md");
+const PINNED_HEADING_PATH = join(
+  ROOT,
+  "tests/docs/fixtures/agents-heavy-phase-section-heading.md",
+);
 
 const RULE_OPENER = "- **Heavy local phases run under the machine-wide slot semaphore.**";
 const MUST_MARKER = "**MUST wrap**";
@@ -416,7 +420,9 @@ function containsType(node: MdNode, type: string): boolean {
 
 const OPENER_TEXT = "Heavy local phases run under the machine-wide slot semaphore.";
 
-type Located = { source: string; item: MdNode; at: number } | { problem: string };
+type Located =
+  | { source: string; item: MdNode; at: number; heading: string }
+  | { problem: string };
 
 /** Locate the rule's list item through the markdown AST. */
 export function locateRule(agents: string): Located {
@@ -458,7 +464,7 @@ export function locateRule(agents: string): Located {
         if (from === undefined || to === undefined) {
           return { problem: "the heavy-phase rule item has no source position" };
         }
-        return { source: agents.slice(from, to), item, at: from };
+        return { source: agents.slice(from, to), item, at: from, heading: plainText(heading) };
       }
     }
   }
@@ -479,6 +485,40 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   const located = locateRule(agents);
   if ("problem" in located) return [located.problem];
   const raw = located.source;
+
+  /*
+   * The heading is pinned, exactly like the rule body, and the reasoning is a
+   * RATIFIED REVERSAL worth stating where it lives.
+   *
+   * Round 10 found that requiring the literal phrase "cross-cutting discipline"
+   * failed an ordinary rename to "Cross-cutting rules", and that finding was
+   * accepted: the repair loosened the match to the `cross-cutting` TIER. Round 13
+   * then renamed the heading to "Retired cross-cutting guidance (non-normative)"
+   * — still the tier, byte-identical rule beneath it, and now explicitly
+   * non-normative with the guard green.
+   *
+   * Both findings are correct, and together they say a pattern cannot decide this:
+   * distinguishing a harmless rename from a disclaiming one is semantics, and the
+   * only pattern-shaped alternative is a vocabulary of disclaimer words
+   * ("retired", "deprecated", "historical", …) that is open by construction and
+   * would re-open on the next synonym.
+   *
+   * So the heading gets the same treatment the rule body already has: pinned, and
+   * changed deliberately. A rename to "Cross-cutting rules" now fails — not
+   * because it is wrong, but because moving a cross-CLI contract is a decision
+   * that costs one fixture line to record. Fenced in BOTH directions: do not
+   * re-loosen this to a tier match, and do not propose a disclaimer word list.
+   */
+  const pinnedHeading = readFileSync(PINNED_HEADING_PATH, "utf8").replace(/^#+\s*/, "");
+  if (normalize(located.heading) !== normalize(pinnedHeading)) {
+    problems.push(
+      `the rule's section heading is "${normalize(located.heading)}" but the pinned ` +
+        `heading is "${normalize(pinnedHeading)}". The heading states WHERE this ` +
+        "cross-CLI contract lives and whether it is normative, so a change to it is " +
+        "deliberate: update tests/docs/fixtures/agents-heavy-phase-section-heading.md " +
+        "in the SAME commit.",
+    );
+  }
 
   // An indented block inside the item is prose that stopped rendering as prose:
   // four extra spaces on a continuation paragraph turns the whole MUST-NOT
@@ -622,6 +662,23 @@ describe("AGENTS.md heavy-phase rule", () => {
 
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
+    // Heading edits are REJECTED, per the ratified reversal documented at the pin.
+    [
+      "rename the section heading within the same tier",
+      (text) =>
+        text.replace(
+          "## Cross-cutting discipline (from milestone retrospectives)",
+          "## Cross-cutting rules (from milestone retrospectives)",
+        ),
+    ],
+    [
+      "disclaim the whole section as non-normative",
+      (text) =>
+        text.replace(
+          "## Cross-cutting discipline (from milestone retrospectives)",
+          "## Retired cross-cutting guidance (non-normative)",
+        ),
+    ],
     [
       "nest the rule under a non-normative subsection",
       (text) =>
@@ -874,22 +931,6 @@ describe("AGENTS.md heavy-phase rule", () => {
     [
       "the whole file uses CRLF line endings",
       (text) => text.replace(/\r?\n/g, "\r\n"),
-    ],
-    [
-      "the section heading is renamed within the same cross-cutting tier",
-      (text) =>
-        text.replace(
-          "## Cross-cutting discipline (from milestone retrospectives)",
-          "## Cross-cutting rules (from milestone retrospectives)",
-        ),
-    ],
-    [
-      "the section heading is reworded around the same words",
-      (text) =>
-        text.replace(
-          "## Cross-cutting discipline (from milestone retrospectives)",
-          "## Shared cross-cutting discipline (from milestone retrospectives)",
-        ),
     ],
   ];
 
