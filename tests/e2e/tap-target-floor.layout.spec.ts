@@ -25,7 +25,7 @@
 import { test, expect } from "./helpers/fontFidelityFixture";
 import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
@@ -1619,7 +1619,7 @@ const EXPANSION_BAND_PER_SIDE = (TAP_MIN - VISUAL_PILL) / 2;
 function immediateGapParentOf(
   relPath: string,
   testId: string,
-): { classText: string; gapToken: string } | null {
+): { classText: string; gapToken: string; variantGaps: string[] } | null {
   const source = readFileSync(join(REPO_ROOT, relPath), "utf8");
   const sourceFile = ts.createSourceFile(
     relPath,
@@ -1676,7 +1676,17 @@ function immediateGapParentOf(
   if (classText === null) return null;
   const match = /(?:^|\s)(gap(?:-[xy])?-\d+(?:\.\d+)?)(?:\s|$)/.exec(classText);
   if (match?.[1] === undefined) return null;
-  return { classText, gapToken: match[1] };
+  // VARIANT-prefixed gaps are collected, not ignored. A container written
+  // `gap-2 sm:gap-0` extracts as `gap-2`, and a probe at one width then reports
+  // 8px while the real gap collapses to 0 at the next breakpoint — a silent
+  // miss, and a reachable one: `min-[720px]:gap-0` already ships in this repo
+  // (components/crew/primitives/KeyTimesStrip.tsx). The static form cannot
+  // reason about a per-viewport gap from source, so it REFUSES rather than
+  // guesses (cross-model review R2).
+  const variantGaps = [
+    ...classText.matchAll(/(?:^|\s)([^\s:]+:gap(?:-[xy])?-\d+(?:\.\d+)?)(?:\s|$)/g),
+  ].flatMap((m) => (m[1] === undefined ? [] : [m[1]]));
+  return { classText, gapToken: match[1], variantGaps };
 }
 
 /**
@@ -1719,7 +1729,53 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
           `declares a literal gap utility`,
         found !== null,
       );
-      const container = found as { classText: string; gapToken: string };
+      const container = found as { classText: string; gapToken: string; variantGaps: string[] };
+
+      // A per-viewport gap makes the single-width probe below unsound, so it is
+      // a PREMISE failure rather than a quiet base-token measurement.
+      premiseHolds(
+        `${pin.label}: the container declares no responsive gap variant (found ` +
+          `${container.variantGaps.join(", ") || "none"}); a gap that changes at a breakpoint ` +
+          `cannot be settled by one width, and the base token would report clearance the wider ` +
+          `viewport does not have`,
+        container.variantGaps.length === 0,
+      );
+
+      // The probe below is a detached element on `document.body`, so it resolves
+      // the ROOT `--spacing`. If some ancestor of the real container scoped its
+      // own, the two would diverge and the pin would report clearance the
+      // container does not have (cross-model review R2). That assumption is
+      // CHECKED here rather than assumed — probed at zero overrides tree-wide,
+      // and this fails loudly if one ever lands. Measuring the real container
+      // instead is not available to a static pin: neither container is in any
+      // mounted subtree, and widening the mount is the harness redesign the
+      // ratified scope excludes (UI spec §1.1 item 2, §4 limit 5).
+      // A pure-Node walk, not a spawned `rg`: the Playwright runner's PATH does
+      // not carry ripgrep, and a search that cannot run must not be mistaken for
+      // a search that found nothing.
+      const scopedSpacing = ((): string => {
+        const hits: string[] = [];
+        const walk = (dir: string): void => {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const abs = join(dir, entry.name);
+            if (entry.isDirectory()) {
+              walk(abs);
+            } else if (/\.(?:tsx?|css)$/.test(entry.name)) {
+              const text = readFileSync(abs, "utf8");
+              text.split("\n").forEach((line, i) => {
+                if (/--spacing\s*:/.test(line)) hits.push(`${abs}:${i + 1}`);
+              });
+            }
+          }
+        };
+        for (const root of ["app", "components", "lib"]) walk(join(REPO_ROOT, root));
+        return hits.join("\n");
+      })();
+      premiseHolds(
+        `no element scopes its own --spacing (found: ${scopedSpacing || "none"}), so a detached ` +
+          `probe on document.body resolves the same step the real container does`,
+        scopedSpacing === "",
+      );
 
       // The token is resolved by the REAL ENGINE, not by arithmetic in this file.
       // A local `gap-N × 4px` conversion restates the project's spacing step
@@ -1759,37 +1815,42 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
     });
   }
 
-  test("measured: the HelpSheet header row's computed gap clears the band on both axes", async ({
-    page,
-  }) => {
-    await boot(page, 390);
-    await openHelpSheet(page);
+  // Both ends of the suite's own viewport range, because a gap that collapses at
+  // a breakpoint is invisible to a single-width measurement (cross-model review
+  // R2) — and unlike the static pins, this case CAN just look at the wider one.
+  for (const width of [Math.min(...VIEWPORTS), Math.max(...VIEWPORTS)] as const) {
+    test(`measured @${width}px: the HelpSheet header row's computed gap clears the band on both axes`, async ({
+      page,
+    }) => {
+      await boot(page, width);
+      await openHelpSheet(page);
 
-    // Re-queried AFTER the open (detach-safety): the header does not exist in
-    // the pre-click DOM at all.
-    const gaps = await page.locator('[data-testid="help-sheet-body"] > header').evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return {
-        column: parseFloat(cs.columnGap),
-        row: parseFloat(cs.rowGap),
-        display: cs.display,
-      };
+      // Re-queried AFTER the open (detach-safety): the header does not exist in
+      // the pre-click DOM at all.
+      const gaps = await page.locator('[data-testid="help-sheet-body"] > header').evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          column: parseFloat(cs.columnGap),
+          row: parseFloat(cs.rowGap),
+          display: cs.display,
+        };
+      });
+
+      // The gap only separates anything if the row is a flex/grid container —
+      // `column-gap` on a block element computes to a number and means nothing.
+      premiseHolds(
+        `the HelpSheet header is a flex row (computed display ${gaps.display})`,
+        gaps.display.includes("flex") || gaps.display.includes("grid"),
+      );
+
+      for (const axis of ["column", "row"] as const) {
+        expect(
+          gaps[axis],
+          `HelpSheet close button @${width}px — the header's computed ${axis}-gap no longer clears ` +
+            `the ${EXPANSION_BAND_PER_SIDE}px expansion band, so the grown close target can reach ` +
+            `the heading beside it (mutant #14).`,
+        ).toBeGreaterThanOrEqual(EXPANSION_BAND_PER_SIDE);
+      }
     });
-
-    // The gap only separates anything if the row is a flex/grid container —
-    // `column-gap` on a block element computes to a number and means nothing.
-    premiseHolds(
-      `the HelpSheet header is a flex row (computed display ${gaps.display})`,
-      gaps.display.includes("flex") || gaps.display.includes("grid"),
-    );
-
-    for (const axis of ["column", "row"] as const) {
-      expect(
-        gaps[axis],
-        `HelpSheet close button — the header's computed ${axis}-gap no longer clears the ` +
-          `${EXPANSION_BAND_PER_SIDE}px expansion band, so the grown close target can reach the ` +
-          `heading beside it (mutant #14).`,
-      ).toBeGreaterThanOrEqual(EXPANSION_BAND_PER_SIDE);
-    }
-  });
+  }
 });

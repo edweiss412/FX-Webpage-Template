@@ -68,6 +68,18 @@ Every finding arrived with a probe, and every one was real. Seven of eight are A
 
 Two CI failures surfaced in the same window and are repaired with them: the psql startup-file guard's indirection tripwire fired on the new unit suite's binary-name assertion (reworded rather than exempted — that guard already carries a SELF list and growing it is the worse trade), and the standalone spec baseline was one regen behind A6's four new cases.
 
+### §12.1c Cross-model diff review — round 2
+
+Two dispatches over the round-1 repairs plus a peer sweep. The resolver, the ledger, the sweep and the docs came back clean of new findings in the guards dispatch's own words ("`scopeTiles` has no remaining zero-assertion or premise/call divergence route; the `min-w-34` assertion is exact; the arc diff contains no other broadened assertion accepting a degenerate value"). Three NEW findings, all on the same surface round 1 had already opened — the tap-target pins and the arrow-ban parser — and all three probe-backed.
+
+| # | Finding | Reachability, probed BEFORE repairing | Repair |
+| --- | --- | --- | --- |
+| R2-1 | Both "independent" token readers shared two grammar blind spots — only the first declaration per line, only the first `@theme` block — so they AGREED while a declared token's arrow use went unreported. Agreement between two readers is evidence only when they can disagree. | 1 `@theme` block, 0 same-line pairs today. A real class, not a live defect. | Both readers now walk EVERY block and EVERY declaration, and the grammar itself is planted as a fixture (a two-block, same-line CSS string both must parse identically) rather than assumed. |
+| R2-2 | The static pins' detached `document.body` probe resolves the ROOT `--spacing`; a container under a scoped override would diverge, passing at 8 while the real gap is 6. | Zero `--spacing` overrides tree-wide. | The assumption is now CHECKED, not assumed: a pure-Node walk over `app/`, `components/`, `lib/` fails the premise if any override lands. Measuring the real container is not available to a static pin — neither is in a mounted subtree, and widening the mount is the harness redesign the ratified scope excludes. |
+| R2-3 | All three gap guards missed responsive collapse: `gap-2 sm:gap-0` extracts as `gap-2`, and every case ran at one width. | **REACHABLE — the pattern already ships** (`min-[720px]:gap-0`, `components/crew/primitives/KeyTimesStrip.tsx`). | The extractor now COLLECTS variant-prefixed gaps and fails the premise when any exist — a static pin cannot settle a per-viewport gap from source, so it refuses rather than guesses. The measured case, which CAN just look, runs at both ends of the suite's viewport range. |
+
+Each repair was verified by its mutant: `min-[720px]:gap-0` on the Step3Review row fails that pin; a scoped `--spacing` in `globals.css` fails both static pins; restored, 5 passed. `rg` is not on the Playwright runner's PATH, so the override scan is a Node walk — a search that cannot run must not read as a search that found nothing.
+
 ### §12.2 Observed-RED transcripts index
 
 Every RED in this branch was observed against the live tree, and both observations recorded in the task's own commit message.

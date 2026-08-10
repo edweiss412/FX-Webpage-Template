@@ -78,33 +78,42 @@ const EXCLUDED_NAMESPACE = "--breakpoint-";
  * forms it deprecates), and a declaration-shaped line inside a comment is not a
  * declaration. The block carries no nested rule, so brace depth 1 is the whole body.
  */
-function declaredThemeTokens(css: string): string[] {
+export function declaredThemeTokens(css: string): string[] {
   const stripped = stripCssComments(css);
-  const open = stripped.indexOf("@theme");
-  if (open === -1) return [];
-  const brace = stripped.indexOf("{", open);
-  if (brace === -1) return [];
+  const names = new Set<string>();
 
-  let depth = 0;
-  let end = -1;
-  for (let i = brace; i < stripped.length; i += 1) {
-    const ch = stripped[i];
-    if (ch === "{") depth += 1;
-    else if (ch === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        end = i;
-        break;
+  // EVERY `@theme` block, not the first (cross-model review R2). One block is
+  // all this file has today — probed — but "the first one" is a grammar
+  // assumption the CSS never made, and a second block is ordinary authoring.
+  let from = 0;
+  for (;;) {
+    const open = stripped.indexOf("@theme", from);
+    if (open === -1) break;
+    const brace = stripped.indexOf("{", open);
+    if (brace === -1) break;
+
+    let depth = 0;
+    let end = -1;
+    for (let i = brace; i < stripped.length; i += 1) {
+      const ch = stripped[i];
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
       }
     }
-  }
-  if (end === -1) return [];
+    if (end === -1) break;
 
-  const body = stripped.slice(brace + 1, end);
-  const names = new Set<string>();
-  for (const line of body.split("\n")) {
-    const match = /^\s*(--[a-z0-9-]+)\s*:/.exec(line);
-    if (match?.[1] !== undefined) names.add(match[1]);
+    // EVERY declaration, not the first per line. `--a: 1px; --b: 2px;` on one
+    // line is valid CSS and was invisible to a line-anchored read.
+    const body = stripped.slice(brace + 1, end);
+    for (const match of body.matchAll(/(?:^|[;{])\s*(--[a-z0-9-]+)\s*:/g)) {
+      if (match[1] !== undefined) names.add(match[1]);
+    }
+    from = end + 1;
   }
   return [...names].sort();
 }
@@ -270,15 +279,36 @@ const FIXTURE_EXTENSIONS = [".ts", ".tsx"] as const;
  * independently and then asserting the scanner AGREES turns that mutation into
  * a named failure.
  */
-function independentlyDeclaredTokens(): string[] {
-  const css = fs.readFileSync(GLOBALS, "utf8");
-  const open = css.indexOf("@theme");
-  const body = open === -1 ? "" : css.slice(open);
+export function independentlyDeclaredTokens(css = fs.readFileSync(GLOBALS, "utf8")): string[] {
+  // A different MECHANISM from the scanner's brace walk: split on `@theme`,
+  // take each segment up to its closing brace at depth zero, and collect every
+  // declaration. It reaches the same answer by another route, which is the
+  // point — and it now covers multiple blocks and multiple declarations per
+  // line, the two grammar shapes both readers used to miss together
+  // (cross-model review R2; probed at one block and zero same-line pairs today,
+  // so this closes a real class rather than a live defect).
+  const stripped = stripCssComments(css);
   const names = new Set<string>();
-  for (const line of stripCssComments(body).split("\n")) {
-    if (/^\s*}/.test(line)) break;
-    const match = /^\s*(--[a-z0-9-]+)\s*:/.exec(line);
-    if (match?.[1] !== undefined) names.add(match[1]);
+  for (const segment of stripped.split("@theme").slice(1)) {
+    const brace = segment.indexOf("{");
+    if (brace === -1) continue;
+    let depth = 0;
+    let end = segment.length;
+    for (let i = brace; i < segment.length; i += 1) {
+      if (segment[i] === "{") depth += 1;
+      else if (segment[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    for (const match of segment
+      .slice(brace + 1, end)
+      .matchAll(/(?:^|[;{])\s*(--[a-z0-9-]+)\s*:/g)) {
+      if (match[1] !== undefined) names.add(match[1]);
+    }
   }
   return [...names].sort();
 }
@@ -393,6 +423,32 @@ describe("no `@theme`-token arrow forms survive in class strings (spec §2.2)", 
       { missing, extra },
       "the scanner's parsed token set disagrees with an independent read of the same @theme block",
     ).toEqual({ missing: [], extra: [] });
+  });
+
+  it("premise / grammar: BOTH readers see multiple @theme blocks and multiple declarations per line", () => {
+    // The scanner and its independent cross-check shared two blind spots — only
+    // the first block, only the first declaration per line — so they AGREED
+    // while a declared token's arrow use went unreported (cross-model review
+    // R2). Agreement between two readers is only evidence when they can
+    // disagree, so the grammar is now planted as a fixture instead of assumed.
+    const fixture = [
+      "@theme {",
+      "  --color-first: #000;",
+      "  --color-same-line-a: 1px; --color-same-line-b: 2px;",
+      "}",
+      ":root { --not-a-theme-token: 3px; }",
+      "@theme {",
+      "  --color-second-block: #fff;",
+      "}",
+    ].join("\n");
+    const expected = [
+      "--color-first",
+      "--color-same-line-a",
+      "--color-same-line-b",
+      "--color-second-block",
+    ];
+    expect(declaredThemeTokens(fixture), "the scanner's parser").toEqual(expected);
+    expect(independentlyDeclaredTokens(fixture), "the independent cross-check").toEqual(expected);
   });
 
   it("premise / parse: the @theme block yields a real token set", () => {
