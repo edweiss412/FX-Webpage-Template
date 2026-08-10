@@ -34,15 +34,32 @@ test.describe("admin layout (mobile-safari, /admin/dev)", () => {
     await expect(page.locator("h1", { hasText: "/admin/dev — fixture upload-test" })).toBeVisible();
   });
 
-  test("unauthenticated request to /admin/dev returns the requireAdmin gate response (404 or 403)", async ({
+  test("unauthenticated request to /admin/dev is turned away by the gate (redirect to sign-in)", async ({
     page,
   }) => {
-    // Per requireAdmin's contract:
-    //   - notFound() (404) when ADMIN_DEV_PANEL_ENABLED !== 'true'
-    //   - forbidden() (403) when build flag is on but user is not admin
-    // The mobile-safari project sets ADMIN_DEV_PANEL_ENABLED=true, so an
-    // unauthenticated request hits the auth gate → 403.
-    const response = await page.goto("/admin/dev");
-    expect([403, 404]).toContain(response?.status() ?? 0);
+    // An UNAUTHENTICATED caller never reaches requireAdmin's 403/404 arms —
+    // app/admin/layout.tsx's gate runs first and sends it to sign-in. Measured
+    // against the CI server posture (production build, ADMIN_DEV_PANEL_ENABLED=true,
+    // playwright.config.ts webServer command) on 2026-08-09:
+    //
+    //   curl -sD- http://127.0.0.1:3000/admin/dev
+    //   HTTP/1.1 307 Temporary Redirect
+    //   location: /auth/sign-in?next=%2Fadmin
+    //
+    // The old assertion read `page.goto()`'s status and expected 403/404. That
+    // never described this path: goto FOLLOWS the 307 and reports the status of
+    // the sign-in page it lands on (200), so the assertion could only have
+    // passed back when the gate answered in-place. Assert the redirect itself —
+    // request-level, maxRedirects: 0, so the hop is observed rather than
+    // inferred from wherever the browser ended up. The 403/404 arms belong to an
+    // AUTHENTICATED non-admin and to the panel-disabled build; neither is this
+    // test's caller, and admin-layout-dimensions covers the admin-reaches-it case.
+    const firstHop = await page.request.get("/admin/dev", { maxRedirects: 0 });
+    expect([302, 303, 307, 308]).toContain(firstHop.status());
+    const location = firstHop.headers()["location"];
+    expect(location).toBeTruthy();
+    const url = new URL(location ?? "", "http://127.0.0.1:3000");
+    expect(url.pathname).toBe("/auth/sign-in");
+    expect(url.searchParams.get("next")).toBe("/admin");
   });
 });

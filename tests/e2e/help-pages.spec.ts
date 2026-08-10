@@ -3,7 +3,7 @@
  * for /help/* routes)
  *
  * Retires the manual user-review smoke gate from Phase E §12 by structurally
- * covering all 13 /help/* URLs from `app/help/_nav.ts`. M11 owns structural
+ * covering every /help/* URL declared in `app/help/_nav.ts`. M11 owns structural
  * correctness — that every route renders, returns 200, ships the documented
  * H1, mounts the layout chrome, and emits no console errors. M12 owns
  * experiential / UX validation (a human reviewing copy and feel).
@@ -17,7 +17,8 @@
  *   4. No `page.on('pageerror')` is observed during navigation.
  *
  * Source of truth for the URL × H1 list:
- *   - URLs from `app/help/_nav.ts` (NAV array, 13 entries).
+ *   - URLs from `app/help/_nav.ts` (the NAV array itself — the guard below
+ *     asserts set equality against it, so no count is restated here).
  *   - H1 text matches the canonical literals asserted in
  *     `tests/help/page-<slug>.test.tsx` (those tests assert
  *     `toMatch(/^# <Title>\b/m)` against the MDX source). The errors page
@@ -40,6 +41,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { signInAs } from "./helpers/signInAs";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { NAV } from "../../app/help/_nav";
 
 const TEST_BASE_URL = "http://127.0.0.1:3000";
 
@@ -64,15 +66,22 @@ const HELP_ROUTES: ReadonlyArray<HelpRoute> = [
   { url: "/help/admin/preview-as-crew", expectedH1: "Preview as crew" },
   { url: "/help/admin/sharing-links", expectedH1: "Sharing crew links" },
   { url: "/help/admin/onboarding-wizard", expectedH1: "Onboarding wizard" },
+  { url: "/help/admin/settings", expectedH1: "Settings" },
   { url: "/help/tour", expectedH1: "Tour" },
   { url: "/help/errors", expectedH1: "Errors" },
 ];
 
-// Coverage-count contract: a regression that drops a row from HELP_ROUTES
-// (e.g., a careless rebase) would otherwise pass with fewer tests. Pin
-// the count here so it fails loudly if the table shrinks.
-test("HELP_ROUTES covers all 13 /help/* URLs documented in app/help/_nav.ts", () => {
-  expect(HELP_ROUTES).toHaveLength(13);
+// Coverage contract: a regression that drops a row from HELP_ROUTES (e.g., a
+// careless rebase) would otherwise pass with fewer tests.
+test("HELP_ROUTES covers exactly the NAV slugs from app/help/_nav.ts", () => {
+  // Assert against the DATA SOURCE, not this file's own copy: the previous
+  // guard pinned HELP_ROUTES.length against a literal 13, which is a
+  // restatement of the table it is checking and so could not see NAV growing
+  // to 14 (spec §4.3). /help/admin/settings had already been added to NAV and
+  // was silently uncovered. Set equality reports both drift directions by name.
+  const navSlugs = [...NAV.map((e) => e.slug)].sort();
+  const covered = [...HELP_ROUTES.map((r) => r.url)].sort();
+  expect(covered).toEqual(navSlugs);
 });
 
 /**
@@ -88,7 +97,7 @@ function collectPageErrors(page: Page): Error[] {
   return errors;
 }
 
-test.describe("M11 Phase E — /help/* admin GET sweep (13 URLs)", () => {
+test.describe("M11 Phase E — /help/* admin GET sweep (full NAV sweep)", () => {
   // Sign in once per test (signInAs is create-only and idempotent across
   // runs via deleteFixtureUserByEmail). Mirrors the sign-in-page /
   // me-page spec patterns.
