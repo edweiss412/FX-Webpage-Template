@@ -223,8 +223,15 @@ The command below is the one that was run, and the counts below are its actual o
 
 ```
 rg -n 'toHaveBeenCalledWith\(|toEqual\(|params\[[0-9]\]' tests/ -g '*.ts' | rg -v objectContaining   # 6988 lines
-rg -l 'logSync|insertSyncLog|sync_log|runManualSyncForShow' tests/ -g '*.ts'                            # 84 files
-# intersect on the file field
+rg -l 'logSync|insertSyncLog|sync_log|runManualSyncForShow' tests/ -g '*.ts'                            # 76 files
+```
+
+The intersection is the third command, not a comment (plan R10 F1) — an earlier revision stated `84` for the precursor, a number from a wider pattern that also matched `processOneFile`, and left the join as prose:
+
+```
+rg -n 'toHaveBeenCalledWith\(|toEqual\(|params\[[0-9]\]' tests/ -g '*.ts' | rg -v objectContaining > /tmp/all.txt
+rg -l 'logSync|insertSyncLog|sync_log|runManualSyncForShow' tests/ -g '*.ts' | sort > /tmp/surf.txt
+awk -F: 'NR==FNR{s[$0];next} ($1 in s)' /tmp/surf.txt /tmp/all.txt
 ```
 
 **Result: 788 candidate lines across 62 files.** That is the honest denominator, and it is far too large to disposition line by line — which is the point. The admissible subset is narrower: a candidate is OWNED only if what it pins is (i) the sync-log insert's column list or parameter positions, (ii) a `SyncLogEntry` object exactly, or (iii) a sync entry point's argument list. Every owned row below was then opened and verified individually:
@@ -236,12 +243,15 @@ rg -l 'logSync|insertSyncLog|sync_log|runManualSyncForShow' tests/ -g '*.ts'    
 | `tests/sync/runOfShowSyncLogChannel.test.ts:205` (and lines 224-227, 229, 236-243, 245) | two-arg writer, `"show-1"`, warnings at `params[4]` | warnings move to `params[3]` | Task 3 |
 | `tests/sync/runScheduledCronSync.test.ts:2071` (and lines 2135, 2277, 2371, 2773) | recovery calls carrying `showId` | the fake at `tests/sync/runScheduledCronSync.test.ts:461` only adds `showId` when a second argument is present | Task 3 |
 | `tests/sync/runManualSyncForShow.test.ts:472` (and line 529) | same | same fake shape at `tests/sync/runManualSyncForShow.test.ts:179` | Task 3 |
+| `tests/sync/runScheduledCronSync.test.ts:1712` | exact `toHaveBeenCalledWith({...})` on the per-file DEFER emit (production `lib/sync/runScheduledCronSync.ts:3474`) | entry gains `durationMs` | Task 2 |
+| `tests/sync/runScheduledCronSync.test.ts:1753` | same, shrink-held (production `lib/sync/runScheduledCronSync.ts:3443`) | entry gains `durationMs` | Task 2 |
 | `tests/api/admin-sync-route.test.ts:136` | third argument exactly `{}` | nested `processDeps.logSync` is installed | Task 3c |
 | `tests/showLifecycle/callers.test.ts:131` | exact `catchUp("drive-1", "manual")` | only if `CatchUpSync` is widened to forward a third argument | Task 3c — see the shape decision below |
 
 Screened OUT, recorded so a later round does not re-raise them:
 
-- `tests/drive/webhook.test.ts:404` (and lines 445, 482) and `tests/sync/runScheduledCronSync.test.ts:1712` (and lines 1753, 2526) — an R8 revision listed these as Task 2 hits. **They are false positives** (plan R9 F1): every one is a NULL-duration writer per spec §3.3.1 — the webhook direct-error classes and the run-level emits pass no captured start — so their entries never gain `durationMs` and the assertions hold unchanged.
+- `tests/drive/webhook.test.ts:404` (and lines 445, 482) — direct-error classes that build their own entry (`app/api/drive/webhook/route.ts:234`) and pass no captured start, so they gain no `durationMs`.
+- `tests/sync/runScheduledCronSync.test.ts:2526` — run-level emit, `driveFileId: null`, genuinely NULL-duration per spec §3.3.1.
 - `tests/notify/monitorNewShowGaps.db.test.ts:65`, `tests/notify/monitorDigest.autofix.db.test.ts:73` (and line 114) — these WRITE `sync_log` with their own explicit column list; adding nullable columns cannot break an insert that names its columns.
 - `tests/reports/recoveredLeaseHolder.test.ts`, `tests/reports/tailUpdateMiss.test.ts`, `tests/app/admin/finalizeAgendaRace.test.ts` — `params[n]` indexing on other statements entirely.
 - `tests/observe/querySyncLog.test.ts` — reads through `querySyncLog`, whose projection change is additive.
@@ -516,7 +526,7 @@ Apply the migration surgically to the validation project (`supabase db push` is 
 
 Two corrections, both required:
 
-1. **Export the variable for the whole task, not per-command (plan R9 F3).** `TEST_DATABASE_URL` is not exported in this worktree, and an inline `VAR=... pnpm ...` assignment reaches only that child process — the separate `psql "$TEST_DATABASE_URL"` apply command would still receive an empty string and fall back to the local socket on 5432, which is how the apply could target the wrong database while the parity run targeted the right one. Run both commands in one shell that has done `export TEST_DATABASE_URL="$(grep '^TEST_DATABASE_URL=' .env.local | cut -d= -f2-)"` first, and assert the resolved host is the validation pooler before applying anything. An earlier revision wrote a bare `<validation>` placeholder, which zsh parses as input redirection and fails with `no such file or directory: validation` before Vitest starts (plan R8 F7).
+1. **Export the variable for the whole task, not per-command (plan R9 F3).** `TEST_DATABASE_URL` is not exported in this worktree, and an inline `VAR=... pnpm ...` assignment reaches only that child process — the separate `psql "$TEST_DATABASE_URL"` apply command would still receive an empty string and fall back to the local socket on 5432, which is how the apply could target the wrong database while the parity run targeted the right one. Run both commands in one shell that has done `export TEST_DATABASE_URL="$(grep '^TEST_DATABASE_URL=' .env.local | cut -d= -f2-)"` first, and prove the target by CLUSTER IDENTITY before applying anything. A pooler hostname does not identify a project — another Supabase project can sit behind the same regional pooler, and its database is also called `postgres`, so neither the host nor `current_database()` discriminates (plan R10 F3). The repo already settled this: `tests/db/_validationTargetIdentity.ts` verifies the connected cluster's `system_identifier` precisely because DSN authority is not effective target identity. Use that helper, and run it BEFORE `psql -f`, since the parity confirmation happens after the apply and cannot prevent DDL landing on the wrong project. An earlier revision wrote a bare `<validation>` placeholder, which zsh parses as input redirection and fails with `no such file or directory: validation` before Vitest starts (plan R8 F7).
 
    `notify pgrst, 'reload schema';` is SQL, not a shell command: it runs via `psql -c`, not after `psql -f`. The red is real only under that variable, and the task's red command is the invocation that sets it.
 2. Assert the run actually reached validation rather than silently falling back — the suite's own target-reporting line, or a pre-flight `select current_database()` against the resolved URL, recorded in the closeout's `## Validation apply` section beside the exit status. A parity pass whose target was local is the failure mode this task exists to prevent, and it is indistinguishable from success without that line.
