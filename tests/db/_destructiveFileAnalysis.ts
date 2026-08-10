@@ -27,6 +27,7 @@
  * to documented limits.
  */
 import { dirname, resolve } from "node:path";
+import { stripComments } from "@/tests/_shared/stripCommentsAndStrings";
 
 export type DestructiveFileVerdict = { ok: true } | { ok: false; reason: string };
 
@@ -40,6 +41,7 @@ const IMPORT_RE = /import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
 
 /** `postgres(<arg>` — the connection open. */
 const CONNECT_RE = /\bpostgres\s*\(\s*([A-Za-z_$][\w$]*|[^)]*?)\s*[),]/;
+const CONNECT_RE_G = /\bpostgres\s*\(\s*([A-Za-z_$][\w$]*|[^)]*?)\s*[),]/g;
 
 /** `const <id> = <guard>(` — the guard's return bound to a name. */
 function guardBindingName(source: string): string | null {
@@ -87,7 +89,14 @@ function declaresLocalShadow(source: string): boolean {
   );
 }
 
-export function analyseDestructiveFile(filePath: string, source: string): DestructiveFileVerdict {
+export function analyseDestructiveFile(
+  filePath: string,
+  rawSource: string,
+): DestructiveFileVerdict {
+  // Every check below runs on COMMENT-STRIPPED source. A guard that exists only inside a
+  // comment is not a guard; whole-diff r1 finding 2 demonstrated `commented_guard` passing.
+  const source = stripComments(rawSource);
+
   const called = GUARD_NAMES.some((n) => new RegExp(String.raw`\b${n}\s*\(`).test(source));
   if (!called) return { ok: false, reason: "no loopback guard is called" };
 
@@ -103,11 +112,23 @@ export function analyseDestructiveFile(filePath: string, source: string): Destru
     return { ok: false, reason: `the guard name is not imported from ${GUARD_MODULE_ABS}` };
   }
 
-  const connect = source.match(CONNECT_RE);
-  if (!connect) return { ok: false, reason: "no postgres(...) connection found" };
-  const connectArg = connect[1]!.trim();
-  const connectIdx = connect.index!;
+  // EVERY connection, not just the first. whole-diff r1 finding 2 demonstrated
+  // `second_unguarded_client`: a correctly guarded client followed by an unguarded one
+  // that executes the prune. Checking `match` (first only) blessed the file.
+  const connects = [...source.matchAll(CONNECT_RE_G)];
+  if (connects.length === 0) return { ok: false, reason: "no postgres(...) connection found" };
+  for (const c of connects) {
+    const verdict = checkOneConnection(source, c[1]!.trim(), c.index!);
+    if (!verdict.ok) return verdict;
+  }
+  return { ok: true };
+}
 
+function checkOneConnection(
+  source: string,
+  connectArg: string,
+  connectIdx: number,
+): DestructiveFileVerdict {
   // The inline form `postgres(assertLocalDbUrl(...))` satisfies (a) and (b) by
   // construction: the connected value IS the guard's return, evaluated before the
   // call it feeds.
@@ -136,6 +157,23 @@ export function analyseDestructiveFile(filePath: string, source: string): Destru
   ).filter((i) => i >= 0);
   if (assignIdx.length === 0 || Math.min(...assignIdx) > connectIdx) {
     return { ok: false, reason: "the guard call runs after the connection is opened" };
+  }
+
+  // A guarded binding that is REASSIGNED before the connection is no longer guarded.
+  // whole-diff r1 finding 2 demonstrated `reassigned_after_guard`: `url` guarded, then
+  // overwritten with TEST_DATABASE_URL, then connected. Binding equality and ordering
+  // both still held; the VALUE did not.
+  const rebind = new RegExp(String.raw`\b${bound}\s*=\s*(?!${GUARD_NAMES.join("|")})`, "g");
+  for (const m of source.matchAll(rebind)) {
+    // Skip the declaration itself (`const url = guard(...)` is matched by assignIdx).
+    if (/\b(?:const|let|var)\s*$/.test(source.slice(Math.max(0, m.index! - 12), m.index!)))
+      continue;
+    if (m.index! < connectIdx) {
+      return {
+        ok: false,
+        reason: `\`${bound}\` is reassigned from a non-guard expression before the connection`,
+      };
+    }
   }
 
   return { ok: true };

@@ -593,6 +593,38 @@ describe("runManualStageForFirstSeen", () => {
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });
     expect(result).not.toHaveProperty("roleFlagsNotice");
   });
+
+  test("branch 3 — the applied first-seen row carries this path's own attempt duration", async () => {
+    // Spec §3.3 branch 3, absent until whole-diff r1 finding 1. This path owns its own
+    // attempt boundary: it never routes through processOneFile, so nothing else can
+    // capture a start for it. Without the capture the row persists duration_ms = NULL,
+    // and the missing assertion is what let that ship.
+    const tx = new FakeManualStageTx();
+    const logged: Array<{ durationMs?: number | null; outcome?: string }> = [];
+    // Two instants: the capture at entry, then the emit. 320ms apart.
+    const queue = [new Date("2026-05-08T12:00:00.000Z"), new Date("2026-05-08T12:00:00.320Z")];
+    const now = () => (queue.length > 1 ? queue.shift()! : queue[0]!);
+
+    await runManualStageForFirstSeen(tx as never, "file-1", {
+      ...firstSeenStageDeps(),
+      now,
+      logSync: async (entry: unknown) => {
+        logged.push(entry as { durationMs?: number | null; outcome?: string });
+      },
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        appliedRoleMappings: [],
+        parseWarnings: [],
+      })) as unknown as NonNullable<RunManualStageForFirstSeenDeps["runPhase2"]>,
+    });
+
+    const applied = logged.find((e) => e.outcome === "applied");
+    expect(applied, "the applied first-seen emitted no sync_log entry").toBeDefined();
+    // A known delta, not `> 0`: `> 0` passes for any positive number, including an
+    // epoch-sized one from a missing start.
+    expect(applied!.durationMs).toBe(320);
+  });
 });
 
 // Shared auto-publish-ready inputs for the carry tests above. Phase 2 is stubbed in both, so the

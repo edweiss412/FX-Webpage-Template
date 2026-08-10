@@ -30,6 +30,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
+import { stripComments } from "@/tests/_shared/stripCommentsAndStrings";
 
 const TESTS_ROOT = join(process.cwd(), "tests");
 
@@ -78,9 +79,10 @@ const files = walk(TESTS_ROOT).map((path) => ({ path, source: readFileSync(path,
  * direction here; it pushes authors toward blanket exemptions, which is how the guard
  * stops guarding.
  */
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
-}
+// The naive form of this (regex `//` to end of line) ate the rest of the line from
+// INSIDE a string: `const docs = "https://..."` silently removed a real
+// `sql.unsafe("select public.prune_sync_log()")` from discovery, un-discovering a
+// genuinely unsafe file (whole-diff r1 finding 2). The shared scanner is string-aware.
 
 const destructive = files.filter(({ source }) => {
   const code = stripComments(source);

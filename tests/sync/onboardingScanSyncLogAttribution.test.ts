@@ -16,8 +16,15 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { stripComments } from "@/tests/_shared/stripCommentsAndStrings";
 
-const SOURCE = readFileSync(join(process.cwd(), "lib/sync/runOnboardingScan.ts"), "utf8");
+// COMMENT-STRIPPED. Whole-diff r1 finding 4: commenting out all seven `driveFileId`
+// properties still returned {"matched":7,"bare":0}, and restoring the OLD unattributed
+// SQL while parking the expected form in an SQL block comment still satisfied both
+// exact pins. Both are the same defect - source text read as if it were code.
+const SOURCE = stripComments(
+  readFileSync(join(process.cwd(), "lib/sync/runOnboardingScan.ts"), "utf8"),
+);
 
 describe("onboarding-scan sink — show attribution (spec §3.1)", () => {
   const normalize = (raw: string) =>

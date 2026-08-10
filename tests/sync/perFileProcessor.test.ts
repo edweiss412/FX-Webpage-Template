@@ -1058,6 +1058,29 @@ describe("attempt duration — branch-complete (spec §3.3)", () => {
     expect(Number.isFinite(logged[0]!.durationMs)).toBe(true);
   });
 
+  test("branch 2 — the lock-contended skip carries the injected delta", async () => {
+    // The plan's branch 2, absent until whole-diff r1 finding 3. Without it, removing
+    // depsWithStart from the lock-contended emit at runScheduledCronSync.ts:2784 stays
+    // green — the raw `deps` carries no captured start, so the row records NULL.
+    const fake = createFakeSupabase({});
+    supabaseMock.client = fake.client;
+    vi.resetModules();
+    const { processOneFile } = await import("@/lib/sync/runScheduledCronSync");
+    const logged: Array<{ durationMs?: number | null; outcome?: string }> = [];
+    await processOneFile("file-lc", "cron", fileMeta(MODIFIED), {
+      now: clockOf(2_000_000, 2_000_180),
+      logSync: async (entry: unknown) => {
+        logged.push(entry as { durationMs?: number | null; outcome?: string });
+      },
+      // A lock that reports contention: the pipeline emits the CONCURRENT_SYNC_SKIPPED
+      // row through the second logSync call site, the one that took raw `deps`.
+      withShowLock: (async () => ({ skipped: true })) as never,
+    } as never);
+    const skip = logged.find((e) => e.outcome === "skipped");
+    expect(skip, "no lock-contended skip row was emitted").toBeDefined();
+    expect(skip!.durationMs).toBe(180);
+  });
+
   test("branch 4 — the caller's shared deps object is NOT mutated", async () => {
     // The reuse hazard, and the reason `depsWithStart` is a copy. The file loop reuses
     // ONE processDeps across every file, so an implementation writing

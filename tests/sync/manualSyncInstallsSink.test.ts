@@ -27,6 +27,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { stripComments } from "@/tests/_shared/stripCommentsAndStrings";
 
 /** The eight repaired sites. Fixed, deliberate, and not a completeness claim. */
 const SITES = [
@@ -45,8 +46,14 @@ const ALREADY_INSTRUMENTED = [
   "app/api/drive/webhook/route.ts",
 ] as const;
 
+/**
+ * COMMENT-STRIPPED. Whole-diff r1 finding 4: replacing every live
+ * `logSync: writeSyncLog` with `/* logSync: writeSyncLog *\/` left all seven checks
+ * reporting `import=true install=true`. A pin that cannot fail when its subject is
+ * commented out pins nothing.
+ */
 function read(rel: string): string {
-  return readFileSync(join(process.cwd(), rel), "utf8");
+  return stripComments(readFileSync(join(process.cwd(), rel), "utf8"));
 }
 
 describe("manual sync entry points install a sync_log sink (regression pin)", () => {
