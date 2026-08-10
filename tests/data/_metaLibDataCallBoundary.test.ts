@@ -137,33 +137,55 @@ function isStandardLibraryFrom(receiver: ts.Expression): boolean {
 
 type Site = { kind: "from" | "rpc"; literal: string };
 
+/**
+ * Is this node a Supabase call site, and if so which one?
+ *
+ * ONE predicate, because every rule that asks "is this a site" must get the
+ * same answer. Two readers of that question have now disagreed twice: the
+ * `Array` exclusion once lagged the member-name reader (R9 F1), and the
+ * erasure used for pin coupling once lagged the exclusion, so a pin naming only
+ * an innocent `Array.from("x")` could be erased along with the real call and
+ * look coupled to it (R14 F1). The answer lives here now, and nowhere else.
+ */
+function siteAt(node: ts.Node): { site: Site; argument: ts.Node } | undefined {
+  if (!ts.isCallExpression(node)) return undefined;
+  const parts = calleeParts(node.expression);
+  if (parts === undefined) return undefined;
+  if (parts.member !== "from" && parts.member !== "rpc") return undefined;
+  const first = node.arguments[0];
+  if (first === undefined) return undefined;
+  const argument = unwrap(first);
+  // `isStringLiteralLike` is a string literal OR a no-substitution template —
+  // exactly the two forms that name a table statically. A template WITH
+  // substitutions is a genuinely dynamic name and stays a documented limit
+  // (§6.1); the parser draws that line, so an escaped `\${` inside an otherwise
+  // static template is simply part of the name. `.text` is the COOKED value:
+  // the name Postgres would see.
+  if (!ts.isStringLiteralLike(argument)) return undefined;
+  if (isStandardLibraryFrom(parts.receiver)) return undefined;
+  return { site: { kind: parts.member, literal: argument.text }, argument };
+}
+
 function extractSites(source: string, file = "planted.ts"): Site[] {
   const sites: Site[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      const parts = calleeParts(node.expression);
-      const first = node.arguments[0];
-      const arg = first === undefined ? undefined : unwrap(first);
-      // `isStringLiteralLike` is a string literal OR a no-substitution template
-      // — exactly the two forms that name a table statically. A template WITH
-      // substitutions is a genuinely dynamic name and stays a documented limit
-      // (§6.1); the parser draws that line, so an escaped `\${` inside an
-      // otherwise-static template is simply part of the name. `.text` is the
-      // COOKED value: the name Postgres would see.
-      if (
-        parts !== undefined &&
-        (parts.member === "from" || parts.member === "rpc") &&
-        arg !== undefined &&
-        ts.isStringLiteralLike(arg) &&
-        !isStandardLibraryFrom(parts.receiver)
-      ) {
-        sites.push({ kind: parts.member, literal: arg.text });
-      }
-    }
+    const found = siteAt(node);
+    if (found !== undefined) sites.push(found.site);
     ts.forEachChild(node, visit);
   };
   visit(parse(file, source));
   return sites;
+}
+
+/**
+ * A pin is the author's RegExp, and it may carry `g` or `y` — which make
+ * `.test()` STATEFUL. `lastIndex` then survives from one call to the next, so a
+ * pin shared between two rows could report dependence for a row it never
+ * guarded, purely from where the previous call left off (R14 F2). Every match
+ * runs on a fresh, stateless copy.
+ */
+function matchesPin(pattern: RegExp, text: string): boolean {
+  return new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, "")).test(text);
 }
 
 const WAIVER_WITH_REASON_RE = /^\/\/ not-subject-to-meta: \S/;
@@ -343,19 +365,9 @@ function sourceWithCallErased(
   const ranges: Array<[number, number]> = [];
   const sourceFile = parse(file, original);
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      const parts = calleeParts(node.expression);
-      const first = node.arguments[0];
-      const arg = first === undefined ? undefined : unwrap(first);
-      if (
-        parts !== undefined &&
-        parts.member === kind &&
-        arg !== undefined &&
-        ts.isStringLiteralLike(arg) &&
-        arg.text === literal
-      ) {
-        ranges.push([arg.getStart(sourceFile), arg.getEnd()]);
-      }
+    const found = siteAt(node);
+    if (found !== undefined && found.site.kind === kind && found.site.literal === literal) {
+      ranges.push([found.argument.getStart(sourceFile), found.argument.getEnd()]);
     }
     ts.forEachChild(node, visit);
   };
@@ -402,12 +414,12 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
         // call is removed from the source; a pin that survives its own site's
         // deletion was never guarding it.
         const erased = sourceWithCallErased(file, readFile(file), stripped, row.kind, row.literal);
-        if (!row.pin.some((pattern) => !pattern.test(erased))) {
+        if (!row.pin.some((pattern) => !matchesPin(pattern, erased))) {
           problems.push(
             `${where}: no pin depends on this row's call — every pin still matches once the call is erased, so a pin copied from another site, another call kind, or another function cannot be told apart`,
           );
         }
-        const unmatched = row.pin.filter((pattern) => !pattern.test(stripped));
+        const unmatched = row.pin.filter((pattern) => !matchesPin(pattern, stripped));
         if (unmatched.length > 0) {
           problems.push(`${where}: pin(s) do not match the source: ${unmatched.join(", ")}`);
         }
@@ -1296,6 +1308,52 @@ describe("META lib/data Supabase call boundary", () => {
           reader({ [SOURCE]: source }),
         ),
       ).toEqual([]);
+    });
+
+    // The erasure must ask the SAME question the scanner asks. An excluded
+    // `Array.from("shared")` is not a site, so it must not be erased — otherwise
+    // a pin naming only that innocent call is erased along with the real one and
+    // looks coupled to it (whole-diff R14 F1).
+    test("a pin naming an excluded Array.from call does not count as depending on the site", () => {
+      const source =
+        'export async function f() {\n  const chars = Array.from("shared");\n  const a = await sb.from("shared");\n  if (a.error) throw a.error;\n  return chars;\n}\n';
+      expect(
+        validateRows(
+          { [SOURCE]: [{ kind: "from", literal: "shared", pin: [/Array\.from\("shared"\)/] }] },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([expect.stringContaining("no pin depends on this row's call")]);
+
+      // Control: the real site's pin still passes, so the rejection is the
+      // exclusion firing rather than the fixture being unsatisfiable.
+      expect(
+        validateRows(
+          { [SOURCE]: [{ kind: "from", literal: "shared", pin: [/sb\.from\("shared"\)/] }] },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([]);
+    });
+
+    // `g` and `y` make `.test()` stateful: `lastIndex` survives between calls,
+    // so a pin shared by two rows could report dependence for a row it never
+    // guarded, purely from where the previous call left off (whole-diff R14 F2).
+    test("a stateful pin cannot discharge a row through leftover lastIndex", () => {
+      const source =
+        'export async function f() {\n  const a = await sb.from("first");\n  const b = await sb.rpc("second");\n}\n';
+      for (const flags of ["g", "y", "gi"]) {
+        const shared = new RegExp('sb\\.from\\("first"\\)', flags);
+        const registry: Registry = {
+          [SOURCE]: [
+            { kind: "from", literal: "first", pin: [shared] },
+            { kind: "rpc", literal: "second", pin: [shared] },
+          ],
+        };
+        // The rpc row is discharged by a pin on the from site; stateless
+        // matching must reject it every time, whatever ran before.
+        expect(validateRows(registry, reader({ [SOURCE]: source })), flags).toEqual([
+          expect.stringContaining('rpc("second"): no pin depends on this row\'s call'),
+        ]);
+      }
     });
 
     test("a pin that no longer matches the source is rejected", () => {
