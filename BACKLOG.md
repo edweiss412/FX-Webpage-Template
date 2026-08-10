@@ -1016,7 +1016,7 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ### BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST — Structural meta-test for `lib/data` Supabase call-boundary discipline
 
-**Effort:** M
+**Status:** IN PROGRESS · **Branch:** test/libdata-call-boundary-metatest · **Effort:** M
 
 **Filed:** 2026-06-19, crew-page redesign Phase 2 Task 02.5 (`getShowForViewer.runOfShow` projection).
 
