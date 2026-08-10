@@ -32,19 +32,21 @@ import { Activity } from "lucide-react";
 
 import type { HealthStatus } from "@/lib/admin/healthRollup";
 import { AppHealthPopover } from "@/components/admin/AppHealthPopover";
+import { cn } from "@/lib/ui/cn";
 
 // Shared with NotifBell (NotifBell.tsx) — dimensional parity is the §8 contract.
-const TAP_TARGET =
-  "relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-text-subtle hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+const TAP_TARGET = cn(
+  "relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-text-subtle hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+);
 
 // Literal class strings (never template-constructed) so Tailwind v4's content
 // scan emits each utility into the built CSS.
 type Kind = HealthStatus["kind"];
 const DOT_BG: Record<Kind, string> = {
-  degraded: "bg-status-degraded",
-  notice: "bg-status-warn",
-  ok: "bg-status-positive",
-  infra_error: "bg-status-idle",
+  degraded: cn("bg-status-degraded"),
+  notice: cn("bg-status-warn"),
+  ok: cn("bg-status-positive"),
+  infra_error: cn("bg-status-idle"),
 };
 const LABEL: Record<Kind, string> = {
   degraded: "System health: needs attention",

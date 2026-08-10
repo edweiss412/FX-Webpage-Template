@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const snapshotRevisionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const showId = "11111111-1111-4111-8111-111111111111";
@@ -73,7 +74,7 @@ vi.mock("@/lib/sync/lockedShowTx", () => ({
   },
 }));
 
-const { promoteSnapshotUpload, repairSnapshotRollback } =
+const { promoteSnapshotUpload, repairSnapshotRollback, defaultStorage } =
   await import("@/lib/sync/promoteSnapshot");
 
 // The exact resolve UPDATE from the S4 spec (docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md#s4):
@@ -232,5 +233,147 @@ describe("repairSnapshotRollback", () => {
 
     expect(result).toEqual({ outcome: "not_stuck", snapshotRevisionId });
     expect(rollbackStuckResolveCalls()).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Variant-aware promotion (spec §3 promotion changes (a) and (b)).
+//
+// (a)'s SQL semantics are pinned against real Postgres in the sibling
+// promoteSnapshotExpectedCount.realdb.test.ts — the `showTx.queryOne` mock above
+// returns a canned count for ANY jsonb_array_elements query, so nothing about the
+// SQL itself can fail here. These rows pin the FLOW around it, plus the storage
+// adapter's pagination.
+// ---------------------------------------------------------------------------
+
+describe("promoteSnapshotUpload — variant objects", () => {
+  beforeEach(() => {
+    promoteMock.events.length = 0;
+    promoteMock.promoteTx.queryOne.mockClear();
+    promoteMock.showTx.queryOne.mockClear();
+    promoteMock.postgres.mockClear();
+  });
+
+  function variantAwareShowTx(count: number) {
+    promoteMock.showTx.queryOne.mockImplementation(async (sql: string) => {
+      if (/jsonb_array_elements/i.test(sql)) return { count };
+      if (/with\s+target/i.test(sql)) return { updated: true };
+      if (/promoted_at::text/i.test(sql)) return { promoted_at: null };
+      return { ok: true };
+    });
+  }
+
+  test("a variant-bearing listing promotes when every listed object is present", async () => {
+    // 2 originals + 3 variants: the expectation the widened SQL produces.
+    const objects = [
+      `${tempPrefix}embedded-a.png`,
+      `${tempPrefix}embedded-a.png@256.webp`,
+      `${tempPrefix}embedded-a.png@512.webp`,
+      `${tempPrefix}folder-b.png`,
+      `${tempPrefix}folder-b.png@256.webp`,
+    ];
+    variantAwareShowTx(objects.length);
+    const moved: Array<{ from: string; to: string }> = [];
+    const storage = {
+      list: vi.fn(async (prefix: string) =>
+        prefix === tempPrefix
+          ? objects
+          : objects.map((path) => `${canonicalPrefix}${path.slice(tempPrefix.length)}`),
+      ),
+      move: vi.fn(async (from: string, to: string) => void moved.push({ from, to })),
+      removePrefix: vi.fn(async () => undefined),
+    };
+
+    const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    expect(result).toEqual({ outcome: "promoted", snapshotRevisionId });
+    // Every variant crosses to canonical alongside its original — a promote that
+    // moved only originals would leave the manifest pointing at temp-prefix bytes.
+    expect(moved.map((entry) => entry.to)).toEqual(
+      objects.map((path) => `${canonicalPrefix}${path.slice(tempPrefix.length)}`),
+    );
+  });
+
+  test("one missing variant object trips manifest_mismatch", async () => {
+    const expected = 5;
+    const present = [
+      `${tempPrefix}embedded-a.png`,
+      `${tempPrefix}embedded-a.png@256.webp`,
+      `${tempPrefix}folder-b.png`,
+      `${tempPrefix}folder-b.png@256.webp`,
+    ];
+    premiseHolds(
+      "the fixture is short exactly one object, so the mismatch is the variant's absence",
+      present.length === expected - 1,
+    );
+    variantAwareShowTx(expected);
+    const storage = {
+      list: vi.fn(async (prefix: string) => (prefix === tempPrefix ? present : [])),
+      move: vi.fn(async () => undefined),
+      removePrefix: vi.fn(async () => undefined),
+    };
+
+    expect(await promoteSnapshotUpload(snapshotRevisionId, { storage })).toEqual({
+      outcome: "manifest_mismatch",
+      snapshotRevisionId,
+    });
+  });
+});
+
+describe("defaultStorage — pagination past the SDK's 100-object page", () => {
+  // 60 diagrams (MAX_TOTAL_DIAGRAM_ITEMS) x (1 original + up to 3 variants) = up to
+  // 240 objects, so a single unpaginated list() silently truncates at 100 and every
+  // variant-bearing promote fails its manifest check.
+  const OBJECT_COUNT = 137;
+  const PAGE = 100;
+
+  function fakeSupabase(objectCount: number) {
+    const names = Array.from({ length: objectCount }, (_, index) => `object-${index}.webp`);
+    const listCalls: Array<{ prefix: string; limit?: number; offset?: number }> = [];
+    const removed: string[][] = [];
+    const bucket = {
+      list: async (prefix: string, options?: { limit?: number; offset?: number }) => {
+        listCalls.push({ prefix, ...(options ?? {}) });
+        const limit = options?.limit ?? PAGE;
+        const offset = options?.offset ?? 0;
+        return {
+          data: names.slice(offset, offset + limit).map((name) => ({ name, id: name })),
+          error: null,
+        };
+      },
+      remove: async (paths: string[]) => {
+        removed.push(paths);
+        return { error: null };
+      },
+      move: async () => ({ error: null }),
+    };
+    return {
+      listCalls,
+      removed,
+      client: { storage: { from: () => bucket } } as unknown as Parameters<
+        typeof defaultStorage
+      >[0],
+    };
+  }
+
+  test("list() returns every object, not just the first page", async () => {
+    premise("the fixture exceeds one SDK page, or pagination is untested", OBJECT_COUNT, PAGE);
+    const fake = fakeSupabase(OBJECT_COUNT);
+
+    const paths = await defaultStorage(fake.client).list(tempPrefix);
+
+    expect(paths).toHaveLength(OBJECT_COUNT);
+    expect(paths[0]).toBe(`${tempPrefix}object-0.webp`);
+    expect(paths.at(-1)).toBe(`${tempPrefix}object-${OBJECT_COUNT - 1}.webp`);
+    expect(fake.listCalls.length).toBeGreaterThan(1);
+  });
+
+  test("removePrefix() removes every object, not just the first page", async () => {
+    premise("the fixture exceeds one SDK page, or pagination is untested", OBJECT_COUNT, PAGE);
+    const fake = fakeSupabase(OBJECT_COUNT);
+
+    await defaultStorage(fake.client).removePrefix!(tempPrefix);
+
+    expect(fake.removed.flat()).toHaveLength(OBJECT_COUNT);
   });
 });

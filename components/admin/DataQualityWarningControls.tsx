@@ -5,6 +5,7 @@ import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounc
 import { ReportButton } from "@/components/shared/ReportButton";
 import { hasIgnorableSnippet } from "@/lib/dataQuality/ignorableSnippet";
 import type { ParseWarning } from "@/lib/parser/types";
+import { cn } from "@/lib/ui/cn";
 
 type Props = {
   slug: string;
@@ -16,13 +17,14 @@ type Props = {
 };
 type State = { kind: "idle" } | { kind: "running" } | { kind: "error"; copy: string };
 
-const NEUTRAL_BTN =
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+const NEUTRAL_BTN = cn(
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+);
 // Ring-offset color must match the CARD background the button sits on: warning-bg for
 // active cards, surface-sunken for the muted Ignored (N) cards (impeccable audit P2).
 const RING_OFFSET: Record<"active" | "ignored", string> = {
-  active: "focus-visible:ring-offset-warning-bg",
-  ignored: "focus-visible:ring-offset-surface-sunken",
+  active: cn("focus-visible:ring-offset-warning-bg"),
+  ignored: cn("focus-visible:ring-offset-surface-sunken"),
 };
 
 export function DataQualityWarningControls({

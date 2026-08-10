@@ -10,6 +10,7 @@
  */
 
 import { classifyVersion } from "./schema";
+import { stripZeroWidth } from "./zeroWidth";
 import { isAgendaLinkRow } from "./agendaLinkRow";
 import { HTTP_URL_PREFIX } from "./httpUrlPrefix";
 import { newAggregator, emitUnknownSection, emitOrphanedCrewRows } from "./warnings";
@@ -551,13 +552,6 @@ function buildMinimalParsedSheet(
 export function buildThrownParsedSheet(message: string): ParsedSheet {
   return buildMinimalParsedSheet("v4", [{ code: "MI-1_VERSION_DETECTION_FAILED", message }]);
 }
-
-/**
- * Remove zero-width characters: ZWSP U+200B - ZWJ U+200D, plus BOM U+FEFF. The same
- * class `clean()` strips at the cell boundary (blocks/_helpers.ts:50), kept identical
- * on purpose so the two boundaries can never disagree about what "invisible" means.
- */
-const stripZeroWidth = (s: string): string => s.replace(/[\u200B-\u200D\uFEFF]/g, "");
 
 export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   // Spec 2026-08-07-parser-mutation-wave §3.1: strip zero-width characters from the

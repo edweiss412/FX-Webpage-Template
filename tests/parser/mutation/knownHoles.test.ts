@@ -126,6 +126,19 @@ describe("committed ledger shape", () => {
       expect(h.finding.length).toBeGreaterThan(0);
     }
   });
+
+  it("no row still owes mechanism triage — the migration marker is retired (BL-MUTATION-DRIFT-TRIAGE)", () => {
+    // The 2026-08-09 classifier migration re-kinded 143 rows signal_loss → text_drift with
+    // `[re-kinded by classifier; mechanism triage owed, …]` in their notes. §11.5(iii)'s
+    // per-row mechanism bar arrives with the triage; a note still carrying the marker is
+    // un-triaged debt in the instrument itself, and this row also guards recurrence — a
+    // future migration cannot park markers in the ledger indefinitely.
+    const owing = KNOWN_SILENT_HOLES.filter((h) => h.note.includes("re-kinded by classifier"));
+    expect(
+      owing.map((h) => h.siteId),
+      `${owing.length} ledger row(s) still carry the mechanism-triage-owed migration marker`,
+    ).toEqual([]);
+  });
 });
 
 describe("ledger is triageable — no blanket 'unaudited' (Codex whole-diff R3)", () => {

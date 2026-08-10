@@ -1035,7 +1035,7 @@ blank-row:inject:rpas:B8:L52:Xgap8|wrong|73f6cec1e456a17c|#10|blank-row wrong @ 
 blank-row:inject:rpas:B8:L53:Xgap9|wrong|73f6cec1e456a17c|#10|blank-row wrong @ inject
 blank-row:inject:rpas:B8:L54:Xgap10|wrong|aacec5b7a82104a4|#10|blank-row wrong @ inject
 blank-row:inject:rpas:B8:L55:Xgap11|wrong|aacec5b7a82104a4|#10|blank-row wrong @ inject
-blank-row:remove:2024-05-east-coast-family-office:B2:L24:Xgap|wrong|e43544c3d07ae7ae|#10|blank-row:remove wrong @ 2024-05-east-coast-family-office
+blank-row:remove:2024-05-east-coast-family-office:B2:L24:Xgap|wrong|e43544c3d07ae7ae|#10|blank-row wrong @ remove
 blank-row:remove:2025-03-dci-rpas-central:B0:L5:Xgap|wrong|95cf315b569f7a90|#10|blank-row wrong @ remove
 blank-row:remove:2025-03-dci-rpas-central:B17:L338:Xgap|wrong|b5dbe60934fe0024|#10|blank-row wrong @ remove
 blank-row:remove:2025-10-consultants-roundtable:B21:L208:Xgap|text_drift|f4a04ae746ad05b4|#10|section fused: warning anchor moved
@@ -1043,7 +1043,7 @@ blank-row:remove:2026-03-rpas-central-four-seasons:B3:L38:Xgap|wrong|ebfc6cc22e1
 blank-row:remove:east-coast:B14:L88:Xgap|wrong|4f6e132d00be45bf|#10|blank-row wrong @ remove
 blank-row:remove:east-coast:B21:L265:Xgap|wrong|43e5b699c0b71d29|#10|blank-row wrong @ remove
 blank-row:remove:fintech:B24:L276:Xgap|text_drift|0714e12baed4a061|#10|section fused: warning anchor moved
-blank-row:remove:fixed-income:B22:L245:Xgap|text_drift|0714e12baed4a061|#10|blank-row:remove text_drift @ fixed-income
+blank-row:remove:fixed-income:B22:L245:Xgap|text_drift|0714e12baed4a061|#10|section fused: warning anchor moved
 blank-row:remove:rpas:B25:L229:Xgap|text_drift|0563a9eeee8deaa1|#10|section fused: warning anchor moved
 column-shift:2024-05-east-coast-family-office:B0:L0:X0|wrong|a021768c83b0d05d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B10:L67:X0|wrong|dc5cd8285b10cb13|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
@@ -1384,7 +1384,7 @@ header-typo:rpas:B8:L42:X0|wrong|61ca0f9f79a61c08|#5|header-typo wrong @ rpas
 merged-cell:2025-03-dci-rpas-central:B20:L317:X0|wrong|fdb856438b94ada3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B20:L317:X1|wrong|df2f02ed58b4e9f8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B20:L318:X1|wrong|fdb856438b94ada3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L373:X1|text_drift|ded02cbae3b57301|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-03-dci-rpas-central
+merged-cell:2025-03-dci-rpas-central:B24:L373:X1|text_drift|ded02cbae3b57301|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [triaged 2026-08-10: snippet moved]
 merged-cell:2025-04-asset-mgmt-cfo-coo:B20:L312:X0|wrong|ca66d6ff13628daa|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
 merged-cell:2025-04-asset-mgmt-cfo-coo:B20:L312:X1|wrong|ed8019454240891c|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
 merged-cell:2025-04-asset-mgmt-cfo-coo:B20:L313:X1|wrong|ca66d6ff13628daa|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-04-asset-mgmt-cfo-coo
@@ -1395,17 +1395,17 @@ merged-cell:2025-06-ria-investment-forum:B0:L0:X0|wrong|430b36c42d5ce9b4|BL-MUTA
 merged-cell:2025-06-ria-investment-forum:B7:L35:X0|wrong|dd2732ec709a8af3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
 merged-cell:2025-06-ria-investment-forum:B7:L35:X1|wrong|1fe370c32ba6f959|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
 merged-cell:2025-06-ria-investment-forum:B7:L36:X1|wrong|dd2732ec709a8af3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L38:X1|text_drift|e690e3c8f99dd8d0|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-06-ria-investment-forum
+merged-cell:2025-06-ria-investment-forum:B8:L38:X1|text_drift|e690e3c8f99dd8d0|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [triaged 2026-08-10: snippet moved]
 merged-cell:2025-10-consultants-roundtable:B15:L97:X0|wrong|f9fc8ad04d9beef5|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B15:L97:X1|wrong|25f65f0110755e1e|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B15:L98:X1|wrong|f9fc8ad04d9beef5|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B22:L139:X1|text_drift|63065c807cd899cd|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B26:L171:X1|text_drift|0ca6f92b4ad7bac5|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-10-consultants-roundtable:B22:L139:X1|text_drift|63065c807cd899cd|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: snippet moved]
+merged-cell:2025-10-consultants-roundtable:B26:L171:X1|text_drift|0ca6f92b4ad7bac5|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: snippet moved]
 merged-cell:2025-10-consultants-roundtable:B28:L209:X10|wrong|eb0bfcf84084e8d6|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B28:L209:X11|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B28:L209:X12|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B28:L209:X13|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B28:L209:X14|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X11|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: blockRef.index moved, kind unchanged]
+merged-cell:2025-10-consultants-roundtable:B28:L209:X12|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: blockRef.index moved, kind unchanged]
+merged-cell:2025-10-consultants-roundtable:B28:L209:X13|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: blockRef.index moved, kind unchanged]
+merged-cell:2025-10-consultants-roundtable:B28:L209:X14|text_drift|71cd36edf2f24eb2|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: blockRef.index moved, kind unchanged]
 merged-cell:2025-10-consultants-roundtable:B28:L209:X17|signal_loss|e75876f92572d8e6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B28:L209:X18|signal_loss|e75876f92572d8e6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B28:L209:X19|signal_loss|e75876f92572d8e6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
@@ -1418,15 +1418,15 @@ merged-cell:2025-10-consultants-roundtable:B28:L209:X6|wrong|ec823e2c1587ba3f|BL
 merged-cell:2025-10-consultants-roundtable:B28:L209:X7|wrong|ec823e2c1587ba3f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B28:L209:X8|wrong|ec823e2c1587ba3f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B28:L209:X9|wrong|eb0bfcf84084e8d6|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
-merged-cell:2025-10-fixed-income-trading-summit:B32:L251:X0|text_drift|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2025-10-fixed-income-trading-summit
+merged-cell:2025-10-fixed-income-trading-summit:B32:L251:X0|text_drift|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-fixed-income-trading-summit [triaged 2026-08-10: snippet moved]
 merged-cell:2025-10-fixed-income-trading-summit:B4:L34:X0|wrong|0686d041df2bfcc1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
 merged-cell:2025-10-fixed-income-trading-summit:B4:L34:X1|wrong|18b7626a778bbfa7|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
 merged-cell:2025-10-fixed-income-trading-summit:B4:L35:X1|wrong|0686d041df2bfcc1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
-merged-cell:2026-03-rpas-central-four-seasons:B22:L237:X0|text_drift|db4a66ca6d4f08bd|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2026-03-rpas-central-four-seasons
-merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B29:L339:X0|text_drift|eed1b676c4101ccf|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2026-04-asset-mgmt-cfo-coo-waldorf
+merged-cell:2026-03-rpas-central-four-seasons:B22:L237:X0|text_drift|db4a66ca6d4f08bd|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2026-03-rpas-central-four-seasons [triaged 2026-08-10: snippet moved]
+merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B29:L339:X0|text_drift|eed1b676c4101ccf|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2026-04-asset-mgmt-cfo-coo-waldorf [triaged 2026-08-10: snippet moved]
 merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B36:L744:X0|wrong|a650160ebe389e85|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
 merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B36:L744:X6|wrong|a650160ebe389e85|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
-merged-cell:2026-05-fintech-forum-cto-summit:B30:L311:X0|text_drift|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell text_drift @ 2026-05-fintech-forum-cto-summit
+merged-cell:2026-05-fintech-forum-cto-summit:B30:L311:X0|text_drift|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2026-05-fintech-forum-cto-summit [triaged 2026-08-10: snippet moved]
 merged-cell:consultants:B0:L0:X0|wrong|ba4474d228b1c8b4|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:consultants:B0:L0:X1|wrong|ba4474d228b1c8b4|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
 merged-cell:consultants:B0:L0:X2|wrong|ba4474d228b1c8b4|BL-MUTATION-MERGED-CELL|merged-cell wrong @ consultants
@@ -1506,9 +1506,9 @@ merged-cell:rpas:B5:L34:X1|wrong|416fc91c9fb792f1|BL-MUTATION-MERGED-CELL|merged
 section-reorder:2025-03-dci-rpas-central:B0:L0:Xpair0|wrong|95cf315b569f7a90|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-03-dci-rpas-central
 section-reorder:2025-03-dci-rpas-central:B14:L0:Xpair14|signal_loss|d88b1c0e21b63614|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
 section-reorder:2025-03-dci-rpas-central:B15:L0:Xpair15|signal_loss|12729d7697ea4c1f|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
-section-reorder:2025-03-dci-rpas-central:B16:L0:Xpair16|text_drift|548290a37b815585|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-03-dci-rpas-central:B17:L0:Xpair17|text_drift|b63aa0d2da7e7291|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-03-dci-rpas-central:B18:L0:Xpair18|text_drift|ca469d874faead90|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-03-dci-rpas-central:B16:L0:Xpair16|text_drift|548290a37b815585|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-03-dci-rpas-central:B17:L0:Xpair17|text_drift|b63aa0d2da7e7291|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-03-dci-rpas-central:B18:L0:Xpair18|text_drift|ca469d874faead90|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-03-dci-rpas-central:B19:L0:Xpair19|signal_loss|be465f99b184a2b4|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
 section-reorder:2025-03-dci-rpas-central:B7:L0:Xpair7|wrong|06d505c502637f7a|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-03-dci-rpas-central
 section-reorder:2025-04-asset-mgmt-cfo-coo:B0:L0:Xpair0|wrong|7196d666114dd7f5|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-04-asset-mgmt-cfo-coo
@@ -1518,19 +1518,19 @@ section-reorder:2025-04-asset-mgmt-cfo-coo:B3:L0:Xpair3|wrong|e5f3f64b58866db3|B
 section-reorder:2025-06-ria-investment-forum:B0:L0:Xpair0|wrong|430b36c42d5ce9b4|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-06-ria-investment-forum
 section-reorder:2025-06-ria-investment-forum:B3:L0:Xpair3|signal_loss|a14152b707653a47|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
 section-reorder:2025-06-ria-investment-forum:B4:L0:Xpair4|signal_loss|05952f96213c5e9d|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
-section-reorder:2025-06-ria-investment-forum:B5:L0:Xpair5|text_drift|f45cfe17e1c5c564|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-06-ria-investment-forum:B6:L0:Xpair6|text_drift|52b8a817f90fe583|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-06-ria-investment-forum:B5:L0:Xpair5|text_drift|f45cfe17e1c5c564|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-06-ria-investment-forum:B6:L0:Xpair6|text_drift|52b8a817f90fe583|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-06-ria-investment-forum:B7:L0:Xpair7|signal_loss|9882bb835e25ebb2|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
 section-reorder:2025-06-ria-investment-forum:B8:L0:Xpair8|signal_loss|a98d978500e4b72e|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
-section-reorder:2025-10-consultants-roundtable:B13:L0:Xpair13|text_drift|d6b5bb2df91b9554|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-10-consultants-roundtable:B14:L0:Xpair14|text_drift|f25ca267fa0f948e|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-10-consultants-roundtable:B15:L0:Xpair15|text_drift|c8b6aec195214f47|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-10-consultants-roundtable:B16:L0:Xpair16|text_drift|866e0f542cae1e5a|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-10-consultants-roundtable:B17:L0:Xpair17|text_drift|8f86a6f4a7c45b14|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-10-consultants-roundtable:B18:L0:Xpair18|text_drift|9be31031e4d900d2|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-10-consultants-roundtable:B19:L0:Xpair19|text_drift|588cc1e1bc06a88a|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-10-consultants-roundtable:B20:L0:Xpair20|text_drift|319151a528c4e9fa|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
-section-reorder:2025-10-consultants-roundtable:B21:L0:Xpair21|text_drift|955b4bb9502dc37c|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-10-consultants-roundtable:B13:L0:Xpair13|text_drift|d6b5bb2df91b9554|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-10-consultants-roundtable:B14:L0:Xpair14|text_drift|f25ca267fa0f948e|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-10-consultants-roundtable:B15:L0:Xpair15|text_drift|c8b6aec195214f47|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-10-consultants-roundtable:B16:L0:Xpair16|text_drift|866e0f542cae1e5a|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-10-consultants-roundtable:B17:L0:Xpair17|text_drift|8f86a6f4a7c45b14|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-10-consultants-roundtable:B18:L0:Xpair18|text_drift|9be31031e4d900d2|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-10-consultants-roundtable:B19:L0:Xpair19|text_drift|588cc1e1bc06a88a|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-10-consultants-roundtable:B20:L0:Xpair20|text_drift|319151a528c4e9fa|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
+section-reorder:2025-10-consultants-roundtable:B21:L0:Xpair21|text_drift|955b4bb9502dc37c|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-10-consultants-roundtable:B22:L0:Xpair22|signal_loss|6f44ca82bbb6c746|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
 section-reorder:consultants:B0:L0:Xpair0|wrong|ba4474d228b1c8b4|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ consultants
 section-reorder:consultants:B14:L0:Xpair14|wrong|ea95105d5e3db466|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ consultants

@@ -997,6 +997,12 @@ describe("spec registration detector (spec §3.1)", () => {
       ["playwright.config.ts"],
     'pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"':
       ["playwright.config.ts"],
+    // The private-image-pipeline variant geometry + no-optimizer network gate. Its
+    // OWN step for the same reason as the rows around it: the T-NOPHANTOM-CREW
+    // filter selects none of these cases, so without a step of its own the file
+    // would be present in the workflow and the cases would run nowhere.
+    'pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-DIAGRAM-VARIANTS"':
+      ["playwright.config.ts"],
     'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"':
       ["playwright.config.ts"],
     // The freshness-cue geometry probe (spec 2026-08-03-modal-freshness-cue §11.5).

@@ -315,7 +315,7 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     "z-10",
     "w-max",
     "max-w-[min(20rem,80vw)]",
-    "shadow-(--shadow-tile)",
+    "shadow-tile",
   ];
   const INFO_BODY = {
     ok: true,

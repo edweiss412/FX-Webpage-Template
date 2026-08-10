@@ -38,6 +38,8 @@ import {
 
 import type { GalleryItem } from "@/components/diagrams/Gallery";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
+import Image from "next/image";
+import { makeDiagramLoader } from "@/lib/images/diagramLoader";
 
 type LightboxProps = {
   showId: string;
@@ -47,8 +49,23 @@ type LightboxProps = {
   onClose: () => void;
 };
 
-function assetUrl(showId: string, rev: string, key: string): string {
-  return `/api/asset/diagram/${showId}/${rev}/${key}`;
+/**
+ * The §4 dims guard. Both axes must be finite and positive, or the image falls
+ * back to the `fill` + object-contain branch — a partial or nonsense aspect
+ * ratio would reserve the wrong box and jump on load.
+ */
+function validDims(item: GalleryItem): { width: number; height: number } | null {
+  const { intrinsicWidth: width, intrinsicHeight: height } = item;
+  if (typeof width !== "number" || !Number.isFinite(width) || width <= 0) return null;
+  if (typeof height !== "number" || !Number.isFinite(height) || height <= 0) return null;
+  return { width, height };
+}
+
+/** next/image blur props, only when the manifest actually carried a blur. */
+function blurProps(item: GalleryItem): Partial<{ placeholder: "blur"; blurDataURL: string }> {
+  return typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
+    ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
+    : {};
 }
 
 // Embla's `duration` parameter is in its own scrub units. 22 ≈ 220ms
@@ -461,7 +478,7 @@ export function GalleryLightbox({
                 controlsSlotRef.current?.resetTransform();
               }}
               aria-label="Reset zoom"
-              className="pointer-events-auto inline-flex min-h-tap-min items-center gap-2 rounded-pill border border-border-strong bg-surface-raised px-4 text-sm font-medium text-text-strong shadow-(--shadow-tile) hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className="pointer-events-auto inline-flex min-h-tap-min items-center gap-2 rounded-pill border border-border-strong bg-surface-raised px-4 text-sm font-medium text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             >
               <RotateCcw aria-hidden="true" className="size-4" />
               <span>Reset</span>
@@ -474,7 +491,7 @@ export function GalleryLightbox({
             onClick={scrollPrev}
             aria-label="Previous diagram"
             disabled={activeIndex === 0}
-            className="absolute left-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-(--shadow-tile) hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
+            className="absolute left-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
           >
             <ChevronLeft aria-hidden="true" className="size-6" />
           </button>
@@ -484,6 +501,9 @@ export function GalleryLightbox({
             {items.map((item, i) => {
               const available = item.available && !failedKeys.has(item.id);
               const isActive = i === activeIndex;
+              // Computed once per slide: both tiers branch on it, and calling the
+              // guard twice per branch invites the two calls to disagree.
+              const dims = validDims(item);
               return (
                 <figure
                   key={item.id}
@@ -630,13 +650,27 @@ export function GalleryLightbox({
                           wrapperClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
                           contentClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={assetUrl(showId, snapshotRevisionId, item.key)}
+                          <Image
+                            loader={makeDiagramLoader({
+                              showId,
+                              rev: snapshotRevisionId,
+                              key: item.key,
+                              variants: item.variants,
+                              // The zoomable slide needs full resolution, so it
+                              // pins the original and ignores every candidate width.
+                              pinOriginal: true,
+                            })}
+                            src={item.key}
                             alt={item.alt || `Diagram ${i + 1}`}
-                            loading="eager"
-                            decoding="async"
+                            priority
                             draggable={false}
+                            {...blurProps(item)}
+                            // next/image derives the placeholder's background-size
+                            // from style.objectFit, NOT from className — without it the
+                            // blur paints `cover` (stretched, full-bleed) and then snaps
+                            // to the letterboxed image.
+                            style={{ objectFit: "contain" }}
+                            {...(dims ?? { fill: true as const, sizes: "100vw" })}
                             onError={() => {
                               // Codex R2 HIGH: when the active image
                               // errors mid-zoom, the slide flips to
@@ -691,30 +725,44 @@ export function GalleryLightbox({
                     ) : (
                       // Inactive slides: plain <img>, no zoom state.
                       // Per shape brief §6 (per-diagram zoom context).
-                      // M9 C6b / M7-D3 — REVERTED: next/image does
-                      // NOT forward user auth cookies to the upstream
-                      // /api/asset/diagram/... proxy (server-side
-                      // fetch under a different context) AND rewrites
-                      // the proxy's private Cache-Control to public —
-                      // both disqualifying for authenticated private
-                      // assets. Per C6b round-1 P0 finding, the raw
-                      // <img> tag is correct here.
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={assetUrl(showId, snapshotRevisionId, item.key)}
-                        alt={item.alt || `Diagram ${i + 1}`}
-                        loading="lazy"
-                        decoding="async"
-                        onError={() =>
-                          setFailedKeys((prev) => {
-                            if (prev.has(item.id)) return prev;
-                            const next = new Set(prev);
-                            next.add(item.id);
-                            return next;
-                          })
-                        }
-                        className="max-h-full max-w-full object-contain"
-                      />
+                      // Inactive slides: no zoom state, clamped variant tier.
+                      // (The old "next/image cannot serve these URLs" rationale left
+                      // with the raw <img> it justified — the custom loader emits our
+                      // own private asset-route URLs, so the optimizer is never in the
+                      // path.)
+                      // The `fill` fallback needs a positioned ancestor, and it
+                      // must NOT be the figure: `inset-0` resolves against the
+                      // padding box, and the figure carries px-4 — so an image
+                      // filling it would sit 32px wider than the active tier
+                      // does inside the zoom wrapper. This dedicated wrapper
+                      // occupies the figure's CONTENT area, so both tiers agree.
+                      <div className="relative flex size-full items-center justify-center">
+                        <Image
+                          loader={makeDiagramLoader({
+                            showId,
+                            rev: snapshotRevisionId,
+                            key: item.key,
+                            variants: item.variants,
+                          })}
+                          src={item.key}
+                          alt={item.alt || `Diagram ${i + 1}`}
+                          sizes="100vw"
+                          {...blurProps(item)}
+                          // See the active branch: the placeholder's background-size
+                          // comes from style.objectFit, not the class.
+                          style={{ objectFit: "contain" }}
+                          {...(dims ?? { fill: true as const })}
+                          onError={() =>
+                            setFailedKeys((prev) => {
+                              if (prev.has(item.id)) return prev;
+                              const next = new Set(prev);
+                              next.add(item.id);
+                              return next;
+                            })
+                          }
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
                     )
                   ) : (
                     <div className="flex flex-col items-center gap-2 text-text-subtle">
@@ -734,7 +782,7 @@ export function GalleryLightbox({
             onClick={scrollNext}
             aria-label="Next diagram"
             disabled={activeIndex === items.length - 1}
-            className="absolute right-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-(--shadow-tile) hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
+            className="absolute right-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
           >
             <ChevronRight aria-hidden="true" className="size-6" />
           </button>

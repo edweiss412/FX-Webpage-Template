@@ -3409,6 +3409,8 @@ This catalog is the **single source of truth** for user-visible copy. The bug-re
 
 **Crew-facing:** 4. **"Something looks wrong?" button on every crew page.** Lives in the page footer next to the freshness indicator (§5.4 stale-data UX). Available on both signed-in and signed-link views. Tapping opens a small modal with a single freeform text field ("What's wrong, or what's confusing?"). Submission auto-attaches structured context (see §13.2.1 below). The modal explicitly tells the crew member: "This goes to the developer, not Doug. For show-content questions, message Doug directly." This wording prevents reports from becoming a PM communication channel — they're for app issues only.
 
+**Doug-facing (admin), non-show-scoped:** 5. **Recurring-error report on `/help/errors`.** Trailing CTA at the page foot. Opens the standard report modal with `surface: "help"`, `show_id: null`. Auto-attaches the page's URL fragment (the error-code anchor Doug arrived on) as `fieldRef.helpCode`. Admin-authenticated; admin rate-limit bucket; lands as a GitHub issue titled `Bug report: help`. Added 2026-08-09 per `docs/superpowers/specs/2026-08-09-help-report-surface-design.md`; retires the AC-11.11 r11 mailto stopgap.
+
 The crew button is in v1 because techs hit weird states onsite (a tile shows wrong, a hotel's missing, the Right Now card disagrees with what they see in person) and waiting for Doug to surface it round-trips through Doug's attention; direct dev signal is faster and lower-friction.
 
 ### 13.2 Report destination: GitHub Issues
@@ -3444,6 +3446,8 @@ Each report opens a GitHub issue in a designated repo (default: this repo, `edwe
 ````
 
 Labels: `bug-report`, `reporter:admin`, `severity:<info|warn|error>`, `area:parser` (or `area:render`, `area:sync`, etc.).
+
+For surface `help` (§13.1 surface 5) the Show line reads `non-show recurrence report (/help/errors)` and Field/section ref carries the captured `helpCode`.
 
 #### 13.2.2 Crew issue body template
 

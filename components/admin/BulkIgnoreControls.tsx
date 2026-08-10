@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import type { BulkIgnoreGroup } from "@/lib/dataQuality/bulkIgnoreGroups";
 import { WarningAnnounceContext } from "@/components/admin/review/warningAnnounceContext";
 import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { cn } from "@/lib/ui/cn";
 
 export type BulkIgnoreGroupWithLabel = BulkIgnoreGroup & {
   /** Plain-language type label (catalog title / data-gap label), or null. Never the raw code. */
@@ -35,8 +36,9 @@ type State =
   | { kind: "error"; code: string; copy: string };
 
 // Neutral chip skin (idle). Renders on the panel `bg`, so the focus ring-offset is `bg`.
-const BTN =
-  "inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm border border-border-strong bg-bg px-3 py-1 text-left text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+const BTN = cn(
+  "inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm border border-border-strong bg-bg px-3 py-1 text-left text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+);
 
 // G4 armed/running branch (spec 2026-07-16-destructive-confirm-pass §4): destructive recipe
 // fill (C1); border-transparent compensates the idle border (no layout shift). Below 480px it
@@ -46,8 +48,9 @@ const BTN =
 // panel-wide bar. ONE class literal on purpose — tests/styles/_metaDestructiveConfirm.test.ts
 // registers this file's recipe hits by occurrence index, and splitting it adds an
 // unregistered one.
-const ARMED_BTN =
-  "inline-flex min-h-tap-min w-full max-w-full items-center justify-center self-start whitespace-normal rounded-sm border border-transparent bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg min-[480px]:w-auto min-[480px]:justify-start";
+const ARMED_BTN = cn(
+  "inline-flex min-h-tap-min w-full max-w-full items-center justify-center self-start whitespace-normal rounded-sm border border-transparent bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg min-[480px]:w-auto min-[480px]:justify-start",
+);
 
 /**
  * DQIGNORE-6 — the ACTIVE data-quality list, grouped by code. Each group renders an

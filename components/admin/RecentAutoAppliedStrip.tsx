@@ -54,6 +54,7 @@ import { AcceptChangeButton, type AcceptButtonResult } from "@/components/admin/
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
 import { CollapsePanel } from "@/components/admin/CollapsePanel";
 import { HoverHelp } from "@/components/admin/HoverHelp";
+import { cn } from "@/lib/ui/cn";
 
 type AcceptAction = (
   prev: AcceptButtonResult | null,
@@ -77,35 +78,35 @@ export type RecentAutoAppliedStripActions = {
 const KIND_PILL: Record<string, { label: string; cls: string; dot: string }> = {
   crew_added: {
     label: "Added",
-    cls: "border-status-positive/40 bg-status-positive/12 text-status-positive-text",
-    dot: "bg-status-positive",
+    cls: cn("border-status-positive/40 bg-status-positive/12 text-status-positive-text"),
+    dot: cn("bg-status-positive"),
   },
   crew_renamed: {
     label: "Renamed",
-    cls: "border-status-review/40 bg-status-review/12 text-status-review-text",
-    dot: "bg-status-review",
+    cls: cn("border-status-review/40 bg-status-review/12 text-status-review-text"),
+    dot: cn("bg-status-review"),
   },
   crew_removed: {
     label: "Removed",
-    cls: "border-status-warn/40 bg-status-warn/12 text-status-warn-text",
-    dot: "bg-status-warn",
+    cls: cn("border-status-warn/40 bg-status-warn/12 text-status-warn-text"),
+    dot: cn("bg-status-warn"),
   },
   field_changed: {
     label: "Field",
-    cls: "border-border bg-surface-sunken text-status-idle-text",
-    dot: "bg-status-idle",
+    cls: cn("border-border bg-surface-sunken text-status-idle-text"),
+    dot: cn("bg-status-idle"),
   },
   crew_email_changed: {
     label: "Email",
-    cls: "border-border bg-surface-sunken text-status-idle-text",
-    dot: "bg-status-idle",
+    cls: cn("border-border bg-surface-sunken text-status-idle-text"),
+    dot: cn("bg-status-idle"),
   },
 };
 // Unknown kinds fall back to a neutral "Change" pill rather than leaking the raw enum.
 const FALLBACK_PILL = {
   label: "Change",
-  cls: "border-border bg-surface-sunken text-status-idle-text",
-  dot: "bg-status-idle",
+  cls: cn("border-border bg-surface-sunken text-status-idle-text"),
+  dot: cn("bg-status-idle"),
 };
 
 function KindPill({ changeKind }: { changeKind: string }) {
@@ -131,7 +132,7 @@ function DiffBlock({ row }: { row: AutoAppliedRow }) {
   // text-subtle (not faint): these captions carry the diff DIRECTION — the
   // non-color mechanism (From/To/Added/Removed) — so they must clear AA-body
   // contrast, and DESIGN forbids faint on actionable/meaningful copy.
-  const cap = "text-xs font-semibold uppercase tracking-wide text-text-subtle";
+  const cap = cn("text-xs font-semibold uppercase tracking-wide text-text-subtle");
   if (d.kind === "fromTo") {
     return (
       <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5">

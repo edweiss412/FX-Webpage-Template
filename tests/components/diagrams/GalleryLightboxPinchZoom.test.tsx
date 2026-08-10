@@ -236,6 +236,7 @@ function items(n: number): GalleryItem[] {
     key: `embedded-obj-${i + 1}.png`,
     alt: `Diagram ${i + 1}`,
     available: true,
+    variants: [],
   }));
 }
 
