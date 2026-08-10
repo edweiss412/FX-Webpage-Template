@@ -35,7 +35,10 @@ import {
   fetchSheetMarkdownAndBytesAtRevision,
   withDriveRetry,
 } from "@/lib/drive/fetch";
-import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import {
+  synthesizeMarkdownFromXlsx,
+  WorkbookSynthesisError,
+} from "@/lib/drive/exportSheetToMarkdown";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
 import {
@@ -159,7 +162,11 @@ type SyncFailureCode =
   | typeof SYNC_STEP_TIMEOUT
   | typeof DRIVE_METADATA_MISSING
   | typeof SHEET_UNAVAILABLE
-  | "LOCK_OWNERSHIP_ASSERTION_FAILED";
+  | "LOCK_OWNERSHIP_ASSERTION_FAILED"
+  // BL-CRON-WORKBOOK-FAULT-CODE (ratified): a corrupt workbook (WorkbookSynthesisError)
+  // is a parse-family fault; the existing catalog code + copy tell Doug the latest edit
+  // did not parse and the previous version is still live. No new §12.4 row.
+  | "PARSE_ERROR_LAST_GOOD";
 
 export type RevisionRaceCooldown = {
   retryCount: number;
@@ -487,6 +494,11 @@ type CronRecoveryTx = SyncPipelineTx & {
     driveFileId: string,
     code: string,
   ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null; title: string | null }>;
+  /** Parse-family status writer (BL-CRON-WORKBOOK-FAULT-CODE arm). */
+  updateShowParseError(
+    driveFileId: string,
+    error: { code: string; message: string },
+  ): Promise<string | null>;
   insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
@@ -2537,6 +2549,12 @@ export function classifySyncFailure(error: unknown): SyncFailureCode {
   ) {
     return "LOCK_OWNERSHIP_ASSERTION_FAILED";
   }
+  // BL-CRON-WORKBOOK-FAULT-CODE: synthesis happens INSIDE the Drive fetch, so a
+  // corrupt workbook surfaces through the fetch_failure wrapper. Keyed on error
+  // IDENTITY (the type the drive layer throws), like the onboarding paths.
+  if (error instanceof WorkbookSynthesisError) {
+    return "PARSE_ERROR_LAST_GOOD";
+  }
   return SYNC_FILE_FAILED;
 }
 
@@ -2625,6 +2643,48 @@ async function handleFetchFailure_unlocked(
 
   const show = await tx.readShowForPhase1(driveFileId);
   const recoveryTx = tx as LockedShowTx<CronRecoveryTx>;
+  // BL-CRON-WORKBOOK-FAULT-CODE parse-family arm: a corrupt workbook on an EXISTING
+  // show presents as a parse failure (status 'parse_error', PARSE_ERROR_LAST_GOOD
+  // alert), never as a Drive failure that sends Doug to share settings. Last-good
+  // payload untouched: updateShowParseError writes status fields only. FIRST-SEEN
+  // (no show row) deliberately falls through to the generic path below: there is no
+  // previous version, so PARSE_ERROR_LAST_GOOD's copy would be a wrong instruction —
+  // the pending_ingestions (live-partition:n/a — doc reference, no statement) row
+  // keeps SYNC_FILE_FAILED.
+  if (show && code === "PARSE_ERROR_LAST_GOOD") {
+    const showId = await recoveryTx.updateShowParseError(driveFileId, {
+      code,
+      message: errorMessage(error),
+    });
+    await recoveryTx.insertSyncLog(
+      {
+        driveFileId,
+        outcome: "error",
+        code,
+        payload: {
+          driveFileId,
+          message: errorMessage(error),
+          previousLastSeenModifiedTime: show.lastSeenModifiedTime ?? null,
+        },
+      },
+      showId,
+    );
+    await recoveryTx.upsertAdminAlert({
+      showId,
+      code: "PARSE_ERROR_LAST_GOOD",
+      context: buildParseErrorContext({
+        driveFileId,
+        sheetName: show.title ?? null,
+        failureCode: code,
+      }),
+    });
+    await resolveStaleSyncProblemAlerts_unlocked(
+      tx,
+      showId,
+      syncProblemCodeForStatus("parse_error"),
+    );
+    return { ...result, showId };
+  }
   if (show) {
     const updated =
       code === STAGED_PARSE_SOURCE_GONE
@@ -2692,16 +2752,17 @@ async function handleFetchFailure_unlocked(
     return { ...result, showId };
   }
 
+  const firstSeenCode = code === "PARSE_ERROR_LAST_GOOD" ? SYNC_FILE_FAILED : code;
   await tx.upsertLivePendingIngestion({
     driveFileId,
     wizardSessionId: null,
     driveFileName: fileMeta.name,
-    lastErrorCode: code,
+    lastErrorCode: firstSeenCode,
     lastErrorMessage: errorMessage(error),
     lastWarnings: [],
     lastSeenModifiedTime: binding.modifiedTime,
   });
-  return result;
+  return firstSeenCode === code ? result : { outcome: "parse_error", code: firstSeenCode };
 }
 
 export async function processOneFile(
