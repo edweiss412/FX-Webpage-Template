@@ -72,6 +72,20 @@ function validVariants(raw: unknown): DiagramVariantRef[] {
   return rows.sort((a, b) => a.width - b.width);
 }
 
+/**
+ * Whether this manifest data yields any tier BELOW the original.
+ *
+ * Exported so callers never re-derive it: `pinOriginal` says the caller ASKED
+ * for the original, not that a smaller tier exists to fall back to. For an
+ * originals-only entry — old manifests, GIFs, generation failures, a ladder
+ * whose every row the §4 guards reject — both loader states resolve to the same
+ * URL, and a caller that treats the pin as proof of a fallback will offer one
+ * that cannot happen.
+ */
+export function hasVariantTier(variants: unknown): boolean {
+  return validVariants(variants).length > 0;
+}
+
 export function makeDiagramLoader(
   args: MakeDiagramLoaderArgs,
 ): (props: ImageLoaderProps) => string {

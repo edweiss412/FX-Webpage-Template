@@ -176,6 +176,9 @@ vi.mock("react-zoom-pan-pinch", async () => {
   };
 });
 
+/** Every Embla instance this file mounts, newest last — so a SWIPE is drivable. */
+const emblaApis: Array<{ scrollTo: (index: number) => void }> = [];
+
 vi.mock("embla-carousel-react", async () => {
   const React = await import("react");
   // `startIndex` is HONOURED. A mock that always starts at 0 desynchronises from
@@ -205,12 +208,13 @@ vi.mock("embla-carousel-react", async () => {
           listeners.current.get(event)?.delete(cb);
           return api;
         },
-        reInit: () => {},
+            reInit: () => {},
         rootNode: () => document.createElement("div"),
         internalEngine: () => ({}),
       }),
       [],
     );
+    emblaApis.push(api);
     return [() => {}, api] as const;
   }
   return { default: useEmblaCarouselMock };
@@ -299,6 +303,7 @@ beforeEach(() => {
   presence.flush = null;
   presence.exiting = false;
   zoom.listeners.length = 0;
+  emblaApis.length = 0;
 });
 
 afterEach(() => cleanup());
@@ -734,7 +739,14 @@ describe("Gallery — the dialog's own failure reaches the dialog's own region",
     // The end-to-end of the split channel: the lightbox generates this message,
     // the Gallery owns the channel state, and the region lives in the dialog. A
     // missing `onAnnounce` prop is invisible to either half on its own.
-    open([item(1), item(2)]);
+    // A LADDER, unlike every other fixture in this file: the demote only exists
+    // when there is a clamped tier to retreat to, so an originals-only entry
+    // would take the destroy path and this case would silently test that instead.
+    const ladder = [
+      { width: 256, key: "embedded-obj-1.png@256.webp" },
+      { width: 1024, key: "embedded-obj-1.png@1024.webp" },
+    ];
+    open([item(1, { variants: ladder }), item(2)]);
     act(() => {
       fireEvent.click(thumbButton(0));
     });
@@ -913,6 +925,43 @@ describe("Gallery — navigating to a bound never drops focus out of the dialog"
     expect(document.activeElement).not.toBe(document.body);
     expect(document.activeElement).toBe(next);
     expect(screen.getByTestId("diagrams-lightbox").contains(document.activeElement)).toBe(true);
+  });
+
+  test("a SWIPE to a bound hands focus across too — not just a chevron click", () => {
+    // The handoff must live where the bound is REACHED, not in the two chevron
+    // handlers: Embla's own `select` fires for a touch swipe as well, and a
+    // swipe from the penultimate slide to the last one disables Next under the
+    // user's focus with no click anywhere in the story.
+    open([item(1), item(2), item(3)]);
+    act(() => {
+      fireEvent.click(thumbButton(1));
+    });
+    const next = screen.getByRole("button", { name: /next diagram/i });
+    const previous = screen.getByRole("button", { name: /previous diagram/i });
+    act(() => next.focus());
+    premise("the lightbox mounted an Embla instance to drive", emblaApis.length, 0);
+
+    act(() => emblaApis.at(-1)!.scrollTo(2));
+
+    premiseHolds(
+      "the swipe really disabled the focused chevron, or the case is not exercised",
+      (screen.getByRole("button", { name: /next diagram/i }) as HTMLButtonElement).disabled,
+    );
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(previous);
+  });
+
+  test("a swipe to a bound leaves focus alone when it is elsewhere in the dialog", () => {
+    open([item(1), item(2), item(3)]);
+    act(() => {
+      fireEvent.click(thumbButton(1));
+    });
+    const close = screen.getByRole("button", { name: /close gallery/i });
+    act(() => close.focus());
+
+    act(() => emblaApis.at(-1)!.scrollTo(2));
+
+    expect(document.activeElement).toBe(close);
   });
 
   test("a chevron that stays enabled keeps focus where the user put it", () => {

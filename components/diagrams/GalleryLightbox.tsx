@@ -47,7 +47,7 @@ import type { GalleryItem } from "@/components/diagrams/Gallery";
 import { AnnounceLogRegion, type AnnounceLogEntry } from "@/components/admin/announceLog";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import Image from "next/image";
-import { makeDiagramLoader } from "@/lib/images/diagramLoader";
+import { hasVariantTier, makeDiagramLoader } from "@/lib/images/diagramLoader";
 
 type LightboxProps = {
   showId: string;
@@ -315,10 +315,34 @@ export function GalleryLightbox({
   // gesture path is unaffected — pinch/wheel still drive activeScale.
   const requestedScaleRef = useRef(1);
 
+  /**
+   * Hand focus to the opposite chevron when the one just used is about to be
+   * disabled. Only when it actually HELD focus — a pointer user's focus is not
+   * moved, and a keyboard user never loses the dialog.
+   *
+   * Declared ABOVE the Embla `select` effect that consumes it: a `const` is in
+   * its temporal dead zone until the initializer runs, and an effect's dependency
+   * array is evaluated during render.
+   */
+  const keepFocusInDialog = useCallback(
+    (used: HTMLButtonElement | null, willDisable: boolean, opposite: HTMLButtonElement | null) => {
+      if (!willDisable) return;
+      if (document.activeElement !== used) return;
+      (opposite ?? closeRef.current)?.focus();
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!emblaApi) return;
     function onSelect() {
-      setActiveIndex(emblaApi!.selectedScrollSnap());
+      const index = emblaApi!.selectedScrollSnap();
+      setActiveIndex(index);
+      // HERE, not in the chevron handlers: a bound is reached by a touch swipe
+      // just as readily as by a click, and a swipe onto the last slide disables
+      // Next under the user's focus with no click anywhere in the story.
+      keepFocusInDialog(prevRef.current, index === 0, nextRef.current);
+      keepFocusInDialog(nextRef.current, index === items.length - 1, prevRef.current);
       // Per shape brief: navigation resets per-slide zoom. The
       // previous slide's TransformWrapper unmounts when we re-key on
       // activeIndex, so its scale state is gone — but we also need
@@ -332,7 +356,7 @@ export function GalleryLightbox({
     return () => {
       emblaApi.off("select", onSelect);
     };
-  }, [emblaApi]);
+  }, [emblaApi, items.length, keepFocusInDialog]);
 
   // When scale crosses the 1↔>1 boundary, reInit Embla with the
   // opposite watchDrag setting so single-finger horizontal drag
@@ -390,36 +414,17 @@ export function GalleryLightbox({
     };
   }, [activeScale]);
 
-  /**
-   * Hand focus to the opposite chevron when the one just used is about to be
-   * disabled. Only when it actually HELD focus — a pointer user's focus is not
-   * moved, and a keyboard user never loses the dialog.
-   */
-  const keepFocusInDialog = useCallback(
-    (used: HTMLButtonElement | null, willDisable: boolean, opposite: HTMLButtonElement | null) => {
-      if (!willDisable) return;
-      if (document.activeElement !== used) return;
-      (opposite ?? closeRef.current)?.focus();
-    },
-    [],
-  );
-
   const scrollPrev = useCallback(() => {
     // Per shape brief: navigation always resets zoom on the OLD slide
     // first, then advances. resetTransform fires the scale-change
     // listener with scale=1, which keeps the chrome in sync.
     controlsSlotRef.current?.resetTransform();
-    const target = Math.max(0, (emblaApi?.selectedScrollSnap() ?? 0) - 1);
     emblaApi?.scrollPrev();
-    keepFocusInDialog(prevRef.current, target === 0, nextRef.current);
-  }, [emblaApi, keepFocusInDialog]);
+  }, [emblaApi]);
   const scrollNext = useCallback(() => {
     controlsSlotRef.current?.resetTransform();
-    const last = items.length - 1;
-    const target = Math.min(last, (emblaApi?.selectedScrollSnap() ?? 0) + 1);
     emblaApi?.scrollNext();
-    keepFocusInDialog(nextRef.current, target === last, prevRef.current);
-  }, [emblaApi, items.length, keepFocusInDialog]);
+  }, [emblaApi]);
 
   useDialogFocus(dialogRef, closeRef, undefined, { restoreTargetRef });
 
@@ -856,7 +861,14 @@ export function GalleryLightbox({
                               // the commitment bound for as long as the gesture
                               // lasts, so without `demotedRef` this would be a
                               // fetch loop rather than one fallback.
-                              if (wantsOriginal.has(item.id)) {
+                              // BOTH conjuncts are load-bearing. `wantsOriginal`
+                              // says the user asked for the original;
+                              // `hasVariantTier` says there is something smaller
+                              // to retreat TO. Without the second, an
+                              // originals-only entry would announce a fallback
+                              // that cannot happen and then leave the broken
+                              // image on screen instead of the placeholder.
+                              if (wantsOriginal.has(item.id) && hasVariantTier(item.variants)) {
                                 demotedRef.current.add(item.id);
                                 setWantsOriginal((prev) => {
                                   if (!prev.has(item.id)) return prev;

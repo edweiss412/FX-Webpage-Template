@@ -565,6 +565,34 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
     expect(activeLoaderUrls(container)).toEqual(new Set([topTierUrlOf(fixture)]));
   });
 
+  test.each([
+    ["an empty ladder", [] as GalleryItem["variants"]],
+    ["a wholly malformed ladder", [{ width: -1, key: "" }] as GalleryItem["variants"]],
+  ])("%s CANNOT demote — there is no lower tier to fall back to", (_label, variants) => {
+    // `wantsOriginal` says the user asked for the original; it does NOT say a
+    // clamped tier exists to retreat to. For an originals-only entry — old
+    // manifests, GIFs, generation failures, a ladder whose every row the §4
+    // guards reject — both loader states resolve to the SAME url, so demoting
+    // would announce a fallback that cannot happen and then leave the broken
+    // image on screen instead of the unavailable placeholder.
+    const fixture = item(1, { variants });
+    const { container } = open([fixture, item(2)]);
+    const region = container.querySelector('[data-testid="lightbox-announce-log"]')!;
+    premiseHolds(
+      "both states resolve to the original, which is what makes the demote a no-op here",
+      activeLoaderUrls(container).size === 1 && activeLoaderUrls(container).has(originalUrlOf(fixture)),
+    );
+
+    emitScale(2.4);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
+    expect(container.textContent).toContain("Image unavailable");
+    expect([...region.querySelectorAll("[data-announce-id]")]).toHaveLength(0);
+  });
+
   test("a SECOND failure after the demote does reach the placeholder", () => {
     // One fallback, not an endless one: once the clamped tier has failed too,
     // there is nothing left to serve and the placeholder is the honest answer.
