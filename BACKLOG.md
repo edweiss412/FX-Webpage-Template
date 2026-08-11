@@ -8,6 +8,38 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
+## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button is not perceivable as a box at the non-text floor
+
+**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system
+contrast. **Effort:** M — it is a token decision affecting every surface that renders the button, not
+a patch. **Class-sweep exception:** (c). **Reachability: PROBED.**
+
+The shared secondary treatment (`SECONDARY_ACTION_CLASS`, `lib/ui/actionClass.ts`) draws a
+`border-border-strong` outline over a `bg-bg` fill, on cards that are `bg-surface`. Measured with the
+standard WCAG relative-luminance formula against the runtime tokens:
+
+```
+border-strong on surface   1.59:1 light   1.60:1 dark     (3:1 non-text floor)
+bg fill      on surface     1.04:1 light   1.06:1 dark
+label text   on the fill   16.47:1 light  15.23:1 dark
+```
+
+So neither the outline nor the fill is perceivable at the floor: what identifies the control is its
+label, not its box.
+
+**This is NOT a strict AA failure and NOT a regression.** WCAG 1.4.11 does not require the boundary
+to reach 3:1 when the component is identifiable by other means, and the label clears every floor
+with margin. It is also pre-existing: this is the class `RescanSheetButton` has shipped for months,
+promoted verbatim into the constant precisely so its eight other call sites would not move. The
+retired ghost "View" had no border at all, so nothing got worse.
+
+**Why it is still worth a row.** DESIGN.md §1.2a already records the same shape one layer down —
+tokens tuned to sit BESIDE a filled surface do not carry contrast when they must stand on their own.
+The border tokens are tuned as tile edges, and a button outline asks them to do a different job. A
+deliberate decision would either give the secondary button a boundary that reads (a stronger token,
+or a fill with real separation) or state explicitly that the label is the affordance and the box is
+decorative — which is a legitimate answer, just not one anyone has written down.
+
 ## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on interactive elements is a 32-site class, not a four-site list
 
 **Filed:** 2026-08-10 (`feat/m2-ui-cluster`, task U4). **Class:** design-system conformance

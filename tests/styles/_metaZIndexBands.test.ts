@@ -27,7 +27,10 @@
  * the recognition universe by construction — the scanner reads className
  * context and style objects, not raw text.
  */
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -55,7 +58,13 @@ function liveSites(): ZSite[] {
   return sites;
 }
 
-const siteKey = (s: ZSite) => `${s.file} :: ${s.token}`;
+/**
+ * Exemption key. The LINE is part of it (whole-diff review r2 F2): keyed on
+ * file + token alone, a single row exempted every identical site in that file —
+ * two `z-40`s in one component, one reasoned row, both silent — and a row could
+ * outlive the site it was written for by transferring to a later occurrence.
+ */
+const siteKey = (s: ZSite) => `${s.file}:${s.line} :: ${s.token}`;
 
 describe("scanner premise (a guard that matched nothing would be vacuously green)", () => {
   it("flags a planted utility-idiom numeric", () => {
@@ -95,7 +104,7 @@ describe("scanner premise (a guard that matched nothing would be vacuously green
 
 describe("semantic z-index bands (dual idiom, filesystem-walked)", () => {
   it("no raw numeric z-index remains on the swept surfaces in EITHER idiom", () => {
-    const exempted = new Set(Z_INDEX_EXEMPTIONS.map((e) => `${e.file} :: ${e.token}`));
+    const exempted = new Set(Z_INDEX_EXEMPTIONS.map((e) => `${e.file}:${e.line} :: ${e.token}`));
     const offenders = liveSites().filter((s) => !exempted.has(siteKey(s)));
     expect(
       offenders.map((s) => `${s.file}:${s.line} ${s.token} (${s.idiom})`),
@@ -110,42 +119,62 @@ describe("semantic z-index bands (dual idiom, filesystem-walked)", () => {
     for (const e of Z_INDEX_EXEMPTIONS) {
       expect(e.reason.trim().length, `${e.file} ${e.token} needs a reason`).toBeGreaterThan(10);
       expect(
-        live.has(`${e.file} :: ${e.token}`),
-        `Stale exemption: ${e.file} ${e.token} no longer matches a live site — remove the row.`,
+        live.has(`${e.file}:${e.line} :: ${e.token}`),
+        `Stale exemption: ${e.file}:${e.line} ${e.token} no longer matches a live site — remove the row.`,
       ).toBe(true);
     }
   });
 
-  it("the band tokens are declared INSIDE @theme with the fixed values", () => {
-    // Whole-diff review r1 F2: the first version matched the declaration
-    // anywhere in the file, so `:root { --z-index-overlay: 50; }` satisfied it —
-    // and a custom property outside `@theme` emits NO utility at all. Tailwind
-    // v4 builds `z-<name>` from its theme namespace, not from any `--z-index-*`
-    // it happens to find. Scope the search to the block.
-    const css = readFileSync("app/globals.css", "utf8");
-    const open = css.indexOf("@theme {");
-    expect(open, "app/globals.css declares an @theme block").toBeGreaterThanOrEqual(0);
-    let depth = 0;
-    let end = -1;
-    for (let i = css.indexOf("{", open); i < css.length; i += 1) {
-      if (css[i] === "{") depth += 1;
-      else if (css[i] === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          end = i;
-          break;
-        }
-      }
-    }
-    expect(end, "the @theme block closes").toBeGreaterThan(open);
-    const themeBlock = css.slice(open, end);
+  it("each band COMPILES to its pinned value through the real globals.css", () => {
+    // Whole-diff review r2 F1 killed two string-presence versions of this check,
+    // and the second death is the instructive one. Searching the `@theme` block's
+    // TEXT cannot distinguish a live declaration from a commented-out one (the
+    // comment still contains the string), from a duplicate whose second value
+    // wins, or from a later `:root` override. Each leaves the predicate green
+    // while the compiled value is wrong or absent.
+    //
+    // So the assertion compiles. Tailwind reads the SHIPPED app/globals.css with
+    // a synthetic content file naming the seven band classes, and the emitted
+    // rules are what gets asserted — presence AND resolved value. Nothing about
+    // where the declaration sits in the file, or how many there are, can fool it.
+    const dir = mkdtempSync(join(tmpdir(), "zbands-"));
+    try {
+      const content = join(dir, "probe.html");
+      const out = join(dir, "out.css");
+      writeFileSync(content, `<div class="${Object.keys(BAND_TOKENS).join(" ")}"></div>`, "utf8");
+      execFileSync(
+        "pnpm",
+        ["exec", "tailwindcss", "-i", "app/globals.css", "-o", out, "--content", content],
+        { cwd: process.cwd(), stdio: "pipe" },
+      );
+      const css = readFileSync(out, "utf8");
 
-    for (const [name, value] of Object.entries(BAND_TOKENS)) {
-      const token = `--z-index-${name.slice(2)}`;
-      expect(
-        new RegExp(`${token}:\\s*${value};`).test(themeBlock),
-        `${token}: ${value}; missing from the @theme block of app/globals.css`,
-      ).toBe(true);
+      const missing: string[] = [];
+      const wrong: string[] = [];
+      for (const [cls, value] of Object.entries(BAND_TOKENS)) {
+        const rule = new RegExp(`\\.${cls}\\s*\\{([^}]*)\\}`).exec(css);
+        if (!rule) {
+          missing.push(cls);
+          continue;
+        }
+        const body = rule[1]!;
+        const varName = `--z-index-${cls.slice(2)}`;
+        // The rule may emit the literal or a var() reference; resolve either.
+        let resolved = /z-index:\s*([0-9-]+)/.exec(body)?.[1];
+        if (resolved === undefined && body.includes(varName)) {
+          const decls = [...css.matchAll(new RegExp(`${varName}:\\s*([0-9-]+)`, "g"))];
+          resolved = decls.length > 0 ? decls[decls.length - 1]![1] : undefined;
+        }
+        if (resolved === undefined) missing.push(`${cls} (no resolvable z-index)`);
+        else if (Number(resolved) !== value)
+          wrong.push(`${cls}: compiled ${resolved}, pinned ${value}`);
+      }
+
+      premise("the compile produced CSS at all", css.length, 500);
+      expect(missing, "band classes that compile to no z-index rule").toEqual([]);
+      expect(wrong, "band classes whose COMPILED value is not the pinned band level").toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

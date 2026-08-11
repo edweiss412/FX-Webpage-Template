@@ -119,6 +119,66 @@ This matters because a typo'd token would emit NO `z-index` at all — a silent
 stacking regression that a class-string guard cannot catch, since the class
 string would be exactly what the guard expects.
 
+### §12 Invariant-8 dual gate — findings and dispositions
+
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=0 dispositions=none
+
+**⚠️ DEGRADED: single-context (both assessment sub-agents idled without returning
+a report).** Declared per the critique contract's banner rule rather than taken
+silently. Assessment A and Assessment B were dispatched as two isolated
+sub-agents, as the contract requires; both reported idle twice, and neither
+delivered its report after two explicit requests. The skill's sanctioned
+sequential fallback was used. Setup gates were the canonical v3 pair: the
+`context.mjs` context load (PRODUCT.md + DESIGN.md) and the **product** register
+reference — admin UI, where design SERVES the product.
+
+**No authenticated live render.** `/admin` 307s to sign-in and this run did not
+stand up the wizard session + seeded gallery behind it. Every measurement below
+is therefore computed from the tokens in `app/globals.css` and from the AST,
+not read off a browser. That is a real gap and it is the honest limit of this
+gate: the numbers are exact, the *look* was not inspected at 390px in dark.
+
+**Assessment B — deterministic evidence.** Detector over every changed directory:
+16 findings, ALL `broken-image`, 7 in `components/admin/wizard/VenueMapTile.tsx`,
+2 at `step3ReviewSections.tsx`, 7 in `components/diagrams/`. Every one is the
+pre-adjudicated false positive (raw `<img>` with a required runtime `src` and an
+`onError` placeholder, a documented deliberate revert from `next/image`, which
+drops cookies), and **none is in this diff** — `git diff origin/main...HEAD`
+touches zero `<img>` lines.
+
+The detector's green is a REAL green, not an unrun one: a planted probe
+(`side-tab` + `gradient-text` + `broken-image` in one throwaway component under
+`components/shared`) was caught on all three rules, and the directory returned to
+silent when the probe was removed.
+
+Mechanical checks over the 147 added UI lines: 10 em dashes, all inside comments
+(the ban is on user-visible copy); zero straight apostrophes in JSX text; zero
+raw hex / `rgb()` / `hsl()`; the 44px floor preserved (`min-h-tap-min` /
+`size-tap-min` on every added control).
+
+**Assessment A — design review, heuristics 35/40.** Strongest movement is exactly
+where the previous gate on this surface was weakest: Consistency and Standards
+was scored 2/4 there and is the subject of this whole unit — one action
+vocabulary, one bordered level, one action colour, one semantic z-scale. Weakest
+now is Recognition rather than Recall (3/4), for the reason below.
+
+| # | Sev | Finding | Disposition |
+| - | --- | ------- | ----------- |
+| 1 | P2 | The single vocabulary means a clean row's **View** and a blocked row's **Permanently ignore** now carry identical visual weight; the row's urgency is carried only by the chip and the copy. | ACCEPTED — this IS the ratified acceptance shape (spec §2.6 `:92`: the set of distinct treatments must be size 1). The warn chip and judgment chip still differ per row, so state is not carried by the button alone. |
+| 2 | P2 | The shared secondary treatment is not perceivable as a box at the non-text floor: `--color-border-strong` on `--color-surface` measures **1.59:1** light / **1.60:1** dark, and its `bg-bg` fill on a `bg-surface` card measures **1.04:1** / **1.06:1**. Both are under 3:1. | PRE-EXISTING, NOT introduced here — this is `RescanSheetButton`'s shipped class, promoted verbatim, and the retired ghost "View" had no border at all so nothing regressed. Not a strict AA failure either: the label carries identification at 16.47:1 / 15.23:1, which is the WCAG 1.4.11 carve. FILED as `BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE` — it affects every surface rendering that button, class-sweep exception (c). |
+| 3 | P3 | A `flat` row keeps `p-tile-pad` while no longer having a box to pad. | ACCEPTED — the padding preserves the vertical rhythm of the list and costs nothing; removing it would tighten the group against the plate edge. |
+
+**Zero P0. Zero P1**, so the marker reads `dispositions=none` — the §3.3 grammar ties that field
+to the P0/P1 count specifically, and the guard rejects `recorded` when both are zero. The P2/P3
+dispositions are the table above. Nothing is deferred that needed fixing: findings 1 and 3 are
+accepted design consequences of the ratified shape, and finding 2 is pre-existing
+and filed.
+
+**Recorded so a later gate does not re-raise them:** the 16 `broken-image` hits
+(false positives, adjudicated 2026-08-02); `text-text-subtle` on body and caption
+prose, which DESIGN.md permits — the ban is on action TARGETS; and the demoted
+card's double "Review", ratified intentional.
+
 ### A self-caught P1, recorded because the claim shipped before the measurement
 
 The first U2 repair flattened the blocking rows inside the "Needs your attention"
