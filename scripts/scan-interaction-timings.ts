@@ -366,23 +366,3 @@ export function inventoryRows(
   }
   return rows;
 }
-
-// CLI entry: `pnpm tsx scripts/scan-interaction-timings.ts`. Guarded so the
-// module stays importable — a terminal script cannot be enrolled in the
-// source-mutation registry, and a guard surface that cannot be mutation-scored
-// has no closable convergence criterion.
-if (process.argv[1] !== undefined && process.argv[1].endsWith("scan-interaction-timings.ts")) {
-  const result = scanRepo(process.cwd());
-  for (const row of inventoryRows(result)) {
-    process.stdout.write(`${row.file}\t${row.label}\t${row.value}\n`);
-  }
-  if (result.unclassified.length > 0) {
-    process.stdout.write(`\nUNCLASSIFIED (${result.unclassified.length}):\n`);
-    for (const site of result.unclassified) {
-      process.stdout.write(`  ${site.file}:${site.line}\t${site.name}\n`);
-    }
-  }
-  process.stdout.write(
-    `\n${result.filesScanned} files, ${inventoryRows(result).length} rows, ${result.unclassified.length} unclassified\n`,
-  );
-}

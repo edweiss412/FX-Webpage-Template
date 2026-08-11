@@ -579,7 +579,10 @@ export const GUARD_SURFACES: GuardSurface[] = [
   {
     id: "interactionTimingScan",
     sourcePath: "scripts/scan-interaction-timings.ts",
-    suitePaths: ["tests/docs/_metaInteractionTimingInventory.test.ts"],
+    suitePaths: [
+      "tests/docs/_metaInteractionTimingInventory.test.ts",
+      "tests/docs/interactionTimingScan.test.ts",
+    ],
     operators: [...OPERATOR_NAMES],
     // Enrolled at authoring time rather than after review, because this is a
     // guard whose defect class is exactly "reports OK while the output moved":

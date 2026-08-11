@@ -327,7 +327,7 @@ interaction timing) and reports every numeric-literal `setTimeout`/`setInterval`
 numeric binding whose name ends in ms / delay / duration / timeout / seconds, and every numeric
 motion `duration:`. `tests/docs/_metaInteractionTimingInventory.test.ts` compares that output to
 this table in BOTH directions, so a timing added without a row here fails, and a row here that no
-longer exists in the source fails too. Regenerate with `pnpm exec tsx scripts/scan-interaction-timings.ts`.
+longer exists in the source fails too. Regenerate with `pnpm exec tsx scripts/scan-interaction-timings.cli.ts`.
 
 A hand-written list was the previous shape and it could not work: a sweep and a test generated from
 that sweep share the same omissions, so the two agree about a world neither checked.
