@@ -122,13 +122,24 @@ const GALLERY: readonly Step3Row[] = [
 // The row slot = the regions the Step-3 rows render into. Each root is included
 // in its own walk, so the "Needs your attention" plate counts as a container
 // around the rows it holds.
-const SLOT_ROOT_SELECTOR = [
-  '[data-testid="wizard-step3-needs-attention"]',
-  '[data-testid="wizard-step3-card-grid"]',
-  '[data-testid="wizard-step3-ignored"]',
-  '[data-testid="wizard-step3-deferred"]',
-  '[data-testid="wizard-step3-skipped"]',
-].join(", ");
+/**
+ * The row slot, DERIVED from the rows rather than listed.
+ *
+ * The first version named five testids, so a new row section was invisible to
+ * the census and its actions were never counted (brief B r7 F1). Roots are now
+ * computed: every row wrapper, plus the nearest `section`/`ul` that holds it —
+ * which is what makes the plate count as a container around the rows it holds,
+ * and makes a section nobody has written yet covered by default.
+ */
+function slotRoots(container: HTMLElement): Element[] {
+  const roots = new Set<Element>();
+  for (const row of container.querySelectorAll('[data-testid^="wizard-step3-row-"]')) {
+    roots.add(row);
+    const group = row.closest("section, ul");
+    if (group !== null && container.contains(group)) roots.add(group);
+  }
+  return [...roots].filter((r) => ![...roots].some((o) => o !== r && o.contains(r) && o !== r));
+}
 
 /**
  * Not every anchor in the slot is an ACTION. Two carve-outs, each with its
@@ -158,7 +169,11 @@ const ACTION_CARVE_OUTS: readonly {
     id: "row-title-deep-link",
     matches: (el) =>
       el.tagName === "A" &&
-      /^wizard-step3-card-.+-title-link$/.test(el.getAttribute("data-testid") ?? ""),
+      /^wizard-step3-card-.+-title-link$/.test(el.getAttribute("data-testid") ?? "") &&
+      // r7 F2: the testid alone was the whole test, so an operation link keeping
+      // that name would inherit the carve. The DESTINATION is what makes this
+      // navigation rather than an action — it leaves the app for the sheet.
+      /^https?:\/\//.test(el.getAttribute("href") ?? ""),
     reason:
       "the row's title is a deep link to the SOURCE SHEET — navigation to the document the row is " +
       "about, not an operation on the row. Pinned to an <a> with the full testid shape so a button " +
@@ -167,8 +182,14 @@ const ACTION_CARVE_OUTS: readonly {
   {
     id: "help-disclosure-prose",
     matches: (el) =>
-      el.closest('[data-testid="help-affordance"]') !== null &&
-      (el.tagName === "SUMMARY" || (el.tagName === "A" && !el.hasAttribute("role"))),
+      el.tagName === "SUMMARY"
+        ? el.closest('[data-testid="help-affordance"]') !== null
+        : // r7 F2: a role-less anchor ANYWHERE in the affordance was excluded
+          // whatever its destination, which would hide an operation link dropped
+          // into the disclosure. Only the affordance's BODY is prose.
+          el.tagName === "A" &&
+          !el.hasAttribute("role") &&
+          el.closest('[data-testid="help-affordance-body"]') !== null,
     reason:
       "inside the help disclosure, the <summary> and its explanatory links are supporting text. " +
       'Anything else in there — a <button>, or an <a role="button"> — IS an action and is ' +
@@ -234,17 +255,22 @@ const PLACEMENT_ONLY: readonly { readonly token: string; readonly reason: string
 const PLACEMENT_TOKENS = new Set(PLACEMENT_ONLY.map((p) => p.token));
 
 function treatmentSignature(el: Element): string {
-  return el
-    .getAttribute("class")!
-    .split(/\s+/)
-    .filter((t) => t.length > 0 && !PLACEMENT_TOKENS.has(t))
-    .sort()
-    .join(" ");
+  const own = (node: Element): string[] =>
+    (node.getAttribute("class") ?? "")
+      .split(/\s+/)
+      .filter((t) => t.length > 0 && !PLACEMENT_TOKENS.has(t));
+  // r7 F3: reading the interactive wrapper alone let an inner span or icon
+  // diverge visibly while both wrappers compared equal — which is precisely the
+  // shape U4 had to repair, where the hit box carried no colour and the glyph
+  // did. The signature therefore spans the control AND everything it paints.
+  const parts = [own(el).sort().join(" ")];
+  for (const child of el.querySelectorAll("*")) parts.push(own(child).sort().join(" "));
+  return parts.filter((p) => p.length > 0).join(" | ");
 }
 
 function collectActions(container: HTMLElement): HTMLElement[] {
   const out: HTMLElement[] = [];
-  for (const root of container.querySelectorAll(SLOT_ROOT_SELECTOR)) {
+  for (const root of slotRoots(container)) {
     for (const el of root.querySelectorAll<HTMLElement>(ACTION_SELECTOR)) {
       if (isRowSlotAction(el)) out.push(el);
     }
@@ -267,10 +293,6 @@ const NON_CONTAINER_TAGS = new Set([
   "SELECT",
   "TEXTAREA",
   "LABEL",
-  "SPAN",
-  "SVG",
-  "PATH",
-  "IMG",
   "SUMMARY",
 ]);
 
@@ -283,8 +305,20 @@ const BORDER_TOKEN =
 
 function isBorderedContainer(el: Element): boolean {
   if (NON_CONTAINER_TAGS.has(el.tagName)) return false;
+  // Anything a CONTROL paints with belongs to the control, not to the chrome
+  // around it. Dropping SPAN from the exclusion list (r7 F4) immediately flagged
+  // the publish checkbox's visible tile — a bordered `size-5` span inside its
+  // <label> — which is the control's own surface and correctly nests inside a
+  // card. Ancestry answers this where the tag name cannot.
+  if (el.closest("button, a, label") !== null) return false;
   const tokens = (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean);
-  return tokens.some((t) => BORDER_TOKEN.test(t));
+  if (tokens.some((t) => BORDER_TOKEN.test(t))) return true;
+  // r7 F4: a literal inline border draws exactly the same box a class does, and
+  // the class-only reading could not see it. `SPAN` also left the exclusion list
+  // in the same pass — a padded span with a border is chrome, not a control, and
+  // only genuine CONTROLS belong in that list.
+  const style = el.getAttribute("style") ?? "";
+  return /(^|;)\s*border(-(top|right|bottom|left|width|style))?\s*:/.test(style);
 }
 
 function describeNode(el: Element): string {
@@ -294,7 +328,7 @@ function describeNode(el: Element): string {
 
 function collectBorderedContainers(container: HTMLElement): { root: Element; el: Element }[] {
   const out: { root: Element; el: Element }[] = [];
-  for (const root of container.querySelectorAll(SLOT_ROOT_SELECTOR)) {
+  for (const root of slotRoots(container)) {
     if (isBorderedContainer(root)) out.push({ root, el: root });
     for (const el of root.querySelectorAll("*")) {
       if (isBorderedContainer(el)) out.push({ root, el });
@@ -381,7 +415,7 @@ describe("Step-3 row slot (STEP3-GALLERY-TAP-TARGETS-1 item d)", () => {
     // a licence nobody can audit, and the next reader cannot tell it from a gap.
     const { container } = renderGallery();
     const all: Element[] = [];
-    for (const root of container.querySelectorAll(SLOT_ROOT_SELECTOR)) {
+    for (const root of slotRoots(container)) {
       all.push(...root.querySelectorAll(ACTION_SELECTOR));
     }
     premise("the slot renders candidate controls", all.length, 0);
@@ -494,5 +528,16 @@ describe("Step-3 row slot (STEP3-GALLERY-TAP-TARGETS-1 item d)", () => {
       }
     }
     expect(nested, "bordered containers nested inside another, after a re-scan result").toEqual([]);
+
+    // r7 F1, temporal half: the post-interaction block re-checked borders only,
+    // so an action appearing in a result state — a retry, a dismiss — could wear
+    // any treatment it liked. Contract (i) holds in every state, not just the
+    // first one.
+    const postActions = collectActions(container);
+    premise("the post-result slot still renders actions", postActions.length, 1);
+    expect(
+      [...new Set(postActions.map(treatmentSignature))],
+      "distinct action treatments AFTER a re-scan result",
+    ).toHaveLength(1);
   });
 });
