@@ -85,7 +85,7 @@ export function HelpSheet({ label, children, testId = "help-sheet" }: HelpSheetP
       >
         <span
           data-testid={`${testId}-trigger-visual`}
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-pill bg-surface-sunken align-middle text-sm font-semibold text-text-subtle transition-colors duration-fast group-hover:bg-surface group-hover:text-text-strong"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-pill bg-surface-sunken align-middle text-sm font-semibold text-text transition-colors duration-fast group-hover:bg-surface group-hover:text-text-strong"
         >
           <span aria-hidden="true">?</span>
         </span>
@@ -170,7 +170,7 @@ function HelpSheetOverlay({
           >
             <span
               data-testid={`${testId}-close-visual`}
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast group-hover:bg-surface-sunken group-hover:text-text-strong"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-sm text-text transition-colors duration-fast group-hover:bg-surface-sunken group-hover:text-text-strong"
             >
               <X aria-hidden="true" className="size-5" />
             </span>

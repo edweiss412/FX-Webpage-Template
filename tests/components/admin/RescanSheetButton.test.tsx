@@ -29,6 +29,7 @@ import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
 import type { ParseResult } from "@/lib/parser/types";
+import { expectActionAffordanceColour } from "../../_shared/actionAffordance";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -540,5 +541,30 @@ describe("BL-ANNOUNCE-REGION-UNMOUNT-CLASS — success announces into a branch-s
     const own = getByTestId(`rescan-sheet-result-${DFID}`);
     expect(own.querySelector('[role="status"]')).toBeNull();
     expect(own.querySelector("[aria-live]")).toBeNull();
+  });
+});
+
+describe("overlay dismiss colour (SHEETLINK-SUBTLE-ACTION-CLASS-1)", () => {
+  // The floating overlay's X. Unlike the sheet-header controls, this one both
+  // paints and takes the pointer — its <X> glyph carries no colour of its own —
+  // so the button element is the right assertion target.
+  test("the overlay dismiss sits at text-text, not text-text-subtle", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({
+        ok: true,
+        status: "updated",
+        needsReview: false,
+        changed: true,
+        demoted: false,
+      }),
+    );
+    const { getByTestId, getByLabelText } = render(
+      <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} resultPlacement="overlay" />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
+    });
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    expectActionAffordanceColour(getByLabelText("Dismiss"), "RescanSheetButton overlay dismiss");
   });
 });

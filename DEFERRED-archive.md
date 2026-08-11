@@ -1,3 +1,42 @@
+### SHEETLINK-SUBTLE-ACTION-CLASS-1 — `text-text-subtle` on icon-only action targets — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
+
+**Resolution: SHIPPED.** Task U4 of the M-wave-2 plan
+(`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`); un-defer trigger fired on both counts —
+this is a DESIGN.md conformance pass AND it edits `ModalCloseButton`.
+
+**Five sites, not four.** The entry named `ModalCloseButton.tsx`, `RescanSheetButton.tsx`'s overlay
+dismiss, `BellPanel.tsx`'s `bell-panel-close`, and `HelpSheet.tsx`'s sheet close. The fifth is in
+that last file too: the `?` trigger's own painted span, which is the visible affordance for a hit box
+that carries no colour of its own. All five now sit at `text-text` at rest and lift to
+`text-text-strong` on hover, matching `SheetIconLink` — so the header inversion the entry recorded as
+"the measured cost of waiting" is gone, and the secondary sheet link no longer renders darker than
+the primary dismiss beside it.
+
+**The assertion targets what PAINTS, not what takes the pointer.** Three of the five are bare
+`size-tap-min` hit boxes wrapping an inner span; asserting on the button would have passed while the
+glyph stayed subtle. `tests/_shared/actionAffordance.ts` states the contract once and all four
+pinning suites call it, so the five cannot drift apart again the way they did the first time.
+
+**Byte baseline.** `ModalCloseButton` renders inside the Step-3 review header, whose byte-for-byte
+fixture (`tests/components/admin/review/__fixtures__/step3-header-baseline.html`) held exactly one
+occurrence of the old class; it is updated in the same commit.
+
+**Help screenshots are NOT regenerated, and that is a finding rather than an omission.** The
+manifest captures `/admin`, `/admin/needs-attention`, and four crew-preview routes
+(`scripts/help-screenshots.manifest.ts:51-113`). `HelpSheet` renders only in the wizard steps
+(`Step1Share`, `Step2Verify`, `Step3Review`); `BellPanel`'s close exists only while the panel is
+open; `ModalCloseButton` only inside a modal; the rescan dismiss only after a re-scan returns. No
+captured baseline reaches any of the five, so regenerating would rewrite committed x64-Linux bytes
+for no change.
+
+**Effort:** M · **Closed:** 2026-08-10
+
+From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07-26). The diff fixed the DESIGN.md "never an action target" violation on the three icon-only SHEET links, but the same bug shape lives on at `ModalCloseButton.tsx:20`, `RescanSheetButton.tsx:207`, `BellPanel.tsx:1294` (the `bell-panel-close` icon-only dismiss), and `HelpSheet.tsx:145` — and the close button sits in the SAME modal header, so post-merge the secondary sheet link renders DARKER at rest than the primary dismiss beside it (a deliberate-looking inversion that is actually drift).
+
+**Accepted, not fixed.** The backlog entry this branch closes scoped the icon-only sheet-link class; recolouring four more controls — one of which (ModalCloseButton) feeds the byte-for-byte header baselines and every modal suite — is its own class sweep with its own RED edges, not a rider on this diff. The header-inversion observation is the measured cost of waiting.
+
+**Un-defer trigger:** the next DESIGN.md conformance pass, or any edit to ModalCloseButton.
+
 ### SHARELINK-CONSTANTS-INVENTORY-1 — DESIGN.md §5.5 was a hand-written list that omitted most of its own population — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
 
 **Resolution: SHIPPED, and the population is now derived rather than swept.** Task U3 of the M-wave-2

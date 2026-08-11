@@ -161,16 +161,6 @@ From the same audit. A needs-you row's accessible name is now `"needs review —
 
 **Un-defer trigger:** owner review of the row's accessible name, or the first screen-reader pass on the merged panel.
 
-### SHEETLINK-SUBTLE-ACTION-CLASS-1 — [P1] `text-text-subtle` survives on four sibling icon-only action targets
-
-**Effort:** M · **Status:** IN PROGRESS · **Branch:** feat/m2-ui-cluster
-
-From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07-26). The diff fixed the DESIGN.md "never an action target" violation on the three icon-only SHEET links, but the same bug shape lives on at `ModalCloseButton.tsx:20`, `RescanSheetButton.tsx:207`, `BellPanel.tsx:1294` (the `bell-panel-close` icon-only dismiss), and `HelpSheet.tsx:145` — and the close button sits in the SAME modal header, so post-merge the secondary sheet link renders DARKER at rest than the primary dismiss beside it (a deliberate-looking inversion that is actually drift).
-
-**Accepted, not fixed.** The backlog entry this branch closes scoped the icon-only sheet-link class; recolouring four more controls — one of which (ModalCloseButton) feeds the byte-for-byte header baselines and every modal suite — is its own class sweep with its own RED edges, not a rider on this diff. The header-inversion observation is the measured cost of waiting.
-
-**Un-defer trigger:** the next DESIGN.md conformance pass, or any edit to ModalCloseButton.
-
 ---
 
 ## /help/errors report surface — impeccable dual-gate deferrals (2026-08-09)

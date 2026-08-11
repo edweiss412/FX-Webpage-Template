@@ -224,7 +224,7 @@ export function RescanSheetButton({
                 triggerRef.current?.focus();
                 setResult(null);
               }}
-              className="absolute -right-2 -top-2 inline-flex size-tap-min items-center justify-center rounded-pill text-text-subtle hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className="absolute -right-2 -top-2 inline-flex size-tap-min items-center justify-center rounded-pill text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             >
               <X aria-hidden="true" className="size-4" />
             </button>
