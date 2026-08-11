@@ -516,7 +516,8 @@ function RowItem({
   quiet?: boolean;
   /**
    * The row is already inside a bordered container (the "Needs your attention"
-   * plate), so it renders as a filled panel rather than a second bordered card.
+   * plate), so it renders as a flat list item — no border and no fill of its
+   * own — rather than a second bordered card.
    * STEP3-GALLERY-TAP-TARGETS-1 item (d); pinned by
    * tests/components/admin/wizard/step3RowSlot.test.tsx.
    */
@@ -578,17 +579,27 @@ function RowItem({
     <article
       data-testid={`wizard-step3-row-${row.driveFileId}`}
       data-status={row.status}
-      // `flat` drops the border for rows rendered INSIDE the "Needs your
-      // attention" plate — a bordered card inside a bordered plate is the nested
-      // chrome of item (d), and it costs real width at 390px. The plate keeps
-      // its border rather than the row: `--color-surface-sunken` (#F4F3F1) sits
-      // one step from the page `--color-bg` (#FAFAF9), so a borderless plate
-      // would all but vanish in light mode, while a borderless row on that plate
-      // still separates on fill (#FFFFFF on #F4F3F1; #16171C on #0B0C10 dark).
+      // `flat` is for rows rendered INSIDE the "Needs your attention" plate: a
+      // bordered card inside a bordered plate is the nested chrome of item (d),
+      // and it costs real width at 390px.
+      //
+      // It drops the fill as well as the border, and the measurement is why.
+      // The first version kept `bg-surface` and claimed the row still separated
+      // from the plate on fill — it does not: `--color-surface` against
+      // `--color-surface-sunken` is 1.11:1 light and 1.09:1 dark, against a 3:1
+      // non-text floor. That is the same trap DESIGN.md §1.2a records for
+      // standalone hairlines, one layer up. Nor can the PLATE yield its border
+      // instead: `--color-surface-sunken` on the page `--color-bg` is ~1.05:1,
+      // so a borderless plate simply disappears.
+      //
+      // So the row is a genuine flat list item — no border, no fill of its own,
+      // separated by the list's `gap-3` and by its own content, which is the
+      // ordinary way a grouped list inside a titled container reads. One
+      // bordered level, and no contrast claim that the tokens do not support.
       className={cn(
         "flex flex-col gap-3 rounded-md p-tile-pad",
         flat ? null : "border border-border",
-        quiet ? "bg-surface-sunken" : "bg-surface",
+        flat ? null : quiet ? "bg-surface-sunken" : "bg-surface",
       )}
     >
       <header className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">

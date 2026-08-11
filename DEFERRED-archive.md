@@ -111,12 +111,19 @@ three `HardFailedActions` buttons, the manifest-keyed `Permanently ignore`, and 
 the equal alternative. The constant carries no `focus-visible:ring-offset-*`: one constant cannot
 hold a correct offset COLOUR across both `bg-surface` cards and the `bg-surface-sunken` plate.
 
-_Which border yielded:_ the rows, not the plate. `--color-surface-sunken` (#F4F3F1) sits one step
-from the page `--color-bg` (#FAFAF9), so a borderless "Needs your attention" plate would all but
-vanish in light mode, while a borderless row on that plate still separates on fill (#FFFFFF on
-#F4F3F1 light, #16171C on #0B0C10 dark). `RowItem` takes a `flat` prop for that placement. The two
-warning notes inside the row cards (`RescanReviewBanner`, `NotPublishableNote`) dropped their borders
-and keep the warm warning tint plus their icon, per the colour-blind floor.
+_Which border yielded:_ the rows, not the plate — and the row goes fully flat, which took a
+measurement to get right. The plate cannot yield its own border: `--color-surface-sunken` (#F4F3F1)
+on the page `--color-bg` (#FAFAF9) is ~1.05:1, so a borderless plate disappears in light mode. The
+first repair therefore flattened the row but kept `bg-surface` on it, reasoning that fill would carry
+the separation. **It does not.** `--color-surface` against `--color-surface-sunken` measures
+**1.11:1 light and 1.09:1 dark**, against a 3:1 non-text floor — the same trap DESIGN.md §1.2a
+records for standalone hairlines, one layer up. So `RowItem`'s `flat` drops the fill as well as the
+border, and the row is a genuine flat list item separated by the list's `gap-3` and by its own
+content, which is how a grouped list inside a titled container ordinarily reads. A third assertion
+pins it, because the failure mode is a later edit re-adding `bg-surface` "for separation" — a change
+that reads as a fix while restoring a claim the tokens do not support. The two warning notes inside
+the row cards (`RescanReviewBanner`, `NotPublishableNote`) dropped their borders and keep the warm
+warning tint plus their icon, per the colour-blind floor.
 
 The guard was mutated against its own fix — restoring the underlined resolve link re-reds it — so the
 rows added after the repair carry discriminating power rather than decoration.

@@ -78,7 +78,10 @@ Cross-model review + mutation-gate record: see the review section below
 
 ## W-UI (`feat/m2-ui-cluster`)
 
-impeccable-gate: critique=PENDING audit=PENDING p0=PENDING p1=PENDING dispositions=PENDING
+The gate marker line is written when the gate COMPLETES, not before — a
+placeholder is not a valid marker and the guard is right to reject one
+(same handling as the step3-live-render-cluster plan, whose §12 carried no
+marker until its Task 6 finished).
 
 Five tasks: U1 semantic z-index bands + dual-idiom guard; U2 one row-slot
 affordance vocabulary + flattened nested chrome (STEP3-GALLERY-TAP-TARGETS-1
@@ -115,6 +118,28 @@ against this repo's Tailwind (v4.2.4): a minimal `@theme` with
 This matters because a typo'd token would emit NO `z-index` at all — a silent
 stacking regression that a class-string guard cannot catch, since the class
 string would be exactly what the guard expects.
+
+### A self-caught P1, recorded because the claim shipped before the measurement
+
+The first U2 repair flattened the blocking rows inside the "Needs your attention"
+plate but kept `bg-surface` on them, and asserted in the commit message and the
+ledger archive that the row "still separates on fill". Measured, that pair is
+**1.11:1 light and 1.09:1 dark** (`--color-surface` vs `--color-surface-sunken`)
+against a 3:1 non-text floor, so the claim was simply false. Nor was the obvious
+alternative available: `--color-surface-sunken` on the page `--color-bg` is
+~1.05:1, so yielding the PLATE's border instead would have made the plate vanish.
+
+`flat` now drops the fill as well as the border and the row is a genuine flat
+list item, separated by the list's `gap-3` and by its own content. A third
+assertion in `step3RowSlot.test.tsx` pins it, because the failure mode is a later
+edit re-adding `bg-surface` "for separation" — a change that reads as a fix while
+restoring a claim the tokens do not support.
+
+Worth recording as a pattern, not just an incident: this is DESIGN.md §1.2a one
+layer up. That section already establishes that tokens tuned to sit BESIDE a
+filled surface do not carry contrast when they stand alone; the same is true of
+two fills tuned to sit one step apart in a stack. Neither was caught by reading —
+both took the arithmetic.
 
 ### Full suite
 

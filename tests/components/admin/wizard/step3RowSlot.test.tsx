@@ -236,6 +236,35 @@ describe("Step-3 row slot (STEP3-GALLERY-TAP-TARGETS-1 item d)", () => {
     ).toHaveLength(1);
   });
 
+  // The repair for (ii) chose to flatten the ROW rather than the plate, and that
+  // choice rests on a measurement: `--color-surface` against
+  // `--color-surface-sunken` is 1.11:1 light / 1.09:1 dark, so a row that kept a
+  // fill would NOT be separated from the plate by it — and the plate cannot
+  // yield its own border either, since `--color-surface-sunken` on the page
+  // `--color-bg` is ~1.05:1. Pinned here because the failure mode is a future
+  // edit re-adding `bg-surface` "for separation", which reads as a fix and
+  // restores a claim the tokens do not support.
+  test("a row inside the bordered plate carries neither a border nor a fill", () => {
+    const { container } = renderGallery();
+    const plate = container.querySelector('[data-testid="wizard-step3-needs-attention"]');
+    premiseHolds("the attention plate rendered", plate !== null);
+    const rows = [...plate!.querySelectorAll('[data-testid^="wizard-step3-row-"]')];
+    premise("the plate holds rows to check", rows.length, 0);
+
+    const dressed = rows
+      .map((row) => ({
+        id: describeNode(row),
+        tokens: (row.getAttribute("class") ?? "").split(/\s+/).filter(Boolean),
+      }))
+      .filter(({ tokens }) => tokens.some((t) => BORDER_TOKEN.test(t) || /^bg-/.test(t)))
+      .map(
+        ({ id, tokens }) =>
+          `${id}: ${tokens.filter((t) => BORDER_TOKEN.test(t) || /^bg-/.test(t)).join(" ")}`,
+      );
+
+    expect(dressed, "rows inside the plate that still carry a border or a fill").toEqual([]);
+  });
+
   test("(ii) no bordered card renders inside another bordered container", () => {
     const { container } = renderGallery();
     const bordered = collectBorderedContainers(container);
