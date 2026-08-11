@@ -66,7 +66,7 @@ Red is written by this task (invariant-1 shape): the new suite fails against the
 
 <!-- task: red=`grep -qE "^impeccable-gate: critique=RAN" docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md` ac=AC-6 -->
 
-Red now (line-anchored grep exits 1 — the only occurrence is this marker comment, not at line start). Run both halves of the invariant-8 dual gate (`/impeccable`, critique mode then audit mode, canonical v3 setup). Expected deltas: none visual at rest (loader/state changes + live regions); the gate verifies. Fill the §12 marker, then RERUN the same command and observe exit 0.
+Red now (line-anchored grep exits 1 — the only occurrence is this marker comment, not at line start). Run both halves of the invariant-8 dual gate (`/impeccable`, critique mode then audit mode, canonical v3 setup). Expected deltas: none visual at rest (loader/state changes + live regions); the gate verifies. Fill the §12 marker + the full findings table — where EVERY P0 and P1 is FIXED or explicitly deferred via a `DEFERRED.md` entry (invariant 8's own bar; accepted-with-reason is available to P2/P3 ONLY — R3 F1) — then RERUN the same command and observe exit 0.
 
 ## Task 5 — Graduations + merge sequence
 
@@ -91,4 +91,4 @@ Red now (the entry heading exists; the negated grep exits 1; green when all thre
 
 ## §12 — impeccable gate record
 
-The marker line lands here, filled, at Task 4 completion (the guard accepts only the filled grammar), FOLLOWED by the full findings table: every critique and audit finding — P0 through P3 — one row each with severity, description, and disposition (fixed / DEFERRED.md ref / accepted-with-reason).
+The marker line lands here, filled, at Task 4 completion (the guard accepts only the filled grammar), FOLLOWED by the full findings table: every critique and audit finding — P0 through P3 — one row each with severity, description, and disposition (P0/P1: fixed or DEFERRED.md ref ONLY; P2/P3 may be accepted-with-reason — R3 F1).
