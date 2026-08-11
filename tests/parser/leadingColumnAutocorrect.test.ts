@@ -116,4 +116,54 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
       ].join("\n"),
     );
   });
+
+  // Review round 2, Critical #1 (still open after round 1): round 1's corroboration
+  // ("next line is its own colon-dash alignment row") accepted a LONE `-` placeholder cell
+  // as a full alignment row, shaped on the real HOTEL block at
+  // fixtures/shows/exporter-xlsx/fixed-income.md:44-51, which already carries lone `-`
+  // cells. Nothing here is shifted, so this must produce zero warnings and an unchanged
+  // document. The width-delta fix rejects it because the "DATES" row is the SAME width as
+  // the block's other rows, not one wider.
+  it("does not treat a lone dash placeholder cell as a shifted section's own alignment row (review round 2, Critical #1)", () => {
+    const md = [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#2 |",
+      "| :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Park Hyatt Chicago |",
+      "|  | DATES | 10/18/25 |",
+      "|  | - | - |",
+    ].join("\n");
+    const result = normalizeLeadingColumn(md);
+    expect(result.warnings).toEqual([]);
+    expect(result.corrected).toEqual(md);
+  });
+
+  // Review round 2, missing positive-direction test: round 1's three regression tests only
+  // pinned the SUPPRESSION direction, so a denylist and even deleting the cell-2 branch
+  // outright passed all three. This is the shape that requires it: an INNER (mid-block)
+  // section - shaped on the real consultants.md:41-49 TRANSPORTATION/Driver block - whose
+  // own header ("Driver") owns no alignment row of its own, so it can ONLY be detected via
+  // the cell-2 branch's width-delta corroboration (the row is exactly one cell wider than
+  // the block's unshifted TRANSPORTATION header/alignment rows). Checked: with the cell-2
+  // branch's width check replaced by `return false`, this test fails (0 warnings instead of
+  // 1, document unchanged) while the three suppression tests above and the original corpus
+  // test all still pass - confirmed by running the mutated function locally before writing
+  // this comment.
+  it("detects and corrects a shifted INNER section with no alignment row of its own, via the cell-2 width-delta (review round 2, positive direction)", () => {
+    const md = [
+      "| TRANSPORTATION | NAME | PHONE |",
+      "| :---: | :---: | :---: |",
+      "|  | Driver | Carlos Pineda | 610-618-0111 |",
+      "|  | Vehicle | 16' Box Truck Rental |  |",
+    ].join("\n");
+    const result = normalizeLeadingColumn(md);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.corrected).toEqual(
+      [
+        "| TRANSPORTATION | NAME | PHONE |",
+        "| :---: | :---: | :---: |",
+        "| Driver | Carlos Pineda | 610-618-0111 |",
+        "| Vehicle | 16' Box Truck Rental |  |",
+      ].join("\n"),
+    );
+  });
 });
