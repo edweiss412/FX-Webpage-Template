@@ -219,7 +219,7 @@ export function ShareHub({
    *           trigger at z >= 20 overpaints it and steals its clicks.
    */
   const elevateTriggers = open && !busy && !attentionMenuOpen;
-  const triggerElevation = elevateTriggers ? " relative z-30" : "";
+  const triggerElevation = elevateTriggers ? " relative z-nav" : "";
 
   useEffect(() => {
     if (!inFlight) return;

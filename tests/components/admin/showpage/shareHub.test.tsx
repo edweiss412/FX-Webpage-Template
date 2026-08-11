@@ -12,6 +12,7 @@
  * are the authority on composition, not prose.
  */
 import "@testing-library/jest-dom/vitest";
+import { maxZLevel } from "../../../_shared/zLevel";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -103,33 +104,6 @@ function renderHub(opts: Opts = {}) {
  * after a colon, whatever precedes it. Negatives never raise the max, so a
  * trigger carrying only `-z-10` reads 0.
  */
-const Z_BAND_LEVELS: Record<string, number> = {
-  // The semantic band scale (app/globals.css @theme, M-wave 2 §2.6). The
-  // level pins below stay NUMERIC on purpose — the rule they encode is an
-  // ordering, and the bands are its names.
-  raised: 10,
-  dropdown: 20,
-  nav: 30,
-  banner: 40,
-  overlay: 50,
-  "dev-controls": 60,
-  "sticky-banner": 100,
-};
-
-const maxZLevel = (cls: string): number => {
-  let max = 0;
-  for (const tok of cls.split(/\s+/).filter(Boolean)) {
-    // Trailing `!` is Tailwind v4's important modifier (`z-30!`) — a real,
-    // plausible way to force an elevation, so allow it before the anchor.
-    const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+)|([a-z-]+))!?$/.exec(tok);
-    if (!m) continue;
-    const raw = m[2] ?? m[3] ?? (m[4] !== undefined ? String(Z_BAND_LEVELS[m[4]] ?? "") : "");
-    if (raw === "") continue;
-    const n = (m[1] === "-" ? -1 : 1) * Number(raw);
-    if (n > max) max = n;
-  }
-  return max;
-};
 
 const primary = () => screen.getByTestId("share-hub-primary") as HTMLButtonElement;
 const kebab = () => screen.getByTestId("share-hub-kebab") as HTMLButtonElement;

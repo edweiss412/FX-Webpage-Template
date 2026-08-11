@@ -175,7 +175,7 @@ export function RescanSheetButton({
   // footer branch (and `left-0` on the wrapper would mirror-clip the demoted
   // right-aligned branch). ≥sm restores today's wrapper-anchored `right-0`.
   const overlayClass = cn(
-    "absolute bottom-full left-0 sm:left-auto sm:right-0 mb-2 z-10 w-max max-w-[min(20rem,80vw)] shadow-tile pr-10",
+    "absolute bottom-full left-0 sm:left-auto sm:right-0 mb-2 z-raised w-max max-w-[min(20rem,80vw)] shadow-tile pr-10",
   );
 
   return (

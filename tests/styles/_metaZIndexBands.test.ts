@@ -32,8 +32,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
-import { scanZIndexSites, type ZSite } from "./_zIndexScan";
+import { scanBandClassNames, scanZIndexSites, type ZSite } from "./_zIndexScan";
 import { Z_INDEX_EXEMPTIONS } from "./zIndexExemptions";
+import { premise } from "../_shared/premise";
 
 const BAND_TOKENS: Record<string, number> = {
   "z-raised": 10,
@@ -115,14 +116,60 @@ describe("semantic z-index bands (dual idiom, filesystem-walked)", () => {
     }
   });
 
-  it("the band tokens exist in app/globals.css @theme with the fixed values", () => {
+  it("the band tokens are declared INSIDE @theme with the fixed values", () => {
+    // Whole-diff review r1 F2: the first version matched the declaration
+    // anywhere in the file, so `:root { --z-index-overlay: 50; }` satisfied it —
+    // and a custom property outside `@theme` emits NO utility at all. Tailwind
+    // v4 builds `z-<name>` from its theme namespace, not from any `--z-index-*`
+    // it happens to find. Scope the search to the block.
     const css = readFileSync("app/globals.css", "utf8");
+    const open = css.indexOf("@theme {");
+    expect(open, "app/globals.css declares an @theme block").toBeGreaterThanOrEqual(0);
+    let depth = 0;
+    let end = -1;
+    for (let i = css.indexOf("{", open); i < css.length; i += 1) {
+      if (css[i] === "{") depth += 1;
+      else if (css[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    expect(end, "the @theme block closes").toBeGreaterThan(open);
+    const themeBlock = css.slice(open, end);
+
     for (const [name, value] of Object.entries(BAND_TOKENS)) {
       const token = `--z-index-${name.slice(2)}`;
       expect(
-        new RegExp(`${token}:\\s*${value};`).test(css),
-        `${token}: ${value}; missing from app/globals.css @theme`,
+        new RegExp(`${token}:\\s*${value};`).test(themeBlock),
+        `${token}: ${value}; missing from the @theme block of app/globals.css`,
       ).toBe(true);
     }
+  });
+
+  it("every band class used in the tree actually COMPILES to a z-index rule", () => {
+    // The sharpest failure this guard can have, and r1 F2's other half: a
+    // typo'd token (`z-overaly`) is not a raw numeral, so the census is silent,
+    // and Tailwind emits nothing for it — the element simply loses its stacking
+    // while every string-level check stays green. Only compiling can catch it.
+    //
+    // Deliberately driven from the classes the TREE uses rather than from
+    // BAND_TOKENS: asserting the seven known-good names would prove Tailwind
+    // works, which was never in doubt. What is in doubt is whether the names
+    // the source actually writes are among them.
+    const used = new Set<string>();
+    for (const file of walkSourceFiles(["app", "components"], { extensions: [".tsx"] })) {
+      for (const name of scanBandClassNames(readFileSync(file, "utf8"), file)) used.add(name);
+    }
+    premise("the tree uses band classes at all", used.size, 0);
+
+    const unknown = [...used].filter((cls) => !(cls in BAND_TOKENS));
+    expect(
+      unknown,
+      "band-shaped classes in the tree that name no declared band — a typo here emits NO z-index " +
+        "at all, so nothing else in this file would notice",
+    ).toEqual([]);
   });
 });

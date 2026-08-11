@@ -313,7 +313,7 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     "sm:left-auto",
     "sm:right-0",
     "mb-2",
-    "z-10",
+    "z-raised",
     "w-max",
     "max-w-[min(20rem,80vw)]",
     "shadow-tile",

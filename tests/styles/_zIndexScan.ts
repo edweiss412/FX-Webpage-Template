@@ -30,7 +30,27 @@ export type ZSite = {
   readonly idiom: "utility" | "inline-style";
 };
 
-const NUMERIC_Z_UTILITY = /(?:^|\s)(z-\d+)(?=\s|$)/g;
+/**
+ * A numeric `z-<n>` utility, WITH any Tailwind variant prefixes it carries.
+ *
+ * The prefixes are part of the match rather than something to strip, because
+ * `focus:z-50` is every bit as much a raw stacking numeral as `z-50` — it just
+ * applies in one state. The first version anchored on a bare token boundary and
+ * therefore reported `app/help/layout.tsx`'s skip link, a `focus:z-50`, as
+ * having no sites at all (whole-diff review r1 F1).
+ */
+const NUMERIC_Z_UTILITY = /(?:^|\s)((?:[a-z][a-z0-9-]*:)*z-\d+)(?=\s|$)/g;
+
+/**
+ * A NAMED band utility (`z-overlay`, `focus:z-nav`) in className context.
+ *
+ * Same recognizer, second question. The band guard needs to know which band
+ * NAMES the source actually writes, so it can reject one that names no declared
+ * band — a typo emits no `z-index` at all and no numeral-hunting check would
+ * see it (whole-diff review r1 F2). Reading className context rather than raw
+ * text is what keeps `z-index:` in a comment from counting as a class.
+ */
+const NAMED_Z_UTILITY = /(?:^|\s)(?:[a-z][a-z0-9-]*:)*(z-[a-z][a-z0-9-]*)(?=\s|$)/g;
 
 /** Static class text of a className value, per the structural accept-set. */
 function staticClassText(expr: ts.Expression): string {
@@ -88,14 +108,17 @@ export function scanZIndexSites(source: string, filePath: string): ZSite[] {
             : undefined;
       if (expr) pushUtilities(staticClassText(expr), node);
     }
-    // Idiom 1b: module-level string consts (cn()-wrapped or bare) that feed
-    // className indirectly.
-    if (ts.isVariableStatement(node) && node.parent === sf) {
-      for (const decl of node.declarationList.declarations) {
-        if (!decl.initializer) continue;
-        const text = staticClassText(decl.initializer);
-        if (text) pushUtilities(text, decl);
-      }
+    // Idiom 1b: string consts (cn()-wrapped or bare) that feed className
+    // indirectly — at ANY scope, not only module level.
+    //
+    // The scope restriction was the second half of r1 F1: `const overlayClass =
+    // cn("... z-10 ...")` inside a component body, and ShareHub's
+    // `const triggerElevation = elevateTriggers ? " relative z-30" : ""`, are
+    // ordinary idioms in this repo and were both invisible. A declaration's
+    // scope says nothing about whether its numerals reach the DOM.
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const text = staticClassText(node.initializer);
+      if (text) pushUtilities(text, node);
     }
     // Idiom 2: inline style objects with numeric zIndex.
     if (
@@ -120,4 +143,34 @@ export function scanZIndexSites(source: string, filePath: string): ZSite[] {
   };
   visit(sf);
   return sites;
+}
+
+/**
+ * Every named band class the file writes in className context, variant prefixes
+ * stripped (a `focus:` variant is the same band, applied in one state).
+ */
+export function scanBandClassNames(source: string, filePath: string): string[] {
+  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const names = new Set<string>();
+  const collect = (text: string): void => {
+    for (const m of text.matchAll(NAMED_Z_UTILITY)) names.add(m[1]!);
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === "className") {
+      const expr = !node.initializer
+        ? undefined
+        : ts.isStringLiteralLike(node.initializer)
+          ? node.initializer
+          : ts.isJsxExpression(node.initializer)
+            ? node.initializer.expression
+            : undefined;
+      if (expr) collect(staticClassText(expr));
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      collect(staticClassText(node.initializer));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return [...names];
 }
