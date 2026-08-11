@@ -73,4 +73,32 @@ Red now (entry heading present; negated grep exits 1; green at graduation — sa
 
 ## §12 — impeccable gate record
 
-The marker line lands here, filled, at Task 4 completion, followed by the full findings table.
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
+
+`dispositions=none` is what the §3.3 grammar REQUIRES at `p0=0 p1=0` — the field is coupled to those two counts (`tests/docs/_invariant8Closeout.ts:141`), so it reads "no P0/P1 findings to disposition", not "nothing was recorded". The P2/P3 findings this gate did raise are dispositioned in the table below.
+
+Both halves of the invariant-8 dual gate ran on this diff (2026-08-11, impeccable v3.9.1, canonical setup: `context.mjs` context load → `reference/critique.md` / `reference/audit.md` → project files → `reference/product.md` register).
+
+**Critique — dual-agent, not degraded** (A: design review `afbe8d76de80a62a3`, B: detector + browser evidence `a3a02b2b55e6ca4bb`, isolated and parallel). Design Health **31/40**. Snapshot persisted at `.impeccable/critique/2026-08-11T10-28-38Z__components-admin-wizard-step3reviewsections-tsx.md`.
+
+**Audit — technical.** Health **18/20** (Excellent): Accessibility 3, Performance 4, Responsive 3, Theming 4, Anti-Patterns 4.
+
+Browser visualization was NOT available for either half: no dev server was running and the two wizard surfaces render only behind a seeded onboarding-wizard DB session. Static evidence was used instead — full className strings, token resolution, and computed contrast — plus the real-browser rects this arc's own e2e suite already measures at 390px and 800px. Recorded rather than glossed.
+
+### Findings and dispositions (P0-P3)
+
+| # | Sev | Finding | Disposition |
+|---|-----|---------|-------------|
+| 1 | ~~P1~~ | **REFUTED.** `text-accent-on-bg` claimed to be a documented AA failure (4.11:1), citing `app/globals.css:1206-1209`. That comment is STALE — `BL-ACCENT-ON-BG-AA-CONTRAST` (`BACKLOG-archive.md:4983`) shipped 2026-07-16 and moved light `--color-accent-on-bg-runtime` to `#a65000`. | Refuted by independent measurement: light `#a65000` on `#fafaf9` = **5.34:1**, dark `#ffa047` on `#0f1014` = **9.39:1**, both over the 4.5:1 floor for 12px text. The replaced `text-blue-700` was 6.42:1 on the same bg — also passing, so the swap is a hue decision (PRODUCT.md bans a competing accent), not a contrast regression. No change. |
+| 2 | P2 | Site 5's hit box covers ~8px of the non-interactive meta line (`Step3SheetCard.tsx:167`, `:664`): `-my-2.5` (10px) less the meta line's `mt-0.5` (2px). A tap on the date line can open Google Sheets in a new tab. | **DEFERRED — filed `BL-TAP-TITLE-LINK-META-LINE-BLEED`.** Spec §2 ratifies this recipe verbatim ("**Exactly** `inline-block -my-2.5 py-2.5 -mx-2 px-2`… one recipe, no delegated choice"), and the ratified overlap contract covers interactive neighbours only. The proposed one-directional bleed is a different recipe, i.e. a spec amendment, not an implementation call. |
+| 3 | P2 | Contact cells gain ~54px (Driver ~106px → ~160px) and their grid row-mates stretch to match — at ≥560px, Vehicle stretches to 160px around ~34px of content (`step3ReviewSections.tsx:1461` grid, `:1380` cell). | **DEFERRED — filed `BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR`.** A container re-balance beyond the ratified per-control recipes; same category as the tail-`<li>` container change this arc reverted. |
+| 4 | P2 | Sites 6/7 are two 44px targets 6px apart (`gap-1.5`), and `items-center` inside a 44px box inverts the grouping — name+phone read as one group, email as an orphan. Larger targets also make the WRONG one easier to hit, and the wrong one dials. | **DEFERRED — filed `BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING`.** Spacing and resting-container work on the cell, not the ratified control recipes. |
+| 5 | P3 | 44px of air with no rest-state affordance at sites 4/6/7 — all rely on `hover:` treatments, which PRODUCT.md bans as sole affordances for the venue floor. | **Pre-existing, not introduced.** The diff enlarged the boxes; it removed no rest state. Folded into the `BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING` filing. |
+| 6 | P3 | Focus-ring vocabulary is inconsistent across the five repaired controls: sites 4 and 5 suppress the UA outline and supply `focus-visible:ring-focus-ring`; sites 6, 7 and 8 carry no focus classes at all (they fall back to the UA default, so nothing is unfocusable). | **Pre-existing, not introduced** — none of the three ever had focus classes, and this diff added only sizing. Recorded, not filed: the accessible-fallback case is not a defect on its own. |
+| 7 | P3 | `app/globals.css:1206-1209` carries a stale 4.11:1 contrast figure for a token that has measured 5.34:1 since 2026-07-16. | **DEFERRED — filed `BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT`.** Real doc-rot, outside this diff (help-prose layer). Finding 1 above is the measured cost of leaving it: it produced a false P1 in this very gate. |
+
+**Refuted claims recorded so a later round does not re-derive them** (AGENTS.md cross-CLI discipline): finding 1 above; and Assessment A's report that `BL-ACCENT-ON-BG-AA-CONTRAST` is a dangling reference — it is not, it is at `BACKLOG-archive.md:4983`, which A did not check.
+
+**Detector.** `detect.mjs` exit 2, four findings, **all PRE-EXISTING and none inside this diff**: `broken-image` at `step3ReviewSections.tsx:3687` and `:3718` (both false positives — the matched `<img>` is prose inside a `/** */` comment, not a live tag) and `side-tab` (`border-l-4`) at `app/admin/dev/page.tsx:215` and `:266`. Left untouched: out of this arc's scope, and the dev page is deliberately unstyled per its own header comment.
+
+**Token sanity.** `--spacing-tap-min` = `44px` (`app/globals.css:179`); `w-fit` and `text-accent-on-bg` both resolve (Tailwind v4 `@theme`, no `tailwind.config.*`). No silent no-op class shipped — which would have been the most serious possible finding, since every floor assertion would then pass against nothing.
