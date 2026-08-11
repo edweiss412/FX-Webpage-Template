@@ -850,29 +850,6 @@ restructures the effect body. Micro-optimisation otherwise.
 
 ---
 
-## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking is raw Tailwind numerics, not named bands
-
-**Effort:** M · **Status:** IN PROGRESS · **Branch:** feat/m2-ui-cluster
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
-
-The admin overlay cluster stacks by bare numeric utility: `z-20` (attention panel and hub
-backdrop), `z-30` (elevated hub trigger), `z-40` (PublishedToggle refusal banner). The bands
-and their ordering are explained only in code comments, so the relationships they encode —
-"the elevated trigger must outrank the backdrop", "the refusal banner outranks everything in
-the strip" — are invisible at each use site and are re-derived by hand every time an overlay
-is added.
-
-`app/globals.css` defines no `--z-*` tokens. The impeccable general rules ask for a semantic
-scale (dropdown, sticky, modal-backdrop, modal, toast, tooltip) so the intent is readable and
-a new surface picks a band rather than a number.
-
-**Trigger:** the next overlay added to this cluster, or the first stacking bug caused by two
-surfaces picking the same numeric. A tree-wide sweep is the natural companion to filing tokens,
-since the value of the scale is that every site uses it.
-
----
-
 ## Merged from the plans backlog (2026-08-02)
 
 `docs/superpowers/plans/BACKLOG.md` was a second, disjoint `BL-` registry: 53 entries under

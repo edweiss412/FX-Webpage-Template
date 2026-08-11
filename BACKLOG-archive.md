@@ -1,3 +1,63 @@
+## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking was raw Tailwind numerics — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
+
+**Resolution: SHIPPED.** Task U1 of the M-wave-2 plan
+(`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`); contract at
+`docs/superpowers/specs/2026-08-09-m-wave-2-design.md` §2.6.
+
+Seven fixed bands in `app/globals.css` `@theme` — `raised:10 · dropdown:20 · nav:30 · banner:40 ·
+overlay:50 · dev-controls:60 · sticky-banner:100` — and every live numeral swept to the band its own
+number names. **Name substitution, zero stacking change**, verified pairwise across the diff: every
+`z-50` became `z-overlay`, every `z-20` `z-dropdown`, and so on, plus the single inline
+`zIndex: 100` on the preview banner. The exemption registry
+(`tests/styles/zIndexExemptions.ts`) is EMPTY, which is the expected steady state: the census mapped
+1:1 onto the band set.
+
+**The guard took four review findings across two rounds to become honest, and every one was the same
+shape — a green state compatible with the thing it claims to prevent.**
+
+_Round 1._ The scanner reported ZERO sites for three files that carried live numerals, because it
+anchored the utility pattern on a bare token boundary (so `focus:z-50` hid) and required
+`node.parent === sf` for consts (so a function-local `cn("… z-10 …")` hid). Both widened; the
+widened scanner independently reproduced exactly the three sites the review named. Round 1 also
+found that a typo'd band (`z-overaly`) is not a numeral, so the census stays silent while Tailwind
+emits nothing at all — a silent stacking loss with a green guard.
+
+_Round 2._ The repair for that was `@theme`-scoped STRING PRESENCE, and review killed it: searching
+the block's text cannot distinguish a live declaration from a commented-out one (the comment still
+contains the string), from a duplicate whose second value wins, or from a later `:root` override.
+The check now COMPILES — Tailwind reads the shipped `app/globals.css` with a synthetic content file
+and the emitted rules are asserted for presence AND resolved value. Round 2 also found exemptions
+keyed on file + token alone, so one row would have exempted every identical site in a file; the key
+now includes the line.
+
+Both rounds' vectors are mutated against the repaired guard and each reds the appropriate test.
+
+**A defect the sweep surfaced that no reviewer asked for:** `maxZLevel` existed in two test copies,
+and only one learned the band names — so a swept `z-nav` read as level 0 in
+`publishedReviewModal.test.tsx` and reddened a correct implementation. Both suites now import
+`tests/_shared/zLevel.ts`.
+
+**Effort:** M · **Closed:** 2026-08-10
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+
+The admin overlay cluster stacks by bare numeric utility: `z-20` (attention panel and hub
+backdrop), `z-30` (elevated hub trigger), `z-40` (PublishedToggle refusal banner). The bands
+and their ordering are explained only in code comments, so the relationships they encode —
+"the elevated trigger must outrank the backdrop", "the refusal banner outranks everything in
+the strip" — are invisible at each use site and are re-derived by hand every time an overlay
+is added.
+
+`app/globals.css` defines no `--z-*` tokens. The impeccable general rules ask for a semantic
+scale (dropdown, sticky, modal-backdrop, modal, toast, tooltip) so the intent is readable and
+a new surface picks a band rather than a number.
+
+**Trigger:** the next overlay added to this cluster, or the first stacking bug caused by two
+surfaces picking the same numeric. A tree-wide sweep is the natural companion to filing tokens,
+since the value of the scale is that every site uses it.
+
+---
+
 ## BL-GLYPHS-OUTSIDE-INTER-SUBSET — UI glyph sites rendering in a fallback face — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
 
 **Resolution: SHIPPED as a widened subset.** Task U5 of the M-wave-2 plan
