@@ -595,6 +595,7 @@ export function ReportModal(props: ReportModalProps) {
             className="mx-4 mt-2 rounded-sm border border-border bg-surface-sunken px-3 py-2 text-sm text-text-subtle sm:mx-6"
           >
             <span>Your previous report attempt didn&apos;t complete. </span>
+            {/* tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10 */}
             <button
               type="button"
               data-testid="report-modal-start-fresh"
