@@ -66,12 +66,15 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
   reviewRoundCorpus: { equivalent: 2 },
-  // Counted from the surface: 44 reachability / control-flow arguments and NO
-  // accepted gap. The triage started at 84 survivors and 30 then 10 of them were
-  // repaid with tests rather than blessed, so a 45th row is a coverage regression
-  // to argue rather than a number to bump — and an `accepted-gap` appearing here
-  // at all would be this surface's first, needing its own backlog entry.
-  specLintNumerics: { equivalent: 44 },
+  // Counted from the surface: 43 reachability / control-flow arguments and NO
+  // accepted gap. The triage ran 84 -> 54 -> 45 -> 44 -> 43 survivors, repaying 41 of
+  // them with tests rather than blessing them — the last one because whole-diff review
+  // R1 REFUTED an equivalence argument with a probe (the deeper-bullet branch compared
+  // against a marker width, and an outdented `100.` marker escaped it). So a 44th row
+  // is a coverage regression to argue rather than a number to bump, and an
+  // `accepted-gap` appearing here at all would be this surface's first, needing its
+  // own backlog entry.
+  specLintNumerics: { equivalent: 43 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

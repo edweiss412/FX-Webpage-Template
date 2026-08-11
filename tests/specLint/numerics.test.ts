@@ -614,6 +614,25 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
     expect(only(run(doc).findings, B)).toEqual([]);
   });
 
+  it("an OUTDENTED bullet ends the list even when its marker is wider than the indent", () => {
+    // The deeper-bullet branch must test the INDENT, not the marker width. A `100.`
+    // marker is four characters wide against a two-space indent, so a check that
+    // compared marker width would run straight past the outdent and swallow the
+    // following item — reported by whole-diff review R1 with a probe, which refuted the
+    // equivalence argument this case replaces.
+    const doc = [
+      "The spec names three measured shapes:",
+      "  - shape 1",
+      "  - shape 2",
+      "100. outside item",
+      "  - shape 3",
+      "",
+    ].join("\n");
+    const findings = only(run(doc).findings, B);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toBe("claim of 3 shapes over an adjacent list of 2 items");
+  });
+
   it("prose at the list's own indent ENDS it, and a later bullet is not counted", () => {
     const doc = [
       "The spec names three measured shapes:",

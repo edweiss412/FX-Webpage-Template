@@ -760,12 +760,6 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "blanks' initial value is dead: the loop starts AT the first bullet, whose branch assigns blanks = 0 before any blank line can be seen",
       },
       {
-        siteId: "integer-literal:302:25:1>2",
-        kind: "equivalent",
-        reason:
-          "b[2] is the marker rather than the indent, but a deeper-indented bullet ALSO has deeper leading whitespace, so the very next branch (the leading-whitespace test) continues on exactly the same lines",
-      },
-      {
         siteId: "statement-removal:304:7:continue;>(removed)",
         kind: "equivalent",
         reason:
