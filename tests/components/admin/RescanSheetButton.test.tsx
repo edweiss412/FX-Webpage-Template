@@ -299,10 +299,13 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
   // strings mirror RescanSheetButton.tsx's stacked tone classes verbatim — if they
   // drift, the card call sites drifted too.
   const STACKED_ROOT = "flex flex-col gap-2";
+  // Borders dropped by STEP3-GALLERY-TAP-TARGETS-1 item (d): in the stacked
+  // placement this block renders INSIDE the row's own bordered card, and a
+  // bordered box inside a bordered box is that finding. The tint carries the
+  // tone; the overlay placement additionally carries `shadow-tile`.
   const STACKED_CODED =
-    "flex flex-col gap-1 rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text";
-  const STACKED_INFO =
-    "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong";
+    "flex flex-col gap-1 rounded-sm bg-warning-bg p-3 text-sm text-warning-text";
+  const STACKED_INFO = "rounded-sm bg-info-bg px-3 py-2 text-sm text-text-strong";
   // Mobile-safe anchor (impeccable audit P1): left-anchored below sm (the
   // footer is the positioning context there — the root wrapper is sm:relative
   // only), wrapper-anchored right-0 at ≥sm.

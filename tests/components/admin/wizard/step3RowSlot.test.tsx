@@ -139,32 +139,61 @@ const SLOT_ROOT_SELECTOR = [
  *     <summary> plus its "Learn more" link), addressed by item (a), which
  *     shipped 2026-08-08 with its own treatment.
  */
+/**
+ * What the census deliberately does NOT count as a row-slot action, each row
+ * with its reason and each asserted below to match something real.
+ *
+ * Brief B r2 F3 is why this is a registry rather than three `if`s: the publish
+ * checkbox was an UNDISCLOSED third carve-out (it is an `<input>`, so the
+ * selector simply never reached it), and a reader had no way to tell a
+ * considered exclusion from an accident. A carve-out nobody wrote down is
+ * indistinguishable from a gap.
+ */
+const ACTION_CARVE_OUTS: readonly {
+  readonly id: string;
+  readonly matches: (el: Element) => boolean;
+  readonly reason: string;
+}[] = [
+  {
+    id: "row-title-deep-link",
+    matches: (el) =>
+      el.tagName === "A" &&
+      /^wizard-step3-card-.+-title-link$/.test(el.getAttribute("data-testid") ?? ""),
+    reason:
+      "the row's title is a deep link to the SOURCE SHEET — navigation to the document the row is " +
+      "about, not an operation on the row. Pinned to an <a> with the full testid shape so a button " +
+      "cannot inherit the carve by borrowing the name.",
+  },
+  {
+    id: "help-disclosure-prose",
+    matches: (el) =>
+      el.closest('[data-testid="help-affordance"]') !== null &&
+      (el.tagName === "SUMMARY" || (el.tagName === "A" && !el.hasAttribute("role"))),
+    reason:
+      "inside the help disclosure, the <summary> and its explanatory links are supporting text. " +
+      'Anything else in there — a <button>, or an <a role="button"> — IS an action and is ' +
+      "collected; excluding every descendant was the r1 defect.",
+  },
+  {
+    id: "publish-intent-checkbox",
+    matches: (el) => el.tagName === "INPUT" && el.getAttribute("type") === "checkbox",
+    reason:
+      "the publish-intent checkbox is a form control with its own affordance vocabulary — a real " +
+      "<input type=checkbox> behind a >=44px <label> — not a button-shaped action. The item-(d) " +
+      "contract is about the row's ACTION treatments; a checkbox is not one of them, and holding " +
+      "it to the button signature would demand it look like a button.",
+  },
+];
+
 function isRowSlotAction(el: Element): boolean {
-  // Narrowed after brief B r1 F2, which showed both carve-outs were shaped so a
-  // new action could sit behind them: ANY descendant of the help affordance was
-  // excluded whatever its purpose, and ANY element whose testid merely ended in
-  // `-title-link` was excluded without checking that it was in fact the title
-  // link. Both are now pinned to the exact node they were written for.
-  if (el.closest('[data-testid="help-affordance"]') !== null) {
-    // Inside the help disclosure, only the <summary> and its explanatory links
-    // are supporting text. Anything else in there — a <button>, a role=button —
-    // is an action and IS collected, which is the half the first carve-out gave
-    // away by excluding every descendant.
-    return el.tagName !== "A" && el.tagName !== "SUMMARY";
-  }
-  if (
-    el.tagName === "A" &&
-    /^wizard-step3-card-.+-title-link$/.test(el.getAttribute("data-testid") ?? "")
-  ) {
-    return false;
-  }
-  return true;
+  return !ACTION_CARVE_OUTS.some((c) => c.matches(el));
 }
 
 // Every shape an action takes, not just <button> and <a href> (brief B r1 F2).
 const ACTION_SELECTOR = [
   "button",
   "a[href]",
+  'input[type="checkbox"]',
   'input[type="button"]',
   'input[type="submit"]',
   'input[type="reset"]',
@@ -347,6 +376,24 @@ describe("Step-3 row slot (STEP3-GALLERY-TAP-TARGETS-1 item d)", () => {
     expect(dressed, "rows inside the plate that still carry a border or a fill").toEqual([]);
   });
 
+  test("every action carve-out matches something real and says why", () => {
+    // Same contract as the placement registry: a licence that matches nothing is
+    // a licence nobody can audit, and the next reader cannot tell it from a gap.
+    const { container } = renderGallery();
+    const all: Element[] = [];
+    for (const root of container.querySelectorAll(SLOT_ROOT_SELECTOR)) {
+      all.push(...root.querySelectorAll(ACTION_SELECTOR));
+    }
+    premise("the slot renders candidate controls", all.length, 0);
+    const unused = ACTION_CARVE_OUTS.filter((c) => !all.some((el) => c.matches(el))).map(
+      (c) => c.id,
+    );
+    expect(unused, "declared carve-outs that match nothing in the slot").toEqual([]);
+    for (const c of ACTION_CARVE_OUTS) {
+      expect(c.reason.trim().length, `${c.id} needs a reason`).toBeGreaterThan(40);
+    }
+  });
+
   test("every declared placement token is actually in use", () => {
     // A strip entry that matches nothing is a licence nobody is using, and the
     // next person to add one has no way to tell which are load-bearing. Brief B
@@ -399,7 +446,15 @@ describe("Step-3 row slot (STEP3-GALLERY-TAP-TARGETS-1 item d)", () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ ok: false, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" }),
+      // `status: "needs_attention"` is what reaches the CODED tone
+      // (RescanSheetButton.tsx:109) — the branch whose border this task removed.
+      // The first version sent a body with no `status`, which lands on the INFO
+      // tone, so the very block under repair went undriven (brief B r2 F2).
+      json: async () => ({
+        ok: false,
+        status: "needs_attention",
+        code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+      }),
     } as unknown as Response);
 
     const { container } = renderGallery();
@@ -413,10 +468,19 @@ describe("Step-3 row slot (STEP3-GALLERY-TAP-TARGETS-1 item d)", () => {
         fireEvent.click(button);
       });
     }
+    // EVERY control must have reached its post-result state, not merely one:
+    // `> 0` passes with a single result while the rest of the slot stays in its
+    // initial render (brief B r2 F2, second half).
     await waitFor(() =>
-      expect(
-        container.querySelectorAll('[data-testid^="rescan-sheet-result-"]').length,
-      ).toBeGreaterThan(0),
+      expect(container.querySelectorAll('[data-testid^="rescan-sheet-result-"]')).toHaveLength(
+        rescans.length,
+      ),
+    );
+    premiseHolds(
+      "the CODED tone was exercised — the branch whose border is the repair",
+      [...container.querySelectorAll('[data-testid^="rescan-sheet-result-"]')].every((el) =>
+        (el.getAttribute("class") ?? "").includes("bg-warning-bg"),
+      ),
     );
 
     const bordered = collectBorderedContainers(container);
