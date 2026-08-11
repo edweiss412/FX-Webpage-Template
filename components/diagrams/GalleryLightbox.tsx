@@ -117,10 +117,21 @@ function ZoomController({
   onScaleChange,
   controlsSlotRef,
   prefersReducedMotion,
+  itemId,
+  onZoomIntent,
 }: {
   onScaleChange: (scale: number) => void;
   controlsSlotRef: { current: ZoomControls | null };
   prefersReducedMotion: boolean;
+  /**
+   * Identity of the slide this controller drives. A controller is mounted only
+   * for the ACTIVE slide and the figures are keyed by item id, so React
+   * remounts it on every selection — which makes this prop constant for the
+   * controller's whole life and the scale listener below immune to staleness.
+   */
+  itemId: string;
+  /** Stable across renders — see the listener comment. */
+  onZoomIntent: (itemId: string) => void;
 }) {
   const controls = useControls();
   // Keep latest scale in a ref so setScale can compare against it
@@ -157,6 +168,17 @@ function ZoomController({
   useTransformEffect(({ state }) => {
     transformScaleRef.current = state.scale;
     onScaleChange(state.scale);
+    // Zoom intent is derived from the SCALE, not from any one input handler:
+    // every path the component ships (committed pinch, Ctrl/Meta-wheel and
+    // trackpad pinch, keyboard +, double-tap) reaches the user's screen through
+    // this one channel, so a future path cannot silently bypass the gate. The
+    // bound is the existing COMMITMENT threshold, so the library's transient
+    // pointer-down snapshots (1.001) never trip it. Spec §4.1.
+    //
+    // The callback the library holds may be the one captured at subscribe time,
+    // so both values it closes over are safe to capture once: `itemId` is fixed
+    // for this mount, and `onZoomIntent` is a stable useCallback in the parent.
+    if (isZoomed(state.scale)) onZoomIntent(itemId);
   });
   return null;
 }
@@ -203,6 +225,26 @@ export function GalleryLightbox({
   // runtime load failures so a proxy 4xx/5xx in the lightbox falls
   // back to the existing unavailable placeholder branch.
   const [failedKeys, setFailedKeys] = useState<ReadonlySet<string>>(() => new Set());
+
+  // Zoom-gated original (spec 2026-08-10-diagram-viewing-polish §4.1, which
+  // AMENDS the pipeline spec's unconditional `pinOriginal: true` on the active
+  // slide). Slides open on the clamped variant tier — a 6.5 KB fetch against a
+  // multi-megabyte original — and pin the original only once that slide has
+  // shown zoom intent. The set is keyed by ITEM ID and never cleared for the
+  // lightbox session, which is what makes the state per-slide (zooming A leaves
+  // B clamped) AND persistent (returning to A needs no fresh gesture, and
+  // de-zooming never re-downgrades).
+  const [wantsOriginal, setWantsOriginal] = useState<ReadonlySet<string>>(() => new Set());
+  // Stable identity: the library's transform subscription may hold the callback
+  // it was given at subscribe time, so this must not be re-created per render.
+  const markZoomIntent = useCallback((itemId: string) => {
+    setWantsOriginal((prev) => {
+      if (prev.has(itemId)) return prev;
+      const next = new Set(prev);
+      next.add(itemId);
+      return next;
+    });
+  }, []);
 
   // Imperative controls slot — populated by the active slide's
   // ZoomController via useEffect. Chevron handlers + the keyboard
@@ -628,6 +670,8 @@ export function GalleryLightbox({
                           onScaleChange={setActiveScale}
                           controlsSlotRef={controlsSlotRef}
                           prefersReducedMotion={prefersReducedMotion}
+                          itemId={item.id}
+                          onZoomIntent={markZoomIntent}
                         />
                         {/*
                           Codex R5 MED-1: the library's
@@ -656,9 +700,15 @@ export function GalleryLightbox({
                               rev: snapshotRevisionId,
                               key: item.key,
                               variants: item.variants,
-                              // The zoomable slide needs full resolution, so it
-                              // pins the original and ignores every candidate width.
-                              pinOriginal: true,
+                              // Zoom-gated (spec §4.1): the clamped tier until
+                              // this slide has shown zoom intent, then the
+                              // original at every candidate width. The mounted
+                              // element is the same one either way, so the
+                              // browser keeps painting the current bitmap until
+                              // the original lands — the silent sharpen.
+                              // Variant-less entries resolve to the original in
+                              // both states, so the gate is a no-op there.
+                              pinOriginal: wantsOriginal.has(item.id),
                             })}
                             src={item.key}
                             alt={item.alt || `Diagram ${i + 1}`}
