@@ -20,8 +20,8 @@
 
 Red is written by this task (invariant-1 shape): the new source-scan suite fails against the live tree because the three exemption comments are absent — `app/admin/settings/admins/RevokeRowButton.tsx:283`, `components/admin/RoleRecognizeControl.tsx:273`, and `components/shared/ReportModal.tsx:598` carry no `tap-floor: inline-prose exemption` token (verified 2026-08-10).
 
-1. Add the exemption comment at each of the three controls (spec §2 wording, PRODUCT.md:59 cited).
-2. The meta-test asserts per site: comment token adjacent to the control AND className literal equal to its pinned current string (pinned strings copied from the live tree in this task, not invented).
+1. WRITE THE SUITE FIRST (R3 F1 — invariant-1 order): create the source-scan test asserting per-site comment token + pinned className; run it and OBSERVE the red (comments absent).
+2. THEN add the exemption comment at each of the three controls (spec §2 wording, PRODUCT.md:59 cited). The meta-test asserts per site: comment token adjacent to the control AND className literal equal to its pinned current string (pinned strings copied from the live tree in this task, not invented).
 3. Four pre-dispatch mutants for the string-presence guard (R1 F4), each run and reverted with results recorded in the commit: (a) token emptied; (b) token + appended suffix; (c) token present but commented-out/dead adjacent to the control (must NOT satisfy adjacency); (d) token adjacent to the WRONG control in the same file (must not satisfy the per-site assertion). Operator family closed at these four.
 4. Green: suite passes; class strings byte-unchanged (the suite itself proves it).
 
