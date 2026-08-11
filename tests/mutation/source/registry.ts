@@ -576,4 +576,25 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  {
+    id: "interactionTimingScan",
+    sourcePath: "scripts/scan-interaction-timings.ts",
+    suitePaths: ["tests/docs/_metaInteractionTimingInventory.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // Enrolled at authoring time rather than after review, because this is a
+    // guard whose defect class is exactly "reports OK while the output moved":
+    // a recognizer that quietly stops matching a form leaves DESIGN.md §5.5
+    // agreeing with a scan that sees less than it used to, and every other
+    // check stays green. The module is importable with a referring suite for
+    // that reason — a terminal CLI script cannot be overlaid at all.
+    scoreFloor: 0.95,
+    // Dropping `duration` from the timing-name pattern makes PageTransition's
+    // `duration: 0.22` and every *Duration binding vanish from the population,
+    // which the §5.5 parity assertion notices in BOTH directions.
+    control: {
+      from: "(?:ms|delay|duration|timeout|seconds)$",
+      to: "(?:ms|delay|timeout|seconds)$",
+    },
+    accepted: [],
+  },
 ];

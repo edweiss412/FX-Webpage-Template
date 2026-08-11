@@ -145,8 +145,17 @@ function isRowSlotAction(el: Element): boolean {
   return true;
 }
 
-/** Classes that place a control rather than dress it — same vocabulary, different slot. */
-const PLACEMENT_ONLY = new Set(["shrink-0", "self-start", "w-full", "flex-1", "min-w-0"]);
+/**
+ * Classes that PLACE a control rather than dress it: they say where it sits in
+ * its parent's flex line, not what it looks like.
+ *
+ * `w-full` and `flex-1` are deliberately NOT here even though they read as
+ * layout. Both change the control's rendered width, so two actions differing
+ * only in one of them look different on screen — stripping them would let a
+ * full-width button and a content-width button share a signature and satisfy
+ * "the set has size 1" while the slot plainly showed two treatments.
+ */
+const PLACEMENT_ONLY = new Set(["shrink-0", "self-start", "min-w-0"]);
 
 function treatmentSignature(el: Element): string {
   return el

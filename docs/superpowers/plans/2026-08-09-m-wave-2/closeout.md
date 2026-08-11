@@ -75,3 +75,52 @@ pass (no browser session provisioned for the scoped run).
 
 Cross-model review + mutation-gate record: see the review section below
 (appended at dispatch/verdict time).
+
+## W-UI (`feat/m2-ui-cluster`)
+
+impeccable-gate: critique=PENDING audit=PENDING p0=PENDING p1=PENDING dispositions=PENDING
+
+Five tasks: U1 semantic z-index bands + dual-idiom guard; U2 one row-slot
+affordance vocabulary + flattened nested chrome (STEP3-GALLERY-TAP-TARGETS-1
+item d, the entry's last open item, archived); U3 DESIGN.md §5.5 as a derived
+interaction-timing inventory (SHARELINK-CONSTANTS-INVENTORY-1, archived); U4
+five icon-only action targets off `text-text-subtle` (SHEETLINK-SUBTLE-ACTION-CLASS-1,
+archived); U5 the Inter subset widened to the probe-derived glyph set
+(BL-GLYPHS-OUTSIDE-INTER-SUBSET, archived).
+
+### Transition audit (U6 step 1)
+
+Zero new motion. `git diff origin/main...HEAD` over `app/` + `components/`
+matches `AnimatePresence|initial=|animate=|exit=` in exactly two files, and
+NEITHER is a new animation: `components/diagrams/GalleryLightbox.tsx` keeps its
+pre-existing `initial`/`animate`/`exit` props untouched and changed only
+`z-50` → `z-overlay` on the same element, and `app/globals.css` gained a
+`@theme` token block with no keyframes. The diff adds zero new conditional
+renders (`grep -cE "\? *\(|&& *\(|AnimatePresence"` over added lines = 0). The
+one new prop, `RowItem`'s `flat`, selects a class and mounts nothing, so no
+state pair changes mount/unmount timing. Every pair stays instant, deliberately.
+
+### Dimensional invariants (U6 step 2)
+
+The spec declares none for this unit, and the audit confirms none is created:
+every change is a class-family substitution, a border removal, a text colour,
+or a font payload. No fixed-height or fixed-width parent gains flex/grid
+children, so the layout-dimensions rule is not triggered.
+
+### Mechanism verified rather than assumed
+
+`--z-index-<name>` in `@theme` really does emit the utility. Probed directly
+against this repo's Tailwind (v4.2.4): a minimal `@theme` with
+`--z-index-overlay: 50` compiles `.z-overlay { z-index: var(--z-index-overlay) }`.
+This matters because a typo'd token would emit NO `z-index` at all — a silent
+stacking regression that a class-string guard cannot catch, since the class
+string would be exactly what the guard expects.
+
+### Full suite
+
+`pnpm test`: 23,711 passed, 5 failed, 57 skipped across 1,888 files. All five
+failures are in two files — `tests/reviewRounds/report.test.ts` (1) and
+`tests/scripts/validation-report-fixtures.test.ts` (4) — and both files pass
+clean when re-run in isolation on the same tree. Shared-fixture contention
+across concurrently running sibling worktrees, not a regression from this diff;
+real CI runs isolated and is the arbiter.
