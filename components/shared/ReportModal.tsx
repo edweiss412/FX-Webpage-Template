@@ -523,7 +523,7 @@ export function ReportModal(props: ReportModalProps) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="report-modal-heading"
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      className="fixed inset-0 z-overlay flex items-end justify-center sm:items-center"
     >
       {/* THE MODAL'S ONE LIVE REGION (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
           Mounted for the modal's whole life so a status change is a MUTATION a

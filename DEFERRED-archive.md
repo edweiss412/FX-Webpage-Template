@@ -1,3 +1,248 @@
+### SHEETLINK-SUBTLE-ACTION-CLASS-1 — `text-text-subtle` on icon-only action targets — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
+
+**Resolution: SHIPPED.** Task U4 of the M-wave-2 plan
+(`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`); un-defer trigger fired on both counts —
+this is a DESIGN.md conformance pass AND it edits `ModalCloseButton`.
+
+**Six sites, not four — and the class behind them is 32.** The entry named
+`ModalCloseButton.tsx`, `RescanSheetButton.tsx`'s overlay dismiss, `BellPanel.tsx`'s
+`bell-panel-close`, and `HelpSheet.tsx`'s sheet close. The fifth is in that last file too: the `?`
+trigger's own painted span, the visible affordance for a hit box that carries no colour of its own.
+The SIXTH is `components/admin/FinalizeButton.tsx:818`, the finalize-blocker dismiss — identical in
+shape, never named, and it surfaced only because the z-index sweep happened to touch its line, which
+is luck rather than method. All six now sit at `text-text` at rest and lift to `text-text-strong` on
+hover, matching `SheetIconLink` — so the header inversion the entry recorded as "the measured cost of
+waiting" is gone, and the secondary sheet link no longer renders darker than the primary dismiss
+beside it.
+
+**The honest number is larger still, and that is the lesson rather than a footnote.** A derived scan
+(AST over `app/**` + `components/**`, interactive tags carrying a static `text-text-subtle`) reports
+**32** sites. The four this entry named were a sample of a class, not the class; each pass found one
+more by accident. The remaining ~26 are filed as `BL-SUBTLE-ON-INTERACTIVE-CLASS` under class-sweep
+exception (c) — 19 files this branch does not otherwise touch, and several members (filter chips,
+`<summary>` disclosures) need a DESIGN.md decision rather than a mechanical swap. That entry carries
+the SCAN rather than a list, so the next pass cannot come up short a third time.
+
+**The assertion targets what PAINTS, not what takes the pointer.** Three of the five are bare
+`size-tap-min` hit boxes wrapping an inner span; asserting on the button would have passed while the
+glyph stayed subtle. `tests/_shared/actionAffordance.ts` states the contract once and all four
+pinning suites call it, so the five cannot drift apart again the way they did the first time.
+
+**Byte baseline.** `ModalCloseButton` renders inside the Step-3 review header, whose byte-for-byte
+fixture (`tests/components/admin/review/__fixtures__/step3-header-baseline.html`) held exactly one
+occurrence of the old class; it is updated in the same commit.
+
+**Help screenshots: the U4 recolour alone reaches no captured baseline — but the branch's FONT
+change does, and CI caught what this paragraph originally got wrong.** The manifest captures
+`/admin`, `/admin/needs-attention`, and four crew-preview routes
+(`scripts/help-screenshots.manifest.ts:51-113`). None of the five recoloured controls appears on
+them: `HelpSheet` renders only in the wizard steps, `BellPanel`'s close only while the panel is open,
+`ModalCloseButton` only inside a modal, and the rescan dismiss only after a re-scan returns. That
+part held.
+
+What it missed is that U5 widened the Inter subset in the same branch. Characters the dashboard
+already rendered — `⚠` in `ShowsTable`, `✓`, `→` — previously fell back to a system face and now
+resolve in Inter, so `dashboard-overview-{light,dark}.webp` legitimately changed pixels. The
+`screenshots-drift` gate failed on exactly those two files, and the baselines were regenerated
+through the `screenshots-regen` workflow on a native-amd64 runner from the pinned
+`mcr.microsoft.com/playwright:v1.59.1-jammy` image, per the byte-comparison discipline. Regenerating
+from this arm64 dev host would have produced different bytes and a green local run that fails in CI.
+
+The lesson is narrower than "check the screenshots": a font-payload change is a RENDERING change on
+every route that draws an affected glyph, not just on the routes whose components changed.
+
+**Effort:** M · **Closed:** 2026-08-10
+
+From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07-26). The diff fixed the DESIGN.md "never an action target" violation on the three icon-only SHEET links, but the same bug shape lives on at `ModalCloseButton.tsx:20`, `RescanSheetButton.tsx:207`, `BellPanel.tsx:1294` (the `bell-panel-close` icon-only dismiss), and `HelpSheet.tsx:145` — and the close button sits in the SAME modal header, so post-merge the secondary sheet link renders DARKER at rest than the primary dismiss beside it (a deliberate-looking inversion that is actually drift).
+
+**Accepted, not fixed.** The backlog entry this branch closes scoped the icon-only sheet-link class; recolouring four more controls — one of which (ModalCloseButton) feeds the byte-for-byte header baselines and every modal suite — is its own class sweep with its own RED edges, not a rider on this diff. The header-inversion observation is the measured cost of waiting.
+
+**Un-defer trigger:** the next DESIGN.md conformance pass, or any edit to ModalCloseButton.
+
+### SHARELINK-CONSTANTS-INVENTORY-1 — DESIGN.md §5.5 was a hand-written list that omitted most of its own population — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
+
+**Resolution: SHIPPED, and the population is now derived rather than swept.** Task U3 of the M-wave-2
+plan (`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`), contract at
+`docs/superpowers/specs/2026-08-09-m-wave-2-design.md:93`.
+
+The entry asked for "swept and pinned by a test rather than maintained by hand". A sweep was the one
+thing that could not be done, because a hand-authored sweep and a test generated from it share the
+same omissions — the pair would then agree about a world neither had checked. So the population is
+read from the source instead: `scripts/scan-interaction-timings.ts` walks `app/**` + `components/**`
+(minus `app/api/**`) over the TypeScript AST and reports numeric-literal timer delays, numeric
+bindings whose identifier ends in ms / delay / duration / timeout / seconds, and numeric motion
+`duration:` values. `tests/docs/_metaInteractionTimingInventory.test.ts` compares that output with
+§5.5 in BOTH directions, so an unlisted timing fails by name and a stale row fails too.
+
+**The derived population is 28 rows.** §5.5 previously listed 8, so it was carrying under a third of
+its own subject while claiming to be the single source of truth. Both constants this entry named are
+now rows: `ARM_REVERT_MS` (4000) via an explicit include with its reason, since it lives in `lib/`
+only because the state machine does; and the bare 2000 clipboard reset in `ShareLinkCopyButton.tsx`.
+
+**Totality, so nothing sits in the gap.** Every `setTimeout`/`setInterval` delay ARGUMENT is walked,
+not only the ones that are literals. A delay that is neither a literal nor an identifier resolving to
+a covered binding is emitted as UNCLASSIFIED and fails the test until dispositioned. Four rows
+carry reasons today: a hook option whose only supplied argument is an inventoried constant, a sum of
+two rows, a server-dictated `Retry-After`, and the realtime reconnect backoff.
+
+**Two defects the derivation surfaced that no one was looking for.** The AST reading found that
+`submitTimeoutMs = 30_000` is a DESTRUCTURED default parameter, so the scanner's first
+Parameter-only pass missed the very case the spec had named as a seed. And every one of §5.5's five
+"behavioral threshold" citations pointed at `Step3ReviewModal.tsx`, where none of them has lived
+since the Phase-1 extraction; the prose had gone on asserting it because nothing executable read it.
+Both are repaired here.
+
+**Effort:** M · **Closed:** 2026-08-10
+
+`DESIGN.md` section 5.5 claims to be the single source of truth for interaction
+constants but omits at least two: `ARM_REVERT_MS` (4000, the destructive-confirm
+auto-revert) and the bare `2_000` clipboard-reset literal at
+`app/admin/show/[slug]/ShareLinkCopyButton.tsx:81`. This milestone corrected the
+section's two FALSE claims (single-file ownership; "never produce a painted px")
+and added its own constant, but did not audit the rest of the codebase for
+unlisted ones.
+
+Un-defer trigger: the next DESIGN.md pass, or any milestone adding a third
+timing constant — at which point the inventory should be swept and pinned by a
+test rather than maintained by hand.
+
+### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome, a skipped heading level, and mixed row-slot chrome on `/admin?step=3` — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, all four items SHIPPED)
+
+**Resolution: FULLY resolved, all four items.** Items (a), (b) and (c) shipped 2026-08-08 on
+`fix/step3-a11y-cluster` (recorded below). Item (d) — the last one — shipped 2026-08-10 on
+`feat/m2-ui-cluster`, Task U2 of the M-wave-2 plan
+(`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`), against the falsifiable acceptance shape the
+spec set for it (`docs/superpowers/specs/2026-08-09-m-wave-2-design.md:92`), so "resolved under the
+dual gate" is not a judgment call.
+
+**(d) resolution — one vocabulary, one border level.** The guard is
+`tests/components/admin/wizard/step3RowSlot.test.tsx`, rendering the six seeded gallery variants plus
+the two blocking statuses the gallery does not seed (`live_row_conflict`, `discard_retryable`), and
+its first output was the census of record: FIVE distinct action treatments in one row slot, and THREE
+bordered-inside-bordered sites (not the one the finding named).
+
+_Which vocabulary won:_ the outline the recovery actions already wore (`Re-scan this sheet`,
+`Retry now`, `Defer until modified`, `Permanently ignore`), promoted verbatim into
+`SECONDARY_ACTION_CLASS` (`lib/ui/actionClass.ts`). It was the majority treatment, and it is the one
+DESIGN.md §1.1 permits — `--color-text-subtle` is documented "Never used for action targets", which
+is exactly what the retired ghost "View" wore. Because the promoted value is byte-identical to
+`RescanSheetButton`'s own class, the eight surfaces outside the wizard that render that button are
+unchanged. Converging on it: the View/Review modal trigger, the no-details `Ignore this sheet`, the
+three `HardFailedActions` buttons, the manifest-keyed `Permanently ignore`, and the
+`Resolve in the dashboard` exit, which was an underlined text link standing beside a button offering
+the equal alternative. The constant carries no `focus-visible:ring-offset-*`: one constant cannot
+hold a correct offset COLOUR across both `bg-surface` cards and the `bg-surface-sunken` plate.
+
+_Which border yielded:_ the rows, not the plate — and the row goes fully flat, which took a
+measurement to get right. The plate cannot yield its own border: `--color-surface-sunken` (#F4F3F1)
+on the page `--color-bg` (#FAFAF9) is ~1.05:1, so a borderless plate disappears in light mode. The
+first repair therefore flattened the row but kept `bg-surface` on it, reasoning that fill would carry
+the separation. **It does not.** `--color-surface` against `--color-surface-sunken` measures
+**1.11:1 light and 1.09:1 dark**, against a 3:1 non-text floor — the same trap DESIGN.md §1.2a
+records for standalone hairlines, one layer up. So `RowItem`'s `flat` drops the fill as well as the
+border, and the row is a genuine flat list item separated by the list's `gap-3` and by its own
+content, which is how a grouped list inside a titled container ordinarily reads. A third assertion
+pins it, because the failure mode is a later edit re-adding `bg-surface` "for separation" — a change
+that reads as a fix while restoring a claim the tokens do not support. The two warning notes inside
+the row cards (`RescanReviewBanner`, `NotPublishableNote`) dropped their borders and keep the warm
+warning tint plus their icon, per the colour-blind floor.
+
+The guard was mutated against its own fix — restoring the underlined resolve link re-reds it — so the
+rows added after the repair carry discriminating power rather than decoration.
+
+**Effort:** M · **Closed:** 2026-08-10 · all of (a)-(d) shipped
+
+Surfaced by the invariant-8 dual gate on branch `test/step3-live-render-cluster`, run against the
+six-variant seeded Step-3 gallery — the first time all six card states rendered together. Findings
+and dispositions are recorded in §12 of
+`docs/superpowers/plans/admin/2026-08-02-step3-live-render-cluster.md`.
+
+**Every item is PRE-EXISTING and outside that branch's diff.** The branch changes exactly two
+UI-surface files and neither changes a pixel: `components/admin/OnboardingWizard.tsx` (mechanical
+`assembleStep3Row` extraction, no markup added) and `components/admin/wizard/Step3Review.tsx` (one
+string literal respelled from a raw NUL byte to its escape, runtime-identical). They are deferred
+rather than fixed here because fixing them would put unreviewed visual change into a
+test-and-docs branch.
+
+**Partially resolved 2026-08-08 by `fix/step3-a11y-cluster`** — spec
+`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`, plan
+`docs/superpowers/plans/2026-08-07-step3-a11y-cluster.md`. Items **(a)**, **(b)** and **(c)** ship
+there and are struck below. **(d) shipped 2026-08-10 on `feat/m2-ui-cluster`, which is why this
+entry is now archived** — the archive is where an item goes when it ships, and all four have.
+Original text of that sentence, written while (d) was still open, is superseded by the resolution
+above.
+
+Two of this entry's own citations were wrong and are CORRECTED in the spec rather than preserved
+(spec §1.1 R1): (a)'s `<summary>` is in `components/admin/HelpAffordance.tsx:95`, not
+`step3ReviewSections.tsx`, and its parent is not `min-h-12`. The 20.3px measurement itself
+reproduced exactly and was never in dispute. (b)'s proposed `before:-inset-2` recipe is REFUTED by
+probe (spec §1.1 R2, §7 probe P4): the box measures 44x44 but only its top and left edges take the
+pointer — the right edge returns the `<nav>` and the bottom returns the outer wrapper. What shipped
+instead is `-m-2 … size-tap-min` plus an inner visual span, measured at 44x44 with all four edge
+midpoints hitting and pill centres identical to before.
+
+**~~(a) [P1] The "What does this mean?" `<summary>` is 20.3px tall.~~ ✅ SHIPPED 2026-08-08.** Not
+one site but SEVEN — the corpus pass found every `<summary>` in the repo under the floor, and all
+seven are repaired (spec §2.1): `HelpAffordance.tsx:95`, `OnboardingWizard.tsx` (operator error),
+`ErrorExplainer.tsx:114`, `AdministratorsSection.tsx:131` (40.8px, a near-miss sized by `p-3`),
+`app/me/meShowSections.tsx`, `RunOfShowList.tsx:82`, and `HelpTooltip.tsx:57` (which takes the
+Class B recipe instead, since it is also a 28px pill). Original text below for provenance.
+
+**(a) [P1] The "What does this mean?" `<summary>` is 20.3px tall.** On the hard-failed card's
+help disclosure (`components/admin/wizard/step3ReviewSections.tsx`, the HelpAffordance block).
+Measured live at 390px: own box 274.0x20.3, no `<label>` wrapper, no positioned `::before`/`::after`
+hit expansion. Its PARENT is `min-h-12` (48px), so roughly 28px of the band looks tappable and is
+not. Fails the project's stated 44px floor (`PRODUCT.md` accessibility floor) and also WCAG 2.5.8
+Target Size (Minimum, AA), which requires 24px — the vertical axis is under that too. **Fix when
+prioritized:** give the `<summary>` the height its parent already reserves (`min-h-tap-min`, or
+`flex h-full items-center`) so the whole 48px band toggles it. **Un-defer trigger:** the next
+milestone that touches `step3ReviewSections.tsx` chrome, or any a11y sweep of the wizard.
+
+**~~(b) [P2] Four 28x28 chrome targets.~~ ✅ SHIPPED 2026-08-08.** Seven targets, not four: the
+three step pills, the HelpSheet trigger, its close button (36x36 — found ONLY by the corpus pass),
+HelpTooltip, and the `AdminNav` brand link. Each keeps its OWN painted box and radius; only the hit
+box grows. The proposed `before:-inset-*` idiom is refuted above. Original text below for
+provenance.
+
+**(b) [P2] Four 28x28 chrome targets.** The three step-indicator pills ("Go back to step 1",
+"Go back to step 2", "Step 3, current step") and the page-header help trigger ("Help: Review and
+publish your sheets") are all `size-7` (28x28) with no hit expansion — verified by
+`document.elementFromPoint` at each element's centre returning a box no larger than the element.
+These CLEAR WCAG 2.5.8 (AA, 24px) but fail the project's own 44px floor and WCAG 2.5.5 (AAA).
+**Fix when prioritized:** the `before:absolute before:-inset-*` hit-expansion idiom, which keeps
+the 28px visual pill while giving it a 44px target. **Un-defer trigger:** same as (a), or the
+first report of a mis-tap on the step rail from a phone.
+
+**~~(c) [P2] Heading levels skip h1 → h3; the page renders no `<h2>` at all.~~ ✅ SHIPPED
+2026-08-08.** Both page-level `h3`s in `Step3Review.tsx` are promoted to `h2` (spec §2.3); the
+SHARED `step3ReviewSections.tsx:897` heading is deliberately untouched, because it renders inside
+the review modal and the show-review surface, each below its own dialog heading. Class strings are
+byte-identical, so the tag changed and the type scale did not. Original text below for provenance.
+
+**(c) [P2] Heading levels skip h1 → h3; the page renders no `<h2>` at all.** Probed live: the
+heading sequence is `1,3,3` at every viewport (320/390/768/1280) and `document.querySelectorAll("h2")`
+returns empty. WCAG 1.3.1 (Info and Relationships) — a screen-reader user tabbing the outline hears
+a level that was never opened. **Fix when prioritized:** demote the section headings to `h2` (they
+are the page's top-level sections) or introduce the missing `h2`. **Un-defer trigger:** any
+screen-reader pass on the wizard, or the next change to the Step-3 section headers.
+
+**~~(d) [P2] Three affordance vocabularies in one row slot; nested card chrome.~~ ✅ SHIPPED
+2026-08-10.** Five treatments, not three, and three nested-border sites, not one — the guard's own
+census is above. Original text below for provenance.
+
+**(d) [P2] Three affordance vocabularies in one row slot; nested card chrome.** Recorded in §12
+of the plan with the reasoning; both are design-consistency findings rather than standards
+violations, and both are pre-existing. **Un-defer trigger:** the next deliberate visual pass on
+the Step-3 row, where they should be resolved together rather than piecemeal.
+
+**Verified NOT findings (recorded so a future gate does not re-raise them):** the three
+`INPUT.peer.sr-only` checkboxes measure 1x1 but sit inside `<label>` wrappers of 44.0x44.0 and
+87.4x44.0 — the effective tap target meets the floor and the pattern is correct. The eight
+`broken-image` hits from `detect.mjs` (7 in `VenueMapTile.tsx`, 1 at `step3ReviewSections.tsx:3641`)
+are false positives: raw `<img>` with a required runtime `src` prop and an `onError` placeholder,
+a documented deliberate revert from `next/image` (which drops cookies), mirroring
+`components/diagrams/Gallery.tsx:130-144`.
+
 ### NEWTAB-A11Y-RESIDUE-1 — two P3s from the new-tab announcement dual gate — CLOSED 2026-08-08 (`fix/step3-a11y-cluster`, both items SHIPPED)
 
 **Resolution: FULLY resolved, both items.** Spec

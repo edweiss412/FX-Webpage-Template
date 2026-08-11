@@ -611,18 +611,18 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       {open && mounted
         ? createPortal(
             // PORTALED, not rendered in place: the row's menu seat is a
-            // positioned `z-10` span, so a backdrop inside it is trapped in
+            // positioned `z-raised` span, so a backdrop inside it is trapped in
             // that stacking context and paints BELOW the mobile bottom tab bar
-            // (`z-30`) — the admin could navigate away mid-request, unmounting
+            // (`z-nav`) — the admin could navigate away mid-request, unmounting
             // the row before its outcome was ever shown. As a body child it
-            // sits above the nav and below the menu panel (`z-50`).
+            // sits above the nav and below the menu panel (`z-overlay`).
             <button
               type="button"
               aria-hidden="true"
               tabIndex={-1}
               data-testid={`row-actions-backdrop-${slug}`}
               onClick={() => dismissMenu(false)}
-              className="fixed inset-0 z-40 cursor-default"
+              className="fixed inset-0 z-banner cursor-default"
             />,
             document.body,
           )

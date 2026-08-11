@@ -63,11 +63,11 @@ export function PreviewBanner({
       role="status"
       aria-live="polite"
       aria-label="Admin preview banner"
-      // Sticky + z-100 per §9.3. Yellow tint via warning-bg / warning-text
+      // Sticky + z-sticky-banner per §9.3. Yellow tint via warning-bg / warning-text
       // tokens makes impersonation unmistakable; the banner sits above
       // every tile in the stacking context.
-      style={{ position: "sticky", top: 0, zIndex: 100 }}
-      className="border-b border-border-strong bg-warning-bg text-warning-text shadow-tile"
+      style={{ position: "sticky", top: 0 }}
+      className="z-sticky-banner border-b border-border-strong bg-warning-bg text-warning-text shadow-tile"
     >
       <div className="mx-auto flex w-full max-w-300 flex-wrap items-center gap-3 px-4 py-3 sm:px-8">
         <p className="flex flex-1 flex-wrap items-center gap-2 text-sm sm:text-base">

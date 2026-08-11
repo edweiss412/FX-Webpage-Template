@@ -9,7 +9,7 @@
  * both the app and `compileEntryCss`, is the only shape that gives the product
  * and its measurements the same face.
  *
- * WHY THESE BYTES. `public/fonts/InterVariable-latin.fada467b.woff2` is a latin +
+ * WHY THESE BYTES. `public/fonts/InterVariable-latin.d5549562.woff2` is a latin +
  * latin-ext subset of the upstream Inter v4.1 release, NOT the build Google
  * Fonts serves -- that one has the character variants and stylistic sets
  * stripped, so DESIGN.md 2.4's feature contract would be declaring tags no
@@ -25,7 +25,7 @@
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("/fonts/InterVariable-latin.fada467b.woff2") format("woff2");
+  src: url("/fonts/InterVariable-latin.d5549562.woff2") format("woff2");
 }
 
 /* The metric-matched companion, reproducing verbatim what the framework loader

@@ -17,7 +17,7 @@ export const ModalCloseButton = forwardRef<HTMLButtonElement, { testId: string }
         data-testid={testId}
         aria-label="Close"
         onClick={requestClose}
-        className="-mr-1 inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        className="-mr-1 inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
       >
         <X aria-hidden="true" className="size-5" />
       </button>

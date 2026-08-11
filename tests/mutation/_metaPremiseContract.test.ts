@@ -34,6 +34,13 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // single-line sibling.
   "tests/scripts/ledgerClaimsCheck.test.ts": 16,
   "tests/scripts/ledgerClaims.test.ts": 0,
+  // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
+  // inventory suite reads DESIGN.md and walks the repo, but through the module
+  // under test rather than any member of ENVIRONMENT_SOURCES directly; the unit
+  // suite drives literal source strings through `scanTimingSites` and touches
+  // the real tree only for the universe fences.
+  "tests/docs/_metaInteractionTimingInventory.test.ts": 0,
+  "tests/docs/interactionTimingScan.test.ts": 0,
   "tests/specLint/taskContract.test.ts": 0,
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
   // exercises compareFindings over literal fixtures and reads no environment.
@@ -49,6 +56,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // decided by the ambient one.
   "tests/reviewRounds/count.test.ts": 0,
   "tests/docs/_metaReviewRoundEconomy.test.ts": 0,
+  // M-wave 2 W-GUARDS (2026-08-10): both guard-extractor suites are pure by
+  // the same rule as the corpus suite — they read the live tree via node:fs
+  // and walkSourceFiles, which is deliberately NOT provenance; neither touches
+  // child_process, ledger-git, or process.env.
+  "tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts": 0,
+  "tests/help/_metaUiLabelCrosswalk.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

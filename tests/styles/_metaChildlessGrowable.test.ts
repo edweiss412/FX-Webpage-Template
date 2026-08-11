@@ -159,13 +159,8 @@ describe("token predicates (spec §3.1, §4.2)", () => {
     expect(normalizeToken("[flex-grow:1]")).toBe("[flex-grow:1]");
   });
 
-  it("paint-set membership is exact (spec §4.2a): the four members, nothing else", () => {
-    expect([...PAINT_TOKENS].sort()).toEqual([
-      "bg-accent",
-      "bg-border",
-      "bg-border-strong",
-      "border",
-    ]);
+  it("paint-set membership is exact (spec §4.2a): the three members, nothing else", () => {
+    expect([...PAINT_TOKENS].sort()).toEqual(["bg-accent", "bg-border", "border"]);
     for (const member of PAINT_TOKENS) expect(PAINT_TOKENS.has(member)).toBe(true);
     for (const nonMember of [
       "bg-cover",
@@ -173,6 +168,11 @@ describe("token predicates (spec §3.1, §4.2)", () => {
       "ring-2",
       "shadow-sm",
       "bg-surface",
+      // Retired 2026-08-10 (§6.3 census-honesty): the wizard connector — its
+      // last growable candidate — left `flex-1` and moved to the text ramp, so
+      // membership would be a dead row. Pinned here so it cannot silently
+      // return without a live candidate to justify it.
+      "bg-border-strong",
     ]) {
       expect(PAINT_TOKENS.has(nonMember)).toBe(false);
     }
@@ -405,13 +405,16 @@ describe("scanSource: split-token assembly (spec §7 row 7 accepted-limits)", ()
 });
 
 describe("scanSource: paint + extent (spec §4.2, §6.4)", () => {
-  it.each(["bg-border", "bg-border-strong", "bg-accent", "border"])(
+  it.each(["bg-border", "bg-accent", "border"])(
     "member %s with extent is painted (accepted)",
     (member) => {
       expectAccepted(`<span className="flex-1 h-px ${member}" />`);
     },
   );
-  it.each(["bg-cover", "border-accent-edge", "ring-2", "shadow-sm"])(
+  // `bg-border-strong` sits in the violation list, not the painted one: retired
+  // from the set 2026-08-10 (§6.3), so a growable hairline reaching for it must
+  // now fail — the probe is what makes the retirement executable.
+  it.each(["bg-cover", "border-accent-edge", "ring-2", "shadow-sm", "bg-border-strong"])(
     "non-member %s does not paint (violation)",
     (token) => {
       expectViolation(
