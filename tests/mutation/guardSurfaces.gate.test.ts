@@ -73,6 +73,14 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // inline it scored 0.27, 18 of 19 survivors sitting in code the referring
   // suite can never execute through an import.
   phantomGapExecuted: {},
+  // M-wave 2 W-GUARDS (2026-08-10). popoverOverlayExtract: TWO equivalent rows
+  // (the template-separator connector flip, which can only inject the token
+  // `undefined` where no accept-set token contains it; and the null-key
+  // fall-through continue, which reaches only comparisons a null key cannot
+  // match). renderedTextHaystack: clean sweep, 17/17 killed after the
+  // hardening rows.
+  popoverOverlayExtract: { equivalent: 2 },
+  renderedTextHaystack: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

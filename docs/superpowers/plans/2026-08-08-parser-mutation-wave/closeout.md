@@ -22,4 +22,22 @@ The two P3s are pre-existing and untouched by this diff. The P2 above is NOT unt
 
 Per-branch close: PR-head `mutation-harness` workflow verified green (procedural gate, spec §2.2), ledger marker removed in the PR's last commit, `git rev-list --left-right --count main...origin/main` = `0  0` after merge.
 
+## 12b. Invariant-8 dual gate — `/help/errors` (branch 3, 2026-08-09)
+
+Re-run on the surface branch 3 leaves behind, per the contract above: this branch adds the `ROW_CELLS_FUSED` entry and the `"ROW"` family prefix.
+
+**critique** — 32/40, no P0, no P1. Run dual-agent, the two assessments isolated from each other. The reviewer read the new entry against its NEIGHBOURS rather than in isolation, which is what produced all three copy findings; each was **fixed in-branch** rather than deferred, since the copy had not shipped yet and the repair was one string.
+
+**audit** — 18/20, no P0, no P1. Detector clean (exit 0, zero findings) across `app/help/errors` + `app/help/_components`. Theming 4/4 (no hard-coded color in any of the three files), performance 4/4 (`RefAnchor` remains the sole justified client island), anti-patterns 4/4. `tests/help`: 642 tests green.
+
+| Sev | Finding | Disposition |
+| --- | --- | --- |
+| P2 | Terminology drifted mid-entry: the title said "columns ran together", the body said "cells are merged", so a reader could go hunting for a merged column | **Fixed** this branch: the explanation now names both in one sentence ("Merging two cells makes the export write that row one column short") |
+| P2 | `longExplanation` ran ~85 words against ~50-55 for every nearby sibling, an outlier against the page's rhythm | **Fixed** this branch: cut to three sentences |
+| P2 | The fix sentence sat last, behind a three-step causal chain, giving the entry the highest working-memory load on the page | **Fixed** this branch: "Unmerge the cells in that row and it will line up again" now leads |
+| P2 | `RefAnchor`'s copy gives no screen-reader-perceivable confirmation | Deferred to **`BL-HELP-REFANCHOR-A11Y-PASS`**, filed this branch. Same shared component and same class as branch 2's deferred accessible-name finding — that deferral carried no ledger row, so this branch filed one and folded both findings plus the tab-stop item into it, naming exception (c) |
+| P3 | `RefAnchor` hardcodes `size-11` instead of the canonical `min-h-tap-min`/`min-w-tap-min` tokens | Deferred: pre-existing, shared with other call sites (`BellPanel`, `GalleryLightbox`), not introduced by this diff |
+
+Branch 2's note above applies unchanged here: the copy-link count is NOT untouched by this diff — a new renderable code adds one more instance, which is why the deferral now has an owner rather than a third restatement.
+
 Review record: spec approved via substitute adversarial review (3 rounds: 8 → 1 → 0 findings) while Codex was quota-limited; implementation branches use the same substitute mechanism until the quota resets (overview "Review mechanism"), then revert to codex-guard.

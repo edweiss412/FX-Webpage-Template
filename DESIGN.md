@@ -87,6 +87,36 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 
 **Direct-sunlight rule:** body text (`--color-text` on `--color-bg`, light mode) must hit ≥7:1 — 16.5:1 clears the bar with margin. Verified.
 
+### 1.2a Standalone hairlines are NOT border-token surfaces (2026-08-10, wizard-connector measurement)
+
+A hairline that sits ALONE on the page — no filled surface beside it — needs
+text-grade contrast, not border-grade. `--color-border` and
+`--color-border-strong` are tuned for a divider that runs along a tile edge,
+where the tile's own fill carries the visual weight; painted as a 1px rule on
+`--color-bg` they measure **1.22:1** and **1.52:1** light, **1.35:1** and
+**1.70:1** dark. All four are under the 3:1 non-text floor, and the two differ
+from EACH OTHER by **1.25:1** light / **1.26:1** dark — so a state distinction
+carried by that pair is not perceivable at all.
+
+Measured in a real browser at every step, at 390px and 900px, in both themes,
+on the onboarding wizard's step connector (`components/admin/OnboardingWizard.tsx`,
+`data-testid="wizard-step-connector"`). The connector now uses the text ramp:
+
+| Connector state | Token | Light vs `--color-bg` | Dark vs `--color-bg` |
+| --- | --- | --- | --- |
+| Step ahead of the cursor | `--color-text-faint` | 3.16:1 | 4.22:1 |
+| Step behind the cursor (done) | `--color-text-subtle` | 6.5:1 | 6.8:1 |
+
+Both clear the 3:1 non-text floor, and the done run reads visibly heavier. The
+state is still never colour-ALONE — the completed pill carries a Check glyph
+(§1 colour-blind floor) — so the connector's colour is reinforcement, not the
+signal.
+
+**Rule:** before painting a token as a standalone rule, divider-on-page, or
+1px indicator, check it against §1.2 rather than assuming a border token is
+the border-shaped choice. The `-faint`/`-subtle` text pair is the sanctioned
+hairline ramp.
+
 ### 1.3 Status-signal hues (M12.2 Phase A amendment — the one scoped exception to "orange stays alone")
 
 §1 commits to a single brand accent and "no competing accent hue (no blue, no purple, no teal)". The admin redesign (M12.2 Phase A) introduces **one narrowly-scoped exception**: a named **status-signal hue set** for sync/health/review state on the admin dashboard and per-show page. This is a _status_ hue family, **not a second brand accent**, and the exception is bounded by these rules:

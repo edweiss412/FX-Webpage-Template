@@ -118,6 +118,13 @@
     "tests/e2e/directive-form-action.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"03c27f11cd03906ece97-f2b0e3d1ea1c4adaec43\",[\"directive-form-action.spec.ts\",\"use-server directive stub is loud at the real form-action boundary\",\"submitting a form whose action is a stubbed server action throws the plugin message\"]]"
     ],
+    "tests/e2e/font-oracle-readiness.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"b0d90a9602dcd8363aa7-2901c774e221c10af44e\",[\"font-oracle-readiness.spec.ts\",\"font oracle sampling (BL-FONT-CENSUS-ORACLE-FLAKE)\",\"row 5 — a live TEXTLESS document with a broken fonts API is still flagged\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"b0d90a9602dcd8363aa7-51baad0d430a5e402d06\",[\"font-oracle-readiness.spec.ts\",\"font oracle sampling (BL-FONT-CENSUS-ORACLE-FLAKE)\",\"row 2 — the atomic sample returns BOTH halves from one live document\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"b0d90a9602dcd8363aa7-682ddd56378822335dca\",[\"font-oracle-readiness.spec.ts\",\"font oracle sampling (BL-FONT-CENSUS-ORACLE-FLAKE)\",\"row 3 — a document that died under the sample is NOT recorded as unreadable\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"b0d90a9602dcd8363aa7-b1e14ff80a7bb78f21e1\",[\"font-oracle-readiness.spec.ts\",\"font oracle sampling (BL-FONT-CENSUS-ORACLE-FLAKE)\",\"row 1 — mechanism reproduction: a two-phase sample splits across a dying document\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"b0d90a9602dcd8363aa7-ff234d9062af553f5b46\",[\"font-oracle-readiness.spec.ts\",\"font oracle sampling (BL-FONT-CENSUS-ORACLE-FLAKE)\",\"row 4 — fail-loud preserved: a LIVE document with a broken fonts API is still flagged\"]]"
+    ],
     "tests/e2e/fontFidelityFixture.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-1424ae40dee4a92b4464\",[\"fontFidelityFixture.spec.ts\",\"shadow-root and frame text are BOTH observed\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-3a41acf9c2f97087c8de\",[\"fontFidelityFixture.spec.ts\",\"a browser-originated navigation reports the OUTGOING document\"]]",
@@ -622,5 +629,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 545
+  "totalTests": 550
 }
