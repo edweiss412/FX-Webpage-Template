@@ -119,6 +119,48 @@ This matters because a typo'd token would emit NO `z-index` at all — a silent
 stacking regression that a class-string guard cannot catch, since the class
 string would be exactly what the guard expects.
 
+### Cross-model review — brief A (z-index bands)
+
+Split tight-scope per the large-diff rule. Brief A covered U1's guard and sweep.
+
+| Round | Verdict | Findings | What was accepted |
+| --- | --- | --- | --- |
+| 1 | NEEDS-ATTENTION | 2 (both P1) | The scanner was blind to variant prefixes (`focus:z-50`) and to non-module-scope consts, reporting ZERO sites for three files that carried live numerals. And a typo'd band emits no `z-index` while the census stays silent. |
+| 2 | NEEDS-ATTENTION | 2 (both P1) | The r1 repair was `@theme`-scoped STRING PRESENCE, which cannot tell a live declaration from a commented-out one, a duplicate, or a `:root` override. And exemptions keyed on file + token alone would let one row cover every identical site in a file. |
+
+Every finding was probe-backed, accepted without argument, and repaired by shape
+rather than by instance. The r1 widening independently reproduced exactly the
+three sites the review named — a useful confirmation that the repair addressed
+the mechanism and not the examples.
+
+**All four findings were ONE shape: a guard whose green state is compatible with
+the thing it claims to prevent.** That is worth stating plainly because it is the
+class this arc kept re-encountering, in the guard and outside it — the same shape
+produced the fill-separation claim in U2 and the four-site enumeration in U4. The
+guard's answer is now to COMPILE rather than to read: Tailwind processes the
+shipped `app/globals.css` and the emitted rules are asserted for presence and for
+resolved value, so nothing about the source text can fool it. Both of round 2's
+vectors were mutated against it and each reds.
+
+### Measurements taken during close-out
+
+Computed from the runtime tokens rather than eyeballed, because every one of
+these had a decision resting on it:
+
+| Pair | Light | Dark | Floor | Consequence |
+| --- | --- | --- | --- | --- |
+| `surface` vs `surface-sunken` | 1.11:1 | 1.09:1 | 3:1 | Killed the fill-separation claim; the flat row drops its fill. |
+| `surface-sunken` vs page `bg` | ~1.05:1 | — | 3:1 | The plate cannot yield its border instead. |
+| `border-strong` on `surface` | 1.59:1 | 1.60:1 | 3:1 | The secondary button's box is not perceivable; filed. |
+| focus ring on `surface` | 3.59:1 | 4.39:1 | 3:1 | PASSES. |
+| focus ring on button fill | 3.44:1 | — | 3:1 | PASSES. |
+| focus ring on the sunken plate | 3.24:1 | — | 3:1 | PASSES — the tightest of the set. |
+
+The focus-ring rows are the ones that mattered for U2: the shared treatment drops
+`focus-visible:ring-offset-*` (one constant cannot carry a correct offset COLOUR
+across `bg-surface` cards and the `bg-surface-sunken` plate), so the ring now
+sits flush on every ground the button lands on. All three clear the floor.
+
 ### §12 Invariant-8 dual gate — findings and dispositions
 
 impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=0 dispositions=none
