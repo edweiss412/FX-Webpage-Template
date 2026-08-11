@@ -62,9 +62,7 @@ describe("scanner premise (a guard that matched nothing would be vacuously green
       'export const P = () => <div className="absolute z-40" />;',
       "components/P.tsx",
     );
-    expect(sites).toEqual([
-      { file: "components/P.tsx", line: 1, token: "z-40", idiom: "utility" },
-    ]);
+    expect(sites).toEqual([{ file: "components/P.tsx", line: 1, token: "z-40", idiom: "utility" }]);
   });
 
   it("flags a planted inline-style numeric (the PreviewBanner idiom)", () => {
