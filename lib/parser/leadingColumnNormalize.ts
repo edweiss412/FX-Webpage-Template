@@ -35,7 +35,7 @@ export function normalizeLeadingColumn(markdown: string): {
       message:
         "Every row of a section started with an empty column, so we read the section one column to the left.",
       // NO POSITIONAL ORDINAL (review round 1, Important #3): matches
-      // refErrorDetector.ts:154 / rowWidthDiscriminator.ts:189. An `index` here is not
+      // refErrorDetector.ts:154 / rowWidthDiscriminator.ts:195. An `index` here is not
       // stable under unrelated structural edits - the harness's `signalEq` is a deep-equal
       // over the signal channel, so a blank row injected anywhere above shifts the
       // ordinal and scores the mutant SILENT_SIGNAL_LOSS (measured on refErrorDetector.ts:
@@ -55,7 +55,9 @@ export function normalizeLeadingColumn(markdown: string): {
   // the boundary-defining row of a NEIGHBOUR section the operator moved - in cell 2
   // behind an empty leading cell. A cell-1-only variant of the shipped detector measures
   // 461/535 corpus mutation sites restored (review round 3); the cell-2 branch below closes
-  // the remaining 47.
+  // 47 of the remaining 74, leaving 27 unrestored (review round 3): 9 `COI` + 5 `In House AV`
+  // are a `LABEL_TO_KIND` vocabulary gap (deferred deliberately, not this file's bug), and 8
+  // are typo'd headers the mutation harness itself classifies `headerRow: null`.
   //
   // Review round 1, Critical #1 / Important #2, then round 2: a bare cell-2 label MATCH is
   // not enough - ordinary data coincides with section vocabulary by construction (a
@@ -89,6 +91,13 @@ export function normalizeLeadingColumn(markdown: string): {
   // width and `lastUnshiftedWidth` now count unescaped pipes only. Measured cost: zero (the
   // same 508/535 corpus sites restore as before the repair); measured benefit: no
   // corpus-reachable spoof of the width check remains.
+  //
+  // This closes the finding only because the exporter escapes `\` BEFORE it escapes `|`
+  // (lib/drive/exportSheetToMarkdown.ts:43 then :45): a cell ending in a literal `\`
+  // immediately before a real delimiter would otherwise read as an escaped pipe, understating
+  // that row's count by one - the inverse of the bug this repair closes. That ordering is a
+  // fact about the exporter, invisible from this file. An ingestion path that escaped pipes
+  // but not backslashes, or escaped them in the other order, would re-open this class.
   //
   // Residual limit, not reachable by the mutation harness: if a section is shifted with NO
   // unshifted row anywhere EARLIER in its physical block (i.e. the pair is block-initial -
