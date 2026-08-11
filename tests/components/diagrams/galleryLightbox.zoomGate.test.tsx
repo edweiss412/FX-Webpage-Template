@@ -295,7 +295,11 @@ function inactiveImages(container: HTMLElement): HTMLImageElement[] {
 
 /** The library publishing a scale snapshot, wrapped so React commits it. */
 function emitScale(scale: number): void {
-  premise("the mocked library had a live transform subscriber to publish to", lib.listeners.length, 0);
+  premise(
+    "the mocked library had a live transform subscriber to publish to",
+    lib.listeners.length,
+    0,
+  );
   act(() => lib.emit(scale));
 }
 
@@ -362,7 +366,9 @@ describe("GalleryLightbox — zoom-gated original (AC-1)", () => {
     const { container } = open([fixture, item(2)]);
     premiseHolds(
       "the lightbox's own keyboard gate is satisfied (focus is inside the dialog)",
-      container.querySelector('[data-testid="diagrams-lightbox"]')!.contains(document.activeElement),
+      container
+        .querySelector('[data-testid="diagrams-lightbox"]')!
+        .contains(document.activeElement),
     );
     premiseHolds(
       "the slide is on the clamped tier before the keystroke",
@@ -580,7 +586,8 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
     const region = container.querySelector('[data-testid="lightbox-announce-log"]')!;
     premiseHolds(
       "both states resolve to the original, which is what makes the demote a no-op here",
-      activeLoaderUrls(container).size === 1 && activeLoaderUrls(container).has(originalUrlOf(fixture)),
+      activeLoaderUrls(container).size === 1 &&
+        activeLoaderUrls(container).has(originalUrlOf(fixture)),
     );
 
     emitScale(2.4);

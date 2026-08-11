@@ -25,14 +25,7 @@
  * jsdom tests that render the gallery in its collapsed state never
  * trigger any of it.
  */
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, RotateCcw, X } from "lucide-react";
@@ -930,7 +923,9 @@ export function GalleryLightbox({
                               // is where focus jumps to Close and the diagram is
                               // replaced, and silence here left a screen-reader
                               // user hearing only "Close gallery".
-                              onAnnounce?.(`${item.alt || `Diagram ${i + 1}`} could not be loaded.`);
+                              onAnnounce?.(
+                                `${item.alt || `Diagram ${i + 1}`} could not be loaded.`,
+                              );
                               setFailedKeys((prev) => {
                                 if (prev.has(item.id)) return prev;
                                 const next = new Set(prev);

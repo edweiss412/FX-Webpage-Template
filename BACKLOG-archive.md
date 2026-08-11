@@ -7345,6 +7345,7 @@ re-browsing, not a live-region announcement.
 Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image migration that surfaced
 them; they are filed rather than fixed in that branch because the repair is a focus-management and
 announcement decision on a surface the branch does not otherwise change.
+
 > > > > > > > origin/main
 
 ## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom — RESOLVED 2026-08-10 (`feat/m2-guard-precision`)

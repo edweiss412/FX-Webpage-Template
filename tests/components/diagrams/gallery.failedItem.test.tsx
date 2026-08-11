@@ -208,7 +208,7 @@ vi.mock("embla-carousel-react", async () => {
           listeners.current.get(event)?.delete(cb);
           return api;
         },
-            reInit: () => {},
+        reInit: () => {},
         rootNode: () => document.createElement("div"),
         internalEngine: () => ({}),
       }),
@@ -277,14 +277,14 @@ function open(items: GalleryItem[]) {
 
 /** The thumbnail button for a 0-based visible slot. */
 function thumbButton(slot: number): HTMLButtonElement {
-  return within(screen.getByTestId(`diagram-slot-${slot}`)).getByRole("button") as HTMLButtonElement;
+  return within(screen.getByTestId(`diagram-slot-${slot}`)).getByRole(
+    "button",
+  ) as HTMLButtonElement;
 }
 
 /** The thumbnail image for a 0-based visible slot. */
 function thumbImage(slot: number): HTMLImageElement {
-  return within(screen.getByTestId(`diagram-slot-${slot}`)).getByRole(
-    "img",
-  ) as HTMLImageElement;
+  return within(screen.getByTestId(`diagram-slot-${slot}`)).getByRole("img") as HTMLImageElement;
 }
 
 /** Announced entries of a region, by its keyed children — never its text blob. */
@@ -332,7 +332,10 @@ describe("Gallery — the announce regions exist before anything is announced", 
 
     const dialog = screen.getByTestId("diagrams-lightbox");
     const region = screen.getByTestId(LIGHTBOX_LOG);
-    premiseHolds("the lightbox region is a descendant of the modal dialog", dialog.contains(region));
+    premiseHolds(
+      "the lightbox region is a descendant of the modal dialog",
+      dialog.contains(region),
+    );
 
     expect(region.getAttribute("role")).toBe("log");
     expect(region.getAttribute("aria-label")).toBe("Diagram viewer updates");
@@ -344,7 +347,10 @@ describe("Gallery — browse-state failures announce on the gallery channel (AC-
   test("one failure appends exactly one entry to the SAME region node", () => {
     open([item(1), item(2)]);
     const region = screen.getByTestId(GALLERY_LOG);
-    premiseHolds("the region starts empty, or the append proves nothing", entriesOf(region).length === 0);
+    premiseHolds(
+      "the region starts empty, or the append proves nothing",
+      entriesOf(region).length === 0,
+    );
 
     failThumb(0);
 
@@ -424,7 +430,10 @@ describe("Gallery — focus relocation on failure (AC-3)", () => {
     open([item(1), item(2), item(3)]);
     const next = thumbButton(1);
     act(() => thumbButton(0).focus());
-    premiseHolds("the failing thumbnail holds focus before the failure", document.activeElement === thumbButton(0));
+    premiseHolds(
+      "the failing thumbnail holds focus before the failure",
+      document.activeElement === thumbButton(0),
+    );
 
     failThumb(0);
 
@@ -443,7 +452,10 @@ describe("Gallery — focus relocation on failure (AC-3)", () => {
 
   test("with no sibling thumbnail available it relocates to the show-more control", () => {
     // 13 entries, exactly one available: the toggle is the only control left.
-    const items = [item(1), ...Array.from({ length: 12 }, (_v, i) => item(i + 2, { available: false }))];
+    const items = [
+      item(1),
+      ...Array.from({ length: 12 }, (_v, i) => item(i + 2, { available: false })),
+    ];
     open(items);
     const toggle = screen.getByRole("button", { name: /show all 13 diagrams/i });
     act(() => thumbButton(0).focus());
@@ -634,7 +646,10 @@ describe("Gallery — no failure is announced into a channel nobody can hear", (
       fireEvent.click(thumbButton(0));
     });
     const lightboxRegion = screen.getByTestId(LIGHTBOX_LOG);
-    premiseHolds("the dialog channel is live for this control case", entriesOf(lightboxRegion).length === 0);
+    premiseHolds(
+      "the dialog channel is live for this control case",
+      entriesOf(lightboxRegion).length === 0,
+    );
 
     failThumb(1);
 
@@ -655,7 +670,10 @@ describe("Gallery — failures while the lightbox is OPEN route to its own chann
     openLightboxFrom(0);
     const galleryRegion = screen.getByTestId(GALLERY_LOG);
     const lightboxRegion = screen.getByTestId(LIGHTBOX_LOG);
-    premiseHolds("both regions start empty", entriesOf(galleryRegion).length === 0 && entriesOf(lightboxRegion).length === 0);
+    premiseHolds(
+      "both regions start empty",
+      entriesOf(galleryRegion).length === 0 && entriesOf(lightboxRegion).length === 0,
+    );
 
     failThumb(1);
 
@@ -752,14 +770,20 @@ describe("Gallery — the dialog's own failure reaches the dialog's own region",
     });
     const dialog = screen.getByTestId("diagrams-lightbox");
     const region = screen.getByTestId(LIGHTBOX_LOG);
-    premiseHolds("the region is inside the dialog and empty", dialog.contains(region) && entriesOf(region).length === 0);
+    premiseHolds(
+      "the region is inside the dialog and empty",
+      dialog.contains(region) && entriesOf(region).length === 0,
+    );
 
     // Zoom intent, then the original fails: the demote path.
     act(() => zoom.emit(2.4));
     const activeImage = dialog
       .querySelector('[data-testid="rzpp-component"]')!
       .querySelector("img")!;
-    premiseHolds("the active slide is still an image (not the placeholder)", activeImage.isConnected);
+    premiseHolds(
+      "the active slide is still an image (not the placeholder)",
+      activeImage.isConnected,
+    );
     act(() => {
       fireEvent.error(activeImage);
     });
@@ -785,7 +809,10 @@ describe("Gallery — the lightbox announces the failure that DESTROYS, not only
     const activeImage = dialog
       .querySelector('[data-testid="rzpp-component"]')!
       .querySelector("img")!;
-    premiseHolds("no zoom intent, so this failure destroys rather than demotes", entriesOf(region).length === 0);
+    premiseHolds(
+      "no zoom intent, so this failure destroys rather than demotes",
+      entriesOf(region).length === 0,
+    );
 
     act(() => {
       fireEvent.error(activeImage);
@@ -867,7 +894,10 @@ describe("Gallery — de-zooming by keyboard never strands focus on the Reset ch
     act(() => zoom.emit(2.5));
     const chip = screen.getByTestId("lightbox-reset-chip");
     act(() => chip.focus());
-    premiseHolds("the chip exists and holds focus before the de-zoom", document.activeElement === chip);
+    premiseHolds(
+      "the chip exists and holds focus before the de-zoom",
+      document.activeElement === chip,
+    );
 
     act(() => {
       fireEvent.keyDown(window, { key: "0" });
@@ -912,7 +942,10 @@ describe("Gallery — navigating to a bound never drops focus out of the dialog"
     const previous = screen.getByRole("button", { name: /previous diagram/i });
     const next = screen.getByRole("button", { name: /next diagram/i });
     act(() => previous.focus());
-    premiseHolds("the chevron under test is enabled and focused before activation", document.activeElement === previous);
+    premiseHolds(
+      "the chevron under test is enabled and focused before activation",
+      document.activeElement === previous,
+    );
 
     act(() => {
       fireEvent.click(previous);
