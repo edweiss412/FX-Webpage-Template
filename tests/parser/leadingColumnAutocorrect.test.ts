@@ -95,7 +95,7 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
   });
 
   // Review round 1, Important #2: inside a genuinely shifted section, EVERY row leads
-  // empty, so the pre-fix cell-2 opener test ran on every data row, not just the header —
+  // empty, so the pre-fix cell-2 opener test ran on every data row, not just the header -
   // a data row whose own second cell canonicalized (here, "Driver") split one shifted
   // section into two spans and doubled the warning count. Spec §6 mandates exactly one.
   it("emits exactly one warning for one drag-shifted section, even when a data row's own second cell matches a section label (review Important #2)", () => {
