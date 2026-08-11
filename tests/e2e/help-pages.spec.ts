@@ -43,7 +43,15 @@ import { signInAs } from "./helpers/signInAs";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { NAV } from "../../app/help/_nav";
 
-const TEST_BASE_URL = "http://127.0.0.1:3000";
+// Honors the E2E_PORT relocation (playwright.config.ts:5-7). A hardcoded 3000
+// silently defeats that escape hatch: `reuseExistingServer: !CI` means a
+// sibling worktree's dev server on 3000 is reused and this spec then asserts
+// against ANOTHER BRANCH's pages while reporting on this one. Measured
+// 2026-08-11 — a probe of /help/tour showed the pre-fix nested-paragraph DOM
+// and a live hydration error on a tree where the fix was applied and CI was
+// green, because :3000 belonged to a different worktree. Same form as
+// published-review-modal.realtime.spec.ts:67.
+const TEST_BASE_URL = `http://127.0.0.1:${process.env.E2E_PORT ?? "3000"}`;
 
 type HelpRoute = {
   url: string;
