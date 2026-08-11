@@ -214,6 +214,37 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     expect(only(findings, A)).toEqual([]);
   });
 
+  it.each([
+    ["a discourse connective is NOT a dated qualifier", "at the same time"],
+    ["nor is an unlisted stage word", "at teatime time"],
+  ])("%s", (_label, phrase) => {
+    // Matching these would EXCEED the normative exclusion rather than approximate it,
+    // silencing a real advisory. Reported by whole-diff review R4 with a probe.
+    const { findings } = run(`\`${PARITY_SCRIPT}\` covered 38 sites ${phrase}\n`, {
+      [PARITY_SCRIPT]: scriptSrc(siteConst(37)),
+    });
+    expect(only(findings, A)).toHaveLength(1);
+  });
+
+  it("a qualifier in the NEXT clause binds nothing", () => {
+    // "within the same clause" is enforced, not merely approximated by the 40-character
+    // reach: a full stop separates these two. Also review R4, probed.
+    const { findings } = run(
+      `\`${PARITY_SCRIPT}\` covered 38 sites. At plan time it was fewer.\n`,
+      { [PARITY_SCRIPT]: scriptSrc(siteConst(37)) },
+    );
+    expect(only(findings, A)).toHaveLength(1);
+  });
+
+  it("the noun match is case-INSENSITIVE", () => {
+    // `NOUN_AFTER` is lowercase-only for NUMERIC_NOUN_MISMATCH by ratified design, and
+    // shape (a) silently inherited it: `38 Sites` was dropped while `38 sites` flagged.
+    const { findings } = run(`\`${PARITY_SCRIPT}\` reports parity for all 38 Sites\n`, {
+      [PARITY_SCRIPT]: scriptSrc(siteConst(37)),
+    });
+    expect(only(findings, A)).toHaveLength(1);
+  });
+
   it("a dated (ISO) historical line is EXCLUDED wholesale", () => {
     const { findings } = run(
       `2026-08-07 — \`${PARITY_SCRIPT}\` reported 38 sites in the probe transcript\n`,
@@ -359,6 +390,7 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     const f = only(run(line + "\n", { [PARITY_SCRIPT]: scriptSrc(siteConst(37)) }).findings, A)[0]!;
     expect(f.docLine).toBe(1);
     expect(f.column).toBe(line.indexOf("38") + 1);
+    expect(f.message).toBe("prose says 38 sites, but EXPECTED_SITE_TOTAL = 37");
     expect(f.detail).toBe(
       `${PARITY_SCRIPT} declares EXPECTED_SITE_TOTAL = 37; this line claims 38`,
     );

@@ -80,16 +80,47 @@ const QUANTITY_RE = new RegExp(String.raw`\b(\d+(?:\.\d+)?|${WORD_ALTERNATION})\
 /** (iii) a line carrying an ISO date is a dated historical record; never compared. */
 const ISO_DATE_LINE = /\d{4}-\d{2}-\d{2}/;
 /**
- * (ii) the dated qualifier family, derived from the spec's two named phrases
- * ("at plan time", "at authoring time") rather than enumerated: `at` + one or two
- * words + `time`. DOCUMENTED LIMIT: the derivation also matches non-provenance
- * connectives ("at the same time"), which suppresses an advisory rather than
- * inventing one — the tripwire direction (spec §4: silence means "no qualifying
- * structure", never "verified consistent").
+ * (ii) the dated qualifier phrase: `at <authoring-stage> time`.
+ *
+ * A CLOSED accept-set of stage nouns, not a wildcard. `at ... time` with any word in
+ * the middle also matches ordinary connectives — "at the same time" is the obvious one
+ * — and matching those EXCEEDS the normative exclusion rather than approximating it:
+ * the spec names dated PROVENANCE phrases, so a discourse connective is outside the
+ * accept-set and must not silence an advisory (whole-diff review R4, probed). The spec
+ * names the first two; the rest are the same authoring-stage family, and a stage word
+ * that is not listed simply does not exclude, which is the tripwire-visible direction.
  */
-const DATED_QUALIFIER_RE = /\bat\s+[a-z][a-z-]*(?:\s+[a-z][a-z-]*)?\s+time\b/gi;
+const QUALIFIER_STAGES = [
+  "plan",
+  "planning",
+  "authoring",
+  "author",
+  "draft",
+  "drafting",
+  "spec",
+  "design",
+  "review",
+  "implementation",
+  "ship",
+  "filing",
+  "writing",
+  "measurement",
+  "probe",
+  "dispatch",
+];
+const DATED_QUALIFIER_RE = new RegExp(
+  String.raw`\bat\s+(?:${QUALIFIER_STAGES.join("|")})\s+time\b`,
+  "gi",
+);
 /** A qualifier binds a number only when it follows within the same clause. */
 const QUALIFIER_REACH = 40;
+/**
+ * ...and "the same clause" is enforced, not just approximated by the reach: a sentence
+ * or clause terminator between the number and the qualifier means they belong to
+ * different clauses, so the qualifier binds nothing (whole-diff review R4 probed
+ * `covers 4 sites. At plan time ...` binding across the full stop).
+ */
+const CLAUSE_TERMINATOR = /[.!?;]/;
 
 function quantityRanges(text: string): Range[] {
   const out: Range[] = [];
@@ -119,7 +150,10 @@ function qualifierBoundStarts(text: string): Set<number> {
       if (n.end > q.index) continue;
       if (nearest === null || n.end > nearest.end) nearest = n;
     }
-    if (nearest !== null && q.index - nearest.end <= QUALIFIER_REACH) out.add(nearest.start);
+    if (nearest === null) continue;
+    const gap = text.slice(nearest.end, q.index);
+    if (gap.length > QUALIFIER_REACH || CLAUSE_TERMINATOR.test(gap)) continue;
+    out.add(nearest.start);
   }
   return out;
 }
@@ -132,6 +166,18 @@ const singular = (word: string): string => word.replace(/s$/, "");
 const CONST_DECL_RE =
   /^(?:export )?const ([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([^;]*?)\s*;?\s*(?:\/\/.*)?$/;
 const EXPECTED_IDENT_RE = /^EXPECTED_[A-Z0-9_]+$/;
+/**
+ * Shape (a)'s following-noun pattern, deliberately NOT the shared `NOUN_AFTER`.
+ *
+ * `NOUN_AFTER` is lowercase-only because `2026-07-19-spec-lint.md:103` ratifies that
+ * for `NUMERIC_NOUN_MISMATCH`, and changing it would move that check's whole corpus
+ * population. But nothing in spec §3.1 narrows shape (a)'s noun match by case, so
+ * inheriting the restriction silently dropped `covers 4 Sites` while flagging
+ * `covers 4 sites` — a capitalization-only difference in behaviour (whole-diff review
+ * R4, probed). Shape (a) therefore reads its own noun, case-insensitively, and
+ * lowercases before singularizing.
+ */
+const NOUN_AFTER_ANY_CASE = /^\s+([A-Za-z][A-Za-z-]{2,})/;
 const INT_LITERAL_RE = /^\d+$/;
 /**
  * A mention must be the WHOLE path token, so both sides reject any character that
@@ -469,8 +515,10 @@ export function checkNumerics(
       .filter((entry) => entry.constants.length > 0);
     const boundCache = new Map<number, Set<number>>();
     for (const h of hits) {
-      if (h.noun === null || !INT_LITERAL_RE.test(h.raw)) continue;
+      if (!INT_LITERAL_RE.test(h.raw)) continue;
       const line = model.lines[h.docLine - 1]!;
+      const following = NOUN_AFTER_ANY_CASE.exec(line.slice(h.column - 1 + h.raw.length));
+      if (following === null) continue;
       if (ISO_DATE_LINE.test(line)) continue; // exclusion (iii)
       let bound = boundCache.get(h.docLine);
       if (bound === undefined) {
@@ -478,7 +526,7 @@ export function checkNumerics(
         boundCache.set(h.docLine, bound);
       }
       if (bound.has(h.column - 1)) continue; // exclusion (ii)
-      const noun = singular(h.noun.toLowerCase());
+      const noun = singular(following[1]!.toLowerCase());
       const claimed = Number(h.raw);
       for (const { path, mentions, constants } of constantsByPath) {
         if (!mentions.test(line)) continue;
@@ -490,7 +538,7 @@ export function checkNumerics(
             severity: "advisory",
             docLine: h.docLine,
             column: h.column,
-            message: `prose says ${claimed} ${h.noun}, but ${c.ident} = ${c.value}`,
+            message: `prose says ${claimed} ${following[1]}, but ${c.ident} = ${c.value}`,
             detail: `${path} declares ${c.ident} = ${c.value}; this line claims ${claimed}`,
           });
         }
