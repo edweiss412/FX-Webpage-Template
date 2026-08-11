@@ -25,6 +25,12 @@ const SENTENCE: Record<string, (phrase: string, subj: string) => string | null> 
     `We read ${phrase}. Fix the header in the sheet if that guess is wrong.`,
   FIELD_LABEL_AUTOCORRECTED: (phrase) =>
     `We read ${phrase}. Fix the label in the sheet if that guess is wrong.`,
+  // Ignores both `phrase` and `subj` deliberately: the correction pair this code
+  // carries is `{ detected: "empty leading column", corrected: "shifted left" }`
+  // (lib/parser/leadingColumnNormalize.ts), and `joinPairs` quoting that verbatim
+  // ("We read 'empty leading column' as 'shifted left'.") reads as nonsense rather
+  // than a correction. The fixed sentence states the correction directly instead.
+  LEADING_COLUMN_AUTOCORRECTED: () => "We read this section one column to the left.",
 };
 
 const normalize = (s: string): string => s.trim().replace(/\s+/g, " ");

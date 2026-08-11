@@ -399,16 +399,18 @@ describe("summarizeAutoFixes (6.3 sibling)", () => {
     message: code,
   });
 
-  it("counts only the five *_AUTOCORRECTED warn codes", () => {
+  it("counts only the six *_AUTOCORRECTED warn codes", () => {
     const s = summarizeAutoFixes([
       w("STAGE_WORD_AUTOCORRECTED"),
       w("STAGE_WORD_AUTOCORRECTED"),
       w("ROLE_TOKEN_AUTOCORRECTED"),
+      w("LEADING_COLUMN_AUTOCORRECTED"),
       w("FIELD_UNREADABLE"), // a gap, not an autofix → ignored
     ]);
-    expect(s.total).toBe(3);
+    expect(s.total).toBe(4);
     expect(s.classes.STAGE_WORD_AUTOCORRECTED).toBe(2);
     expect(s.classes.ROLE_TOKEN_AUTOCORRECTED).toBe(1);
+    expect(s.classes.LEADING_COLUMN_AUTOCORRECTED).toBe(1);
     expect(s.classes.COLUMN_HEADER_AUTOCORRECTED).toBe(0);
   });
 
@@ -424,11 +426,12 @@ describe("summarizeAutoFixes (6.3 sibling)", () => {
     expect(summarizeAutoFixes([w("STAGE_WORD_AUTOCORRECTED", "info")]).total).toBe(0);
   });
 
-  it("AUTO_FIX_CLASSES is exactly the five autocorrect codes", () => {
+  it("AUTO_FIX_CLASSES is exactly the six autocorrect codes", () => {
     expect(AUTO_FIX_CLASSES.map((c) => c.code).sort()).toEqual(
       [
         "COLUMN_HEADER_AUTOCORRECTED",
         "FIELD_LABEL_AUTOCORRECTED",
+        "LEADING_COLUMN_AUTOCORRECTED",
         "ROLE_TOKEN_AUTOCORRECTED",
         "SECTION_HEADER_AUTOCORRECTED",
         "STAGE_WORD_AUTOCORRECTED",

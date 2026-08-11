@@ -1670,6 +1670,22 @@ export const MESSAGE_CATALOG = {
       "A field label on a sheet looked misspelled, so we read it as the closest real field and used that; the value is recovered into the right field instead of being dropped. If it was intentional, update the sheet.",
     helpHref: "/help/errors#FIELD_LABEL_AUTOCORRECTED",
   },
+  LEADING_COLUMN_AUTOCORRECTED: {
+    code: "LEADING_COLUMN_AUTOCORRECTED",
+    warningClass: "parse_warning",
+    dougFacing:
+      "Every row of a section in this sheet started with an empty column, so we read the section one column to the left and it parses correctly. If the empty column was intentional, update the sheet.",
+    crewFacing: null,
+    followUp: "Doug → optional fix",
+    helpfulContext:
+      "Every row in a section started with an empty column, so we read it one column to the left instead. Update the sheet if the empty column was intentional.",
+    triggerContext:
+      "Appears when every row of a sheet section, including its header, starts with an empty column.",
+    title: "Auto-corrected a shifted section",
+    longExplanation:
+      "When every row in a sheet section, including its header, starts with an empty column, that usually means the section was dragged one column to the right during export. We read the section one column to the left instead, so it lines up and reads correctly again. If the empty column was intentional, update the sheet.",
+    helpHref: "/help/errors#LEADING_COLUMN_AUTOCORRECTED",
+  },
   PULL_SHEET_PARSE_PARTIAL: {
     code: "PULL_SHEET_PARSE_PARTIAL",
     warningClass: "parse_warning",

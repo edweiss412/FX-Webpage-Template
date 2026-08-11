@@ -80,7 +80,7 @@ export type ActiveShowRow = {
   // accessible name (§6.5). No time-decay: it clears when the last
   // un-dispositioned roster row is Accepted/Undone/superseded.
   rosterShift?: RosterShiftSummary;
-  // Flow 6 §3.2 (6.3) — OPTIONAL per-show auto-fix summary (the five
+  // Flow 6 §3.2 (6.3) — OPTIONAL per-show auto-fix summary (the six
   // *_AUTOCORRECTED codes) from the SAME shows_internal.parse_warnings read.
   // Producers omit it → undefined → ShowsTable renders no auto-fixed chip; when
   // supplied and `total > 0`, ShowsTable renders a NEUTRAL "N auto-fixed" pill

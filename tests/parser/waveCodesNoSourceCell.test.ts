@@ -13,9 +13,9 @@
 // where they come to say so deliberately — §11.9 offers per-code anchor dispatch as a
 // future enhancement, not as an oversight to be quietly closed.
 //
-// Both wave codes are covered, not just branch 3's. They are one shape, the marginal cost
-// of the second row is a line, and a per-branch guard would leave `REF_ERROR_LITERAL`
-// asserting nothing until some future branch remembered it.
+// All three wave codes are covered, not just branch 3's. They are one shape, the marginal
+// cost of each additional row is a line, and a per-branch guard would leave the other codes
+// asserting nothing until some future branch remembered them.
 import { describe, expect, it } from "vitest";
 
 import { attachSourceCellAnchors, type WarningAnchorSources } from "@/lib/drive/showDayTimeAnchors";
@@ -25,7 +25,11 @@ import type { ParseWarning } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 
 /** The wave's blockRef-only codes (§11.9). */
-const BLOCKREF_ONLY_CODES = ["REF_ERROR_LITERAL", "ROW_CELLS_FUSED"] as const;
+const BLOCKREF_ONLY_CODES = [
+  "REF_ERROR_LITERAL",
+  "ROW_CELLS_FUSED",
+  "LEADING_COLUMN_AUTOCORRECTED",
+] as const;
 
 /**
  * Anchor sources rich enough that a dispatch branch WOULD find something.

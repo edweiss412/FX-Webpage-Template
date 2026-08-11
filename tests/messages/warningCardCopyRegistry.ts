@@ -4,6 +4,7 @@
 export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
   "REF_ERROR_LITERAL",
   "ROW_CELLS_FUSED",
+  "LEADING_COLUMN_AUTOCORRECTED",
   "AGENDA_BLOCK_UNRESOLVED",
   "AGENDA_DAY_AMBIGUOUS",
   "AGENDA_DAY_EMPTIED",
@@ -70,6 +71,8 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
   FIELD_LABEL_AUTOCORRECTED: "Appears when a row label is a letter or two off a standard label.",
   FIELD_UNREADABLE:
     "Appears when a crew phone or email cell can't work as a real phone number or email address.",
+  LEADING_COLUMN_AUTOCORRECTED:
+    "Appears when every row of a sheet section, including its header, starts with an empty column.",
   HOTEL_CARDINALITY_EXCEEDED: "Appears when the sheet has more than four hotel blocks.",
   HOTEL_ADDRESS_SPLIT_AMBIGUOUS:
     "Appears when a hotel line's name and street address may not have been separated correctly.",
@@ -174,6 +177,8 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
     "A row label looked misspelled, so we used the closest real one (like 'Venue Adress' as 'Venue Address'). Fix the label in the sheet if that guess is wrong.",
   FIELD_UNREADABLE:
     "A crew phone or email in your sheet couldn't work as one (a phone with no digits, or an email without an @), so that link is left off the crew page. Fix the cell in the sheet.",
+  LEADING_COLUMN_AUTOCORRECTED:
+    "Every row in a section started with an empty column, so we read it one column to the left instead. Update the sheet if the empty column was intentional.",
   HOTEL_ADDRESS_SPLIT_AMBIGUOUS:
     "A hotel line's name and street address may not have been separated correctly. Check the hotel name and address in case part of one landed in the other.",
   HOTEL_CARDINALITY_EXCEEDED:
