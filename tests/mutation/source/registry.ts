@@ -498,6 +498,295 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: { from: 'r.status === "verdict"', to: 'r.status !== "verdict"' },
     accepted: [],
   },
+  /**
+   * The three prose-count parity arms (spec
+   * `docs/superpowers/specs/2026-08-10-speclint-prose-count-parity.md`, AC-4).
+   *
+   * Enrolment PRECEDES review here, per AGENTS.md: the subject is a recognizer
+   * whose defect class is "reports OK while the output moved", which is exactly
+   * what the registry can express, so the convergence criterion for its diff
+   * review is the score plus an empty unaccepted-survivor set rather than an
+   * open enumeration of inputs that might escape.
+   */
+  {
+    id: "specLintNumerics",
+    sourcePath: "lib/specLint/numerics.ts",
+    suitePaths: ["tests/specLint/numerics.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Inverts the nearest-predecessor scan in qualifierBoundStarts, so a dated
+    // qualifier binds a number that FOLLOWS it instead of the one before it. The
+    // SYNTHETIC mixed-line pair asserts both directions of that binding, so the
+    // suite cannot miss this.
+    control: { from: "if (n.end > q.index) continue;", to: "if (n.end < q.index) continue;" },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior (spec §2.4) -------
+      //
+      // Three families, and each argument rests on control flow or on the accept-set
+      // in this file rather than on "no test happens to notice".
+      //
+      // FAMILY 1 — redundant `lastIndex` resets. Every `while ((m = RE.exec(x)) !== null)`
+      // loop in this module runs to exhaustion, and `exec` sets `lastIndex` back to 0 when
+      // it returns null. So on entry the regex's `lastIndex` is ALREADY 0 and the explicit
+      // assignment cannot change what the next scan sees. The paired `0 > 1` mutants of the
+      // same assignments are NOT here: starting a scan at index 1 skips a match at index 0,
+      // which is observable, and each is killed by a column-0 fixture.
+      {
+        siteId: "statement-removal:23:5:re.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason:
+          "rangesOn's exec loop runs to exhaustion, and exec resets lastIndex to 0 on the null result, so the assignment is redundant on entry",
+      },
+      {
+        siteId: "statement-removal:96:3:QUANTITY_RE.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in quantityRanges",
+      },
+      {
+        siteId: "statement-removal:114:3:DATED_QUALIFIER_RE.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in qualifierBoundStarts",
+      },
+      {
+        siteId: "statement-removal:235:3:CARDINAL_RE.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in cardinalsOn",
+      },
+      {
+        siteId: "statement-removal:344:5:DIGIT_RUN_RE.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in templateCandidates",
+      },
+      {
+        siteId: "statement-removal:391:5:LEXICON.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in the hit scan",
+      },
+      // FAMILY 2 — inputs the accept-set cannot produce.
+      {
+        siteId: "integer-literal:114:34:0>1",
+        kind: "equivalent",
+        reason:
+          "starting the qualifier scan at index 1 can only skip a qualifier at index 0, and a qualifier at index 0 has no preceding number to bind (every number range ends at >= 1), so the bound set is identical",
+      },
+      {
+        siteId: "relational-boundary:30:87:<><=",
+        kind: "equivalent",
+        reason:
+          "i === r.end is unreachable: for a span range, end is the closing backtick's position, which cannot start a numeric match; for an exclusion range, end sits immediately after a digit or hex character, so no \\b-anchored match can begin there",
+      },
+      {
+        siteId: "integer-literal:69:10:50>51",
+        kind: "equivalent",
+        reason:
+          "fifty's value is read only through the 2..40 claim-range gate, which rejects 50 and 51 alike, so nothing downstream ever sees it. forty's twin IS killed, because 41 crosses that gate",
+      },
+      {
+        siteId: "integer-literal:99:49:0>1",
+        kind: "equivalent",
+        reason:
+          "QUANTITY_RE is `\\b(...)\\b`, so capture group 1 spans the whole match: m[1] === m[0]",
+      },
+      {
+        siteId: "relational-boundary:119:17:>>>=",
+        kind: "equivalent",
+        reason:
+          "n.end === q.index needs the qualifier to begin at the character immediately after a digit, but the qualifier is \\bat…, and a digit-to-letter transition is not a word boundary",
+      },
+      {
+        siteId: "relational-boundary:120:37:>>>=",
+        kind: "equivalent",
+        reason: "two matches from one global scan cannot share an end offset, so > and >= agree",
+      },
+      {
+        siteId: "integer-literal:203:28:1>2",
+        kind: "equivalent",
+        reason:
+          "with a slash, slash >= 0 so both -1 and -2 are false and the else branch runs; without one, slice(-1 + 1) is slice(0), so forms becomes [path, path] and the alternation is unchanged",
+      },
+      {
+        siteId: "integer-literal:284:30:0>1",
+        kind: "equivalent",
+        reason:
+          "unreachable: both call sites pass a line index BULLET_RE has already matched, so `first` is never null",
+      },
+      {
+        siteId: "relational-boundary:302:36:>>>=",
+        kind: "equivalent",
+        reason:
+          "the equal-indent case is consumed by the branch above (countListItems' === indent test), so this comparison only ever sees unequal indents",
+      },
+      {
+        siteId: "relational-boundary:383:25:<><=",
+        kind: "equivalent",
+        reason:
+          "the extra iteration reads model.lines[idx] === undefined, which every consumer coerces to the string 'undefined': it holds no digit, so the hit scan produces nothing",
+      },
+      {
+        siteId: "relational-boundary:477:25:<><=",
+        kind: "equivalent",
+        reason:
+          "same one-past-the-end argument in the shape (b) pass: 'undefined' carries no digit and no number-word, so cardinalsOn returns an empty list and the iteration continues",
+      },
+      {
+        siteId: "relational-boundary:526:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the extra outer index makes the inner loop's `j = i + 1 < candidates.length` false immediately, so no pair is formed",
+      },
+      // FAMILY 3 — offsets and orderings that cannot move an outcome.
+      {
+        siteId: "integer-literal:389:40:1>2",
+        kind: "equivalent",
+        reason:
+          "the span range's START: the character before a span's content is its opening backtick, which cannot be a digit, so widening the range leftward admits nothing. Its END twin IS killed, by a fixture whose digit is the span's last character",
+      },
+      {
+        siteId: "integer-literal:485:40:1>2",
+        kind: "equivalent",
+        reason: "same opening-backtick argument for the shape (b) span ranges",
+      },
+      {
+        siteId: "integer-literal:485:59:1>2",
+        kind: "equivalent",
+        reason:
+          "the shape (b) span range's END: a cardinal is recognized only when followed by whitespace, and the character after a span's last content character is the closing backtick, so a cardinal ending at the boundary is rejected whether or not the range covered it",
+      },
+      {
+        siteId:
+          "statement-removal:422:3:mismatches.sort((a, b) => a.first.docLine - b.first.docLine || a.first.column - b.first.column);>(removed)",
+        kind: "equivalent",
+        reason:
+          "mismatches is built by iterating a Map whose insertion order is first-hit order, which is document order already, so the sort reorders nothing. Its comparator's `||` mutant IS killed, because an inconsistent comparator can still swap an already-ordered pair",
+      },
+      {
+        siteId: "relational-boundary:444:49:>>>=",
+        kind: "equivalent",
+        reason: "an entry with zero constants contributes an empty inner loop either way",
+      },
+      {
+        siteId: "statement-removal:453:9:boundCache.set(h.docLine, bound);>(removed)",
+        kind: "equivalent",
+        reason:
+          "memoization only: without the write, qualifierBoundStarts is recomputed for the same line and returns the same set",
+      },
+      {
+        siteId: "integer-literal:493:20:1>2",
+        kind: "equivalent",
+        reason: "the listIdx < 0 guard rejects -1 and -2 alike",
+      },
+      {
+        siteId: "relational-boundary:500:17:<><=",
+        kind: "equivalent",
+        reason: "a resolved listIdx is always >= 1, so < 0 and <= 0 select identically",
+      },
+      {
+        siteId: "integer-literal:500:19:0>1",
+        kind: "equivalent",
+        reason: "same argument: listIdx is either -1 or >= 1, so < 0 and < 1 select identically",
+      },
+      {
+        siteId: "statement-removal:500:22:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "falling through calls countListItems(model, -1, …), which reads undefined, fails BULLET_RE against the coerced 'undefined' and returns 0 — which the very next guard rejects anyway",
+      },
+      {
+        siteId: "integer-literal:366:20:0>1",
+        kind: "equivalent",
+        reason:
+          "union === 1 requires two identical single-token sets, which forces identical digit runs; the quantity comparison rejects that pair before jaccard is called",
+      },
+      {
+        siteId: "integer-literal:366:24:0>1",
+        kind: "equivalent",
+        reason:
+          "the union === 0 branch is unreachable: a candidate must contain a digit, so its token set is never empty",
+      },
+      {
+        siteId: "integer-literal:253:22:0>1",
+        kind: "equivalent",
+        reason:
+          "the fallback head is read only when NO word in the window is plural, so isPluralWord drops the claim either way (words[1] may be undefined, which .test coerces to 'undefined' and rejects)",
+      },
+      {
+        siteId: "relational-boundary:254:38:>=>>",
+        kind: "equivalent",
+        reason:
+          "skipping k === 0 matters only when words[0] is the sole plural word, and the fallback head IS words[0], so the selected head is identical",
+      },
+      {
+        siteId: "integer-literal:254:41:0>1",
+        kind: "equivalent",
+        reason: "same argument as the loop bound beside it",
+      },
+      {
+        siteId: "relational-boundary:270:17:<=><",
+        kind: "equivalent",
+        reason:
+          "m.index === markerEnd needs a cardinal at the character immediately after a list marker, and BULLET_RE requires whitespace there",
+      },
+      {
+        siteId: "relational-boundary:559:61:<><=",
+        kind: "equivalent",
+        reason:
+          "the inventory comparator's raws are Map keys and therefore distinct, so the equal-operand input that separates < from <= cannot occur",
+      },
+      {
+        siteId: "integer-literal:559:72:1>2",
+        kind: "equivalent",
+        reason: "Array.prototype.sort reads a comparator result's SIGN, never its magnitude",
+      },
+      {
+        siteId: "relational-boundary:559:82:>>>=",
+        kind: "equivalent",
+        reason: "same distinct-keys argument as its sibling comparison",
+      },
+      {
+        siteId: "integer-literal:559:92:1>2",
+        kind: "equivalent",
+        reason: "same sign-not-magnitude argument",
+      },
+      {
+        siteId: "integer-literal:559:96:0>1",
+        kind: "equivalent",
+        reason:
+          "the final tiebreak is reached only when two raws are equal, which distinct Map keys make impossible",
+      },
+      {
+        siteId: "integer-literal:287:16:0>1",
+        kind: "equivalent",
+        reason:
+          "blanks' initial value is dead: the loop starts AT the first bullet, whose branch assigns blanks = 0 before any blank line can be seen",
+      },
+      {
+        siteId: "integer-literal:302:25:1>2",
+        kind: "equivalent",
+        reason:
+          "b[2] is the marker rather than the indent, but a deeper-indented bullet ALSO has deeper leading whitespace, so the very next branch (the leading-whitespace test) continues on exactly the same lines",
+      },
+      {
+        siteId: "statement-removal:304:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "falling through reaches the leading-whitespace branch, which continues on the same lines for the same reason",
+      },
+      {
+        siteId: "integer-literal:482:97:1>2",
+        kind: "equivalent",
+        reason:
+          "markerEnd's non-bullet sentinel: `m.index <= -1` and `m.index <= -2` are both false for every real index",
+      },
+      {
+        siteId: "relational-boundary:355:33:>>>=",
+        kind: "equivalent",
+        reason:
+          'the empty-token filter can never drop anything: the tokenizer replaces every RUN of non-alphanumerics with ONE space and then trims, so split(" ") cannot yield an empty string',
+      },
+      // ---- accepted-gap: none. Every survivor above carries a reachability or
+      // control-flow argument, so this surface blesses no uncovered behaviour.
+    ],
+  },
   {
     id: "reviewRoundCorpus",
     sourcePath: "lib/reviewRounds/corpus.ts",

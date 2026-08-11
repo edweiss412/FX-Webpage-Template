@@ -49,6 +49,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // decided by the ambient one.
   "tests/reviewRounds/count.test.ts": 0,
   "tests/docs/_metaReviewRoundEconomy.test.ts": 0,
+  // Enrolled by specLintNumerics (2026-08-11). Pure, and the declaration is
+  // honest rather than convenient: every case drives checkNumerics or runLint
+  // over literal fixture text with a hand-built FileResolver, so it reaches no
+  // member of ENVIRONMENT_SOURCES -- no child process, no ledger-git, no
+  // process.env, and no filesystem read at all.
+  "tests/specLint/numerics.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

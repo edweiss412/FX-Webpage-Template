@@ -133,8 +133,14 @@ const CONST_DECL_RE =
   /^(?:export )?const ([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([^;]*?)\s*;?\s*(?:\/\/.*)?$/;
 const EXPECTED_IDENT_RE = /^EXPECTED_[A-Z0-9_]+$/;
 const INT_LITERAL_RE = /^\d+$/;
-const SCRIPT_MENTION_LEFT = /[A-Za-z0-9_./-]/;
-const SCRIPT_MENTION_RIGHT = /[A-Za-z0-9_]/;
+/**
+ * A mention is bounded on the left by anything that could make it part of a
+ * longer path or identifier, and on the right by an identifier character. Held as
+ * class SOURCE rather than as `RegExp`s because they are composed into one
+ * lookaround pattern per script path (see `scriptMentionMatcher`).
+ */
+const MENTION_LEFT_CLASS = "[A-Za-z0-9_./-]";
+const MENTION_RIGHT_CLASS = "[A-Za-z0-9_]";
 
 interface ScriptConstant {
   ident: string;
@@ -169,28 +175,34 @@ function scriptConstants(text: string): ScriptConstant[] {
   return out;
 }
 
-function containsToken(line: string, needle: string): boolean {
-  let i = line.indexOf(needle);
-  while (i !== -1) {
-    const before = i === 0 ? "" : line[i - 1]!;
-    const after = line[i + needle.length] ?? "";
-    if (!SCRIPT_MENTION_LEFT.test(before) && !SCRIPT_MENTION_RIGHT.test(after)) return true;
-    i = line.indexOf(needle, i + 1);
-  }
-  return false;
-}
+const escapeForRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * Whether `line` names `path` — by full path or by BASENAME (spec §3.1).
+ * One matcher for a script path: its full path OR its BASENAME (spec §3.1), each
+ * bounded so a mention glued into a longer token does not count.
  *
- * Shared with runLint, which uses the same predicate to decide which scripts to
- * resolve, so the resolver and the association can never disagree about what a
- * mention is.
+ * LOOP-FREE by construction, and that is load-bearing rather than stylistic. The
+ * hand-rolled `indexOf` scan this replaces had an `equality-flip` mutant
+ * (`i !== -1` becoming `i === -1`) that spins forever whenever the needle is
+ * ABSENT — the common case — because `indexOf` keeps returning -1. A hung mutant is
+ * still KILLED by the 30s per-test timeout, so the price was wall clock rather than
+ * a wrong verdict, and it cost the enrolled mutation run hours. A pattern has no
+ * loop to mutate.
+ *
+ * Compiled per PATH, never per line: the callers test one matcher against every
+ * candidate line, so compiling inside that loop would build hundreds of thousands
+ * of regexes on a large document. Non-global, so `.test` carries no `lastIndex`
+ * state and the matcher is safe to reuse.
+ *
+ * Lookbehind is ES2018 and this pattern is built at runtime from a string, so the
+ * ES2017 `target` never sees it; every consumer is Node-side (the spec:lint CLI
+ * and its suites).
  */
-export function mentionsScript(line: string, path: string): boolean {
+export function scriptMentionMatcher(path: string): RegExp {
   const slash = path.lastIndexOf("/");
-  const base = slash === -1 ? path : path.slice(slash + 1);
-  return containsToken(line, path) || containsToken(line, base);
+  const forms = slash === -1 ? [path] : [path, path.slice(slash + 1)];
+  const alternation = forms.map(escapeForRegExp).join("|");
+  return new RegExp(`(?<!${MENTION_LEFT_CLASS})(?:${alternation})(?!${MENTION_RIGHT_CLASS})`);
 }
 
 // ---- shape (b): sibling-list cardinality (spec §3.2) ----
@@ -422,9 +434,14 @@ export function checkNumerics(
 
   // ---- shape (a): SCRIPT_CONSTANT_PARITY (spec §3.1) ----
   if (scriptTexts !== undefined) {
-    const constantsByPath: [string, ScriptConstant[]][] = Object.entries(scriptTexts)
-      .map(([path, text]) => [path, scriptConstants(text)] as [string, ScriptConstant[]])
-      .filter(([, constants]) => constants.length > 0);
+    // Matcher compiled ONCE per script, outside the per-hit loop below.
+    const constantsByPath = Object.entries(scriptTexts)
+      .map(([path, text]) => ({
+        path,
+        mentions: scriptMentionMatcher(path),
+        constants: scriptConstants(text),
+      }))
+      .filter((entry) => entry.constants.length > 0);
     const boundCache = new Map<number, Set<number>>();
     for (const h of hits) {
       if (h.noun === null || !INT_LITERAL_RE.test(h.raw)) continue;
@@ -438,8 +455,8 @@ export function checkNumerics(
       if (bound.has(h.column - 1)) continue; // exclusion (ii)
       const noun = singular(h.noun.toLowerCase());
       const claimed = Number(h.raw);
-      for (const [path, constants] of constantsByPath) {
-        if (!mentionsScript(line, path)) continue;
+      for (const { path, mentions, constants } of constantsByPath) {
+        if (!mentions.test(line)) continue;
         for (const c of constants) {
           if (c.noun !== noun || c.value === claimed) continue;
           findings.push({

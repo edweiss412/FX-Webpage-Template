@@ -1,6 +1,6 @@
 import { checkCitations } from "./citations";
 import { checkCopy } from "./copyRules";
-import { checkNumerics, mentionsScript } from "./numerics";
+import { checkNumerics, scriptMentionMatcher } from "./numerics";
 import { parseDoc, type DocModel } from "./parse";
 import { fenceCoverage, waiverTarget } from "./waiverCoverage";
 import { checkTaskContract } from "./taskContract";
@@ -33,7 +33,7 @@ const waiverAdvisory = (line: number, message: string): Finding => ({
  *
  * The I/O boundary stays here: `numerics.ts` performs none, and this resolves the
  * `scripts/` paths the doc names — by path OR basename, using the same
- * `mentionsScript` predicate the arm's association uses, so the resolver and the
+ * `scriptMentionMatcher` the arm's association uses, so the resolver and the
  * arm can never disagree about what a mention is. A path the resolver cannot
  * serve contributes nothing and is skipped silently (tripwire posture).
  */
@@ -42,7 +42,9 @@ function resolveScriptTexts(model: DocModel, resolver: FileResolver): Record<str
   const lines = model.lines.filter((_, i) => model.fencedInfo[i] === undefined);
   for (const path of resolver.listTrackedFiles()) {
     if (!path.startsWith("scripts/")) continue;
-    if (!lines.some((line) => mentionsScript(line, path))) continue;
+    // Compiled once per script, then tested against every non-fenced line.
+    const mentions = scriptMentionMatcher(path);
+    if (!lines.some((line) => mentions.test(line))) continue;
     const text = resolver.readFileLines(path);
     if (text === null) continue;
     out[path] = text.join("\n");

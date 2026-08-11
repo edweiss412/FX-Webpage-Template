@@ -37,6 +37,12 @@ describe("checkNumerics — lexicon exclusions (spec §5)", () => {
     expect(run(doc).inventory).toEqual([]);
   });
 
+  it("an ISO date at the very START of the line is excluded", () => {
+    // Column 0 specifically: a scan that began one character in would miss it and
+    // report 2026 / 07 / 19 as three numbers.
+    expect(run("2026-07-19 shipped the batch\n").inventory).toEqual([]);
+  });
+
   it("number inside a citation-candidate span excluded", () => {
     const { inventory } = run("see `lib/x.ts:12` here\n");
     expect(inventory).toEqual([]);
@@ -45,6 +51,13 @@ describe("checkNumerics — lexicon exclusions (spec §5)", () => {
   it("fenced lines not scanned", () => {
     const { inventory } = run(["```", "45 codes", "```"].join("\n"));
     expect(inventory).toEqual([]);
+  });
+
+  it("a digit as a candidate span's LAST character is inside the span", () => {
+    // The END offset specifically, and the span must be CITATION-shaped or it is not a
+    // candidate at all: the digit here starts at the span's final index, so a range one
+    // character short would admit it as a number.
+    expect(run("see `lib/x.ts:1` here\n").inventory).toEqual([]);
   });
 });
 
@@ -76,6 +89,20 @@ describe("checkNumerics — noun-anchored mismatch (spec §5)", () => {
   it("advisories only — never fail severity", () => {
     const { findings } = run("2 things\n3 things\n");
     expect(findings.every((f) => f.severity === "advisory")).toBe(true);
+  });
+
+  it("two mismatching nouns are ordered by doc LINE, not by column", () => {
+    // The later-column noun appears first in the document, so a comparator that lets a
+    // column difference outrank a line difference reverses these two.
+    const { findings } = run(
+      ["prefix text 5 alphas", "3 betas", "9 alphas", "7 betas", ""].join("\n"),
+    );
+    const mismatches = only(findings, "NUMERIC_NOUN_MISMATCH");
+    expect(mismatches).toHaveLength(2);
+    expect(mismatches.map((f) => [f.docLine, f.column])).toEqual([
+      [1, "prefix text ".length + 1],
+      [2, 1],
+    ]);
   });
 });
 
@@ -284,6 +311,22 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     expect(only(findings, A)).toEqual([]);
   });
 
+  it("the finding's column and detail are exact", () => {
+    const line = acLine(38);
+    const f = only(run(line + "\n", { [PARITY_SCRIPT]: scriptSrc(siteConst(37)) }).findings, A)[0]!;
+    expect(f.docLine).toBe(1);
+    expect(f.column).toBe(line.indexOf("38") + 1);
+    expect(f.detail).toBe(
+      `${PARITY_SCRIPT} declares EXPECTED_SITE_TOTAL = 37; this line claims 38`,
+    );
+  });
+
+  it("a constant whose script is named on a FENCED line only is not associated", () => {
+    // The resolver may still serve the text; association is per non-fenced line.
+    const doc = ["```", `\`${PARITY_SCRIPT}\``, "```", "It reports 38 sites.", ""].join("\n");
+    expect(only(run(doc, { [PARITY_SCRIPT]: scriptSrc(siteConst(37)) }).findings, A)).toEqual([]);
+  });
+
   it("no script texts at all → the arm is silent (no I/O, no guessing)", () => {
     expect(only(run(acLine(38) + "\n").findings, A)).toEqual([]);
   });
@@ -440,6 +483,231 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
     expect(only(run(doc).findings, B)).toEqual([]);
   });
 
+  // ---- boundary pins for every numeric bound the ladder carries ----
+  // Each pair straddles one bound, so moving that bound by one reds exactly one case.
+
+  it("adjacency reaches 2 lines: a list 3 lines below the claim is not adjacent", () => {
+    const doc = ["The spec names three measured shapes:", "", "", ...bullets(2), ""].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("the head-word window reaches the THIRD following word", () => {
+    const doc = claimOver("The spec names three carefully measured shapes:", 2);
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("the head-word window stops at the third: a FOURTH-word plural is not the head", () => {
+    const doc = claimOver("The spec names three long and careful shapes:", 2);
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  describe("the 60-character tail bound", () => {
+    /** `The spec names three shapes …` padded so the tail after `three` is exactly `tail`. */
+    const tailOf = (tail: number): string => {
+      const head = "The spec names three";
+      const line = `${head} shapes ${"z".repeat(tail - " shapes ".length)}`;
+      if (line.length - head.length !== tail)
+        throw new Error(`built tail ${line.length - head.length}`);
+      return line;
+    };
+
+    it("a tail of exactly 60 characters still fires", () => {
+      expect(only(run(claimOver(tailOf(60), 2)).findings, B)).toHaveLength(1);
+    });
+
+    it("a tail of 61 characters does not", () => {
+      expect(only(run(claimOver(tailOf(61), 2)).findings, B)).toEqual([]);
+    });
+  });
+
+  describe("the 40-character qualifier reach", () => {
+    /** A qualifier whose start sits exactly `gap` characters past the end of `three`. */
+    const gapOf = (gap: number): string => {
+      const head = "The spec names three";
+      const prefix = `${head} shapes ${"z".repeat(gap - " shapes ".length - 1)} `;
+      if (prefix.length - head.length !== gap)
+        throw new Error(`built gap ${prefix.length - head.length}`);
+      return `${prefix}at plan time:`;
+    };
+
+    it("a qualifier exactly 40 characters past the claim still binds it", () => {
+      expect(only(run(claimOver(gapOf(40), 2)).findings, B)).toEqual([]);
+    });
+
+    it("a qualifier 41 characters past the claim binds nothing", () => {
+      expect(only(run(claimOver(gapOf(41), 2)).findings, B)).toHaveLength(1);
+    });
+  });
+
+  it("two blank lines end the sibling list; a third block is not counted", () => {
+    // Plain counting across the gap sees 5 items and would flag; the contract's
+    // counter stops at the second blank, reads 3, and agrees with the claim.
+    const doc = [
+      "The spec names three measured shapes:",
+      ...bullets(3),
+      "",
+      "",
+      "- extra one",
+      "- extra two",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  // ---- the sibling counter's list-shape contract ----
+  // Each case is a real list shape, and each pins one counting decision.
+
+  it("a claim at column 0 is recognized", () => {
+    // A cardinality scan that began one character in would find nothing here.
+    expect(only(run(claimOver("3 measured shapes:", 2)).findings, B)).toHaveLength(1);
+  });
+
+  it("a qualifier binds a claim at column 0", () => {
+    expect(only(run(claimOver("3 measured shapes at plan time:", 2)).findings, B)).toEqual([]);
+  });
+
+  it("a single blank line inside the list does not end it", () => {
+    const doc = ["The spec names three measured shapes:", ...bullets(2), "", "- shape 3", ""].join(
+      "\n",
+    );
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("two SEPARATED single blanks do not accumulate into a terminator", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "",
+      "- shape 2",
+      "",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("a deeper sub-bullet between blanks keeps the list open", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "",
+      "  - a nested detail",
+      "",
+      "- shape 2",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("an indented continuation line between blanks keeps the list open", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "",
+      "  continued prose belonging to shape 1",
+      "",
+      "- shape 2",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("prose at the list's own indent ENDS it, and a later bullet is not counted", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      ...bullets(2),
+      "That is the whole enumeration.",
+      "- a bullet belonging to something else",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("a `***Step 4***` bullet is not a checklist step, so it counts", () => {
+    // Two asterisks are the recognized emphasis width; a third is ordinary text.
+    const doc = [
+      "The spec names three measured shapes:",
+      ...bullets(3),
+      "- ***Step 4*** still an enumeration member",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("a 5-digit run is not a cardinality, so it cannot displace the claim", () => {
+    const doc = claimOver("The spec names three measured shapes over 12345 files:", 2);
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("the head is the LAST plural word in the window, not the first", () => {
+    const findings = only(
+      run(claimOver("The spec names three failing tests shapes:", 2)).findings,
+      B,
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("shapes");
+    expect(findings[0]!.message).not.toContain("tests");
+  });
+
+  it.each([
+    ["a decimal fragment at column 1", ".3 measured shapes:"],
+    ["a decimal tail after a version", "Version 4.3 items:"],
+    ["a spaced section reference", "§ 12 items:"],
+  ])("lexical guard rejects %s", (_label, claim) => {
+    expect(only(run(claimOver(claim, 2)).findings, B)).toEqual([]);
+  });
+
+  it("a list of ONE item is still a list", () => {
+    expect(
+      only(run(claimOver("The spec names three measured shapes:", 1)).findings, B),
+    ).toHaveLength(1);
+  });
+
+  it("a blank line between the claim and the list does not break adjacency", () => {
+    const doc = ["The spec names three measured shapes:", "", ...bullets(2), ""].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("a bullet claim whose cardinal sits right after the marker is still recognized", () => {
+    const doc = ["- 3 measured shapes:", ...bullets(2, "  "), ""].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("an ordered-list claim is compared against the list's INDENT, not its marker width", () => {
+    const doc = ["1. The spec names three measured shapes:", " - a", " - b", ""].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("a span on ANOTHER line never masks this line's cardinal", () => {
+    const doc = [
+      "`" + "0".repeat(40) + "`",
+      "The spec names three measured shapes:",
+      ...bullets(2),
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("a span on the FOLLOWING line never masks this line's cardinal", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- `" + "0".repeat(40) + "`",
+      "- b",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("the finding's column and detail are exact", () => {
+    const claim = "The spec names three measured shapes:";
+    const f = only(run(claimOver(claim, 2)).findings, B)[0]!;
+    expect(f.docLine).toBe(1);
+    expect(f.column).toBe(claim.indexOf("three") + 1);
+    expect(f.detail).toBe('claim "three shapes"; list starts at doc line 2 with 2 sibling items');
+  });
+
   // ---- the shared exclusion contract, pinned for this arm (spec §1.1, R6 F4) ----
 
   it("exclusion: a fenced claim is not scanned", () => {
@@ -498,9 +766,10 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
   it.each(Object.entries(NUMBER_WORDS))(
     "word form `%s` parses as its value and meets the 2-40 range gate accordingly",
     (word, value) => {
-      // A list length that can never equal the claim, so a recognized in-range word
-      // MUST flag and an out-of-range one must not.
-      const items = value === 2 ? 3 : 2;
+      // A list length that can never equal the claim OR the claim off by one, so a
+      // word whose value moved by one still reds — `one: 1` mutated to 2 would sit at
+      // parity against a 2-item list and pass unnoticed.
+      const items = value === 3 ? 2 : 3;
       const findings = only(
         run(claimOver(`The spec names ${word} measured shapes:`, items)).findings,
         B,
@@ -665,6 +934,24 @@ describe("TEMPLATE_QUANTITY_DRIFT — shape (c), spec §3.3", () => {
       const doc = [sampleLine(4, "at plan time"), "", sampleLine(7, "at plan time"), ""].join("\n");
       expect(only(run(doc).findings, C)).toEqual([]);
     });
+  });
+
+  it("a quantity at column 0 participates", () => {
+    // The differing digit is the line's FIRST character; a quantity scan starting one
+    // character in would read both lines as carrying the same (empty) quantity list.
+    const line = (n: number): string =>
+      `${n} reviewers dispatched against the shipped guard surface and recorded the final verdict here`;
+    expect(only(run([line(4), "", line(7), ""].join("\n")).findings, C)).toHaveLength(1);
+  });
+
+  it("the finding's anchor and detail are exact", () => {
+    const doc = [roundLine(4), "", roundLine(7), ""].join("\n");
+    const f = only(run(doc).findings, C)[0]!;
+    expect(f.docLine).toBe(1);
+    expect(f.column).toBe(1);
+    expect(f.detail).toBe(
+      `similarity 0.88; doc line 1: "${roundLine(4)}"; doc line 3: "${roundLine(7)}"`,
+    );
   });
 
   it("pairing is WITHIN-doc only: identical numbers across the pair stay silent", () => {
