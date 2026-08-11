@@ -15,8 +15,26 @@
  *      literal values (the PreviewBanner idiom the spec's r2 F2 named).
  *
  * DOCUMENTED LIMIT (threat-model fence: accidental authoring by an ordinary
- * contributor): runtime-assembled class strings and computed style objects are
- *  outside recognition; adversarial obfuscation files here, not to the guard.
+ * contributor). Runtime-assembled class strings and computed style objects are
+ * outside recognition; adversarial obfuscation files here, not to the guard.
+ *
+ * The limit that matters, stated with its CONSEQUENCE (whole-diff review r4 F3).
+ * Candidate discovery — used only to prove that every band class the source
+ * writes actually COMPILES — is unavoidably a source-side recognizer, because a
+ * typo'd band emits no CSS at all and therefore cannot be found by reading the
+ * compiled stylesheet. A band class reaching the DOM through a form this scanner
+ * cannot statically resolve (an object registry keyed elsewhere, a value built
+ * at runtime) is not discovered, so a TYPO in such a class is not reported.
+ *
+ * Its worst case is loud, not silent: the utility does not exist, Tailwind emits
+ * nothing, and the element renders with NO z-index — an overlay paints behind
+ * its content, visibly, on first look. That is a conservative failure with a
+ * surfaced signal, which is the shape this project files as a documented limit
+ * rather than chasing through another round of recognizer widening. The SILENT
+ * failure — a raw numeral quietly winning a stacking contest — is closed
+ * completely, and by the compiler rather than by this file: every z-index the
+ * app emits is checked in `_metaZIndexBands.test.ts`, which fails closed on any
+ * band value it cannot attribute to a band name.
  */
 import ts from "typescript";
 
@@ -50,7 +68,45 @@ const NUMERIC_Z_UTILITY = /(?:^|\s)((?:[a-z][a-z0-9-]*:)*z-\d+)(?=\s|$)/g;
  * see it (whole-diff review r1 F2). Reading className context rather than raw
  * text is what keeps `z-index:` in a comment from counting as a class.
  */
-const NAMED_Z_UTILITY_FULL = /(?:^|\s)((?:[^\s"'`]*:)?z-[a-z][a-z0-9-]*!?)(?=\s|$)/g;
+const NAMED_Z_UTILITY_FULL = /(?:^|\s)((?:[^\s"'`]*:)?!?z-[a-z][a-z0-9-]*!?)(?=\s|$)/g;
+
+/**
+ * The numeric value of an inline-style expression, through the FINITE set of
+ * TypeScript wrappers that change the type and not the value.
+ *
+ * Whole-diff review r4 F4: `zIndex: "100"`, a template literal, `(100)`,
+ * `100 as const`, `100 satisfies number` and a quoted key all reach the DOM as
+ * `z-index: 100`, and a numeric-literal-only reading saw none of them. Unlike a
+ * class-name recognizer this IS a closed set — assertions, parentheses, unary
+ * signs, and the two literal forms whose text is a number — so widening here
+ * terminates rather than inviting the next idiom.
+ */
+function unwrapNumeric(expr: ts.Expression): string | null {
+  let node: ts.Expression = expr;
+  let sign = "";
+  for (;;) {
+    if (ts.isParenthesizedExpression(node)) {
+      node = node.expression;
+    } else if (ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) {
+      node = node.expression;
+    } else if (ts.isNonNullExpression(node)) {
+      node = node.expression;
+    } else if (ts.isPrefixUnaryExpression(node)) {
+      if (node.operator === ts.SyntaxKind.MinusToken) sign = sign === "-" ? "" : "-";
+      else if (node.operator !== ts.SyntaxKind.PlusToken) return null;
+      node = node.operand;
+    } else {
+      break;
+    }
+  }
+  if (ts.isNumericLiteral(node)) return `${sign}${node.text}`;
+  // A string or a no-substitution template whose CONTENT is a number: React
+  // writes it to the style attribute verbatim.
+  if (ts.isStringLiteralLike(node) && /^-?\d+$/.test(node.text.trim())) {
+    return `${sign}${node.text.trim()}`;
+  }
+  return null;
+}
 
 /** Static class text of a className value, per the structural accept-set. */
 function staticClassText(expr: ts.Expression): string {
@@ -124,17 +180,17 @@ export function scanZIndexSites(source: string, filePath: string): ZSite[] {
     if (
       ts.isPropertyAssignment(node) &&
       ((ts.isIdentifier(node.name) && node.name.text === "zIndex") ||
-        (ts.isStringLiteralLike(node.name) && node.name.text === "z-index"))
+        // A quoted key is the same property: `"zIndex": 100` and `"z-index": 100`
+        // both reach the DOM (whole-diff review r4 F4).
+        (ts.isStringLiteralLike(node.name) &&
+          (node.name.text === "zIndex" || node.name.text === "z-index")))
     ) {
-      let value: ts.Expression = node.initializer;
-      if (ts.isPrefixUnaryExpression(value) && ts.isNumericLiteral(value.operand)) {
-        value = value.operand;
-      }
-      if (ts.isNumericLiteral(value)) {
+      const value = unwrapNumeric(node.initializer);
+      if (value !== null) {
         sites.push({
           file: filePath,
           line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
-          token: `zIndex: ${value.text}`,
+          token: `zIndex: ${value}`,
           idiom: "inline-style",
         });
       }

@@ -40,6 +40,14 @@ import { scanBandClassTokens, scanZIndexSites, type ZSite } from "./_zIndexScan"
 import { Z_INDEX_EXEMPTIONS } from "./zIndexExemptions";
 import { premise } from "../_shared/premise";
 
+/**
+ * Hand-written CSS in `app/globals.css` that legitimately sets a z-index without
+ * going through a band utility. Reasons required, and the guard fails CLOSED on
+ * anything absent from here (r4 F1) — so this list is the ONLY way a
+ * band-valued rule can pass without naming a band.
+ */
+const HANDWRITTEN_Z_RULES: readonly { readonly selector: string; readonly reason: string }[] = [];
+
 const BAND_TOKENS: Record<string, number> = {
   "z-raised": 10,
   "z-dropdown": 20,
@@ -245,11 +253,21 @@ describe("semantic z-index bands (dual idiom, filesystem-walked)", () => {
         offenders.push(`${selector}: z-index ${value} is not a band value`);
         return;
       }
-      // Matching a band VALUE is not the contract; being a band NAME is.
-      // `z-[50]` and `min-[720px]:z-50` both emit 50 and both bypass the
-      // semantic scale.
+      // Matching a band VALUE is not the contract; being a band NAME is — and
+      // this FAILS CLOSED. r4 F1: `[z-index:50]`, `hover:[z-index:50]`, `!z-50`
+      // and `hover:!z-50` all emit 50 through selectors that name no z- utility,
+      // so a `utility === null` pass let every one of them through. An emitted
+      // band value the guard cannot attribute to a band NAME is now an offender
+      // unless the selector is a declared hand-written rule.
       const utility = utilityOf(selector);
-      if (utility !== null && !(utility in BAND_TOKENS)) {
+      if (utility === null) {
+        if (!HANDWRITTEN_Z_RULES.some((r) => r.selector === selector)) {
+          offenders.push(
+            `${selector}: emits a band value through no band utility — add a band class, or a ` +
+              `reasoned HANDWRITTEN_Z_RULES row if this is hand-written CSS`,
+          );
+        }
+      } else if (!(utility in BAND_TOKENS)) {
         offenders.push(`${selector}: stacks by numeral (${utility}), not by band name`);
       }
     });
@@ -293,20 +311,34 @@ describe("semantic z-index bands (dual idiom, filesystem-walked)", () => {
         .filter((line) => !line.trimStart().startsWith("@source"))
         .join("\n");
       const entry = join(dir, "entry.css");
-      for (const candidate of candidates) {
+      const compileProbe = (classes: string): string => {
         const probe = join(dir, "probe.html");
         const out = join(dir, "out.css");
-        writeFileSync(probe, `<div class="${candidate}"></div>`, "utf8");
+        writeFileSync(probe, `<div class="${classes}"></div>`, "utf8");
         writeFileSync(entry, `${entryBody}\n@source "${probe}";\n`, "utf8");
         execFileSync("pnpm", ["exec", "tailwindcss", "-i", entry, "-o", out], {
           cwd: process.cwd(),
           stdio: "pipe",
         });
-        let emits = false;
-        postcss.parse(readFileSync(out, "utf8")).walkDecls("z-index", () => {
-          emits = true;
+        return readFileSync(out, "utf8");
+      };
+      const countZ = (css: string): number => {
+        let n = 0;
+        postcss.parse(css).walkDecls("z-index", () => {
+          n += 1;
         });
-        if (!emits) silent.push(candidate);
+        return n;
+      };
+      const baselineZCount = countZ(compileProbe("no-such-utility-baseline"));
+
+      for (const candidate of candidates) {
+        const css = compileProbe(candidate);
+        // r4 F2: "the output contains a z-index declaration" is not the
+        // question — globals.css's own rules emit some regardless, so a typo'd
+        // candidate passed by riding along with them. The question is whether
+        // THIS candidate ADDS one, so the probe is diffed against a baseline
+        // compiled with no candidate at all.
+        if (countZ(css) <= baselineZCount) silent.push(candidate);
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });
