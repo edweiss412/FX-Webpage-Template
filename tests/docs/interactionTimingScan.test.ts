@@ -15,6 +15,9 @@
  * parity test remains the integration half and keeps DESIGN.md §5.5 honest; this
  * is the half that says what the scanner MEANS.
  */
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
 import {
   EXCLUDED_PREFIXES,
@@ -201,5 +204,140 @@ describe("scanRepo and the inventory it produces", () => {
 
   test("it reports how many files it read", () => {
     expect(result.filesScanned).toBe(universeFiles(process.cwd()).length);
+  });
+});
+
+/**
+ * Fixture-tree suite.
+ *
+ * `scanRepo` takes a root, so the whole pipeline can be driven against a
+ * synthetic tree instead of the live repo — which is what the live-repo-only
+ * tests could not do, and why the source-mutation gate reported survivors here
+ * at 0.797: a branch the real repo never exercises is a branch no assertion
+ * reaches. Each case below names the mutant it kills.
+ */
+describe("scanRepo over a synthetic tree", () => {
+  const write = (root: string, rel: string, body: string): void => {
+    const abs = join(root, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, body, "utf8");
+  };
+
+  function tree(files: Record<string, string>): string {
+    const root = mkdtempSync(join(tmpdir(), "timing-scan-"));
+    for (const [rel, body] of Object.entries(files)) write(root, rel, body);
+    return root;
+  }
+
+  test("node_modules and dot-directories are not walked", () => {
+    // Kills the `node_modules || startsWith(".")` skip and its `continue`:
+    // without them, these two constants join the population.
+    const root = tree({
+      "components/Real.tsx": "const REAL_MS = 1;",
+      "components/node_modules/Dep.tsx": "const DEP_MS = 2;",
+      "components/.cache/Hidden.tsx": "const HIDDEN_MS = 3;",
+    });
+    try {
+      const names = inventoryRows(scanRepo(root)).map((r) => r.label);
+      expect(names).toContain("REAL_MS");
+      expect(names).not.toContain("DEP_MS");
+      expect(names).not.toContain("HIDDEN_MS");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a directory is recursed, not treated as a file", () => {
+    // Kills the directory branch's trailing `continue`: without it the walker
+    // falls through and tries to read the directory as source.
+    const root = tree({ "app/deep/nested/Timer.tsx": "const NESTED_MS = 7;" });
+    try {
+      expect(inventoryRows(scanRepo(root)).map((r) => r.label)).toContain("NESTED_MS");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an unreadable file is skipped, not fatal", () => {
+    // Kills the catch's `continue`: without it, `source` is never assigned and
+    // the scan throws instead of skipping the file.
+    const root = tree({
+      "components/Ok.tsx": "const OK_MS = 4;",
+      "components/Locked.tsx": "const LOCKED_MS = 5;",
+    });
+    try {
+      chmodSync(join(root, "components/Locked.tsx"), 0o000);
+      const names = inventoryRows(scanRepo(root)).map((r) => r.label);
+      expect(names).toContain("OK_MS");
+    } finally {
+      chmodSync(join(root, "components/Locked.tsx"), 0o644);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the reported line is the site's own, one-based", () => {
+    // Kills `line + 1` -> `line + 2`.
+    const root = tree({ "components/L.tsx": "\n\nconst THIRD_LINE_MS = 9;\n" });
+    try {
+      const site = scanRepo(root).sites.find((s) => s.name === "THIRD_LINE_MS");
+      expect(site?.line).toBe(3);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an unresolvable delay expression is reported, truncated at 60 characters", () => {
+    // Kills `slice(0, 60)` -> `slice(0, 61)`.
+    const long = `someObject.someProperty.someOtherProperty.andAnotherOne.plusMore.andYetMore`;
+    const root = tree({ "components/E.tsx": `setTimeout(f, ${long});` });
+    try {
+      const residual = scanRepo(root).unclassified;
+      expect(residual).toHaveLength(1);
+      expect(residual[0]?.name).toHaveLength(60);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("only NAMED CONSTANTS resolve an identifier delay", () => {
+    // Kills the `kind === "named-constant"` filter flipped to `!==`: under the
+    // flip the covered set is built from the OTHER kinds, so this delay stops
+    // resolving and reappears as residual.
+    const root = tree({
+      "components/R.tsx": "const RESOLVES_MS = 12;\nsetTimeout(f, RESOLVES_MS);\n",
+    });
+    try {
+      expect(scanRepo(root).unclassified).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("one row per distinct timing, even when a file states it twice", () => {
+    // Kills both halves of the dedupe: dropping the `seen.has` guard or the
+    // `seen.add` yields two rows for one timing.
+    const root = tree({
+      "components/D.tsx": "setTimeout(f, 250);\nsetInterval(g, 250);\n",
+    });
+    try {
+      const rows = inventoryRows(scanRepo(root)).filter((r) => r.value === 250);
+      expect(rows).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("files come back in a stable, name-sorted order", () => {
+    const root = tree({
+      "components/b.tsx": "const B_MS = 1;",
+      "components/a.tsx": "const A_MS = 2;",
+      "app/c.tsx": "const C_MS = 3;",
+    });
+    try {
+      const files = universeFiles(root).filter((f) => f.startsWith("components/"));
+      expect(files).toEqual(["components/a.tsx", "components/b.tsx"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

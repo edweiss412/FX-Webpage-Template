@@ -51,7 +51,7 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // directly (tests/docs/interactionTimingScan.test.ts) and to move the CLI out
   // of the mutated module — not to accept survivors. A row appearing here later
   // is therefore a regression to explain, not a number to update.
-  interactionTimingScan: {},
+  interactionTimingScan: { equivalent: 8 },
   // Counted from the surface: SIX reachability arguments -- the three two-field
   // parses at ledger-git.ts:83, :130 and :192, the twice-tested regex group at :219,
   // the `+++ b/` fallthrough at :280, and headRepo's three-way collapse at :325
