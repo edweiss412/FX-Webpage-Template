@@ -38,10 +38,22 @@ const promoteMock = vi.hoisted(() => {
     },
     showTx: {
       queryOne: vi.fn(async (sql: string) => {
-        if (/jsonb_array_elements/i.test(sql)) return { count: 2 };
         if (/with\s+target/i.test(sql)) return { updated: true };
         if (/promoted_at::text/i.test(sql)) return { promoted_at: null };
         return { ok: true };
+      }),
+      // Required-name rows for the names SQL (kind/name shape per spec §4.1).
+      // Canned for ANY jsonb_array_elements SQL — semantics are pinned against
+      // real Postgres in promoteSnapshotExpectedCount.realdb.test.ts.
+      queryRows: vi.fn(async (sql: string) => {
+        if (/jsonb_array_elements/i.test(sql)) {
+          const canonical = `diagram-snapshots/shows/${hoistedShowId}/${hoistedSnapshotRevisionId}/`;
+          return [
+            { kind: "original", name: `${canonical}a.png` },
+            { kind: "original", name: `${canonical}b.png` },
+          ];
+        }
+        return [];
       }),
     },
     postgres: vi.fn(() => {
@@ -94,6 +106,7 @@ describe("promoteSnapshotUpload", () => {
     promoteMock.events.length = 0;
     promoteMock.promoteTx.queryOne.mockClear();
     promoteMock.showTx.queryOne.mockClear();
+    promoteMock.showTx.queryRows.mockClear();
     promoteMock.postgres.mockClear();
   });
 
@@ -178,6 +191,7 @@ describe("repairSnapshotRollback", () => {
     promoteMock.events.length = 0;
     promoteMock.promoteTx.queryOne.mockClear();
     promoteMock.showTx.queryOne.mockClear();
+    promoteMock.showTx.queryRows.mockClear();
     promoteMock.postgres.mockClear();
   });
 
@@ -251,16 +265,14 @@ describe("promoteSnapshotUpload — variant objects", () => {
     promoteMock.events.length = 0;
     promoteMock.promoteTx.queryOne.mockClear();
     promoteMock.showTx.queryOne.mockClear();
+    promoteMock.showTx.queryRows.mockClear();
     promoteMock.postgres.mockClear();
   });
 
-  function variantAwareShowTx(count: number) {
-    promoteMock.showTx.queryOne.mockImplementation(async (sql: string) => {
-      if (/jsonb_array_elements/i.test(sql)) return { count };
-      if (/with\s+target/i.test(sql)) return { updated: true };
-      if (/promoted_at::text/i.test(sql)) return { promoted_at: null };
-      return { ok: true };
-    });
+  function variantAwareShowTx(rows: Array<{ kind: string; name: string }>) {
+    promoteMock.showTx.queryRows.mockImplementation(async (sql: string) =>
+      /jsonb_array_elements/i.test(sql) ? rows : [],
+    );
   }
 
   test("a variant-bearing listing promotes when every listed object is present", async () => {
@@ -272,7 +284,13 @@ describe("promoteSnapshotUpload — variant objects", () => {
       `${tempPrefix}folder-b.png`,
       `${tempPrefix}folder-b.png@256.webp`,
     ];
-    variantAwareShowTx(objects.length);
+    variantAwareShowTx([
+      { kind: "original", name: `${canonicalPrefix}embedded-a.png` },
+      { kind: "variant", name: "embedded-a.png@256.webp" },
+      { kind: "variant", name: "embedded-a.png@512.webp" },
+      { kind: "original", name: `${canonicalPrefix}folder-b.png` },
+      { kind: "variant", name: "folder-b.png@256.webp" },
+    ]);
     const moved: Array<{ from: string; to: string }> = [];
     const storage = {
       list: vi.fn(async (prefix: string) =>
@@ -295,7 +313,13 @@ describe("promoteSnapshotUpload — variant objects", () => {
   });
 
   test("one missing variant object trips manifest_mismatch", async () => {
-    const expected = 5;
+    const required = [
+      { kind: "original", name: `${canonicalPrefix}embedded-a.png` },
+      { kind: "variant", name: "embedded-a.png@256.webp" },
+      { kind: "variant", name: "embedded-a.png@512.webp" },
+      { kind: "original", name: `${canonicalPrefix}folder-b.png` },
+      { kind: "variant", name: "folder-b.png@256.webp" },
+    ];
     const present = [
       `${tempPrefix}embedded-a.png`,
       `${tempPrefix}embedded-a.png@256.webp`,
@@ -304,9 +328,9 @@ describe("promoteSnapshotUpload — variant objects", () => {
     ];
     premiseHolds(
       "the fixture is short exactly one object, so the mismatch is the variant's absence",
-      present.length === expected - 1,
+      present.length === required.length - 1,
     );
-    variantAwareShowTx(expected);
+    variantAwareShowTx(required);
     const storage = {
       list: vi.fn(async (prefix: string) => (prefix === tempPrefix ? present : [])),
       move: vi.fn(async () => undefined),

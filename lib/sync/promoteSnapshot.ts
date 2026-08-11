@@ -49,40 +49,58 @@ function databaseUrl(): string {
 }
 
 /**
- * Expected object count for a pending snapshot: every entry with a non-null
- * `snapshotPath`, PLUS its listed variants (spec §3 promotion change (a)).
+ * Required object names for a pending snapshot
+ * (spec docs/superpowers/specs/2026-08-10-promote-identity-validation.md §4.1):
+ * for every entry with a non-null `snapshotPath`, one `kind='original'` row
+ * carrying the FULL `snapshotPath` (path binding applies to every original) plus
+ * one `kind='variant'` row per listed variant key (variant keys ARE storage
+ * basenames by construction — lib/sync/diagramVariants.ts).
  *
- * Exported because the mocked `showTx.queryOne` seam in the unit suite returns a
- * canned count for ANY `jsonb_array_elements` SQL — SQL semantics are untestable
- * through it, so the real-DB suite evaluates THIS text against Postgres. A copy
- * of the query in the test would prove only that two copies agree.
+ * Exported because the mocked show-tx seam in the unit suite returns canned rows
+ * for ANY `jsonb_array_elements` SQL — SQL semantics are untestable through it,
+ * so the real-DB suite evaluates THIS text against Postgres. A copy of the query
+ * in the test would prove only that two copies agree.
  *
- * Integrity semantics are unchanged: a missing or extra object still mismatches,
- * now against the variant-inclusive count.
+ * One row per required name, multiplicities preserved (`union all`, no
+ * distinct): the `duplicated` delta class is computed from repeated rows. A
+ * non-array `variants` value contributes zero names instead of throwing, so the
+ * typed mismatch signal is still produced for malformed manifests.
  */
-export const EXPECTED_ASSET_COUNT_SQL = `
-        select (
-          select coalesce(sum(
-                   1 + jsonb_array_length(
-                         case when jsonb_typeof(e->'variants') = 'array'
-                              then e->'variants' else '[]'::jsonb end)
-                 ), 0)::int
+export const EXPECTED_ASSET_NAMES_SQL = `
+        select kind, name from (
+          select 'original' as kind, e->>'snapshotPath' as name
             from public.shows s,
                  jsonb_array_elements(coalesce(s.diagrams->'pending'->'embeddedImages', '[]'::jsonb)) e
            where s.id = $1::uuid
              and e->>'snapshotPath' is not null
-        ) + (
-          select coalesce(sum(
-                   1 + jsonb_array_length(
-                         case when jsonb_typeof(l->'variants') = 'array'
-                              then l->'variants' else '[]'::jsonb end)
-                 ), 0)::int
+          union all
+          select 'variant' as kind, v->>'key' as name
+            from public.shows s,
+                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'embeddedImages', '[]'::jsonb)) e,
+                 jsonb_array_elements(
+                   case when jsonb_typeof(e->'variants') = 'array'
+                        then e->'variants' else '[]'::jsonb end) v
+           where s.id = $1::uuid
+             and e->>'snapshotPath' is not null
+          union all
+          select 'original' as kind, l->>'snapshotPath' as name
             from public.shows s,
                  jsonb_array_elements(coalesce(s.diagrams->'pending'->'linkedFolderItems', '[]'::jsonb)) l
            where s.id = $1::uuid
              and l->>'snapshotPath' is not null
-        ) as count
+          union all
+          select 'variant' as kind, v->>'key' as name
+            from public.shows s,
+                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'linkedFolderItems', '[]'::jsonb)) l,
+                 jsonb_array_elements(
+                   case when jsonb_typeof(l->'variants') = 'array'
+                        then l->'variants' else '[]'::jsonb end) v
+           where s.id = $1::uuid
+             and l->>'snapshotPath' is not null
+        ) required_names
       `;
+
+export type ExpectedAssetNameRow = { kind: "original" | "variant"; name: string };
 
 function canonicalPrefix(showId: string, snapshotRevisionId: string): string {
   return `diagram-snapshots/shows/${showId}/${snapshotRevisionId}/`;
@@ -291,13 +309,13 @@ export async function promoteSnapshotUpload(
       const promoted = await withShowLock(
         row.drive_file_id,
         async (tx) => {
-          const expected = await tx.queryOne<{ count: number }>(EXPECTED_ASSET_COUNT_SQL, [
+          const requiredRows = await tx.queryRows<ExpectedAssetNameRow>(EXPECTED_ASSET_NAMES_SQL, [
             row.show_id,
           ]);
 
           const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
           const paths = await storage.list(row.temp_prefix);
-          const expectedAssetCount = expected.count;
+          const expectedAssetCount = requiredRows.length;
           if (paths.length !== expectedAssetCount) {
             await clearRolledBack(row);
             return { outcome: "manifest_mismatch", snapshotRevisionId };
