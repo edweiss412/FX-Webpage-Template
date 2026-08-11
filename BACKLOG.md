@@ -185,27 +185,6 @@ Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image mi
 them; they are filed rather than fixed in that branch because the repair is a focus-management and
 announcement decision on a surface the branch does not otherwise change.
 
-## BL-GLYPHS-OUTSIDE-INTER-SUBSET — ~150 UI glyph sites render in a fallback face, not Inter
-
-**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, the non-degraded invariant-8 re-run of the step3-a11y cluster). **Class:** visual consistency (`DESIGN.md` §2.1 commits to ONE type family). **Effort:** M — the fix is a decision plus either a wider subset or a glyph-to-icon migration, not a patch. **Class-sweep exception:** (c) — it spans surfaces no single PR touches. **Reachability: PROBED.** · **Status:** IN PROGRESS · **Branch:** feat/m2-ui-cluster
-
-`app/fonts.css:28` loads `public/fonts/InterVariable-latin.fada467b.woff2`, a latin + latin-ext subset carrying **1004 codepoints**. Any character outside it falls back to a system face, so the glyph renders in a different family from the text beside it — which is what the one-family commitment says should not happen.
-
-**Probe** — fontTools over the shipped binary, then a scan of every tracked `.tsx`/`.ts` under `app/` and `components/`, comment-only lines excluded:
-
-```
-codepoints in shipped subset: 1004
-U+2192 →   84 sites     U+2265 ≥   21     U+2197 ↗   11     U+2713 ✓    6
-U+25B8 ▸    4           U+2194 ↔    4     U+2264 ≤    4     U+21D2 ⇒    2
-24 distinct glyphs, ~150 sites total (also ⚠ ⟷ ≠ ⌄ ⌃ ← ℹ 🔗 ⌘ 🔒 ✕ ≈ ☎ ✉ ⊘)
-```
-
-**Why it is filed rather than fixed, and why nothing was reverted.** It is overwhelmingly PRE-EXISTING: `→` at 84 sites and `↗` at 11 have shipped for months. The step3-a11y cluster added exactly two members — `components/admin/OnboardingWizard.tsx:644` and `components/admin/settings/AdministratorsSection.tsx:142`, the disclosure carets that replaced the native `<summary>` marker `inline-flex` removes. Reverting those would restore a real regression the cross-model review caught (two disclosures losing their open/closed cue) in exchange for a cosmetic inconsistency shared with ~148 other sites. The pattern they copy, `app/me/meShowSections.tsx:130`, predates the branch.
-
-**Worst case is cosmetic and already on screen:** the glyph renders, in a system face, at a slightly different weight and metric. Nothing is unreadable, and every one of these is decorative and `aria-hidden`, so assistive technology is unaffected. That is why this is a backlog row rather than a deferral with a trigger.
-
-**First scheduled step is the decision, not the edit:** either widen the subset to cover the arrows and math symbols actually in use (cheap in bytes, but `scripts/subset-inter.sh` and its checksum-pinned input make it deliberate), or migrate the recurring ones to the lucide icons the codebase already ships. Counting first is what makes that call possible; the counts above are the input.
-
 ## BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT — enrol the tap-target-floor spec in the source-mutation registry
 
 **Status:** WATCH · **Filed:** 2026-08-09 (`fix/step3-a11y-cluster`, diff-review round economy). **Class:** review-round economy (a convergence criterion that is machine-computed rather than argued). **Effort:** M-L (resized from S 2026-08-09 by the probe below — the cost is a harness mode, not a registry row). **Un-defer trigger:** the source-mutation harness gains a Playwright/component-mutant mode (or an equivalent runner exists). **Reachability: PROBED.**

@@ -1,3 +1,54 @@
+## BL-GLYPHS-OUTSIDE-INTER-SUBSET — UI glyph sites rendering in a fallback face — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
+
+**Resolution: SHIPPED as a widened subset.** Task U5 of the M-wave-2 plan
+(`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`). Probe output committed at
+`docs/superpowers/plans/2026-08-09-m-wave-2/glyph-probe.md`.
+
+**The population is a fifth of what this entry recorded, and the difference is the whole finding.**
+This entry's probe excluded comment-only LINES; the U5 probe reads the AST and counts only what can
+reach the DOM — JSX text, string and template literals, MDX prose outside fenced code, and CSS
+`content:`. Raw characters over the same tree give 33 missing codepoints; the AST gives 16. `→`
+is the clearest case: 205 files by raw count, 20 by rendered. Four of this entry's named glyphs —
+`≥`, `≤`, `↔`, `▸` — turn out to occur ONLY in comment prose, so they were never on screen at all.
+Subsetting from the raw list would have paid first-visit bytes, on a preloaded file, for characters
+no user can see.
+
+**Nine added, seven left.** Of the 16, the upstream face carries nine: `←` `→` `↗` `⊘` `⌃` `⌄` `⌘`
+`⚠` `✓`. Those are now in the `LATIN` ranges of `scripts/subset-inter.sh`, pinned individually in
+`PINNED_RANGE_COVERAGE`, and asserted by MEMBERSHIP (not count) in
+`tests/styles/fontFeatureAvailability.test.ts` — the list was derived FROM the face, so a zero there
+is a regression rather than a legitimate superset gap. Cost: 176,696 → 179,088 bytes (+2,392,
+about 1.4%); cmap 1004 → 1013.
+
+**The other seven are not fixable by subsetting: Inter does not have them.** `ℹ` `⋮` `☎` `✉` `�`
+`🔒` `🔗` still fall back. This refutes the spec's own headline known-add: `U+22EE ⋮`, cited as five
+help MDX pages, is real at those five sites and absent from the face. `U+FFFD` is the sharper case —
+the `LATIN` range has requested it since the first subset and upstream has never supplied it, so
+`["U+FFFD", 0]` was already pinned and the request was always a no-op.
+
+Full identity ripple in the same commit: new hashed filename `InterVariable-latin.d5549562.woff2`,
+`app/fonts.css`, `components/FontPreload.tsx`, `tests/helpers/fontManifest.ts` (paths + digest),
+`tests/styles/fontLoadingMutants.test.ts`, and `public/fonts/PROVENANCE.md`.
+
+**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, the non-degraded invariant-8 re-run of the step3-a11y cluster). **Class:** visual consistency (`DESIGN.md` §2.1 commits to ONE type family). **Effort:** M — the fix is a decision plus either a wider subset or a glyph-to-icon migration, not a patch. **Class-sweep exception:** (c) — it spans surfaces no single PR touches. **Reachability: PROBED.** · **Closed:** 2026-08-10
+
+`app/fonts.css:28` loads `public/fonts/InterVariable-latin.d5549562.woff2`, a latin + latin-ext subset carrying **1004 codepoints**. Any character outside it falls back to a system face, so the glyph renders in a different family from the text beside it — which is what the one-family commitment says should not happen.
+
+**Probe** — fontTools over the shipped binary, then a scan of every tracked `.tsx`/`.ts` under `app/` and `components/`, comment-only lines excluded:
+
+```
+codepoints in shipped subset: 1004
+U+2192 →   84 sites     U+2265 ≥   21     U+2197 ↗   11     U+2713 ✓    6
+U+25B8 ▸    4           U+2194 ↔    4     U+2264 ≤    4     U+21D2 ⇒    2
+24 distinct glyphs, ~150 sites total (also ⚠ ⟷ ≠ ⌄ ⌃ ← ℹ 🔗 ⌘ 🔒 ✕ ≈ ☎ ✉ ⊘)
+```
+
+**Why it is filed rather than fixed, and why nothing was reverted.** It is overwhelmingly PRE-EXISTING: `→` at 84 sites and `↗` at 11 have shipped for months. The step3-a11y cluster added exactly two members — `components/admin/OnboardingWizard.tsx:644` and `components/admin/settings/AdministratorsSection.tsx:142`, the disclosure carets that replaced the native `<summary>` marker `inline-flex` removes. Reverting those would restore a real regression the cross-model review caught (two disclosures losing their open/closed cue) in exchange for a cosmetic inconsistency shared with ~148 other sites. The pattern they copy, `app/me/meShowSections.tsx:130`, predates the branch.
+
+**Worst case is cosmetic and already on screen:** the glyph renders, in a system face, at a slightly different weight and metric. Nothing is unreadable, and every one of these is decorative and `aria-hidden`, so assistive technology is unaffected. That is why this is a backlog row rather than a deferral with a trigger.
+
+**First scheduled step is the decision, not the edit:** either widen the subset to cover the arrows and math symbols actually in use (cheap in bytes, but `scripts/subset-inter.sh` and its checksum-pinned input make it deliberate), or migrate the recurring ones to the lucide icons the codebase already ships. Counting first is what makes that call possible; the counts above are the input.
+
 # BACKLOG-archive.md
 
 Historical ledger of resolved / shipped / superseded BACKLOG items — full provenance kept (what, why, how it was resolved). The live speculative queue is **[BACKLOG.md](./BACKLOG.md)**; entries graduate here when they ship.
