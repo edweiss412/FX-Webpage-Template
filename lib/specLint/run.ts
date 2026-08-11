@@ -1,7 +1,7 @@
 import { checkCitations } from "./citations";
 import { checkCopy } from "./copyRules";
-import { checkNumerics } from "./numerics";
-import { parseDoc } from "./parse";
+import { checkNumerics, mentionsScript } from "./numerics";
+import { parseDoc, type DocModel } from "./parse";
 import { fenceCoverage, waiverTarget } from "./waiverCoverage";
 import { checkTaskContract } from "./taskContract";
 import { checkSections } from "./sections";
@@ -28,10 +28,36 @@ const waiverAdvisory = (line: number, message: string): Finding => ({
   message,
 });
 
+/**
+ * Script texts for SCRIPT_CONSTANT_PARITY (spec §2).
+ *
+ * The I/O boundary stays here: `numerics.ts` performs none, and this resolves the
+ * `scripts/` paths the doc names — by path OR basename, using the same
+ * `mentionsScript` predicate the arm's association uses, so the resolver and the
+ * arm can never disagree about what a mention is. A path the resolver cannot
+ * serve contributes nothing and is skipped silently (tripwire posture).
+ */
+function resolveScriptTexts(model: DocModel, resolver: FileResolver): Record<string, string> {
+  const out: Record<string, string> = {};
+  const lines = model.lines.filter((_, i) => model.fencedInfo[i] === undefined);
+  for (const path of resolver.listTrackedFiles()) {
+    if (!path.startsWith("scripts/")) continue;
+    if (!lines.some((line) => mentionsScript(line, path))) continue;
+    const text = resolver.readFileLines(path);
+    if (text === null) continue;
+    out[path] = text.join("\n");
+  }
+  return out;
+}
+
 export function runLint(doc: LintDoc, resolver: FileResolver): LintResult {
   const model = parseDoc(doc.text);
   const citations = checkCitations(model, resolver);
-  const numerics = checkNumerics(model, citations.candidateSpans);
+  const numerics = checkNumerics(
+    model,
+    citations.candidateSpans,
+    resolveScriptTexts(model, resolver),
+  );
   const copy = checkCopy(model);
   const sections = checkSections(model, doc.kind, citations.resolvedPaths);
   const taskContract = checkTaskContract(model, doc.kind);
