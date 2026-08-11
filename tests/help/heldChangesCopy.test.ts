@@ -133,7 +133,15 @@ describe("held-changes copy contract — phrase tier", () => {
   });
 
   it("9. tour names it inside the REVIEW QUEUES card", () => {
-    const card = between(raw("tour"), "Review queues</h3>", "</p>");
+    // Anchored on the card's aria-label, not on its <h3> spelling. The heading
+    // text is a JSX expression child (`{"Review queues"}</h3>`) since the
+    // hydration fix — MDX parses an own-line text child as a markdown
+    // paragraph, so every text child in this card is an expression and the
+    // formatter is free to move them. The aria-label is the one thing that
+    // arc's AC-2 pins byte-identical, which makes it the stable anchor; a
+    // marker that spells the heading's rendered form breaks on any formatting
+    // change without the copy having moved at all.
+    const card = between(raw("tour"), 'aria-label="Review queues: read the reference"', "</p>");
     expect(card).toContain("crew identity changes held for your approval");
     expect(card).not.toContain("Each queue is scoped to one show");
   });
