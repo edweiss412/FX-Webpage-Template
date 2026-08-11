@@ -50,7 +50,7 @@ const NUMERIC_Z_UTILITY = /(?:^|\s)((?:[a-z][a-z0-9-]*:)*z-\d+)(?=\s|$)/g;
  * see it (whole-diff review r1 F2). Reading className context rather than raw
  * text is what keeps `z-index:` in a comment from counting as a class.
  */
-const NAMED_Z_UTILITY = /(?:^|\s)(?:[a-z][a-z0-9-]*:)*(z-[a-z][a-z0-9-]*)(?=\s|$)/g;
+const NAMED_Z_UTILITY_FULL = /(?:^|\s)((?:[^\s"'`]*:)?z-[a-z][a-z0-9-]*!?)(?=\s|$)/g;
 
 /** Static class text of a className value, per the structural accept-set. */
 function staticClassText(expr: ts.Expression): string {
@@ -149,11 +149,13 @@ export function scanZIndexSites(source: string, filePath: string): ZSite[] {
  * Every named band class the file writes in className context, variant prefixes
  * stripped (a `focus:` variant is the same band, applied in one state).
  */
-export function scanBandClassNames(source: string, filePath: string): string[] {
+export function scanBandClassTokens(source: string, filePath: string): string[] {
   const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const names = new Set<string>();
+  // The FULL token, variants and `!` included: a typo in a VARIANT emits no rule
+  // at all, and normalizing it away is exactly how that escapes (r3 F3).
   const collect = (text: string): void => {
-    for (const m of text.matchAll(NAMED_Z_UTILITY)) names.add(m[1]!);
+    for (const m of text.matchAll(NAMED_Z_UTILITY_FULL)) names.add(m[1]!);
   };
   const visit = (node: ts.Node): void => {
     if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === "className") {

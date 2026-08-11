@@ -162,10 +162,17 @@ export function RescanSheetButton({
   // Stacked tone classes are byte-pinned by the default-placement test (the two
   // Step3SheetCard call sites pass no prop); overlay appends the out-of-flow
   // positioning + card shadow + right padding so copy clears the dismiss button.
+  // No border on either tone. In the stacked placement this block renders INSIDE
+  // the row's own bordered card, and a bordered box inside a bordered box is the
+  // nested chrome of STEP3-GALLERY-TAP-TARGETS-1 item (d) — reachable only after
+  // a re-scan returns, which is why the first version of the row-slot guard,
+  // asserting on the initial render alone, could not see it (whole-diff review,
+  // brief B r1 F1). The tint carries the tone in both placements, and the
+  // overlay placement additionally carries `shadow-tile` for separation.
   const toneClass =
     result?.kind === "coded"
-      ? "flex flex-col gap-1 rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
-      : "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong";
+      ? "flex flex-col gap-1 rounded-sm bg-warning-bg p-3 text-sm text-warning-text"
+      : "rounded-sm bg-info-bg px-3 py-2 text-sm text-text-strong";
   // Mobile-safe anchoring (impeccable audit P1): below sm the wrapper is NOT
   // the positioning context (root drops `relative` via `sm:relative`), so the
   // overlay anchors `left-0` against the nearest positioned ancestor — the

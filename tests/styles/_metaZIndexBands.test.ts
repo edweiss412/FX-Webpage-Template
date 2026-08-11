@@ -32,10 +32,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import postcss from "postcss";
 import { describe, expect, it } from "vitest";
 
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
-import { scanBandClassNames, scanZIndexSites, type ZSite } from "./_zIndexScan";
+import { scanBandClassTokens, scanZIndexSites, type ZSite } from "./_zIndexScan";
 import { Z_INDEX_EXEMPTIONS } from "./zIndexExemptions";
 import { premise } from "../_shared/premise";
 
@@ -125,80 +126,196 @@ describe("semantic z-index bands (dual idiom, filesystem-walked)", () => {
     }
   });
 
-  it("each band COMPILES to its pinned value through the real globals.css", () => {
-    // Whole-diff review r2 F1 killed two string-presence versions of this check,
-    // and the second death is the instructive one. Searching the `@theme` block's
-    // TEXT cannot distinguish a live declaration from a commented-out one (the
-    // comment still contains the string), from a duplicate whose second value
-    // wins, or from a later `:root` override. Each leaves the predicate green
-    // while the compiled value is wrong or absent.
-    //
-    // So the assertion compiles. Tailwind reads the SHIPPED app/globals.css with
-    // a synthetic content file naming the seven band classes, and the emitted
-    // rules are what gets asserted — presence AND resolved value. Nothing about
-    // where the declaration sits in the file, or how many there are, can fool it.
-    const dir = mkdtempSync(join(tmpdir(), "zbands-"));
-    try {
-      const content = join(dir, "probe.html");
-      const out = join(dir, "out.css");
-      writeFileSync(content, `<div class="${Object.keys(BAND_TOKENS).join(" ")}"></div>`, "utf8");
-      execFileSync(
-        "pnpm",
-        ["exec", "tailwindcss", "-i", "app/globals.css", "-o", out, "--content", content],
-        { cwd: process.cwd(), stdio: "pipe" },
-      );
-      const css = readFileSync(out, "utf8");
-
-      const missing: string[] = [];
-      const wrong: string[] = [];
-      for (const [cls, value] of Object.entries(BAND_TOKENS)) {
-        const rule = new RegExp(`\\.${cls}\\s*\\{([^}]*)\\}`).exec(css);
-        if (!rule) {
-          missing.push(cls);
-          continue;
-        }
-        const body = rule[1]!;
-        const varName = `--z-index-${cls.slice(2)}`;
-        // The rule may emit the literal or a var() reference; resolve either.
-        let resolved = /z-index:\s*([0-9-]+)/.exec(body)?.[1];
-        if (resolved === undefined && body.includes(varName)) {
-          const decls = [...css.matchAll(new RegExp(`${varName}:\\s*([0-9-]+)`, "g"))];
-          resolved = decls.length > 0 ? decls[decls.length - 1]![1] : undefined;
-        }
-        if (resolved === undefined) missing.push(`${cls} (no resolvable z-index)`);
-        else if (Number(resolved) !== value)
-          wrong.push(`${cls}: compiled ${resolved}, pinned ${value}`);
+  /**
+   * ONE mechanism, replacing three hand-written recognizers that review defeated
+   * in three consecutive rounds — variant prefixes, arbitrary values, negatives,
+   * the `!` modifier, named group variants, template chunks, `cn(cond && "…")`,
+   * `.ts` class modules, wrapped inline numbers. Each repair widened a pattern
+   * and the next round found the next idiom, which is the ratchet the
+   * round-economy rule warns about: enumeration over an open class does not
+   * terminate.
+   *
+   * So the recognizer is no longer hand-written. Tailwind's OWN extractor reads
+   * the real content globs, and the compiled stylesheet is the subject. Whatever
+   * reaches the DOM appears there — that is what a compiler is — and whatever
+   * does not, does not matter. The criterion is closed and machine-checked:
+   * every z-index the app can emit is one of the seven band values.
+   *
+   * DOCUMENTED LIMIT, unchanged and unchangeable by any recognizer: a class
+   * assembled at RUNTIME from fragments is invisible to Tailwind's extractor
+   * too, and therefore emits no rule at all — the utility simply does not exist,
+   * which is a loud failure in the browser rather than a silent wrong stacking.
+   */
+  const compiled = (() => {
+    let cache: { css: string } | null = null;
+    return (): string => {
+      if (cache !== null) return cache.css;
+      const dir = mkdtempSync(join(tmpdir(), "zbands-app-"));
+      try {
+        const out = join(dir, "out.css");
+        execFileSync(
+          "pnpm",
+          // No --content: `@import "tailwindcss"` auto-detects sources from the
+          // CSS file's project, honouring the `@source not` exclusions in
+          // globals.css. That detection IS the authority on what reaches the
+          // DOM, and adding --content on top only obscures which set is being
+          // measured.
+          ["exec", "tailwindcss", "-i", "app/globals.css", "-o", out],
+          { cwd: process.cwd(), stdio: "pipe" },
+        );
+        cache = { css: readFileSync(out, "utf8") };
+        return cache.css;
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
       }
+    };
+  })();
 
-      premise("the compile produced CSS at all", css.length, 500);
-      expect(missing, "band classes that compile to no z-index rule").toEqual([]);
-      expect(wrong, "band classes whose COMPILED value is not the pinned band level").toEqual([]);
+  /** Last declaration wins, exactly as the cascade resolves it (r3 F4). */
+  function lastVarValue(css: string, varName: string): string | undefined {
+    const all = [...css.matchAll(new RegExp(`${varName}:\\s*([^;}]+)`, "g"))];
+    return all.length > 0 ? all[all.length - 1]![1]!.trim() : undefined;
+  }
+
+  /**
+   * The utility class a compiled selector applies, variants and the `!`
+   * modifier stripped: `.focus\:z-overlay:focus` -> `z-overlay`,
+   * `.min-\[720px\]\:z-50` -> `z-50`. Returns null when the selector carries
+   * no z- utility (a bare element or attribute rule).
+   */
+  function utilityOf(selector: string): string | null {
+    // The class excludes `\\` deliberately: allowing it let the character class
+    // eat the escaping backslash, so `\\:` never reached the escape branch and
+    // `.min-\\[720px\\]\\:z-50` truncated to `min-[720px]` — no `z-`, no finding.
+    for (const m of selector.matchAll(/\.((?:[^.\s,{>+~:\\]|\\.)+)/g)) {
+      const cls = m[1]!.replace(/\\(.)/g, "$1");
+      const idx = cls.lastIndexOf(":z-");
+      const util = idx >= 0 ? cls.slice(idx + 1) : cls.startsWith("z-") ? cls : null;
+      if (util !== null) return util.replace(/!$/, "");
+    }
+    return null;
+  }
+
+  it("every z-index the app compiles to is a BAND, by name and by value", () => {
+    // Parsed with postcss, not a regex. The regex version missed every variant
+    // that nests its rule inside an at-rule — `min-[720px]:z-50`,
+    // `group-hover/occ:z-50`, `[&_svg]:z-50` all survived mutation because the
+    // flat pattern captured the @media prelude as the "selector" and found no
+    // class in it. A CSS parser knows what a rule's parent is; a regex is
+    // guessing, and this is the third time in this arc that guessing lost.
+    const css = compiled();
+    premise("the app compiled to real CSS", css.length, 5000);
+
+    const BAND_VALUES = new Set(Object.values(BAND_TOKENS));
+    const offenders: string[] = [];
+    const root = postcss.parse(css);
+    root.walkDecls("z-index", (decl) => {
+      // Climb to the nearest ancestor RULE. Tailwind v4 emits variants with
+      // nested syntax — `.min-\[720px\]\:z-50 { @media (width >= 720px) {
+      // z-index: 50 } }` — so a declaration's immediate parent is often the
+      // at-rule, and reading `decl.parent.selector` returned undefined and
+      // skipped every variant-wrapped numeral. Four mutants survived on exactly
+      // that before this loop existed.
+      type Node = { type: string; parent?: unknown; selector?: string };
+      let node: Node | undefined = decl.parent as Node | undefined;
+      let outermost: Node | undefined;
+      while (node !== undefined) {
+        if (node.type === "rule") outermost = node;
+        node = node.parent as Node | undefined;
+      }
+      if (outermost?.selector === undefined) return;
+      const selector = outermost.selector;
+      let value = decl.value.trim();
+      const varRef = /var\((--[a-z0-9-]+)\)/.exec(value);
+      if (varRef !== null) {
+        const resolved = lastVarValue(css, varRef[1]!);
+        if (resolved === undefined) {
+          offenders.push(`${selector}: ${value} resolves to nothing`);
+          return;
+        }
+        value = resolved;
+      }
+      if (value === "auto") return;
+      // r3 F4: a bare integer, not a numeric PREFIX — `50px` is not 50.
+      if (!/^-?\d+$/.test(value)) {
+        offenders.push(`${selector}: z-index ${value} is not an integer`);
+        return;
+      }
+      if (!BAND_VALUES.has(Number(value))) {
+        offenders.push(`${selector}: z-index ${value} is not a band value`);
+        return;
+      }
+      // Matching a band VALUE is not the contract; being a band NAME is.
+      // `z-[50]` and `min-[720px]:z-50` both emit 50 and both bypass the
+      // semantic scale.
+      const utility = utilityOf(selector);
+      if (utility !== null && !(utility in BAND_TOKENS)) {
+        offenders.push(`${selector}: stacks by numeral (${utility}), not by band name`);
+      }
+    });
+
+    expect(
+      offenders,
+      "the compiled stylesheet emits a z-index that is not a band. Tailwind's extractor sees every " +
+        "candidate that reaches the DOM — arbitrary values, negatives, variants, the `!` modifier, " +
+        "`.ts` class modules — so a hit here is real, not a recognizer gap.",
+    ).toEqual([]);
+  });
+
+  it("every band candidate in the source compiles, VARIANTS INCLUDED", () => {
+    // r3 F3: `foucs:z-overlay` normalizes to a declared band name and emits
+    // nothing at all. Checking the normalized name cannot see it, so each
+    // candidate is compiled VERBATIM, one probe per candidate, and a candidate
+    // that produces no z-index declaration fails by name.
+    const candidates = new Set<string>();
+    for (const file of walkSourceFiles(["app", "components"], { extensions: [".tsx", ".ts"] })) {
+      for (const raw of scanBandClassTokens(readFileSync(file, "utf8"), file)) candidates.add(raw);
+    }
+    premise("the tree writes band candidates", candidates.size, 0);
+
+    const dir = mkdtempSync(join(tmpdir(), "zbands-cand-"));
+    const silent: string[] = [];
+    try {
+      // ISOLATION is the whole trick, and getting it wrong twice is what this
+      // comment is for. `@import "tailwindcss"` auto-detects sources from its
+      // own project, so a probe compiled against `app/globals.css` emits the
+      // ENTIRE app's utilities and every candidate looks like it compiles. The
+      // first fix wrote a rewritten entry into `app/` — which raced
+      // `fontFeatureAvailability`'s "exactly one first-party stylesheet" guard
+      // in a parallel run. So the entry lives in the TEMP dir: detection off,
+      // the `@source not` lines dropped (they say nothing once detection is
+      // off), the `@theme` block carried over for the band tokens, and exactly
+      // one source added.
+      const globals = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+      const entryBody = globals
+        .replace('@import "tailwindcss";', '@import "tailwindcss" source(none);')
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("@source"))
+        .join("\n");
+      const entry = join(dir, "entry.css");
+      for (const candidate of candidates) {
+        const probe = join(dir, "probe.html");
+        const out = join(dir, "out.css");
+        writeFileSync(probe, `<div class="${candidate}"></div>`, "utf8");
+        writeFileSync(entry, `${entryBody}\n@source "${probe}";\n`, "utf8");
+        execFileSync("pnpm", ["exec", "tailwindcss", "-i", entry, "-o", out], {
+          cwd: process.cwd(),
+          stdio: "pipe",
+        });
+        let emits = false;
+        postcss.parse(readFileSync(out, "utf8")).walkDecls("z-index", () => {
+          emits = true;
+        });
+        if (!emits) silent.push(candidate);
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
 
-  it("every band class used in the tree actually COMPILES to a z-index rule", () => {
-    // The sharpest failure this guard can have, and r1 F2's other half: a
-    // typo'd token (`z-overaly`) is not a raw numeral, so the census is silent,
-    // and Tailwind emits nothing for it — the element simply loses its stacking
-    // while every string-level check stays green. Only compiling can catch it.
-    //
-    // Deliberately driven from the classes the TREE uses rather than from
-    // BAND_TOKENS: asserting the seven known-good names would prove Tailwind
-    // works, which was never in doubt. What is in doubt is whether the names
-    // the source actually writes are among them.
-    const used = new Set<string>();
-    for (const file of walkSourceFiles(["app", "components"], { extensions: [".tsx"] })) {
-      for (const name of scanBandClassNames(readFileSync(file, "utf8"), file)) used.add(name);
-    }
-    premise("the tree uses band classes at all", used.size, 0);
-
-    const unknown = [...used].filter((cls) => !(cls in BAND_TOKENS));
     expect(
-      unknown,
-      "band-shaped classes in the tree that name no declared band — a typo here emits NO z-index " +
-        "at all, so nothing else in this file would notice",
+      silent,
+      "band-shaped classes the source writes that Tailwind compiles to NOTHING — a typo in the band " +
+        "name OR in a variant emits no z-index at all, and no string-level check sees it",
     ).toEqual([]);
   });
 });

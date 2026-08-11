@@ -13,10 +13,10 @@
  * inside <PageTransition>, an animated wrapper whose settled inline `transform`
  * opens a NEW stacking context. A fixed footer authored inside that subtree is
  * confined to it, so the layout's fixed mobile bottom tab bar — a SIBLING of
- * <PageTransition> at z-30 — paints OVER the footer no matter how
+ * <PageTransition> at z-nav — paints OVER the footer no matter how
  * high the footer's own z-index is (a transformed ancestor can't be escaped
  * with z-index alone). Portaling the bar to document.body lifts it into the
- * root stacking context, where its `z-banner` beats the z-30 tab bar. Mount-gated
+ * root stacking context, where its `z-banner` beats the z-nav tab bar. Mount-gated
  * so the portal never runs during SSR (all consumers are client components, so
  * the one-frame first-paint gap before the bar mounts is acceptable).
  *

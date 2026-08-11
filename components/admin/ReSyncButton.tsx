@@ -54,7 +54,7 @@ const PENDING_LABEL = "Syncing…";
  * ReviewModalShell.tsx), which is what gives them full-band width. The strip
  * root deliberately has no `relative` for exactly this reason.
  *
- * `z-overlay` vs the publish popover's `z-40` (PublishedToggle.tsx) is a RULE, not a
+ * `z-overlay` vs the publish popover's `z-banner` (PublishedToggle.tsx) is a RULE, not a
  * default: both anchor to the same band and are independently triggerable, and
  * an unspecified z-index can leave the shrink confirm rendered UNDERNEATH the
  * popover while focus sits on "Keep current version" — reachable but obscured,

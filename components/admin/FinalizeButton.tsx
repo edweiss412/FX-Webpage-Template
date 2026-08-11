@@ -653,7 +653,7 @@ function FinalizeBlockerModal({ run }: { run: FinalizeRun }) {
 /**
  * The blocker/error dialog. Mounted ONLY while `run.state.kind` is a blocker
  * terminal, so every hook runs on mount / cleans up on unmount. Portaled to
- * `document.body` so it paints above the WizardFooter's own `z-40` portal and any
+ * `document.body` so it paints above the WizardFooter's own `z-banner` portal and any
  * open per-card <Step3ReviewModal> (spec §4.2 / §7a). `role="dialog" aria-modal`;
  * the primary line of each state is the `aria-labelledby` target (§6).
  */

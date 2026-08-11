@@ -52,26 +52,27 @@
  *
  * Elevation: the root is a bare `relative` — no z-index at all.
  *
- * It used to carry `z-30` while open, to lift the popover (then an in-flow
+ * It used to carry `z-nav` while open, to lift the popover (then an in-flow
  * child) over sibling content. The popover portals out now, so nothing in this
  * subtree needs raising, and the class is gone. `relative` stays because the
  * root is still the caret's measurement anchor.
  *
  * History worth keeping, because it is easy to "restore": an UNCONDITIONAL
- * `z-30` here once painted the two NON-POSITIONED trigger buttons above the
+ * `z-nav` here once painted the two NON-POSITIONED trigger buttons above the
  * header attention menu's `z-dropdown` panel and stole its clicks
  * (share-hub-fidelity-fixes §3). Gating on `open` was that fix; removing the
  * class entirely supersedes it. A trigger overpaints the menu only at a z-index
- * >= the menu's level (20) — `relative`, `z-0`, `z-10` and `isolate` all paint
+ * >= the menu's level (20) — `relative`, a zero or `raised` z, and `isolate`
+ * all paint
  * below it (CSS 2.1 Appendix E) — so a low z here is harmless and z >= 20 is
  * not. T-HUB-ZORDER (published-review-modal.interactions.spec.ts) is the real
  * guard; shareHub.test.tsx keeps a cheap class-level z >= 20 check.
  *
- * What `z-30` never did, despite a test title claiming otherwise, is order the
+ * What `z-nav` never did, despite a test title claiming otherwise, is order the
  * `fixed z-dropdown` backdrop against those same non-positioned triggers: it elevated
  * the whole root, backdrop included. The backdrop has always swallowed trigger
  * taps (verified against origin/main), tracked as
- * BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS. Removing z-30 neither causes nor
+ * BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS. Removing z-nav neither causes nor
  * worsens it.
  *
  * Close semantics mirror the shipped CrewRowActions popover (#499): a backdrop

@@ -16,6 +16,14 @@
 @source not "../docs";
 @source not "../tests";
 @source not "../lib";
+/* Root markdown — the ledgers, README, AGENTS.md and friends. Prose is not a
+   class list, but Tailwind's extractor cannot tell the difference: it reads raw
+   text and treats any candidate-shaped token as a candidate. A BACKLOG entry
+   discussing `z-40` was therefore emitting a real `.z-40` rule into the shipped
+   bundle for a class no element wears. Measured 2026-08-10, when the band guard
+   started reading the COMPILED stylesheet and found seven such rules, all
+   sourced from `BACKLOG-archive.md` and `DEFERRED-archive.md`. */
+@source not "../*.md";
 /* admin dev surface — the dev PANEL + dim harnesses are disabled in production
    builds (ADMIN_DEV_PANEL_ENABLED), so exclude ONLY those dev-only route dirs
    from Tailwind scanning. NOT the whole `app/admin/dev` tree: `/admin/dev/telemetry`

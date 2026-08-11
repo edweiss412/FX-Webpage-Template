@@ -63,7 +63,7 @@ export function PreviewBanner({
       role="status"
       aria-live="polite"
       aria-label="Admin preview banner"
-      // Sticky + z-100 per §9.3. Yellow tint via warning-bg / warning-text
+      // Sticky + z-sticky-banner per §9.3. Yellow tint via warning-bg / warning-text
       // tokens makes impersonation unmistakable; the banner sits above
       // every tile in the stacking context.
       style={{ position: "sticky", top: 0 }}

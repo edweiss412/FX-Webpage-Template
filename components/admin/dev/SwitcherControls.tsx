@@ -9,7 +9,7 @@
  *
  * The switcher's control bar. Rendered into a body-level portal by
  * AttentionModalSwitcher so it escapes the admin `[data-inert-root]` and sits
- * above the modal overlay (z-dev-controls > z-50). It is deliberately OUTSIDE the modal's
+ * above the modal overlay (z-dev-controls > z-overlay). It is deliberately OUTSIDE the modal's
  * aria-modal tree (the ratified dev-instrument a11y carve-out, spec §1.1);
  * keyboard navigation is handled by the switcher's document listener, and this
  * bar carries aria-labels + an aria-live region (position + human label) for the

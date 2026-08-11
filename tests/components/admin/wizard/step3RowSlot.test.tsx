@@ -23,8 +23,8 @@
  * WHICH treatment wins and which border yields are the in-branch design calls;
  * the two counts below are the contract.
  */
-import { describe, expect, test, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ParseResult } from "@/lib/parser/types";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
@@ -140,28 +140,75 @@ const SLOT_ROOT_SELECTOR = [
  *     shipped 2026-08-08 with its own treatment.
  */
 function isRowSlotAction(el: Element): boolean {
-  if (el.closest('[data-testid="help-affordance"]') !== null) return false;
-  if (el.matches('[data-testid$="-title-link"]')) return false;
+  // Narrowed after brief B r1 F2, which showed both carve-outs were shaped so a
+  // new action could sit behind them: ANY descendant of the help affordance was
+  // excluded whatever its purpose, and ANY element whose testid merely ended in
+  // `-title-link` was excluded without checking that it was in fact the title
+  // link. Both are now pinned to the exact node they were written for.
+  if (el.closest('[data-testid="help-affordance"]') !== null) {
+    // Inside the help disclosure, only the <summary> and its explanatory links
+    // are supporting text. Anything else in there — a <button>, a role=button —
+    // is an action and IS collected, which is the half the first carve-out gave
+    // away by excluding every descendant.
+    return el.tagName !== "A" && el.tagName !== "SUMMARY";
+  }
+  if (
+    el.tagName === "A" &&
+    /^wizard-step3-card-.+-title-link$/.test(el.getAttribute("data-testid") ?? "")
+  ) {
+    return false;
+  }
   return true;
 }
 
+// Every shape an action takes, not just <button> and <a href> (brief B r1 F2).
+const ACTION_SELECTOR = [
+  "button",
+  "a[href]",
+  'input[type="button"]',
+  'input[type="submit"]',
+  'input[type="reset"]',
+  '[role="button"]',
+  '[role="link"]',
+  "summary",
+].join(", ");
+
 /**
- * Classes that PLACE a control rather than dress it: they say where it sits in
- * its parent's flex line, not what it looks like.
+ * Tokens the signature ignores — each DECLARED with its reason, and each
+ * asserted to be in use, so the normalization is visible rather than silent.
  *
- * `w-full` and `flex-1` are deliberately NOT here even though they read as
- * layout. Both change the control's rendered width, so two actions differing
- * only in one of them look different on screen — stripping them would let a
- * full-width button and a content-width button share a signature and satisfy
- * "the set has size 1" while the slot plainly showed two treatments.
+ * Brief B r1 F3 is right that these can change rendered geometry: `self-start`
+ * stops a control stretching in a column, `shrink-0` and `min-w-0` change how it
+ * gives way under constraint. They stay ignored anyway, because the contract is
+ * about VOCABULARY — what the control looks like — and these three say only how
+ * the parent places it. Two buttons in different containers legitimately need
+ * different answers there while wearing the same treatment.
+ *
+ * What changed in response to the finding is that the strip is no longer a bare
+ * Set: every entry carries a reason, and the test below fails on an entry that
+ * no longer matches anything, so this cannot quietly grow into a way to make two
+ * different-looking controls compare equal. `w-full` and `flex-1` are excluded
+ * for exactly that reason — both change the control's own width. `min-w-0` was
+ * declared here too until this test's first run reported that no row-slot action
+ * uses it.
  */
-const PLACEMENT_ONLY = new Set(["shrink-0", "self-start", "min-w-0"]);
+const PLACEMENT_ONLY: readonly { readonly token: string; readonly reason: string }[] = [
+  {
+    token: "shrink-0",
+    reason: "prevents the control giving way in a flex row; its own box is unchanged",
+  },
+  {
+    token: "self-start",
+    reason: "stops a column stretching the control; its own box is unchanged",
+  },
+];
+const PLACEMENT_TOKENS = new Set(PLACEMENT_ONLY.map((p) => p.token));
 
 function treatmentSignature(el: Element): string {
   return el
     .getAttribute("class")!
     .split(/\s+/)
-    .filter((t) => t.length > 0 && !PLACEMENT_ONLY.has(t))
+    .filter((t) => t.length > 0 && !PLACEMENT_TOKENS.has(t))
     .sort()
     .join(" ");
 }
@@ -169,7 +216,7 @@ function treatmentSignature(el: Element): string {
 function collectActions(container: HTMLElement): HTMLElement[] {
   const out: HTMLElement[] = [];
   for (const root of container.querySelectorAll(SLOT_ROOT_SELECTOR)) {
-    for (const el of root.querySelectorAll<HTMLElement>("button, a[href]")) {
+    for (const el of root.querySelectorAll<HTMLElement>(ACTION_SELECTOR)) {
       if (isRowSlotAction(el)) out.push(el);
     }
   }
@@ -178,13 +225,37 @@ function collectActions(container: HTMLElement): HTMLElement[] {
 
 // A bordered CONTAINER, not a bordered control: a button carrying an outline is
 // the vocabulary item (i) is about, and nesting one inside a card is correct.
-const CONTAINER_TAGS = new Set(["SECTION", "ARTICLE", "DIV", "UL", "LI", "ASIDE", "HEADER", "P"]);
-const BORDER_TOKEN = /^border(-[0-9]+)?$|^border-(t|r|b|l|x|y|s|e)(-[0-9]+)?$/;
+//
+// Recognition is by EXCLUSION rather than by an allowlist (brief B r1 F4): the
+// first version listed eight tags, so a bordered `<fieldset>` grouping the
+// hard-fail actions would have walked straight past it. What makes something not
+// a container is that it is a control or an inline run, and that list is short
+// and closed; the set of block elements someone might reach for is neither.
+const NON_CONTAINER_TAGS = new Set([
+  "BUTTON",
+  "A",
+  "INPUT",
+  "SELECT",
+  "TEXTAREA",
+  "LABEL",
+  "SPAN",
+  "SVG",
+  "PATH",
+  "IMG",
+  "SUMMARY",
+]);
+
+// Any real border: bare, sided, sized, arbitrary (`border-[3px]`), or applied
+// under a variant (`sm:border`). The rounded requirement is GONE — a square
+// bordered box is still a bordered box, and requiring a radius was an invention
+// of the first version, not of the contract (brief B r1 F4).
+const BORDER_TOKEN =
+  /^(?:[a-z][a-z0-9-]*:)*border(?:-(?:t|r|b|l|x|y|s|e))?(?:-(?:[0-9]+|\[[^\]]+\]))?$/;
 
 function isBorderedContainer(el: Element): boolean {
-  if (!CONTAINER_TAGS.has(el.tagName)) return false;
+  if (NON_CONTAINER_TAGS.has(el.tagName)) return false;
   const tokens = (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean);
-  return tokens.some((t) => BORDER_TOKEN.test(t)) && tokens.some((t) => /^rounded(-|$)/.test(t));
+  return tokens.some((t) => BORDER_TOKEN.test(t));
 }
 
 function describeNode(el: Element): string {
@@ -206,6 +277,17 @@ function collectBorderedContainers(container: HTMLElement): { root: Element; el:
 function renderGallery() {
   return render(<Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[...GALLERY]} />);
 }
+
+const fetchMock = vi.fn<typeof fetch>();
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  vi.stubGlobal("fetch", fetchMock);
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  cleanup();
+});
 
 describe("Step-3 row slot (STEP3-GALLERY-TAP-TARGETS-1 item d)", () => {
   test("(i) every row-slot action shares ONE treatment", () => {
@@ -265,6 +347,27 @@ describe("Step-3 row slot (STEP3-GALLERY-TAP-TARGETS-1 item d)", () => {
     expect(dressed, "rows inside the plate that still carry a border or a fill").toEqual([]);
   });
 
+  test("every declared placement token is actually in use", () => {
+    // A strip entry that matches nothing is a licence nobody is using, and the
+    // next person to add one has no way to tell which are load-bearing. Brief B
+    // r1 F3 is the reason this exists: the answer to "your normalization can
+    // hide a geometry difference" is not to argue, it is to keep the licence
+    // list minimal and provably live.
+    const { container } = renderGallery();
+    const seen = new Set<string>();
+    for (const el of collectActions(container)) {
+      for (const t of (el.getAttribute("class") ?? "").split(/\s+/)) seen.add(t);
+    }
+    premise("the gallery renders actions to read tokens from", seen.size, 0);
+    expect(
+      PLACEMENT_ONLY.filter((p) => !seen.has(p.token)).map((p) => p.token),
+      "declared placement tokens that no row-slot action uses — remove the entry",
+    ).toEqual([]);
+    for (const p of PLACEMENT_ONLY) {
+      expect(p.reason.trim().length, `${p.token} needs a reason`).toBeGreaterThan(20);
+    }
+  });
+
   test("(ii) no bordered card renders inside another bordered container", () => {
     const { container } = renderGallery();
     const bordered = collectBorderedContainers(container);
@@ -281,5 +384,51 @@ describe("Step-3 row slot (STEP3-GALLERY-TAP-TARGETS-1 item d)", () => {
     }
 
     expect(nested, "bordered containers nested inside another bordered container").toEqual([]);
+  });
+
+  // Brief B r1 F1. The two assertions above read the FIRST render, and the row
+  // slot has states the first render cannot reach: a re-scan that returns puts a
+  // result block inside the row's own card. That block was bordered, which is
+  // item (ii)'s violation in a state no initial-render assertion could see — the
+  // reviewer found it by reading, because the guard structurally could not.
+  //
+  // So the contract is re-asserted after driving every Re-scan in the slot. This
+  // is the general lesson of the finding rather than a patch for one block: a
+  // guard on a surface with interaction states owes those states an assertion.
+  test("(ii) still holds after a re-scan returns a result into the row", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: false, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" }),
+    } as unknown as Response);
+
+    const { container } = renderGallery();
+    const rescans = [
+      ...container.querySelectorAll<HTMLElement>('[data-testid^="rescan-sheet-button-"]'),
+    ];
+    premise("the slot renders re-scan controls to drive", rescans.length, 0);
+
+    for (const button of rescans) {
+      await act(async () => {
+        fireEvent.click(button);
+      });
+    }
+    await waitFor(() =>
+      expect(
+        container.querySelectorAll('[data-testid^="rescan-sheet-result-"]').length,
+      ).toBeGreaterThan(0),
+    );
+
+    const bordered = collectBorderedContainers(container);
+    premise("the post-result slot still has bordered containers", bordered.length, 0);
+    const nested: string[] = [];
+    for (const { root, el } of bordered) {
+      for (let parent = el.parentElement; parent !== null; parent = parent.parentElement) {
+        if (isBorderedContainer(parent))
+          nested.push(`${describeNode(el)} inside ${describeNode(parent)}`);
+        if (parent === root) break;
+      }
+    }
+    expect(nested, "bordered containers nested inside another, after a re-scan result").toEqual([]);
   });
 });
