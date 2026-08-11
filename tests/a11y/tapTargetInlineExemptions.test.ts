@@ -23,11 +23,22 @@ import { describe, expect, test } from "vitest";
 // (4) the enclosing element stops supplying an inline-prose context, by class
 // OR by inline style, which ends the exemption without touching the control.
 //
-// DOCUMENTED LIMIT: a stylesheet rule from outside the component could still
-// change `display` on these elements. That is out of the threat model — this
-// codebase styles exclusively through Tailwind utility classes on the element,
-// and the two JSX mechanisms an ordinary author reaches for (className, style)
-// are both pinned.
+// WHAT THIS GUARD CAN AND CANNOT DECIDE. It reads source, so it can pin the
+// source facts at these three positions: the recorded decision, the control's
+// class, the enclosing element's class and style, and that the enclosing
+// element is a NATIVE tag whose display those two attributes therefore
+// determine. It cannot compute rendered display — that would mean resolving
+// components, their props, and every ancestor, which is an open class where
+// each new spelling reopens the last fix.
+//
+// So the boundary is drawn where it is decidable: anything that makes the
+// premise unverifiable (a component in the enclosing position) FAILS the guard
+// rather than passing it. DOCUMENTED LIMIT, accepted: an ancestor further up,
+// or a stylesheet rule from outside, could still change `display` on a native
+// parent. Out of the threat model — this codebase styles through Tailwind
+// utilities on the element itself. The closing move for that residue is a
+// real-browser computed-display assertion, which is a different instrument
+// than a source scan and is not what spec §2 ratified for exempt sites.
 
 const EXEMPTION_TOKEN = "tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10";
 
@@ -161,6 +172,11 @@ function enclosingOpenTagLine(lines: string[], fromLine: number): number {
   throw new Error(`no enclosing opening tag above line ${fromLine + 1}`);
 }
 
+/** A NATIVE DOM element opening tag (`<p`, `<span`), not a component (`<Foo`). */
+function isNativeElement(line: string): boolean {
+  return /^\s*<[a-z]/.test(line);
+}
+
 /** The `style` prop's source text on/after `from`, if the element carries one. */
 function styleAttrIn(lines: string[], from: number, span: number): string | undefined {
   for (let i = from; i < Math.min(from + span, lines.length); i++) {
@@ -241,6 +257,23 @@ describe("inline-prose tap-target exemptions (spec §2, PRODUCT.md:59)", () => {
       const lines = readLines(site.file);
       const tagLine = tagOpenLine(lines, site, testidLine(lines, site));
       const parentLine = enclosingOpenTagLine(lines, tagLine);
+
+      // FAIL CLOSED when the premise stops being checkable. This guard reasons
+      // about a NATIVE element whose class and style it can read; a component
+      // (`<InlineProseFlex …>`) can add `flex flex-col` internally while the
+      // call-site class stays pinned, and no source scan at this position can
+      // see that (review r3, finding 1 — probed at all three sites).
+      //
+      // The answer is not a bigger recogniser. Chasing it would mean resolving
+      // the component, then its props, then ITS parent — an open class, and the
+      // next spelling reopens it. Instead the guard refuses the indirection: if
+      // the enclosing element is not native, its rendered display is not
+      // decidable here, so the guard fails loudly and a human decides. Extract a
+      // wrapper and you must come and say so.
+      expect(
+        isNativeElement(lines[parentLine]!),
+        `${site.file}: the element enclosing this exempt control is not a native DOM tag (line ${parentLine + 1}: ${lines[parentLine]!.trim()}). A component can set \`display\` internally while the call-site class stays pinned, so its inline-prose status is not decidable from source here — the PRODUCT.md:59 exemption cannot be verified. Keep a native element, or re-settle the exemption.`,
+      ).toBe(true);
 
       expect(
         tagLine - parentLine,

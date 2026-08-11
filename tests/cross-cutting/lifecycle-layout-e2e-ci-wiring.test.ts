@@ -59,7 +59,15 @@ type Step = {
  */
 function swallowsStatus(run: string): boolean {
   const text = stripYamlComments(run).trim();
-  return /&&|\|\||;|\|/.test(text) || /\n/.test(text);
+  // DERIVED, not enumerated. The first version listed combinations (`&&`, `||`,
+  // `;`, `|`) and review r3 walked straight through the gap: a single trailing
+  // `&` backgrounds the oracle, so the step exits 0 while the checker prints its
+  // failure asynchronously into the void. Listing combinations invites exactly
+  // that. The closed set is the shell metacharacters that can detach a command's
+  // exit status from the step's — `&`, `|`, `;` (which covers `&&` and `||` as
+  // doubled forms) — plus a newline, since a `run: |` block exits with its LAST
+  // command's status.
+  return /[&|;\n]/.test(text);
 }
 
 function steps(): Step[] {
