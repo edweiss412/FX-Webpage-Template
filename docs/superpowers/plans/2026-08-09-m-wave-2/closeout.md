@@ -278,6 +278,25 @@ filled surface do not carry contrast when they stand alone; the same is true of
 two fills tuned to sit one step apart in a stack. Neither was caught by reading —
 both took the arithmetic.
 
+### What CI caught that local verification could not
+
+**`screenshots-drift`.** The U4 archive argued — correctly — that none of the five
+recoloured controls appears on a captured route. It then concluded that no
+baseline moves, which was wrong, because U5 widened the Inter subset in the same
+branch. Characters the dashboard already drew (`⚠` in `ShowsTable`, `✓`, `→`)
+previously fell back to a system face and now resolve in Inter, so
+`dashboard-overview-{light,dark}.webp` legitimately changed pixels.
+
+A font-payload change is a RENDERING change on every route that draws an affected
+glyph, not only on the routes whose components changed. That is the transferable
+form of the mistake, and no amount of reasoning about which components moved
+would have surfaced it — only a byte gate on a real capture does.
+
+Baselines regenerated through the `screenshots-regen` workflow on a native-amd64
+runner from the pinned `mcr.microsoft.com/playwright:v1.59.1-jammy` image, per the
+byte-comparison discipline. Regenerating from this arm64 dev host would have
+produced different bytes: a green local run that fails in CI.
+
 ### Full suite
 
 `pnpm test` on the final tree: **23,744 passed**, 3 failed, 57 skipped across

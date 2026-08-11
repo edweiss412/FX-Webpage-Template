@@ -32,13 +32,24 @@ pinning suites call it, so the five cannot drift apart again the way they did th
 fixture (`tests/components/admin/review/__fixtures__/step3-header-baseline.html`) held exactly one
 occurrence of the old class; it is updated in the same commit.
 
-**Help screenshots are NOT regenerated, and that is a finding rather than an omission.** The
-manifest captures `/admin`, `/admin/needs-attention`, and four crew-preview routes
-(`scripts/help-screenshots.manifest.ts:51-113`). `HelpSheet` renders only in the wizard steps
-(`Step1Share`, `Step2Verify`, `Step3Review`); `BellPanel`'s close exists only while the panel is
-open; `ModalCloseButton` only inside a modal; the rescan dismiss only after a re-scan returns. No
-captured baseline reaches any of the five, so regenerating would rewrite committed x64-Linux bytes
-for no change.
+**Help screenshots: the U4 recolour alone reaches no captured baseline — but the branch's FONT
+change does, and CI caught what this paragraph originally got wrong.** The manifest captures
+`/admin`, `/admin/needs-attention`, and four crew-preview routes
+(`scripts/help-screenshots.manifest.ts:51-113`). None of the five recoloured controls appears on
+them: `HelpSheet` renders only in the wizard steps, `BellPanel`'s close only while the panel is open,
+`ModalCloseButton` only inside a modal, and the rescan dismiss only after a re-scan returns. That
+part held.
+
+What it missed is that U5 widened the Inter subset in the same branch. Characters the dashboard
+already rendered — `⚠` in `ShowsTable`, `✓`, `→` — previously fell back to a system face and now
+resolve in Inter, so `dashboard-overview-{light,dark}.webp` legitimately changed pixels. The
+`screenshots-drift` gate failed on exactly those two files, and the baselines were regenerated
+through the `screenshots-regen` workflow on a native-amd64 runner from the pinned
+`mcr.microsoft.com/playwright:v1.59.1-jammy` image, per the byte-comparison discipline. Regenerating
+from this arm64 dev host would have produced different bytes and a green local run that fails in CI.
+
+The lesson is narrower than "check the screenshots": a font-payload change is a RENDERING change on
+every route that draws an affected glyph, not just on the routes whose components changed.
 
 **Effort:** M · **Closed:** 2026-08-10
 
