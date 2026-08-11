@@ -177,8 +177,6 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
     "A row label looked misspelled, so we used the closest real one (like 'Venue Adress' as 'Venue Address'). Fix the label in the sheet if that guess is wrong.",
   FIELD_UNREADABLE:
     "A crew phone or email in your sheet couldn't work as one (a phone with no digits, or an email without an @), so that link is left off the crew page. Fix the cell in the sheet.",
-  LEADING_COLUMN_AUTOCORRECTED:
-    "Every row in a section started with an empty column, so we read it one column to the left instead. Update the sheet if the empty column was intentional.",
   HOTEL_ADDRESS_SPLIT_AMBIGUOUS:
     "A hotel line's name and street address may not have been separated correctly. Check the hotel name and address in case part of one landed in the other.",
   HOTEL_CARDINALITY_EXCEEDED:
@@ -189,6 +187,8 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
     "A reservation on a shared hotel line may be under the wrong hotel. Check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
   HOTEL_INLINE_GROUP_OWN_HOTEL:
     "One hotel line seems to book more than one hotel, so this reservation was given its own hotel instead of the line's first one. Check its hotel name, address, guests, and dates against your sheet. To avoid this, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column.",
+  LEADING_COLUMN_AUTOCORRECTED:
+    "Every row in a section started with an empty column, so we read it one column to the left instead. Update the sheet if the empty column was intentional.",
   ORPHANED_CREW_ROWS:
     "Rows that look like crew assignments are not attached to a crew section header, so they were not read as crew. A blank row may have been added in the middle of the crew section. Check the crew section in the sheet and remove the stray blank row.",
   PULL_SHEET_AMBIGUOUS_FORMAT:

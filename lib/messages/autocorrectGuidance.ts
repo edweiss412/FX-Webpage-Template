@@ -30,7 +30,17 @@ const SENTENCE: Record<string, (phrase: string, subj: string) => string | null> 
   // (lib/parser/leadingColumnNormalize.ts), and `joinPairs` quoting that verbatim
   // ("We read 'empty leading column' as 'shifted left'.") reads as nonsense rather
   // than a correction. The fixed sentence states the correction directly instead.
-  LEADING_COLUMN_AUTOCORRECTED: () => "We read this section one column to the left.",
+  //
+  // Keeps the fix-instruction clause (task-3 review round 1, Important 2): unlike
+  // STAGE_WORD/ROLE_TOKEN/SECTION_HEADER, there is no instance-specific word to name
+  // here, so the composed line has nothing over the catalog copy UNLESS it also keeps
+  // the actionable instruction — `resolveGuidance` (PerShowActionableWarnings.tsx)
+  // uses this string in place of catalog.helpfulContext whenever a SENTENCE row
+  // exists, never alongside it, so dropping the instruction here would make the
+  // rendered card strictly worse than omitting the row. Matches the COLUMN_HEADER /
+  // FIELD_LABEL statement-plus-instruction shape instead of SECTION_HEADER's bare one.
+  LEADING_COLUMN_AUTOCORRECTED: () =>
+    "We read this section one column to the left. Update the sheet if the empty column was intentional.",
 };
 
 const normalize = (s: string): string => s.trim().replace(/\s+/g, " ");
