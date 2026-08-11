@@ -151,11 +151,14 @@ describe("held-changes copy contract — phrase tier", () => {
     const tour = raw("tour");
     const cardAt = tour.indexOf('aria-label="Review queues: read the reference"');
     expect(cardAt, "review-queues card not found in the tour source").toBeGreaterThan(-1);
-    const body = between(
-      tour.slice(cardAt),
-      '<p className="text-text leading-relaxed mb-3">',
-      "</p>",
-    );
+    // Bounded by THIS card's closing </a>. Without that bound the slice runs to
+    // end-of-file, and every later card carries a body <p> with the same
+    // className — so deleting this card's body and putting the phrase in a
+    // sibling card leaves both assertions green. Probed.
+    const cardEnd = tour.indexOf("</a>", cardAt);
+    expect(cardEnd, "review-queues card is unterminated").toBeGreaterThan(-1);
+    const card = tour.slice(cardAt, cardEnd);
+    const body = between(card, '<p className="text-text leading-relaxed mb-3">', "</p>");
     expect(body).toContain("crew identity changes held for your approval");
     expect(body).not.toContain("Each queue is scoped to one show");
   });
