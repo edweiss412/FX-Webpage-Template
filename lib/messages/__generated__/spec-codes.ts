@@ -1106,6 +1106,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → spot-check rooms",
     "helpfulContext": "A room line could split into name and dimensions more than one way, so we picked the most likely reading. Check the rooms section; the name or dimensions might be slightly off.",
   },
+  "ROW_CELLS_FUSED": {
+    "crewFacing": null,
+    "dougFacing": "A row in this sheet has one fewer column than its neighbors, which is how a merged cell exports. Values to the right of the merge may appear under the wrong headings until the merge is removed in the sheet.",
+    "followUp": "Doug → fix in sheet",
+    "helpfulContext": "A row here has one fewer column than the rows around it. That is what a merged cell looks like once the sheet is exported, and it can push values under the wrong headings.",
+  },
   "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE": {
     "crewFacing": null,
     "dougFacing": "A room's strike time is dated on a day that isn't part of _<sheet-name>_'s schedule, so it shows in your review but not on crew pages. Fix the date in the room's Strike Time cell so it matches a show day.",

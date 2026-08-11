@@ -526,4 +526,54 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  /**
+   * M-wave 2 W-GUARDS (2026-08-10): both guard extractors enrolled BEFORE
+   * their first review dispatch, per the AGENTS.md convergence rule — the
+   * defect class is exactly "reports OK while the output moved", and the
+   * round-1 brief states the score plus the unaccepted-survivor set as the
+   * convergence criterion.
+   */
+  {
+    id: "popoverOverlayExtract",
+    sourcePath: "tests/components/admin/showpage/_popoverOverlayExtract.ts",
+    suitePaths: ["tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Demands edge-anchoring even of self-scrolling overlays, so HoverHelp's
+    // runtime-anchored popover (and the whole match table's self-scroller rows)
+    // stops being detected.
+    control: {
+      from: "signals.selfScrolls || (signals.edgeAnchored",
+      to: "signals.selfScrolls && (signals.edgeAnchored",
+    },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior -------------------
+      {
+        siteId: "logical-connector:109:42:&&>||",
+        kind: "equivalent",
+        reason:
+          "the flipped guard admits interpolations that are not const-resolving identifiers, where `consts.get` misses and the template text gains the literal token `undefined` instead of a bare separator; no accept-set token contains `undefined`, so no classification signal can flip in either direction",
+      },
+      {
+        siteId: "statement-removal:185:11:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "the null-key unreadable mark on the line above has already happened; falling through reaches only the key === comparisons (position/top/bottom/overflowY/overflow), none of which can match a null key, so no signal changes",
+      },
+    ],
+  },
+  {
+    id: "renderedTextHaystack",
+    sourcePath: "tests/help/_renderedTextHaystack.ts",
+    suitePaths: ["tests/help/_metaUiLabelCrosswalk.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Silences the user-visible attribute channel, so aria-label/placeholder
+    // copy stops reaching the haystack and the positive premise fixture fails.
+    control: {
+      from: "if (USER_VISIBLE_ATTRS.has(name)) attrText(attr, out);",
+      to: "if (!USER_VISIBLE_ATTRS.has(name)) attrText(attr, out);",
+    },
+    accepted: [],
+  },
 ];

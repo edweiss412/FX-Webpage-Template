@@ -44,6 +44,7 @@
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "vitest";
+import { firingSmokeSql, NO_OP_MUTANT_COMMAND, queuedUrlsFromSmokeOutput } from "./pgCronSmokes";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -192,7 +193,11 @@ const liveDbTest =
  * tested — inline, an adversarial round showed that deleting its `fn()` call
  * left every guard green while each case ran nothing.
  */
-const { liveCase, count: liveCaseCount } = makeLiveCaseCounter(liveDbTest, () => queryCount);
+const {
+  liveCase,
+  count: liveCaseCount,
+  expectedQueries,
+} = makeLiveCaseCounter(liveDbTest, () => queryCount);
 
 beforeAll(() => {
   if (coverageTarget === "validation") {
@@ -257,10 +262,15 @@ afterAll(() => {
   // — four adversarial rounds each defeated the next proxy (source patterns,
   // then case names, then this count). Recorded as
   // BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION.
-  if (isCi && queryCount < liveCaseCount()) {
+  // Compared against the DECLARED floor sum, not the case count: a
+  // multi-query case (the all-nine firing smoke) would otherwise donate slack
+  // that hides an inert case once per-case attribution is deleted — the exact
+  // mutant pgCronCiVacuity's aggregate case plants.
+  if (isCi && queryCount < expectedQueries()) {
     throw new Error(
       `pg-cron-coverage: ${liveCaseCount()} live cases ran but only ${queryCount} ` +
-        "database queries were issued — cases are executing without touching the database.",
+        `database queries were issued (declared floor ${expectedQueries()}) — ` +
+        "cases are executing without touching the database.",
     );
   }
 });
@@ -468,6 +478,62 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
     const actual = raw.length === 0 ? [] : raw.split("\n");
     expect(actual).toEqual([...EXPECTED_NON_FXAV_NON_ORPHAN_CRONS]);
   });
+
+  // ── Per-job FIRING smokes (BL-PG-CRON-COVERAGE-UNRUN residual, M-wave 2 W-E2E
+  // Task E3). Text pins cannot catch a commented-out net.http_get body (the R19
+  // note above); these EXECUTE each job's stored command in a rolled-back
+  // transaction and read back the request row it queued under THIS transaction's
+  // xid. The route-handler half is each route suite's territory — the named
+  // documented limit in pgCronSmokes.ts, uniform across all nine jobs. ──────────
+  liveCase(
+    "firing-smoke premise: a command with its net.http_get commented out queues NOTHING",
+    () => {
+      // The entry's planted mutant — the exact shape the text assertions pass.
+      const raw = psql(firingSmokeSql(NO_OP_MUTANT_COMMAND));
+      expect(queuedUrlsFromSmokeOutput(raw)).toEqual([]);
+    },
+  );
+
+  liveCase(
+    "every canonical job's stored command LIVE-queues a request to its canonical route (rolled back)",
+    () => {
+      const rawJobs = psql(
+        String.raw`SELECT coalesce(json_agg(json_build_object('jobname', jobname, 'command', command)), '[]'::json) FROM cron.job WHERE jobname LIKE 'fxav\_cron\_%' ESCAPE '\'`,
+      );
+      const rows = JSON.parse(rawJobs) as Array<{ jobname: string; command: string }>;
+      expect(rows, "the live job set must be the full canonical census").toHaveLength(
+        CANONICAL_JOBS.length,
+      );
+      const canonicalByName = new Map(CANONICAL_JOBS.map((j) => [j.jobname, j]));
+      for (const row of rows) {
+        const canonical = canonicalByName.get(row.jobname);
+        expect(canonical, `${row.jobname} missing from the canonical table`).toBeDefined();
+        if (!canonical) continue;
+        const urls = queuedUrlsFromSmokeOutput(psql(firingSmokeSql(row.command)));
+        expect(
+          urls,
+          `${row.jobname}: executing the stored command queued no request under this transaction — ` +
+            `its net.http_get body does not execute (commented out, unreachable, or erroring)`,
+        ).not.toHaveLength(0);
+        // Exactly ONE request, and its parsed path+query EQUALS the canonical
+        // route (review r2 F1: substring containment admitted /api/cron/sync-evil
+        // and /not-sync?next=/api/cron/sync; newest-row-only admitted a wrong
+        // request queued before the canonical one).
+        expect(
+          urls,
+          `${row.jobname}: the stored command queued ${urls.length} requests — the canonical command issues exactly one`,
+        ).toHaveLength(1);
+        const parsed = new URL(urls[0] ?? "");
+        expect(
+          parsed.pathname + parsed.search,
+          `${row.jobname}: the queued request targets the wrong route`,
+        ).toBe(canonical.route);
+      }
+    },
+    // One census fetch + one smoke per canonical job, declared so the
+    // aggregate backstop keeps a zero-slack floor.
+    { queries: 1 + CANONICAL_JOBS.length },
+  );
 
   // Orphan-absent (R25 F49 + R26 F51): cleanup-bootstrap-nonces unscheduled by T3.
   liveCase("cleanup-bootstrap-nonces orphan cron has been unscheduled", () => {

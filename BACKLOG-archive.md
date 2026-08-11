@@ -997,6 +997,20 @@ earlier on this same branch.
 
 ---
 
+## BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells — CLOSED 2026-08-10 (`feat/mutation-merged-cell`, PR #771, wave branch 3/5)
+
+**Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
+
+Deleting one interior pipe — exactly how a merged cell exports to markdown — fused two adjacent cells with no signal: two columns became one value, and every column to their right shifted within that row. Each individual value still looked well-formed, which is why nothing downstream noticed.
+
+**Resolution.** `detectFusedRows` (`lib/parser/rowWidthDiscriminator.ts`) emits one warn-severity `ROW_CELLS_FUSED` per data row that is exactly one cell short of its section's modal DATA-row width. Detection only (spec §5.1): correcting would mean guessing which fused value belongs in which column, and a wrong guess is worse than a flagged row an operator can look at.
+
+**2,294 ledgered holes closed; `RAW_HOLES` 3,708 → 1,414.** `merged-cell` 2,285 of its 2,407 rows, plus 9 `column-shift` — short-by-one is a SHAPE, and more than one operator produces it, so **branch 4 should re-derive its blast radius from the ledger rather than trust the figure in its plan.** All four reconciliation buckets empty across the full 8-shard harness, re-confirmed after merging `origin/main`.
+
+**Segmentation is structural, and that took the review three tries.** An alignment row is markdown's own statement that a table starts, and the row above it is that table's header; no label registry is consulted. Every lexical formulation was wrong in BOTH directions (probed): an unregistered heading (`NOTES`) or a colon-suffixed one (`DATES:`) failed to separate butted tables, while a registered token sitting in an ordinary data cell (a `Driver` row) falsely separated one. A run holding a SECOND delimiter-shaped row is ambiguous by construction — butted table, or an all-`---` placeholder data row — so the run is abandoned rather than guessed, a choice made only after measuring that zero of 514 real pipe runs contain two delimiter rows.
+
+**Documented limits (spec §5.3).** 122 merged-cell mutants survive by design, where the discriminator has no well-defined modal to be short of: a section under the 3-data-row floor, a tied width distribution, a HEADER row (excluded from the population, since a narrower section title is ordinary authoring), or an abandoned ambiguous run. Said precisely, because an earlier draft got it wrong: those 122 are ledgered holes, so the mutants DO corrupt payload silently — what is zero is the detector's OUTPUT. The corruption is real, still ledgered, and still owed to a future pass. `tests/parser/cleanCorpusCalibration.test.ts` pins the zero-warning clean-corpus base rate so a future shift is visible rather than silent.
+
 ## BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal — CLOSED 2026-08-09 (`feat/mutation-ref-sub`, PR #749, wave branch 2/5)
 
 **Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
@@ -6957,7 +6971,201 @@ resolves.
 
 **Un-archive contract:** if the structured card is ever rolled back to a raw `|`-split render — i.e. the DEFAULT path becomes unlabeled again, not merely the fallback — this entry's design question returns and the row should come back. Absent that rollback, re-filing it is re-litigating a shipped surface; the fallback path belongs to its successor row. Recorded by feat/crew-field-enrichment.
 
+## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow — RESOLVED 2026-08-10 (`feat/m2-e2e-infra`)
+
+**Status:** RESOLVED (2026-08-10 (was: PARTIALLY CLOSED 2026-07-26)(PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** M)
+**l-wave-screen 2026-08-06:** KEEP at honest residual scope — the wired-in-CI half closed 2026-07-26/27 and only the per-job smoke residue remains, so it is resized L->M in this same commit.
+
+**What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
+
+**What stays open:** the per-job smoke-test residue (spec §9). The target-binding ceiling this entry used to inherit closed 2026-07-27: the connected cluster's `system_identifier` is now pinned and re-proven by a DO guard on every query's own connection (`feat/driveid-guard-cluster`, `docs/superpowers/specs/data-quality/2026-07-26-driveid-guard-cluster-design.md` §3.1) — a DSN substring check proves nothing, and no longer has to.
+
+**Original text (SUPERSEDED 2026-07-26 — the exclusion and the "nothing runs it" finding are both fixed; see the status note above):**
+
+`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It was excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there said it "runs against the validation project (like validation-schema-parity)". **Nothing ran it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
+
+So every assertion in it is dead in CI, including the `active=true` gate that exists specifically because a disabled job would otherwise satisfy the name/schedule/command checks.
+
+**Fix:** give it a job in `x-audits.yml` with `PG_CRON_COVERAGE_TARGET=validation` and `TEST_DATABASE_URL` pointing at the validation project, alongside `validation-schema-parity` which already has that shape. Then correct the stale comment in `unit-suite.yml`.
+
+**Wiring it up is necessary but not sufficient** (whole-diff R18). Every assertion this suite makes about `cron.job.command` is text matching: PostgreSQL resolves the OUTER `cron.schedule` call but stores the command body verbatim, comments included. A job whose `net.http_get(...)` is commented out, followed by an executable `select 1;`, satisfies the route check, the `net.http_get(` check and the exactly-one-timeout check while issuing no request — and `active=true` does not help, because the job runs, it just does nothing. Proving a job actually fires needs a smoke test per job; only the sync path has one today. Track that with this entry rather than by adding more text assertions.
+
+**Resolution (2026-08-10, `feat/m2-e2e-infra`, M-wave 2 W-E2E — residual half).** The
+wired-in-CI half closed 2026-07-26/27; the residual (text pins cannot catch a
+commented-out `net.http_get` body) closed with per-job FIRING smokes: each of the nine
+canonical jobs' stored commands is EXECUTED inside a rolled-back transaction and the
+request row it queues is read back under the transaction's own xid
+(`tests/cross-cutting/pgCronSmokes.ts` + two liveCase rows in
+`pg-cron-coverage.test.ts`); the queued url must contain the job's canonical route.
+RED was the entry's own planted mutant (http_get commented out, `select 1` in place —
+queues nothing). Documented limit, named uniformly: the route HANDLER's effect is each
+route suite's territory; no job is silently untested. Rides
+pg-cron-validation-parity unchanged.
+
+### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch — RESOLVED 2026-08-10 (`feat/m2-e2e-infra`)
+
+**Status:** RESOLVED (2026-08-10 · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M)
+
+**Not caused by the branch that measured it** — the same test fails the same way on an unrelated
+branch in the same window:
+
+```
+test/resurrect-mobile-safari-e2e   run 31310546822   1 failed, 2 flaky, 140 passed
+  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
+    › every mono manifest entry still matches something on its route
+
+refactor/classname-array-join-cn   run 31310136900   1 failed, 1 flaky, 118 passed
+  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
+    › every mono manifest entry still matches something on its route
+```
+
+Both fail inside the auto-fixture with the same message, on both the pre- and post-navigate sample:
+
+```
+Error: font oracle: the registered-face query failed on a document the element walk could read
+       (via pre-navigate). The guard cannot judge a document it cannot read, and passing on one
+       would make every other test's green meaningless.
+  at enforce (tests/e2e/helpers/fontFidelityFixture.ts:400:11)
+```
+
+`font-rendering-census.spec.ts:157` (`/admin/onboarding @ mobile renders the expected families`)
+flakes in the same runs, sometimes recovering on retry and sometimes not. Other branches DO go green
+in the same window (`chore/next-1630-wedge-remeasure`, `fix/step3-a11y-cluster`), so this is
+intermittent rather than a hard break.
+
+**Why it matters beyond one arc:** the guard is written to fail loud rather than pass on a document
+it cannot read, which is the right posture — but it means a transient read failure is indistinguishable
+from a real font regression, and it takes the whole job down with it. Any acceptance bar of the form
+"N consecutive green crew-e2e runs" is then a coin flip rather than a measurement.
+
+**First step if picked up:** determine WHY the registered-face query fails on a document the element
+walk could already read — a closed/navigating page during the fixture's sample, or a document whose
+`document.fonts` is not yet queryable. The message already distinguishes pre- from post-navigate,
+which should localise it.
+
 ---
+
+**Resolution (2026-08-10, `feat/m2-e2e-infra`, M-wave 2 W-E2E).** Mechanism NAMED (the
+entry's first step): `observe()` ran the element walk and the registered-face query as
+TWO sequential frame.evaluate calls; a frame navigating between them produced
+walk-ok/faces-dead → `facesUnreadable` → the exact enforce message, on a healthy
+mid-navigation document. Fix at the fixture level: ONE atomic evaluate carries both
+halves (`SAMPLE_SRC`); a dying document fails the whole sample (not recorded), while a
+LIVE document with a genuinely broken fonts API lands on an in-page sentinel and still
+fails loud (fail-loud preserved, pinned). Deterministic reproduction + pins:
+`tests/e2e/font-oracle-readiness.spec.ts` (standalone-wired, baseline regenerated).
+The 5-consecutive-green crew-e2e bar is tracked post-merge in the wave closeout —
+that is a statistical claim, not proof of no residual flake (wave spec §4 limit 8).
+
+### BL-RIGHTNOW-SECTION57-FIXTURE-INERT — the §5.7 suite's run_of_show fixture does not drive the hero it asserts — RESOLVED 2026-08-10 (`feat/m2-e2e-infra`)
+
+**Status:** RESOLVED (2026-08-10 · **Severity:** MEDIUM (the suite asserts nothing it claims to; it is now statically skipped so it cannot read as coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` §3.5 WHOLE-FILE valve, exception (c)) · **Effort:** M)
+
+**Probed, not theorized** (TZ=UTC, to match the CI runner). `tests/e2e/right-now-transitions.spec.ts`
+seeds `shows_internal.run_of_show` in `beforeAll` and asserts the RightNowHero renders that day's
+anchor. Changing the fixture's Day-1 entry from `7:30am` to `7:13am` left the rendered hero
+UNCHANGED:
+
+```
+Expected pattern: /7:13\s*am/i
+Received string:  "Today: Show day 1 of 2Show7:30 AM"
+```
+
+The write lands (the `afterAll` restore reads the prior value back; `psql` confirms the column
+round-trips and returns to its seeded NULL). The hero simply does not source its RightNow anchor from
+`run_of_show` on this route — it renders a show-level anchor.
+
+**Two coincidences hid this**, and either alone kept the suite green for the wrong reason:
+
+1. Day 1's `7:30am` equals the seed's own show-start anchor.
+2. Day 2's `8:00am` equals noon-UTC rendered in America/New_York — so on a developer Mac the
+   assertion matched the pinned CLOCK, not any anchor. CI (UTC) renders the same instant as
+   `12:00 PM`, which is what exposed it: `"Today: Show day 2 of 2Strike4/22 @ 12:00 PM"`.
+
+This is why the file is NOT wired into `crew-e2e.yml` and is statically skipped: wiring it would pin
+a suite whose assertions pass off seed-derived values, which is precisely the "credited as coverage it
+does not provide" failure the executed-count registry exists to prevent.
+
+**What it needs:** identify the hero's ACTUAL anchor source under a real crew viewer, then re-point
+the fixture at it — the same per-test crew row + email-matched session harness
+[[BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER]] needs. Both rows are one piece of work.
+
+**Retained from the attempt** (they are improvements independent of the valve): the invariant-9
+call-boundary repairs on the file's five Supabase call sites, and the rendered-state assertion added
+to `driveToState`, which is what made the recovery case's state-entry failure loud instead of silent.
+
+---
+
+**Resolution (2026-08-10, `feat/m2-e2e-infra`, M-wave 2 W-E2E; closes with its RECOVERY
+sibling as one work item).** DISCOVERY (the spec's mandated first step): the hero's
+anchor source IS `shows_internal.run_of_show` (resolveKeyTimes rows 1-3); the fixture
+was inert because `getShowForViewer` is per-show `unstable_cache`d and a direct DB
+fixture write never busts the tag — the old suite mutated ONE shared show mid-run and
+every later navigation served the pre-mutation projection. The rewritten suite seeds a
+PER-TEST show (fresh tag) with run_of_show in the same locked transaction
+(seedShowWithCrew gains `internal.runOfShow`), discriminating odd-minute anchors, no
+rooms. FLIP TEST run and observed (fixture 6:59am vs assertion 7:13am → 1 failed).
+Un-skipped and wired: crew-e2e.yml (desktop-chromium only — the picker-bootstrap
+`__Host-` envelope is dark on WebKit over plain http, measured and recorded in the
+spec header), executed-count row 3, wiring-guard ENROLLED + EXPECTED_SKIPS rows.
+
+### BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER — the §5.7 recovery case cannot be driven by an admin viewer — RESOLVED 2026-08-10 (`feat/m2-e2e-infra`)
+
+**Status:** RESOLVED (2026-08-10 · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M)
+
+**Probed, not theorized.** `tests/e2e/right-now-transitions.spec.ts`'s recovery case enters
+`viewer_off_day` by mutating the VIEWER's `date_restriction`. Admin resolution ignores
+`crew_members.date_restriction` by design, so an admin viewer never enters that state. With the
+rendered-state assertion this arc added to `driveToState`, the attempt now fails loudly instead of
+passing on coincident anchor text:
+
+```
+Error: RightNow hero must render state kind "viewer_off_day"
+Expected: "viewer_off_day"
+Received: "show_day_n"          (transiently "post_show" during hydration)
+```
+
+Under the previous helper — which checked only HTTP 200 — this case would have "entered" a state it
+was never in and asserted against whatever rendered.
+
+**What it needs:** a restricted crew viewer through REAL resolution — a per-test `crew_members` row
+plus an email-matched test-auth session, the pattern
+`tests/e2e/stage-restricted-crew-schedule.spec.ts` uses (its header explains why an email-matched
+Google session, not a picker cookie: WebKit will not store the `__Host-` Secure picker cookie over
+plain http, and this file runs under mobile-safari). That is a new harness, not a URL swap.
+
+**Superseded in scope by [[BL-RIGHTNOW-SECTION57-FIXTURE-INERT]]** — the WHOLE file's fixture turned
+out not to drive the hero, so the entire suite is now statically skipped and unwired, this case
+included. The two rows are one piece of work: find the hero's real anchor source under a crew viewer
+and the recovery case's restricted-viewer harness together.
+
+---
+
+**Resolution (2026-08-10, `feat/m2-e2e-infra`, M-wave 2 W-E2E; one work item with its
+FIXTURE-INERT sibling — both entries' own text cross-declares it).** The recovery case
+now runs as a REAL restricted crew viewer: the seeded crew row carries the
+email-matched NON_ADMIN_CREW fixture email plus `dateRestriction {kind: explicit,
+days: [Day2]}`, the clock says Day 1, and the hero's rendered `data-state` must
+resolve `viewer_off_day` through real resolution — with the discriminating negative
+that no prior day's call time renders.
+
+---
+
+## BL-WIZARD-CONNECTOR-MAXW-INERT — the wizard step connector renders 0-width, so its `max-w` is a dead constraint — CLOSED 2026-08-10 (`feat/wizard-step-connector`)
+
+**Status:** CLOSED · **Severity:** LOW (cosmetic; an intended hairline separator never renders) · **Class:** UI correctness · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** S · **Reachability:** PROBED 2026-08-08 — measured `getBoundingClientRect()` in mobile-safari at 390px AND at 900px: both connectors are `0 × 1` at both widths.
+
+**Description:** `components/admin/OnboardingWizard.tsx` renders a step-indicator connector after steps 1 and 2 as `<span className={cn("h-px max-w-confirm-box flex-1 rounded-full", …)} />` — evidently intended as a hairline rule between the step pills. It never renders: measured 0px wide at every viewport.
+
+**Cause is structural, not a viewport threshold.** `StepIndicator`'s `<nav>` is `flex items-center gap-2`, and it sits inside `<div className="flex items-center justify-between gap-3">` — a ROW flex container, in which the nav is a flex ITEM with the default `flex: 0 1 auto` and therefore sizes to its CONTENT. A content-sized flex container has no free space to distribute, so the connector's `flex-1` resolves to 0 and its `max-w` upper bound never applies. Widening the viewport does not help; the nav simply stays as wide as its pills and labels.
+
+**Consequence for the cn arc, recorded so it is not rediscovered as a finding:** C1 (`max-w-[60px]` → `max-w-confirm-box`) cannot be verified by measuring this element — a rect equality there is `0 == 0` before and after. `tests/e2e/canonical-class-dimensions.spec.ts` keeps both connector keys as a REGRESSION TRIPWIRE and asserts the 0-width state explicitly, so the day the layout changes the spec says so; C1's discriminating proof is the deterministic token assertion in `tests/specLint/canonicalTokenIdentity.test.ts`.
+
+**Why not fixed in the arc that found it:** class-sweep exception (a) — it needs a design decision the cn arc could not settle. Making the connector visible is a deliberate visual change to the wizard's step indicator (spec §9.4 of that arc states no dimensional invariant may change), and whether the hairline should render at all — and at what width on a 390px viewport — is an impeccable/design call, not a mechanical repair.
+
+**Work:** decide whether the connector should render; if yes, let the nav stretch (`w-full` on the nav, or `flex-1` on its wrapper) and re-baseline `tests/e2e/__baselines__/canonical-dimensions.json`, which will then measure a real 60px clamp.
+
+# **Closed by measurement, not by assumption.** The connector renders at a fixed 60px (`w-confirm-box`) instead of `flex-1 max-w-confirm-box`: the flex-grow was measured at exactly 60px in all twelve step x viewport x theme cells, so it grew nothing and only displaced dead space. The same measurement pass found the hairline was invisible even once rendered (1.22:1 on the page, and a 1.25:1 done/ahead split), so both colours moved to the text ramp — see DESIGN.md §1.2a, which generalizes the rule.
 
 ## BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer — CLOSED 2026-08-10 (`feat/crew-chrome-footer-avatar`)
 
@@ -7076,3 +7284,58 @@ Both surfaces need a schema decision (new table vs derived view vs append-only c
 **Found by** cross-model plan review R2 F6 on `fix/sync-log-show-id-duration`, which extends that guard's discovery to `prune_(sync_log|app_events)`. That arc repairs this file as part of its Task 5b — the guard cannot reach green while a discovered test lacks the assertion — so this entry exists to record the hazard and its independence: it predates that change and would remain if the change were abandoned.
 
 **Fix:** route the URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`), matching every other destructive DB test.
+
+> > > > > > > origin/main
+
+## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom — RESOLVED 2026-08-10 (`feat/m2-guard-precision`)
+
+**Effort:** M
+
+Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02),
+with live probes against the shipped guard. PRE-EXISTING: the cluster tightened the
+`fit-within-clip` import assertion and added rows, but did not introduce either gap.
+
+`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` compares a set
+of detected FILES against the registry's file rows, and `looksLikeAnchoredScroller`
+matches Tailwind class idiom in the source text. Two consequences:
+
+1. **Per-file, not per-overlay.** A second, undispositioned overlay added to an
+   already-registered file leaves the detected file set unchanged, so the guard stays
+   green. Reviewer probe: appending an `UndispositionedSecondOverlay` with
+   `className="absolute top-full overflow-y-auto"` to `ShareHub.tsx` gave
+   `SUMMARY 15/15 passed; undispositioned overlay appended in already-registered file=true`.
+   The same escape exists in all seven registered files.
+2. **Tailwind-only recognition.** An overlay written with inline styles
+   (`style={{ position: "absolute", top: "100%", overflowY: "auto" }}`) is genuinely an
+   anchored scroller but is not detected at all. Reviewer probe:
+   `CLASSIFIER inline-style mutant => false` and `SUMMARY 15/15 shipped guard cases passed`.
+
+So a new unsafe overlay can ship undispositioned despite the guard's stated
+fail-by-default contract. Fix shape: key the registry by OVERLAY (a stable per-element
+marker such as a testid or a declared symbol) rather than by file, and widen the
+classifier to computed/inline positioning as well as the class idiom — or state the
+limit explicitly in the registry header so the contract stops over-promising.
+
+Not fixed in the cluster that surfaced it: closing it means re-keying an existing
+registry and re-dispositioning seven files, which is its own change with its own
+review surface.
+
+**Resolution (2026-08-10, `feat/m2-guard-precision`, M-wave 2 W-GUARDS Task G1).** Registry re-keyed per OVERLAY: detection is a per-element TSX AST walk (`tests/components/admin/showpage/_popoverOverlayExtract.ts`) — positioned AND (self-scrolling OR edge-anchored with a scrolling descendant), signals from a structural accept-set covering BOTH idioms (static className forms incl. `cn()` module consts and template chunks; literal `style` objects). Rows key on file + the overlay element's `data-testid` (source text when dynamic). Both reviewer probes are standing self-tests: the appended `UndispositionedSecondOverlay` surfaces as its own unregistered overlay, and the inline-style mutant is detected. Eight overlays across six files re-dispositioned; `FinalizeButton`/`BellPanel` left the registry (their old rows were file-level over-matches and said so). Runtime-assembled styles are REPORTED unclassified and require a reasons-required exemption row (`AnchoredPortal`, the placement mechanism itself, is the one live row); the fence is stated in the registry header (wave spec §4 limit 4).
+
+## BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY — the /help UI-label crosswalk attests against all source, so a type annotation counts as a button label — RESOLVED 2026-08-10 (`feat/m2-guard-precision`)
+
+**Filed:** 2026-08-05 (M-wave W-UI, U8 probe). **Class:** guard precision. **Effort:** M (touches every label in the crosswalk corpus). **Severity:** low.
+
+`tests/help/_metaUiLabelCrosswalk.test.ts` attests that a bolded /help label names a real control by searching a haystack built from ALL production source. Comments are stripped, and U8 added import statements — both are categorically non-rendered. What remains is everything else: type annotations, identifiers, object keys. So `**Viewer**` at `app/help/getting-started/page.mdx:10` is attested by `viewer: Viewer` in `app/show/[slug]/[shareToken]/_CrewShell.tsx`, a type annotation, and the guard reports a match that proves nothing about rendered UI.
+
+**Probed, not inferred** (U8, 2026-08-05): the word-boundary tier U8 shipped closes the ACCIDENTAL-SUBSTRING half of this — `Share` no longer matches inside `ShareHub`/`shareToken` — and is proven to discriminate by a premise fixture. It does not close the bare-identifier half, and no further lexical narrowing can: excluding identifiers wholesale would break every label that IS its component name, which is common and legitimate. `tests/help/_metaUiLabelCrosswalk.test.ts` pins the residual as an executable DOCUMENTED LIMIT that fails the day this is fixed.
+
+**Work:** build the haystack from RENDERED TEXT ONLY — string literals and JSX text children, via the TypeScript AST rather than a regex. Decidable and bounded. Expect a wave of newly-failing labels on the first run; each is either real drift or a third-party-UI label (below), and the triage is the bulk of the effort.
+
+**Also needs settling in the same pass: third-party UI labels have no home.** `**Share**` and `**Viewer**` in `app/help/getting-started/page.mdx` are GOOGLE DRIVE's controls, not this app's — "click **Share** on that folder… Give it **Viewer** access". They are correct copy that this guard should never have treated as candidates. The M-wave plan assumed the opposite (that the copy was wrong and should be rewritten to name real controls); the probe refuted it, and rewriting them would have made accurate documentation inaccurate. `tests/help/_uiLabelExceptions.ts` cannot hold them either: every row must cite a `DEFERRED.md M11-E-D<N>` id, and these are not deferrals. Needs a third-party-UI carve with its own reason field.
+
+**Deferral exception: (c)** — a redesign of the guard's oracle spanning the whole crosswalk corpus, on a surface this PR does not otherwise touch. W-UI shipped the half that is closable without it.
+
+**Status:** RESOLVED
+
+**Resolution (2026-08-10, `feat/m2-guard-precision`, M-wave 2 W-GUARDS Task G2).** Haystack rebuilt to RENDERED TEXT ONLY via the TypeScript AST (`tests/help/_renderedTextHaystack.ts`, spec §2.5 node set): JsxText children; string/template content — fragments included — inside JSX expression CHILDREN; a named allowlist of user-visible attributes. Premise fixtures pin both directions. The U8 documented-limit pin flipped as designed (the entry-level RED) and is rewritten as the closed form. Triage of the 11 newly-failing labels: 10 indirect-copy rows (`tests/help/_uiLabelIndirectCopySources.ts`, executable citations — source must contain the literal, haystack must NOT attest, MDX must still carry it; one label, "Not synced yet", fails on two pages and takes one row per page) + 1 real drift corrected (`**Finalize**` named no shipped control; getting-started now says "finish-setup step", matching the wizard UI). The 2 third-party carve rows (`tests/help/_uiLabelThirdPartyCarve.ts` — Share/Viewer are Google Drive's controls) are ADDITIONAL to the 11: rendered text coincidentally attests both, and the carve exists so they can never become candidates. The new residual is the carve itself — a label wrongly placed there is invisible; reason fields + review are the mitigation (wave spec §4 limit 3). The mdx copy correction flipped the unit's impeccable gate to the dual gate, recorded in the wave closeout.

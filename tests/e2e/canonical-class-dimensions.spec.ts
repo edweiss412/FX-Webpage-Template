@@ -54,6 +54,7 @@ import path from "node:path";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { premiseHolds } from "../_shared/premise";
 import { enterWizardAdminState } from "./helpers/dashboardState";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
@@ -208,44 +209,157 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
   });
 
   /**
-   * C1 — the step-indicator connector rule. TWO elements, both measured.
+   * C1 — the step-indicator connector. TWO elements, both measured, at every
+   * step and both widths.
    *
-   * DOCUMENTED LIMIT, MEASURED AND PINNED RATHER THAN LEFT SILENT: `max-w-[60px]` is
-   * INERT on this surface, so the rect comparison for these two keys is a REGRESSION
-   * TRIPWIRE, not a discriminating check for C1.
+   * THIS COMMENT HAS BEEN WRONG TWICE, so it now states only what is currently
+   * true and dates it. It first described the connectors as 0×1 and the rect
+   * keys as a non-discriminating tripwire; that was accurate until the nav
+   * stopped being content-sized. It was then rewritten to describe a stretched
+   * nav with `flex-1`; that was accurate for about an hour. Cross-model review
+   * R1 caught the second version still contradicting production.
    *
-   * Measured 2026-08-08: both connectors are 0×1 at every viewport, and the reason is
-   * structural rather than a viewport threshold. `StepIndicator`'s `<nav>` is
-   * `flex items-center gap-2`, and it sits inside `<div className="flex items-center
-   * justify-between gap-3">` (`components/admin/OnboardingWizard.tsx`) — a ROW flex
-   * container, in which the nav is a flex ITEM with the default `flex: 0 1 auto` and
-   * therefore sizes to its CONTENT. A content-sized flex container has no free space to
-   * distribute, so the connector's `flex-1` resolves to 0 and its `max-w` upper bound
-   * never applies. Widening the viewport does not change that; the nav simply stays as
-   * wide as its pills and labels.
+   * TRUE AS OF 2026-08-10: the connector sets `w-confirm-box` (a fixed 60px)
+   * and the nav is content-width. Measurement is what settled it — the
+   * connectors landed on exactly 60.00px in all twelve step × viewport × theme
+   * cells even while `flex-1` was on the nav, so the grow never fired and only
+   * displaced dead space (16-80px at 390px, 257.77px at 900px step 3).
    *
-   * So an equality assertion on these rects is 0 == 0 both before and after the
-   * canonicalization. Per this repo's anti-tautology rule, that is surfaced here instead
-   * of being shipped as a check that "passes": C1's DISCRIMINATING proof is the
-   * deterministic token assertion in `tests/specLint/canonicalTokenIdentity.test.ts`
-   * (`--spacing-confirm-box` is exactly the `60px` the bracket literal encoded), which is
-   * the same substitution the plan already made when it descoped the mid-crossfade
-   * sampler — a canonical utility resolving to a different value is a TOKEN question, and
-   * a token question is answered deterministically, not in a browser.
-   *
-   * The tripwire still earns its place: it fails the moment the connector becomes
-   * non-degenerate (someone stretches the nav), which is exactly when `max-w` becomes
-   * live and this target would need to become a real check again.
-   *
-   * The hero (C5) is different and IS discriminating: `min-h` is a LOWER bound that binds
-   * at every width, and 176px is its whole contract.
+   * The rect assertion is therefore DISCRIMINATING, not a tripwire: the width
+   * is a fixed contract now, so it is asserted as equality rather than a band.
+   * The colour and visibility oracles below cover what geometry cannot see.
    */
   const PROJECT_VIEWPORT = { width: 390, height: 844 };
+  /** `--spacing-confirm-box`, the token `max-w-confirm-box` resolves to. */
+  const CONFIRM_BOX_PX = 60;
+  /** Both widths the band is proven at: the project's own, and a wide one. */
+  const BAND_VIEWPORTS = [390, 900] as const;
 
-  async function measureConnectors(page: Page): Promise<Record<string, Rect>> {
-    await page.setViewportSize(PROJECT_VIEWPORT);
-    const response = await page.goto("/admin", { waitUntil: "domcontentloaded" });
-    expect(response?.status(), "/admin must render").toBe(200);
+  /**
+   * A CSS custom property's value, NORMALISED THROUGH THE ENGINE rather than
+   * string-compared. `getPropertyValue("--color-text-faint")` returns the token's
+   * authored text (`oklch(…)`), and `getComputedStyle(el).backgroundColor`
+   * returns a resolved `rgb(…)` — comparing those two as strings fails on a
+   * correct implementation. Painting the token onto a probe and reading the
+   * computed value back puts both sides in the same space.
+   */
+  async function resolvedToken(page: Page, token: string): Promise<string> {
+    return page.evaluate((name) => {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      const probe = document.createElement("div");
+      probe.style.backgroundColor = raw;
+      document.body.appendChild(probe);
+      const out = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return out;
+    }, token);
+  }
+
+  /**
+   * The WCAG contrast ratio between an element's own background and the first
+   * opaque thing behind it, computed IN THE PAGE from resolved colours.
+   *
+   * `strong !== plain` was the whole colour assertion, and review R1 showed
+   * what that misses: set `--color-text-faint-runtime` to the page background
+   * and the ahead connector goes invisible while the tokens still differ and
+   * every assertion stays green. "The two tokens are not equal" is a much
+   * weaker claim than "each line can be seen", and the second is the one
+   * DESIGN.md §1.2a actually makes.
+   */
+  async function contrastAgainstBackdrop(page: Page, selector: string, nth: number) {
+    return page.evaluate(
+      ({ sel, index }) => {
+        const parse = (c: string): [number, number, number] => {
+          const m = c.match(/rgba?\(([^)]+)\)/);
+          if (!m) return [0, 0, 0];
+          const [r, g, b] = m[1]!.split(",").map((v) => parseFloat(v));
+          return [r ?? 0, g ?? 0, b ?? 0];
+        };
+        const alphaOf = (c: string): number => {
+          const m = c.match(/rgba\(([^)]+)\)/);
+          if (!m) return 1;
+          const parts = m[1]!.split(",");
+          return parts.length > 3 ? parseFloat(parts[3]!) : 1;
+        };
+        const lum = (rgb: [number, number, number]): number => {
+          const [r, g, b] = rgb.map((v) => {
+            const c = v / 255;
+            return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+          }) as [number, number, number];
+          return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        };
+        const el = document.querySelectorAll(sel)[index] as HTMLElement | undefined;
+        if (!el) return null;
+        // EFFECTIVE opacity, not just the nominal colour. Review R2's mutant:
+        // `opacity-0` on the connector preserves the 60x1 rect, the resolved
+        // token AND the computed `backgroundColor`, so every value the first
+        // version of this helper looked at was unchanged while the line was
+        // invisible in both themes. Alpha is part of "can this be seen", so it
+        // is composited rather than ignored — and `visibility` is checked too,
+        // since `visibility: hidden` also preserves the rect.
+        let alpha = 1;
+        let vis: HTMLElement | null = el;
+        let hidden = false;
+        while (vis) {
+          const cs = getComputedStyle(vis);
+          alpha *= parseFloat(cs.opacity || "1");
+          if (cs.visibility === "hidden" || cs.visibility === "collapse") hidden = true;
+          vis = vis.parentElement;
+        }
+        const fg = getComputedStyle(el).backgroundColor;
+        // First ANCESTOR that actually paints — a transparent parent is not the
+        // backdrop, and treating it as one would compare the line to nothing.
+        let node: HTMLElement | null = el.parentElement;
+        let bg = "rgba(0, 0, 0, 0)";
+        while (node) {
+          const c = getComputedStyle(node).backgroundColor;
+          if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) {
+            bg = c;
+            break;
+          }
+          node = node.parentElement;
+        }
+        // Composite the line over its backdrop at its EFFECTIVE alpha: a fully
+        // transparent line is its backdrop, which is a contrast of 1.0 with
+        // itself — exactly what "invisible" should measure as.
+        const fgRgb = parse(fg);
+        const bgRgb = parse(bg);
+        const fgAlpha = alphaOf(fg) * alpha;
+        const composited: [number, number, number] = [
+          fgRgb[0] * fgAlpha + bgRgb[0] * (1 - fgAlpha),
+          fgRgb[1] * fgAlpha + bgRgb[1] * (1 - fgAlpha),
+          fgRgb[2] * fgAlpha + bgRgb[2] * (1 - fgAlpha),
+        ];
+        const l1 = lum(composited);
+        const l2 = lum(bgRgb);
+        const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+        return {
+          fg,
+          bg,
+          alpha: Math.round(fgAlpha * 100) / 100,
+          hidden,
+          // RAW, and rounded only for the message. Review R3: `#8a948e`
+          // measures 2.997809:1, which `Math.round(x * 100) / 100` turns into
+          // 3.0 — so a token BELOW the floor cleared the floor. Never round
+          // before a threshold comparison.
+          ratio,
+          shown: Math.round(ratio * 1000) / 1000,
+        };
+      },
+      { sel: selector, index: nth },
+    );
+  }
+
+  type ConnectorSample = { rect: Rect; background: string };
+
+  async function sampleConnectors(
+    page: Page,
+    step: 1 | 2 | 3,
+    width: number,
+  ): Promise<[ConnectorSample, ConnectorSample]> {
+    await page.setViewportSize({ width, height: PROJECT_VIEWPORT.height });
+    const response = await page.goto(`/admin?step=${step}`, { waitUntil: "domcontentloaded" });
+    expect(response?.status(), `/admin?step=${step} must render`).toBe(200);
     await expect(page.getByTestId("onboarding-wizard")).toBeVisible();
 
     const connectors = page.getByTestId("wizard-step-connector");
@@ -257,29 +371,183 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
         "must be present. Zero means /admin did not take the wizard branch — check that " +
         "enterWizardAdminState() ran and that app_settings.watched_folder_id is NULL.",
     ).toHaveCount(2);
-    // Attached, NOT visible: a 0-width box is `hidden` to Playwright, which is itself the
-    // measured limit documented above rather than a defect in this locator.
-    await expect(connectors.nth(0)).toBeAttached();
 
-    const first = await rectOf(connectors.nth(0));
-    const second = await rectOf(connectors.nth(1));
+    const read = async (n: 0 | 1): Promise<ConnectorSample> => ({
+      rect: await rectOf(connectors.nth(n)),
+      background: await connectors.nth(n).evaluate((el) => getComputedStyle(el).backgroundColor),
+    });
+    return [await read(0), await read(1)];
+  }
 
-    // THE LIMIT, STATED EXECUTABLY AND IN THE DIRECTION IT IS ACTUALLY TRUE. This is not a
-    // premise the rect comparison needs — it is the reason that comparison cannot
-    // discriminate, pinned so it cannot rot into a silent tautology. If the connector ever
-    // becomes non-degenerate, `max-w` has gone live, this target upgrades from tripwire to
-    // real check, and spec §9.4 needs revisiting — which is what this failure says.
+  /**
+   * C1 — the step-indicator connector. TWO elements, both measured, at every
+   * step and at both widths.
+   *
+   * WHAT CHANGED. Until this arc the connectors were 0×1 at every viewport and
+   * the rect comparison was a documented non-discriminating check: the <nav>
+   * was a content-sized flex item, so a `flex-1` child had no free space to
+   * claim and `max-w` never applied. The connector now sets `w-confirm-box`
+   * directly, so it is a real box at the token width.
+   *
+   * EQUALITY, NOT A BAND. The first version asserted `> 0 ∧ ≤ 60`, which was
+   * the right shape while `flex-1` made the width contested. It is the wrong
+   * shape now, and review R1 supplied the mutant that proves it: capping done
+   * connectors at `max-w-8` renders them 32px from step 2 on, and the band —
+   * plus every colour and token-binding assertion — stayed green. A fixed
+   * contract is asserted as an equality.
+   *
+   * BOTH WIDTHS still, because the width being INDEPENDENT of viewport is now
+   * the claim: 390px and 900px must produce the same number.
+   */
+  for (const step of [1, 2, 3] as const) {
+    for (const width of BAND_VIEWPORTS) {
+      test(`C1 — both step connectors occupy a bounded band at ?step=${step}, ${width}px`, async ({
+        page,
+      }) => {
+        const [first, second] = await sampleConnectors(page, step, width);
+        const band = ([first, second] as const).map((s, i) => ({
+          connector: i,
+          width: s.rect.width,
+          height: s.rect.height,
+          // EXACTLY the token, not a band. The band (`> 0 ∧ ≤ 60`) was right
+          // while the width was contested by `flex-1`; the connector now sets
+          // `w-confirm-box` outright, so any width other than the token is a
+          // defect. Review R1 supplied the mutant the band waved through:
+          // `isDone ? "max-w-8 bg-text-subtle" : …` renders done connectors at
+          // 32px from step 2 on, and every band, colour and token assertion
+          // stayed green.
+          inBand: s.rect.width === CONFIRM_BOX_PX && s.rect.height === 1,
+        }));
+        expect(
+          band.filter((b) => !b.inBand),
+          `each connector must be exactly the token width ` +
+            `--spacing-confirm-box (${CONFIRM_BOX_PX}px) and exactly 1px tall. A 0 width means the ` +
+            `connector is not rendering at all; any other width means something is competing ` +
+            `for it. Measured: ${JSON.stringify(band)}`,
+        ).toEqual([]);
+      });
+    }
+  }
+
+  /**
+   * THE STATE ORACLE — the half the geometry cannot see.
+   *
+   * `isDone = n < step`, and connectors render for n = 1 and 2, so `?step=2` is
+   * the ONLY step where the two differ: connector 1 is behind the cursor
+   * (`bg-text-subtle`) and connector 2 is ahead of it (`bg-text-faint`). At
+   * `?step=3` both are behind it. Geometry is identical in every one of those
+   * cases, so a rect-only check would pass with the two colors swapped, both
+   * stuck on one token, or the conditional deleted outright.
+   *
+   * The two tokens are REQUIRED TO DIFFER before the comparison is trusted: if
+   * `--color-text-faint` and `--color-text-subtle` ever resolved to the same
+   * color, every assertion below would pass on any implementation at all.
+   *
+   * DIFFERING IS NOT THE SAME AS VISIBLE, and this oracle cannot tell them
+   * apart — swap one token to the page background and it stays green while the
+   * line disappears (review R1's mutant). The contrast tests above are the
+   * other half; neither replaces the other.
+   */
+  test("C1 — at ?step=2 the done connector and the ahead connector carry DIFFERENT tokens", async ({
+    page,
+  }) => {
+    const [first, second] = await sampleConnectors(page, 2, PROJECT_VIEWPORT.width);
+    const strong = await resolvedToken(page, "--color-text-subtle");
+    const plain = await resolvedToken(page, "--color-text-faint");
+    premiseHolds(
+      `--color-text-subtle (${strong}) and --color-text-faint (${plain}) resolve to DIFFERENT ` +
+        `colors; if they were equal this assertion would pass on any implementation`,
+      strong !== plain && strong.length > 0,
+    );
     expect(
-      { first: first.width, second: second.width },
-      "the step connectors are no longer 0-width. `max-w-[60px]` was INERT when this spec " +
-        "was written — StepIndicator's <nav> is a content-sized flex item inside a row flex " +
-        "container, so its `flex-1` connectors get no free space and the max-width upper " +
-        "bound never applies. A non-zero width means that layout changed and `max-w` is now " +
-        "live: re-derive spec §9.4, and turn these two keys back into a discriminating check " +
-        "for C1 instead of the regression tripwire they are today.",
-    ).toEqual({ first: 0, second: 0 });
+      { connector1: first.background, connector2: second.background },
+      `at step 2 the FIRST connector is behind the cursor (isDone, --color-text-subtle) and ` +
+        `the SECOND is ahead of it (--color-text-faint). Equal values mean the isDone conditional ` +
+        `is gone or inverted — geometry cannot see this.`,
+    ).toEqual({ connector1: strong, connector2: plain });
+  });
 
-    return { "wizard-step-connector-0": first, "wizard-step-connector-1": second };
+  /**
+   * VISIBILITY, in both themes, which the token comparison above cannot prove.
+   * DESIGN.md §1.2a claims each connector clears the 3:1 non-text floor; this
+   * is that claim, asserted rather than asserted-about. Dark is exercised too —
+   * the colour oracle only ever ran in the default theme, so a dark-only
+   * regression had nothing watching it.
+   */
+  // THE FULL MATRIX, not a corner of it. Review R3: visibility ran only at
+  // `?step=2`, so `step === 3 && "opacity-0"` was a surviving mutant — the
+  // oracle simply never looked at the step where it applied. A partial matrix
+  // is a guard that reports on the cases it happens to visit.
+  for (const step of [1, 2, 3] as const) {
+    for (const theme of ["light", "dark"] as const) {
+      for (const width of BAND_VIEWPORTS) {
+        test(`C1 — both connectors clear the 3:1 non-text floor at ?step=${step}, ${width}px, ${theme}`, async ({
+          page,
+        }) => {
+          await sampleConnectors(page, step, width);
+          await page.evaluate((t) => {
+            document.documentElement.dataset.theme = t;
+          }, theme);
+          const measured = [];
+          for (const n of [0, 1]) {
+            const c = await contrastAgainstBackdrop(
+              page,
+              '[data-testid="wizard-step-connector"]',
+              n,
+            );
+            premiseHolds(
+              `connector ${n} and its backdrop both resolve to real colours in ${theme}`,
+              c !== null && c.bg !== "rgba(0, 0, 0, 0)",
+            );
+            // Not folded into the ratio: `visibility: hidden` is not a low-contrast
+            // line, it is an absent one, and reporting it as a contrast number
+            // would name the wrong defect.
+            premiseHolds(
+              `connector ${n} is not hidden by \`visibility\` in ${theme}`,
+              (c as { hidden: boolean }).hidden === false,
+            );
+            measured.push({
+              connector: n,
+              ...(c as { fg: string; bg: string; ratio: number; shown: number }),
+            });
+          }
+          expect(
+            measured.filter((m) => m.ratio < 3),
+            `every connector must clear the 3:1 non-text contrast floor against what is behind ` +
+              `it (DESIGN.md §1.2a). A token swapped toward the page background reads as "still a ` +
+              `different token" to the colour oracle while being invisible on screen. Checked at ` +
+              `EVERY viewport too — review R4 showed \`sm:opacity-0\` surviving because paint was ` +
+              `only ever sampled at 390px. Measured at step ${step}, ${width}px, ${theme}: ` +
+              `${JSON.stringify(measured)}`,
+          ).toEqual([]);
+        });
+      }
+    }
+  }
+
+  test("C1 — at ?step=3 BOTH connectors are done and carry the strong token", async ({ page }) => {
+    const [first, second] = await sampleConnectors(page, 3, PROJECT_VIEWPORT.width);
+    const strong = await resolvedToken(page, "--color-text-subtle");
+    const plain = await resolvedToken(page, "--color-text-faint");
+    premiseHolds(
+      `--color-text-subtle (${strong}) and --color-text-faint (${plain}) resolve to DIFFERENT ` +
+        `colors`,
+      strong !== plain && strong.length > 0,
+    );
+    expect(
+      { connector1: first.background, connector2: second.background },
+      `at step 3 both connectors are behind the cursor (n < 3), so both carry ` +
+        `--color-text-subtle. A --color-text-faint here means isDone is computed against the ` +
+        `wrong step.`,
+    ).toEqual({ connector1: strong, connector2: strong });
+  });
+
+  async function measureConnectors(page: Page): Promise<Record<string, Rect>> {
+    const [first, second] = await sampleConnectors(page, 1, PROJECT_VIEWPORT.width);
+    return {
+      "wizard-step-connector-0": first.rect,
+      "wizard-step-connector-1": second.rect,
+    };
   }
 
   /** C5 — the RightNowHero card on the seeded crew route, at the project's own viewport. */
@@ -323,9 +591,7 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
     return { "right-now-hero-card": await rectOf(hero) };
   }
 
-  test("rest-state rects match the pre-canonicalization baseline within 0.5px", async ({
-    page,
-  }, testInfo) => {
+  test("rest-state rects match the committed baseline within 0.5px", async ({ page }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
 
     const measured: Baseline = {
@@ -420,8 +686,10 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
         "(`--spacing-confirm-box: 60px` is exactly what `max-w-[60px]` encoded; " +
         "`min-h-right-now-min-h` is the same token the arrow form referenced). A drift here " +
         "means that claim is wrong — re-derive spec §6 and §9.4. Do NOT recapture the baseline " +
-        "to get past this: the baseline is the pre-change measurement, and rewriting it erases " +
-        "the only evidence the change was safe.",
+        "to get past a surprise: it is the committed record of what these surfaces measure, and " +
+        "rewriting it to match a change erases the only evidence the change was safe. It was " +
+        "recaptured ONCE, deliberately, when the step connectors went from 0-width to their " +
+        "token width — a move the change intended and the band asserts independently.",
     ).toEqual([]);
   });
 });
