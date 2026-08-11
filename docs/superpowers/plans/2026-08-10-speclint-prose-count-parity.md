@@ -25,9 +25,9 @@ Red is written by this task, SUITE-FIRST (invariant-1 order): extend the fixture
 
 <!-- task: red=`pnpm mutation:guards` ac=AC-4,AC-3 -->
 
-Red semantics (R1 F3 — a concrete failing case, not registry state): after adding the registry row, run the gate WITH A CONTROL MUTANT first — apply one declared operator by hand to `lib/specLint/numerics.ts` (e.g. invert the nearest-binding comparison), observe `pnpm mutation:guards` (or the referring suite) RED on that mutant, revert, then run the clean gate green with the recorded score and an EMPTY unaccepted-survivor set (survivors triaged: killed, `equivalent`, or `accepted-gap` rows, never silent). The control mutant is the observed red; any registry bookkeeping (e.g. an `EXPECTED_*` map key in `guardSurfaces.gate.test.ts`) is handled in the same step and is not the red.
+Red semantics (R1 F3 — a concrete failing case, not registry state): after adding the registry row, run the gate WITH A CONTROL MUTANT first — apply one declared operator by hand to `lib/specLint/numerics.ts` (e.g. invert the nearest-binding comparison), observe `pnpm mutation:guards` — the declared red= command itself, no substitute (R2 F1) — RED on that mutant, revert, then run the clean gate green with the recorded score and an EMPTY unaccepted-survivor set (survivors triaged: killed, `equivalent`, or `accepted-gap` rows, never silent). The control mutant is the observed red; any registry bookkeeping (e.g. an `EXPECTED_*` map key in `guardSurfaces.gate.test.ts`) is handled in the same step and is not the red.
 
-1. Registry row in `tests/mutation/source/registry.ts` for `lib/specLint/numerics.ts` with `tests/specLint/numerics.test.ts` as the referring suite; run, triage, record.
+1. Registry row in `tests/mutation/source/registry.ts` for `lib/specLint/numerics.ts` with `tests/specLint/numerics.test.ts` as the referring suite and the FULL closed operator-family set declared — all six generic source operators (`tests/mutation/source/operators.ts:17` `OPERATOR_NAMES`), no subset (R2 F2); run, triage, record.
 2. Both survivor classifications (shape b + shape c, over the SHIPPED arms' populations) committed as measurement records; documented-limits/severity-copy updates only (gates frozen — spec §3).
 3. Green: `pnpm mutation:guards` green with the recorded score; classifications committed.
 
