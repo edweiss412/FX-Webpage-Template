@@ -142,6 +142,41 @@ shipped `app/globals.css` and the emitted rules are asserted for presence and fo
 resolved value, so nothing about the source text can fool it. Both of round 2's
 vectors were mutated against it and each reds.
 
+### Cross-model review — brief B (row-slot vocabulary, icon-only colour)
+
+| Round | Verdict | Findings | What was accepted |
+| --- | --- | --- | --- |
+| 1 | NEEDS-ATTENTION | 4 (1 P1, 3 P2) | The border contract read the INITIAL render only, and a re-scan result is bordered chrome reachable only after interaction. Both carve-outs were shaped so a new action could hide behind them. The action census saw only `button` and `a[href]`. `isBorderedContainer` used an eight-tag allowlist plus an invented `rounded` requirement. |
+
+All four accepted. The P1 is the one worth remembering: **a guard on a surface
+with interaction states owes those states an assertion.** The two nested-border
+sites it named were unreachable from any first-render assertion, and the guard
+now drives every Re-scan in the slot and re-asserts — mutating the border back
+reds it and names exactly those two sites.
+
+The reviewer also independently reproduced this close-out's focus-ring
+measurements (3.24–4.56:1) and raised nothing on `flat` placement or on the five
+painting elements, which is the useful kind of silence.
+
+### The mutation gate earned its rule
+
+`scripts/scan-interaction-timings.ts` was enrolled in the source-mutation
+registry BEFORE the first review dispatch, per the guard-gate rule. It scored
+**0.607 against a 0.95 floor** — and the reason is instructive rather than
+embarrassing: the parity test drives the scanner through exactly ONE path, the
+live repo, so a mutation to any form the repo does not currently contain changes
+nothing observable. Roughly two mutants in five survived.
+
+A recognizer's contract is the set of forms it recognizes, so that set is now
+asserted directly (`tests/docs/interactionTimingScan.test.ts`, 25 cases), and the
+CLI entry moved out of the enrolled module — an argv guard and a few
+`process.stdout.write` calls are unreachable from any test and survive mutation
+by construction, dragging the score down for lines that carry no contract.
+
+**This is the argument for enrolling before review, not after.** The score is a
+fact about the suite that no amount of reading it would have produced, and it
+arrived before a reviewer had to spend a round guessing at the same gap.
+
 ### Measurements taken during close-out
 
 Computed from the runtime tokens rather than eyeballed, because every one of
