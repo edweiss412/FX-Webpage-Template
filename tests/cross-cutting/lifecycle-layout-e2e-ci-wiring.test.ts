@@ -34,7 +34,21 @@ const ORACLE = "scripts/check-lifecycle-layout-executed.mjs";
 const TAP_SPEC = "tests/e2e/tap-target-inline-controls.layout.spec.ts";
 const PLAYWRIGHT_RESOLUTION_TIMEOUT_MS = 300_000;
 
-type Step = { name?: string; run?: string; if?: unknown; env?: Record<string, string> };
+type Step = {
+  name?: string;
+  run?: string;
+  if?: unknown;
+  env?: Record<string, string>;
+  "continue-on-error"?: unknown;
+};
+
+/**
+ * Shell text that can turn a non-zero exit into a green step: `|| true`, a
+ * trailing `; exit 0`, a pipeline whose last stage succeeds, or any chaining
+ * that lets a later command supply the status. Refused outright rather than
+ * modelled — this job's guarded steps are single commands by contract.
+ */
+const STATUS_SWALLOWING = /&&|\|\||;|\|/;
 
 function steps(): Step[] {
   const doc = parseYaml(readFileSync(join(process.cwd(), WORKFLOW), "utf8")) as {
@@ -130,10 +144,16 @@ describe("lifecycle-layout-e2e.yml tap-target step wiring", () => {
     ).toBeUndefined();
     const run = stripYamlComments(String(found[0]?.run ?? "")).trim();
     expect(
-      /&&|\|\||;|\|/.test(run),
+      STATUS_SWALLOWING.test(run),
       "the tap-target step must not chain commands: a chained invocation can hide a second " +
-        "playwright run whose output overwrites the report this step's oracle reads.",
+        "playwright run whose output overwrites the report this step's oracle reads, and a " +
+        "trailing `|| true` turns a failing suite into a green step.",
     ).toBe(false);
+    expect(
+      found[0]?.["continue-on-error"],
+      "the tap-target step must not set `continue-on-error` — it converts a red suite into a " +
+        "green job while every other assertion here stays satisfied.",
+    ).toBeUndefined();
   });
 
   it("the run command carries no coverage-narrowing flag", () => {
@@ -194,7 +214,7 @@ describe("lifecycle-layout-e2e.yml tap-target step wiring", () => {
     ).toBe(REPORT_PATH);
   });
 
-  it("runs the executed-count oracle unconditionally, in command position", () => {
+  it("runs the executed-count oracle unconditionally, in command position, with its exit status intact", () => {
     // Command POSITION, not token-anywhere: `echo scripts/check-lifecycle-layout-executed.mjs`
     // exits 0 without reading the report, and a substring test accepts it.
     const oracleSteps = steps().filter((s) => {
@@ -212,6 +232,23 @@ describe("lifecycle-layout-e2e.yml tap-target step wiring", () => {
       oracleSteps[0]?.if,
       "the oracle step must carry no `if:`. It has to run on the SUCCESS path — that is the only " +
         "path where a vacuously-green run is dangerous.",
+    ).toBeUndefined();
+
+    // An oracle exists ONLY to fail. Every way of keeping it in command position
+    // while discarding the status it produces is refused here, because each one
+    // leaves the step green, the coverage scanner satisfied, and all seventeen
+    // governance pairs intact while the spec runs dark (whole-diff review r1,
+    // finding 3 — probed: `node scripts/check-lifecycle-layout-executed.mjs
+    // --report /definitely-missing-report.json || true` exits 0).
+    expect(
+      STATUS_SWALLOWING.test(stripYamlComments(String(oracleSteps[0]?.run ?? "")).trim()),
+      "the oracle step must not chain or pipe: `|| true`, `; exit 0`, and a pipeline all discard " +
+        "the non-zero exit that IS this step's entire output.",
+    ).toBe(false);
+    expect(
+      oracleSteps[0]?.["continue-on-error"],
+      "the oracle step must not set `continue-on-error` — it discards the oracle's verdict as " +
+        "surely as `|| true` does, and is easier to add without noticing.",
     ).toBeUndefined();
   });
 

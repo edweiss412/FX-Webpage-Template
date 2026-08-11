@@ -46,7 +46,25 @@ type Site = {
    * 2026-08-10. Pinned, not derived: the point is that it does not move.
    */
   readonly pinnedClassName: string;
+  /**
+   * The enclosing element's className literal, byte-for-byte from the live tree
+   * — the element that supplies the INLINE PROSE CONTEXT, i.e. the sentence the
+   * control sits inside.
+   *
+   * Not redundant with `pinnedClassName`: the exemption is not a property of the
+   * button, it is a property of the button being inline within running text.
+   * Adding `flex flex-col` here makes the button a flex item, CSS blockifies it,
+   * and it stops being an inline-prose target — so `PRODUCT.md:59` stops
+   * applying and the 44px floor starts, with the control's own class string
+   * untouched. That is exactly why pinning only the control is not enough
+   * (whole-diff review r1, finding 1: three parent-class mutants, one per site,
+   * all left the earlier version of this guard green).
+   */
+  readonly parentClassName: string;
 };
+
+/** How far above the control the parent's opening tag may sit. */
+const PARENT_WINDOW_LINES = 12;
 
 const SITES: readonly Site[] = [
   {
@@ -56,6 +74,7 @@ const SITES: readonly Site[] = [
     tagOpen: "<button",
     pinnedClassName:
       "font-medium underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+    parentClassName: "w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text",
   },
   {
     name: 'RoleRecognizeControl "Change what they see"',
@@ -64,6 +83,7 @@ const SITES: readonly Site[] = [
     tagOpen: "<button",
     pinnedClassName:
       "font-medium text-text-strong underline underline-offset-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+    parentClassName: "text-xs text-text-subtle",
   },
   {
     name: 'ReportModal "Start a new report anyway"',
@@ -72,6 +92,8 @@ const SITES: readonly Site[] = [
     tagOpen: "<button",
     pinnedClassName:
       "font-medium text-accent-on-bg underline underline-offset-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken",
+    parentClassName:
+      "mx-4 mt-2 rounded-sm border border-border bg-surface-sunken px-3 py-2 text-sm text-text-subtle sm:mx-6",
   },
 ];
 
@@ -108,6 +130,36 @@ function liveTokenLines(lines: string[]): number[] {
     const m = JSX_COMMENT_LINE.exec(line);
     return m && m[1] === EXEMPTION_TOKEN ? [i] : [];
   });
+}
+
+/**
+ * Line index of the element that ENCLOSES the control — the nearest opening tag
+ * above it that is not self-contained.
+ *
+ * Derived, not named: an earlier revision took a text anchor per site, and one
+ * of the three anchors (`<span className="text-xs text-text-subtle">`) occurs
+ * TWICE in its file, so the guard reported an ambiguity instead of checking
+ * anything. A structural walk cannot go stale that way, and it keeps working
+ * when the element gains an attribute.
+ */
+function enclosingOpenTagLine(lines: string[], fromLine: number): number {
+  for (let i = fromLine - 1; i >= 0; i--) {
+    const line = lines[i]!;
+    if (!/^\s*<[a-zA-Z]/.test(line)) continue;
+    // A tag that also closes on its own line is a SIBLING, not an ancestor.
+    if (line.includes("</") || line.includes("/>")) continue;
+    return i;
+  }
+  throw new Error(`no enclosing opening tag above line ${fromLine + 1}`);
+}
+
+/** The className literal on `anchorLine`, or within the few lines after it. */
+function classNameAt(lines: string[], anchorLine: number, span: number): string | undefined {
+  for (let i = anchorLine; i < Math.min(anchorLine + span, lines.length); i++) {
+    const m = /className="([^"]*)"/.exec(lines[i]!);
+    if (m) return m[1];
+  }
+  return undefined;
 }
 
 describe("inline-prose tap-target exemptions (spec §2, PRODUCT.md:59)", () => {
@@ -153,6 +205,31 @@ describe("inline-prose tap-target exemptions (spec §2, PRODUCT.md:59)", () => {
         actual,
         `${site.file}: this control is an EXEMPT inline-prose target — its class string is pinned. Do not add \`min-h-tap-min\` or any sizing class here; see spec §2.`,
       ).toBe(site.pinnedClassName);
+    },
+  );
+
+  test.each(SITES.map((s) => [s.name, s] as const))(
+    "%s — the enclosing prose context is pinned too",
+    (_name, site) => {
+      // The exemption is not a property of the button. It is a property of the
+      // button being INLINE WITHIN RUNNING TEXT, and that is decided by the
+      // element around it. `flex flex-col` on the parent makes the button a flex
+      // item, CSS blockifies it, and the inline exception stops applying — with
+      // the button's own class string untouched. Pinning the parent is what
+      // makes this guard's claim true (whole-diff review r1, finding 1).
+      const lines = readLines(site.file);
+      const tagLine = tagOpenLine(lines, site, testidLine(lines, site));
+      const parentLine = enclosingOpenTagLine(lines, tagLine);
+
+      expect(
+        tagLine - parentLine,
+        `${site.file}: the enclosing element (line ${parentLine + 1}) is further than ${PARENT_WINDOW_LINES} lines above the control (line ${tagLine + 1}) — the structural walk found the wrong ancestor`,
+      ).toBeLessThanOrEqual(PARENT_WINDOW_LINES);
+
+      expect(
+        classNameAt(lines, parentLine, 4),
+        `${site.file}: the enclosing element's class string is pinned. Making it a flex/grid container turns this control into non-inline chrome, which the PRODUCT.md:59 exemption does NOT cover — the 44px floor would then apply.`,
+      ).toBe(site.parentClassName);
     },
   );
 });

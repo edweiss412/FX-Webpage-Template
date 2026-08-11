@@ -93,6 +93,32 @@ async function rectsWithin(
   }, selectors);
 }
 
+/**
+ * The located element is still the INTERACTIVE control it claims to be.
+ *
+ * A testid is a label, not a contract. Whole-diff review r1 (finding 2) probed
+ * the gap: swap `<button type="submit">` for a `<span>`, keep the testid and the
+ * classes, and every floor/colour assertion here reads identical inputs while
+ * the control has stopped existing — a 44px box that cannot be activated is a
+ * worse outcome than a small one, and it passed silently.
+ */
+async function assertIsControl(
+  locator: Locator,
+  expected: { tag: string; type?: string },
+  what: string,
+): Promise<void> {
+  const actual = await locator.evaluate((el) => ({
+    tag: el.tagName.toLowerCase(),
+    type: el.getAttribute("type"),
+  }));
+  expect(actual.tag, `${what}: expected a <${expected.tag}>, found <${actual.tag}>`).toBe(
+    expected.tag,
+  );
+  if (expected.type !== undefined) {
+    expect(actual.type, `${what}: expected type="${expected.type}"`).toBe(expected.type);
+  }
+}
+
 /** The single rect a group must contain — a group of 0 or 2+ is a premise failure. */
 function only(group: Rect[] | undefined, what: string): Rect {
   expect(
@@ -253,6 +279,11 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
       const card = await gotoStep3Card(page, dfid);
       const floor = await tapFloorPx(page);
       await expect(page.getByTestId(targetTestId), "premise: the title link renders").toBeVisible();
+      await assertIsControl(
+        page.getByTestId(targetTestId),
+        { tag: "a" },
+        "site 5 (sheet title link)",
+      );
 
       const selectors = {
         target: `[data-testid="${targetTestId}"]`,
@@ -308,6 +339,11 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
     ).toBeVisible();
 
     const floor = await tapFloorPx(page);
+    await assertIsControl(
+      page.getByTestId("report-snippet-button").first(),
+      { tag: "button", type: "submit" },
+      "site 8 (Report this)",
+    );
     const { self: row, groups } = await rectsWithin(firstItem, {
       button: '[data-testid="report-snippet-button"]',
     });
