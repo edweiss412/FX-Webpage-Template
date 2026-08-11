@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // scripts/check-phantom-gap-executed.mjs
 //
-// Thin CLI wrapper. Every decision lives in lib/ci/phantomGapExecuted.mjs, which
-// the referring Vitest suite imports and the source-mutation registry enrolls;
-// this file holds only process I/O, because that is the part a mutation harness
-// cannot reach through an import (see the module's header for the measurement).
+// Thin CLI wrapper. Every decision lives in scripts/lib/phantomGapExecuted.mjs,
+// which the referring Vitest suite imports and the source-mutation registry
+// enrolls; this file holds only process I/O, because that is the part a mutation
+// harness cannot reach through an import (see that module's header for the
+// measurement).
 //
 //   node scripts/check-phantom-gap-executed.mjs [--report <path>]
 //
@@ -13,7 +14,7 @@
 // executed; exit 1 = one did not, or no report was produced at all.
 import { existsSync, readFileSync } from "node:fs";
 
-import { resolveReportPath, runCheck } from "../lib/ci/phantomGapExecuted.mjs";
+import { resolveReportPath, runCheck } from "./lib/phantomGapExecuted.mjs";
 
 const reportPath = resolveReportPath(process.argv.slice(2), process.cwd());
 

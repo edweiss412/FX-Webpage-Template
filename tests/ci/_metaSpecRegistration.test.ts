@@ -1006,8 +1006,11 @@ describe("spec registration detector (spec §3.1)", () => {
     // 2026-08-10-diagram-viewing-polish §6): the family split on capability, so
     // desktop-chromium carries the network-order gate and mobile-safari the
     // CDP-free tier assertion. The json report feeds
-    // scripts/check-phantom-gap-executed.mjs, which is what stops the added
-    // project from reading as coverage for the file's bare-early-return cases.
+    // scripts/check-phantom-gap-executed.mjs, the per-(case, project) oracle that
+    // keeps the added project honest: the three pre-existing cases were converted
+    // from bare early returns to DECLARED skips in the same arc, and the oracle is
+    // what stops a bare return reintroduced later from being credited as desktop
+    // coverage.
     'pnpm exec playwright test --reporter=list,json --project=mobile-safari --project=desktop-chromium tests/e2e/crew-layout-dimensions.spec.ts -g "T-DIAGRAM-VARIANTS"':
       ["playwright.config.ts"],
     'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"':

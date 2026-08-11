@@ -1,7 +1,7 @@
 /**
  * tests/ci/phantomGapExecuted.test.ts
  *
- * The referring suite for `lib/ci/phantomGapExecuted.mjs` — the
+ * The referring suite for `scripts/lib/phantomGapExecuted.mjs` — the
  * (case title, project) executed-count oracle the phantom-gap job's diagram step
  * runs after its Playwright invocation.
  *
@@ -38,7 +38,7 @@ import {
   pairKey,
   resolveReportPath,
   runCheck,
-} from "@/lib/ci/phantomGapExecuted.mjs";
+} from "@/scripts/lib/phantomGapExecuted.mjs";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 type ReportResult = { status: string };

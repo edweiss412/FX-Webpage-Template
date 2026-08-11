@@ -27,9 +27,11 @@ name: phantom-gap-e2e
 # from it). The DIAGRAM step runs BOTH projects: its describe has no beforeAll
 # writer, so it is not single-writer, and the zoom-gate arc split its coverage on
 # capability — the network-order gate needs Chromium's keyboard path, the tier
-# assertion needs none. Adding a project to a file whose cases early-return turns
-# those cases into passing no-ops, so that step also runs an executed-count
-# oracle keyed on (case title, project); see its own comment below.
+# assertion needs none. Adding a project to a file whose cases early-return would
+# turn those cases into passing no-ops, so the same arc converted every gate in
+# that describe to a DECLARED skip, and the step also runs an executed-count
+# oracle keyed on (case title, project) so the shape cannot return unnoticed; see
+# its own comment below.
 on:
   pull_request:
     paths:
@@ -100,9 +102,10 @@ on:
       # The diagram step's executed-count oracle. Its REQUIRED_PAIRS table names
       # case titles that live in the spec above, so an edit to either side alone
       # can retire a requirement — and a checker change that never re-runs this
-      # job is a guard nobody has watched work. (Its logic module is under
-      # `lib/**`, already listed.)
+      # job is a guard nobody has watched work. Both halves are listed: the CLI
+      # wrapper and the module holding every decision it makes.
       - "scripts/check-phantom-gap-executed.mjs"
+      - "scripts/lib/phantomGapExecuted.mjs"
       - "scripts/ci/supabase-local-bootstrap.sh"
       - "supabase/config.toml"
       - "supabase/migrations/**"
@@ -223,13 +226,17 @@ jobs:
       # desktop-chromium; the CDP-free tier assertion runs under mobile-safari.
       # Neither project alone covers AC-1.
       #
-      # Adding a project to this file is exactly the move that manufactures false
-      # coverage: the three pre-existing cases carry bare
-      # `if (testInfo.project.name !== "mobile-safari") return;` gates, so they
-      # now "pass" under desktop-chromium in milliseconds having asserted nothing.
-      # The oracle below is what keeps that from reading as coverage — it asserts
-      # per (case title, PROJECT), from this run's own json report, and requires
-      # only the pairs that genuinely execute.
+      # Adding a project to this file is the move that manufactures false
+      # coverage, and this arc had to defuse it twice over. The three pre-existing
+      # cases CARRIED bare `if (testInfo.project.name !== "mobile-safari")
+      # return;` gates, which would have "passed" under desktop-chromium in
+      # milliseconds having asserted nothing; the same arc converted all three to
+      # DECLARED `test.skip`, so that shape no longer exists in the file and the
+      # run below reports 5 executed / 5 skipped rather than 8 green. The oracle
+      # is the standing defence against it coming back: it asserts per
+      # (case title, PROJECT) from this run's own json report, and requires only
+      # the pairs that genuinely execute — so a bare return reintroduced later
+      # cannot be credited, and a case that stops running cannot go dark.
       - name: Diagram gallery variant geometry + network gate (real route)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/phantom-gap-diagrams-report.json

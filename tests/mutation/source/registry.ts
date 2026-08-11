@@ -540,7 +540,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // enrolled whole, this surface scored 0.27 with 18 of its 19 survivors
     // inside the main block, because a referring suite imports the module and
     // never runs that block, so those mutants are unreachable by construction.
-    sourcePath: "lib/ci/phantomGapExecuted.mjs",
+    sourcePath: "scripts/lib/phantomGapExecuted.mjs",
     suitePaths: ["tests/ci/phantomGapExecuted.test.ts"],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 1,

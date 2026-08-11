@@ -1,4 +1,4 @@
-// lib/ci/phantomGapExecuted.mjs
+// scripts/lib/phantomGapExecuted.mjs
 //
 // Post-run oracle for the phantom-gap job's DIAGRAM step: did each guarded case
 // actually EXECUTE, under the project it was written for?
@@ -28,7 +28,7 @@
 // Zero-args reads test-results/phantom-gap-diagrams-report.json so the workflow
 // step literal stays fixed.
 //
-// WHY THE LOGIC LIVES HERE AND THE CLI LIVES IN scripts/. The sibling oracle
+// WHY THE LOGIC IS A MODULE AND THE CLI IS A WRAPPER. The sibling oracle
 // (scripts/check-crew-e2e-executed.mjs) is one file: an exported table plus a
 // `import.meta.url === argv[1]` main block. That shape is un-enrollable in the
 // source-mutation registry, and not by opinion — measured. Enrolled as one file
@@ -39,6 +39,14 @@
 // into a module the suite really executes, and leaves the wrapper holding only
 // process I/O — which the suite covers by SPAWNING it, since exit codes are the
 // one thing an import cannot observe.
+//
+// It lives under scripts/lib/ rather than lib/ because plain-JS modules are
+// barred from lib/ and app/ by tests/cross-cutting/no-absolute-self-redirect.ts:
+// tsconfig's `include` covers TS extensions with `checkJs` off, so `tsc --noEmit`
+// proves nothing about a `.mjs` there and that guard would go blind on it.
+// scripts/lib/ is the established home for script-support modules
+// (scripts/lib/ledger-claims-core.ts). ESM rather than TS because the CLI must
+// import it under plain `node`, with no transpile step in the CI job.
 import { join } from "node:path";
 
 /**
@@ -144,7 +152,7 @@ export function formatSuccess(found) {
       return `[${project}] ${title} (${ids.size})`;
     })
     .sort();
-  return `check-phantom-gap-executed: ok — ${rendered.join("; ")}`;
+  return `check-phantom-gap-executed: ok. ${rendered.join("; ")}`;
 }
 
 /** Where the workflow step writes its report when the CLI is given no `--report`. */
