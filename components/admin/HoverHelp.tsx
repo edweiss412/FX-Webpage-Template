@@ -575,7 +575,7 @@ export function HoverHelp({
                 onPointerLeave={scheduleClose}
                 onKeyDown={onBodyKeyDown}
                 onFocus={onBodyFocus}
-                className={`absolute z-50 w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
+                className={`absolute z-overlay w-72 max-w-[80vw] max-h-[min(60vh,24rem)] overflow-y-auto rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case tracking-normal text-text-subtle shadow-tile transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 ${
                   open ? "block opacity-100" : "pointer-events-none hidden opacity-0"
                 }`}
               >
@@ -621,7 +621,7 @@ export function HoverHelp({
                  Tailwind cannot extract dynamic class strings. Orientation
                  flips on the imperative data-popover-side write via
                  data-attribute variants; `group` lets the inner follow. */
-                className={`group pointer-events-none absolute z-50 size-0 border-x-[6px] border-x-transparent transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 data-[popover-side=bottom]:border-t-0 data-[popover-side=bottom]:border-b-[6px] data-[popover-side=bottom]:border-b-border-strong data-[popover-side=top]:border-t-[6px] data-[popover-side=top]:border-b-0 data-[popover-side=top]:border-t-border-strong ${
+                className={`group pointer-events-none absolute z-overlay size-0 border-x-[6px] border-x-transparent transition-[opacity,display] duration-fast transition-discrete starting:opacity-0 data-[popover-side=bottom]:border-t-0 data-[popover-side=bottom]:border-b-[6px] data-[popover-side=bottom]:border-b-border-strong data-[popover-side=top]:border-t-[6px] data-[popover-side=top]:border-b-0 data-[popover-side=top]:border-t-border-strong ${
                   open ? "block opacity-100" : "hidden opacity-0"
                 }`}
               >

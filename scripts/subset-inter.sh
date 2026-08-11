@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate public/fonts/InterVariable-latin.fada467b.woff2 from the upstream release.
+# Regenerate public/fonts/InterVariable-latin.d5549562.woff2 from the upstream release.
 #
 # The app ships a SUBSET, not the 344 KB verbatim release, because the full file
 # is preloaded and cost a measured FCP +136-164ms plus a fallback->Inter swap
@@ -22,9 +22,9 @@ set -euo pipefail
 
 UPSTREAM_URL="https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip"
 UPSTREAM_SHA="9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e"
-OUT="public/fonts/InterVariable-latin.fada467b.woff2"
+OUT="public/fonts/InterVariable-latin.d5549562.woff2"
 
-LATIN="U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+LATIN="U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2190,U+2191,U+2192,U+2193,U+2197,U+2212,U+2215,U+2298,U+2303-2304,U+2318,U+26A0,U+2713,U+FEFF,U+FFFD"
 LATIN_EXT="U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF"
 
 # ss04 and zero are the whole point; tnum/pnum/numr/dnom/frac are the figure set
