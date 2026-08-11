@@ -19,7 +19,15 @@ import { describe, expect, test } from "vitest";
 // somebody "repairs" it, changing the class string; (2) the exemption comment
 // is deleted, so the next sweep re-litigates a settled product decision;
 // (3) the comment is defeated in place — emptied, decorated with extra text,
-// commented out, or parked next to a different control in the same file.
+// commented out, or parked next to a different control in the same file;
+// (4) the enclosing element stops supplying an inline-prose context, by class
+// OR by inline style, which ends the exemption without touching the control.
+//
+// DOCUMENTED LIMIT: a stylesheet rule from outside the component could still
+// change `display` on these elements. That is out of the threat model — this
+// codebase styles exclusively through Tailwind utility classes on the element,
+// and the two JSX mechanisms an ordinary author reaches for (className, style)
+// are both pinned.
 
 const EXEMPTION_TOKEN = "tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10";
 
@@ -153,6 +161,19 @@ function enclosingOpenTagLine(lines: string[], fromLine: number): number {
   throw new Error(`no enclosing opening tag above line ${fromLine + 1}`);
 }
 
+/** The `style` prop's source text on/after `from`, if the element carries one. */
+function styleAttrIn(lines: string[], from: number, span: number): string | undefined {
+  for (let i = from; i < Math.min(from + span, lines.length); i++) {
+    const line = lines[i]!;
+    // Stop at the end of this element's opening tag so a LATER sibling's style
+    // prop is not attributed to it.
+    const m = /\sstyle=\{/.exec(line);
+    if (m) return line.trim();
+    if (/^\s*>\s*$|[^-=!<>]>\s*$/.test(line)) return undefined;
+  }
+  return undefined;
+}
+
 /** The className literal on `anchorLine`, or within the few lines after it. */
 function classNameAt(lines: string[], anchorLine: number, span: number): string | undefined {
   for (let i = anchorLine; i < Math.min(anchorLine + span, lines.length); i++) {
@@ -230,6 +251,23 @@ describe("inline-prose tap-target exemptions (spec §2, PRODUCT.md:59)", () => {
         classNameAt(lines, parentLine, 4),
         `${site.file}: the enclosing element's class string is pinned. Making it a flex/grid container turns this control into non-inline chrome, which the PRODUCT.md:59 exemption does NOT cover — the 44px floor would then apply.`,
       ).toBe(site.parentClassName);
+
+      // className is not the only way to set `display`. `style={{ display:
+      // "flex", flexDirection: "column" }}` blockifies the button exactly the
+      // same way, with the pinned class string untouched — review r2, finding 1
+      // probed all three sites and the class-only guard stayed green. JSX gives
+      // an ordinary author exactly two mechanisms here, and this closes the
+      // second: these elements carry NO inline style today, so "none" is the
+      // pin. Checked on the CONTROL too, which has the same exposure.
+      for (const [what, from] of [
+        ["enclosing element", parentLine],
+        ["control", tagLine],
+      ] as const) {
+        expect(
+          styleAttrIn(lines, from, 6),
+          `${site.file}: the ${what} must carry no inline \`style\` prop — it can set \`display\` without touching the pinned class string, which is the same exemption-breaking edit by another route.`,
+        ).toBeUndefined();
+      }
     },
   );
 });

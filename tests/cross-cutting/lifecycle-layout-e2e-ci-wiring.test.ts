@@ -43,12 +43,24 @@ type Step = {
 };
 
 /**
- * Shell text that can turn a non-zero exit into a green step: `|| true`, a
- * trailing `; exit 0`, a pipeline whose last stage succeeds, or any chaining
- * that lets a later command supply the status. Refused outright rather than
- * modelled — this job's guarded steps are single commands by contract.
+ * Shell text that can turn a non-zero exit into a green step.
+ *
+ * Two mechanisms, and review r2 (finding 2) showed the first version caught
+ * only one of them:
+ *   - OPERATORS: `|| true`, a trailing `; exit 0`, a pipeline whose last stage
+ *     succeeds, or any chaining that lets a later command supply the status.
+ *   - A SECOND LINE. A `run: |` block exits with its LAST command's status, so
+ *     an ordinary diagnostic `echo oracle-complete` underneath the oracle is
+ *     enough to discard the failure. Probed: the mutant exits 0 while the
+ *     oracle prints `no report at …`.
+ *
+ * Refused outright rather than modelled — this job's guarded steps are single
+ * commands by contract, so anything else is a change that should be read.
  */
-const STATUS_SWALLOWING = /&&|\|\||;|\|/;
+function swallowsStatus(run: string): boolean {
+  const text = stripYamlComments(run).trim();
+  return /&&|\|\||;|\|/.test(text) || /\n/.test(text);
+}
 
 function steps(): Step[] {
   const doc = parseYaml(readFileSync(join(process.cwd(), WORKFLOW), "utf8")) as {
@@ -142,12 +154,11 @@ describe("lifecycle-layout-e2e.yml tap-target step wiring", () => {
       "the tap-target step must carry no `if:` — a conditional step is dark on every run whose " +
         "condition is false while every other assertion here stays green.",
     ).toBeUndefined();
-    const run = stripYamlComments(String(found[0]?.run ?? "")).trim();
     expect(
-      STATUS_SWALLOWING.test(run),
-      "the tap-target step must not chain commands: a chained invocation can hide a second " +
-        "playwright run whose output overwrites the report this step's oracle reads, and a " +
-        "trailing `|| true` turns a failing suite into a green step.",
+      swallowsStatus(String(found[0]?.run ?? "")),
+      "the tap-target step must be ONE command: a chained invocation or a second line can hide " +
+        "another playwright run whose output overwrites the report this step's oracle reads, and " +
+        "either `|| true` or a trailing `echo` turns a failing suite into a green step.",
     ).toBe(false);
     expect(
       found[0]?.["continue-on-error"],
@@ -241,9 +252,10 @@ describe("lifecycle-layout-e2e.yml tap-target step wiring", () => {
     // finding 3 — probed: `node scripts/check-lifecycle-layout-executed.mjs
     // --report /definitely-missing-report.json || true` exits 0).
     expect(
-      STATUS_SWALLOWING.test(stripYamlComments(String(oracleSteps[0]?.run ?? "")).trim()),
-      "the oracle step must not chain or pipe: `|| true`, `; exit 0`, and a pipeline all discard " +
-        "the non-zero exit that IS this step's entire output.",
+      swallowsStatus(String(oracleSteps[0]?.run ?? "")),
+      "the oracle step must be ONE command: `|| true`, `; exit 0`, a pipeline, and a second line " +
+        "(a `run: |` block exits with its LAST command's status, so even `echo done` is enough) " +
+        "all discard the non-zero exit that IS this step's entire output.",
     ).toBe(false);
     expect(
       oracleSteps[0]?.["continue-on-error"],
