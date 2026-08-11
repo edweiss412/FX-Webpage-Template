@@ -247,12 +247,24 @@ describe("scanRepo over a synthetic tree", () => {
     }
   });
 
-  test("a directory is recursed, not treated as a file", () => {
-    // Kills the directory branch's trailing `continue`: without it the walker
-    // falls through and tries to read the directory as source.
-    const root = tree({ "app/deep/nested/Timer.tsx": "const NESTED_MS = 7;" });
+  test("a directory is recursed, and never listed as a file — even when named like one", () => {
+    // Kills the directory branch's trailing `continue`. Removing it falls
+    // through to the extension test, which for ordinary directory names is
+    // false and so `continue`s anyway — the mutant SURVIVES a plain nested
+    // tree, which is exactly what a hand-mutation run showed. It only bites
+    // when a DIRECTORY is named like a source file, so that is the fixture:
+    // `Widget.tsx/` must be walked into, never emitted as a path to read.
+    const root = tree({
+      "app/deep/nested/Timer.tsx": "const NESTED_MS = 7;",
+      "components/Widget.tsx/Inner.tsx": "const INNER_MS = 8;",
+    });
     try {
-      expect(inventoryRows(scanRepo(root)).map((r) => r.label)).toContain("NESTED_MS");
+      const files = universeFiles(root);
+      expect(files).not.toContain("components/Widget.tsx");
+      expect(files).toContain("components/Widget.tsx/Inner.tsx");
+      const labels = inventoryRows(scanRepo(root)).map((r) => r.label);
+      expect(labels).toContain("NESTED_MS");
+      expect(labels).toContain("INNER_MS");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
