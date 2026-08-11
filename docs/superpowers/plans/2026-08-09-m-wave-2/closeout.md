@@ -280,9 +280,20 @@ both took the arithmetic.
 
 ### Full suite
 
-`pnpm test`: 23,711 passed, 5 failed, 57 skipped across 1,888 files. All five
-failures are in two files — `tests/reviewRounds/report.test.ts` (1) and
-`tests/scripts/validation-report-fixtures.test.ts` (4) — and both files pass
-clean when re-run in isolation on the same tree. Shared-fixture contention
-across concurrently running sibling worktrees, not a regression from this diff;
-real CI runs isolated and is the arbiter.
+`pnpm test` on the final tree: **23,744 passed**, 3 failed, 57 skipped across
+1,889 files. Both failing files are accounted for, and neither is a regression:
+
+- `tests/mutation/_metaPremiseContract.test.ts` (2) — that run STARTED before the
+  commit registering the two new suites in `EXPECTED_ENV_TOUCHING`. Verified
+  passing at HEAD (exit 0, 10/10).
+- `tests/reviewRounds/report.test.ts` (1) — a 30-second TIMEOUT, not an
+  assertion. **Verified pre-existing at the merge-base**: a throwaway worktree at
+  `876cbd06c` fails the same test the same way (30,178 ms), so it is a
+  load-sensitive timeout on this machine rather than anything this branch did.
+  Earlier in the arc it passed in isolation, which is the signature of load
+  rather than logic.
+
+An earlier full run reported 5 failures including four in
+`tests/scripts/validation-report-fixtures.test.ts`; those passed in isolation and
+do not recur here — shared-fixture contention across concurrently running sibling
+worktrees. Real CI runs isolated and is the arbiter.
