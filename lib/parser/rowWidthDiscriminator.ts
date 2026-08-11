@@ -50,7 +50,7 @@ const ALIGNMENT_CELL = /^:?-+:?$/;
  * bug here would be the wrong trade.
  *
  * EXPORTED (review round 3): `leadingColumnNormalize.ts`'s width-delta corroboration hit the
- * identical counting bug — a naive `split("|")` reads `\|` as a delimiter and inflates a
+ * identical counting bug - a naive `split("|")` reads `\|` as a delimiter and inflates a
  * row's count by exactly the +1 the corroboration reads as proof of a shift. Reusing this
  * function rather than writing a second copy is the point; two copies of this rule is how a
  * wave ends up fixing the same bug twice.
