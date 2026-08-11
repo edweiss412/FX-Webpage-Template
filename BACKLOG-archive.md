@@ -7076,3 +7076,64 @@ Both surfaces need a schema decision (new table vs derived view vs append-only c
 **Found by** cross-model plan review R2 F6 on `fix/sync-log-show-id-duration`, which extends that guard's discovery to `prune_(sync_log|app_events)`. That arc repairs this file as part of its Task 5b — the guard cannot reach green while a discovered test lacks the assertion — so this entry exists to record the hazard and its independence: it predates that change and would remain if the change were abandoned.
 
 **Fix:** route the URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`), matching every other destructive DB test.
+
+### BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE
+
+**Decision:** 2026-08-11, RESOLVED BY AMENDMENT via `feat/diagram-viewing-polish`. The entry named two candidate shapes and said neither was settled; the 2026-08-10 decision round settled it on the first, and the probe the entry asked for was run to settle it. Measured on the seeded 707 KB fixture at a venue-grade throttle (1.5 Mbps / 300 ms RTT, CDP): blur paints at 28 ms, the 1024 tier at ~350 ms, the original's `load` at ~4,127 ms (median of 3, spread <10 ms), extrapolating to 5.9-28 s on the 1-5 MB stage plots the asset route's own cap comment describes. The lightbox now opens on the clamped tier and pins the original only on zoom intent, so the window the entry was about collapses from seconds to ~350 ms. The progress affordance the entry offered as its alternative was DECLINED by the same decision round and is recorded as a documented limit in `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §7 — it is closed, not deferred. The amendment is ratified in that spec §4.1 and back-referenced in the pipeline spec it supersedes.
+
+**The original entry, preserved:** — the lightbox pins the original with nothing to watch while it loads
+
+**Status:** GRADUATED · **Filed:** from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** medium · **Class:** UX · **Effort:** S
+
+The active lightbox slide sets `pinOriginal: true` (`components/diagrams/GalleryLightbox.tsx`), so
+opening a diagram downloads the full-resolution original — deliberately, because zoom needs it
+(spec `docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §6). On ballroom wifi
+that is seconds during which the only signal is a 16px blur, at the peak-stakes moment: a crew member
+tapped a stage plot mid-show and cannot tell whether anything is happening.
+
+**Reachability:** INFERRED, NOT PROBED. The probe that would settle it: throttle to a venue-grade
+profile, open a representative stage-plot original, and measure time-to-sharp against the blur.
+
+Two candidate shapes, neither settled: gate `pinOriginal` on zoom intent (the clamped 1024 tier paints
+fast, the original arrives on pinch, and the browser keeps the old bitmap during a src swap so the
+upgrade is a silent sharpen), or keep the pin and add a progress affordance. The first changes a
+ratified spec decision and needs a spec amendment, which is why it did not land in-branch.
+
+### BL-DIAGRAM-BLUR-EDGE-SIZE
+
+**Decision:** 2026-08-11, CLOSED ON PROBE EVIDENCE via `feat/diagram-viewing-polish`, with `BLUR_MAX_EDGE = 16` UNCHANGED. The entry was filed `Reachability: INFERRED, NOT PROBED` and named its own probe; the probe was run and refuted the premise. Rerunning the exact ingest pipeline (`lib/sync/diagramVariants.ts`, resize fit-inside + webp q40) at edge 16 and 32 on a synthesized 1600x1200 stage plot: 16 gives 54 B / 95 data-URI chars, 32 gives 120 B / 183 (both far under the 2048 belt). Rendered faithfully through next/image's SVG blur wrapper — which wraps the placeholder in `feGaussianBlur stdDeviation=20` — the two are indistinguishable at thumbnail scale; at lightbox scale 32 resolves a layout skeleton where 16 is a near-uniform field; and the dark-mode brightness complaint is NOT an edge-size problem at all (mean luma differs by 0.7/255 between them). The one surface where 32 helped no longer benefits: the zoom gate above collapses the lightbox blur window from ~4.1 s to ~350 ms. Documented limits, including the synthesized-plot caveat, are in `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §3.2 and §7.
+
+**The original entry, preserved:** — the 16px blur carries no structure for line art and is brightest where it hurts
+
+**Status:** GRADUATED · **Filed:** from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** UX · **Effort:** S
+
+`BLUR_MAX_EDGE = 16` (`lib/sync/diagramVariants.ts`) is the spec's bound (§3). A 16px downsample of a
+white stage plot with thin black lines averages to a near-uniform light field: it delivers the full
+brightness hit while carrying almost no content signal. At thumbnail scale the upscale is ~3x and it
+reads as a placeholder; on a full-viewport lightbox slide it is ~25x, and against the `bg-bg/95` scrim
+in dark mode a dark-adapted viewer reads it as a flash.
+
+**Reachability:** INFERRED, NOT PROBED. The probe: render a real stage-plot blur at both scales in
+both themes and compare against an emitting-nothing skeleton.
+
+Candidate: raise the bound to 32 (32x32 q40 still lands far under the 2048-char belt) and/or drop the
+placeholder on the lightbox tiers only. Both change spec §3, so neither landed in-branch.
+
+### BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE
+
+**Decision:** 2026-08-11, FIXED by `feat/diagram-viewing-polish`. Focus relocates BEFORE the state update that removes the button — next still-present thumbnail in DOM order, else previous, else the show-more control, else the gallery list (given `role="list"`, `tabIndex={-1}` and a visible focus ring for the purpose) — and the relocation excludes siblings failing in the same tick, because `isConnected` reports current attachment rather than pending removal. The entry's second half, the silent swap, is closed by two `role="log"` regions and a three-state router: the dialog is `aria-modal`, so a failure while it is open speaks in a region INSIDE it, one during the 220 ms exit window is buffered and delivered when the dialog is really gone, and a browse-state failure speaks at the gallery root. The detached-restore-target case the entry did not anticipate — the thumbnail that OPENED the lightbox failing while the dialog holds focus — is closed by a mutable-ref bridge that survives the AnimatePresence prop freeze, with a closure rule so A to B to C works rather than one hop. Findings and dispositions from the invariant-8 dual gate are in §12 of `docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md`; the recovery affordance the repair deliberately does not add is `DEFERRED.md` `DIAGRAM-FAILURE-RECOVERY-1`.
+
+**The original entry, preserved:** — a failed thumbnail drops focus and says nothing
+
+**Status:** GRADUATED · **Filed:** from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** A11Y · **Effort:** S
+
+When a thumbnail's runtime load fails, the gallery cell swaps from `<button>` to a non-interactive
+`<div>` (`components/diagrams/Gallery.tsx`). If that thumbnail held focus, focus falls to `<body>`.
+The lightbox already handles the identical transition deliberately — it relocates focus to its close
+button before the unmount cascade — so the pattern exists and is simply not applied here. Separately,
+the swap is silent to assistive tech: the replacement carries `sr-only` text discoverable only by
+re-browsing, not a live-region announcement.
+
+Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image migration that surfaced
+them; they are filed rather than fixed in that branch because the repair is a focus-management and
+announcement decision on a surface the branch does not otherwise change.
