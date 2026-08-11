@@ -526,4 +526,27 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  {
+    id: "phantomGapExecuted",
+    // A `.mjs` module, unlike every row above it: the phantom-gap job's diagram
+    // step needs a plain-node CLI, so the logic ships as ESM the wrapper can
+    // import without a transpile step.
+    //
+    // The DECISIONS live here and the CLI lives in
+    // scripts/check-phantom-gap-executed.mjs, which this row deliberately does
+    // NOT name. The repo's sibling oracle (scripts/check-crew-e2e-executed.mjs)
+    // is one file — exported table plus an `import.meta.url === argv[1]` main
+    // block — and that shape is un-enrollable, measured rather than argued:
+    // enrolled whole, this surface scored 0.27 with 18 of its 19 survivors
+    // inside the main block, because a referring suite imports the module and
+    // never runs that block, so those mutants are unreachable by construction.
+    sourcePath: "lib/ci/phantomGapExecuted.mjs",
+    suitePaths: ["tests/ci/phantomGapExecuted.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // The executed-vs-skipped predicate: inverted, a skipped case counts as
+    // executed and the entire oracle reports green on a dark step.
+    control: { from: 'result.status === "passed"', to: 'result.status === "skipped"' },
+    accepted: [],
+  },
 ];

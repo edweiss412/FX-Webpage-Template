@@ -1001,7 +1001,14 @@ describe("spec registration detector (spec §3.1)", () => {
     // OWN step for the same reason as the rows around it: the T-NOPHANTOM-CREW
     // filter selects none of these cases, so without a step of its own the file
     // would be present in the workflow and the cases would run nowhere.
-    'pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-DIAGRAM-VARIANTS"':
+    //
+    // TWO projects and a json reporter since the zoom-gate arc (spec
+    // 2026-08-10-diagram-viewing-polish §6): the family split on capability, so
+    // desktop-chromium carries the network-order gate and mobile-safari the
+    // CDP-free tier assertion. The json report feeds
+    // scripts/check-phantom-gap-executed.mjs, which is what stops the added
+    // project from reading as coverage for the file's bare-early-return cases.
+    'pnpm exec playwright test --reporter=list,json --project=mobile-safari --project=desktop-chromium tests/e2e/crew-layout-dimensions.spec.ts -g "T-DIAGRAM-VARIANTS"':
       ["playwright.config.ts"],
     'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"':
       ["playwright.config.ts"],

@@ -732,11 +732,24 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/sample.spec.ts",
         ],
       },
+      {
+        text: "test-results/phantom-gap-diagrams-report.json",
+        // Empty by live derivation, for the crew value's reason and not the app
+        // value's: phantom-gap-e2e.yml filters with `pull_request.paths`, so the
+        // census classifies its specs as path-gated and attributes none of them
+        // to this step. A DISTINCT path from both values above by design — two
+        // jobs writing one report path is the artifact confusion the
+        // "oracle reads the run's OWN report" rule exists to prevent, and this
+        // report is read by a checker whose requirements are per (case, PROJECT)
+        // rather than per file.
+        governs: [],
+      },
     ],
     reason:
       "Destination for a Playwright run's own json report, which that job's post-run " +
       "executed-count oracle (scripts/check-crew-e2e-executed.mjs, " +
-      "scripts/check-app-e2e-executed.mjs) reads. Inert with respect to what runs: it " +
+      "scripts/check-app-e2e-executed.mjs, scripts/check-phantom-gap-executed.mjs) reads. " +
+      "Inert with respect to what runs: it " +
       "names a Playwright OUTPUT path only — it cannot select, skip or redirect a test, and a " +
       "wrong value makes the oracle fail closed on a missing report rather than pass.",
   },

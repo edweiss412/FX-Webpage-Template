@@ -66,6 +66,13 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
   reviewRoundCorpus: { equivalent: 2 },
+  // Counted from the surface: the executed-count oracle carries NO blessed
+  // survivor. Its floor is 1, so a row appearing here is a coverage regression
+  // to repair rather than a number to update. The surface exists in its current
+  // shape BECAUSE of this table: enrolled as one file with its CLI main block
+  // inline it scored 0.27, 18 of 19 survivors sitting in code the referring
+  // suite can never execute through an import.
+  phantomGapExecuted: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
