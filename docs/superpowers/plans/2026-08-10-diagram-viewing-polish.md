@@ -141,3 +141,28 @@ Every finding raised across all four rounds, most severe first. "Fixed" means fi
 | 28 | P3 | audit | The chip-relocation layout effect also runs at mount, focusing Close before `useDialogFocus` captures its trigger snapshot. | **ACCEPTED** — latent only: the Gallery always sets `restoreTargetRef`, which takes precedence over the snapshot, so the shadowed value is unreachable. |
 | 29 | P3 | audit | A clamped-tier error racing zoom intent in the same tick takes the demote branch and says "showing a less detailed view" though nothing painted. | **ACCEPTED** — self-corrects on the refetch, which reaches the destroy branch; consistent with the ratified "the condition is the REQUESTED TIER" rule. |
 | 30 | warn | detector | 7 × `broken-image` in `components/diagrams/**`. | **FALSE POSITIVE**, re-verified every round: each hit is the literal token `<img>` inside a prose comment. Neither file renders an `<img>`. |
+
+## §13 — whole-diff review record
+
+Three dispatches. Rounds 1-2 ran against base `a7393880ae6d`; `origin/main` was then merged in (see below) and the post-merge round ran against `876cbd06c156`, which is a NEW corpus file by design — the rows are keyed by merge-base and are never consolidated.
+
+| round | verdict | findings | disposition |
+| --- | --- | --- | --- |
+| diff R1 (`a7393880ae6d`) | NEEDS-ATTENTION | 1 LOW | FIXED. Three guard rationales still described the diagram e2e cases as carrying bare early returns after this arc converted them to declared skips. Class-swept. |
+| diff R2 (`a7393880ae6d`) | NEEDS-ATTENTION | 1 HIGH, 1 MEDIUM | Both FIXED. See `efb779fe2`. |
+| diff R1 (`876cbd06c156`, post-merge) | BLOCKING | 1 P0, 1 MEDIUM, 1 LOW | MEDIUM and LOW fixed; the P0 REFUTED — see below. |
+
+**Why the merge happened mid-review.** `origin/main` had moved 20+ commits past this branch's base, leaving PR #780 `CONFLICTING`. GitHub cannot build a merge commit for a conflicting PR, so ZERO Actions workflows had run and the only green checks were Vercel's — "CI green" would have been a reading of two checks that test nothing about this diff.
+
+### The refuted P0, recorded so a later round does not re-derive it
+
+**The claim.** All three graduations were committed in `0bdce4372`, before the merge, the R2 repairs and the formatting commit — so the markers did not come off in "the PR's last commit", violating invariant 12 and AC-4.
+
+**Why it does not hold.** AGENTS.md invariant 12 carves this case out in its own text: *"(A graduating entry's marker comes off in the same commit that archives it — archives categorically reject in-progress entries, so it cannot ride along.)"* The rejection is not a convention but an executable one: `tests/docs/_metaLedgerInProgress.test.ts:77` asserts *"keeps in-progress out of the archives"*. The finding's prescription — carry the markers to a later commit — is therefore unsatisfiable for a graduating entry: re-adding them to `BACKLOG-archive.md` would red that guard. The "last commit" clause governs entries that stay in the active queue, where the marker and the entry can be separated.
+
+**What is true in it.** Between the graduation commit and the merge, `pnpm ledger:claims` shows no claim on these three rows while this branch was still working on them. That window is inherent to graduating entries under the carve-out, and the plan's own ordering requirement (the graduation content is REVIEWED, then committed) was met.
+
+### The other two, both fixed
+
+- **MEDIUM — `hasVariantTier` could not prove a LOWER tier existed.** It took only `variants`, so a well-formed row naming the ORIGINAL key (`{ width: 256, key: <the original> }`) passed every §4 guard and returned true, while both loader states resolved to one URL. The predicate now takes the original key and asks whether any valid row differs from it. Reviewer confirmed the old behavior by direct execution; the repair carries its own case.
+- **LOW — a formatter-mangled conflict marker in `BACKLOG-archive.md`.** `> > > > > > > origin/main`: Prettier reads a seven-deep blockquote and re-spaces it, which the contiguous-glyph guard cannot see. Main's pre-existing content, and left alone in the merge commit on purpose — but a guard that cannot see a corrupt document is the more interesting half, so `tests/docs/_metaNoConflictMarkers.test.ts` now recognises the mangled shape (with cases proving it fires on seven levels and not on six), and the line is gone.

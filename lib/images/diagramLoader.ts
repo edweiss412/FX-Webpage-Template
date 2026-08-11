@@ -73,17 +73,25 @@ function validVariants(raw: unknown): DiagramVariantRef[] {
 }
 
 /**
- * Whether this manifest data yields any tier BELOW the original.
+ * Whether this manifest data yields a tier the clamped loader can serve INSTEAD
+ * OF the original.
  *
  * Exported so callers never re-derive it: `pinOriginal` says the caller ASKED
- * for the original, not that a smaller tier exists to fall back to. For an
+ * for the original, not that something smaller exists to fall back to. For an
  * originals-only entry — old manifests, GIFs, generation failures, a ladder
  * whose every row the §4 guards reject — both loader states resolve to the same
  * URL, and a caller that treats the pin as proof of a fallback will offer one
  * that cannot happen.
+ *
+ * `originalKey` is REQUIRED, and it is the whole difference between this
+ * predicate and "are there any usable rows?". A row can be perfectly well-formed
+ * and still name the original itself (`{ width: 256, key: <the original> }`):
+ * it survives every §4 guard, so a row-count test says yes while the clamped
+ * loader returns the very URL the pin would have. Answering "is there a LOWER
+ * tier" is impossible without knowing which key is the top one.
  */
-export function hasVariantTier(variants: unknown): boolean {
-  return validVariants(variants).length > 0;
+export function hasVariantTier(variants: unknown, originalKey: string): boolean {
+  return validVariants(variants).some((row) => row.key !== originalKey);
 }
 
 export function makeDiagramLoader(

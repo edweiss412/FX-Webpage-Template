@@ -600,6 +600,35 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
     expect([...region.querySelectorAll("[data-announce-id]")]).toHaveLength(0);
   });
 
+  test("a ladder whose only row IS the original cannot demote either", () => {
+    // A valid-looking row can still name the ORIGINAL key. It passes every §4
+    // guard, so a predicate that only asks "are there usable rows?" says yes —
+    // while both loader states resolve to the same URL and there is nothing to
+    // fall back to. The question is whether a LOWER tier exists, which cannot be
+    // answered without the original key.
+    const fixture = item(1, { variants: [{ width: 256, key: "embedded-obj-1.png" }] });
+    const { container } = open([fixture, item(2)]);
+    const region = container.querySelector('[data-testid="lightbox-announce-log"]')!;
+    premiseHolds(
+      "the row is well-formed enough to survive the loader's own guards",
+      fixture.variants.length === 1 && fixture.variants[0]!.key === fixture.key,
+    );
+    premiseHolds(
+      "both states resolve to the original, which is what makes the demote a no-op here",
+      activeLoaderUrls(container).size === 1 &&
+        activeLoaderUrls(container).has(originalUrlOf(fixture)),
+    );
+
+    emitScale(2.4);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
+    expect(container.textContent).toContain("Image unavailable");
+    expect([...region.querySelectorAll("[data-announce-id]")]).toHaveLength(0);
+  });
+
   test("a SECOND failure after the demote does reach the placeholder", () => {
     // One fallback, not an endless one: once the clamped tier has failed too,
     // there is nothing left to serve and the placeholder is the honest answer.

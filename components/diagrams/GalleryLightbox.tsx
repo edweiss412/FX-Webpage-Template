@@ -857,11 +857,18 @@ export function GalleryLightbox({
                               // BOTH conjuncts are load-bearing. `wantsOriginal`
                               // says the user asked for the original;
                               // `hasVariantTier` says there is something smaller
-                              // to retreat TO. Without the second, an
-                              // originals-only entry would announce a fallback
-                              // that cannot happen and then leave the broken
-                              // image on screen instead of the placeholder.
-                              if (wantsOriginal.has(item.id) && hasVariantTier(item.variants)) {
+                              // to retreat TO — which is why it takes the
+                              // ORIGINAL KEY: a well-formed row can name the
+                              // original itself, and then both loader states
+                              // resolve to one URL. Without the second conjunct
+                              // an originals-only entry would announce a
+                              // fallback that cannot happen and then leave the
+                              // broken image on screen instead of the
+                              // placeholder.
+                              if (
+                                wantsOriginal.has(item.id) &&
+                                hasVariantTier(item.variants, item.key)
+                              ) {
                                 demotedRef.current.add(item.id);
                                 setWantsOriginal((prev) => {
                                   if (!prev.has(item.id)) return prev;
