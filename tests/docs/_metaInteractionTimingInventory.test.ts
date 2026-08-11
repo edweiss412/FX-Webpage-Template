@@ -43,7 +43,7 @@ const DESIGN_MD = readFileSync(join(REPO_ROOT, "DESIGN.md"), "utf8");
  * rejected by the numeric cell.
  */
 const ROW = /^\s*\|([^|]+)\|([^|]+)\|([^|]+)\|\s*$/;
-const cell = (raw: string): string => raw.trim().replace(/^`(.*)`$/s, "$1").trim();
+const cell = (raw: string): string => raw.trim().replace(/^`([^`]*)`$/, "$1").trim();
 
 function inventorySection(): string {
   const start = DESIGN_MD.indexOf("### 5.5 Interaction constants");
