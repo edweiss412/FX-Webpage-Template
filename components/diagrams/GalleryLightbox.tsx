@@ -25,7 +25,7 @@
  * jsdom tests that render the gallery in its collapsed state never
  * trigger any of it.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, RotateCcw, X } from "lucide-react";
@@ -37,6 +37,7 @@ import {
 } from "react-zoom-pan-pinch";
 
 import type { GalleryItem } from "@/components/diagrams/Gallery";
+import { AnnounceLogRegion, useAnnounceLog } from "@/components/admin/announceLog";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import Image from "next/image";
 import { makeDiagramLoader } from "@/lib/images/diagramLoader";
@@ -47,6 +48,22 @@ type LightboxProps = {
   items: GalleryItem[];
   startIndex: number;
   onClose: () => void;
+  /**
+   * Where focus goes when the dialog closes, overriding the saved trigger.
+   * Owned by the Gallery, which re-points it whenever a runtime failure removes
+   * the current target (the closure rule, spec §4.2). A REF because the Gallery
+   * may need to re-point it during the exit animation, when this component's
+   * props are frozen.
+   */
+  restoreTargetRef?: RefObject<HTMLElement | null>;
+  /**
+   * Outbound bridge for the dialog-local announce channel. The dialog is
+   * `aria-modal="true"`, so content outside it is excluded from the
+   * accessibility tree (DESIGN.md:506) and the Gallery's own region cannot speak
+   * while this one is open — the Gallery routes through here instead. Cleared on
+   * unmount so a stale closure cannot append to a torn-down channel.
+   */
+  announceRef?: RefObject<((message: string) => void) | null>;
 };
 
 /**
@@ -189,6 +206,8 @@ export function GalleryLightbox({
   items,
   startIndex,
   onClose,
+  restoreTargetRef,
+  announceRef,
 }: LightboxProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -350,7 +369,19 @@ export function GalleryLightbox({
     emblaApi?.scrollNext();
   }, [emblaApi]);
 
-  useDialogFocus(dialogRef, closeRef);
+  useDialogFocus(dialogRef, closeRef, undefined, { restoreTargetRef });
+
+  // The dialog-local announce channel (spec §4.2). Published to the Gallery
+  // through a ref rather than a callback prop because the Gallery is the parent:
+  // it needs to CALL in, not be called back.
+  const { announce: announceInDialog, entries: dialogEntries } = useAnnounceLog();
+  useEffect(() => {
+    if (!announceRef) return;
+    announceRef.current = announceInDialog;
+    return () => {
+      announceRef.current = null;
+    };
+  }, [announceRef, announceInDialog]);
 
   // Keyboard map — the lightbox owns ALL keyboard shortcuts because
   // react-zoom-pan-pinch v4.0.3 has no `keyEvents` prop. Keymap:
@@ -479,6 +510,17 @@ export function GalleryLightbox({
         synchronously with the scale event. role="status" gives it
         the implicit aria-live=polite + aria-atomic=true semantic.
       */}
+      {/*
+        The dialog-local failure channel. Separate from the zoom region above
+        because they are different kinds of announcement — `role="log"` appends
+        (identical failure text for two thumbnails must both speak), while the
+        zoom region is a `role="status"` text swap.
+      */}
+      <AnnounceLogRegion
+        entries={dialogEntries}
+        label="Diagram viewer updates"
+        testId="lightbox-announce-log"
+      />
       <div
         data-testid="lightbox-zoom-live-region"
         role="status"
