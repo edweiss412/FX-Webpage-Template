@@ -138,22 +138,6 @@ the local rotate path still carries its `role="status"` banner.
 **Un-defer trigger:** a repo-wide forced-colors pass, which should set the pattern
 once rather than have this one surface invent it.
 
-### SHARELINK-CONSTANTS-INVENTORY-1 — impeccable critique P2 (2026-07-25, share-link-chrome-backlog)
-
-**Effort:** M · **Status:** IN PROGRESS · **Branch:** feat/m2-ui-cluster
-
-`DESIGN.md` section 5.5 claims to be the single source of truth for interaction
-constants but omits at least two: `ARM_REVERT_MS` (4000, the destructive-confirm
-auto-revert) and the bare `2_000` clipboard-reset literal at
-`app/admin/show/[slug]/ShareLinkCopyButton.tsx:81`. This milestone corrected the
-section's two FALSE claims (single-file ownership; "never produce a painted px")
-and added its own constant, but did not audit the rest of the codebase for
-unlisted ones.
-
-Un-defer trigger: the next DESIGN.md pass, or any milestone adding a third
-timing constant — at which point the inventory should be swept and pinned by a
-test rather than maintained by hand.
-
 ### ATTENTION-INDEX-JUMP-FOCUS-1 — [P1] pressing an index row drops focus to `<body>`
 
 **Effort:** L

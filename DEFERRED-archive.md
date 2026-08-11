@@ -1,3 +1,50 @@
+### SHARELINK-CONSTANTS-INVENTORY-1 — DESIGN.md §5.5 was a hand-written list that omitted most of its own population — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
+
+**Resolution: SHIPPED, and the population is now derived rather than swept.** Task U3 of the M-wave-2
+plan (`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`), contract at
+`docs/superpowers/specs/2026-08-09-m-wave-2-design.md:93`.
+
+The entry asked for "swept and pinned by a test rather than maintained by hand". A sweep was the one
+thing that could not be done, because a hand-authored sweep and a test generated from it share the
+same omissions — the pair would then agree about a world neither had checked. So the population is
+read from the source instead: `scripts/scan-interaction-timings.ts` walks `app/**` + `components/**`
+(minus `app/api/**`) over the TypeScript AST and reports numeric-literal timer delays, numeric
+bindings whose identifier ends in ms / delay / duration / timeout / seconds, and numeric motion
+`duration:` values. `tests/docs/_metaInteractionTimingInventory.test.ts` compares that output with
+§5.5 in BOTH directions, so an unlisted timing fails by name and a stale row fails too.
+
+**The derived population is 28 rows.** §5.5 previously listed 8, so it was carrying under a third of
+its own subject while claiming to be the single source of truth. Both constants this entry named are
+now rows: `ARM_REVERT_MS` (4000) via an explicit include with its reason, since it lives in `lib/`
+only because the state machine does; and the bare 2000 clipboard reset in `ShareLinkCopyButton.tsx`.
+
+**Totality, so nothing sits in the gap.** Every `setTimeout`/`setInterval` delay ARGUMENT is walked,
+not only the ones that are literals. A delay that is neither a literal nor an identifier resolving to
+a covered binding is emitted as UNCLASSIFIED and fails the test until dispositioned. Four rows
+carry reasons today: a hook option whose only supplied argument is an inventoried constant, a sum of
+two rows, a server-dictated `Retry-After`, and the realtime reconnect backoff.
+
+**Two defects the derivation surfaced that no one was looking for.** The AST reading found that
+`submitTimeoutMs = 30_000` is a DESTRUCTURED default parameter, so the scanner's first
+Parameter-only pass missed the very case the spec had named as a seed. And every one of §5.5's five
+"behavioral threshold" citations pointed at `Step3ReviewModal.tsx`, where none of them has lived
+since the Phase-1 extraction; the prose had gone on asserting it because nothing executable read it.
+Both are repaired here.
+
+**Effort:** M · **Closed:** 2026-08-10
+
+`DESIGN.md` section 5.5 claims to be the single source of truth for interaction
+constants but omits at least two: `ARM_REVERT_MS` (4000, the destructive-confirm
+auto-revert) and the bare `2_000` clipboard-reset literal at
+`app/admin/show/[slug]/ShareLinkCopyButton.tsx:81`. This milestone corrected the
+section's two FALSE claims (single-file ownership; "never produce a painted px")
+and added its own constant, but did not audit the rest of the codebase for
+unlisted ones.
+
+Un-defer trigger: the next DESIGN.md pass, or any milestone adding a third
+timing constant — at which point the inventory should be swept and pinned by a
+test rather than maintained by hand.
+
 ### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome, a skipped heading level, and mixed row-slot chrome on `/admin?step=3` — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, all four items SHIPPED)
 
 **Resolution: FULLY resolved, all four items.** Items (a), (b) and (c) shipped 2026-08-08 on
