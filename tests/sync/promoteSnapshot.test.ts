@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { setLogSink, resetLogSink, type LogRecord } from "@/lib/log";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const snapshotRevisionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -27,6 +28,7 @@ const promoteMock = vi.hoisted(() => {
   // via a one-off `postgres` mock implementation (see repairSnapshotRollback describe block).
   return {
     events: [] as string[],
+    showLockSkipped: false,
     initialRow,
     promoteTx: {
       queryOne: vi.fn(async (sql: string) => {
@@ -75,16 +77,35 @@ vi.mock("postgres", () => ({
 vi.mock("@/lib/sync/lockedPromoteTx", () => ({
   withPromoteLock: async (lockedShowId: string, fn: (tx: unknown) => Promise<unknown>) => {
     promoteMock.events.push(`promote:${lockedShowId}`);
-    return await fn(promoteMock.promoteTx);
+    const resolved = await fn(promoteMock.promoteTx);
+    // Ordering probe for the post-commit emit: anything pushed AFTER this event
+    // happened outside the promote-lock transaction (spec §4.3).
+    promoteMock.events.push(`promote-resolved:${lockedShowId}`);
+    return resolved;
   },
 }));
 
 vi.mock("@/lib/sync/lockedShowTx", () => ({
   withShowLock: async (lockedDriveFileId: string, fn: (tx: unknown) => Promise<unknown>) => {
     promoteMock.events.push(`show:${lockedDriveFileId}`);
+    if (promoteMock.showLockSkipped) return { skipped: "CONCURRENT_SYNC_SKIPPED" };
     return await fn(promoteMock.showTx);
   },
 }));
+
+// Sink-spy for the SNAPSHOT_PROMOTE_MANIFEST_MISMATCH warn (spec §6 telemetry
+// behavior). The default sink would also attempt best-effort persistence; the
+// spy replaces it wholesale so unit runs never touch persist.
+const mismatchWarns: LogRecord[] = [];
+beforeAll(() => {
+  setLogSink(async (record) => {
+    if (record.code === "SNAPSHOT_PROMOTE_MANIFEST_MISMATCH") {
+      mismatchWarns.push(record);
+      promoteMock.events.push(`warn:${record.code}`);
+    }
+  });
+});
+afterAll(() => resetLogSink());
 
 const { promoteSnapshotUpload, repairSnapshotRollback, defaultStorage } =
   await import("@/lib/sync/promoteSnapshot");
@@ -108,6 +129,8 @@ describe("promoteSnapshotUpload", () => {
     promoteMock.showTx.queryOne.mockClear();
     promoteMock.showTx.queryRows.mockClear();
     promoteMock.postgres.mockClear();
+    promoteMock.showLockSkipped = false;
+    mismatchWarns.length = 0;
   });
 
   test("promotes temp assets under promote lock then show lock and cuts over diagrams", async () => {
@@ -125,7 +148,11 @@ describe("promoteSnapshotUpload", () => {
     const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
 
     expect(result).toEqual({ outcome: "promoted", snapshotRevisionId });
-    expect(promoteMock.events).toEqual([`promote:${showId}`, `show:${driveFileId}`]);
+    expect(promoteMock.events).toEqual([
+      `promote:${showId}`,
+      `show:${driveFileId}`,
+      `promote-resolved:${showId}`,
+    ]);
     expect(moves).toEqual([
       { from: `${tempPrefix}a.png`, to: `${canonicalPrefix}a.png` },
       { from: `${tempPrefix}b.png`, to: `${canonicalPrefix}b.png` },
@@ -149,7 +176,7 @@ describe("promoteSnapshotUpload", () => {
 
     const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
 
-    expect(result).toEqual({ outcome: "manifest_mismatch", snapshotRevisionId });
+    expect(result).toMatchObject({ outcome: "manifest_mismatch", snapshotRevisionId });
     const calls = rollbackStuckResolveCalls();
     expect(calls).toHaveLength(1);
     expect(calls[0]?.[1]).toEqual([showId]);
@@ -183,6 +210,10 @@ describe("promoteSnapshotUpload", () => {
     expect(result).toEqual({ outcome: "manifest_mismatch", snapshotRevisionId });
     expect(moveCall).toBe(3);
     expect(rollbackStuckResolveCalls()).toHaveLength(0);
+    // Rollback-failure mismatches carry no deltas — no comparison produced them —
+    // so the SNAPSHOT_PROMOTE_MANIFEST_MISMATCH warn must NOT fire (spec §4.3);
+    // that branch keeps its own PENDING_SNAPSHOT_ROLLBACK_STUCK alert instead.
+    expect(mismatchWarns).toHaveLength(0);
   });
 });
 
@@ -193,6 +224,8 @@ describe("repairSnapshotRollback", () => {
     promoteMock.showTx.queryOne.mockClear();
     promoteMock.showTx.queryRows.mockClear();
     promoteMock.postgres.mockClear();
+    promoteMock.showLockSkipped = false;
+    mismatchWarns.length = 0;
   });
 
   function storage() {
@@ -267,6 +300,8 @@ describe("promoteSnapshotUpload — variant objects", () => {
     promoteMock.showTx.queryOne.mockClear();
     promoteMock.showTx.queryRows.mockClear();
     promoteMock.postgres.mockClear();
+    promoteMock.showLockSkipped = false;
+    mismatchWarns.length = 0;
   });
 
   function variantAwareShowTx(rows: Array<{ kind: string; name: string }>) {
@@ -337,9 +372,10 @@ describe("promoteSnapshotUpload — variant objects", () => {
       removePrefix: vi.fn(async () => undefined),
     };
 
-    expect(await promoteSnapshotUpload(snapshotRevisionId, { storage })).toEqual({
+    expect(await promoteSnapshotUpload(snapshotRevisionId, { storage })).toMatchObject({
       outcome: "manifest_mismatch",
       snapshotRevisionId,
+      deltas: { missing: ["embedded-a.png@512.webp"], extra: [] },
     });
   });
 });
@@ -399,5 +435,261 @@ describe("defaultStorage — pagination past the SDK's 100-object page", () => {
     await defaultStorage(fake.client).removePrefix!(tempPrefix);
 
     expect(fake.removed.flat()).toHaveLength(OBJECT_COUNT);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Name-set validation (spec docs/superpowers/specs/2026-08-10-promote-identity-validation.md
+// §4.2/§4.3/§6): path binding first, then exact-set multiset comparison at both
+// checkpoints, bounded deltas, and the post-commit SNAPSHOT_PROMOTE_MANIFEST_MISMATCH
+// warn. Expected names derive from the fixture manifests, never from
+// implementation output.
+// ---------------------------------------------------------------------------
+
+describe("promoteSnapshotUpload — name-set validation (exact set + path binding)", () => {
+  type RequiredRow = { kind: "original" | "variant"; name: string };
+
+  const defaultRequired: RequiredRow[] = [
+    { kind: "original", name: `${canonicalPrefix}a.png` },
+    { kind: "original", name: `${canonicalPrefix}b.png` },
+  ];
+
+  function setRequiredRows(rows: RequiredRow[]) {
+    promoteMock.showTx.queryRows.mockImplementation(async (sql: string) =>
+      /jsonb_array_elements/i.test(sql) ? rows.map((row) => ({ ...row })) : [],
+    );
+  }
+
+  function recordingStorage(listings: Record<string, string[]>) {
+    const moves: Array<{ from: string; to: string }> = [];
+    return {
+      moves,
+      storage: {
+        list: vi.fn(async (prefix: string) => listings[prefix] ?? []),
+        move: vi.fn(async (from: string, to: string) => void moves.push({ from, to })),
+        removePrefix: vi.fn(async () => undefined),
+      },
+    };
+  }
+
+  beforeEach(() => {
+    promoteMock.events.length = 0;
+    promoteMock.promoteTx.queryOne.mockClear();
+    promoteMock.showTx.queryOne.mockClear();
+    promoteMock.showTx.queryRows.mockClear();
+    promoteMock.postgres.mockClear();
+    promoteMock.showLockSkipped = false;
+    mismatchWarns.length = 0;
+    setRequiredRows(defaultRequired);
+  });
+
+  test("AC-1: the filing's probe shape — equal count, missing required name — fails with the missing name reported", async () => {
+    // The filing's probe: countCheckPasses:true with
+    // missingExpected:["embedded-a.png@256.webp"] — an unrelated equal-count
+    // extra masks the absent variant under a count-only check.
+    setRequiredRows([
+      { kind: "original", name: `${canonicalPrefix}embedded-a.png` },
+      { kind: "variant", name: "embedded-a.png@256.webp" },
+    ]);
+    const { storage } = recordingStorage({
+      [tempPrefix]: [`${tempPrefix}embedded-a.png`, `${tempPrefix}unrelated.bin`],
+    });
+
+    const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    expect(result).toEqual({
+      outcome: "manifest_mismatch",
+      snapshotRevisionId,
+      deltas: {
+        missing: ["embedded-a.png@256.webp"],
+        extra: ["unrelated.bin"],
+        duplicated: [],
+        mispathed: [],
+        truncated: false,
+      },
+    });
+  });
+
+  test("AC-2: all required present plus an extra fails with only `extra` populated (exact set)", async () => {
+    const { storage } = recordingStorage({
+      [tempPrefix]: [`${tempPrefix}a.png`, `${tempPrefix}b.png`, `${tempPrefix}stray.bin`],
+    });
+
+    const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    expect(result).toEqual({
+      outcome: "manifest_mismatch",
+      snapshotRevisionId,
+      deltas: {
+        missing: [],
+        extra: ["stray.bin"],
+        duplicated: [],
+        mispathed: [],
+        truncated: false,
+      },
+    });
+  });
+
+  test("AC-2: an exact match promotes, and the mismatch warn never fires", async () => {
+    const { storage } = recordingStorage({
+      [tempPrefix]: [`${tempPrefix}a.png`, `${tempPrefix}b.png`],
+      [canonicalPrefix]: [`${canonicalPrefix}a.png`, `${canonicalPrefix}b.png`],
+    });
+
+    const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    expect(result).toEqual({ outcome: "promoted", snapshotRevisionId });
+    expect(mismatchWarns).toHaveLength(0);
+  });
+
+  test("AC-3: a duplicated requirement fails as `duplicated`, not `missing`", async () => {
+    // Two manifest entries claiming one basename: a storage listing cannot
+    // duplicate a path, so the requirement is unsatisfiable-as-a-set.
+    setRequiredRows([
+      { kind: "original", name: `${canonicalPrefix}dup.png` },
+      { kind: "original", name: `${canonicalPrefix}dup.png` },
+    ]);
+    const { storage } = recordingStorage({ [tempPrefix]: [`${tempPrefix}dup.png`] });
+
+    const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    expect(result).toEqual({
+      outcome: "manifest_mismatch",
+      snapshotRevisionId,
+      deltas: {
+        missing: [],
+        extra: [],
+        duplicated: ["dup.png"],
+        mispathed: [],
+        truncated: false,
+      },
+    });
+  });
+
+  test("AC-3: a stale-revision or bare snapshotPath fails as `mispathed` BEFORE any listing comparison", async () => {
+    const staleRev = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const stalePath = `diagram-snapshots/shows/${showId}/${staleRev}/embedded-a.png`;
+    setRequiredRows([
+      // Right basename, wrong revision dirname — the R4 probe shape: would pass
+      // a basename-only check, cut over, and 410 at serve time.
+      { kind: "original", name: stalePath },
+      // Slash-less original: mispathed by definition (dirname can't equal the prefix).
+      { kind: "original", name: "bare.png" },
+      // Variant keys are basenames by construction and take NO path check —
+      // mislabeling provenance would falsely flag this row.
+      { kind: "variant", name: "embedded-a.png@256.webp" },
+    ]);
+    const { storage } = recordingStorage({});
+
+    const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    expect(result).toEqual({
+      outcome: "manifest_mismatch",
+      snapshotRevisionId,
+      deltas: {
+        missing: [],
+        extra: [],
+        duplicated: [],
+        mispathed: ["bare.png", stalePath],
+        truncated: false,
+      },
+    });
+    // Ordering proof: the mispathed failure happened before promotion ever
+    // consulted storage — the listing comparison was never reached.
+    expect(storage.list).not.toHaveBeenCalled();
+    expect(mismatchWarns).toHaveLength(1);
+  });
+
+  test("an 11-name delta records 10 names + truncated:true", async () => {
+    const names = Array.from({ length: 11 }, (_, i) => `c${String(i).padStart(2, "0")}.png`);
+    premise("the fixture exceeds the 10-name bound, or truncation is untested", names.length, 10);
+    setRequiredRows(
+      names.map((name) => ({ kind: "original" as const, name: `${canonicalPrefix}${name}` })),
+    );
+    const { storage } = recordingStorage({ [tempPrefix]: [] });
+
+    const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    expect(result.outcome).toBe("manifest_mismatch");
+    const deltas = (result as { deltas?: { missing: string[]; truncated: boolean } }).deltas;
+    expect(deltas?.missing).toEqual([...names].sort().slice(0, 10));
+    expect(deltas?.truncated).toBe(true);
+  });
+
+  test("a post-move extra rolls every moved object back and reports `extra`", async () => {
+    const { moves, storage } = recordingStorage({
+      [tempPrefix]: [`${tempPrefix}a.png`, `${tempPrefix}b.png`],
+      [canonicalPrefix]: [
+        `${canonicalPrefix}a.png`,
+        `${canonicalPrefix}b.png`,
+        `${canonicalPrefix}phantom.bin`,
+      ],
+    });
+
+    const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    expect(result).toEqual({
+      outcome: "manifest_mismatch",
+      snapshotRevisionId,
+      deltas: {
+        missing: [],
+        extra: ["phantom.bin"],
+        duplicated: [],
+        mispathed: [],
+        truncated: false,
+      },
+    });
+    // Forward moves, then the reverse loop restores them in reverse order.
+    expect(moves).toEqual([
+      { from: `${tempPrefix}a.png`, to: `${canonicalPrefix}a.png` },
+      { from: `${tempPrefix}b.png`, to: `${canonicalPrefix}b.png` },
+      { from: `${canonicalPrefix}b.png`, to: `${tempPrefix}b.png` },
+      { from: `${canonicalPrefix}a.png`, to: `${tempPrefix}a.png` },
+    ]);
+    expect(mismatchWarns).toHaveLength(1);
+  });
+
+  test("the mismatch warn fires exactly once, AFTER the promote transaction resolves, with the bounded deltas", async () => {
+    setRequiredRows([
+      { kind: "original", name: `${canonicalPrefix}embedded-a.png` },
+      { kind: "variant", name: "embedded-a.png@256.webp" },
+    ]);
+    const { storage } = recordingStorage({
+      [tempPrefix]: [`${tempPrefix}embedded-a.png`, `${tempPrefix}unrelated.bin`],
+    });
+
+    await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    const warnEvents = promoteMock.events.filter((event) => event.startsWith("warn:"));
+    expect(warnEvents).toHaveLength(1);
+    // POST-COMMIT: the warn lands after withPromoteLock resolved, never inside it.
+    expect(promoteMock.events.indexOf("warn:SNAPSHOT_PROMOTE_MANIFEST_MISMATCH")).toBeGreaterThan(
+      promoteMock.events.indexOf(`promote-resolved:${showId}`),
+    );
+    expect(mismatchWarns).toHaveLength(1);
+    const record = mismatchWarns[0]!;
+    expect(record.level).toBe("warn");
+    expect(record.showId).toBe(showId);
+    expect(record.context.snapshotRevisionId).toBe(snapshotRevisionId);
+    // Variant keys embed `@<width>`; the emit encodes `@` as `[at]` so the
+    // logger's email-redaction net can't collapse the name to [email-redacted].
+    expect(record.context.deltas).toEqual({
+      missing: ["embedded-a.png[at]256.webp"],
+      extra: ["unrelated.bin"],
+      duplicated: [],
+      mispathed: [],
+      truncated: false,
+    });
+  });
+
+  test("a lock-skipped mismatch carries no deltas and does not warn", async () => {
+    promoteMock.showLockSkipped = true;
+    const { storage } = recordingStorage({});
+
+    const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
+
+    expect(result).toEqual({ outcome: "manifest_mismatch", snapshotRevisionId });
+    expect((result as { deltas?: unknown }).deltas).toBeUndefined();
+    expect(mismatchWarns).toHaveLength(0);
   });
 });

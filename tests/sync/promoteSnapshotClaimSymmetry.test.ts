@@ -121,7 +121,7 @@ describe("promote rollback path releases the claim without violating claim_symme
 
     const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
 
-    expect(result).toEqual({ outcome: "manifest_mismatch", snapshotRevisionId });
+    expect(result).toMatchObject({ outcome: "manifest_mismatch", snapshotRevisionId });
     // Pre-fix (claim_expires_at = now()) assertClaimSymmetry throws → this rejects.
   });
 });
