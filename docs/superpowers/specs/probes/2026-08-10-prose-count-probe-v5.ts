@@ -9,7 +9,7 @@
  */
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { parseDoc, type DocModel } from "../../../../lib/specLint/parse.ts";
+import { parseDoc, type DocModel } from "../../../../lib/specLint/parse";
 
 const REPO = process.cwd();
 const OUT = new URL(".", import.meta.url).pathname;
