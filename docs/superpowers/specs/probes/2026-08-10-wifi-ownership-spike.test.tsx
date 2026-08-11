@@ -21,8 +21,8 @@ function Island({ id }: { id: string }) {
     observations.push({ phase: `layout:${id}`, owner: ledger.owner });
     if (id === "B" && releasePending) {
       // Queue the pending write's release as a microtask FROM the commit
-      // phase: it runs after B's commit, BEFORE passive effects (which flush
-      // in a later task) — i.e. inside the exact window under test.
+      // phase. (Measured below: in this environment it runs AFTER passive
+      // effects — the ordering is recorded, and truth never depends on it.)
       queueMicrotask(releasePending);
       releasePending = null;
     }
@@ -37,7 +37,7 @@ function Island({ id }: { id: string }) {
 }
 
 describe("layout-effect ownership closes the commit-to-passive window", () => {
-  it("a resolution landing inside the window of a real remount sees the new owner", async () => {
+  it("a resolution after a real remount sees the new owner, whenever it lands", async () => {
     const div = document.createElement("div");
     const root = createRoot(div);
     // keyed render → unmount A, mount B is a REAL remount
@@ -59,9 +59,10 @@ describe("layout-effect ownership closes the commit-to-passive window", () => {
     const res = observations.find((o) => o.phase === "resolution");
     expect(res?.owner).toBe("B");
     expect(phases.indexOf("resolution")).toBeGreaterThan(phases.indexOf("layout:B"));
-    // Recorded environment fact (R15 F1): passive:B flushes before the queued
-    // microtask here — resolution ordering vs passive is environment-dependent
-    // and IRRELEVANT to truth, which layout-time registration fixes at commit.
+    // Recorded environment fact, ASSERTED (R15 F1/R16 F1): passive:B flushes
+    // before the queued microtask here — environment-dependent, irrelevant to
+    // truth, which layout-time registration fixes at commit.
+    expect(phases.indexOf("resolution")).toBeGreaterThan(phases.indexOf("passive:B"));
     // Passive observation confirms no later flip.
     const passiveB = observations.filter((o) => o.phase === "passive:B").pop();
     expect(passiveB?.owner).toBe("B");
