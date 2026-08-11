@@ -311,6 +311,49 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     expect(only(findings, A)).toEqual([]);
   });
 
+  it.each([
+    ["a longer extension", `${PARITY_SCRIPT}.bak`],
+    ["a suffixed name", `${PARITY_SCRIPT}-copy`],
+    ["a path that continues", `${PARITY_SCRIPT}/child.mjs`],
+    ["an underscored suffix", `${PARITY_SCRIPT}_old`],
+  ])("a DIFFERENT file whose name extends the script's is not a mention (%s)", (_label, path) => {
+    // Reported by whole-diff review R3: the earlier right boundary matched all of
+    // these, so an unrelated file resolved the real script's constants.
+    const { findings } = run(`\`${path}\` reports parity for all 38 sites\n`, {
+      [PARITY_SCRIPT]: scriptSrc(siteConst(37)),
+    });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("a path at the END OF A SENTENCE is still a mention", () => {
+    // The other side of that boundary: a trailing period is prose, not a longer name.
+    const { findings } = run(`Parity for all 38 sites is checked by ${PARITY_SCRIPT}.\n`, {
+      [PARITY_SCRIPT]: scriptSrc(siteConst(37)),
+    });
+    expect(only(findings, A)).toHaveLength(1);
+  });
+
+  describe("the module-local proxy is COLUMN 0, which is not scope (documented limit)", () => {
+    it("an indented TOP-LEVEL declaration is skipped — a tripwire that never fires", () => {
+      const src = ["// header comment", `  ${siteConst(37)}`, "export default null;", ""].join(
+        "\n",
+      );
+      expect(only(run(acLine(38) + "\n", { [PARITY_SCRIPT]: src }).findings, A)).toEqual([]);
+    });
+
+    it("a column-0 declaration nested inside a block IS accepted — one advisory, not silence", () => {
+      const src = [
+        "// header comment",
+        "function compute() {",
+        siteConst(37),
+        "return EXPECTED_SITE_TOTAL;",
+        "}",
+        "",
+      ].join("\n");
+      expect(only(run(acLine(38) + "\n", { [PARITY_SCRIPT]: src }).findings, A)).toHaveLength(1);
+    });
+  });
+
   it("the finding's column and detail are exact", () => {
     const line = acLine(38);
     const f = only(run(line + "\n", { [PARITY_SCRIPT]: scriptSrc(siteConst(37)) }).findings, A)[0]!;

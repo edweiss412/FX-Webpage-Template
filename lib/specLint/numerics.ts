@@ -134,13 +134,25 @@ const CONST_DECL_RE =
 const EXPECTED_IDENT_RE = /^EXPECTED_[A-Z0-9_]+$/;
 const INT_LITERAL_RE = /^\d+$/;
 /**
- * A mention is bounded on the left by anything that could make it part of a
- * longer path or identifier, and on the right by an identifier character. Held as
- * class SOURCE rather than as `RegExp`s because they are composed into one
- * lookaround pattern per script path (see `scriptMentionMatcher`).
+ * A mention must be the WHOLE path token, so both sides reject any character that
+ * would make the match a prefix or suffix of a longer name.
+ *
+ * The two sides are deliberately not the same class. On the left, a `.` always
+ * continues a token (`x.scripts/foo.mjs`). On the right it depends: `foo.mjs.bak`
+ * and `foo.mjs-copy` and `foo.mjs/child` are DIFFERENT files, while `foo.mjs.` is
+ * the same file at the end of a sentence — which is ordinary prose here. So the
+ * right boundary rejects an identifier or separator character outright, and rejects
+ * a `.` only when a further alphanumeric follows it.
+ *
+ * Whole-diff review R3 found the earlier right boundary (`[A-Za-z0-9_]` alone)
+ * matching all three of those longer names, which let an unrelated file resolve the
+ * real script's constants and draw a false advisory.
+ *
+ * Held as pattern SOURCE rather than as `RegExp`s because both are composed into one
+ * lookaround per script path (see `scriptMentionMatcher`).
  */
 const MENTION_LEFT_CLASS = "[A-Za-z0-9_./-]";
-const MENTION_RIGHT_CLASS = "[A-Za-z0-9_]";
+const MENTION_RIGHT_PATTERN = "(?:[A-Za-z0-9_/-]|\\.[A-Za-z0-9])";
 
 interface ScriptConstant {
   ident: string;
@@ -157,9 +169,22 @@ function constantNoun(ident: string): string {
 /**
  * The module-local `const EXPECTED_* = <integer>` declarations in a script.
  *
- * Module-local is read structurally as "unindented": an indented `const` is
- * block-scoped, and anything outside the accept-set is ignored silently rather
- * than guessed at (spec §4).
+ * OPERATIONAL RULE, stated because it is an approximation of the spec's semantic
+ * one: a declaration qualifies when it starts at COLUMN 0 and its whole
+ * `const IDENT = <digits>` fits on that one line. The arm reads script text
+ * TEXTUALLY and never imports it — the originating spec's own boundary — so it has
+ * no scope information, and indentation is the only structural signal available.
+ * This is the same move the spec makes for its exclusions, which are line-based
+ * because `DocModel` has no paragraph model: the rule names what the code can see.
+ *
+ * DOCUMENTED LIMIT (whole-diff review R3): indentation is not JavaScript scope, and
+ * the proxy is wrong in both directions. An indented TOP-LEVEL declaration is
+ * skipped, which costs a tripwire that never fires. A column-0 declaration nested
+ * inside a block is accepted, which can cost one advisory — bounded by the arm being
+ * advisory and by the noun predicate, since the constant still has to match a
+ * cardinality's noun on a line naming the script. Both directions are pinned as
+ * fixtures so the boundary is executable rather than described. Deciding scope
+ * properly means parsing, which is a later arc's call with its own evidence.
  */
 function scriptConstants(text: string): ScriptConstant[] {
   const out: ScriptConstant[] = [];
@@ -202,7 +227,7 @@ export function scriptMentionMatcher(path: string): RegExp {
   const slash = path.lastIndexOf("/");
   const forms = slash === -1 ? [path] : [path, path.slice(slash + 1)];
   const alternation = forms.map(escapeForRegExp).join("|");
-  return new RegExp(`(?<!${MENTION_LEFT_CLASS})(?:${alternation})(?!${MENTION_RIGHT_CLASS})`);
+  return new RegExp(`(?<!${MENTION_LEFT_CLASS})(?:${alternation})(?!${MENTION_RIGHT_PATTERN})`);
 }
 
 // ---- shape (b): sibling-list cardinality (spec §3.2) ----

@@ -10,6 +10,12 @@ gates are FROZEN at ship time. Nothing below retunes an accept-set, and no findi
 a reason to reopen one — a later arc that wants to move a gate brings its own evidence and
 its own spec.
 
+**Every citation below has been checked against the committed record.** Each cited
+`file:line` was grepped out of `…-corpus-scan.survivors.txt` and its claim/count pair
+compared to the prose here; the sweep found exactly one mismatch, corrected in M-b1 and
+promoted to M-b6. Doing that sweep is the point — a classification record that
+misdescribes its own measurements is worse than no record.
+
 **Method, stated so the sample is not mistaken for a census.** Every row in both
 populations is classified MECHANICALLY, by the structural signature the record already
 carries (claim value, counted value, their delta, and the quantity lists). Within each
@@ -55,10 +61,14 @@ class).** The number counts one thing and the list enumerates another, at a diff
 grain. Hand-read instances:
 
 - `docs/superpowers/handoffs/2026-07-03-nullcode-batch2-handoff.md:14` — "**Scope:** 10
-  sites across **3 `app/` non-api files**:" over a 3-item list. The list enumerates the
-  FILES; the claim's last cardinality is read as `3 files`, which is right, but the same
-  line's `10 sites` is what a reader sees. Fires because the list is a real enumeration of
-  a different noun.
+  sites across **3 `app/` non-api files**:" over a 3-item list, reported as
+  `claim of 10 sites over an adjacent list of 3 items`. The list enumerates the FILES,
+  and the claim the arm reads is the SITES — a different noun at a different grain. See
+  M-b6 for why the `3` is not the cardinality the arm picks up.
+
+  (Corrected after whole-diff review R3: an earlier draft of this bullet said the arm
+  reads `3 files`. It does not, and the committed record says so — the mechanism is
+  M-b6, not a noun the arm resolved.)
 - `BACKLOG.md:922` — "Six rounds of work, preserved:" over 8 design bullets. The bullets
   are the design, not the rounds.
 - `docs/superpowers/plans/observability/2026-07-05-.../00-overview.md:17` — "remove 6
@@ -86,6 +96,21 @@ counter locked onto. Hand-read:
 `docs/superpowers/plans/2026-07-20-warning-surface-trim/plan.md:168` ("Five states, six
 fixtures:") and
 `docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:897`.
+
+**M-b6 — markup interrupts noun extraction, moving which cardinality is "last".** A
+cardinality is only recognized when a WORD follows it, so inline code or emphasis right
+after a number takes that number out of the running entirely — and the arm then reads a
+DIFFERENT number on the line as the claim. Hand-read:
+`docs/superpowers/handoffs/2026-07-03-nullcode-batch2-handoff.md:14`, where the `3` in
+"**3 `app/` non-api files**" is followed by a backtick rather than a word, so the
+recognized claim is the line's earlier `10 sites`. Surfaced by whole-diff review R3
+against an earlier draft of this record; it is a mechanism in its own right, not a
+sub-case of M-b1, because it changes WHICH cardinality is compared rather than what the
+list enumerates.
+
+**DOCUMENTED LIMIT (b-L3).** A number followed immediately by markup is invisible to the
+arm, so on a line carrying several cardinalities the one it reports may not be the one a
+reader would call the claim.
 
 **M-b5 — a counted value of 0 (18 rows).** The claim sits directly above a CHECKLIST list
 (`- [ ] …`, `1. **Task …`), so the stop-at-break counter halts at the first item and
