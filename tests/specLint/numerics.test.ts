@@ -955,6 +955,18 @@ describe("TEMPLATE_QUANTITY_DRIFT — shape (c), spec §3.3", () => {
     });
   });
 
+  it("two rows of the SAME repeated token differ by how many times it repeats", () => {
+    // Tokenization is a SET, so multiplicity is discarded and both rows reduce to the
+    // single token `7` — union 1, similarity 1.00. The quantities are digit-run ARRAYS,
+    // which is where the difference lives. A similarity function that special-cased a
+    // one-token union would suppress this advisory; whole-diff review R2 refuted the
+    // equivalence argument this case replaces, with this pair as its probe.
+    const row = (n: number): string => `| ${Array(n).fill("7").join(" | ")} |`;
+    const findings = only(run([row(11), row(10), ""].join("\n")).findings, C);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.detail).toContain("similarity 1.00");
+  });
+
   it("a quantity at column 0 participates", () => {
     // The differing digit is the line's FIRST character; a quantity scan starting one
     // character in would read both lines as carrying the same (empty) quantity list.

@@ -692,12 +692,6 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "falling through calls countListItems(model, -1, …), which reads undefined, fails BULLET_RE against the coerced 'undefined' and returns 0 — which the very next guard rejects anyway",
       },
       {
-        siteId: "integer-literal:366:20:0>1",
-        kind: "equivalent",
-        reason:
-          "union === 1 requires two identical single-token sets, which forces identical digit runs; the quantity comparison rejects that pair before jaccard is called",
-      },
-      {
         siteId: "integer-literal:366:24:0>1",
         kind: "equivalent",
         reason:
