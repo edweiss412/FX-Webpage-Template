@@ -28,8 +28,22 @@ import { premise, premiseHolds } from "../_shared/premise";
 const REPO_ROOT = process.cwd();
 const DESIGN_MD = readFileSync(join(REPO_ROOT, "DESIGN.md"), "utf8");
 
-/** The §5.5 table rows: `| \`label\` | value | \`file\` |`. */
-const ROW = /^\|\s*`([^`]+)`\s*\|\s*([0-9.]+)\s*\|\s*`([^`]+)`\s*\|\s*$/;
+/**
+ * A §5.5 inventory row: three cells — label, value, owning file.
+ *
+ * Parsed as GENERAL GFM rather than one exact spelling. The first version
+ * demanded backticks on cells one and three and outer pipes with no leading
+ * space, so an ordinary legal row — `| STALE_MS | 123 | components/Foo.tsx |`,
+ * or the same row indented — was silently skipped. That is worse than a missing
+ * check: it made the reverse-parity claim ("a row §5.5 lists that the scanner
+ * cannot find fails") true only for rows written one particular way, and a stale
+ * row spelled any other way would have sat there unread (brief C r1 F2).
+ *
+ * Backticks are optional and stripped; the header and its `---` separator are
+ * rejected by the numeric cell.
+ */
+const ROW = /^\s*\|([^|]+)\|([^|]+)\|([^|]+)\|\s*$/;
+const cell = (raw: string): string => raw.trim().replace(/^`(.*)`$/s, "$1").trim();
 
 function inventorySection(): string {
   const start = DESIGN_MD.indexOf("### 5.5 Interaction constants");
@@ -43,7 +57,10 @@ function documentedRows(): { label: string; value: number; file: string }[] {
     .split("\n")
     .map((line) => ROW.exec(line))
     .filter((m): m is RegExpExecArray => m !== null)
-    .map((m) => ({ label: m[1]!, value: Number(m[2]!), file: m[3]! }));
+    .map((m) => ({ label: cell(m[1]!), value: Number(cell(m[2]!)), file: cell(m[3]!) }))
+    // The header row and the `---` separator survive the shape test and are
+    // rejected here, by the one cell whose type the contract fixes.
+    .filter((r) => Number.isFinite(r.value));
 }
 
 const key = (r: { label: string; value: number; file: string }): string =>
