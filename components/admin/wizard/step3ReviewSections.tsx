@@ -3623,7 +3623,11 @@ export function NotPublishableNote({ dfid, testId }: { dfid: string; testId?: st
   return (
     <div
       data-testid={testId ?? `wizard-step3-card-${dfid}-not-publishable`}
-      className="flex items-start gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+      // No border: the note renders inside the row's own bordered card, and a
+      // bordered box inside a bordered box is the nested chrome of
+      // STEP3-GALLERY-TAP-TARGETS-1 item (d). The warning tint plus the icon
+      // carry it (DESIGN.md §1.2 — never colour alone).
+      className="flex items-start gap-2 rounded-md bg-warning-bg p-tile-pad text-warning-text"
     >
       <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
       <p className="text-sm font-medium">This sheet needs attention before it can be published.</p>

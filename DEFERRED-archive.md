@@ -1,3 +1,133 @@
+### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome, a skipped heading level, and mixed row-slot chrome on `/admin?step=3` — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, all four items SHIPPED)
+
+**Resolution: FULLY resolved, all four items.** Items (a), (b) and (c) shipped 2026-08-08 on
+`fix/step3-a11y-cluster` (recorded below). Item (d) — the last one — shipped 2026-08-10 on
+`feat/m2-ui-cluster`, Task U2 of the M-wave-2 plan
+(`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`), against the falsifiable acceptance shape the
+spec set for it (`docs/superpowers/specs/2026-08-09-m-wave-2-design.md:92`), so "resolved under the
+dual gate" is not a judgment call.
+
+**(d) resolution — one vocabulary, one border level.** The guard is
+`tests/components/admin/wizard/step3RowSlot.test.tsx`, rendering the six seeded gallery variants plus
+the two blocking statuses the gallery does not seed (`live_row_conflict`, `discard_retryable`), and
+its first output was the census of record: FIVE distinct action treatments in one row slot, and THREE
+bordered-inside-bordered sites (not the one the finding named).
+
+_Which vocabulary won:_ the outline the recovery actions already wore (`Re-scan this sheet`,
+`Retry now`, `Defer until modified`, `Permanently ignore`), promoted verbatim into
+`SECONDARY_ACTION_CLASS` (`lib/ui/actionClass.ts`). It was the majority treatment, and it is the one
+DESIGN.md §1.1 permits — `--color-text-subtle` is documented "Never used for action targets", which
+is exactly what the retired ghost "View" wore. Because the promoted value is byte-identical to
+`RescanSheetButton`'s own class, the eight surfaces outside the wizard that render that button are
+unchanged. Converging on it: the View/Review modal trigger, the no-details `Ignore this sheet`, the
+three `HardFailedActions` buttons, the manifest-keyed `Permanently ignore`, and the
+`Resolve in the dashboard` exit, which was an underlined text link standing beside a button offering
+the equal alternative. The constant carries no `focus-visible:ring-offset-*`: one constant cannot
+hold a correct offset COLOUR across both `bg-surface` cards and the `bg-surface-sunken` plate.
+
+_Which border yielded:_ the rows, not the plate. `--color-surface-sunken` (#F4F3F1) sits one step
+from the page `--color-bg` (#FAFAF9), so a borderless "Needs your attention" plate would all but
+vanish in light mode, while a borderless row on that plate still separates on fill (#FFFFFF on
+#F4F3F1 light, #16171C on #0B0C10 dark). `RowItem` takes a `flat` prop for that placement. The two
+warning notes inside the row cards (`RescanReviewBanner`, `NotPublishableNote`) dropped their borders
+and keep the warm warning tint plus their icon, per the colour-blind floor.
+
+The guard was mutated against its own fix — restoring the underlined resolve link re-reds it — so the
+rows added after the repair carry discriminating power rather than decoration.
+
+**Effort:** M · **Closed:** 2026-08-10 · all of (a)-(d) shipped
+
+Surfaced by the invariant-8 dual gate on branch `test/step3-live-render-cluster`, run against the
+six-variant seeded Step-3 gallery — the first time all six card states rendered together. Findings
+and dispositions are recorded in §12 of
+`docs/superpowers/plans/admin/2026-08-02-step3-live-render-cluster.md`.
+
+**Every item is PRE-EXISTING and outside that branch's diff.** The branch changes exactly two
+UI-surface files and neither changes a pixel: `components/admin/OnboardingWizard.tsx` (mechanical
+`assembleStep3Row` extraction, no markup added) and `components/admin/wizard/Step3Review.tsx` (one
+string literal respelled from a raw NUL byte to its escape, runtime-identical). They are deferred
+rather than fixed here because fixing them would put unreviewed visual change into a
+test-and-docs branch.
+
+**Partially resolved 2026-08-08 by `fix/step3-a11y-cluster`** — spec
+`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`, plan
+`docs/superpowers/plans/2026-08-07-step3-a11y-cluster.md`. Items **(a)**, **(b)** and **(c)** ship
+there and are struck below. **(d) shipped 2026-08-10 on `feat/m2-ui-cluster`, which is why this
+entry is now archived** — the archive is where an item goes when it ships, and all four have.
+Original text of that sentence, written while (d) was still open, is superseded by the resolution
+above.
+
+Two of this entry's own citations were wrong and are CORRECTED in the spec rather than preserved
+(spec §1.1 R1): (a)'s `<summary>` is in `components/admin/HelpAffordance.tsx:95`, not
+`step3ReviewSections.tsx`, and its parent is not `min-h-12`. The 20.3px measurement itself
+reproduced exactly and was never in dispute. (b)'s proposed `before:-inset-2` recipe is REFUTED by
+probe (spec §1.1 R2, §7 probe P4): the box measures 44x44 but only its top and left edges take the
+pointer — the right edge returns the `<nav>` and the bottom returns the outer wrapper. What shipped
+instead is `-m-2 … size-tap-min` plus an inner visual span, measured at 44x44 with all four edge
+midpoints hitting and pill centres identical to before.
+
+**~~(a) [P1] The "What does this mean?" `<summary>` is 20.3px tall.~~ ✅ SHIPPED 2026-08-08.** Not
+one site but SEVEN — the corpus pass found every `<summary>` in the repo under the floor, and all
+seven are repaired (spec §2.1): `HelpAffordance.tsx:95`, `OnboardingWizard.tsx` (operator error),
+`ErrorExplainer.tsx:114`, `AdministratorsSection.tsx:131` (40.8px, a near-miss sized by `p-3`),
+`app/me/meShowSections.tsx`, `RunOfShowList.tsx:82`, and `HelpTooltip.tsx:57` (which takes the
+Class B recipe instead, since it is also a 28px pill). Original text below for provenance.
+
+**(a) [P1] The "What does this mean?" `<summary>` is 20.3px tall.** On the hard-failed card's
+help disclosure (`components/admin/wizard/step3ReviewSections.tsx`, the HelpAffordance block).
+Measured live at 390px: own box 274.0x20.3, no `<label>` wrapper, no positioned `::before`/`::after`
+hit expansion. Its PARENT is `min-h-12` (48px), so roughly 28px of the band looks tappable and is
+not. Fails the project's stated 44px floor (`PRODUCT.md` accessibility floor) and also WCAG 2.5.8
+Target Size (Minimum, AA), which requires 24px — the vertical axis is under that too. **Fix when
+prioritized:** give the `<summary>` the height its parent already reserves (`min-h-tap-min`, or
+`flex h-full items-center`) so the whole 48px band toggles it. **Un-defer trigger:** the next
+milestone that touches `step3ReviewSections.tsx` chrome, or any a11y sweep of the wizard.
+
+**~~(b) [P2] Four 28x28 chrome targets.~~ ✅ SHIPPED 2026-08-08.** Seven targets, not four: the
+three step pills, the HelpSheet trigger, its close button (36x36 — found ONLY by the corpus pass),
+HelpTooltip, and the `AdminNav` brand link. Each keeps its OWN painted box and radius; only the hit
+box grows. The proposed `before:-inset-*` idiom is refuted above. Original text below for
+provenance.
+
+**(b) [P2] Four 28x28 chrome targets.** The three step-indicator pills ("Go back to step 1",
+"Go back to step 2", "Step 3, current step") and the page-header help trigger ("Help: Review and
+publish your sheets") are all `size-7` (28x28) with no hit expansion — verified by
+`document.elementFromPoint` at each element's centre returning a box no larger than the element.
+These CLEAR WCAG 2.5.8 (AA, 24px) but fail the project's own 44px floor and WCAG 2.5.5 (AAA).
+**Fix when prioritized:** the `before:absolute before:-inset-*` hit-expansion idiom, which keeps
+the 28px visual pill while giving it a 44px target. **Un-defer trigger:** same as (a), or the
+first report of a mis-tap on the step rail from a phone.
+
+**~~(c) [P2] Heading levels skip h1 → h3; the page renders no `<h2>` at all.~~ ✅ SHIPPED
+2026-08-08.** Both page-level `h3`s in `Step3Review.tsx` are promoted to `h2` (spec §2.3); the
+SHARED `step3ReviewSections.tsx:897` heading is deliberately untouched, because it renders inside
+the review modal and the show-review surface, each below its own dialog heading. Class strings are
+byte-identical, so the tag changed and the type scale did not. Original text below for provenance.
+
+**(c) [P2] Heading levels skip h1 → h3; the page renders no `<h2>` at all.** Probed live: the
+heading sequence is `1,3,3` at every viewport (320/390/768/1280) and `document.querySelectorAll("h2")`
+returns empty. WCAG 1.3.1 (Info and Relationships) — a screen-reader user tabbing the outline hears
+a level that was never opened. **Fix when prioritized:** demote the section headings to `h2` (they
+are the page's top-level sections) or introduce the missing `h2`. **Un-defer trigger:** any
+screen-reader pass on the wizard, or the next change to the Step-3 section headers.
+
+**~~(d) [P2] Three affordance vocabularies in one row slot; nested card chrome.~~ ✅ SHIPPED
+2026-08-10.** Five treatments, not three, and three nested-border sites, not one — the guard's own
+census is above. Original text below for provenance.
+
+**(d) [P2] Three affordance vocabularies in one row slot; nested card chrome.** Recorded in §12
+of the plan with the reasoning; both are design-consistency findings rather than standards
+violations, and both are pre-existing. **Un-defer trigger:** the next deliberate visual pass on
+the Step-3 row, where they should be resolved together rather than piecemeal.
+
+**Verified NOT findings (recorded so a future gate does not re-raise them):** the three
+`INPUT.peer.sr-only` checkboxes measure 1x1 but sit inside `<label>` wrappers of 44.0x44.0 and
+87.4x44.0 — the effective tap target meets the floor and the pattern is correct. The eight
+`broken-image` hits from `detect.mjs` (7 in `VenueMapTile.tsx`, 1 at `step3ReviewSections.tsx:3641`)
+are false positives: raw `<img>` with a required runtime `src` prop and an `onError` placeholder,
+a documented deliberate revert from `next/image` (which drops cookies), mirroring
+`components/diagrams/Gallery.tsx:130-144`.
+
 ### NEWTAB-A11Y-RESIDUE-1 — two P3s from the new-tab announcement dual gate — CLOSED 2026-08-08 (`fix/step3-a11y-cluster`, both items SHIPPED)
 
 **Resolution: FULLY resolved, both items.** Spec

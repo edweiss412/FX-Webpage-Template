@@ -34,6 +34,7 @@ import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { cn } from "@/lib/ui/cn";
+import { SECONDARY_ACTION_CLASS } from "@/lib/ui/actionClass";
 
 export type RescanSheetButtonProps = {
   driveFileId: string;
@@ -190,7 +191,10 @@ export function RescanSheetButton({
         onClick={() => void handleClick()}
         disabled={pending || disabled}
         aria-busy={pending}
-        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        // The shared secondary-action treatment (lib/ui/actionClass.ts). This
+        // button's own class was the value promoted into that constant, so the
+        // rendered treatment is unchanged here; `self-start` is placement.
+        className={cn(SECONDARY_ACTION_CLASS, "self-start")}
       >
         {pending ? "Re-scanning…" : "Re-scan this sheet"}
       </button>

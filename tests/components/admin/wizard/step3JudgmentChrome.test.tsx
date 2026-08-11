@@ -102,8 +102,15 @@ const WIZARD_DIR = join(process.cwd(), "components/admin/wizard");
 // chrome adds ZERO transition classes and ZERO AnimatePresence; this guard fails if
 // a later edit animates a status state (spec §7.4: all pairs instant).
 const PREEXISTING_TRANSITION_COUNTS: Record<string, number> = {
-  "Step3Review.tsx": 6,
-  "Step3SheetCard.tsx": 4,
+  // Was 6; four row-slot action buttons (Retry / Defer / Permanently ignore, and
+  // the manifest-keyed Ignore) collapsed onto the shared SECONDARY_ACTION_CLASS
+  // (STEP3-GALLERY-TAP-TARGETS-1 item d), taking their `transition-colors` with
+  // them. 2 literal + 1 in the appended constant = 3. The scan FOLLOWS the moved
+  // code, exactly as it does for ShowReviewSurface below.
+  "Step3Review.tsx": 3,
+  // Was 4; the View/Review trigger and the no-details Ignore collapsed onto the
+  // same constant. 2 literal + 1 appended = 3.
+  "Step3SheetCard.tsx": 3,
   // Was 5; the archived-tab offer cluster (ARCHIVED_TAB_BTN + ARCHIVED_TAB_GHOST_BTN,
   // each carrying `transition-colors duration-fast`) was extracted to
   // archivedTabOffer.tsx (spec 2026-07-17 §4.2), so 2 hover transitions moved there.
@@ -144,6 +151,13 @@ describe("§7.4 transition audit — 2a static guard (all pairs instant)", () =>
       // rail transitions plus Task 13's 2 extra-rail hover affordances, spec §9).
       // Other files are unaffected.
       let src = readFileSync(join(WIZARD_DIR, file), "utf8");
+      // Same follow-the-code rule for the shared secondary-action treatment: a
+      // file that consumes SECONDARY_ACTION_CLASS is scanned WITH it, so
+      // collapsing four hand-written button classes onto one constant cannot
+      // quietly buy slack in this count.
+      if (src.includes("SECONDARY_ACTION_CLASS")) {
+        src += `\n${readFileSync(join(process.cwd(), "lib/ui/actionClass.ts"), "utf8")}`;
+      }
       if (file === "Step3ReviewModal.tsx") {
         src += `\n${readFileSync(
           join(process.cwd(), "components/admin/review/ShowReviewSurface.tsx"),

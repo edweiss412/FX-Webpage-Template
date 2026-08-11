@@ -64,6 +64,7 @@ import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 import { stripNewTabSuffix } from "@/components/shared/NewTabHint";
 import { cn } from "@/lib/ui/cn";
+import { SECONDARY_ACTION_CLASS } from "@/lib/ui/actionClass";
 
 // Summary date rendering (§4.2): `dateSummarySegments` moved to
 // step3ReviewSections.tsx in Task 4 (imported above) so the review modal's
@@ -191,7 +192,11 @@ function RescanReviewBanner({ dfid }: { dfid: string }) {
   return (
     <div
       data-testid={`wizard-step3-card-${dfid}-rescan-review`}
-      className="flex items-start gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+      // No border: this note lives INSIDE the row's own bordered card, and a
+      // bordered box inside a bordered box is the nested chrome item (d) names.
+      // The warning tint carries it (DESIGN.md §1.2 — warm warning, paired with
+      // the icon, never colour alone).
+      className="flex items-start gap-2 rounded-md bg-warning-bg p-tile-pad text-warning-text"
     >
       <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
       <p className="text-sm font-medium">
@@ -463,7 +468,7 @@ export function Step3SheetCard({
               data-testid={`wizard-step3-card-${dfid}-no-details-ignore`}
               onClick={() => void ignoreResolve()}
               disabled={isPublishRunActive}
-              className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className={SECONDARY_ACTION_CLASS}
             >
               Ignore this sheet
             </button>
@@ -566,23 +571,20 @@ export function Step3SheetCard({
     </span>
   );
 
-  // The modal trigger — the SAME self-managed modal in every variant. "View" for
-  // a clean row (ghost), "Review" for a needs-a-look / demoted row (outline —
-  // NOT accent; the accent budget is the bar's Publish CTA + checked boxes).
+  // The modal trigger — the SAME self-managed modal in every variant, and now
+  // the SAME treatment too (STEP3-GALLERY-TAP-TARGETS-1 item d). "View" used to
+  // be a bare-text ghost in `text-text-subtle`, which DESIGN.md §1.1 documents as
+  // "Never used for action targets", and which put two vocabularies side by side
+  // in one row slot. The label still carries the difference between a clean row
+  // and a needs-a-look one; the chrome no longer does. Neither is accent — that
+  // budget is the bar's Publish CTA + the checked boxes.
   const triggerButton = (label: "View" | "Review") => (
     <button
       type="button"
       data-testid={`wizard-step3-card-${dfid}-more`}
       aria-haspopup="dialog"
       onClick={() => setDetailsOpen(true)}
-      className={cn(
-        "inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
-        // Review = outline + strong text (the primary needs-a-look action); View =
-        // subtler ghost (a clean row needs no urging), so the two read distinctly.
-        label === "Review"
-          ? "border border-border-strong text-text-strong"
-          : "text-text-subtle hover:text-text-strong",
-      )}
+      className={cn(SECONDARY_ACTION_CLASS, "shrink-0")}
     >
       {label}
     </button>
