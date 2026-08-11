@@ -3185,11 +3185,24 @@ export function __resetAgendaThrottleForTests(): void {
   agendaSlotWaiters.length = 0;
 }
 
-/** Retry-After is delta-seconds (the endpoint sends "10"); fall back to 5s. */
+/**
+ * How long to wait when the server asks us to retry but does not say how long.
+ *
+ * NAMED because it is ours, not the server's. It was an inline `5_000` behind a
+ * function whose §5.5 disposition claimed the delay was "dictated by the SERVER's
+ * Retry-After header" — true only when that header arrives and parses. A missing
+ * or malformed header lands here, on a number this project chose, and the
+ * disposition was suppressing it under a reason that did not cover it
+ * (whole-diff review, brief C). Naming it puts it in the derived inventory,
+ * where a timing anyone can tune belongs.
+ */
+const AGENDA_RETRY_FALLBACK_MS = 5_000;
+
+/** Retry-After is delta-seconds (the endpoint sends "10"); fall back to ours. */
 function parseRetryAfterMs(header: string | null): number {
-  if (!header) return 5_000;
+  if (!header) return AGENDA_RETRY_FALLBACK_MS;
   const secs = Number.parseInt(header, 10);
-  return Number.isFinite(secs) && secs >= 0 ? secs * 1_000 : 5_000;
+  return Number.isFinite(secs) && secs >= 0 ? secs * 1_000 : AGENDA_RETRY_FALLBACK_MS;
 }
 
 /** An abortable delay; resolves immediately if already aborted. */

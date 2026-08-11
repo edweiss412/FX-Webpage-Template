@@ -141,6 +141,20 @@ export function scanZIndexSites(source: string, filePath: string): ZSite[] {
   const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const sites: ZSite[] = [];
 
+  // Numeric bindings in this file, so `const Z = 100; style={{ zIndex: Z }}`
+  // resolves (r6 F3: "a bound value is not unwrapped"). One hop, same file —
+  // enough for the ordinary idiom, and it stops there rather than chasing an
+  // import graph, which is the documented limit stated in the header.
+  const numericBindings = new Map<string, string>();
+  const collectBindings = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const v = unwrapNumeric(node.initializer);
+      if (v !== null) numericBindings.set(node.name.text, v);
+    }
+    ts.forEachChild(node, collectBindings);
+  };
+  collectBindings(sf);
+
   const pushUtilities = (text: string, node: ts.Node): void => {
     for (const m of text.matchAll(NUMERIC_Z_UTILITY)) {
       sites.push({
@@ -176,7 +190,13 @@ export function scanZIndexSites(source: string, filePath: string): ZSite[] {
       const text = staticClassText(node.initializer);
       if (text) pushUtilities(text, node);
     }
-    // Idiom 2: inline style objects with numeric zIndex.
+    // Idiom 2: inline style objects with numeric zIndex — reached wherever the
+    // object literal is WRITTEN, not only where it is spread into `style=`.
+    // r6 F3 named `style={EYEBROW_STYLE}` (step3ReviewSections.tsx) as an idiom
+    // already in the tree: the property assignment lives in a module const, so a
+    // visitor that only looked inside a `style` attribute saw nothing. Visiting
+    // every PropertyAssignment named zIndex covers both, because the property is
+    // the thing that reaches the DOM regardless of how it gets there.
     if (
       ts.isPropertyAssignment(node) &&
       ((ts.isIdentifier(node.name) && node.name.text === "zIndex") ||
@@ -185,7 +205,11 @@ export function scanZIndexSites(source: string, filePath: string): ZSite[] {
         (ts.isStringLiteralLike(node.name) &&
           (node.name.text === "zIndex" || node.name.text === "z-index")))
     ) {
-      const value = unwrapNumeric(node.initializer);
+      const value =
+        unwrapNumeric(node.initializer) ??
+        (ts.isIdentifier(node.initializer)
+          ? (numericBindings.get(node.initializer.text) ?? null)
+          : null);
       if (value !== null) {
         sites.push({
           file: filePath,

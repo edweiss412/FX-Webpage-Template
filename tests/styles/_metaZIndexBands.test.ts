@@ -60,7 +60,7 @@ const BAND_TOKENS: Record<string, number> = {
 
 function liveSites(): ZSite[] {
   const sites: ZSite[] = [];
-  for (const file of walkSourceFiles(["app", "components"], { extensions: [".tsx"] })) {
+  for (const file of walkSourceFiles(["app", "components"], { extensions: [".tsx", ".ts"] })) {
     if (file.startsWith("app/api/")) continue;
     sites.push(...scanZIndexSites(readFileSync(file, "utf8"), file));
   }
@@ -243,7 +243,16 @@ describe("semantic z-index bands (dual idiom, filesystem-walked)", () => {
         }
         value = resolved;
       }
-      if (value === "auto") return;
+      // r6 F2: `if (value === "auto") return` admitted `z-auto` AND every variant
+      // and arbitrary form that resolves to auto, with no band and no exemption.
+      // `auto` is a legitimate reset, but it has to be NAMED as one.
+      if (value === "auto") {
+        const autoUtility = utilityOf(selector);
+        if (autoUtility !== "z-auto" && !HANDWRITTEN_Z_RULES.some((r) => r.selector === selector)) {
+          offenders.push(`${selector}: resolves to auto through ${autoUtility ?? "no z- utility"}`);
+        }
+        return;
+      }
       // r3 F4: a bare integer, not a numeric PREFIX — `50px` is not 50.
       if (!/^-?\d+$/.test(value)) {
         offenders.push(`${selector}: z-index ${value} is not an integer`);
@@ -269,6 +278,16 @@ describe("semantic z-index bands (dual idiom, filesystem-walked)", () => {
         }
       } else if (!(utility in BAND_TOKENS)) {
         offenders.push(`${selector}: stacks by numeral (${utility}), not by band name`);
+      } else if (BAND_TOKENS[utility] !== Number(value)) {
+        // r6 F1, and the sharpest hole this guard has had: the value check and
+        // the name check were INDEPENDENT. "50 is some band's value" and
+        // "z-overlay is some band's name" were both true after retuning
+        // `--z-index-overlay` to 40, so every overlay in the app silently moved a
+        // band while the guard stayed green. The mapping is the whole contract;
+        // assert the CORRESPONDENCE, not the two memberships.
+        offenders.push(
+          `${selector}: ${utility} compiles to ${value}, but the band is ${BAND_TOKENS[utility]}`,
+        );
       }
     });
 

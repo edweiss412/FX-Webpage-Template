@@ -39,10 +39,13 @@ const DESIGN_MD = readFileSync(join(REPO_ROOT, "DESIGN.md"), "utf8");
  * cannot find fails") true only for rows written one particular way, and a stale
  * row spelled any other way would have sat there unread (brief C r1 F2).
  *
- * Backticks are optional and stripped; the header and its `---` separator are
- * rejected by the numeric cell.
+ * Backticks are optional and stripped, and the OUTER pipes are optional too —
+ * GFM permits omitting either or both, and all three of those spellings render
+ * as table rows while the first two versions of this pattern skipped them
+ * (brief C r1 F2, then again on the confirming round). The header and its
+ * `---` separator are rejected by the numeric cell.
  */
-const ROW = /^\s*\|([^|]+)\|([^|]+)\|([^|]+)\|\s*$/;
+const ROW = /^\s*\|?([^|]+)\|([^|]+)\|([^|]+)\|?\s*$/;
 const cell = (raw: string): string => raw.trim().replace(/^`([^`]*)`$/, "$1").trim();
 
 function inventorySection(): string {

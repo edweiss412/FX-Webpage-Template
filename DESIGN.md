@@ -360,6 +360,7 @@ realtime reconnect backoff.
 | `COPY_FEEDBACK_RESET_MS` | 2200 | `components/admin/wizard/Step1Share.tsx` |
 | `WARNING_HIGHLIGHT_MS` | 1600 | `components/admin/wizard/Step3ReviewModal.tsx` |
 | `timer(5000)` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
+| `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
 | `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |

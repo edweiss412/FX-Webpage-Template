@@ -127,9 +127,12 @@ export const UNCLASSIFIED_DISPOSITIONS: readonly {
     file: "components/admin/wizard/step3ReviewSections.tsx",
     name: "ms",
     reason:
-      "`agendaSleep(parseRetryAfterMs(res.headers.get('Retry-After')), …)` — the delay is dictated " +
-      "by the SERVER's Retry-After header, so there is no design timing to pin. Changing it is a " +
-      "protocol decision, not a motion one.",
+      "`agendaSleep(parseRetryAfterMs(res.headers.get('Retry-After')), …)`. When the header arrives " +
+      "and parses, the delay is the SERVER's and there is no design timing to pin — changing it is a " +
+      "protocol decision, not a motion one. When it does not, the value is AGENDA_RETRY_FALLBACK_MS, " +
+      "which is ours and carries its own inventory row. The first version of this reason claimed the " +
+      "server dictated BOTH paths and so suppressed a timing this project chooses (whole-diff review, " +
+      "brief C).",
   },
   {
     file: "components/realtime/ShowRealtimeBridge.tsx",
