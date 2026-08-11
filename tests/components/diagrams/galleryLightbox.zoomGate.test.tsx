@@ -473,6 +473,138 @@ describe("GalleryLightbox — per-slide isolation and session persistence (AC-1)
   });
 });
 
+describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying the view", () => {
+  // The zoom gate creates a failure mode that did not exist before it: the
+  // original is now fetched BECAUSE the user pinched, so on venue wifi their own
+  // gesture can turn a painted, readable 1024px view into "Image unavailable".
+  // Impeccable critique P0 (2026-08-11). The repair is the project's preferred
+  // shape for this class: demote conservatively and surface a signal, never
+  // silently discard working output.
+  test("a zoom-triggered original failure keeps the image and falls back to the clamped tier", () => {
+    const fixture = item(1);
+    const { container } = open([fixture, item(2)]);
+    emitScale(2.4);
+    premiseHolds(
+      "the gesture pinned the original, so the failure under test is the zoom-triggered one",
+      activeLoaderUrls(container).has(originalUrlOf(fixture)),
+    );
+
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    // Still an image, NOT the unavailable placeholder.
+    expect(container.querySelector('[data-testid="rzpp-component"]')).not.toBeNull();
+    expect(activeLoaderUrls(container)).toEqual(new Set([topTierUrlOf(fixture)]));
+  });
+
+  test("the demote is announced through the dialog channel, in plain language", () => {
+    // The channel's STATE lives in the Gallery (it must stay appendable while
+    // this dialog is mid-exit), so the lightbox's half of the contract is the
+    // outbound call. `gallery.failedItem.test.tsx` asserts the rendered end.
+    const spoken: string[] = [];
+    const fixture = item(1);
+    const { container } = render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[fixture, item(2)]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={(message) => spoken.push(message)}
+      />,
+    );
+    premiseHolds("nothing is announced before the failure", spoken.length === 0);
+    emitScale(2.4);
+
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    expect(spoken).toEqual([
+      `${fixture.alt}: full detail could not be loaded. Showing a less detailed view.`,
+    ]);
+    // No error code, no jargon (project invariant 5).
+    expect(spoken[0]).not.toMatch(/[0-9]{3}|error|failed to fetch/i);
+  });
+
+  test("a demoted slide is NEVER re-pinned, however much the user keeps zooming", () => {
+    // Without this the demote is a fetch loop: the library keeps publishing a
+    // scale above the commitment bound, intent re-fires, the original 404s
+    // again, and the slide flickers for as long as the gesture lasts.
+    const fixture = item(1);
+    const { container } = open([fixture, item(2)]);
+    emitScale(2.4);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+    premiseHolds(
+      "the slide really demoted before the re-zoom under test",
+      !activeLoaderUrls(container).has(originalUrlOf(fixture)),
+    );
+
+    emitScale(3.2);
+    emitScale(3.9);
+
+    expect(activeLoaderUrls(container)).toEqual(new Set([topTierUrlOf(fixture)]));
+  });
+
+  test("a slide that never painted demotes too — the clamped tier is a different object", () => {
+    // The condition is the requested TIER, not a painted bitmap. A user who
+    // pinches the instant the lightbox opens has nothing on screen yet, and
+    // retrying at a tier two orders of magnitude smaller beats a placeholder.
+    const fixture = item(1);
+    const { container } = open([fixture, item(2)]);
+    emitScale(2.4);
+
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    expect(container.querySelector('[data-testid="rzpp-component"]')).not.toBeNull();
+    expect(activeLoaderUrls(container)).toEqual(new Set([topTierUrlOf(fixture)]));
+  });
+
+  test("a SECOND failure after the demote does reach the placeholder", () => {
+    // One fallback, not an endless one: once the clamped tier has failed too,
+    // there is nothing left to serve and the placeholder is the honest answer.
+    const fixture = item(1);
+    const { container } = open([fixture, item(2)]);
+    emitScale(2.4);
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+    premiseHolds(
+      "the slide survived the first failure, or the second one proves nothing",
+      container.querySelector('[data-testid="rzpp-component"]') !== null,
+    );
+
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
+    expect(container.textContent).toContain("Image unavailable");
+  });
+
+  test("a failure with NO zoom intent still falls back to the placeholder even after painting", () => {
+    // Demotion is specific to the tier the gesture asked for. A clamped-tier
+    // failure has no lower tier to fall back to.
+    const fixture = item(1);
+    const { container } = open([fixture, item(2)]);
+    act(() => {
+      fireEvent.load(activeImage(container));
+    });
+
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
+    expect(container.textContent).toContain("Image unavailable");
+  });
+});
+
 describe("GalleryLightbox — variant-less entries are untouched (AC-2)", () => {
   test.each([
     ["an empty ladder", [] as GalleryItem["variants"]],

@@ -1292,3 +1292,59 @@ docblock states the gap rather than papering over it.
 **Deferral exception: (c)** — a redesign of the guard's oracle spanning the whole crosswalk corpus, on a surface this PR does not otherwise touch. W-UI shipped the half that is closable without it.
 
 **Status:** OPEN
+
+## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown
+
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
+
+The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
+back to the clamped tier rather than showing "Image unavailable"
+(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
+The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
+nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
+again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
+backwards from the usual one.
+
+**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
+`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
+keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
+entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
+shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
+the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
+(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
+up first — one decision covers both.
+
+## BL-DIAGRAMS-ANNOUNCE-CHANNEL-TTL — two crew announce channels ship without the pruning their own module prescribes
+
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, audit half) · **Severity:** low · **Class:** A11Y · **Effort:** XS
+
+`components/diagrams/Gallery.tsx` calls `useAnnounceLog()` twice with no `ttlMs`. The gallery
+channel's region lives for the whole page session, so N thumbnail failures leave N permanent
+`sr-only` sentences that a top-down screen-reader read recites before reaching the grid — the exact
+accumulation `components/admin/announceLog.tsx:31-51` documents and measures for the admin channel
+(12 undos = 12 sibling nodes / 686 chars). The dialog channel is bounded by
+`resetDialogChannel()` on `onExitComplete`, but a close CANCELLED by a re-open inside the 220 ms
+window retains the dialog instance and its log, so that session opens pre-populated.
+
+**Reachability:** PROBED by reading — `ANNOUNCE_LOG_TTL_MS` exists and is exported for exactly this
+case, and neither call site passes it. Not repaired in-branch because the module's own doc weighs a
+strand hazard against accumulation and settles it per channel, and settling it for two NEW channels
+belongs with a look at whether the crew page should share the admin provider at all rather than
+carry two of its own.
+
+## BL-LIGHTBOX-INACTIVE-SLIDES-IN-A11Y-TREE — every carousel slide is exposed, with no current marker
+
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, audit half) · **Severity:** low · **Class:** A11Y · **Effort:** XS
+
+Embla keeps all slides mounted, and `components/diagrams/GalleryLightbox.tsx` marks none of them
+`aria-hidden`. A gallery of twelve diagrams therefore presents twelve images and twelve `sr-only`
+figcaptions to assistive technology with nothing saying which one is on screen; the visible
+"N of M" indicator is the only current-slide signal and it is not associated with the slides.
+The same shape is why arriving on a slide that failed while inactive is silent: nothing announces
+the active-slide transition.
+
+**Reachability:** PROBED by reading the rendered tree in
+`tests/components/diagrams/GalleryLightbox.test.tsx`, which queries inactive slides by DOM rather
+than by role precisely because they are all present. `aria-hidden={!isActive}` is a one-attribute
+change, deferred only because it moves several existing role-based queries and belongs with the
+current-slide announcement decision rather than ahead of it.

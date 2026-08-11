@@ -873,7 +873,20 @@ describe("M9 C6c — image error while zoomed (Codex R2 HIGH regression)", () =>
     expect(screen.queryByTestId("lightbox-reset-chip")).not.toBeNull();
     const activeImg = screen.getAllByRole("img")[0];
     expect(activeImg).toBeDefined();
+    // TWO failures, not one. Since the zoom gate
+    // (docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md §4.1) a
+    // zoomed slide's FIRST error is the zoom-triggered ORIGINAL failing, which
+    // demotes to the clamped tier with the image — and the whole zoom chrome —
+    // still on screen; resetting it there would yank the user out of a gesture
+    // they are still in. The chrome-recovery contract this case owns belongs to
+    // the failure that really does unmount the wrapper: the clamped tier failing
+    // after the demote.
     fireEvent.error(activeImg!);
+    expect(
+      screen.queryByTestId("lightbox-reset-chip"),
+      "the demote must NOT tear down the chrome — the image is still there",
+    ).not.toBeNull();
+    fireEvent.error(screen.getAllByRole("img")[0]!);
     // resetTransform must still be invoked on the about-to-unmount
     // wrapper (for library-state hygiene) AND the local
     // setActiveScale(1) must drop the lifted chrome state — that's
@@ -899,8 +912,12 @@ describe("M9 C6c — image error while zoomed (Codex R2 HIGH regression)", () =>
     chip.focus();
     expect(document.activeElement).toBe(chip);
     const closeButton = screen.getByRole("button", { name: /close gallery/i });
-    const activeImg = screen.getAllByRole("img")[0];
-    fireEvent.error(activeImg!);
+    // The first error is the zoom-gated ORIGINAL failing, which demotes rather
+    // than unmounting (§4.1) — so focus must NOT move, the user is still
+    // looking at the image. The relocation contract belongs to the second.
+    fireEvent.error(screen.getAllByRole("img")[0]!);
+    expect(document.activeElement, "a demote must not steal focus mid-gesture").toBe(chip);
+    fireEvent.error(screen.getAllByRole("img")[0]!);
     // Focus must move to close button before chip unmounts.
     expect(document.activeElement).toBe(closeButton);
   });

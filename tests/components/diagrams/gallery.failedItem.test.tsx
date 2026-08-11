@@ -132,8 +132,20 @@ vi.mock("framer-motion", async () => {
   return { motion, AnimatePresence };
 });
 
+/** The mocked zoom library's scale channel, so a lightbox demote is drivable. */
+const zoom = vi.hoisted(() => {
+  const listeners: Array<(snap: { state: { scale: number } }) => void> = [];
+  return {
+    listeners,
+    emit(scale: number) {
+      for (const cb of [...listeners]) cb({ state: { scale } });
+    },
+  };
+});
+
 // The zoom library is mocked to plain boxes: this file is about focus and
-// announcements, not gestures.
+// announcements, not gestures. The one thing it must model is the scale channel,
+// because zoom intent is what turns a lightbox image error into a DEMOTE.
 vi.mock("react-zoom-pan-pinch", async () => {
   const React = await import("react");
   return {
@@ -141,10 +153,22 @@ vi.mock("react-zoom-pan-pinch", async () => {
       React.createElement("div", { "data-testid": "rzpp-wrapper" }, children),
     TransformComponent: ({ children }: { children?: ReactNode }) =>
       React.createElement("div", { "data-testid": "rzpp-component" }, children),
-    useTransformEffect: () => {},
+    useTransformEffect: (cb: (snap: { state: { scale: number } }) => void) => {
+      React.useEffect(() => {
+        zoom.listeners.push(cb);
+        return () => {
+          const i = zoom.listeners.indexOf(cb);
+          if (i >= 0) zoom.listeners.splice(i, 1);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+    },
+    // The controls PUBLISH through the same scale channel, as the real library
+    // does — otherwise a keyboard de-zoom leaves the lifted scale untouched and
+    // the chip never unmounts, so the case under test never happens.
     useControls: () => ({
-      resetTransform: () => {},
-      centerView: () => {},
+      resetTransform: () => zoom.emit(1),
+      centerView: (scale: number) => zoom.emit(scale),
       setTransform: () => {},
       zoomIn: () => {},
       zoomOut: () => {},
@@ -154,9 +178,12 @@ vi.mock("react-zoom-pan-pinch", async () => {
 
 vi.mock("embla-carousel-react", async () => {
   const React = await import("react");
-  function useEmblaCarouselMock() {
+  // `startIndex` is HONOURED. A mock that always starts at 0 desynchronises from
+  // the component's own `activeIndex` state, and every bound-related assertion
+  // then measures the mock's drift rather than the component.
+  function useEmblaCarouselMock(options?: { startIndex?: number }) {
     const listeners = React.useRef(new Map<string, Set<() => void>>());
-    const selected = React.useRef(0);
+    const selected = React.useRef(options?.startIndex ?? 0);
     const api = React.useMemo(
       () => ({
         selectedScrollSnap: () => selected.current,
@@ -271,6 +298,7 @@ function failThumb(slot: number): void {
 beforeEach(() => {
   presence.flush = null;
   presence.exiting = false;
+  zoom.listeners.length = 0;
 });
 
 afterEach(() => cleanup());
@@ -441,6 +469,33 @@ describe("Gallery — focus relocation on failure (AC-3)", () => {
     expect(document.activeElement).not.toBe(document.body);
   });
 
+  test("SAME-TICK: focus never relocates onto a sibling that is failing too", () => {
+    // `isConnected` reports current attachment, not pending removal. Two images
+    // erroring in one tick (one dropped request per tile on venue wifi) would
+    // otherwise send focus to a button that unmounts a moment later — landing on
+    // `<body>` inside a gallery full of working thumbnails.
+    open([item(1), item(2), item(3)]);
+    const survivor = thumbButton(2);
+    act(() => thumbButton(0).focus());
+
+    const first = thumbImage(0);
+    const second = thumbImage(1);
+    act(() => {
+      // Raw dispatch, not fireEvent: fireEvent wraps each call in its own act,
+      // which commits between them and defeats the batching under test.
+      first.dispatchEvent(new Event("error"));
+      second.dispatchEvent(new Event("error"));
+    });
+    premiseHolds(
+      "both thumbnails really failed, or this is a single-failure case in disguise",
+      screen.getByTestId("diagram-slot-0").hasAttribute("data-unavailable") &&
+        screen.getByTestId("diagram-slot-1").hasAttribute("data-unavailable"),
+    );
+
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(survivor);
+  });
+
   test("a failure of a thumbnail that did NOT hold focus relocates nothing", () => {
     open([item(1), item(2), item(3)]);
     const held = thumbButton(2);
@@ -449,6 +504,136 @@ describe("Gallery — focus relocation on failure (AC-3)", () => {
     failThumb(0);
 
     expect(document.activeElement).toBe(held);
+  });
+});
+
+describe("Gallery — the last-resort focus target is a real destination", () => {
+  test("the list keeps LIST SEMANTICS despite the reset that strips them", () => {
+    // Tailwind's preflight sets `list-style: none`, and Safari/VoiceOver drop
+    // list semantics from a `<ul>` styled that way — so a container that focus
+    // is deliberately relocated to would be announced as a generic group,
+    // without the item count that makes it a useful place to land.
+    open([item(1)]);
+    const list = screen.getByRole("list", { name: /diagrams gallery thumbnails/i });
+
+    expect(list.getAttribute("role")).toBe("list");
+    expect(list.getAttribute("aria-label")).toBe("Diagrams gallery thumbnails");
+  });
+
+  test("the list shows a focus indicator when focus is relocated to it", () => {
+    // `focus:outline-none` with no replacement is a silent relocation: a sighted
+    // keyboard user's focus moves and nothing on screen says where. `:focus`,
+    // not `:focus-visible` — this element is ONLY ever focused programmatically.
+    open([item(1)]);
+    const list = screen.getByRole("list", { name: /diagrams gallery thumbnails/i });
+
+    expect(list.className).toContain("focus:ring-2");
+    expect(list.className).toContain("focus:ring-focus-ring");
+  });
+});
+
+describe("Gallery — no failure is announced into a channel nobody can hear", () => {
+  test("REOPENING: the dialog region is MOUNTED EMPTY, then mutated — not born full", () => {
+    // `role="log"` presents ADDITIONS WITHIN a live region. A region node that
+    // is inserted already containing its message is not an addition within
+    // anything, so assistive technology may never speak it — the rule
+    // DESIGN.md:479 states and the whole reason these regions are branch-stable.
+    // The re-open path is where it is easy to break: the dialog mounts and the
+    // buffer flushes in one click handler, so a flush done there renders the
+    // region with its child already in place. Asserting the final DOM cannot see
+    // that; only the mutation sequence can.
+    open([item(1), item(2), item(3)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /close gallery/i }));
+    });
+    premiseHolds("the exit window is open", presence.exiting);
+    failThumb(1);
+    premiseHolds(
+      "the message really is buffered, or the mutation sequence proves nothing",
+      entriesOf(screen.getByTestId(GALLERY_LOG)).length === 0 &&
+        screen.queryAllByTestId(LIGHTBOX_LOG).every((r) => entriesOf(r).length === 0),
+    );
+
+    const regionBefore = screen.getByTestId(LIGHTBOX_LOG);
+    /** Region nodes and entry nodes added during the re-open, in commit order. */
+    const arrivals: Array<{ kind: "region" | "entry"; intoLiveRegion: boolean }> = [];
+    const record = (records: MutationRecord[]): void => {
+      for (const mutation of records) {
+        for (const node of mutation.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          if (node.dataset.testid === LIGHTBOX_LOG) {
+            arrivals.push({ kind: "region", intoLiveRegion: false });
+          } else if (node.hasAttribute("data-announce-id")) {
+            arrivals.push({ kind: "entry", intoLiveRegion: mutation.target === regionBefore });
+          }
+        }
+      }
+    };
+    const observer = new MutationObserver(record);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    act(() => {
+      fireEvent.click(thumbButton(2));
+    });
+    // Drained SYNCHRONOUSLY: the observer callback is a microtask, so a test
+    // that only waits for `act` to return sees an empty log and would pass
+    // whatever the DOM did.
+    record(observer.takeRecords());
+    observer.disconnect();
+    premise("the re-open produced observable DOM mutations at all", arrivals.length, 0);
+
+    // A flush inside the click handler renders the region WITH its child, so the
+    // entry's arrival is not a mutation of anything an AT was already watching.
+    expect(arrivals.map((a) => a.kind)).toEqual(["entry"]);
+    expect(
+      arrivals[0]!.intoLiveRegion,
+      "the entry must be appended to the region node that was already live",
+    ).toBe(true);
+    expect(screen.getByTestId(LIGHTBOX_LOG)).toBe(regionBefore);
+  });
+
+  test("REOPENING inside the exit window does not strand the buffered message", () => {
+    // `onExitComplete` never fires when a re-entry cancels the exit, so a buffer
+    // flushed only from there is lost for the rest of the session — and AC-3
+    // says EVERY failure announces.
+    open([item(1), item(2), item(3)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /close gallery/i }));
+    });
+    premiseHolds("the exit window is open", presence.exiting);
+
+    failThumb(1); // buffered
+
+    // Re-open before the exit completes: the dialog is live again.
+    act(() => {
+      fireEvent.click(thumbButton(2));
+    });
+
+    const lightboxRegion = screen.getByTestId(LIGHTBOX_LOG);
+    expect(entriesOf(lightboxRegion)).toEqual(["Plot 2 could not be loaded."]);
+    expect(entriesOf(screen.getByTestId(GALLERY_LOG))).toEqual([]);
+  });
+
+  test("a failure racing the dialog's channel publication is buffered, not dropped", () => {
+    // The lightbox publishes its `announce` from an effect. A message routed to
+    // the open state before that effect has run would hit a null ref and vanish;
+    // it belongs in the buffer instead, which the publication then drains.
+    open([item(1), item(2), item(3)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    const lightboxRegion = screen.getByTestId(LIGHTBOX_LOG);
+    premiseHolds("the dialog channel is live for this control case", entriesOf(lightboxRegion).length === 0);
+
+    failThumb(1);
+
+    expect(entriesOf(lightboxRegion)).toEqual(["Plot 2 could not be loaded."]);
   });
 });
 
@@ -512,6 +697,241 @@ describe("Gallery — failures while the lightbox is OPEN route to its own chann
 
     expect(document.activeElement).not.toBe(document.body);
     expect(document.activeElement).toBe(c);
+  });
+});
+
+describe("Gallery — each lightbox session starts with a clean dialog channel", () => {
+  test("a failure from a PREVIOUS session is not replayed into the next dialog", () => {
+    // The dialog channel's state lives in the Gallery so it survives the dialog.
+    // Unpruned, re-opening mounts a region pre-loaded with the whole session's
+    // history — dead text between the header and the image for a screen-reader
+    // user reading top-down, and a replay for any AT that reads an inserted
+    // live region (announceLog.tsx documents exactly this for the admin channel).
+    open([item(1), item(2), item(3)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    failThumb(1);
+    premiseHolds(
+      "the first session really announced, or the replay claim is vacuous",
+      entriesOf(screen.getByTestId(LIGHTBOX_LOG)).length === 1,
+    );
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /close gallery/i }));
+    });
+    act(() => presence.flush?.());
+    act(() => {
+      fireEvent.click(thumbButton(2));
+    });
+
+    expect(entriesOf(screen.getByTestId(LIGHTBOX_LOG))).toEqual([]);
+  });
+});
+
+describe("Gallery — the dialog's own failure reaches the dialog's own region", () => {
+  test("a demoted original is spoken in the region rendered INSIDE the dialog", () => {
+    // The end-to-end of the split channel: the lightbox generates this message,
+    // the Gallery owns the channel state, and the region lives in the dialog. A
+    // missing `onAnnounce` prop is invisible to either half on its own.
+    open([item(1), item(2)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    const dialog = screen.getByTestId("diagrams-lightbox");
+    const region = screen.getByTestId(LIGHTBOX_LOG);
+    premiseHolds("the region is inside the dialog and empty", dialog.contains(region) && entriesOf(region).length === 0);
+
+    // Zoom intent, then the original fails: the demote path.
+    act(() => zoom.emit(2.4));
+    const activeImage = dialog
+      .querySelector('[data-testid="rzpp-component"]')!
+      .querySelector("img")!;
+    premiseHolds("the active slide is still an image (not the placeholder)", activeImage.isConnected);
+    act(() => {
+      fireEvent.error(activeImage);
+    });
+
+    expect(entriesOf(region)).toEqual([
+      "Plot 1: full detail could not be loaded. Showing a less detailed view.",
+    ]);
+    expect(entriesOf(screen.getByTestId(GALLERY_LOG))).toEqual([]);
+  });
+});
+
+describe("Gallery — the lightbox announces the failure that DESTROYS, not only the one that degrades", () => {
+  test("an active slide that goes unavailable is announced by name", () => {
+    // The demote (degrade) spoke and the destroy did not, which is exactly
+    // backwards: a screen-reader user heard about the recoverable case and got
+    // silence plus a focus jump to "Close gallery" for the unrecoverable one.
+    open([item(1), item(2)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    const dialog = screen.getByTestId("diagrams-lightbox");
+    const region = screen.getByTestId(LIGHTBOX_LOG);
+    const activeImage = dialog
+      .querySelector('[data-testid="rzpp-component"]')!
+      .querySelector("img")!;
+    premiseHolds("no zoom intent, so this failure destroys rather than demotes", entriesOf(region).length === 0);
+
+    act(() => {
+      fireEvent.error(activeImage);
+    });
+
+    premiseHolds(
+      "the slide really was destroyed, or this is the demote case in disguise",
+      dialog.textContent!.includes("Image unavailable"),
+    );
+    expect(entriesOf(screen.getByTestId(LIGHTBOX_LOG))).toEqual(["Plot 1 could not be loaded."]);
+  });
+
+  test("an INACTIVE slide going unavailable stays SILENT — the user is not looking at it", () => {
+    // Embla keeps every slide mounted, so a lightbox with 12 diagrams would
+    // otherwise narrate failures of images the user has not swiped to. The
+    // gallery already announces when the corresponding THUMBNAIL fails, which is
+    // the moment that concerns a browsing user.
+    open([item(1), item(2)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    const dialog = screen.getByTestId("diagrams-lightbox");
+    const zoom = dialog.querySelector('[data-testid="rzpp-component"]')!;
+    const inactive = [...dialog.querySelectorAll("img")].find((img) => !zoom.contains(img))!;
+    premiseHolds("an inactive slide rendered to fail", inactive !== undefined);
+
+    act(() => {
+      fireEvent.error(inactive);
+    });
+
+    expect(entriesOf(screen.getByTestId(LIGHTBOX_LOG))).toEqual([]);
+  });
+});
+
+describe("Gallery — a lightbox failure inside the exit window is not lost", () => {
+  test("it buffers and is delivered, exactly like a thumbnail failure", () => {
+    // `onAnnounce` is a PROP, and AnimatePresence freezes the exiting child's
+    // props — so a router that reads `lightboxIndex` from its render closure is
+    // stale-true inside the window and appends to a frozen region that never
+    // renders, which `resetDialogChannel` then wipes. Probed on the installed
+    // Framer Motion: the message simply disappears.
+    open([item(1), item(2), item(3)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    const dialog = screen.getByTestId("diagrams-lightbox");
+    const activeImage = dialog
+      .querySelector('[data-testid="rzpp-component"]')!
+      .querySelector("img")!;
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /close gallery/i }));
+    });
+    premiseHolds("the exit window is open", presence.exiting);
+    premiseHolds("the slide is still mounted and can still fail", activeImage.isConnected);
+
+    act(() => {
+      fireEvent.error(activeImage);
+    });
+    expect(entriesOf(screen.getByTestId(GALLERY_LOG)), "buffered, not spoken yet").toEqual([]);
+
+    act(() => presence.flush?.());
+
+    expect(entriesOf(screen.getByTestId(GALLERY_LOG))).toEqual(["Plot 1 could not be loaded."]);
+  });
+});
+
+describe("Gallery — de-zooming by keyboard never strands focus on the Reset chip", () => {
+  test("pressing 0 while the chip holds focus lands focus on Close, inside the dialog", () => {
+    // The chip is Tab-reachable and unmounts the moment scale returns to 1. Its
+    // own onClick relocates first — proof the hazard was known — but `0`, `-`
+    // and a pinch-out all unmount it with focus still on it, dropping focus to
+    // `<body>`: outside the `aria-modal` dialog, where the non-Escape keymap
+    // gate stops responding and the Tab trap never fires again.
+    open([item(1), item(2)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    act(() => zoom.emit(2.5));
+    const chip = screen.getByTestId("lightbox-reset-chip");
+    act(() => chip.focus());
+    premiseHolds("the chip exists and holds focus before the de-zoom", document.activeElement === chip);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "0" });
+    });
+
+    premiseHolds(
+      "the de-zoom really unmounted the chip, or the case is not exercised",
+      screen.queryByTestId("lightbox-reset-chip") === null,
+    );
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /close gallery/i }));
+  });
+
+  test("de-zooming while focus is elsewhere in the dialog does not steal it", () => {
+    open([item(1), item(2)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    act(() => zoom.emit(2.5));
+    const next = screen.getByRole("button", { name: /next diagram/i });
+    act(() => next.focus());
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "0" });
+    });
+
+    expect(document.activeElement).toBe(next);
+  });
+});
+
+describe("Gallery — navigating to a bound never drops focus out of the dialog", () => {
+  test("activating a chevron that is about to be DISABLED hands focus to its opposite", () => {
+    // A disabled button is blurred by the browser, and focus lands on `<body>` —
+    // outside the `aria-modal` dialog. Everything keyed off "focus is inside the
+    // dialog" then dead-ends: the non-Escape keymap stops responding and the Tab
+    // trap (a listener on the dialog node) never sees another keydown, so Tab
+    // walks out of the modal entirely.
+    open([item(1), item(2), item(3)]);
+    act(() => {
+      fireEvent.click(thumbButton(1));
+    });
+    const previous = screen.getByRole("button", { name: /previous diagram/i });
+    const next = screen.getByRole("button", { name: /next diagram/i });
+    act(() => previous.focus());
+    premiseHolds("the chevron under test is enabled and focused before activation", document.activeElement === previous);
+
+    act(() => {
+      fireEvent.click(previous);
+    });
+
+    premiseHolds(
+      "the activation really did disable that chevron, or the case is not exercised",
+      (screen.getByRole("button", { name: /previous diagram/i }) as HTMLButtonElement).disabled,
+    );
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(next);
+    expect(screen.getByTestId("diagrams-lightbox").contains(document.activeElement)).toBe(true);
+  });
+
+  test("a chevron that stays enabled keeps focus where the user put it", () => {
+    open([item(1), item(2), item(3)]);
+    act(() => {
+      fireEvent.click(thumbButton(2));
+    });
+    const previous = screen.getByRole("button", { name: /previous diagram/i });
+    act(() => previous.focus());
+
+    act(() => {
+      fireEvent.click(previous);
+    });
+
+    premiseHolds(
+      "the chevron is still enabled after this move, or the control case is wrong",
+      !(screen.getByRole("button", { name: /previous diagram/i }) as HTMLButtonElement).disabled,
+    );
+    expect(document.activeElement).toBe(previous);
   });
 });
 

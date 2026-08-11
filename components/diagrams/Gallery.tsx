@@ -26,7 +26,7 @@
  * gallery that a diagram is known-but-temporarily-unavailable (admin
  * sees the `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` warning).
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 
@@ -130,8 +130,6 @@ export function Gallery({
    * which is why it is a ref (a frozen dialog cannot receive a new prop).
    */
   const restoreTargetRef = useRef<HTMLElement | null>(null);
-  /** The open dialog's own announce channel; null once it has really unmounted. */
-  const lightboxAnnounceRef = useRef<((message: string) => void) | null>(null);
   /**
    * True from the moment the lightbox mounts until `onExitComplete`. The gap
    * between `lightboxIndex === null` and that callback IS the 220 ms exit
@@ -142,8 +140,52 @@ export function Gallery({
   const dialogMountedRef = useRef(false);
   /** Announcements made during the exit window, flushed when it ends. */
   const exitBufferRef = useRef<string[]>([]);
+  /**
+   * Ids whose failure has been HANDLED but not yet committed. `isConnected`
+   * reports current attachment, not pending removal, so without this a second
+   * failure in the same tick can be handed focus a moment before it unmounts —
+   * landing on `<body>` inside a gallery full of working thumbnails.
+   */
+  const pendingFailuresRef = useRef<Set<string>>(new Set());
+  /**
+   * Whether the dialog is OPEN, readable from a frozen closure.
+   *
+   * `routeAnnouncement` is handed to the lightbox as a prop, and
+   * `AnimatePresence` freezes an exiting child's props — so the router the
+   * dialog calls during the exit window is the one captured while it was still
+   * open. Reading `lightboxIndex` from that closure is stale-true: the message
+   * goes to the dialog channel, the frozen region never renders it, and
+   * `resetDialogChannel` then wipes it. Probed on the installed Framer Motion:
+   * the announcement simply disappears. A ref is live through the freeze, the
+   * same reason `restoreTargetRef` is one.
+   */
+  const lightboxOpenRef = useRef(false);
 
   const { announce: announceInGallery, entries: galleryEntries } = useAnnounceLog();
+  // The DIALOG's channel, owned here rather than inside the lightbox: this
+  // component is the one that must still be able to append while that dialog is
+  // mid-exit, and it is the one that knows which channel is audible.
+  const {
+    announce: announceInDialog,
+    entries: dialogEntries,
+    reset: resetDialogChannel,
+  } = useAnnounceLog();
+
+  // The re-open flush, DEFERRED BY ONE COMMIT on purpose. A re-open cancels an
+  // exit, so `onExitComplete` never fires and the buffer would strand — but
+  // flushing it in the click handler is no better: the dialog mounts in that
+  // same commit, so its region would be INSERTED already holding the message,
+  // and `role="log"` presents additions WITHIN a live region, not a region that
+  // arrives full (DESIGN.md:479). Running it from an effect puts the append one
+  // commit after the empty region is live, which is a real mutation of a real
+  // live node.
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const buffered = exitBufferRef.current;
+    if (buffered.length === 0) return;
+    exitBufferRef.current = [];
+    for (const message of buffered) announceInDialog(message);
+  }, [lightboxIndex, announceInDialog]);
 
   if (items.length === 0) return null;
 
@@ -164,23 +206,28 @@ export function Gallery({
   const successorTo = (failingId: string): HTMLElement | null => {
     const order = visible.map((entry) => entry.id);
     const at = order.indexOf(failingId);
+    const usable = (id: string | undefined): HTMLButtonElement | null => {
+      if (id === undefined || pendingFailuresRef.current.has(id)) return null;
+      const button = thumbRefs.current.get(id);
+      return button?.isConnected ? button : null;
+    };
     for (let i = at + 1; i < order.length; i += 1) {
-      const button = thumbRefs.current.get(order[i]!);
-      if (button?.isConnected) return button;
+      const button = usable(order[i]);
+      if (button) return button;
     }
     for (let i = at - 1; i >= 0; i -= 1) {
-      const button = thumbRefs.current.get(order[i]!);
-      if (button?.isConnected) return button;
+      const button = usable(order[i]);
+      if (button) return button;
     }
     return showMoreRef.current ?? listRef.current;
   };
 
   /** Route one message to whichever channel is announceable right now. */
   const routeAnnouncement = (message: string): void => {
-    if (lightboxIndex !== null) {
+    if (lightboxOpenRef.current) {
       // OPEN: the dialog is `aria-modal`, so only its own region is in the
       // accessibility tree.
-      lightboxAnnounceRef.current?.(message);
+      announceInDialog(message);
       return;
     }
     if (dialogMountedRef.current) {
@@ -193,13 +240,34 @@ export function Gallery({
     announceInGallery(message);
   };
 
+  /**
+   * Drain the exit buffer into `deliver`.
+   *
+   * The exit window has two ends and only one of them fires `onExitComplete`: a
+   * re-open CANCELS the exit, so a buffer flushed only from that callback is
+   * stranded for the rest of the session — silent, while AC-3 says every failure
+   * announces. That second drain lives in the effect above rather than here,
+   * because it must run a commit AFTER the dialog mounts; this one names the
+   * channel that is audible once `onExitComplete` has run, which is why the
+   * target is a parameter.
+   */
+  const flushExitBuffer = (deliver: (message: string) => void): void => {
+    const buffered = exitBufferRef.current;
+    if (buffered.length === 0) return;
+    exitBufferRef.current = [];
+    for (const message of buffered) deliver(message);
+  };
+
   const handleThumbnailFailure = (item: GalleryItem, visibleIndex: number): void => {
     const button = thumbRefs.current.get(item.id) ?? null;
     // STALE HANDLER GUARD: `onError` can fire after its item stopped rendering
     // (collapsed by "Show fewer", or replaced). `failedKeys` is idempotent
     // already, but announcing about a tile nobody can see is noise.
     if (!button?.isConnected) return;
-    if (failedKeys.has(item.id)) return;
+    if (failedKeys.has(item.id) || pendingFailuresRef.current.has(item.id)) return;
+    // Recorded BEFORE the relocation below, so a sibling failing in the same
+    // tick is never chosen as anyone's successor — including its own.
+    pendingFailuresRef.current.add(item.id);
 
     // BEFORE the state update that removes the button, or there is nothing left
     // to move focus off and no node left to compare the restore target against.
@@ -221,9 +289,10 @@ export function Gallery({
 
   const handleExitComplete = (): void => {
     dialogMountedRef.current = false;
-    const buffered = exitBufferRef.current;
-    exitBufferRef.current = [];
-    for (const message of buffered) announceInGallery(message);
+    flushExitBuffer(announceInGallery);
+    // The dialog is really gone: clear its channel so the next session's region
+    // mounts empty rather than replaying this one's failures.
+    resetDialogChannel();
   };
 
   return (
@@ -234,7 +303,15 @@ export function Gallery({
         // failure leaves no control to move to. `-1` keeps it out of the Tab
         // order, so this adds no stop for keyboard users.
         tabIndex={-1}
-        className="grid grid-cols-3 gap-2 focus:outline-none sm:grid-cols-4"
+        // EXPLICIT `role="list"`: Tailwind's preflight sets `list-style: none`,
+        // and Safari/VoiceOver drop list semantics from a `<ul>` styled that way
+        // — which would announce this deliberate focus destination as a generic
+        // group, without the item count that makes landing here useful.
+        role="list"
+        // `focus:`, not `focus-visible:` — this element is only ever focused
+        // programmatically, and a relocation a sighted keyboard user cannot see
+        // is a relocation that reads as focus loss.
+        className="grid grid-cols-3 gap-2 focus:outline-none focus:ring-2 focus:ring-focus-ring sm:grid-cols-4"
         aria-label="Diagrams gallery thumbnails"
       >
         {visible.map((item, i) => {
@@ -271,7 +348,17 @@ export function Gallery({
                     // re-pointed by the closure rule if this button later fails.
                     restoreTargetRef.current = event.currentTarget;
                     dialogMountedRef.current = true;
+                    // Both flags are set SYNCHRONOUSLY here and cleared
+                    // synchronously in `onClose` below, never from an effect: a
+                    // failure landing between the close commit and a passive
+                    // effect would read the dialog as still open and route into
+                    // a frozen channel — the narrow form of the very race
+                    // `lightboxOpenRef` exists to close.
+                    lightboxOpenRef.current = true;
                     setLightboxIndex(i);
+                    // A buffer left over from an exit this open just cancelled is
+                    // drained by the effect above, one commit later — see its
+                    // comment for why it cannot be drained here.
                   }}
                   aria-label={`Open ${nameOf(item, i)}`}
                   className="block size-full cursor-zoom-in focus:outline-none"
@@ -363,9 +450,16 @@ export function Gallery({
             snapshotRevisionId={snapshotRevisionId}
             items={items}
             startIndex={lightboxIndex}
-            onClose={() => setLightboxIndex(null)}
+            onClose={() => {
+              lightboxOpenRef.current = false;
+              setLightboxIndex(null);
+            }}
             restoreTargetRef={restoreTargetRef}
-            announceRef={lightboxAnnounceRef}
+            announceEntries={dialogEntries}
+            // Routed, not appended directly: a slide failing inside the 220 ms
+            // exit window must buffer like any other message, or it lands in a
+            // frozen dialog that never renders it and is then cleared.
+            onAnnounce={routeAnnouncement}
           />
         ) : null}
       </AnimatePresence>

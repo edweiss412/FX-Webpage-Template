@@ -25,7 +25,14 @@
  * jsdom tests that render the gallery in its collapsed state never
  * trigger any of it.
  */
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, RotateCcw, X } from "lucide-react";
@@ -37,7 +44,7 @@ import {
 } from "react-zoom-pan-pinch";
 
 import type { GalleryItem } from "@/components/diagrams/Gallery";
-import { AnnounceLogRegion, useAnnounceLog } from "@/components/admin/announceLog";
+import { AnnounceLogRegion, type AnnounceLogEntry } from "@/components/admin/announceLog";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import Image from "next/image";
 import { makeDiagramLoader } from "@/lib/images/diagramLoader";
@@ -57,13 +64,22 @@ type LightboxProps = {
    */
   restoreTargetRef?: RefObject<HTMLElement | null>;
   /**
-   * Outbound bridge for the dialog-local announce channel. The dialog is
-   * `aria-modal="true"`, so content outside it is excluded from the
-   * accessibility tree (DESIGN.md:506) and the Gallery's own region cannot speak
-   * while this one is open — the Gallery routes through here instead. Cleared on
-   * unmount so a stale closure cannot append to a torn-down channel.
+   * The dialog-local announce channel. The dialog is `aria-modal="true"`, so
+   * content outside it is excluded from the accessibility tree
+   * (DESIGN.md:506) and the Gallery's own region cannot speak while this one is
+   * open — so the Gallery routes browse-side failures through here, and this
+   * component renders the region for them.
+   *
+   * The CHANNEL STATE LIVES IN THE GALLERY, not here, because the Gallery is the
+   * one that must still be able to append while this dialog is mid-exit. An
+   * earlier design published an `announce` function upward through a ref; that
+   * left a window between the open commit and the publishing effect in which a
+   * routed message hit a null ref and vanished. Ordinary props have no such
+   * window.
    */
-  announceRef?: RefObject<((message: string) => void) | null>;
+  announceEntries?: ReadonlyArray<AnnounceLogEntry>;
+  /** Push a message onto that channel (the demote notice below is the only one). */
+  onAnnounce?: (message: string) => void;
 };
 
 /**
@@ -207,10 +223,17 @@ export function GalleryLightbox({
   startIndex,
   onClose,
   restoreTargetRef,
-  announceRef,
+  announceEntries,
+  onAnnounce,
 }: LightboxProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  // The chevrons, so navigating to a bound can hand focus across rather than
+  // letting the browser blur a newly-disabled button to `<body>` — outside an
+  // `aria-modal` dialog, which dead-ends the keymap gate below AND the Tab trap
+  // (a listener on the dialog node, so it never sees another keydown).
+  const prevRef = useRef<HTMLButtonElement | null>(null);
+  const nextRef = useRef<HTMLButtonElement | null>(null);
 
   // Detect reduce-motion ONCE at mount — Embla's options aren't
   // reactive to media-query changes mid-session, and crew rarely flip
@@ -254,9 +277,19 @@ export function GalleryLightbox({
   // B clamped) AND persistent (returning to A needs no fresh gesture, and
   // de-zooming never re-downgrades).
   const [wantsOriginal, setWantsOriginal] = useState<ReadonlySet<string>>(() => new Set());
+  /**
+   * Slides whose ORIGINAL failed after the clamped tier had already painted.
+   * Read by the intent marker, so a demoted slide is never re-pinned: the
+   * library publishes a scale above the commitment bound for as long as the
+   * gesture lasts, and without this the demote would be a fetch loop.
+   *
+   * A ref, not state, because the intent marker below must stay identity-stable.
+   */
+  const demotedRef = useRef<Set<string>>(new Set());
   // Stable identity: the library's transform subscription may hold the callback
   // it was given at subscribe time, so this must not be re-created per render.
   const markZoomIntent = useCallback((itemId: string) => {
+    if (demotedRef.current.has(itemId)) return;
     setWantsOriginal((prev) => {
       if (prev.has(itemId)) return prev;
       const next = new Set(prev);
@@ -357,31 +390,38 @@ export function GalleryLightbox({
     };
   }, [activeScale]);
 
+  /**
+   * Hand focus to the opposite chevron when the one just used is about to be
+   * disabled. Only when it actually HELD focus — a pointer user's focus is not
+   * moved, and a keyboard user never loses the dialog.
+   */
+  const keepFocusInDialog = useCallback(
+    (used: HTMLButtonElement | null, willDisable: boolean, opposite: HTMLButtonElement | null) => {
+      if (!willDisable) return;
+      if (document.activeElement !== used) return;
+      (opposite ?? closeRef.current)?.focus();
+    },
+    [],
+  );
+
   const scrollPrev = useCallback(() => {
     // Per shape brief: navigation always resets zoom on the OLD slide
     // first, then advances. resetTransform fires the scale-change
     // listener with scale=1, which keeps the chrome in sync.
     controlsSlotRef.current?.resetTransform();
+    const target = Math.max(0, (emblaApi?.selectedScrollSnap() ?? 0) - 1);
     emblaApi?.scrollPrev();
-  }, [emblaApi]);
+    keepFocusInDialog(prevRef.current, target === 0, nextRef.current);
+  }, [emblaApi, keepFocusInDialog]);
   const scrollNext = useCallback(() => {
     controlsSlotRef.current?.resetTransform();
+    const last = items.length - 1;
+    const target = Math.min(last, (emblaApi?.selectedScrollSnap() ?? 0) + 1);
     emblaApi?.scrollNext();
-  }, [emblaApi]);
+    keepFocusInDialog(nextRef.current, target === last, prevRef.current);
+  }, [emblaApi, items.length, keepFocusInDialog]);
 
   useDialogFocus(dialogRef, closeRef, undefined, { restoreTargetRef });
-
-  // The dialog-local announce channel (spec §4.2). Published to the Gallery
-  // through a ref rather than a callback prop because the Gallery is the parent:
-  // it needs to CALL in, not be called back.
-  const { announce: announceInDialog, entries: dialogEntries } = useAnnounceLog();
-  useEffect(() => {
-    if (!announceRef) return;
-    announceRef.current = announceInDialog;
-    return () => {
-      announceRef.current = null;
-    };
-  }, [announceRef, announceInDialog]);
 
   // Keyboard map — the lightbox owns ALL keyboard shortcuts because
   // react-zoom-pan-pinch v4.0.3 has no `keyEvents` prop. Keymap:
@@ -431,7 +471,12 @@ export function GalleryLightbox({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, scrollPrev, scrollNext, activeScale]);
+    // `activeScale` is NOT a dependency: nothing in `onKey` reads it (the
+    // keyboard path bases its targets on `requestedScaleRef`, deliberately —
+    // see the R8 note above). Listing it re-bound this window listener on every
+    // frame of a pinch, which is pure churn on the device that can least afford
+    // it.
+  }, [onClose, scrollPrev, scrollNext]);
 
   // Lock background scroll while open.
   useEffect(() => {
@@ -453,6 +498,32 @@ export function GalleryLightbox({
   //   exit-animation has a place to play on unmount.
   const motionDuration = prefersReducedMotion ? 0 : 0.22;
   const zoomed = isZoomed(activeScale);
+
+  // The Reset chip unmounts the instant scale returns to 1, and it is
+  // Tab-reachable. Its own onClick relocates focus first, but `0`, `-`, chevron
+  // navigation and a pinch-out all reach the same unmount without passing
+  // through it — dropping focus to `<body>`, OUTSIDE this `aria-modal` dialog,
+  // where the non-Escape keymap gate stops responding and the Tab trap (a
+  // listener on the dialog node) never fires again.
+  //
+  // The condition is WHERE FOCUS IS, deliberately, and not a "was the chip
+  // focused" flag. A flag has to be cleared on blur, and browsers disagree about
+  // whether removing a focused node dispatches one — Firefox does, Chrome and
+  // WebKit do not — so the flag reads false exactly where the repair is needed,
+  // and jsdom (which dispatches nothing) could never show it. Asking the DOM is
+  // order-independent and true everywhere. It is also correct on its own terms:
+  // focus outside a modal dialog is a defect whatever put it there.
+  //
+  // useLayoutEffect, not useEffect: this runs in the commit that unmounts the
+  // chip, before paint, so no keystroke can land on `<body>` in between.
+  useLayoutEffect(() => {
+    if (zoomed) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && dialog.contains(active)) return;
+    closeRef.current?.focus();
+  }, [zoomed]);
   return (
     <motion.div
       ref={dialogRef}
@@ -517,7 +588,7 @@ export function GalleryLightbox({
         zoom region is a `role="status"` text swap.
       */}
       <AnnounceLogRegion
-        entries={dialogEntries}
+        entries={announceEntries ?? []}
         label="Diagram viewer updates"
         testId="lightbox-announce-log"
       />
@@ -572,6 +643,7 @@ export function GalleryLightbox({
         {items.length > 1 ? (
           <button
             type="button"
+            ref={prevRef}
             onClick={scrollPrev}
             aria-label="Previous diagram"
             disabled={activeIndex === 0}
@@ -764,6 +836,44 @@ export function GalleryLightbox({
                             style={{ objectFit: "contain" }}
                             {...(dims ?? { fill: true as const, sizes: "100vw" })}
                             onError={() => {
+                              // DEMOTE, don't destroy (impeccable critique P0,
+                              // 2026-08-11). The zoom gate made the original a
+                              // fetch the USER triggers, so on venue wifi a
+                              // pinch could turn a painted, readable 1024px view
+                              // into "Image unavailable" — a working image
+                              // destroyed by the gesture meant to read it.
+                              //
+                              // The condition is the REQUESTED TIER, not whether
+                              // a bitmap painted: if this slide asked for the
+                              // original, the clamped tier is a different, far
+                              // smaller object that is usually browser-cached and
+                              // very often still reachable, so falling back to it
+                              // beats the placeholder even when nothing painted
+                              // yet. The gesture is left alone — the user is
+                              // mid-pinch on an image that is still there.
+                              //
+                              // Never re-pin: the library publishes a scale above
+                              // the commitment bound for as long as the gesture
+                              // lasts, so without `demotedRef` this would be a
+                              // fetch loop rather than one fallback.
+                              if (wantsOriginal.has(item.id)) {
+                                demotedRef.current.add(item.id);
+                                setWantsOriginal((prev) => {
+                                  if (!prev.has(item.id)) return prev;
+                                  const next = new Set(prev);
+                                  next.delete(item.id);
+                                  return next;
+                                });
+                                // NAMED, because this message can outlive the
+                                // viewer: a demote inside the exit window is
+                                // buffered and delivered to the gallery channel
+                                // after the dialog is gone, where "full detail"
+                                // alone refers to nothing the listener can see.
+                                onAnnounce?.(
+                                  `${item.alt || `Diagram ${i + 1}`}: full detail could not be loaded. Showing a less detailed view.`,
+                                );
+                                return;
+                              }
                               // Codex R2 HIGH: when the active image
                               // errors mid-zoom, the slide flips to
                               // the unavailable placeholder branch
@@ -803,6 +913,12 @@ export function GalleryLightbox({
                               requestedScaleRef.current = 1;
                               controlsSlotRef.current?.resetTransform();
                               setActiveScale(1);
+                              // The branch that DESTROYS the view must speak at
+                              // least as loudly as the one that degrades it: this
+                              // is where focus jumps to Close and the diagram is
+                              // replaced, and silence here left a screen-reader
+                              // user hearing only "Close gallery".
+                              onAnnounce?.(`${item.alt || `Diagram ${i + 1}`} could not be loaded.`);
                               setFailedKeys((prev) => {
                                 if (prev.has(item.id)) return prev;
                                 const next = new Set(prev);
@@ -844,14 +960,19 @@ export function GalleryLightbox({
                           // comes from style.objectFit, not the class.
                           style={{ objectFit: "contain" }}
                           {...(dims ?? { fill: true as const })}
-                          onError={() =>
+                          // Deliberately SILENT. Embla keeps every slide mounted,
+                          // so announcing here would narrate failures of diagrams
+                          // the user has not swiped to — twelve of them on a full
+                          // gallery. The moment that concerns a browsing user is
+                          // their THUMBNAIL failing, which the Gallery announces.
+                          onError={() => {
                             setFailedKeys((prev) => {
                               if (prev.has(item.id)) return prev;
                               const next = new Set(prev);
                               next.add(item.id);
                               return next;
-                            })
-                          }
+                            });
+                          }}
                           className="max-h-full max-w-full object-contain"
                         />
                       </div>
@@ -871,6 +992,7 @@ export function GalleryLightbox({
         {items.length > 1 ? (
           <button
             type="button"
+            ref={nextRef}
             onClick={scrollNext}
             aria-label="Next diagram"
             disabled={activeIndex === items.length - 1}
