@@ -4,13 +4,24 @@
 (`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`); un-defer trigger fired on both counts —
 this is a DESIGN.md conformance pass AND it edits `ModalCloseButton`.
 
-**Five sites, not four.** The entry named `ModalCloseButton.tsx`, `RescanSheetButton.tsx`'s overlay
-dismiss, `BellPanel.tsx`'s `bell-panel-close`, and `HelpSheet.tsx`'s sheet close. The fifth is in
-that last file too: the `?` trigger's own painted span, which is the visible affordance for a hit box
-that carries no colour of its own. All five now sit at `text-text` at rest and lift to
-`text-text-strong` on hover, matching `SheetIconLink` — so the header inversion the entry recorded as
-"the measured cost of waiting" is gone, and the secondary sheet link no longer renders darker than
-the primary dismiss beside it.
+**Six sites, not four — and the class behind them is 32.** The entry named
+`ModalCloseButton.tsx`, `RescanSheetButton.tsx`'s overlay dismiss, `BellPanel.tsx`'s
+`bell-panel-close`, and `HelpSheet.tsx`'s sheet close. The fifth is in that last file too: the `?`
+trigger's own painted span, the visible affordance for a hit box that carries no colour of its own.
+The SIXTH is `components/admin/FinalizeButton.tsx:818`, the finalize-blocker dismiss — identical in
+shape, never named, and it surfaced only because the z-index sweep happened to touch its line, which
+is luck rather than method. All six now sit at `text-text` at rest and lift to `text-text-strong` on
+hover, matching `SheetIconLink` — so the header inversion the entry recorded as "the measured cost of
+waiting" is gone, and the secondary sheet link no longer renders darker than the primary dismiss
+beside it.
+
+**The honest number is larger still, and that is the lesson rather than a footnote.** A derived scan
+(AST over `app/**` + `components/**`, interactive tags carrying a static `text-text-subtle`) reports
+**32** sites. The four this entry named were a sample of a class, not the class; each pass found one
+more by accident. The remaining ~26 are filed as `BL-SUBTLE-ON-INTERACTIVE-CLASS` under class-sweep
+exception (c) — 19 files this branch does not otherwise touch, and several members (filter chips,
+`<summary>` disclosures) need a DESIGN.md decision rather than a mechanical swap. That entry carries
+the SCAN rather than a list, so the next pass cannot come up short a third time.
 
 **The assertion targets what PAINTS, not what takes the pointer.** Three of the five are bare
 `size-tap-min` hit boxes wrapping an inner span; asserting on the button would have passed while the

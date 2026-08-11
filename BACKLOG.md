@@ -8,6 +8,59 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
+## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on interactive elements is a 32-site class, not a four-site list
+
+**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, task U4). **Class:** design-system conformance
+(`DESIGN.md` §1.1 documents `--color-text-subtle` as "Labels, captions, 'as of …' timestamps. Never
+used for action targets."). **Effort:** M. **Class-sweep exception:** (c) — it spans 19 files this
+PR does not otherwise touch, and several members are genuine design questions rather than mechanical
+swaps. **Reachability: PROBED.**
+
+**Why this is filed at all: the previous cover was an enumeration, and enumerations of this shape
+keep coming up short.** `SHEETLINK-SUBTLE-ACTION-CLASS-1` named four sites. U4 found a fifth while
+implementing (the HelpSheet `?` trigger's painted span). A SIXTH —
+`components/admin/FinalizeButton.tsx:818`, the finalize-blocker dismiss — surfaced only because the
+z-index sweep happened to touch its line, which is luck, not method. That sixth is repaired in this
+branch with the other five. The rest are filed here **with the derivation instead of a list**, so
+the next pass does not re-enumerate and come up short a third time.
+
+**The probe** (AST over `app/**` + `components/**` `.tsx`, JSX opening elements whose tag is
+`button` / `a` / `summary` and whose STATIC `className` — string, template, conditional branches,
+`cn()`/`clsx()` arguments — contains the bare token `text-text-subtle`):
+
+```
+total: 32 interactive elements
+components/admin/dev/SwitcherControls.tsx:142        <button>
+components/admin/nav/NotifBell.tsx:76                <button>
+components/admin/nav/OnboardingTopBar.tsx:84         <button>
+components/admin/nav/UserMenu.tsx:51                 <button>
+components/admin/settings/AdministratorsSection.tsx:150  <summary>
+components/admin/showpage/sectionWarningExtras.tsx:272    <summary>
+components/admin/telemetry/ActiveFilterChips.tsx:90, :101 <button>
+components/admin/telemetry/AutoRefreshControl.tsx:119     <button>
+components/admin/wizard/Step3ReviewModal.tsx:475          <button>
+components/admin/wizard/step3ReviewSections.tsx:1410, :1419  <a>
+components/admin/wizard/step3ReviewSections.tsx:1595       <summary>
+components/admin/wizard/step3ReviewSections.tsx:2590        <button>
+components/agenda/AgendaPdfViewer.tsx:165                  <button>
+components/crew/AgendaScheduleBlock.tsx:107                <summary>
+components/crew/primitives/KeyTimesStrip.tsx:191           <summary>
+components/layout/ThemeToggle.tsx:81                       <button>
+components/shared/ReportModal.tsx:579                      <button>
+(tail truncated in this listing; the scan is the authority, not this excerpt)
+```
+
+**Worst case is cosmetic, which is why it is a backlog row and not a deferral with a trigger.** The
+control renders and is operable; it renders quieter at rest than DESIGN.md intends, which reads as
+de-emphasis where none was meant. Nothing is unreachable and no state is carried by colour alone.
+
+**Fix when prioritized — and the fix is a guard, not 32 edits.** Land the scan above as a structural
+meta-test with a reasons-required registry (the `zIndexExemptions.ts` shape), so every new
+interactive element is covered by default and the remaining debt is declared and countable rather
+than rediscovered. Some members need a decision first, not a swap: a dismissable filter chip and a
+`<summary>` disclosure are arguably caption-like, and DESIGN.md should say so explicitly in the same
+pass rather than being read as absolute and then quietly excepted.
+
 ## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects
 
 **Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M
