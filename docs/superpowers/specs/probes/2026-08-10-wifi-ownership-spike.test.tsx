@@ -1,7 +1,9 @@
-// Spec-time lifecycle spike (wifi spec R13 F1, strengthened R14 F2): with
-// layout-effect ownership registration, a pending write's resolution landing
-// IN the commit-to-passive window of a REAL remount already observes the new
-// owner. EXECUTED 2026-08-10 on this worktree (copied under tests/components/
+// Spec-time lifecycle spike (R13 F1, R14 F2, claim corrected R15 F1): with
+// layout-effect ownership registration, the ledger names the new owner FROM
+// THE COMMIT ONWARD — so a pending write's resolution, whenever it lands
+// (this environment flushes passive effects before the queued microtask, and
+// that ordering is recorded, not fought), always observes the new owner. The
+// claim is ledger-correctness-from-commit, not resolution-before-passive. EXECUTED 2026-08-10 on this worktree (copied under tests/components/
 // for the include-glob): 1 passed. Run: copy under tests/components/, vitest run.
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
@@ -57,6 +59,9 @@ describe("layout-effect ownership closes the commit-to-passive window", () => {
     const res = observations.find((o) => o.phase === "resolution");
     expect(res?.owner).toBe("B");
     expect(phases.indexOf("resolution")).toBeGreaterThan(phases.indexOf("layout:B"));
+    // Recorded environment fact (R15 F1): passive:B flushes before the queued
+    // microtask here — resolution ordering vs passive is environment-dependent
+    // and IRRELEVANT to truth, which layout-time registration fixes at commit.
     // Passive observation confirms no later flip.
     const passiveB = observations.filter((o) => o.phase === "passive:B").pop();
     expect(passiveB?.owner).toBe("B");
