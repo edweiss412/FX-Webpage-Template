@@ -4,6 +4,7 @@
 // The inverse transform is total: drop the leading column, warn once.
 import type { ParseWarning } from "./types";
 import { canonicalSectionKind, GENERIC_SECTION_KIND } from "./sectionKind"; // branch-2 helper (retro F1/F2)
+import { splitCellsUnescaped } from "./rowWidthDiscriminator"; // round-3 escape-aware cell count
 
 export function normalizeLeadingColumn(markdown: string): {
   corrected: string;
@@ -52,7 +53,9 @@ export function normalizeLeadingColumn(markdown: string): {
 
   // Retro r5: the opener may sit in cell 1 OR - when the section is shifted, including
   // the boundary-defining row of a NEIGHBOUR section the operator moved - in cell 2
-  // behind an empty leading cell. One-cell detection restores only 473/535 mutants.
+  // behind an empty leading cell. A cell-1-only variant of the shipped detector measures
+  // 461/535 corpus mutation sites restored (review round 3); the cell-2 branch below closes
+  // the remaining 47.
   //
   // Review round 1, Critical #1 / Important #2, then round 2: a bare cell-2 label MATCH is
   // not enough - ordinary data coincides with section vocabulary by construction (a
@@ -75,20 +78,51 @@ export function normalizeLeadingColumn(markdown: string): {
   // the comparison local, so a block whose rows legitimately vary in width in different
   // places still gets a locally-accurate reference at the point being checked.
   //
-  // Residual limit, not reachable by the mutation harness: if two ADJACENT sections in one
-  // block are BOTH shifted with no unshifted row between them, `lastUnshiftedWidth` has no
-  // valid reference at the second section's boundary and the corroboration does not fire.
-  // The two sections are then read as one combined span; the payload is still fully
-  // restored (dropping the leading cell from every row is idempotent whether done as one
-  // correction or two), just under one warning instead of two. `columnShift`
-  // (tests/parser/mutation/operators.ts:153-168) shifts exactly one section per mutant, so
-  // this shape never arises in the measured corpus.
+  // Review round 3, Critical #1 (third narrowing): the width itself was measured with a
+  // naive `line.split("|")`, which counts an escaped in-cell pipe `\|` as a delimiter and
+  // inflates a row's count by exactly the +1 the corroboration reads as proof of a shift -
+  // one literal pipe inside any cell of an UNSHIFTED row could spoof the check (corpus-
+  // attested: 9 rows across 6 files, e.g. "Holiday Inn Express \| Dubois"). This is the
+  // identical counting bug `rowWidthDiscriminator.ts` already found and fixed for its own
+  // column-counting surface (probed there with a route cell reading "JFK \| LAX"), so its
+  // `splitCellsUnescaped` is reused here rather than re-solved - both the candidate row's
+  // width and `lastUnshiftedWidth` now count unescaped pipes only. Measured cost: zero (the
+  // same 508/535 corpus sites restore as before the repair); measured benefit: no
+  // corpus-reachable spoof of the width check remains.
+  //
+  // Residual limit, not reachable by the mutation harness: if a section is shifted with NO
+  // unshifted row anywhere EARLIER in its physical block (i.e. the pair is block-initial -
+  // the reference survives a logical-section close, so an unshifted row anywhere earlier in
+  // the block, not only immediately before, still corroborates a later shifted section),
+  // `lastUnshiftedWidth` has no valid reference and the corroboration does not fire. The
+  // shifted section is then read together with whatever preceded it as one combined span;
+  // the payload is still fully restored (dropping the leading cell from every row is
+  // idempotent whether done as one correction or two), just under one warning instead of
+  // two. This is not unreachable merely because `columnShift`
+  // (tests/parser/mutation/operators.ts:153-168) shifts one section per mutant - it is
+  // unreachable because the mutation harness segments on `KNOWN_SECTION_HEADERS`
+  // (tests/parser/mutation/classify.ts:100) while this detector segments on `LABEL_TO_KIND`
+  // (sectionKind.ts), so a single harness-defined section can contain rows this detector
+  // reads as its own openers, and the harness never produces a mutant where two
+  // detector-visible sections are BOTH shifted with nothing unshifted ahead of them.
+  //
+  // Documented limit (review round 3, Important, deliberately not patched): the same model
+  // mismatch runs the other way inside a section that IS shifted. Every row of a shifted
+  // section is one cell wider than it was, so a MID-BLOCK data row whose own cell 2
+  // canonicalizes now also satisfies the width corroboration and splits the section - one
+  // shift can emit two warnings instead of one. Payload is always fully restored either way;
+  // 0 of 535 corpus mutation sites hit this. Not patched: the only way to suppress it is
+  // requiring the row immediately before to be unshifted, which would also suppress the
+  // legitimate two-adjacent-shifted-sections case the paragraph above documents as working -
+  // trading one correct case for another rather than fixing anything.
   const opener = (line: string, lastUnshiftedWidth: number | null): boolean => {
     const parts = line.split("|");
     const c1 = (parts[1] ?? "").trim();
     if (c1 !== "") return canonicalSectionKind(c1) !== null;
     if (canonicalSectionKind((parts[2] ?? "").trim()) === null) return false;
-    return lastUnshiftedWidth !== null && parts.length === lastUnshiftedWidth + 1;
+    return (
+      lastUnshiftedWidth !== null && splitCellsUnescaped(line).length === lastUnshiftedWidth + 1
+    );
   };
 
   let lastUnshiftedWidth: number | null = null;
@@ -106,7 +140,8 @@ export function normalizeLeadingColumn(markdown: string): {
       lastUnshiftedWidth = null; // the block ended; no reference survives into the next one
     } else {
       const parts = lines[i]!.split("|");
-      if ((parts[1] ?? "").trim() !== "") lastUnshiftedWidth = parts.length;
+      if ((parts[1] ?? "").trim() !== "")
+        lastUnshiftedWidth = splitCellsUnescaped(lines[i]!).length;
     }
   }
   return { corrected: lines.join("\n"), warnings };

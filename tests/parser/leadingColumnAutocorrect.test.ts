@@ -166,4 +166,87 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
       ].join("\n"),
     );
   });
+
+  // Review round 3, Critical #1 (third narrowing, P-ESC): the width-delta was measured with
+  // a naive `line.split("|")`, which counts an escaped in-cell pipe `\|` as a delimiter and
+  // inflates a row's count by exactly the +1 the corroboration reads as proof of a shift.
+  // Shaped on the real HOTEL block at fixtures/shows/exporter-xlsx/fixed-income.md, which
+  // legitimately carries several continuation rows with an empty leading cell (a multi-line
+  // reservation, not a shift). Nothing here is shifted, so this must produce zero warnings
+  // and an unchanged document.
+  it("does not let an escaped in-cell pipe inflate a row's width into a false +1 (review round 3, Critical #1, P-ESC)", () => {
+    const md = [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#1 | RESERVATION \\#2 | RESERVATION \\#2 |",
+      "| :---: | :---: | :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Hotel Name / Address | Hotel Name / Address | Hotel Name / Address |",
+      "|  | Park Hyatt Chicago 800 N Michigan Ave | Park Hyatt Chicago | - | - |",
+      "|  | DATES | Holiday Inn Express \\| Dubois | Check In Date | Check Out Date |",
+      "|  | 10/18/25 | 10/22/25 | - | - |",
+    ].join("\n");
+    const result = normalizeLeadingColumn(md);
+    expect(result.warnings).toEqual([]);
+    expect(result.corrected).toEqual(md);
+  });
+
+  // Control for P-ESC: the identical block with the escaped pipe replaced by ordinary text.
+  // This must ALSO be zero warnings, which proves the escaped pipe - not the block's shape,
+  // its blank leading cells, or the "DATES" label - is the operative ingredient of P-ESC.
+  it("P-ESC control: the same block without the escaped pipe is already clean", () => {
+    const md = [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#1 | RESERVATION \\#2 | RESERVATION \\#2 |",
+      "| :---: | :---: | :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Hotel Name / Address | Hotel Name / Address | Hotel Name / Address |",
+      "|  | Park Hyatt Chicago 800 N Michigan Ave | Park Hyatt Chicago | - | - |",
+      "|  | DATES | Holiday Inn Express and Dubois | Check In Date | Check Out Date |",
+      "|  | 10/18/25 | 10/22/25 | - | - |",
+    ].join("\n");
+    const result = normalizeLeadingColumn(md);
+    expect(result.warnings).toEqual([]);
+    expect(result.corrected).toEqual(md);
+  });
+
+  // Review round 3, Fix-Diff Analysis 5: the committed tests did not distinguish shipped
+  // from "any delta >= 1" (accept a wider-by-two-or-more row as an opener too). An unshifted
+  // empty-leading row whose cell 2 canonicalizes and is +2 wide (not +1) must NOT be treated
+  // as an opener - shipped requires an EXACT +1 match.
+  it("does not accept an empty-leading row that is +2 wide as an opener (review round 3, any-delta discriminator)", () => {
+    const md = [
+      "| VENUE | Name | Phone |",
+      "| --- | --- | --- |",
+      "| Production | Jane | 555-0100 |",
+      "|  | DATES | extra1 | extra2 | extra3 |",
+    ].join("\n");
+    const result = normalizeLeadingColumn(md);
+    expect(result.warnings).toEqual([]);
+    expect(result.corrected).toEqual(md);
+  });
+
+  // Review round 3, Fix-Diff Analysis 5: the committed tests did not distinguish shipped
+  // ("most recently seen unshifted row") from "compare against the block's first row". A
+  // block whose first row (DATES, 2 cells) is narrower than a later unshifted section in the
+  // SAME block (CLIENT, 4 cells) makes the two references disagree: a shifted VENUE row that
+  // is one wider than CLIENT (5 cells) matches "most recent" but not "block's first"
+  // (5 !== 2+1). Only "most recent" detects and restores it.
+  it("uses the most recently seen unshifted row as the reference, not the block's first row (review round 3, block-first-row discriminator)", () => {
+    const md = [
+      "| DATES | Info |",
+      "| :---: | :---: |",
+      "| Set | 10/10 |",
+      "| CLIENT | Name | Phone | Notes |",
+      "| :---: | :---: | :---: | :---: |",
+      "|  | VENUE | 123 Main St | Chicago | IL |",
+    ].join("\n");
+    const result = normalizeLeadingColumn(md);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.corrected).toEqual(
+      [
+        "| DATES | Info |",
+        "| :---: | :---: |",
+        "| Set | 10/10 |",
+        "| CLIENT | Name | Phone | Notes |",
+        "| :---: | :---: | :---: | :---: |",
+        "| VENUE | 123 Main St | Chicago | IL |",
+      ].join("\n"),
+    );
+  });
 });
