@@ -5323,10 +5323,45 @@ instance of either shape appearing in the ledgers.
 
 ---
 
+### BL-TAP-TARGET-INLINE-TEXT-CONTROLS — ✅ SHIPPED 2026-08-11 (3 exempt / 5 repaired, `fix/tap-target-inline-controls`)
+
+**Status:** SHIPPED 2026-08-11 · PR #781 · **Effort (as shipped):** S
+
+**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §9.1). **Class:** accessibility (tap-target floor). **Class-sweep exception at filing:** (a) — needed a product decision the filing branch could not settle. **Reachability:** PROBED — every site and its computed height was in the spec's §2.6 corpus baseline (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
+
+**Historical filing.** The `fix/step3-a11y-cluster` corpus pass (AST walk, 340 in-scope interactive elements) found 16 literal-className elements genuinely under the 44px floor. Eight were repaired on that branch (chrome: disclosures, icon buttons, pills, the brand link). These were the other eight — all inline text links or text buttons sitting inside sentences. `PRODUCT.md:59` grants an explicit WCAG 2.5.5 exception to "links rendered inline within prose body text", so whether each was inline prose (exempt) or chrome (repair) was a per-site product judgment, not a mechanical class edit. The row was filed to obtain that judgment.
+
+**✅ SHIPPED (2026-08-11).** The judgment was made by the user in a decision round on 2026-08-10, each site shown in rendered context: **3 exempt as inline prose, 5 repaired as chrome.** Spec `docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md` (cross-model APPROVED r6); plan `docs/superpowers/plans/2026-08-10-tap-target-inline-controls.md` (APPROVED r4).
+
+**Exempt (3), no class change** — each carries a `tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10` comment at the control, so the next corpus sweep classifies them from the source instead of re-litigating: `RevokeRowButton.tsx` "Refresh", `RoleRecognizeControl.tsx` "Change what they see", `ReportModal.tsx` "Start a new report anyway". Enforcement is a SOURCE scan (`tests/a11y/tapTargetInlineExemptions.test.ts`), not a browser test — an exempt site's contract is "unchanged source", which the source states directly, and a rendered box cannot tell you whether the exemption is still the ratified decision or an accident nobody wrote down. The guard pins both the recorded decision and the class string, and was proven against four mutants (token emptied / suffixed / commented-out / moved to the wrong control in the same file), all killed.
+
+**Repaired (5)**, each with the step3-a11y cluster's ratified recipe applied verbatim to the control and nothing else. Red was observed first on the PRODUCTION routes in a real browser at 390px — site 4 16.80px, site 5 19.36px, site 6 17.05px, site 8 16.80px — then 4/4 green, with the floor read from `--spacing-tap-min` rather than a hardcoded 44:
+
+| # | site | recipe |
+| --- | --- | --- |
+| 4 | pack-list "Show all N items" toggle | `inline-flex w-fit min-h-tap-min items-center` |
+| 5 | sheet-title deep link | `inline-block -my-2.5 -mx-2 px-2 py-2.5` |
+| 6 | `tel:` contact link | `min-h-tap-min` (display preserved) |
+| 7 | `mailto:` contact link | `min-h-tap-min` (display preserved) |
+| 8 | dev-panel "Report this" | `inline-flex w-fit min-h-tap-min items-center` + `text-blue-700` → `text-accent-on-bg` |
+
+**Two of the row's own site labels were wrong** and were corrected from the live tree before implementation: the `ReportModal` site is the resume-banner link "Start a new report anyway" (the modal's actual "Start fresh" button already carried `min-h-tap-min`), and the wizard toggle's label is "Show all {n} items" / "Show fewer items", not "show more".
+
+**Two measurement lessons, each of which produced a wrong answer first.** (1) `boundingBox()` is viewport-relative and Playwright's actionability check scrolls, so reading two rects through separate Locator calls compares two different scroll positions — that reported a phantom 5.4px overlap between list rows 18px apart in flow. Every rect a comparison uses is now read in ONE evaluate. (2) Acting on that phantom, an interim revision made the tail `<li>` a flex container so the inline-level button would blockify; with the measurement fixed, a mutant reverting it left the suite green, so it is not in the shipped diff.
+
+**CI home.** The new spec runs in `lifecycle-layout-e2e.yml` (mobile-safari, unfiltered `pull_request:`, so no allowlist row) behind an execution oracle the job did not previously have — `scripts/check-lifecycle-layout-executed.mjs`, floor derived from a real run's report, verified in both directions (ok/exit 0 against the real report; "executed 0, expected at least 4"/exit 1 against a doctored all-skipped report). A companion wiring guard (`tests/cross-cutting/lifecycle-layout-e2e-ci-wiring.test.ts`) extends the app-e2e guard's three closures to this workflow and was proven against seven mutants, all killed. Seventeen governance pairs registered.
+
+**Invariant-8 dual gate:** critique=RAN audit=RAN p0=0 p1=0 (Design Health 31/40, Audit Health 18/20; record in the plan's §12). The gate's one P1 was REFUTED by measurement — it cited a STALE comment at `app/globals.css:1206-1209` claiming `--color-accent-on-bg` is 4.11:1, a figure invalidated by `BL-ACCENT-ON-BG-AA-CONTRAST` in 2026-07-16; the live values are 5.34:1 light and 9.39:1 dark, and the replaced `text-blue-700` was 6.42:1, so both sides of the swap clear AA and the change is a hue decision (PRODUCT.md bans a competing accent). Four follow-ups filed with probed evidence: `BL-TAP-TITLE-LINK-META-LINE-BLEED`, `BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR`, `BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING`, `BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT`.
+
+**Not attempted, deliberately:** the corpus-wide structural guard remains `BL-TAP-TARGET-STRUCTURAL-GUARD`, still blocked on the non-literal-className policy. This arc repaired the last known literal-className under-floor sites; it is regression coverage, not discovery coverage.
+
+---
+
 ## Reconciliation log
 
 Reconciliation history moved out of `BACKLOG.md`'s header line on 2026-08-02. That line was append-only and every merge re-appended the incoming branch's whole chain, so it had grown to 40 segments / 24,188 characters of which 26 segments were verbatim duplicates. Entries below are the deduplicated set, newest first, verbatim apart from three mechanical edits: the `Prior:` / `Prior same day:` lead-ins were dropped, the mainline row's "merged into this branch" was resolved to "merged into the then-shipping branch" now that the branch is gone, and one shorter 2026-07-26 restatement was dropped as subsumed by the fuller row that also names its branch. No id lost its citation — all 33 `BL-` ids named in the old header line are still named here or in `BACKLOG.md`. No entry defines a `BL-` id; ids named here are citations resolving to their own entries above.
 
+- 2026-08-11 — `fix/tap-target-inline-controls` graduated `BL-TAP-TARGET-INLINE-TEXT-CONTROLS`: the per-site prose-vs-chrome judgment the row was filed to obtain, ratified by the user 2026-08-10 as 3 exempt / 5 repaired. The exempt half is pinned in SOURCE (comment + class string, four mutants killed) because an exempt site's contract is unchanged source; the repaired half is pinned by real-browser rects on the production routes, wired into `lifecycle-layout-e2e.yml` behind an execution oracle that job did not previously have. Two of the row's own site labels were wrong and were corrected from the live tree. Filed `BL-TAP-TITLE-LINK-META-LINE-BLEED`, `BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR`, `BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING` and `BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT`.
 - 2026-08-01 — feat/card-copy-parity-sync-job-names graduated BL-CARD-COPY-HELPFULCONTEXT-PARITY (§4.2 helpfulContext frozen for all 44 rows after reconciling rows 12/29 to the shipped catalog) and BL-SYNC-JOB-FOUR-NAMES (one name: "Auto sync" — catalog x6 codes with §12.4 lockstep, runSummary label, explainer mirror; StagedReviewCard badge unchanged).
 - 2026-08-01 — `fix/announce-a11y-pass` graduated the two Cluster A announcement rows (`BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`, `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE`): arm-expiry announcements on all 11 `ARM_REVERT_MS` surfaces (shared `ARM_EXPIRED_ANNOUNCEMENT`, dispatch-entry clears, per-group keying on bulk ignore, StagedReviewCard Apply-disarm fix, T4/T4a/T5 guards) and the ShareHub remote-rotation live region (seed-diff `remoteTokenChanges` counter, mirror-the-cue predicate).
 - 2026-08-01 — `test/ledger-guard-mdast-rewrite` graduated `BL-LEDGER-GUARD-MDAST-REWRITE` (the graduation tripwire ported onto the remark/mdast walker at `tests/docs/_ledgerMdast.ts`; the owner-split r22–r41 hardening restored from snapshot `a1cfce98d` with a two-row reconcile; the three r41 findings closed by probe — the split's follow-up branch is retired).
