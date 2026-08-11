@@ -297,6 +297,18 @@ runner from the pinned `mcr.microsoft.com/playwright:v1.59.1-jammy` image, per t
 byte-comparison discipline. Regenerating from this arm64 dev host would have
 produced different bytes: a green local run that fails in CI.
 
+**The regen's scope was PREDICTED before it ran, then checked against it.** Of the
+nine added glyphs, only `⚠` (in `ShowsTable`) appears on a captured route, so the
+prediction was exactly two files — `dashboard-overview-{light,dark}.webp` — and
+that is exactly what the bot committed (81,670 → 81,698 and 77,638 → 77,670
+bytes). Predicting the blast radius first is what turns a regen from "accept
+whatever the runner produces" into a check: a third file moving would have meant
+something else changed and been worth stopping for.
+
+The first dispatch captured correctly and was rejected at the push, because a
+docs commit landed on the branch while it ran — the regen checks out a ref and
+cannot fast-forward under it. Pushes are held for the duration of a regen now.
+
 ### Full suite
 
 `pnpm test` on the final tree: **23,744 passed**, 3 failed, 57 skipped across
