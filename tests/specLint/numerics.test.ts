@@ -245,6 +245,68 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     expect(only(findings, A)).toHaveLength(1);
   });
 
+  it.each([
+    ["an -ies plural", "EXPECTED_CATEGORY_COUNT", "categories"],
+    ["an -es plural after s", "EXPECTED_STATUS_COUNT", "statuses"],
+    ["an -es plural after ch", "EXPECTED_BATCH_COUNT", "batches"],
+    ["a plain -s plural", "EXPECTED_SITE_TOTAL", "sites"],
+  ])("the noun singularizes by rule, not by stripping one s (%s)", (_label, ident, noun) => {
+    // Stripping only a terminal `s` left `categorie`, which matched nothing (review R5).
+    const { findings } = run(`\`${PARITY_SCRIPT}\` covers 4 ${noun}\n`, {
+      [PARITY_SCRIPT]: scriptSrc(`const ${ident} = 3;`),
+    });
+    expect(only(findings, A)).toHaveLength(1);
+  });
+
+  it("an irregular plural is NOT singularized — documented limit, not a wrong flag", () => {
+    const { findings } = run(`\`${PARITY_SCRIPT}\` covers 4 indices\n`, {
+      [PARITY_SCRIPT]: scriptSrc("const EXPECTED_INDEX_COUNT = 3;"),
+    });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it.each([
+    [
+      "a block-commented declaration",
+      ["/*", "const EXPECTED_SITE_TOTAL = 37;", "*/", "const EXPECTED_SITE_TOTAL = 38;"].join("\n"),
+    ],
+    [
+      "a declaration inside a template literal",
+      [
+        "const sample = `",
+        "const EXPECTED_SITE_TOTAL = 37;",
+        "`;",
+        "const EXPECTED_SITE_TOTAL = 38;",
+      ].join("\n"),
+    ],
+    [
+      // THREE backticks on the opening line: the tracker follows odd PARITY, not the
+      // presence of a tick, so a line that both closes one span and opens another still
+      // flips it.
+      "a template opened after an inline span",
+      [
+        "const label = `x` + `",
+        "const EXPECTED_SITE_TOTAL = 37;",
+        "`;",
+        "const EXPECTED_SITE_TOTAL = 38;",
+      ].join("\n"),
+    ],
+  ])("declaration-SHAPED text is not a declaration (%s)", (_label, body) => {
+    // Reading the dead 37 drew a false advisory against prose that correctly says 38
+    // (review R5, probed). The live value is 38, so the line agrees and must stay silent.
+    const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("a period INSIDE a clause does not break the qualifier's binding", () => {
+    // `i.e.` is not a sentence end, so the qualifier still binds the 38 (review R5).
+    const { findings } = run(
+      `\`${PARITY_SCRIPT}\` covers 38 sites, i.e. all entries at plan time\n`,
+      { [PARITY_SCRIPT]: scriptSrc(siteConst(37)) },
+    );
+    expect(only(findings, A)).toEqual([]);
+  });
+
   it("a dated (ISO) historical line is EXCLUDED wholesale", () => {
     const { findings } = run(
       `2026-08-07 — \`${PARITY_SCRIPT}\` reported 38 sites in the probe transcript\n`,
@@ -1040,6 +1102,18 @@ describe("TEMPLATE_QUANTITY_DRIFT — shape (c), spec §3.3", () => {
     const findings = only(run([row(11), row(10), ""].join("\n")).findings, C);
     expect(findings).toHaveLength(1);
     expect(findings[0]!.detail).toContain("similarity 1.00");
+  });
+
+  it("an ordered-list marker is NOT a quantity", () => {
+    // Two consecutive list items differing only in their own index are not drift. The
+    // committed instrument strips list markers before building a candidate, and spec §3
+    // enumerates every instrument/contract divergence — this is not one of them, so the
+    // contract keeps it. Review R5 read §3.3's "trimmed physical lines" as forbidding the
+    // strip; following that reading would flag every consecutive pair of ordered items in
+    // this repo's plans on the strength of their own numbering.
+    const body = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda 7";
+    const doc = [`1. ${body}`, `2. ${body}`, ""].join("\n");
+    expect(only(run(doc).findings, C)).toEqual([]);
   });
 
   it("a quantity at column 0 participates", () => {

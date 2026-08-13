@@ -119,8 +119,13 @@ const QUALIFIER_REACH = 40;
  * or clause terminator between the number and the qualifier means they belong to
  * different clauses, so the qualifier binds nothing (whole-diff review R4 probed
  * `covers 4 sites. At plan time ...` binding across the full stop).
+ *
+ * A bare `.` is NOT a clause break: `covers 38 sites, i.e. all entries at plan time` is
+ * one clause and its qualifier must still bind (review R5, probed). So a period counts
+ * only before a capitalised word — the standard sentence-boundary heuristic — while `!`,
+ * `?` and `;` count outright.
  */
-const CLAUSE_TERMINATOR = /[.!?;]/;
+const CLAUSE_TERMINATOR = /[!?;]|\.\s+(?=[A-Z])/;
 
 function quantityRanges(text: string): Range[] {
   const out: Range[] = [];
@@ -151,14 +156,46 @@ function qualifierBoundStarts(text: string): Set<number> {
       if (nearest === null || n.end > nearest.end) nearest = n;
     }
     if (nearest === null) continue;
-    const gap = text.slice(nearest.end, q.index);
-    if (gap.length > QUALIFIER_REACH || CLAUSE_TERMINATOR.test(gap)) continue;
+    // One character past the qualifier's start, so a sentence-ending period can see the
+    // capital that follows it.
+    const gap = text.slice(nearest.end, q.index + 1);
+    if (gap.length - 1 > QUALIFIER_REACH || CLAUSE_TERMINATOR.test(gap)) continue;
     out.add(nearest.start);
   }
   return out;
 }
 
+/**
+ * The RATIFIED normalization for `NUMERIC_NOUN_MISMATCH`: lowercase and strip one
+ * trailing `s` (`docs/superpowers/specs/2026-07-19-spec-lint.md:103`). Shape (a) uses
+ * `singularNoun` instead — widening this one would move that check's whole corpus
+ * population, which is not this arc's to move.
+ */
 const singular = (word: string): string => word.replace(/s$/, "");
+
+/**
+ * Shape (a)'s singularizer: the REGULAR English plural rules, as a closed set.
+ *
+ * Spec §3.1 says the derived noun and the prose noun each "singularize" without naming
+ * a rule, and stripping only a terminal `s` is narrower than that — `categories` became
+ * `categorie` and never matched `EXPECTED_CATEGORY_COUNT` (whole-diff review R5, probed;
+ * the same class covers `statuses`, `processes`, `batches`).
+ *
+ * DOCUMENTED LIMIT: irregular plurals (`indices`, `matrices`, `children`) are NOT
+ * handled and are not going to be — that is a lexicon, not a rule, and the cost of
+ * missing one is a tripwire that does not fire rather than a wrong flag. The rules here
+ * are the ones that hold without a word list.
+ */
+function singularNoun(word: string): string {
+  const w = word.toLowerCase();
+  if (/[^aeiou]ies$/.test(w)) return w.slice(0, -3) + "y";
+  if (/(?:s|x|z|ch|sh)es$/.test(w)) return w.slice(0, -2);
+  // A trailing `s` after `ss`/`us`/`is` is part of a SINGULAR word (`status`, `process`),
+  // not a plural marker — the same exclusion `isPluralWord` applies below. Without it
+  // `status` became `statu` and never met `statuses`.
+  if (/(?:ss|us|is)$/.test(w)) return w;
+  return w.replace(/s$/, "");
+}
 
 // ---- shape (a): script-constant parity (spec §3.1) ----
 
@@ -209,7 +246,7 @@ interface ScriptConstant {
 
 function constantNoun(ident: string): string {
   const body = ident.replace(/^EXPECTED_/, "").replace(/_(?:TOTAL|COUNT)$/, "");
-  return singular(body.toLowerCase());
+  return singularNoun(body);
 }
 
 /**
@@ -232,9 +269,31 @@ function constantNoun(ident: string): string {
  * fixtures so the boundary is executable rather than described. Deciding scope
  * properly means parsing, which is a later arc's call with its own evidence.
  */
+/**
+ * Script lines a declaration may be read from: block comments blanked, template-literal
+ * interiors blanked, line count preserved.
+ *
+ * Declaration-SHAPED text is not a declaration. A commented-out
+ * `const EXPECTED_SITE_TOTAL = 37;` sitting at column 0 above the live value drew a
+ * FALSE advisory — the wrong direction, and the one the consequence bound cares about
+ * (whole-diff review R5, probed). Blanking is deliberately crude and errs toward
+ * blanking: over-blanking costs a tripwire that does not fire, under-blanking costs a
+ * wrong flag.
+ */
+function readableScriptLines(text: string): string[] {
+  const blanked = text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  const out: string[] = [];
+  let inTemplate = false;
+  for (const line of blanked.split("\n")) {
+    out.push(inTemplate ? "" : line);
+    if ((line.match(/`/g) ?? []).length % 2 === 1) inTemplate = !inTemplate;
+  }
+  return out;
+}
+
 function scriptConstants(text: string): ScriptConstant[] {
   const out: ScriptConstant[] = [];
-  for (const raw of text.split("\n")) {
+  for (const raw of readableScriptLines(text)) {
     if (/^\s/.test(raw)) continue;
     const m = CONST_DECL_RE.exec(raw);
     if (m === null) continue;
@@ -526,7 +585,7 @@ export function checkNumerics(
         boundCache.set(h.docLine, bound);
       }
       if (bound.has(h.column - 1)) continue; // exclusion (ii)
-      const noun = singular(following[1]!.toLowerCase());
+      const noun = singularNoun(following[1]!);
       const claimed = Number(h.raw);
       for (const { path, mentions, constants } of constantsByPath) {
         if (!mentions.test(line)) continue;
