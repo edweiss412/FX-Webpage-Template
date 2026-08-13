@@ -358,7 +358,7 @@ The mandated pre-draft detector pass ran a TypeScript-AST walk over every `.tsx`
 
 `SheetTitleLink`'s repaired class string (`components/admin/wizard/Step3SheetCard.tsx:167`) carries `-my-2.5 py-2.5`: the padding lifts the target to 44.8px and the negative margin cancels the growth in flow, so the row does not get taller. The consequence is that 10px of live hit box hangs below the text, and the meta line under it only clears 2px of that with its own `mt-0.5` — leaving the top ~8px of a 21.7px non-interactive text line inside a target that opens Google Sheets in a NEW TAB. Which element wins a tap varies with x-position. The same shape exists at `Step3SheetCard.tsx:452` (`mt-1`, so 6px) over "We couldn't read the details of this sheet".
 
-**Why it was not repaired on the filing branch:** spec `docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md` §2 ratifies this recipe verbatim — "**Exactly** `inline-block -my-2.5 py-2.5 -mx-2 px-2` … (R1 F2: one recipe, no delegated choice)" — and the spec's neighbour-overlap contract is scoped to *interactive* neighbours, which this diff satisfies and pins. Changing the bleed is a spec amendment, not an implementation call.
+**Why it was not repaired on the filing branch:** spec `docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md` §2 ratifies this recipe verbatim — "**Exactly** `inline-block -my-2.5 py-2.5 -mx-2 px-2` … (R1 F2: one recipe, no delegated choice)" — and the spec's neighbour-overlap contract is scoped to _interactive_ neighbours, which this diff satisfies and pins. Changing the bleed is a spec amendment, not an implementation call.
 
 **First scheduled step:** decide whether the overlap contract should cover non-interactive text at all (a mis-tap over prose is indistinguishable, to the user, from a mis-tap over a control). If yes, the candidate is a one-directional bleed — `-mt-5 pt-5 pb-0` — which keeps the whole 44.8px box inside the card's own 20px `--spacing-tile-pad` and off the meta line entirely.
 
@@ -377,9 +377,9 @@ Lifting the `tel:` and `mailto:` links to the 44px floor (`components/admin/wiza
 Two consequences of the floor repair at `components/admin/wizard/step3ReviewSections.tsx:1412`/`:1424`, neither a correctness defect:
 
 1. **Separation did not grow with the targets.** The `tel:` and `mailto:` links are now 44px tall and 6px apart in a `flex-col gap-1.5` cell. Bigger targets make the intended one easier to hit AND the wrong one easier to hit; here the wrong one dials the driver mid-show.
-2. **Grouping inverted.** With `items-center` in a 44px box, a 17px label leaves ~13.5px dead above and below, so the visual gap name→phone (~19.5px) is now smaller than phone→email (~33px). The two contact *methods* became the furthest-apart things in the cell.
+2. **Grouping inverted.** With `items-center` in a 44px box, a 17px label leaves ~13.5px dead above and below, so the visual gap name→phone (~19.5px) is now smaller than phone→email (~33px). The two contact _methods_ became the furthest-apart things in the cell.
 
-Folded in from the same gate (P3): sites 4/6/7 rely on `hover:` treatments for their only affordance, which `PRODUCT.md:59`'s venue-floor constraint bans as a sole affordance — 44px of air that looks exactly like static text is a bigger *invisible* target. Pre-existing (the repair enlarged the boxes, it removed no rest state), but it is the same cell and should be settled with it.
+Folded in from the same gate (P3): sites 4/6/7 rely on `hover:` treatments for their only affordance, which `PRODUCT.md:59`'s venue-floor constraint bans as a sole affordance — 44px of air that looks exactly like static text is a bigger _invisible_ target. Pre-existing (the repair enlarged the boxes, it removed no rest state), but it is the same cell and should be settled with it.
 
 **First scheduled step:** decide the resting presentation for a contact row — a container (`w-full justify-center rounded-sm bg-surface px-2`) so 44px reads as a row rather than a void — then set the gap from that decision rather than leaving `gap-1.5`.
 

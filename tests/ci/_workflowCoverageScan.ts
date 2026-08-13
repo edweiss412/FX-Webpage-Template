@@ -700,6 +700,27 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       "which is the property that makes an unset-vs-wrong-value confusion impossible to mistake " +
       "for a pass.",
   },
+  DATABASE_URL: {
+    values: [
+      {
+        text: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        // The tap-target step's wizard renders reach
+        // lib/onboarding/sessionLifecycle.ts's postgres.js path, which resolves
+        // `TEST_DATABASE_URL ?? DATABASE_URL` and THROWS under NODE_ENV=production
+        // when neither is set. So this pair governs that spec: without it the
+        // spec runs and fails, which is a loud outcome rather than a silent one,
+        // but it is still the difference between the step proving something and
+        // proving nothing.
+        governs: ["tests/e2e/tap-target-inline-controls.layout.spec.ts"],
+      },
+    ],
+    reason:
+      "The LOCAL Supabase stack's Postgres DSN for the lifecycle-layout-e2e job's tap-target " +
+      "step. Deliberately DATABASE_URL rather than TEST_DATABASE_URL: this repo uses the latter " +
+      "for the REMOTE validation project (x-audits.yml feeds it a secret), so naming it here " +
+      "would read as pointing CI at validation. A wrong value fails loud — the app throws on " +
+      "connect — rather than selecting or skipping anything.",
+  },
   PLAYWRIGHT_JSON_OUTPUT_NAME: {
     values: [
       {

@@ -5462,13 +5462,13 @@ instance of either shape appearing in the ledgers.
 
 **Repaired (5)**, each with the step3-a11y cluster's ratified recipe applied verbatim to the control and nothing else. Red was observed first on the PRODUCTION routes in a real browser at 390px — site 4 16.80px, site 5 19.36px, site 6 17.05px, site 8 16.80px — then 4/4 green, with the floor read from `--spacing-tap-min` rather than a hardcoded 44:
 
-| # | site | recipe |
-| --- | --- | --- |
-| 4 | pack-list "Show all N items" toggle | `inline-flex w-fit min-h-tap-min items-center` |
-| 5 | sheet-title deep link | `inline-block -my-2.5 -mx-2 px-2 py-2.5` |
-| 6 | `tel:` contact link | `min-h-tap-min` (display preserved) |
-| 7 | `mailto:` contact link | `min-h-tap-min` (display preserved) |
-| 8 | dev-panel "Report this" | `inline-flex w-fit min-h-tap-min items-center` + `text-blue-700` → `text-accent-on-bg` |
+| #   | site                                | recipe                                                                                 |
+| --- | ----------------------------------- | -------------------------------------------------------------------------------------- |
+| 4   | pack-list "Show all N items" toggle | `inline-flex w-fit min-h-tap-min items-center`                                         |
+| 5   | sheet-title deep link               | `inline-block -my-2.5 -mx-2 px-2 py-2.5`                                               |
+| 6   | `tel:` contact link                 | `min-h-tap-min` (display preserved)                                                    |
+| 7   | `mailto:` contact link              | `min-h-tap-min` (display preserved)                                                    |
+| 8   | dev-panel "Report this"             | `inline-flex w-fit min-h-tap-min items-center` + `text-blue-700` → `text-accent-on-bg` |
 
 **Two of the row's own site labels were wrong** and were corrected from the live tree before implementation: the `ReportModal` site is the resume-banner link "Start a new report anyway" (the modal's actual "Start fresh" button already carried `min-h-tap-min`), and the wizard toggle's label is "Show all {n} items" / "Show fewer items", not "show more".
 
