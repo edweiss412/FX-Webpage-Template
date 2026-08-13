@@ -299,6 +299,9 @@ export const INTERNAL_CODE_ENUMS = {
   ROOM_HEADER_SPLIT_AMBIGUOUS: {
     source: "parse_warnings.code"
   },
+  ROW_CELLS_FUSED: {
+    source: "parse_warnings.code"
+  },
   SCHEDULE_STRIKE_DATE_OFF_SCHEDULE: {
     source: "parse_warnings.code"
   },

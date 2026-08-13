@@ -68,12 +68,12 @@ export function UserMenu({ email }: { email: string }) {
             aria-hidden="true"
             tabIndex={-1}
             onClick={() => setOpen(false)}
-            className="fixed inset-0 z-10 cursor-default"
+            className="fixed inset-0 z-raised cursor-default"
           />
           <div
             role="menu"
             data-testid="admin-user-menu"
-            className="route-enter absolute right-0 z-20 mt-2 w-56 rounded-md border border-border bg-surface-raised p-2 shadow-lg"
+            className="route-enter absolute right-0 z-dropdown mt-2 w-56 rounded-md border border-border bg-surface-raised p-2 shadow-lg"
           >
             {hasEmail && (
               <div className="border-b border-border px-2 pb-2">

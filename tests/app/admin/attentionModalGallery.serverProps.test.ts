@@ -104,6 +104,10 @@ const EXPECTED_GLOBAL_IDS = [
 // (docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md §4). A new
 // warn-severity ParseWarning code renders a gallery scenario, so the baseline grows by
 // exactly one — that is the reviewed diff naming its spec this list asks for.
+// And one more from wave branch 3: warn-row-cells-fused (same spec, §5 — a data row one
+// cell short of its section's modal width is how a merged cell exports). Same reasoning,
+// same +1; the guard caught this addition rather than the branch remembering it, which is
+// the fail-by-default working as designed.
 const RENDERED_IDS_BEFORE: string[] = [
   "alert-ambiguous-email-binding",
   "alert-asset-recovery-bytes-exceeded",
@@ -237,6 +241,7 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-ref-error-literal",
   "warn-role-token-autocorrected",
   "warn-room-header-split-ambiguous",
+  "warn-row-cells-fused",
   "warn-schedule-strike-date-off-schedule",
   "warn-schedule-time-unparsed",
   "warn-section-header-autocorrected",

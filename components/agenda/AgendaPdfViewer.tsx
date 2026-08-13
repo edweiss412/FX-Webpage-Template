@@ -158,7 +158,7 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
   return (
     <div ref={containerRef} className="flex w-full max-w-3xl flex-col items-center px-2 sm:px-4">
       {numPages !== null && !error ? (
-        <div className="sticky top-0 z-10 mb-3 flex w-full items-center justify-between rounded-sm border border-border bg-surface px-3 py-2 shadow-tile">
+        <div className="sticky top-0 z-raised mb-3 flex w-full items-center justify-between rounded-sm border border-border bg-surface px-3 py-2 shadow-tile">
           <span className="text-sm font-medium tabular-nums text-text-strong">
             Page <span data-testid="agenda-active-page">{activePage}</span> of {numPages}
           </span>

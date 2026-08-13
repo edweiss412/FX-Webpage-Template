@@ -66,13 +66,13 @@ function stepper(): string {
       <a data-testid="wizard-step-indicator-${n}" class="${base} border-border-strong bg-surface text-text-subtle">${CHECK_SVG}</a>
       <span class="${labelInactive}">${label}</span>
     </div>
-    <span data-testid="wizard-step-connector" aria-hidden="true" class="h-px max-w-[60px] flex-1 rounded-full bg-border-strong"></span>`;
+    <span data-testid="wizard-step-connector" aria-hidden="true" class="h-px w-confirm-box rounded-full bg-text-subtle"></span>`;
   const active = (n: number, label: string) => `
     <div class="flex items-center gap-2">
       <a data-testid="wizard-step-indicator-${n}" class="${base} border-transparent bg-accent text-accent-text">${n}</a>
       <span class="${labelActive}">${label}</span>
     </div>`;
-  return `<nav aria-label="Onboarding progress" data-testid="wizard-step-indicator" class="flex items-center gap-2 sm:gap-3">
+  return `<nav aria-label="Onboarding progress" data-testid="wizard-step-indicator" class="flex min-w-0 items-center gap-2 sm:gap-3">
     ${done(1, "Share folder")}${done(2, "Verify")}${active(3, "Review &amp; publish")}
     <span class="sr-only">Step 3 of 3</span>
   </nav>`;

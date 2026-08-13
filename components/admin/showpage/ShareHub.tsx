@@ -52,26 +52,27 @@
  *
  * Elevation: the root is a bare `relative` — no z-index at all.
  *
- * It used to carry `z-30` while open, to lift the popover (then an in-flow
+ * It used to carry `z-nav` while open, to lift the popover (then an in-flow
  * child) over sibling content. The popover portals out now, so nothing in this
  * subtree needs raising, and the class is gone. `relative` stays because the
  * root is still the caret's measurement anchor.
  *
  * History worth keeping, because it is easy to "restore": an UNCONDITIONAL
- * `z-30` here once painted the two NON-POSITIONED trigger buttons above the
- * header attention menu's `z-20` panel and stole its clicks
+ * `z-nav` here once painted the two NON-POSITIONED trigger buttons above the
+ * header attention menu's `z-dropdown` panel and stole its clicks
  * (share-hub-fidelity-fixes §3). Gating on `open` was that fix; removing the
  * class entirely supersedes it. A trigger overpaints the menu only at a z-index
- * >= the menu's level (20) — `relative`, `z-0`, `z-10` and `isolate` all paint
+ * >= the menu's level (20) — `relative`, a zero or `raised` z, and `isolate`
+ * all paint
  * below it (CSS 2.1 Appendix E) — so a low z here is harmless and z >= 20 is
  * not. T-HUB-ZORDER (published-review-modal.interactions.spec.ts) is the real
  * guard; shareHub.test.tsx keeps a cheap class-level z >= 20 check.
  *
- * What `z-30` never did, despite a test title claiming otherwise, is order the
- * `fixed z-20` backdrop against those same non-positioned triggers: it elevated
+ * What `z-nav` never did, despite a test title claiming otherwise, is order the
+ * `fixed z-dropdown` backdrop against those same non-positioned triggers: it elevated
  * the whole root, backdrop included. The backdrop has always swallowed trigger
  * taps (verified against origin/main), tracked as
- * BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS. Removing z-30 neither causes nor
+ * BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS. Removing z-nav neither causes nor
  * worsens it.
  *
  * Close semantics mirror the shipped CrewRowActions popover (#499): a backdrop
@@ -142,7 +143,7 @@ type LifecycleResult = { ok: true } | { ok: false; code: string };
 export type ShareHubProps = {
   /** Whether the header's attention menu is open. Absent means closed.
    *  Third term of the trigger-elevation gate (spec §3.1): the menu's panel is
-   *  z-20 and overlaps this band, so a trigger raised above it would steal the
+   *  z-dropdown and overlaps this band, so a trigger raised above it would steal the
    *  menu's clicks — the regression share-hub-fidelity-fixes §3 already fixed
    *  once. */
   attentionMenuOpen?: boolean | undefined;
@@ -205,7 +206,7 @@ export function ShareHub({
   const inFlight = rotateBusy || resetBusy || lifecycleBusy;
   const busy = inFlight && !busyStuck;
   /**
-   * Trigger elevation over the hub's own `fixed inset-0 z-20` backdrop
+   * Trigger elevation over the hub's own `fixed inset-0 z-dropdown` backdrop
    * (spec §3.1, BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS). The triggers are
    * NON-POSITIONED siblings of that backdrop, so it paints over them and
    * swallows their taps — a trigger click closed the popover only because the
@@ -215,11 +216,11 @@ export function ShareHub({
    *   open  — closed means no backdrop, so nothing to clear;
    *   !busy — a busy hub's dismissal paths are deliberately inert (§6), and an
    *           elevated trigger would look actionable while doing nothing;
-   *   !attentionMenuOpen — the menu's panel is z-20 in the same band, and a
+   *   !attentionMenuOpen — the menu's panel is z-dropdown in the same band, and a
    *           trigger at z >= 20 overpaints it and steals its clicks.
    */
   const elevateTriggers = open && !busy && !attentionMenuOpen;
-  const triggerElevation = elevateTriggers ? " relative z-30" : "";
+  const triggerElevation = elevateTriggers ? " relative z-nav" : "";
 
   useEffect(() => {
     if (!inFlight) return;
@@ -761,7 +762,7 @@ export function ShareHub({
           onClick={() => {
             if (!busy) setOpen(false);
           }}
-          className="fixed inset-0 z-20 cursor-default"
+          className="fixed inset-0 z-dropdown cursor-default"
         />
       )}
 
@@ -889,7 +890,7 @@ export function ShareHub({
               // the placement core reads as its `cap` input. The old
               // `right-0 top-full mt-1.5 max-w-[calc(100vw-2rem)]` anchoring is
               // gone: it is what pinned the body to a spot that overhung the clip.
-              className="absolute z-40 flex max-h-[min(70vh,30rem)] w-[308px] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-surface p-2.5 shadow-popover focus-visible:outline-none"
+              className="absolute z-banner flex max-h-[min(70vh,30rem)] w-[308px] flex-col gap-2 overflow-y-auto rounded-md border border-border bg-surface p-2.5 shadow-popover focus-visible:outline-none"
             >
               {/* Persistent sr-only region at the POPOVER ROOT — mounted for the
                   whole open lifetime regardless of linkActive, so the remote
@@ -1123,7 +1124,7 @@ export function ShareHub({
             {/* Caret notch (spec 2026-07-20-share-hub-fidelity-fixes §5).
                 A SIBLING of the body, not a child: the body is
                 `overflow-y-auto`, so a child would be clipped away and
-                silently invisible. Rendered AFTER it because both are `z-40`
+                silently invisible. Rendered AFTER it because both are `z-banner`
                 and equal z-index resolves by TREE ORDER, not by the class —
                 reorder these two and the body's border cuts through the notch.
                 `pointer-events-none` because `aria-hidden` hides it from
@@ -1140,7 +1141,7 @@ export function ShareHub({
               ref={caretRef}
               aria-hidden="true"
               data-testid="share-hub-caret"
-              className="pointer-events-none absolute z-40 size-2.5 rotate-45 border-border bg-surface data-[popover-side=bottom]:border-t data-[popover-side=bottom]:border-l data-[popover-side=top]:border-r data-[popover-side=top]:border-b"
+              className="pointer-events-none absolute z-banner size-2.5 rotate-45 border-border bg-surface data-[popover-side=bottom]:border-t data-[popover-side=bottom]:border-l data-[popover-side=top]:border-r data-[popover-side=top]:border-b"
             />
           </>,
           // Portal CONTAINER choice, not render data: only read once `mounted`

@@ -46,6 +46,12 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repaid by a test, so a row appearing here later is a regression to
   // explain rather than a number to update.
   ledgerClaimsCore: { equivalent: 3 },
+  // Enrolled 2026-08-10 with an EMPTY ledger, deliberately. The surface's first
+  // run scored 0.607, and the answer was to assert the recognizer's forms
+  // directly (tests/docs/interactionTimingScan.test.ts) and to move the CLI out
+  // of the mutated module — not to accept survivors. A row appearing here later
+  // is therefore a regression to explain, not a number to update.
+  interactionTimingScan: { equivalent: 8 },
   // Counted from the surface: SIX reachability arguments -- the three two-field
   // parses at ledger-git.ts:83, :130 and :192, the twice-tested regex group at :219,
   // the `+++ b/` fallthrough at :280, and headRepo's three-way collapse at :325
@@ -66,6 +72,14 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
   reviewRoundCorpus: { equivalent: 2 },
+  // M-wave 2 W-GUARDS (2026-08-10). popoverOverlayExtract: TWO equivalent rows
+  // (the template-separator connector flip, which can only inject the token
+  // `undefined` where no accept-set token contains it; and the null-key
+  // fall-through continue, which reaches only comparisons a null key cannot
+  // match). renderedTextHaystack: clean sweep, 17/17 killed after the
+  // hardening rows.
+  popoverOverlayExtract: { equivalent: 2 },
+  renderedTextHaystack: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

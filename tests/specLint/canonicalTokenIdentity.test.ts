@@ -15,12 +15,18 @@
 // to the value the form it replaced encoded? So it is answered here — no browser, no
 // clock, no flake — rather than in the e2e dimension spec.
 //
-// THIS IS THE DISCRIMINATING PROOF FOR C1, not a redundant second opinion. Measured
-// 2026-08-08, the step-indicator connector is 0x1 at every viewport: StepIndicator's
-// <nav> is a content-sized flex item inside a row flex container, so its `flex-1`
-// connectors receive no free space and `max-w` never applies. The e2e spec keeps those
-// two keys as a regression tripwire and says so explicitly; the assertion that actually
-// discriminates a wrong `--spacing-confirm-box` is the one below.
+// THIS IS THE TOKEN HALF OF C1'S PROOF. It was once the WHOLE of it: measured 2026-08-08
+// the connector was 0x1 at every viewport, because StepIndicator's <nav> was a
+// content-sized flex item inside a row flex container, so its `flex-1` connectors got no
+// free space and `max-w` never applied — nothing in a browser could discriminate a wrong
+// `--spacing-confirm-box` when the box was zero wide either way.
+//
+// That premise is now FALSE, and deliberately so. The connector sets `w-confirm-box`
+// (components/admin/OnboardingWizard.tsx) — a fixed 60px, which is this token — and the
+// e2e spec measures it at every step and both widths. So the two proofs are now genuinely complementary: this file
+// answers "does the utility resolve to the value the bracket form encoded", which is a
+// token question with no browser in it, and the e2e spec answers "does the rendered box
+// obey it", which cannot be answered anywhere else. Neither subsumes the other.
 //
 // It replaces the mid-crossfade sampler the plan descoped for the same reason: three
 // consecutive review rounds on that sampler were all about driving framer-motion
@@ -45,17 +51,25 @@ const GLOBALS = path.join(process.cwd(), "app/globals.css");
 /**
  * The two production sites whose class token this file's token assertions are supposed to
  * prove. Without binding them, the proof is answering a question nobody asked: a rebase
- * changing the connector to `max-w-16` (64px, canonical, so ESLint stays silent) leaves
- * `--spacing-confirm-box: 60px` intact, and the C1 rect keys are 0-width, so every C1
- * assertion passed while the rendered constraint changed. The token identity and the
- * SITE THAT USES IT are two halves of one claim.
+ * changing the connector to `w-16` (64px, canonical, so ESLint stays silent) leaves
+ * `--spacing-confirm-box: 60px` intact while the rendered constraint changes. That swap
+ * was invisible to EVERY C1 assertion when the rect keys were 0-width; the e2e width
+ * equality catches it now (64 != 60), but this binding is still what ties the token to
+ * the site rather than to nothing. The token identity and the SITE THAT USES IT
+ * are two halves of one claim.
  */
 const CANONICAL_USE_SITES = [
   {
     id: "C1",
     file: "components/admin/OnboardingWizard.tsx",
     testId: "wizard-step-connector",
-    utility: "max-w-confirm-box",
+    // `w-`, not `max-w-`, as of the connector-render change. The canonicalization
+    // this file proves is a TOKEN claim -- does the utility resolve to the 60px
+    // the bracket form encoded -- and that claim is identical whichever spacing
+    // utility consumes `--spacing-confirm-box`. The site moved from a cap that
+    // was doing all the work (`flex-1 max-w-confirm-box`) to setting the width
+    // outright, because measurement showed the flex-grow never grew anything.
+    utility: "w-confirm-box",
     replaced: "max-w-[60px]",
   },
   {
@@ -111,8 +125,9 @@ function unconditionalClassLiterals(
         // is the one callee whose arguments are known to reach the class attribute.
         // ...and `cn` must be THE sanctioned import, not merely the spelling. A local `cn`
         // that discards its arguments would otherwise satisfy both assertions while the
-        // element renders something else — and C1 has no browser fallback, its connector
-        // being zero-width by construction.
+        // element renders something else. C1's browser coverage is now real (the
+        // connector renders at a fixed 60px and the e2e spec measures it), but this
+        // binding is still the only thing tying the TOKEN to the SITE.
         if (
           ts.isIdentifier(init.expression) &&
           init.expression.text === "cn" &&

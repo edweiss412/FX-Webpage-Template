@@ -154,7 +154,7 @@ export function CrewSubNav({ activeSection, budgetVisible, onSelect }: CrewSubNa
           bottom clearance so section content never scrolls under this fixed bar. */}
       <nav
         aria-label="Show sections"
-        className="min-[720px]:hidden fixed inset-x-0 bottom-0 z-10 flex items-stretch border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
+        className="min-[720px]:hidden fixed inset-x-0 bottom-0 z-raised flex items-stretch border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
       >
         {sections.map((id) => tab(id, "mobile"))}
       </nav>

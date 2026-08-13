@@ -50,6 +50,7 @@ import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
 import { dateSummarySegments, step3Sections } from "@/components/admin/wizard/step3ReviewSections";
+import { maxZLevel } from "../../../_shared/zLevel";
 import type { PublishedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
@@ -1324,16 +1325,6 @@ describe("the warning-surface trim is live end to end from this modal", () => {
  * what this test exists to exercise.
  */
 describe("PublishedReviewModal — attention-menu state reaches the hub triggers", () => {
-  const maxZLevel = (cls: string): number => {
-    let max = 0;
-    for (const tok of cls.split(/\s+/).filter(Boolean)) {
-      const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+))!?$/.exec(tok);
-      if (!m) continue;
-      const n = (m[1] === "-" ? -1 : 1) * Number(m[2] ?? m[3]);
-      if (n > max) max = n;
-    }
-    return max;
-  };
   const hubTriggers = () => [
     screen.getByTestId("share-hub-primary"),
     screen.getByTestId("share-hub-kebab"),
