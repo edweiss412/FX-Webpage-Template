@@ -8,6 +8,91 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
+## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button is not perceivable as a box at the non-text floor
+
+**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system
+contrast. **Effort:** M — it is a token decision affecting every surface that renders the button, not
+a patch. **Class-sweep exception:** (c). **Reachability: PROBED.**
+
+The shared secondary treatment (`SECONDARY_ACTION_CLASS`, `lib/ui/actionClass.ts`) draws a
+`border-border-strong` outline over a `bg-bg` fill, on cards that are `bg-surface`. Measured with the
+standard WCAG relative-luminance formula against the runtime tokens:
+
+```
+border-strong on surface   1.59:1 light   1.60:1 dark     (3:1 non-text floor)
+bg fill      on surface     1.04:1 light   1.06:1 dark
+label text   on the fill   16.47:1 light  15.23:1 dark
+```
+
+So neither the outline nor the fill is perceivable at the floor: what identifies the control is its
+label, not its box.
+
+**This is NOT a strict AA failure and NOT a regression.** WCAG 1.4.11 does not require the boundary
+to reach 3:1 when the component is identifiable by other means, and the label clears every floor
+with margin. It is also pre-existing: this is the class `RescanSheetButton` has shipped for months,
+promoted verbatim into the constant precisely so its eight other call sites would not move. The
+retired ghost "View" had no border at all, so nothing got worse.
+
+**Why it is still worth a row.** DESIGN.md §1.2a already records the same shape one layer down —
+tokens tuned to sit BESIDE a filled surface do not carry contrast when they must stand on their own.
+The border tokens are tuned as tile edges, and a button outline asks them to do a different job. A
+deliberate decision would either give the secondary button a boundary that reads (a stronger token,
+or a fill with real separation) or state explicitly that the label is the affordance and the box is
+decorative — which is a legitimate answer, just not one anyone has written down.
+
+## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on interactive elements is a 32-site class, not a four-site list
+
+**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, task U4). **Class:** design-system conformance
+(`DESIGN.md` §1.1 documents `--color-text-subtle` as "Labels, captions, 'as of …' timestamps. Never
+used for action targets."). **Effort:** M. **Class-sweep exception:** (c) — it spans 19 files this
+PR does not otherwise touch, and several members are genuine design questions rather than mechanical
+swaps. **Reachability: PROBED.**
+
+**Why this is filed at all: the previous cover was an enumeration, and enumerations of this shape
+keep coming up short.** `SHEETLINK-SUBTLE-ACTION-CLASS-1` named four sites. U4 found a fifth while
+implementing (the HelpSheet `?` trigger's painted span). A SIXTH —
+`components/admin/FinalizeButton.tsx:818`, the finalize-blocker dismiss — surfaced only because the
+z-index sweep happened to touch its line, which is luck, not method. That sixth is repaired in this
+branch with the other five. The rest are filed here **with the derivation instead of a list**, so
+the next pass does not re-enumerate and come up short a third time.
+
+**The probe** (AST over `app/**` + `components/**` `.tsx`, JSX opening elements whose tag is
+`button` / `a` / `summary` and whose STATIC `className` — string, template, conditional branches,
+`cn()`/`clsx()` arguments — contains the bare token `text-text-subtle`):
+
+```
+total: 32 interactive elements
+components/admin/dev/SwitcherControls.tsx:142        <button>
+components/admin/nav/NotifBell.tsx:76                <button>
+components/admin/nav/OnboardingTopBar.tsx:84         <button>
+components/admin/nav/UserMenu.tsx:51                 <button>
+components/admin/settings/AdministratorsSection.tsx:150  <summary>
+components/admin/showpage/sectionWarningExtras.tsx:272    <summary>
+components/admin/telemetry/ActiveFilterChips.tsx:90, :101 <button>
+components/admin/telemetry/AutoRefreshControl.tsx:119     <button>
+components/admin/wizard/Step3ReviewModal.tsx:475          <button>
+components/admin/wizard/step3ReviewSections.tsx:1410, :1419  <a>
+components/admin/wizard/step3ReviewSections.tsx:1595       <summary>
+components/admin/wizard/step3ReviewSections.tsx:2590        <button>
+components/agenda/AgendaPdfViewer.tsx:165                  <button>
+components/crew/AgendaScheduleBlock.tsx:107                <summary>
+components/crew/primitives/KeyTimesStrip.tsx:191           <summary>
+components/layout/ThemeToggle.tsx:81                       <button>
+components/shared/ReportModal.tsx:579                      <button>
+(tail truncated in this listing; the scan is the authority, not this excerpt)
+```
+
+**Worst case is cosmetic, which is why it is a backlog row and not a deferral with a trigger.** The
+control renders and is operable; it renders quieter at rest than DESIGN.md intends, which reads as
+de-emphasis where none was meant. Nothing is unreachable and no state is carried by colour alone.
+
+**Fix when prioritized — and the fix is a guard, not 32 edits.** Land the scan above as a structural
+meta-test with a reasons-required registry (the `zIndexExemptions.ts` shape), so every new
+interactive element is covered by default and the remaining debt is declared and countable rather
+than rediscovered. Some members need a decision first, not a swap: a dismissable filter chip and a
+`<summary>` disclosure are arguably caption-like, and DESIGN.md should say so explicitly in the same
+pass rather than being read as absolute and then quietly excepted.
+
 ## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects
 
 **Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M
@@ -184,27 +269,6 @@ re-browsing, not a live-region announcement.
 Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image migration that surfaced
 them; they are filed rather than fixed in that branch because the repair is a focus-management and
 announcement decision on a surface the branch does not otherwise change.
-
-## BL-GLYPHS-OUTSIDE-INTER-SUBSET — ~150 UI glyph sites render in a fallback face, not Inter
-
-**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, the non-degraded invariant-8 re-run of the step3-a11y cluster). **Class:** visual consistency (`DESIGN.md` §2.1 commits to ONE type family). **Effort:** M — the fix is a decision plus either a wider subset or a glyph-to-icon migration, not a patch. **Class-sweep exception:** (c) — it spans surfaces no single PR touches. **Reachability: PROBED.**
-
-`app/fonts.css:28` loads `public/fonts/InterVariable-latin.fada467b.woff2`, a latin + latin-ext subset carrying **1004 codepoints**. Any character outside it falls back to a system face, so the glyph renders in a different family from the text beside it — which is what the one-family commitment says should not happen.
-
-**Probe** — fontTools over the shipped binary, then a scan of every tracked `.tsx`/`.ts` under `app/` and `components/`, comment-only lines excluded:
-
-```
-codepoints in shipped subset: 1004
-U+2192 →   84 sites     U+2265 ≥   21     U+2197 ↗   11     U+2713 ✓    6
-U+25B8 ▸    4           U+2194 ↔    4     U+2264 ≤    4     U+21D2 ⇒    2
-24 distinct glyphs, ~150 sites total (also ⚠ ⟷ ≠ ⌄ ⌃ ← ℹ 🔗 ⌘ 🔒 ✕ ≈ ☎ ✉ ⊘)
-```
-
-**Why it is filed rather than fixed, and why nothing was reverted.** It is overwhelmingly PRE-EXISTING: `→` at 84 sites and `↗` at 11 have shipped for months. The step3-a11y cluster added exactly two members — `components/admin/OnboardingWizard.tsx:644` and `components/admin/settings/AdministratorsSection.tsx:142`, the disclosure carets that replaced the native `<summary>` marker `inline-flex` removes. Reverting those would restore a real regression the cross-model review caught (two disclosures losing their open/closed cue) in exchange for a cosmetic inconsistency shared with ~148 other sites. The pattern they copy, `app/me/meShowSections.tsx:130`, predates the branch.
-
-**Worst case is cosmetic and already on screen:** the glyph renders, in a system face, at a slightly different weight and metric. Nothing is unreadable, and every one of these is decorative and `aria-hidden`, so assistive technology is unaffected. That is why this is a backlog row rather than a deferral with a trigger.
-
-**First scheduled step is the decision, not the edit:** either widen the subset to cover the arrows and math symbols actually in use (cheap in bytes, but `scripts/subset-inter.sh` and its checksum-pinned input make it deliberate), or migrate the recurring ones to the lucide icons the codebase already ships. Counting first is what makes that call possible; the counts above are the input.
 
 ## BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT — enrol the tap-target-floor spec in the source-mutation registry
 
@@ -779,29 +843,6 @@ Moving the four directories outside the repo and re-running takes the same suite
 **Why it is filed rather than repaired in the arc that found it — exception (c).** The repair is on a guard surface this PR does not otherwise touch, and this particular guard's review history (its own test names run to "R40 escaping mutants") is precisely about enumerated recognizers not terminating. Adding four literals to an enumerated ignore list is the shape that invites the next round to ask for a derived one. It deserves its own arc, where the derivation question can be answered properly.
 
 **The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
-
-## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking is raw Tailwind numerics, not named bands
-
-**Effort:** M
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
-
-The admin overlay cluster stacks by bare numeric utility: `z-20` (attention panel and hub
-backdrop), `z-30` (elevated hub trigger), `z-40` (PublishedToggle refusal banner). The bands
-and their ordering are explained only in code comments, so the relationships they encode —
-"the elevated trigger must outrank the backdrop", "the refusal banner outranks everything in
-the strip" — are invisible at each use site and are re-derived by hand every time an overlay
-is added.
-
-`app/globals.css` defines no `--z-*` tokens. The impeccable general rules ask for a semantic
-scale (dropdown, sticky, modal-backdrop, modal, toast, tooltip) so the intent is readable and
-a new surface picks a band rather than a number.
-
-**Trigger:** the next overlay added to this cluster, or the first stacking bug caused by two
-surfaces picking the same numeric. A tree-wide sweep is the natural companion to filing tokens,
-since the value of the scale is that every site uses it.
-
----
 
 ## Merged from the plans backlog (2026-08-02)
 

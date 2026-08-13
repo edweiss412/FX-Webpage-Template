@@ -9,7 +9,7 @@
  *
  * The switcher's control bar. Rendered into a body-level portal by
  * AttentionModalSwitcher so it escapes the admin `[data-inert-root]` and sits
- * above the modal overlay (z-60 > z-50). It is deliberately OUTSIDE the modal's
+ * above the modal overlay (z-dev-controls > z-overlay). It is deliberately OUTSIDE the modal's
  * aria-modal tree (the ratified dev-instrument a11y carve-out, spec §1.1);
  * keyboard navigation is handled by the switcher's document listener, and this
  * bar carries aria-labels + an aria-live region (position + human label) for the
@@ -77,7 +77,7 @@ export function SwitcherControls({
       data-codes={codes.join(",")}
       role="group"
       aria-label="Scenario switcher"
-      className="fixed inset-x-0 top-0 z-60 mx-auto flex max-w-3xl flex-col gap-1 rounded-b-xl border border-t-0 border-border bg-surface/95 px-4 pb-2 pt-[calc(--spacing(2)+env(safe-area-inset-top,0))] shadow-lg backdrop-blur"
+      className="fixed inset-x-0 top-0 z-dev-controls mx-auto flex max-w-3xl flex-col gap-1 rounded-b-xl border border-t-0 border-border bg-surface/95 px-4 pb-2 pt-[calc(--spacing(2)+env(safe-area-inset-top,0))] shadow-lg backdrop-blur"
     >
       <div className="flex flex-nowrap items-center gap-x-2">
         <button
