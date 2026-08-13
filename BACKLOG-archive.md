@@ -7076,3 +7076,34 @@ Both surfaces need a schema decision (new table vs derived view vs append-only c
 **Found by** cross-model plan review R2 F6 on `fix/sync-log-show-id-duration`, which extends that guard's discovery to `prune_(sync_log|app_events)`. That arc repairs this file as part of its Task 5b — the guard cannot reach green while a discovered test lacks the assertion — so this entry exists to record the hazard and its independence: it predates that change and would remain if the change were abandoned.
 
 **Fix:** route the URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`), matching every other destructive DB test.
+
+## BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES — promotion compares list lengths, not the names the manifest requires — RESOLVED 2026-08-10 (`fix/promote-identity-validation`, IMPLEMENTED)
+
+**Status:** RESOLVED 2026-08-10 · **Filed:** from cross-model review of PR #761 · **Severity:** medium · **Class:** CORRECTNESS · **Effort:** S
+
+`promoteSnapshot` computed how many objects the manifest describes and compared that number to the
+temp listing's length and then to the canonical listing's length. It never checked that each
+`snapshotPath` basename and each variant `key` was actually PRESENT. A missing required object plus an
+unrelated object of equal count passed both checks, got moved to canonical, and cut over a manifest
+pointing at bytes that are not there. Duplicate entries produced the same class.
+
+Reviewer's probe: `countCheckPasses: true` with `missingExpected: ["embedded-a.png@256.webp"]`; the
+only integrity conditions in the function were the two length comparisons, and there was no set or
+membership check anywhere.
+
+**Resolution.** The entry's own framing — "a spec, not a patch" — is how it closed: the extras
+decision was ratified by the user (EXACT SET — unexpected objects under the temp prefix fail
+promotion loudly), spec `docs/superpowers/specs/2026-08-10-promote-identity-validation.md`, plan
+`docs/superpowers/plans/2026-08-10-promote-identity-validation.md`. What shipped:
+`EXPECTED_ASSET_COUNT_SQL` deleted and replaced by `EXPECTED_ASSET_NAMES_SQL` — discriminated
+`kind='original'` (full `snapshotPath`) / `kind='variant'` (key) rows, multiplicities preserved,
+read through a new `queryRows` seam on `LockablePromoteTx` only (the shared `LockableSyncTx` stays
+narrow, typecheck-fenced). Path binding runs before any listing comparison (a stale-revision or
+slash-less original fails as `mispathed` with `storage.list` never invoked), then both checkpoints
+compare basenames as multisets: `missing`, `extra` (exact set), `duplicated` (its own class, never
+`missing`). `manifest_mismatch` gained bounded `deltas` (10 names per list + `truncated`) on the
+three comparison-derived branches, and `promoteSnapshotUpload` emits one post-commit
+`SNAPSHOT_PROMOTE_MANIFEST_MISMATCH` `log.warn` — the invariant-10 emit every caller shares.
+Rollback/cutover/claim mechanics unchanged. The filing's probe shape is the unit suite's AC-1
+fixture; the names SQL is pinned against real Postgres through the composed
+`withPromoteLock → withShowLock → queryRows` seam.

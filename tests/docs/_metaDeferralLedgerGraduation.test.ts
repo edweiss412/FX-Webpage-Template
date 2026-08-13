@@ -476,6 +476,15 @@ const BACKLOG_GRADUATED = [
     id: "BL-HELP-NON-SHOW-REPORT-SURFACE",
     provenance: "feat/help-report-surface",
   },
+  // fix/promote-identity-validation (2026-08-10): promotion now validates the
+  // required-NAME set (exact set + path binding, bounded deltas, post-commit
+  // SNAPSHOT_PROMOTE_MANIFEST_MISMATCH emit) instead of comparing listing
+  // lengths; the count SQL is deleted and the names SQL is realdb-pinned
+  // through the composed promote-tx seam.
+  {
+    id: "BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES",
+    provenance: "fix/promote-identity-validation",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

@@ -57,26 +57,6 @@ orphaned this way; variants now orphan alongside them. Filed rather than fixed u
 the repair is a removal capability on the storage port plus a GC reach into `_pending`, which is a
 redesign of two surfaces the PR does not otherwise touch.
 
-## BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES — promotion compares list lengths, not the names the manifest requires
-
-**Status:** IN PROGRESS · **Branch:** fix/promote-identity-validation · **Filed:** from cross-model review of PR #761 · **Severity:** medium · **Class:** CORRECTNESS · **Effort:** S
-
-`promoteSnapshot` computes how many objects the manifest describes and compares that number to the
-temp listing's length and then to the canonical listing's length. It never checks that each
-`snapshotPath` basename and each variant `key` is actually PRESENT. A missing required object plus an
-unrelated object of equal count passes both checks, gets moved to canonical, and cuts over a manifest
-pointing at bytes that are not there. Duplicate entries produce the same class.
-
-Reviewer's probe: `countCheckPasses: true` with `missingExpected: ["embedded-a.png@256.webp"]`; the
-only integrity conditions in the function are the two length comparisons, and there is no set or
-membership check anywhere.
-
-**Pre-existing.** The count-only check is what the function has always done; PR #761 widened the
-COUNT to include variants but did not change its nature. Filed rather than fixed under exception (c):
-moving from a count to a required-name set is a change to the promotion integrity contract itself —
-it needs a decision about what to do with EXTRA objects (today they are tolerated when counts match)
-and a matching rollback story, which is a spec, not a patch.
-
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
 **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
