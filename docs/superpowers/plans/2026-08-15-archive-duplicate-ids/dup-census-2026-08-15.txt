@@ -248,3 +248,14 @@ CASP-2: demoted text still a heading (1) in DEFERRED-archive.md
 CASP-2: demoted text not found as a bold line in DEFERRED-archive.md
 FAIL: 86 survivor-verification failures
 # gate mutant: first row direction swapped in a scratch copy -> exit 1, failures named by id (BL-RATE-LIMIT-SNAPSHOT-DURABILITY x2); expectations restored byte-identical after the probe
+
+## Addendum (plan R4 F1) — gate mutant re-run WITH a green baseline
+# A scratch tree was built by mechanically applying the ratified demotion rule (all 43
+# demotions applied cleanly — end-to-end pre-validation of the repair rule itself):
+# baseline exit 0 -> "OK: all 43 pairs verified"
+# then the first row direction swapped in the scratch expectations only:
+# mutant exit 1, exactly the swapped id named (3 row failures):
+#   BL-RATE-LIMIT-SNAPSHOT-DURABILITY: survivor heading count 0 (want 1) in BACKLOG-archive.md
+#   BL-RATE-LIMIT-SNAPSHOT-DURABILITY: demoted text still a heading (1) in BACKLOG-archive.md
+#   BL-RATE-LIMIT-SNAPSHOT-DURABILITY: demoted text not found as a bold line in BACKLOG-archive.md
+# The discrimination is attributable to the reversal alone: identical tree, one JSON row changed.

@@ -134,9 +134,12 @@ and the four scripts beside it). Facts this plan RELIES on, so no task re-derive
    exists as a heading exactly once; demoted text is NOT a heading; demoted text
    exists as a bold line. Probed at plan time (transcript addendum in the census
    file): the PRE-REPAIR run fails with 86 row failures — that run, repeated in the
-   worktree, IS this step's red; the gate mutant (one direction swapped in a
-   scratch copy) exits 1 naming the swapped id, expectations restored
-   byte-identical. A1 step 6 is therefore: run
+   worktree, IS this step's red; the gate mutant carries a GREEN BASELINE (plan R4
+   F1): a scratch tree built by mechanically applying the demotion rule verifies
+   clean ("OK: all 43 pairs verified" — which also pre-validates the repair rule
+   end-to-end), and swapping one row's direction in the scratch expectations alone
+   flips it to exit 1 naming exactly the swapped id, so the discrimination is
+   attributable to the reversal and nothing else (transcript addendum). A1 step 6 is therefore: run
    `pnpm exec tsx docs/superpowers/plans/2026-08-15-archive-duplicate-ids/verify-survivors.mts`
    → GREEN ("OK: all 43 pairs verified"); no artifact authoring, no mid-task
    commit. `git diff --stat` over the two archive files is recorded as supporting
