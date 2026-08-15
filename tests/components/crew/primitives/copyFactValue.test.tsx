@@ -616,6 +616,44 @@ describe("overlapping writes resolve by VALUE alone (§4.2)", () => {
     expect(isCopied(container)).toBe(false);
   });
 
+  test("a FAILED newer write does not keep the window it can never fill", async () => {
+    // The seq gate exists so an older success cannot extend the NEWEST write's
+    // window. A write that REJECTED has no window to protect, so it must stop
+    // counting as the newest — otherwise the success that follows it is treated
+    // as stale, keeps whatever is left of an older timer, and the confirmation
+    // it just earned expires early. Here it would have shown for 250ms of its
+    // 2 seconds.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container);
+    await settle(0);
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS - 250);
+    });
+    premiseHolds("the first window is nearly out", isCopied(container));
+
+    await clickCopy(container); // write #1
+    await clickCopy(container); // write #2, the newest
+    await act(async () => {
+      writes[2]!.reject(new Error("clipboard unavailable"));
+    });
+    await settle(1); // #1 succeeds AFTER the newest failed
+
+    await act(async () => {
+      vi.advanceTimersByTime(251); // past the ORIGINAL deadline
+    });
+    expect(
+      isCopied(container),
+      "the confirmation must run its own window, not the remains of an older one",
+    ).toBe(true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS);
+    });
+    expect(isCopied(container)).toBe(false);
+  });
+
   test("a value change while copied resets AND appends the corrective", async () => {
     const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
 

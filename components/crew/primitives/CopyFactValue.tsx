@@ -171,16 +171,33 @@ function claimVacancy(identity: string, successor: Owner): void {
   vacancies.set(identity, AMBIGUOUS);
 }
 
-/** Latest dispatched write PER IDENTITY. `value` is recorded for diagnosis;
- *  `seq` routes the reset arming (never truth — see the header). */
-const writeLedgers = new Map<string, { seq: number; value: string }>();
+/** Dispatched writes PER IDENTITY. `value` is recorded for diagnosis; `seq`
+ *  routes the reset arming (never truth — see the header), and `failed` is what
+ *  keeps a write that can never succeed from holding that route. */
+type Ledger = { seq: number; value: string; failed: Set<number> };
+const writeLedgers = new Map<string, Ledger>();
 
-function ledgerFor(identity: string): { seq: number; value: string } {
+function ledgerFor(identity: string): Ledger {
   const existing = writeLedgers.get(identity);
   if (existing !== undefined) return existing;
-  const fresh = { seq: 0, value: "" };
+  const fresh: Ledger = { seq: 0, value: "", failed: new Set() };
   writeLedgers.set(identity, fresh);
   return fresh;
+}
+
+/**
+ * Is `seq` the newest write that could still fill a window? The seq gate exists
+ * so an older success cannot extend the NEWEST write's confirmation past its
+ * clock — but a write that REJECTED has no confirmation to protect, and leaving
+ * it as "the newest" makes the success that follows it look stale: it keeps
+ * whatever is left of an older timer, and the confirmation it just earned can
+ * expire in a fraction of its window (whole-diff review round 14).
+ */
+function isNewestLive(ledger: Ledger, seq: number): boolean {
+  for (let later = seq + 1; later <= ledger.seq; later += 1) {
+    if (!ledger.failed.has(later)) return false;
+  }
+  return true;
 }
 
 function recordWrite(identity: string, value: string): number {
@@ -210,7 +227,7 @@ function deliverWrite(dispatcher: Owner, identity: string, seq: number, value: s
     // after the newest window already expired re-lights the glyph, and with
     // nothing armed it stays lit for as long as the page is open. `ensure`
     // arms only when no window is running, so both halves hold at once.
-    if (seq === ledgerFor(identity).seq) owner.armReset();
+    if (isNewestLive(ledgerFor(identity), seq)) owner.armReset();
     else owner.ensureResetArmed();
     return;
   }
@@ -403,9 +420,11 @@ export function CopyFactValue({
       // Clipboard unavailable (no HTTPS in dev, locked-down browser). The
       // password is still on screen in `.code-value` type for manual
       // transcription, which is the documented fallback (spec §7). Silent by
-      // spec §4.2. Nothing to hand back either: a success ALWAYS arms a
-      // window now (see deliverWrite), so no confirmation is ever left
-      // depending on a write that failed.
+      // spec §4.2. Nothing to hand back either: a success ALWAYS arms a window
+      // now (see deliverWrite), so no confirmation is ever left depending on a
+      // write that failed — but this write must stop counting as the newest,
+      // or the next success is treated as stale and inherits a spent clock.
+      ledgerFor(identity).failed.add(seq);
       return;
     }
     deliverWrite(dispatcher, identity, seq, requested);
