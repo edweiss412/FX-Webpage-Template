@@ -142,7 +142,7 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
    executes and saves under `if: always()`. Record the run id; delete the throwaway
    branch. The edit never reaches the impl branch.
 3. All three run ids, with per-run step-level observations, land in a committed
-   transcript — a new file `dispatch-proofs.md` in this plan directory (created by
+   transcript — a new file named "dispatch-proofs" (markdown) in this plan directory (created by
    the task; a citation-shaped path is deliberately avoided here since the file does
    not exist until B2 runs) — commit `docs(plan): record screenshots-drift dispatch-proof run ids` (plan R2
    F2: the task's executable red analog is the CONSTRUCTED failing dispatch observed
