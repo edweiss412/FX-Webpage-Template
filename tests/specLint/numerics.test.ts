@@ -209,6 +209,38 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
     ["a double-quoted string is blanked", 'const m = "`";', [`const m = ${gap('"`"')};`]],
     ["a single-quoted string is blanked", "const m = '`';", [`const m = ${gap("'`'")};`]],
     [
+      // Review R9, probed: a regex carrying a quote opened a literal the scan then closed
+      // on the NEXT quote, and a second such regex re-synchronised it — so the state was
+      // inverted across the span between them and a template's dead declaration read as
+      // live. A regex body is not code and not a string; it is its own span.
+      "a regex literal carrying a quote is blanked",
+      "const re = /'/; const c = 3;",
+      [`const re = ${gap("/'/")}; const c = 3;`],
+    ],
+    [
+      "a regex CHARACTER CLASS may hold the delimiter",
+      "const re = /[/']/; const c = 3;",
+      [`const re = ${gap("/[/']/")}; const c = 3;`],
+    ],
+    [
+      "an escaped delimiter does not end a regex",
+      "const re = /a\\/'/; const c = 3;",
+      [`const re = ${gap("/a\\/'/")}; const c = 3;`],
+    ],
+    [
+      // The other direction, and the one that costs coverage rather than correctness:
+      // division is not a regex, so the rest of the line stays readable.
+      "division is not a regex",
+      "const half = total / 2; const d = 4;",
+      ["const half = total / 2; const d = 4;"],
+    ],
+    ["a regex after a KEYWORD is still a regex", "return /'/;", [`return ${gap("/'/")};`]],
+    [
+      "a regex after a closing paren is read as division",
+      "const q = (a + b) / 2; const e = 5;",
+      ["const q = (a + b) / 2; const e = 5;"],
+    ],
+    [
       "`//` inside a string is not a comment",
       'const u = "// x"; const d = 4;',
       [`const u = ${gap('"// x"')}; const d = 4;`],
@@ -241,6 +273,21 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
     ["an unterminated template", "const t = `a"],
     ["an unterminated block comment", "/* a"],
   ])("%s makes the whole scan unusable", (_label, src) => {
+    expect(readableScriptLines(src)).toBeNull();
+  });
+
+  it.each([
+    // A regex cannot span a line, so a newline while one is open means the `/` was
+    // division after all and the scan has lost the thread. Silence, not a guess.
+    ["a newline inside one", "const re = /'\nconst a = 1;"],
+    // ...and an ESCAPE at end of line does not carry a regex onto the next line either:
+    // consuming that newline would hide the break and let a later `/` re-close the span,
+    // which is the R9 shape one level down.
+    ["a trailing escape before the newline", "const re = /a\\\nb/; const c = 1;"],
+    // The tail records that a regex CLOSED, so the next `/` divides rather than opening a
+    // second one — without that, `/'/` here would be blanked and the scan would finish.
+    ["a second slash after a closed regex", "const r = /a/ /'/;"],
+  ])("an unterminated regex is an unfinished scan (%s)", (_label, src) => {
     expect(readableScriptLines(src)).toBeNull();
   });
 
@@ -404,6 +451,34 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
   ])("a backtick inside %s does not open a template", (_label, decoy) => {
     const body = [decoy, "const sample = `", siteConst(37), "`;", siteConst(38)].join("\n");
     const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("a RE-SYNCHRONISING pair of quote-carrying regexes cannot invert the scan", () => {
+    // Review R9's separating script, verbatim in shape: the first regex opens a literal
+    // the scan closes on the apostrophe inside the template, the second closes it again,
+    // and between them the state is inverted — the template's dead 37 reads as live while
+    // the live 38 is blanked. It emitted "prose says 38 sites, but ... = 37".
+    const body = [
+      "const first = /'/;",
+      "const sample = `it's dead in here",
+      siteConst(37),
+      "`;",
+      siteConst(38),
+      "const second = /`/;",
+    ].join("\n");
+    const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("an identifier declared TWICE at column 0 is not read at all", () => {
+    // The net under the lexer, and it does not depend on the lexer being right. Every
+    // refuted version of this scan (R5, R6, R8, R9) was fooled into choosing the WRONG one
+    // of two declaration-shaped lines; with two of them the arm now declines outright, so
+    // a future lexical gap can cost a finding but cannot invent one. Both values here are
+    // wrong against the prose, so a fixture that read EITHER would fail.
+    const body = [siteConst(37), "export const other = 1;", siteConst(38)].join("\n");
+    const { findings } = run(acLine(99) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
     expect(only(findings, A)).toEqual([]);
   });
 

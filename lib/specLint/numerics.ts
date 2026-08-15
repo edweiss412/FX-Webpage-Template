@@ -218,6 +218,43 @@ function singularNoun(word: string): string {
 
 // ---- shape (a): script-constant parity (spec §3.1) ----
 
+/**
+ * Where a `/` starts a REGEX rather than dividing: after an operator, an opening bracket,
+ * a separator, or one of the keywords a regex can follow. After a VALUE — an identifier, a
+ * number, `)`, `]` — it divides. This is the rule every syntax highlighter uses, and it is
+ * a heuristic: its error is bounded by which way it errs (see `readableScriptLines`).
+ */
+const REGEX_PRECEDING = new Set("([{,;:=!&|?+-*%~^<>".split(""));
+const REGEX_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "case",
+  "do",
+  "else",
+  "yield",
+  "await",
+]);
+const IDENT_CHAR = /[A-Za-z0-9_$]/;
+
+/**
+ * The decision needs only the last significant code CHARACTER and, when that character is
+ * part of an identifier, the whole identifier — so those are what the scan carries. An
+ * earlier version kept a fixed-width window of preceding code, which had to reason about
+ * whether the window had cut a longer identifier down to something keyword-shaped
+ * (`myreturn` seen as `return`); tracking the identifier itself removes the question.
+ */
+function regexCanFollow(lastChar: string, lastWord: string): boolean {
+  if (lastChar === "") return true;
+  if (REGEX_PRECEDING.has(lastChar)) return true;
+  return REGEX_KEYWORDS.has(lastWord);
+}
+
 /** Read TEXTUALLY, never imported — the originating spec's own boundary. */
 const CONST_DECL_RE =
   /^(?:export )?const ([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*([^;]*?)\s*;?\s*(?:\/\/.*)?$/;
@@ -306,24 +343,54 @@ function constantNoun(ident: string): string {
  * which is a false advisory, not a missed one. So a delimiter is now a delimiter only where
  * the language says it is.
  *
- * The residual limit, and why it is safe: a REGEX literal is not distinguished from
- * division, so a regex whose body carries a quote or a backtick opens a literal that the
- * scan then fails to close. That is exactly why an unterminated string, template, or block
- * comment at end of input returns `null` and the script contributes NO constants — a scan
- * that has lost track of where code is must not hand over a declaration it believes in. A
- * pair of such regexes could re-balance, so this is a documented limit and not a proof;
- * everything the arm reads is at column 0 in a file that scanned cleanly end to end.
+ * A REGEX literal is a span of its own, because leaving it as code was the third refutation
+ * (R9, probed): `/'/` opens a string the scan closes on the next apostrophe, a SECOND
+ * quote-carrying regex re-closes it, and between the two the state is inverted — the
+ * re-balancing that an end-of-input check cannot catch. Telling a regex from division needs
+ * the preceding token, so that is what is tracked, with the standard rule: after an
+ * operator, an opening bracket, a separator, or one of the keywords a regex can follow, a
+ * `/` starts one; after a value — an identifier, a number, `)`, `]` — it divides. A regex
+ * cannot span a line, so an open one at a newline is an unfinished scan.
+ *
+ * When the scan cannot finish — an unterminated string, template, block comment, or regex
+ * at end of input — it returns `null` and the script contributes NO constants. A scan that
+ * has lost track of where code is must not hand over a declaration it believes in. The
+ * preceding-token rule is a heuristic, so misreading division as a regex is possible; it
+ * blanks code, which costs a finding and cannot invent one, and `scriptConstants` refuses
+ * any identifier declared twice at column 0, so no lexical gap can make the arm pick the
+ * WRONG one of two declarations.
  */
 export function readableScriptLines(text: string): string[] | null {
-  type ScanState = "code" | "line-comment" | "block-comment" | "single" | "double" | "template";
+  type ScanState =
+    | "code"
+    | "line-comment"
+    | "block-comment"
+    | "single"
+    | "double"
+    | "template"
+    | "regex";
   const closers: Record<string, ScanState> = { "'": "single", '"': "double", "`": "template" };
   const out: string[] = [];
   let state: ScanState = "code";
   let line = "";
+  // The preceding significant code character, and the identifier it belongs to, for the
+  // regex-or-division decision.
+  let lastChar = "";
+  let lastWord = "";
+  const pushCode = (c: string): void => {
+    if (c === " " || c === "\t") return;
+    lastWord = IDENT_CHAR.test(c) ? lastWord + c : "";
+    lastChar = c;
+  };
+  let inClass = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i]!;
     const next = text[i + 1];
     if (c === "\n") {
+      // A regex literal cannot contain a line break, so an open one here means the `/` was
+      // division and the scan is lost. Say so immediately rather than hoping a later `/`
+      // re-closes it — that re-closing is the R9 shape, one level down.
+      if (state === "regex") return null;
       out.push(line);
       line = "";
       if (state === "line-comment") state = "code";
@@ -335,9 +402,16 @@ export function readableScriptLines(text: string): string[] | null {
         line += " ";
         continue;
       }
+      if (c === "/" && regexCanFollow(lastChar, lastWord)) {
+        state = "regex";
+        inClass = false;
+        line += " ";
+        continue;
+      }
       const opened = closers[c];
       if (opened !== undefined) state = opened;
       line += opened === undefined ? c : " ";
+      if (opened === undefined) pushCode(c);
       continue;
     }
     line += " ";
@@ -347,6 +421,22 @@ export function readableScriptLines(text: string): string[] | null {
         state = "code";
         line += " ";
         i++;
+      }
+      continue;
+    }
+    if (state === "regex") {
+      if (c === "\\") {
+        if (next !== undefined && next !== "\n") {
+          line += " ";
+          i++;
+        }
+        continue;
+      }
+      if (c === "[") inClass = true;
+      else if (c === "]") inClass = false;
+      else if (c === "/" && !inClass) {
+        state = "code";
+        pushCode("/");
       }
       continue;
     }
@@ -365,8 +455,34 @@ export function readableScriptLines(text: string): string[] | null {
   return state === "code" || state === "line-comment" ? out : null;
 }
 
+/**
+ * Identifiers declared more than once at column 0 in the RAW text — counted before any
+ * blanking, so the count does not depend on the scan being right.
+ *
+ * This is the net under the lexer. Every refuted version of that scan (R5, R6, R8, R9) was
+ * fooled into reading the WRONG one of two declaration-shaped lines, and each repair closed
+ * one lexical hole. Refusing an identifier that appears twice closes the whole class
+ * instead: a decoy has to sit at column 0 to be read at all, so with two candidates the arm
+ * declines outright. A later gap in the scan can then cost a finding, but it cannot invent
+ * one — which is the only asymmetry the consequence bound cares about.
+ */
+function duplicateDeclarations(text: string): Set<string> {
+  const seen = new Set<string>();
+  const dupes = new Set<string>();
+  for (const raw of text.split("\n")) {
+    if (/^\s/.test(raw)) continue;
+    const m = CONST_DECL_RE.exec(raw);
+    if (m === null) continue;
+    const ident = m[1]!;
+    if (seen.has(ident)) dupes.add(ident);
+    seen.add(ident);
+  }
+  return dupes;
+}
+
 function scriptConstants(text: string): ScriptConstant[] {
   const out: ScriptConstant[] = [];
+  const declaredTwice = duplicateDeclarations(text);
   for (const raw of readableScriptLines(text) ?? []) {
     if (/^\s/.test(raw)) continue;
     const m = CONST_DECL_RE.exec(raw);
@@ -374,6 +490,7 @@ function scriptConstants(text: string): ScriptConstant[] {
     const ident = m[1]!;
     const init = m[2]!;
     if (!EXPECTED_IDENT_RE.test(ident) || !INT_LITERAL_RE.test(init)) continue;
+    if (declaredTwice.has(ident)) continue;
     out.push({ ident, value: Number(init), noun: constantNoun(ident) });
   }
   return out;
