@@ -806,10 +806,10 @@ what shipped AND which of its own premises this work refuted.
 **Cross-model review.** Diff stage: R1 BLOCKING (2 findings), R2 BLOCKING (2), R3 BLOCKING (3), R4 in flight against this tree. Spec and plan stages
 each converged at round 6 and are filed in `docs/review-rounds/chore/guard-completeness-wave/`.
 
-The arc's rows are split across TWO corpus files, and the round numbers restart in the second
-one. Both are consequences of merging `origin/main` mid-arc rather than counts to read at face
+The arc's rows are split across THREE corpus files, and the round numbers restart in each one after
+the first. Both are consequences of merging `origin/main` mid-arc rather than counts to read at face
 value: the corpus is keyed by `git merge-base origin/main HEAD`, which moved from `04f601134519`
-to `1e503d714b6e` at the merge, and that key IS the arc identity — so the rows after the merge
+to `1e503d714b6e` and then to `ecbddfa1aac4` across the two merges, and that key IS the arc identity — so the rows after the merge
 belong to a new arc whose own numbering starts at 1 (precedent:
 `docs/review-rounds/test/resurrect-mobile-safari-e2e`, whose second file restarts the same way).
 
@@ -850,14 +850,15 @@ which 438 are CODE, against 420/262 on `origin/main`. A 35-line sibling,
 So the module is 1.7x its former size in code — the honest number, and larger than the 412 quoted
 when the amendment was ratified.
 
-**Mutation gate** — the three surfaces this branch changes, with the provenance of each row named,
-because they do not all come from the same run:
+**Mutation gate** — the four surfaces this branch changes or enrols, with the provenance of each
+row named, because they do not all come from the same run:
 
 | surface | mutants | no-ops | counted | killed | score | ledger | measured by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `destructiveFileAnalysis` (enrolled here) | 233 | 0 | 225 | 225 | 1.00 | 8 equivalent | re-run after the repair |
 | `pgCronSmokes` (enrolled here) | 14 | 0 | 14 | 14 | 1.00 | none | CI whole gate, `f9905fddf` |
 | `ledgerGit` | 99 | 0 | 93 | 93 | 1.00 | 6 equivalent, accepted-gap 6 → 0 | CI whole gate, `f9905fddf` |
+| `ledgerClaimsCore` | 63 | 0 | 60 | 60 | 1.00 | 3 equivalent | CI whole gate, `f9905fddf` |
 
 **The whole gate ran in CI, it went RED, and that is the most useful thing in this section.**
 
@@ -911,10 +912,18 @@ The distinction is not pedantry. A derivation is only as good as its preconditio
 close-out spent a day carrying a derived 1.00 for this very surface whose precondition — a green
 gate — turned out to be false. Where a real run exists, its numbers are quoted.
 
-Separately, and more directly than a score: all 16 ledger rows across the three touched
-surfaces were verified INDIVIDUALLY as still-surviving, by driving the gate's own
-`generateMutants` + `runSuite` path over only the ledgered sites with a clean-baseline
-check first. A row that had become killable would report as stale; none did.
+Separately, and more directly than a score: the ledger rows were verified INDIVIDUALLY as
+still-surviving, by driving the gate's own `generateMutants` + `runSuite` path over only the
+ledgered sites with a clean-baseline check first. A row that had become killable would report as
+stale; none did.
+
+The count there is 17 across FOUR surfaces, and diff review R4 was right that an earlier draft of
+this section said 16 across three. Both halves of that were wrong. The sixteen was correct only
+before the eighth `destructiveFileAnalysis` row existed, and `ledgerClaimsCore` — changed by this
+branch at `scripts/lib/ledger-claims-core.ts` and enrolled with 3 rows — was missing from the table
+altogether. Sixteen of the seventeen were verified by that per-row driver; the seventeenth is the
+new `destructiveFileAnalysis` row, confirmed instead by the post-repair run, which reported exactly
+the eight ledgered sites as its survivor set.
 
 The analyzer's first enrolment run scored 0.82 with 35 unaccepted survivors on a fully
 green suite: 26 were real gaps now killed by fixtures, one was dead code the gate proved
