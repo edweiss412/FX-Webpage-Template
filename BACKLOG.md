@@ -93,55 +93,6 @@ than rediscovered. Some members need a decision first, not a swap: a dismissable
 `<summary>` disclosure are arguably caption-like, and DESIGN.md should say so explicitly in the same
 pass rather than being read as absolute and then quietly excepted.
 
-## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects
-
-**Status:** IN PROGRESS · **Branch:** fix/storage-asset-integrity · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M · **Filed:** cross-model review of PR #761
-
-`assetRecovery` gates under the show lock, RELEASES it, uploads to deterministic canonical paths,
-then re-takes the lock to commit. Two overlapping runs can both pass the gate. When one commits
-`snapshot_status: complete`, the other's locked read returns `no_op` (or `skipped` on contention) and
-its cleanup removes every path IT uploaded — which are byte-identical canonical paths to the ones the
-winner's committed manifest now references (`lib/sync/assetRecovery.ts`, the `uploadedPaths` cleanup
-in the skipped and drift/no_op branches). The crew page then renders a manifest pointing at objects
-that no longer exist.
-
-Reviewer's interleaving probe: after A commits, the manifest points at
-`.../rev/embedded-obj.png@256.webp`; after B's cleanup, `manifestTargetExists: false`.
-
-**Pre-existing, and widened by PR #761.** The race and the cleanup both predate that PR — it applied
-to ORIGINALS already. What the PR changed is blast radius: variant objects now ride the same
-`uploadedPaths` list, so a firing deletes the variants too. It is filed rather than fixed in-branch
-under class-sweep exception (a): the repair is a product decision the PR cannot settle — never
-deleting leaks orphans that GC only reclaims under a non-retained revision prefix, while deleting
-keeps risking live bytes, and picking between them is a spec question about recovery's concurrency
-model, not a patch.
-
-**Cheapest probe to schedule first:** confirm whether two `runAssetRecoveryCron` invocations can
-actually overlap in production (the cron route has no job-level lock that this review found) — that
-sets the severity for real.
-
-## BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS — an upload exception leaves objects nothing will reclaim
-
-**Status:** IN PROGRESS · **Branch:** fix/storage-asset-integrity · **Severity:** medium · **Class:** STORAGE HYGIENE · **Effort:** M · **Filed:** cross-model review of PR #761
-
-Two instances of one shape:
-
-- `snapshotAssets` uploads to `_pending/<runUuid>/` and, on any throw, calls
-  `markPendingSnapshotDeleteStarted` through the transaction that is about to roll back. With the
-  ledger insert rolled back, GC cannot discover that prefix, and its object sweep skips `_pending`
-  anyway. The storage port has no removal operation at all.
-- `assetRecovery` tracks uploaded paths but only cleans up on `skipped`, `revision_drift`, and
-  `no_op`; an upload exception goes straight to the `finally` that removes the local temp dir, and
-  the already-uploaded canonical objects stay.
-
-Reviewer's probe against `snapshotAssets` with a real 800x600 PNG and an injected original-upload
-failure: three objects uploaded, `deleteMarkerCalls: ["rev-1"]`, `storageRemoveCapability: false`.
-
-**Pre-existing, and widened by PR #761** in the same way as the entry above: originals already
-orphaned this way; variants now orphan alongside them. Filed rather than fixed under exception (c) —
-the repair is a removal capability on the storage port plus a GC reach into `_pending`, which is a
-redesign of two surfaces the PR does not otherwise touch.
-
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
 **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
