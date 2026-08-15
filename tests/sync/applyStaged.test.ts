@@ -204,6 +204,10 @@ function deps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps {
     upsertAdminAlert: vi.fn(async () => undefined),
     resolveAdminAlerts: vi.fn(async () => undefined),
     readLandedSnapshotStatus: vi.fn(async () => null),
+    // Census class b (spec 2026-08-14 §5): applyStaged's applied path now writes a sync_log row
+    // through a PRODUCTION default sink. Without this injection a unit test opens a real postgres
+    // connection and pollutes the shared local DB.
+    logSync: vi.fn(async () => {}),
   };
   return { ...base, ...overrides };
 }

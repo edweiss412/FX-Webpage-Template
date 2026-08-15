@@ -2265,6 +2265,9 @@ describe("Batch 2 — clean DI-seam admin route POSTs observe success only", () 
             showId: "show-1",
             syncAuditId: null,
             derivedSideEffects: { revokeFloorForNames: [] },
+            // Census class a (spec 2026-08-14 §5): parseWarnings is REQUIRED on the applied variant,
+            // so the post-commit sync_log emit cannot be built from a result that dropped it.
+            parseWarnings: [],
           }),
         }),
       failure: (mark) =>
@@ -3323,6 +3326,9 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
           showId: "show-1",
           syncAuditId: null,
           derivedSideEffects: { revokeFloorForNames: [] },
+          // Census class a (spec 2026-08-14 §5): parseWarnings is REQUIRED on the applied variant,
+          // so the post-commit sync_log emit cannot be built from a result that dropped it.
+          parseWarnings: [],
         }));
         return stagedApplyPost(req(), ctx());
       },
