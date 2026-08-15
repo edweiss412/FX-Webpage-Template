@@ -32,6 +32,34 @@ export type RunResult = {
 const CONFIG = "tests/mutation/source/mutantOverlay.config.ts";
 
 /**
+ * Wall-clock ceiling for ONE suite run against ONE mutant.
+ *
+ * A mutation operator can produce a mutant that never TERMINATES rather than one
+ * that fails: `statement-removal` of a loop's advance statement is the plain
+ * case, and `tests/styles/interactiveScanCore.ts` supplied a real one — dropping
+ * `cursor = cursor.parent;` inside `while (cursor)`. With no ceiling the child
+ * runs forever, the harness scores NOTHING, and the run has to be killed by
+ * hand: measured 1h48m on a single mutant with 0 of 207 scored, and four wedged
+ * `mutantOverlay.config.ts` children from OTHER arcs alive on the same machine
+ * at that moment (2h28m, 2h55m, 3h53m, 5h43m).
+ *
+ * 180s against a ~2s healthy suite run locally is generous enough that a timeout
+ * means a hang rather than a slow machine.
+ */
+export const MUTANT_TIMEOUT_MS = 180_000;
+
+/**
+ * The exit code a timed-out run reports.
+ *
+ * 124 is `timeout(1)`'s convention; all that matters mechanically is non-zero,
+ * which `classify` reads as KILLED. That is the right verdict and the standard
+ * one (Stryker and PIT both count a timeout as detected): a mutant that stops
+ * the guard terminating cannot ship silently, because the suite never goes green
+ * again. It is detection by a different mechanism, not a missed mutant.
+ */
+export const MUTANT_TIMEOUT_EXIT = 124;
+
+/**
  * A child that produced NO numeric exit status — a signal death, an OOM kill, or
  * a spawn failure.
  *
@@ -77,6 +105,11 @@ export function runSuite(
       cwd: root,
       stdio: "pipe",
       encoding: "utf8",
+      timeout: MUTANT_TIMEOUT_MS,
+      // SIGTERM is what vitest's own watchdogs and this machine's idle-process
+      // reaper use, and a vitest child can trap it; SIGKILL cannot be trapped,
+      // so the ceiling is a ceiling.
+      killSignal: "SIGKILL",
       env: {
         ...process.env,
         MUTATION_ROOT: root,
@@ -89,6 +122,13 @@ export function runSuite(
   } catch (e) {
     const err = e as { status?: number | null; signal?: NodeJS.Signals | null; code?: string };
     if (typeof err.status === "number") return err.status;
+    // A timeout kill and the reaper's SIGTERM arrive in the SAME shape — no exit
+    // status, a signal — so the code is the only thing that tells them apart, and
+    // they must not share a verdict. The reaper stole a run that would have
+    // finished, and folding it into KILLED would score a kill the suite never
+    // earned. A timeout is the mutant's own doing, and is detection (see
+    // MUTANT_TIMEOUT_EXIT).
+    if (err.code === "ETIMEDOUT") return MUTANT_TIMEOUT_EXIT;
     throw new MutantRunInfraError(`${context} [${suite}]`, err.signal ?? null, err.code);
   }
 }

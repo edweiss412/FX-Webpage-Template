@@ -8,17 +8,26 @@ type Outcome = number | { status: null; signal?: string; code?: string };
 /** Per-suite outcome; a function receives whether this call is the BASELINE. */
 type Behaviour = Record<string, Outcome | ((isBaseline: boolean) => Outcome)>;
 
-const calls: { suite: string; isBaseline: boolean }[] = [];
+const calls: {
+  suite: string;
+  isBaseline: boolean;
+  timeout: number | undefined;
+  killSignal: string | undefined;
+}[] = [];
 let behaviour: Behaviour = {};
 
 vi.mock("node:child_process", () => ({
-  execFileSync: (_cmd: string, _args: string[], opts: { env: Record<string, string> }) => {
+  execFileSync: (
+    _cmd: string,
+    _args: string[],
+    opts: { env: Record<string, string>; timeout?: number; killSignal?: string },
+  ) => {
     const suite = opts.env.MUTATION_SUITE!;
     // The baseline run overlays the PRISTINE source; every other call overlays a
     // mutant. Reading the overlay file is how the mock tells them apart, which
     // lets a fixture make a suite reject mutants while still passing baseline.
     const isBaseline = readFileSync(opts.env.MUTATION_MUTANT!, "utf8") === PRISTINE;
-    calls.push({ suite, isBaseline });
+    calls.push({ suite, isBaseline, timeout: opts.timeout, killSignal: opts.killSignal });
     const entry = behaviour[suite] ?? 0;
     const b = typeof entry === "function" ? entry(isBaseline) : entry;
     if (typeof b === "number") {
@@ -29,8 +38,9 @@ vi.mock("node:child_process", () => ({
   },
 }));
 
-const { MutantRunInfraError, runSuite, runSurface } = await import("./runner");
+const { MUTANT_TIMEOUT_EXIT, MutantRunInfraError, runSuite, runSurface } = await import("./runner");
 const { OPERATOR_NAMES } = await import("./operators");
+const { classify } = await import("./oracle");
 
 const surface = (suitePaths: string[]) => ({
   id: "fixture",
@@ -75,6 +85,56 @@ describe("runner — infrastructure faults are never coverage (whole-diff R1 F1)
     reset({ "a.test.ts": 1 });
     expect(runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site")).toBe(1);
   });
+});
+
+describe("runner — a mutant that never terminates (fix/ui-interactive-token-policy)", () => {
+  // Measured, not hypothetical. Enrolling `tests/styles/interactiveScanCore.ts`
+  // produced `statement-removal` of `cursor = cursor.parent;` inside
+  // `while (cursor)`, and the child ran for 1h48m without exiting; the run was
+  // killed by hand with 0 of 207 mutants scored. Four other wedged
+  // `mutantOverlay.config.ts` children from OTHER arcs were alive on the same
+  // machine at the same moment (2h28m, 2h55m, 3h53m, 5h43m), so the hole is the
+  // harness's, not this surface's.
+  it("scores a timed-out mutant as KILLED rather than aborting the run", () => {
+    // Node sets code ETIMEDOUT and kills with `killSignal`, so the shape reaching
+    // the catch is a NO-STATUS death — indistinguishable, without the code, from
+    // the reaper SIGTERM above, which must stay fatal.
+    reset({ "a.test.ts": { status: null, signal: "SIGKILL", code: "ETIMEDOUT" } });
+    const code = runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site");
+    expect(code).toBe(MUTANT_TIMEOUT_EXIT);
+    expect(classify(code)).toBe("KILLED");
+  });
+
+  it("arms the timeout the branch above depends on", () => {
+    // Premise, executable: without a real `timeout` passed to the child, no run
+    // can ever produce ETIMEDOUT and the case above is unreachable code that
+    // reads as protection. Asserted on the CALL, so deleting the option reds
+    // this rather than silently disarming the guard.
+    reset({ "a.test.ts": 0 });
+    runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site");
+    expect(calls[0]!.timeout).toBeGreaterThan(0);
+    expect(calls[0]!.killSignal).toBe("SIGKILL");
+  });
+
+  it("Node really reports ETIMEDOUT on a timed-out child (live, unmocked)", async () => {
+    // The two cases above agree with a MOCK. This one agrees with Node: if the
+    // real runtime signalled a timeout some other way, both would pass green
+    // while every real hang still wedged the harness forever.
+    const real = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    let caught: { code?: string; status?: number | null } | null = null;
+    try {
+      real.execFileSync(process.execPath, ["-e", "setTimeout(() => {}, 600000)"], {
+        timeout: 300,
+        killSignal: "SIGKILL",
+        stdio: "pipe",
+      });
+    } catch (e) {
+      caught = e as { code?: string; status?: number | null };
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("ETIMEDOUT");
+    expect(typeof caught!.status === "number").toBe(false);
+  }, 20_000);
 });
 
 describe("runner — every declared suite runs (whole-diff R1 F3)", () => {
