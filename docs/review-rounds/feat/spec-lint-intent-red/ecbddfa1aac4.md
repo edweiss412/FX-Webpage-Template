@@ -8,4 +8,4 @@
 
 **Judgment:** the dominant round-multiplier was repair-introduced surface: R3's five findings were consequences of R1 repairs (line-level exclusion, hard retired-target), R4's five of R3's (path-only form landed in one site instead of five; line-exclusion scope still wrong until narrowed to the capture span). The class-sweep discipline was applied per finding but the sweeps were enumerative rather than derived; the R4 repair finally replaced the enumerated line-exclusion scope with a derived rule (span-level, validity-global/presence-regional), which is the shape that should have shipped in R1's repair. Rounds 5-7 each converged on a single residual wording contradiction left by the prior repair (validity-scope sentence, execution-population sentence, transcript sentence) — the tail cost of sweeping enumeratively; the round-6 fence held and R8 confirmed at zero.
 
-**Infra:** none — all four dispatches returned verdicts first-attempt through codex-guard with the lint arm present.
+**Infra:** none — all eight dispatches returned verdicts first-attempt through codex-guard with the lint arm present.
