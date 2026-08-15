@@ -144,3 +144,175 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
 });
+
+function faultSpawn(result: Partial<ReturnType<typeof spawnSync>>) {
+  return ((..._a: unknown[]) => ({
+    status: 0,
+    stdout: "",
+    stderr: "",
+    error: undefined,
+    signal: null,
+    ...result,
+  })) as unknown as typeof spawnSync;
+}
+
+/**
+ * A spawn-level fault used to read as an EMPTY open-PR universe: `prList`
+ * returned `[]` for a non-zero exit and never looked at `r.error` at all, so
+ * ENOBUFS, a gh timeout, or a missing gh binary silently shrank the claim
+ * universe into a false "no collision" — the exact defect invariant 12 exists
+ * to stop. The row cases are DERIVED, not enumerated: one missing and one
+ * wrong-type case per field `PrRow` actually consumes, so a new consumed field
+ * without its pair is visible in review as a hole in the matrix.
+ */
+describe("prList fault + malformed-output contract (spec §3.4)", () => {
+  const cases: Array<[string, Partial<ReturnType<typeof spawnSync>>]> = [
+    [
+      "spawn error object",
+      { error: Object.assign(new Error("ENOBUFS"), { code: "ENOBUFS" }), status: null },
+    ],
+    ["non-zero exit", { status: 1, stdout: "[]" }],
+    ["empty stdout", { status: 0, stdout: "" }],
+    ["invalid JSON", { status: 0, stdout: "not-json" }],
+    ["non-array JSON", { status: 0, stdout: "{}" }],
+    [
+      "row missing number",
+      { status: 0, stdout: JSON.stringify([{ headRefName: "b", isCrossRepository: false }]) },
+    ],
+    [
+      "row non-numeric number",
+      {
+        status: 0,
+        stdout: JSON.stringify([{ number: "7", headRefName: "b", isCrossRepository: false }]),
+      },
+    ],
+    [
+      "row missing headRefName",
+      { status: 0, stdout: JSON.stringify([{ number: 7, isCrossRepository: false }]) },
+    ],
+    [
+      "row empty headRefName",
+      {
+        status: 0,
+        stdout: JSON.stringify([{ number: 7, headRefName: "", isCrossRepository: false }]),
+      },
+    ],
+    [
+      "row non-string headRefName",
+      {
+        status: 0,
+        stdout: JSON.stringify([{ number: 7, headRefName: 42, isCrossRepository: false }]),
+      },
+    ],
+    [
+      "row missing isCrossRepository",
+      { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b" }]) },
+    ],
+    [
+      "row non-boolean isCrossRepository",
+      {
+        status: 0,
+        stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: "no" }]),
+      },
+    ],
+    [
+      "owner with non-string login",
+      {
+        status: 0,
+        stdout: JSON.stringify([
+          {
+            number: 7,
+            headRefName: "b",
+            isCrossRepository: false,
+            headRepositoryOwner: { login: 9 },
+          },
+        ]),
+      },
+    ],
+    [
+      "owner as string",
+      {
+        status: 0,
+        stdout: JSON.stringify([
+          { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: "owner" },
+        ]),
+      },
+    ],
+    [
+      "owner as number",
+      {
+        status: 0,
+        stdout: JSON.stringify([
+          { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: 7 },
+        ]),
+      },
+    ],
+    [
+      "owner as boolean",
+      {
+        status: 0,
+        stdout: JSON.stringify([
+          { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: true },
+        ]),
+      },
+    ],
+    [
+      "owner as array",
+      {
+        status: 0,
+        stdout: JSON.stringify([
+          { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: [] },
+        ]),
+      },
+    ],
+    [
+      "owner as empty object (login absent)",
+      {
+        status: 0,
+        stdout: JSON.stringify([
+          { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: {} },
+        ]),
+      },
+    ],
+  ];
+
+  it.each(cases)("throws on %s", (_label, result) => {
+    expect(() => realGitSurface({ spawn: faultSpawn(result) }).prList()).toThrow();
+  });
+
+  it("returns rows for a clean well-formed payload, and [] for a clean empty one", () => {
+    const good = JSON.stringify([
+      {
+        number: 7,
+        headRefName: "b",
+        headRepositoryOwner: { login: "x" },
+        isCrossRepository: false,
+      },
+    ]);
+    expect(realGitSurface({ spawn: faultSpawn({ status: 0, stdout: good }) }).prList()).toEqual([
+      { number: 7, headRefName: "b", headRepositoryOwner: "x", isCrossRepository: false },
+    ]);
+    expect(realGitSurface({ spawn: faultSpawn({ status: 0, stdout: "[]" }) }).prList()).toEqual([]);
+  });
+
+  it("accepts an absent or null owner, which gh omits for a deleted account", () => {
+    const rows = (owner: unknown) =>
+      realGitSurface({
+        spawn: faultSpawn({
+          status: 0,
+          stdout: JSON.stringify([
+            owner === undefined
+              ? { number: 7, headRefName: "b", isCrossRepository: false }
+              : {
+                  number: 7,
+                  headRefName: "b",
+                  isCrossRepository: false,
+                  headRepositoryOwner: owner,
+                },
+          ]),
+        }),
+      }).prList();
+    expect(rows(undefined)[0]?.headRepositoryOwner).toBeNull();
+    expect(rows(null)[0]?.headRepositoryOwner).toBeNull();
+  });
+});
