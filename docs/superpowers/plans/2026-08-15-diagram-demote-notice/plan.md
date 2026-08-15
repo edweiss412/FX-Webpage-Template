@@ -89,9 +89,7 @@ Audit enumeration (a GREEN-phase step of this task, recorded in the task record 
 
 Commit: `feat(crew-page): transient demote chip on the affected lightbox slide (constant + §5.5 row in lockstep)`
 
-### Tombstone — the former Task C2, folded into C1 (plan R2 F1 + R3 F1)
-
-A separate post-implementation transition-audit task cannot carry an honest RED on this surface: its behavioral compound cases pass on arrival once C1's implementation exists (R2 F1 — they now live in C1's pre-implementation RED batch as cases 10 and 11, where the chip render branch's absence genuinely fails them), and a manifest-style structural test turns green by editing test-local data with production untouched — the anti-tautology shape writing-plans prohibits (R3 F1). The mandated audit content — the §2.3 inventory table with per-row oracles, the AnimatePresence/ternary enumeration with dispositions, the deliberate-instant declaration, and the compound-transition tests — lives in full inside Task C1's body and single commit, where the compound tests have a real red. No separate commit exists for C2.
+**Tombstone — the former Task C2, folded into C1 (plan R2 F1 + R3 F1).** A separate post-implementation transition-audit task cannot carry an honest RED on this surface: its behavioral compound cases pass on arrival once C1's implementation exists (R2 F1 — they now live in C1's pre-implementation RED batch as cases 10 and 11, where the chip render branch's absence genuinely fails them), and a manifest-style structural test turns green by editing test-local data with production untouched — the anti-tautology shape writing-plans prohibits (R3 F1). The mandated audit content — the §2.3 inventory table with per-row oracles, the AnimatePresence/ternary enumeration with dispositions, the deliberate-instant declaration, and the compound-transition tests — lives in full inside Task C1's body and single commit, where the compound tests have a real red. No separate commit exists for C2.
 
 ### Task C3 — dual gate + ledger + close
 
