@@ -20,6 +20,7 @@ import {
   logSync,
   prepareProcessOneFile,
   processOneFile_unlocked,
+  runScheduledCronSync,
   type ProcessOneFileResult,
   type SyncPipelineTx,
 } from "@/lib/sync/runScheduledCronSync";
@@ -193,5 +194,85 @@ describe("sync_log emit guard — the helper chokepoint (AC-1, AC-4)", () => {
     expect(result).toEqual({ outcome: "skipped", reason: "unchanged" });
     expect(escalations()).toHaveLength(1);
     expect(escalations()[0].driveFileId).toBe("drive-file-4");
+  });
+});
+
+/**
+ * The cron runner's three RUN-LEVEL emits call `deps.logSync` directly, bypassing the helper
+ * above. Production installs the throwing-capable `writeSyncLog` (app/api/cron/sync/route.ts)
+ * and the cron wrapper's catch rethrows, so unguarded each one converts a sink fault into a
+ * failed cron run. AC-1b.
+ */
+describe("sync_log emit guard — the cron runner's run-level emits (AC-1b)", () => {
+  beforeEach(() => {
+    records.length = 0;
+    setLogSink((record) => {
+      records.push(record);
+    });
+  });
+
+  const rejectingSink = async () => {
+    throw new Error("probe-run-level-sink-down");
+  };
+
+  test("no folder configured: the skipped summary still returns", async () => {
+    const result = await runScheduledCronSync({
+      getActiveWatchedFolderId: async () => ({ kind: "no_folder_configured" as const }),
+      logSync: rejectingSink,
+    } as never);
+
+    // A benign "nothing is watched" tick, not a failed run.
+    expect(result.summary).toMatchObject({
+      outcome: "skipped",
+      skipReason: "no_folder_configured",
+    });
+    expect(result.processed).toEqual([]);
+    expect(escalations()).toHaveLength(1);
+    expect(escalations()[0].context.error).toMatchObject({
+      message: "probe-run-level-sink-down",
+    });
+  });
+
+  test("folder-resolution infra fault: the SYNC_INFRA_ERROR summary still returns", async () => {
+    const result = await runScheduledCronSync({
+      getActiveWatchedFolderId: async () => ({
+        kind: "infra_error" as const,
+        operation: "readActiveWatchedFolderId" as const,
+        source: "thrown_error" as const,
+        cause: new Error("probe-folder-read-failed"),
+      }),
+      logSync: rejectingSink,
+    } as never);
+
+    // The intended folder-infra result, not the sink's failure displacing it.
+    expect(result.summary).toMatchObject({ outcome: "parse_error", code: "SYNC_INFRA_ERROR" });
+    expect(escalations()).toHaveLength(1);
+  });
+
+  test("escaped per-file failure: the file records AND the loop continues to later files", async () => {
+    const processOneFile = vi.fn(async (driveFileId: string) => {
+      if (driveFileId === "file-1") throw new Error("probe-escaped-infra-fault");
+      return { outcome: "skipped" as const, reason: "unchanged" };
+    });
+
+    const result = await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: async () => [fileMeta("file-1"), fileMeta("file-2")],
+      listLiveShows: async () => [],
+      processOneFile,
+      logSync: rejectingSink,
+      emitEscapedSyncFailureAlert: vi.fn(async () => undefined),
+    } as never);
+
+    // Loop abandonment is the mutant this fixture kills: file-2 is only reached if file-1's
+    // swallowed sink failure did not abort the iteration.
+    expect(processOneFile).toHaveBeenCalledTimes(2);
+    expect(result.processed.map((p) => p.driveFileId)).toEqual(["file-1", "file-2"]);
+    expect(result.processed[0].result).toMatchObject({ outcome: "parse_error" });
+    // Exactly ONE swallowed failure, so exactly one escalation: file-1's escaped-failure emit.
+    // file-2 succeeds through the INJECTED `processOneFile`, which never reaches a sink, so the
+    // run-level loop pushes its result without emitting.
+    expect(escalations()).toHaveLength(1);
+    expect(escalations()[0].driveFileId).toBe("file-1");
   });
 });

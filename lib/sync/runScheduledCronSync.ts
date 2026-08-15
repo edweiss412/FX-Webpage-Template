@@ -3999,15 +3999,33 @@ export async function runScheduledCronSync(
       : await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
     if ("kind" in folderResult) {
       if (folderResult.kind === "no_folder_configured") {
-        await deps.logSync?.({
-          driveFileId: null,
-          outcome: "skipped",
-          code: "no_folder_configured",
-          payload: {
-            kind: "cron_no_folder_configured",
-            skip_reason: "no_folder_configured",
-          },
-        });
+        // Run-level emit: bypasses the guarded `logSync` helper, so it carries its own guard
+        // (spec 2026-08-15 §2.2). Unguarded, a sink fault turns a benign "nothing is watched"
+        // tick into a failed cron run.
+        try {
+          await deps.logSync?.({
+            driveFileId: null,
+            outcome: "skipped",
+            code: "no_folder_configured",
+            payload: {
+              kind: "cron_no_folder_configured",
+              skip_reason: "no_folder_configured",
+            },
+          });
+        } catch (sinkError) {
+          // Local const (NOT chained) so prettier keeps `log.error(` on ONE line —
+          // stripLogEmissionCalls cannot match a `log` / `.error` split across lines.
+          const escalation = log.error("cron sync_log emit failed", {
+            source: "cron_sync",
+            code: "SYNC_LOG_EMIT_FAILED",
+            driveFileId: null,
+            // RAW value: buildRecord serializes exactly once (§2.2).
+            error: sinkError,
+          });
+          void escalation.catch(() => {
+            /* best-effort: a recording failure must never displace the failure it was recording */
+          });
+        }
         // `await` so a heartbeat-write rejection is caught by the outer catch (attributed),
         // not returned as an unawaited rejecting promise that bypasses it.
         return await finishCompletedRun({
@@ -4015,12 +4033,29 @@ export async function runScheduledCronSync(
           summary: { outcome: "skipped", skipReason: "no_folder_configured" },
         });
       }
-      await deps.logSync?.({
-        driveFileId: null,
-        outcome: "parse_error",
-        code: SYNC_INFRA_ERROR,
-        payload: errorPayload(folderResult.cause),
-      });
+      // Run-level emit (spec 2026-08-15 §2.2): unguarded, a sink fault DISPLACES the intended
+      // folder-infra result with the sink's own error.
+      try {
+        await deps.logSync?.({
+          driveFileId: null,
+          outcome: "parse_error",
+          code: SYNC_INFRA_ERROR,
+          payload: errorPayload(folderResult.cause),
+        });
+      } catch (sinkError) {
+        // Local const (NOT chained) so prettier keeps `log.error(` on ONE line —
+        // stripLogEmissionCalls cannot match a `log` / `.error` split across lines.
+        const escalation = log.error("cron sync_log emit failed", {
+          source: "cron_sync",
+          code: "SYNC_LOG_EMIT_FAILED",
+          driveFileId: null,
+          // RAW value: buildRecord serializes exactly once (§2.2).
+          error: sinkError,
+        });
+        void escalation.catch(() => {
+          /* best-effort: a recording failure must never displace the failure it was recording */
+        });
+      }
       return { processed: [], summary: { outcome: "parse_error", code: SYNC_INFRA_ERROR } };
     }
 
@@ -4172,12 +4207,29 @@ export async function runScheduledCronSync(
           outcome: "parse_error" as const,
           code: classifySyncFailure(error),
         };
-        await deps.logSync?.({
-          driveFileId: file.driveFileId,
-          outcome: result.outcome,
-          code: result.code,
-          payload: errorPayload(error),
-        });
+        // Run-level emit (spec 2026-08-15 §2.2): unguarded, a sink fault escapes the file loop
+        // and ABANDONS every remaining file in the tick.
+        try {
+          await deps.logSync?.({
+            driveFileId: file.driveFileId,
+            outcome: result.outcome,
+            code: result.code,
+            payload: errorPayload(error),
+          });
+        } catch (sinkError) {
+          // Local const (NOT chained) so prettier keeps `log.error(` on ONE line —
+          // stripLogEmissionCalls cannot match a `log` / `.error` split across lines.
+          const escalation = log.error("cron sync_log emit failed", {
+            source: "cron_sync",
+            code: "SYNC_LOG_EMIT_FAILED",
+            driveFileId: file.driveFileId,
+            // RAW value: buildRecord serializes exactly once (§2.2).
+            error: sinkError,
+          });
+          void escalation.catch(() => {
+            /* best-effort: a recording failure must never displace the failure it was recording */
+          });
+        }
         // Escaped infra fault: processOneFile's in-lock recovery (mark + alert)
         // did not run. Raise a durable per-show alert so persistent failures reach
         // the notify tier, not just the aggregate summary. Best-effort — never fail
