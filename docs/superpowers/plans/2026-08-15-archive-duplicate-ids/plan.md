@@ -123,12 +123,13 @@ and the four scripts beside it). Facts this plan RELIES on, so no task re-derive
    so the whole docs surface is the regression net).
 6. **Survivor verification (plan R2 F1 — `git diff --stat` cannot see a direction
    reversal):** BEFORE any repair, generate and commit an expectations table
-   `survivor-expectations.json` in this plan directory — one row per pair:
+   — a new JSON file named "survivor-expectations" in this plan directory (created
+   by the task; unbackticked here because it does not exist until A1 runs) — one row per pair:
    `{ id, file, survivorHeadingText, demotedHeadingText }`, derived from the live
    tree plus the spec §2.1 direction column (the committed pair-table script
    already classifies each heading; extend it to emit this JSON). AFTER the
-   repairs, run a small committed verifier (`verify-survivors.mts`, beside the
-   census scripts) asserting per row: the survivor heading text still exists as a
+   repairs, run a small committed verifier (a new script named "verify-survivors",
+   beside the census scripts) asserting per row: the survivor heading text still exists as a
    HEADING in its file, exactly once; the demoted text exists as a bold
    paragraph line and NOT as a heading. A swapped pair fails by id.
    **Gate-mutant treatment (writing-plans rule, run and recorded):** reverse ONE
