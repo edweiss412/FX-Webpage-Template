@@ -60,6 +60,10 @@ Rows live inside the `RAW_HOLES` template literal, one per line, `<operator>:<fi
 
 Codex CLI is quota-dead until 2026-08-11 6:21 PM (3× `nonzero_exit` usage-limit, `scratchpad/codex-out/spec-r1-235900`). Per the documented ladder (`feedback_codex_exec_killed_fallback_selfreview_ci`, inlined here because Codex-bound docs cannot read memory files): substitute fresh-eyes adversarial review by an independent Claude session, findings admissible under the same probe-backed contract, real CI as the hard arbiter, and the deviation recorded in every PR body — NEVER claimed as a cross-model APPROVE. If the quota resets mid-wave, switch back to `codex-guard` (`node scripts/codex-guard.mjs review --brief <file> --cwd <dir> --out <dir> --stage diff --round <n>`).
 
+## Ratified amendment — branch 5 Tasks 3–4 superseded (2026-08-15)
+
+Branch 5's Task 3 (venue-scope hoist) hit the spec §7.2 stop rule: the parity probe (`05-section-order-parity-probe.md`) proved §7.2(a) and §7.2(b) jointly unsatisfiable (+4,291 emissions under any swap-invariant rule). User-ratified resolution: the positional `UNKNOWN_FIELD` sweep is RETIRED and replaced by a content-keyed field near-miss detector per `docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md`, which supersedes branch-5 Tasks 3–4 (Tasks 1–2 artifacts are kept and repurposed). The §7.2(a) parity constraint is superseded by that spec's calibrated baseline (394 → calibrated true-positive set, a ratified QUIETING). AC-S1..S4 are replaced by the spec's AC-N1..N7; AC-W1's 10-row deletion intent is unchanged.
+
 ## Acceptance criteria index
 
 Per-branch ACs live in each plan file (AC-U*, AC-R*, AC-M*, AC-C*, AC-S*). Wave-level:
