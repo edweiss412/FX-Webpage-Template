@@ -22,6 +22,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { openShowReviewModal } from "./helpers/openShowReviewModal";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
 
@@ -29,13 +30,6 @@ const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 const BANDS = [390, 720, 1280];
 const TAP_MIN = 44;
 const TOL = 0.5;
-
-// admin-show-modal: the per-show surface is the /admin?show= review modal. The
-// Suspense SKELETON shares the shell testIdBase, and both frames transiently
-// coexist during the streaming swap — scope to the LOADED modal (the skeleton
-// renders no title node) so the twin never trips Playwright strict mode.
-const LOADED_REVIEW_MODAL =
-  '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
 
 // Stable marker so seeded rows are unambiguous to clean up.
 const UNDO_ENTITY = "ZZ-Phase6-LayoutUndo";
@@ -129,10 +123,11 @@ test.describe("changes feed layout (real browser, §8 dimensional invariants)", 
       // so geometry is final on load (the layout-spec convention).
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.setViewportSize({ width: w, height: 900 });
-      // admin-show-modal: the per-show surface is now the dashboard modal.
-      await page.goto(`/admin?show=${slug}`);
-      const modal = page.locator(LOADED_REVIEW_MODAL);
-      await expect(modal).toBeVisible({ timeout: 30_000 });
+      // admin-show-modal: the per-show surface is now the dashboard modal. The
+      // helper waits for the LOADED modal OR the admin error boundary, recovering
+      // once from a transient gateway 502 via the product's own Retry (spec
+      // docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md §4.1).
+      const modal = await openShowReviewModal(page, slug);
 
       const list = modal.getByRole("list", { name: /changes/i });
       await expect(list).toBeVisible();
@@ -179,4 +174,17 @@ test.describe("changes feed layout (real browser, §8 dimensional invariants)", 
         .toBe("ok");
     });
   }
+
+  test("helper surfaces enriched diagnostics when a show never mounts (dead slug)", async ({
+    page,
+  }) => {
+    // Deterministic neither-locator starve: a slug with no shows row makes the
+    // loader redirect("/admin") (app/admin/_showReviewModal.tsx missing-show
+    // gate), so neither the modal nor the error boundary ever appears.
+    await expect(
+      openShowReviewModal(page, "zz-e2e-no-such-show", { timeoutMs: 3_000 }),
+    ).rejects.toThrow(
+      /published-show-review-modal[\s\S]*admin-route-error-boundary[\s\S]*show_review_snapshot_failed/,
+    );
+  });
 });
