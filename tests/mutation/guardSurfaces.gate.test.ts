@@ -39,6 +39,18 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // four sign-not-magnitude and two guarded-branch equivalents — all six with
   // control-flow arguments, which is why the surface now carries NO accepted gap.
   taskContract: { equivalent: 22 },
+  // The 2026-08-15 arms surfaces, enrolled with EMPTY ledgers. Both are pure
+  // classifiers over literal fixtures, so every survivor is repayable by a test
+  // rather than blessable: a row appearing here later is a coverage regression
+  // to explain, not a number to bump.
+  // citationIntent swept clean: 21/21 killed, no blessed survivor, so a row
+  // appearing here later is a coverage regression to repair.
+  citationIntent: {},
+  // redContract: SEVEN reachability arguments — the GATE bound that only ever
+  // runs on GATE_ANY hits, three one-past-the-end scan bounds, and the two
+  // extent-containment equalities a marker line can never occupy. No
+  // accepted-gap: every other survivor of the first run was repaid by a test.
+  redContract: { equivalent: 7 },
   // Counted from the surface, not read back off its ledger: `scripts/lib/
   // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
   // always present -- two in the tip comparator, one in the age loop -- and
@@ -74,16 +86,6 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
   reviewRoundCorpus: { equivalent: 2 },
-  // Counted from the surface: 42 reachability / control-flow arguments and NO accepted
-  // gap. The triage ran 84 -> 54 -> 45 -> 44 -> 43 -> 42 survivors, repaying 42 of them
-  // with tests rather than blessing them. The last TWO came off because whole-diff review
-  // refuted their equivalence arguments with probes: R1's compared a marker width instead
-  // of an indent, and R2's assumed a one-token union forced identical digit runs, which
-  // SET tokenization does not (multiplicity is discarded). Both are now killed by the
-  // shapes those probes used. So a 43rd row is a coverage regression to argue rather than
-  // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
-  // first, needing its own backlog entry.
-  specLintNumerics: { equivalent: 50 },
   // Counted from the surface: the executed-count oracle carries NO blessed
   // survivor. Its floor is 1, so a row appearing here is a coverage regression
   // to repair rather than a number to update. The surface exists in its current
@@ -118,6 +120,16 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
+  // Counted from the surface: 42 reachability / control-flow arguments and NO accepted
+  // gap. The triage ran 84 -> 54 -> 45 -> 44 -> 43 -> 42 survivors, repaying 42 of them
+  // with tests rather than blessing them. The last TWO came off because whole-diff review
+  // refuted their equivalence arguments with probes: R1's compared a marker width instead
+  // of an indent, and R2's assumed a one-token union forced identical digit runs, which
+  // SET tokenization does not (multiplicity is discarded). Both are now killed by the
+  // shapes those probes used. So a 43rd row is a coverage regression to argue rather than
+  // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
+  // first, needing its own backlog entry.
+  specLintNumerics: { equivalent: 50 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
