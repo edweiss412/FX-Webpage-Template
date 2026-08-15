@@ -98,28 +98,37 @@ path read. Record each mutant's red in the Task 2 commit message.
 
 ```ts
 export type ScanElement = {
-  file: string;             // repo-relative
-  line: number;             // 1-based
+  file: string;      // repo-relative
+  line: number;      // 1-based
   tag: string;
-  unconditional: string[];  // strings reachable on EVERY render (rules 1, 5, 6)
-  branchGroups: string[][]; // one group per conditional: the strings of each branch
-                            // (rules 3-4; a `&&` contributes ["", rhs])
-  unresolved: boolean;      // any part of the className expression was unreadable
+  paths: string[][]; // the COMPLETE set of render alternatives: one entry per full
+                     // branch assignment of the className expression; each entry is
+                     // the class strings reachable on that render. An unconditional
+                     // className has exactly one path. Capped at 64 paths; beyond
+                     // the cap the element is marked unresolved (demote, never guess).
+  unresolved: boolean;  // any part unreadable, or path cap exceeded
   hasClassName: boolean;
 };
 export const FLOOR_COMPONENT_ALLOWLIST: ReadonlyArray<{
   tag: string; file: string; mustContain: string;
 }>;
 export function scanInteractiveElements(rootDir: string): ScanElement[];
-export function allStrings(el: ScanElement): string[]; // unconditional + every branch string
+export function allStrings(el: ScanElement): string[]; // union over every path
 export function heightFloorSatisfied(el: ScanElement): boolean; // rules 1-7 positive arm
-export function defeaterPresent(el: ScanElement): boolean;      // rule 8 (existential, allStrings)
+export function defeaterPresent(el: ScanElement): boolean;      // rule 8 (existential over allStrings)
 ```
 
-`heightFloorSatisfied` semantics (plan R1 F1 — conditionality is NOT flattened): true only when
-`!unresolved`, `!defeaterPresent(el)`, and a floor token is present in `unconditional` OR in
-EVERY branch of at least one `branchGroups` entry whose branches jointly cover the render
-(spec §5.2 rule 3: both-branches clears; a floor present in one branch only never clears).
+`heightFloorSatisfied` semantics (plan R2 F1 — the round-1 `branchGroups` model lost branch
+ANCESTRY: `outer ? (inner ? floor : floor) : ""` cleared through the inner group while the
+outer false path had no floor; a path-set model cannot lose ancestry because a path IS a full
+branch assignment): true only when `!unresolved`, `!defeaterPresent(el)`, and EITHER
+(a) EVERY path in `paths` carries a floor token — this is spec §5.2 rules 1/3/4 in one
+quantifier: an unconditional floor is a floor on the single path; a both-branches ternary
+floors both paths; a one-branch floor leaves a floorless path and never clears — OR
+(b) the element's tag is in `FLOOR_COMPONENT_ALLOWLIST` (spec §5.2 rule 7, the positive arm —
+plan R2 F2: a registered component's own base guarantees the floor, so its call site clears
+even with no className at all, but remains subject to `defeaterPresent` and to `unresolved`
+demotion on whatever className it does carry).
 Identifier resolution is scope-aware, **innermost declaration wins** (spec §2.3; plan R1 F2 —
 do NOT keep the plan-time probe's first-wins shortcut; the probe was census-equivalent on the
 current corpus but is not the contract).
@@ -133,10 +142,12 @@ current tree — the RED derives from the missing production module, not from te
 
 ```ts
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { premiseHolds } from "../_shared/premise";
 import {
   FLOOR_COMPONENT_ALLOWLIST,
+  allStrings,
   defeaterPresent,
   heightFloorSatisfied,
   scanInteractiveElements,
@@ -147,12 +158,23 @@ const el = (over: Partial<ScanElement>): ScanElement => ({
   file: "x.tsx",
   line: 1,
   tag: "button",
-  unconditional: [],
-  branchGroups: [],
+  paths: [[]],
   unresolved: false,
   hasClassName: true,
   ...over,
 });
+
+// Fixture harness (plan R2 F3): the resolver is ALSO exercised end-to-end through temp files,
+// so a flattening scanner or first-wins lookup cannot stay green on unit cases alone.
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+function scanFixture(source: string) {
+  const dir = mkdtempSync(join(tmpdir(), "scan-fixture-"));
+  mkdirSync(join(dir, "components"), { recursive: true });
+  mkdirSync(join(dir, "app"), { recursive: true });
+  writeFileSync(join(dir, "components", "Fx.tsx"), source);
+  return scanInteractiveElements(dir);
+}
 
 describe("resolver corpus walk", () => {
   const all = scanInteractiveElements(process.cwd());
@@ -162,8 +184,7 @@ describe("resolver corpus walk", () => {
   it("resolves same-file helper calls (segClass shape, spec §5.2 rule 6)", () => {
     const seg = all.filter((e) => e.file.endsWith("DashboardBucketSegmentedControl.tsx"));
     premiseHolds("segmented control links found", seg.length >= 2);
-    const strings = (e: ScanElement) => [...e.unconditional, ...e.branchGroups.flat()];
-    expect(seg.some((e) => strings(e).some((s) => /text-text-subtle/.test(s)))).toBe(true);
+    expect(seg.some((e) => allStrings(e).some((str) => /text-text-subtle/.test(str)))).toBe(true);
   });
   it("resolves imported constants one hop (SECONDARY_ACTION_CLASS consumers clear)", () => {
     const re = all.find((e) => e.file.endsWith("RescanSheetButton.tsx"));
@@ -176,16 +197,42 @@ describe("resolver corpus walk", () => {
   it("includes allowlisted component call sites without onClick (RetryWatchButton)", () => {
     expect(all.some((e) => e.file.endsWith("RetryWatchButton.tsx") && e.tag === "AccentButton")).toBe(true);
   });
-  it("innermost const shadows outer (spec §2.3)", () => {
-    // Executable fixture: the resolver is exercised through a temp file, not the live corpus,
-    // so this case cannot rot when the corpus changes. Write a fixture with an outer
-    // `const k = "min-h-tap-min"` shadowed inside the component by `const k = "min-h-0"`,
-    // scan the temp dir, and assert the element does NOT clear.
-    // (Implementation detail for the executor: mkdtempSync + writeFileSync + scanInteractiveElements(tmp).)
+});
+
+describe("resolver end-to-end fixtures (plan R2 F3, executable, not comments)", () => {
+  it("innermost const shadows outer: shadowed under-floor value must NOT clear", () => {
+    const els = scanFixture([
+      'const k = "min-h-tap-min";',
+      "export function C() {",
+      '  const k = "min-h-0";',
+      "  return <button className={k}>x</button>;",
+      "}",
+    ].join("\n"));
+    const b = els.find((e) => e.tag === "button");
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
+  it("a ternary emits two paths, not a flattened union", () => {
+    const els = scanFixture([
+      "export function C({ f }: { f: boolean }) {",
+      '  return <button className={f ? "min-h-tap-min" : "px-2"}>x</button>;',
+      "}",
+    ].join("\n"));
+    const b = els.find((e) => e.tag === "button");
+    expect(b?.paths.length).toBe(2);
+    expect(b && heightFloorSatisfied(b)).toBe(false); // one floorless path
+  });
+  it("nested conditional keeps ancestry: inner both-branch floor under a floorless outer arm never clears", () => {
+    const els = scanFixture([
+      "export function C({ a, b }: { a: boolean; b: boolean }) {",
+      '  return <button className={a ? (b ? "min-h-tap-min" : "min-h-tap-min") : ""}>x</button>;',
+      "}",
+    ].join("\n"));
+    const btn = els.find((e) => e.tag === "button");
+    expect(btn && heightFloorSatisfied(btn)).toBe(false); // the a-false path has no floor
   });
 });
 
-describe("height floor (spec §5.1/§5.2 rules 1-4) and defeaters (rule 8)", () => {
+describe("height floor (spec §5.1/§5.2 rules 1-4, 7) and defeaters (rule 8)", () => {
   it.each([
     ["min-h-tap-min", true],
     ["size-tap-min", true],
@@ -194,20 +241,20 @@ describe("height floor (spec §5.1/§5.2 rules 1-4) and defeaters (rule 8)", () 
     ["h-10", false],
     ["min-w-tap-min", false],
     ["w-11", false],
-  ])("unconditional floor token %s -> %s", (tok, want) => {
-    expect(heightFloorSatisfied(el({ unconditional: [tok] }))).toBe(want);
+  ])("single-path floor token %s -> %s", (tok, want) => {
+    expect(heightFloorSatisfied(el({ paths: [[tok]] }))).toBe(want);
   });
-  it("conditional floor in ONE branch never clears (rule 3; plan R1 F1)", () => {
-    expect(heightFloorSatisfied(el({ branchGroups: [["min-h-tap-min", ""]] }))).toBe(false);
-  });
-  it("floor in EVERY branch of a group clears (rule 3)", () => {
-    expect(heightFloorSatisfied(el({ branchGroups: [["min-h-tap-min a", "min-h-tap-min b"]] }))).toBe(true);
-  });
-  it("`&&` right-hand floor never clears (rule 4)", () => {
-    expect(heightFloorSatisfied(el({ branchGroups: [["", "min-h-tap-min"]] }))).toBe(false);
+  it("floor on every path clears; floor on one of two paths never clears (rules 3-4)", () => {
+    expect(heightFloorSatisfied(el({ paths: [["min-h-tap-min a"], ["min-h-tap-min b"]] }))).toBe(true);
+    expect(heightFloorSatisfied(el({ paths: [["min-h-tap-min"], ["px-2"]] }))).toBe(false);
   });
   it("unresolved never clears (rule 2)", () => {
-    expect(heightFloorSatisfied(el({ unconditional: ["min-h-tap-min"], unresolved: true }))).toBe(false);
+    expect(heightFloorSatisfied(el({ paths: [["min-h-tap-min"]], unresolved: true }))).toBe(false);
+  });
+  it("rule 7: allowlisted component clears with no className, but a call-site defeater demotes", () => {
+    expect(heightFloorSatisfied(el({ tag: "AccentButton", paths: [[]], hasClassName: false }))).toBe(true);
+    expect(heightFloorSatisfied(el({ tag: "AccentButton", paths: [["min-h-0!"]] }))).toBe(false);
+    expect(heightFloorSatisfied(el({ tag: "AccentButton", paths: [[]], unresolved: true }))).toBe(false);
   });
   it.each([
     "min-h-0!",
@@ -216,11 +263,11 @@ describe("height floor (spec §5.1/§5.2 rules 1-4) and defeaters (rule 8)", () 
     "[min-height:0]",
     "sm:min-h-0",
     "hover:h-4",
-  ])("defeater %s demotes even from a conditional branch", (tok) => {
-    expect(defeaterPresent(el({ unconditional: ["min-h-tap-min"], branchGroups: [[tok, ""]] }))).toBe(true);
+  ])("defeater %s demotes even from a minority path", (tok) => {
+    expect(defeaterPresent(el({ paths: [["min-h-tap-min"], [tok]] }))).toBe(true);
   });
   it("a clean floor string carries no defeater", () => {
-    expect(defeaterPresent(el({ unconditional: ["inline-flex min-h-tap-min px-4"] }))).toBe(false);
+    expect(defeaterPresent(el({ paths: [["inline-flex min-h-tap-min px-4"]] }))).toBe(false);
   });
 });
 
@@ -247,12 +294,13 @@ describe("floor-component allowlist companion (spec §5.2 rule 7)", () => {
     `checkbox|radio`, any tag with `role="button"` or an `onClick` attribute, PLUS any tag in
     `FLOOR_COMPONENT_ALLOWLIST` (derive — map over the allowlist, never a second literal list).
   - Resolver (rules 1-6): string/template literals and template spans; ternary and
-    `&&`/`||`/`??` produce `branchGroups` entries (both arms recorded; the missing arm of `&&`
-    is the empty string); `cn`/`clsx` and other call arguments; identifiers via SCOPE-AWARE
-    lookup, innermost wins; one-hop imports resolving `@/` and relative specifiers to exported
-    consts (re-export depth ≤ 3); same-file function declarations and arrow/function-expression
-    consts resolve to the union of their return expressions or expression body; recursion depth
-    ≤ 6. Anything else sets `unresolved = true`.
+    `&&`/`||`/`??` FORK the path set (each arm continues its own paths; the missing arm of
+    `&&` continues with no contribution), so nesting composes by construction; `cn`/`clsx` and
+    other call arguments; identifiers via SCOPE-AWARE lookup, innermost wins; one-hop imports
+    resolving `@/` and relative specifiers to exported consts (re-export depth ≤ 3); same-file
+    function declarations and arrow/function-expression consts resolve their return
+    expressions (a multi-return function forks paths like a conditional); recursion depth ≤ 6;
+    path cap 64. Anything else sets `unresolved = true`.
   - `heightFloorSatisfied` / `defeaterPresent`: exactly as the Interfaces block above; floor and
     defeater token grammars per spec §5.1 and §5.2 rule 8 (including `max-h-*`, arbitrary
     height properties, recipe-scoped padding/inset families, `!` and variant-prefixed forms).
@@ -378,10 +426,13 @@ whose class strings still carry `text-text-subtle` on the live tree — the RED 
 production class strings; the SAME command goes green at Step 6 after the swaps, and the task
 commits only then (plan R1 F4).
 
-- [ ] **Step 1: Write the scan module** — `scanSubtleInteractive` filters Task 1's elements to
+- [ ] **Step 1: Write the suite first (Step 3's snippet) and run it** — RED: module-not-found
+  on `./subtleInteractiveScan` (invariant-1 ordering, plan R2 F4; the meaningful policy RED
+  follows at Step 4 once the modules exist).
+- [ ] **Step 2a: Write the scan module** — `scanSubtleInteractive` filters Task 1's elements to
   those where any of `allStrings(el)` matches `/(^|\s)text-text-subtle(\s|$)/`, emitting
   `token: "text-text-subtle"` and mapping `unresolved` to `partial`.
-- [ ] **Step 2: Seed the registry with EXACTLY the 15 exempt rows** from spec §4.3 (7
+- [ ] **Step 2b: Seed the registry with EXACTLY the 15 exempt rows** from spec §4.3 (7
   summary-disclosure, 2 dismissable-chip, 6 state-dim). The 6 state-dim rows carry `siblingCue`
   per spec §4.1 Family D (AdminNav desktop: `{ file: "components/admin/nav/AdminNav.tsx",
   token: "bg-surface-raised" }`; bottom tabs: token `aria-current`; crew sub-nav:
@@ -390,7 +441,7 @@ commits only then (plan R1 F4).
   both dashboard segments: `{ file: "components/admin/DashboardBucketSegmentedControl.tsx",
   token: "shadow-tile" }`). Registry-count reconciliation (authored AND run at plan time): spec
   table EXEMPT rows = 15 = 7 + 2 + 6; the suite asserts the array length.
-- [ ] **Step 3: Write the suite**:
+- [ ] **Step 3: The suite (written at Step 1)**:
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -459,6 +510,15 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
 - [ ] **Step 6: Run the suite, verify PASS.** Also `pnpm exec eslint .` (canonical class order)
   and Task 1's suite (the census expectations there reference files this step edits — the
   segClass/subtle expectations still hold because Family D sites keep their tokens).
+- [ ] **Step 6b: One-shot hover verification (plan R2 F5).** The guard pins REST color only, so
+  hover retargets are verified once, executably, at this step: for each of the 14 spec-§4.3
+  rows whose Hover cell is `→strong`, run
+  `rg -n "hover:text-text-strong" <file>` and confirm a hit on the edited element's class
+  string; for each `per-site check` row, confirm the recorded choice (commit body) leaves a
+  hover that strengthens or a non-color hover affordance. Paste the 14-site command outputs
+  into the commit body. This is a one-shot migration check, not a standing guard — hover
+  policy permanence lives in DESIGN.md prose; worst case of later drift is cosmetic
+  (documented limit, consistent with the spec's D2 posture).
 - [ ] **Step 7: Behavioral spot-check** in the running app (`pnpm dev` outside the slot wrapper)
   on 390px + desktop: nav still shows active/inactive distinction (Family D untouched), swapped
   chrome (bell, user menu, theme toggle) reads at full text color, EventFilters selected state
@@ -499,9 +559,12 @@ every UNCLASSIFIED element — the spec-§2.4-baseline bucket families all exist
 bucket E), so the red derives from live production class strings; the SAME command goes green
 at Step 5 with the seeded census, and the task commits only then.
 
-- [ ] **Step 1: Write `scanTapTargets`** — element `state` is `"clear"` when
+- [ ] **Step 1: Write the suite first (Step 2's snippet) and run it** — RED: module-not-found
+  on `./tapTargetScan` (invariant-1 ordering, plan R2 F4; the meaningful census RED follows at
+  Step 3).
+- [ ] **Step 1b: Write `scanTapTargets`** — element `state` is `"clear"` when
   `heightFloorSatisfied(el)` and not `defeaterPresent(el)`, else `"unclassified"`.
-- [ ] **Step 2: Write the suite** — the same shape as Task 3's, concretely:
+- [ ] **Step 2: The suite (written at Step 1)** — the same shape as Task 3's, concretely:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -560,7 +623,7 @@ describe("repo-wide tap-height floor (spec §5)", () => {
 - Modify: `tests/mutation/guardSurfaces.gate.test.ts` — add the three surfaces'
   `EXPECTED_LEDGER_KINDS` entries with the counts the harness actually reports.
 
-<!-- task: red=`pnpm vitest run tests/mutation/guardSurfaces.gate.test.ts` ac=AC-6 -->
+<!-- task: red=`pnpm heavy pnpm vitest run tests/mutation/guardSurfaces.gate.test.ts` ac=AC-6 -->
 
 What is red and why (plan R1 F3 — the earlier `pnpm mutation:guards` red was invalid because
 the registry is opt-in and an absent surface is untouched): after Step 1 adds the three
@@ -569,28 +632,35 @@ registry rows, the gate's key-equality assertion
 the new ids; the SAME command goes green at Step 3 once the harness has run and the counted
 ledger-kind entries land.
 
-- [ ] **Step 1: Add the three registry rows.** Run the gate suite — verify FAIL on key equality.
+- [ ] **Step 1: Add the three registry rows.** Run the gate suite — verify FAIL on key
+  equality. The gate suite TRANSITIVELY runs the mutation harness for every enrolled surface
+  (`tests/mutation/guardSurfaces.gate.test.ts:93` runs `describe.each(GUARD_SURFACES)`), so
+  every invocation here and in Step 3 is wrapped: `pnpm heavy pnpm vitest run
+  tests/mutation/guardSurfaces.gate.test.ts` (heavy-phase transitive shape rule, plan R2 F6).
 - [ ] **Step 2: Run the harness** — `pnpm heavy pnpm mutation:guards`. Triage survivors: kill
   genuine gaps by strengthening the suites; a genuinely equivalent mutant gets an `accepted`
   row with its reason. Zero UNACCEPTED survivors before the review dispatch (spec R9).
 - [ ] **Step 3: Add the `EXPECTED_LEDGER_KINDS` entries** with the real counted kinds; run the
-  gate suite — verify PASS.
+  wrapped gate suite — verify PASS.
 - [ ] **Step 4: Commit** — `test(mutation): enroll interactive-scan guard surfaces`.
 
 ### Task 6: Screenshot baselines
 
 **Files:**
 - Modify: affected committed WebPs under `public/help/screenshots/`. The manifest
-  (`scripts/help-screenshots.manifest.ts`) has seven entries; expected impact, from the diff's
-  surfaces (verify each by pixel-diff, do not trust this table blindly):
-  - `dashboard-overview` (light+dark): AdminNav chrome swaps (AppHealthIndicator, NotifBell,
-    UserMenu) — CHANGES. Dashboard bucket segments are Family D and stay.
-  - `needs-attention` (mobile): AdminNav bottom tabs are Family D (stay); the page body has no
-    census site — likely UNCHANGED, verify.
+  (`scripts/help-screenshots.manifest.ts`) has seven entries — all seven enumerated (plan R2
+  F7); expected impact from the diff's surfaces (verify each by pixel-diff, do not trust this
+  table blindly):
+  - `dashboard-overview`: AdminNav chrome swaps (AppHealthIndicator, NotifBell, UserMenu) —
+    CHANGES. Dashboard bucket segments are Family D and stay.
+  - `review-queues-empty-state`: same admin shell and nav chrome — CHANGES.
   - `preview-as-crew-banner`: admin nav chrome — CHANGES.
-  - `crew-preview-today` / `-gear` / `-schedule` (mobile): CrewSubNav inactive tabs are Family D
-    (stay); `ReportButton` (SWAP) renders in the crew footer; KeyTimesStrip/AgendaScheduleBlock
-    summaries are Family S (stay) — CHANGES where the ReportButton is in frame, verify.
+  - `needs-attention-mobile`: AdminNav bottom tabs are Family D (stay); nav bell (SWAP) may be
+    in frame — verify; page body has no census site.
+  - `crew-preview-today-mobile` / `crew-preview-gear-mobile` / `crew-preview-schedule-mobile`:
+    CrewSubNav inactive tabs are Family D (stay); `ReportButton` (SWAP) renders in the crew
+    footer; KeyTimesStrip/AgendaScheduleBlock summaries are Family S (stay) — CHANGES where the
+    ReportButton is in frame, verify.
 
 <!-- task: red=`git diff --quiet -- public/help/screenshots` ac=AC-9 -->
 
@@ -619,9 +689,14 @@ on the committed plan); it is written only after both gate halves run on the rea
   PRODUCT.md + DESIGN.md, register read) on the affected diff.
 - [ ] **Step 2: Run `/impeccable audit`** the same way.
 - [ ] **Step 3: Fix P0/P1 findings or defer each via a DEFERRED.md entry** (ledger filing bar
-  applies). Record findings + dispositions in §12 below.
-- [ ] **Step 4: Write the `impeccable-gate:` marker line in §12** with real values.
-- [ ] **Step 5: Commit** — `docs(plan): invariant-8 gate results`.
+  applies). Every fix is a product change: it follows the normal TDD cycle and commits with a
+  conventional message before the gate reruns.
+- [ ] **Step 4: If Step 3 changed ANY UI file, rerun BOTH gate halves on the updated diff**
+  (plan R2 F8 — a marker written against a superseded diff is a stale claim). Loop Steps 3-4
+  until a run reports no unfixed, undeferred P0/P1.
+- [ ] **Step 5: Write the `impeccable-gate:` marker line in §12** with the FINAL run's values;
+  record findings + dispositions in §12.
+- [ ] **Step 6: Commit** — `docs(plan): invariant-8 gate results`.
 
 ### Task 8: Close-out — gates, ledger graduation, PR
 
@@ -639,14 +714,17 @@ contract (markers gone, archives reject in-flight work).
   `pnpm typecheck` · `pnpm exec eslint .` · `pnpm format:check` ·
   `pnpm spec:lint docs/superpowers/specs/2026-08-14-ui-interactive-token-policy-design.md`.
   All green.
-- [ ] **Step 2: Graduate the three ledger entries** to `BACKLOG-archive.md` with full provenance
-  (census history 32/34/53/55 recorded; Family D ratification noted; the Task 4 census counts
-  pasted). Remove the three `**Status:** IN PROGRESS` markers in the SAME final commit
-  (invariant 12 — the marker never reaches main). Run the marker command — verify exit 0.
+- [ ] **Step 2: Graduate the three ledger entries** to `BACKLOG-archive.md` with full
+  provenance (census history 32/34/53/55 recorded; Family D ratification noted; the Task 4
+  census counts pasted), remove the three `**Status:** IN PROGRESS` markers, and **COMMIT** —
+  `docs: graduate ui-token-policy ledger entries` — as the branch's final content commit (plan
+  R2 F9; invariant 12: the marker never reaches main). Run the marker command — verify exit 0.
 - [ ] **Step 3: Run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts
   tests/docs/_metaReviewRoundEconomy.test.ts tests/docs/_metaInvariant8Closeout.test.ts`** — green.
-- [ ] **Step 4: Whole-diff cross-model review** (codex-guard, `--stage diff`), split tight-scope
-  briefs if the file list is large; APPROVE required.
+- [ ] **Step 4: Whole-diff cross-model review ON THE COMMITTED FINAL TREE** (codex-guard,
+  `--stage diff`), split tight-scope briefs if the file list is large; APPROVE required.
+  Review covers what merges: any fix this review forces is committed and the review RERUNS on
+  the new tree until APPROVE lands on the tree that merges.
 - [ ] **Step 5: Push, real CI green, `gh pr merge --merge`, fast-forward local main**
   (`git rev-list --left-right --count main...origin/main` → `0  0`).
 
