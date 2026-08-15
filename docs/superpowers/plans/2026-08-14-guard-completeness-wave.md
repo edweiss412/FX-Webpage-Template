@@ -169,7 +169,22 @@ Expected: FAIL — `realGitSurface` ignores the argument; recording fake never c
 ```ts
 export function realGitSurface(opts?: { spawn?: typeof spawnSync }): GitSurface {
   const spawn = opts?.spawn ?? spawnSync;
-  // ... every internal `spawnSync(` call site becomes `spawn(`
+  // The module-scoped `git(args, timeout)` helper (scripts/lib/ledger-git.ts:64)
+  // cannot see this local binding (probed: TS2304 if left at module scope), so
+  // MOVE it inside realGitSurface as a closure over `spawn`:
+  const git = (args: string[], timeout: number): string => {
+    const r = spawn("git", args, {
+      cwd: gitRoot(),
+      encoding: "utf8",
+      timeout,
+      maxBuffer: MAX_GIT_STDOUT,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    // ...existing error/status handling body moves verbatim...
+    return r.stdout ?? "";
+  };
+  // every other internal `spawnSync(` call site becomes `spawn(`
+  return { /* readers unchanged, now closing over spawn + git */ };
 }
 ```
 
@@ -222,7 +237,12 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
     ["row non-string headRefName", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: 42, isCrossRepository: false }]) }],
     ["row missing isCrossRepository", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b" }]) }],
     ["row non-boolean isCrossRepository", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: "no" }]) }],
-    ["mis-shaped headRepositoryOwner", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: { login: 9 } }]) }],
+    ["owner with non-string login", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: { login: 9 } }]) }],
+    ["owner as string", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: "owner" }]) }],
+    ["owner as number", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: 7 }]) }],
+    ["owner as boolean", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: true }]) }],
+    ["owner as array", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: [] }]) }],
+    ["owner as empty object (login absent)", { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: {} }]) }],
   ];
   it.each(cases)("throws on %s", (_label, result) => {
     expect(() => realGitSurface({ spawn: faultSpawn(result) }).prList()).toThrow();
@@ -268,10 +288,15 @@ Expected: FAIL — every `toThrow` case returns `[]` or a coerced row instead.
           throw new Error(`gh pr list row ${i}: isCrossRepository is not boolean`);
         let login: string | null = null;
         if (owner !== undefined && owner !== null) {
+          // Spec shape: absent, null, or an OBJECT whose login is a string.
+          // Probed escapes this must reject: "owner", 7, true, [], {} (each was
+          // silently coerced to null by the old ?? null; plan review R1 F2).
+          if (typeof owner !== "object" || Array.isArray(owner))
+            throw new Error(`gh pr list row ${i}: headRepositoryOwner is not an object`);
           const l = (owner as Record<string, unknown>).login;
-          if (l !== undefined && typeof l !== "string")
+          if (typeof l !== "string")
             throw new Error(`gh pr list row ${i}: headRepositoryOwner.login is not a string`);
-          login = (l as string | undefined) ?? null;
+          login = l;
         }
         return { number, headRefName, headRepositoryOwner: login, isCrossRepository };
       });
@@ -297,7 +322,7 @@ In `scripts/lib/ledger-check.ts` degraded loop (~line 256):
       if (d.startsWith("fetch-failed") || d.startsWith("pr-universe-unavailable")) {
 ```
 
-- [ ] **Step 5: Update the two existing gh-fault cases** in `tests/scripts/ledgerClaimsCheck.test.ts` (lines ~1150 and ~1170): the "failed gh printed well-formed JSON" case now asserts `toThrow` instead of `[]`; add a `runCheck`-level case injecting a `GitSurface` whose `prList` throws and asserting the JSON envelope's `code` is `2` and `reasons` contains a `pr-universe-unavailable` entry (mirror the existing degraded-universe describe at line 272 for envelope access).
+- [ ] **Step 5: Update the ONE existing gh-fault case** in `tests/scripts/ledgerClaimsCheck.test.ts` — line ~1170, "discards a failed gh's output even when it printed well-formed JSON" — to assert `toThrow` instead of `[]` (its intent, a failed gh's payload never becomes a PR universe, is preserved; only the signal changes). The line-1150 case ("parses gh's rows, keeping the fork flag") is a SUCCESS-path case and stays as-is. Add a `runCheck`-level case injecting a `GitSurface` whose `prList` throws and asserting the JSON envelope's `code` is `2` and `reasons` contains a `pr-universe-unavailable` entry (mirror the existing degraded-universe describe at line 272 for envelope access).
 
 - [ ] **Step 6: Run the suites.**
 Run: `pnpm vitest run tests/scripts/ledgerGitSpawnSeam.test.ts tests/scripts/ledgerClaimsCheck.test.ts tests/scripts/ledgerFields.test.ts tests/docs/_metaLedgerClaimCollision.test.ts`
@@ -318,11 +343,11 @@ git commit -m "fix(infra): prList faults throw and degrade the claim universe to
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-11 -->
 
-- [ ] **Step 1: Delete the six accepted-gap rows** (siteIds `integer-literal:32:18:30000>30001`, `integer-literal:33:22:30000>30001`, `integer-literal:34:15:10000>10001`, `integer-literal:62:24:64>65`, `integer-literal:62:29:1024>1025`, `integer-literal:62:36:1024>1025`) and change the gate expectation to `ledgerGit: { equivalent: 6, "accepted-gap": 0 }`. Registry reconciliation (authored AND run at plan time): current rows for `ledgerGit` = 6 equivalent + 6 accepted-gap (`rg -c 'kind: "accepted-gap"' tests/mutation/source/registry.ts` scoped to the ledgerGit block = 6); this task removes exactly the 6 accepted-gap rows and adds none.
+- [ ] **Step 1: Register the seam suite and delete the gaps.** Add "tests/scripts/ledgerGitSpawnSeam.test.ts" to the `ledgerGit` surface's `suitePaths` (the runner executes ONLY registered suites — `tests/mutation/source/runner.ts:129` and its line 142 — so without this row the seam test kills nothing). Delete the six accepted-gap rows (siteIds `integer-literal:32:18:30000>30001`, `integer-literal:33:22:30000>30001`, `integer-literal:34:15:10000>10001`, `integer-literal:62:24:64>65`, `integer-literal:62:29:1024>1025`, `integer-literal:62:36:1024>1025`) and change the gate expectation to `ledgerGit: { equivalent: 6, "accepted-gap": 0 }`. Registry reconciliation (authored AND run at plan time): current rows for `ledgerGit` = 6 equivalent + 6 accepted-gap (`rg -c 'kind: "accepted-gap"' tests/mutation/source/registry.ts` scoped to the ledgerGit block = 6); this task removes exactly the 6 accepted-gap rows and adds none.
 
 - [ ] **Step 2: Run the harness — expect the RED first.**
 Run: `pnpm heavy pnpm mutation:guards`
-Expected: FAIL initially — position-encoded siteIds on remaining `equivalent` rows are stale after Task 2/3 line shifts (`reconcile` reports stale + unaccepted). Repair each row's siteId to the new line:col reported, rerun until green with score 78/78-shape (all former gaps killed) and zero unaccepted survivors. If the seam/validation code added or removed integer literals, the mutant population changes — classify any NEW site honestly (`equivalent` only with an argument, else kill it with a test).
+Expected: FAIL initially — position-encoded siteIds on remaining `equivalent` rows are stale after Task 2/3 line shifts (`reconcile` reports stale + unaccepted). Repair each row's siteId to the new line:col reported, rerun until green with all six former gap mutants KILLED and zero unaccepted survivors — do not pin a numeric score in advance: the site population changes with the seam and validation edits (probed pre-repair at 84 sites, 85 with the seam applied, before Task 3 adds more), so the number is measured, not predicted. If the seam/validation code added or removed integer literals, the mutant population changes — classify any NEW site honestly (`equivalent` only with an argument, else kill it with a test).
 
 - [ ] **Step 3: Hand-mutant spot-check (mutate-your-own-fix).** Manually set `GH_MS = 10_001` — run the seam suite, confirm red; revert. Manually set `MAX_GIT_STDOUT = 65 * 1024 * 1024` — run, confirm red; revert. Record both in the commit message.
 
@@ -343,11 +368,13 @@ git commit -m "test(infra): ledgerGit mutation gaps closed — accepted-gap 6->0
 
 <!-- task: red=`pnpm vitest run tests/db/_metaDestructiveDbTargetGuard.test.ts` ac=AC-5 -->
 
-- [ ] **Step 1: Write the failing assertion** — add to `_metaDestructiveDbTargetGuard.test.ts` a case asserting the meta-test's own patterns are identity-equal (`toBe`, not `toEqual`) to the imported `DESTRUCTIVE_STATEMENT_PATTERNS`, and that its exemption decision for the two self-files comes from `GUARD_OWN_FILES` membership, not from the `EXEMPTION` message-text regex. RED validity: neither export exists yet (`rg 'DESTRUCTIVE_STATEMENT_PATTERNS' tests/` is empty today).
+- [ ] **Step 1: Export first (mechanical, no test yet).** In `_destructiveFileAnalysis.ts`, add `export const DESTRUCTIVE_STATEMENT_PATTERNS` (the three regex literals copied verbatim from the meta-test's `EXECUTES_WIPE`/`ENABLES_WIPE_GATE`/`EXECUTES_PRUNE`) and `export const GUARD_OWN_FILES = ["tests/db/_metaDestructiveDbTargetGuard.test.ts", "tests/db/destructiveFileAnalysis.test.ts"] as const;`. This step exists so the next step's RED is a BEHAVIOR failure, not an unresolved import (a RED from an unresolved import is invalid by construction — `docs/agents/writing-plans.md:15`, flagged plan review R1 F7).
 
-- [ ] **Step 2: Run to verify it fails.** Expected: FAIL — import unresolved.
+- [ ] **Step 2: Write the failing assertion.** Add to `_metaDestructiveDbTargetGuard.test.ts` a case importing both exports and asserting the meta-test's OWN pattern bindings are identity-equal (`toBe`, not `toEqual`) to the imported ones, and that the exemption decision for the two self-files is `GUARD_OWN_FILES` membership. RED validity: the imports RESOLVE (Step 1), and the assertion fails because the meta-test still declares its own regex copies at lines 58/63/71 and still exempts via the `EXEMPTION` message-text accident at line 187 — those live declarations are the production lines whose defect makes it red.
 
-- [ ] **Step 3: Implement.** Move the three regexes into `_destructiveFileAnalysis.ts` as the exported constant; re-import in the meta-test; add the explicit `GUARD_OWN_FILES` skip BEFORE the analyzer call with a comment stating the reason (fixture SQL strings, not live executions). Keep the `EXEMPTION` regex for its original message-only purpose or delete it if the self-files were its only match — check with `rg` and prefer deletion (smaller surface).
+- [ ] **Step 3: Run to verify it fails.** Expected: FAIL — `toBe` identity mismatch (two distinct RegExp objects).
+
+- [ ] **Step 4: Implement.** Replace the meta-test's local regex declarations with the imported constant; replace the accidental exemption with explicit `GUARD_OWN_FILES` membership BEFORE the analyzer call, commented (fixture SQL strings, not live executions). Delete the `EXEMPTION` regex if the self-files were its only match (`rg` first; prefer deletion — smaller surface).
 
 - [ ] **Step 4: Run.** `pnpm vitest run tests/db/_metaDestructiveDbTargetGuard.test.ts tests/db/destructiveFileAnalysis.test.ts` Expected: PASS.
 
@@ -396,6 +423,22 @@ await unsafe("select 1");`;
 // checked client; (ae) checked client passed as a function argument; same
 // Rule-3 reason class, one `it` each with the corresponding single-line variant
 // (`const u = sql.unsafe;` / `sql["unsafe"]("select 1")` / `helper(sql)`).
+
+// (ah) UNENUMERATED dynamic acquisition (spec §2.4-3): indirect require, a route
+// none of the old rejection rules listed. Production line whose absence makes this
+// fail today: Rule 1 does not exist; the old dynamicAcquire enumeration does not
+// match Function("return require") and the analyzer returns ok:true.
+it("(ah) rejects an execution on a client acquired by an unenumerated route", () => {
+  const src = `${IMPORT}
+const safe = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const req = Function("return require")();
+const pg = req("postgres");
+const sql = pg(process.env.TEST_DATABASE_URL);
+sql\`select 1\`;`;
+  const v = analyseDestructiveFile(P, src);
+  expect(v.ok).toBe(false);
+  if (!v.ok) expect(v.reason).toMatch(/unchecked execution site/);
+});
 
 // (af) factory the summary cannot classify: returns another factory's call.
 it("(af) rejects a factory whose body is not a checked-connection expression", () => {
@@ -468,9 +511,9 @@ Then: `wc -l tests/db/_destructiveFileAnalysis.ts` — assert < 420 (AC-4), and 
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-6 -->
 
-- [ ] **Step 1: Add the registry row** (mirror the ledgerGit row shape, `registry.ts:370-385`): id `destructiveFileAnalysis`, sourcePath `tests/db/_destructiveFileAnalysis.ts`, suitePaths ["tests/db/destructiveFileAnalysis.test.ts"], operators `[...OPERATOR_NAMES]`, scoreFloor set AFTER the first measured run (start at a floor 0.05 below measured, minimum 0.8), control chosen from a live line (e.g. a `continue`-guard flip the suite must kill — pick one the first run proves killed).
+- [ ] **Step 1: Add the registry row AND its gate expectation together** (the gate fails-by-default on any enrolled surface missing from `EXPECTED_LEDGER_KINDS` — `tests/mutation/guardSurfaces.gate.test.ts:85-89` asserts key-set equality with the registry; that missing-row failure is this task's observed RED). Registry row (mirror `registry.ts:370-385`): id `destructiveFileAnalysis`, sourcePath `tests/db/_destructiveFileAnalysis.ts`, suitePaths ["tests/db/destructiveFileAnalysis.test.ts"], operators `[...OPERATOR_NAMES]`, `scoreFloor: 0.8` (a concrete finite starting floor — `registry.ts:79-81` rejects a non-finite value; raise to measured-minus-0.05 after Step 2 if measured exceeds 0.85), control chosen from a live line (a boolean-flip on a Rule-1 rejection branch the suite provably kills). Gate row: `destructiveFileAnalysis: { equivalent: 0, "accepted-gap": 0 }` initially.
 
-- [ ] **Step 2: Run.** `pnpm heavy pnpm mutation:guards` — triage every survivor: kill with a fixture, or ledger `equivalent`/`accepted-gap` with an argument and (for gaps) a `ref:` to a filed backlog row. Record the final score + survivor set — these numbers go verbatim in the diff-review round-1 brief (AGENTS.md enrolment contract).
+- [ ] **Step 2: Run.** `pnpm heavy pnpm mutation:guards` — first run red on the missing gate row if Step 1 split, then on survivors. Triage every survivor: kill with a fixture, or ledger `equivalent`/`accepted-gap` with an argument and (for gaps) a `ref:` to a filed backlog row; update the gate row to the FINAL triaged counts. Record the final score + survivor set — these numbers go verbatim in the diff-review round-1 brief (AGENTS.md enrolment contract).
 
 - [ ] **Step 3: Commit.** `git commit -m "test(db): enroll destructive-file analyzer in source-mutation registry (score <measured>)"`
 
@@ -485,7 +528,22 @@ Then: `wc -l tests/db/_destructiveFileAnalysis.ts` — assert < 420 (AC-4), and 
 
 <!-- task: red=`pnpm vitest run tests/cross-cutting/pgCronSmokesUnit.test.ts` ac=AC-13 -->
 
-- [ ] **Step 1: Write the failing unit suite.** RED validity: `assertCronDispatchOrigin` does not exist (`rg assertCronDispatchOrigin tests/ scripts/` is empty today).
+- [ ] **Step 1: Export + stub first (mechanical).** In `validation-smoke-target.ts` change line 12 to `export const PRODUCTION_HOST = ...` (same literal). In `pgCronSmokes.ts` add `import { PRODUCTION_HOST } from "@/scripts/lib/validation-smoke-target";` and a STUB comparator that accepts everything:
+
+```ts
+export function assertCronDispatchOrigin(
+  url: URL,
+  mode: "local" | "validation",
+  gucValue: string | null,
+): { ok: true } | { ok: false; reason: string } {
+  void url; void mode; void gucValue;
+  return { ok: true };
+}
+```
+
+This keeps the next step's RED a behavior failure rather than an unresolved import (writing-plans RED-validity rule; plan review R1 F7).
+
+- [ ] **Step 2: Write the failing unit suite.** RED validity: every REJECT case fails against the stub — the missing validation branches (scheme, port, host pin, GUC-origin compare, empty-GUC) are the absent production lines.
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -523,9 +581,9 @@ describe("assertCronDispatchOrigin (spec §5.2-§5.3)", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails.** Expected: FAIL — unresolved imports.
+- [ ] **Step 3: Run to verify it fails.** Expected: FAIL — all six reject cases return `ok: true` from the stub.
 
-- [ ] **Step 3: Implement.** In `validation-smoke-target.ts`: `export const PRODUCTION_HOST = "fxav-crew-pages-validation.vercel.app";` (change the existing `const` at line 12 to `export const` — `assertValidationSmokeBaseUrl` keeps using it). In `pgCronSmokes.ts`:
+- [ ] **Step 4: Implement the real comparator** (replacing the stub body; `PRODUCTION_HOST` is already imported from Step 1):
 
 ```ts
 export function assertCronDispatchOrigin(
@@ -553,9 +611,9 @@ export function assertCronDispatchOrigin(
 }
 ```
 
-- [ ] **Step 4: Run.** Expected: PASS. Also `pnpm vitest run tests/scripts/validation-smoke-base-url.test.ts` (export change is behavior-neutral).
+- [ ] **Step 5: Run.** Expected: PASS. Also `pnpm vitest run tests/scripts/validation-smoke-base-url.test.ts` (export change is behavior-neutral).
 
-- [ ] **Step 5: Commit.** `git commit -m "test(infra): cron dispatch-origin comparator; PRODUCTION_HOST exported"`
+- [ ] **Step 6: Commit.** `git commit -m "test(infra): cron dispatch-origin comparator; PRODUCTION_HOST exported"`
 
 ### Task 9: Entry D — census wiring + sabotage case
 
@@ -564,9 +622,21 @@ export function assertCronDispatchOrigin(
 
 <!-- task: red=`pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-14,AC-15 -->
 
-- [ ] **Step 1: Wire the assertion.** In the census loop where `new URL(urls[0] ?? "")` is parsed (line 526): read the GUC over the SAME psql invocation that reads the queue (`select current_setting('app.fxav_vercel_url', true)` appended to the existing query batch, so both come from the connected database), resolve mode from the existing `resolvePgCronMode` helper (`tests/db/_validationTargetIdentity.ts:115`), and for EVERY job row assert `assertCronDispatchOrigin(parsed, mode, guc).ok` with the reason in the failure message. RED validity: this is a new assertion over existing live data — before the wiring lands, the suite passes without it; the RED is observed by Step 2's sabotage case, which fails while the wiring is absent (no origin check to catch the re-baked host) and passes once it lands.
+- [ ] **Step 1: Extract the census origin check as a named function IN THE SUITE FILE**, so the sabotage case exercises the census's OWN assertion path rather than calling the comparator directly (plan review R1 F3 probed that a direct comparator call passes whether or not the census wiring exists — it proves nothing about the wiring):
 
-- [ ] **Step 2: Add the sabotage case** (mechanism proof, mirror `pgCronCiVacuity.test.ts:143-214` posture): local-mode only (`describe.skipIf` on validation mode) — in a rolled-back transaction, `update cron.job set command = replace(command, current_setting('app.fxav_vercel_url', true), 'http://evil.invalid')` for one job, run the same census read + comparator, assert the comparator returns `ok: false` naming the origin mismatch, then roll back. This is the live-mismatch demonstration the entry requires (spec §5.3).
+```ts
+// pg-cron-coverage.test.ts: used by BOTH the census loop and the sabotage case.
+function assertJobDispatchOrigin(job: { jobname: string; command: string }, guc: string | null, mode: PgCronMode): void {
+  const urls = queuedUrlsFromSmokeOutput(runFiringSmoke(job.command)); // existing helpers
+  const parsed = new URL(urls[0] ?? "");
+  const verdict = assertCronDispatchOrigin(parsed, mode, guc);
+  if (!verdict.ok) throw new Error(`${job.jobname}: ${verdict.reason}`);
+}
+```
+
+Wire it into the census loop for EVERY job row; read the GUC over the SAME psql invocation that reads the queue (`select current_setting('app.fxav_vercel_url', true)` appended to the existing query batch), mode from `resolvePgCronMode` (`tests/db/_validationTargetIdentity.ts:115`).
+
+- [ ] **Step 2: Add the sabotage case** (local-mode only, `describe.skipIf` on validation): in a rolled-back transaction, `update cron.job set command = replace(command, current_setting('app.fxav_vercel_url', true), 'http://evil.invalid')` for one job, re-read that job row, and assert `assertJobDispatchOrigin(mutatedJob, guc, mode)` THROWS with the job's name and the origin mismatch in the message — the same function the census runs, so the case is red exactly while the census wiring is absent or wrong (this is the RED for this task) and the live-mismatch demonstration spec §5.3 requires.
 
 - [ ] **Step 3: Run local mode.** `pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` Expected: PASS (10 existing + new cases).
 
@@ -579,7 +649,7 @@ export function assertCronDispatchOrigin(
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-16 -->
 
-- [ ] **Step 1: Add the row:** id `pgCronSmokes`, sourcePath `tests/cross-cutting/pgCronSmokes.ts`, suitePaths ["tests/cross-cutting/pgCronSmokesUnit.test.ts"] (DB-free — the unit suite from Task 8 must import and exercise `firingSmokeSql` and `queuedUrlsFromSmokeOutput` too; add 2-3 direct cases for each if Task 8 did not), operators `[...OPERATOR_NAMES]`, scoreFloor from measurement as in Task 7.
+- [ ] **Step 1: Add the row AND gate expectation together:** id `pgCronSmokes`, sourcePath `tests/cross-cutting/pgCronSmokes.ts`, suitePaths ["tests/cross-cutting/pgCronSmokesUnit.test.ts"] (DB-free — the unit suite from Task 8 must import and exercise `firingSmokeSql` and `queuedUrlsFromSmokeOutput` too; add 2-3 direct cases for each if Task 8 did not), operators `[...OPERATOR_NAMES]`, `scoreFloor: 0.8` concrete (raise post-measurement as in Task 7), gate row `pgCronSmokes: { equivalent: 0, "accepted-gap": 0 }` updated to final triaged counts. RED: the gate's key-set equality fails while either half is missing.
 
 - [ ] **Step 2: Run, triage survivors, record score for the diff-review brief.** `pnpm heavy pnpm mutation:guards`
 
@@ -592,6 +662,8 @@ export function assertCronDispatchOrigin(
 - Modify: `BACKLOG.md` (new entry)
 
 <!-- task: red=`pnpm spec:lint docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` ac=AC-17 -->
+
+- [ ] **Step 0: Clear the pre-existing hard failures in the same file** — the red= command already exits 1 on `main` for two `CITATION_AMBIGUOUS` findings at `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:99` and its line 141 (probed at plan time; without repairing them the red can never turn green on this command). Disambiguate each citation per the linter's message (qualify the path), verifying each against the live tree first.
 
 - [ ] **Step 1:** Change the `(§10.4)` pointer at line 295 to `(see BACKLOG.md § BL-PG-CRON-HOST-ASSERTION — the §10.4 pointer was wrong; §10.4 is BL-CI-VITEST-EXCLUSION-COVERAGE)` and, since that entry graduates this wave (Task 12), point at `BACKLOG-archive.md`'s section instead once Task 12 lands — write the final form directly: `(resolved by docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md §5; the original §10.4 cross-ref was a mis-pointer)`.
 
