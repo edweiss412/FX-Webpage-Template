@@ -460,6 +460,62 @@ describe("overlapping writes resolve by VALUE alone (§4.2)", () => {
     expect(isCopied(container)).toBe(false);
   });
 
+  test("different-value inversion clears copied even when BOTH resolve in one batch", async () => {
+    // The same inversion as above, with the two resolutions in ONE React batch.
+    // That is the case a ref-read guard cannot survive: `copiedRef` is written
+    // in a layout effect, so within a single batch it still reads the value
+    // from BEFORE the current-value resolution set copied. Guarding the clear
+    // on that ref skipped it, and the run ended with the corrective announced
+    // and the check glyph still lit for the full window — the log and the
+    // painted state disagreeing about the same clipboard.
+    const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container); // write #0 for ORDTG.
+    await act(async () => {
+      rerender(<FactRows rows={[passwordRow({ v: "FITS2025" })]} />);
+    });
+    await clickCopy(container); // write #1 for FITS2025
+    premise("two writes are genuinely in flight", writes.length, 1);
+
+    await act(async () => {
+      writes[1]!.resolve(); // current value
+      writes[0]!.resolve(); // stale value, same batch
+    });
+
+    expect(logTexts(container)).toEqual([COPIED_TEXT, CORRECTIVE_TEXT]);
+    expect(
+      isCopied(container),
+      "a corrective announcement with the check glyph still lit is the state this pins",
+    ).toBe(false);
+  });
+
+  test("a standing confirmation still expires when the NEWEST write fails", async () => {
+    // Only the newest write arms the reset, so an older same-value success sets
+    // copied WITHOUT a timer. If the newest write then rejects — the silent
+    // failure path — nothing was left to end the window, and the check glyph
+    // stayed lit indefinitely on a page crew leave open for the whole show.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container);
+    await clickCopy(container);
+    premise("two writes are genuinely in flight", writes.length, 1);
+
+    await settle(0); // the OLDER write succeeds: copied, but it does not own the window
+    premiseHolds("the older success set copied", isCopied(container));
+
+    await act(async () => {
+      writes[1]!.reject(new Error("clipboard unavailable"));
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS + 1);
+    });
+    expect(isCopied(container), "the confirmation must not outlive its window").toBe(false);
+    // Failure stays silent (spec §4.2) and the natural expiry appends nothing.
+    expect(logTexts(container)).toEqual([COPIED_TEXT]);
+  });
+
   test("a value change while copied resets AND appends the corrective", async () => {
     const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
 

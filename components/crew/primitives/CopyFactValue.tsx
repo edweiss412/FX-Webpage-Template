@@ -74,10 +74,12 @@ const CORRECTIVE_MESSAGE = "Copy again - the clipboard may be out of date.";
 
 type Owner = {
   currentValue: () => string;
-  isCopied: () => boolean;
   setCopied: (next: boolean) => void;
   announce: (message: string) => void;
   armReset: () => void;
+  /** Arms the window ONLY if none is running, so handing the window back never
+   *  extends one that is already counting down. */
+  ensureResetArmed: () => void;
 };
 
 /** The island registered at the latest commit. Null between an unmount and the
@@ -108,8 +110,28 @@ function deliverWrite(seq: number, value: string): void {
     return;
   }
 
-  if (owner.isCopied()) owner.setCopied(false);
+  // UNCONDITIONAL, never guarded on "is it currently copied". The guard used to
+  // read a ref written in a layout effect, and within a SINGLE React batch that
+  // ref still holds the value from before the current-value resolution set
+  // copied — so two resolutions batched together announced the corrective and
+  // left the check glyph lit. A redundant `setCopied(false)` costs nothing; a
+  // skipped one leaves the log and the painted state disagreeing.
+  owner.setCopied(false);
   owner.announce(CORRECTIVE_MESSAGE);
+}
+
+/**
+ * The dispatched write at `seq` failed. Nothing is announced (spec §4.2 — the
+ * value is still on screen and nothing changed), but the WINDOW may need
+ * rescuing: only the newest write arms the reset, so an older same-value
+ * success can set copied with no timer behind it. If the newest write then
+ * fails, no one is left to end the confirmation and the check glyph stays lit
+ * for as long as the page is open. Handing the window back here is the
+ * completion of the seq rule, not an exception to it.
+ */
+function failWrite(seq: number): void {
+  if (seq !== writeLedger.seq) return; // an older failure never owned the window
+  activeOwner?.ensureResetArmed();
 }
 
 export function CopyFactValue({ value, label }: { value: string; label: string }) {
@@ -138,11 +160,9 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
   // runs after paint, and a promise resolving in that window compares against
   // a stale value). Refs cannot be written during render.
   const valueRef = useRef(value);
-  const copiedRef = useRef(copied);
   const announceRef = useRef(announce);
   useLayoutEffect(() => {
     valueRef.current = value;
-    copiedRef.current = copied;
     announceRef.current = announce;
   });
 
@@ -172,14 +192,22 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
   // island instance; the closures read the refs above, which every render
   // refreshes.
   useLayoutEffect(() => {
+    const arm = () => {
+      resetRef.current = setTimeout(() => setCopied(false), COPY_FEEDBACK_RESET_MS);
+    };
     const owner: Owner = {
       currentValue: () => valueRef.current,
-      isCopied: () => copiedRef.current,
       setCopied: (next) => setCopied(next),
       announce: (message) => announceRef.current(message),
       armReset: () => {
         clearReset();
-        resetRef.current = setTimeout(() => setCopied(false), COPY_FEEDBACK_RESET_MS);
+        arm();
+      },
+      ensureResetArmed: () => {
+        // No clearReset: a window already counting down keeps ITS clock. This
+        // rescues a confirmation that has no timer at all, and must never
+        // extend one that does.
+        if (resetRef.current === null) arm();
       },
     };
     activeOwner = owner;
@@ -201,7 +229,10 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
     } catch {
       // Clipboard unavailable (no HTTPS in dev, locked-down browser). The
       // password is still on screen in `.code-value` type for manual
-      // transcription, which is the documented fallback (spec §7).
+      // transcription, which is the documented fallback (spec §7). Silent by
+      // spec §4.2 — but a standing confirmation this write was going to end
+      // still has to end.
+      failWrite(seq);
       return;
     }
     deliverWrite(seq, requested);
