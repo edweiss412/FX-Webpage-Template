@@ -672,11 +672,15 @@ in the worktree and then RUNS THIS COMMAND, observing exit 1 (the declared RED o
 command — plan R1 F8); Step 3's commit returns it to exit 0, which is the task's green.
 
 - [ ] **Step 1: Pixel-diff BEFORE rebaselining** — regenerate INTO A TEMP DIR from the pinned
-  Playwright Docker image with `--platform linux/amd64` (byte-comparison discipline, AGENTS.md);
-  diff against committed baselines; confirm the moving set matches the table above — an
-  unexpected moving surface is a defect: stop and diagnose.
-- [ ] **Step 2: Rebaseline in the worktree** from the pinned image (wrap capture:
-  `pnpm heavy pnpm screenshot:help` inside the container per the capture docs). Run
+  Playwright Docker image with `--platform linux/amd64` (byte-comparison discipline,
+  AGENTS.md). **Wrapper placement (plan R4 F4): `pnpm heavy` wraps the HOST-side `docker run`
+  command** — the semaphore's slot dir is host `/tmp/fx-heavy-slots`
+  (`scripts/with-heavy-slot.py:36`), which the capture container does not mount, so an inner
+  wrapper would coordinate only within the container and admit nothing machine-wide. Diff
+  against committed baselines; confirm the moving set matches the table above — an unexpected
+  moving surface is a defect: stop and diagnose.
+- [ ] **Step 2: Rebaseline in the worktree** from the pinned image — same wrapper placement:
+  `pnpm heavy docker run … pnpm screenshot:help` (host-side wrap, capture inside). Run
   `git diff --quiet -- public/help/screenshots` — verify exit 1 (RED observed).
 - [ ] **Step 3: Commit the WebPs** — `chore(assets): rebaseline screenshots for token policy diff`
   — and re-run the marker command, verify exit 0.
@@ -708,37 +712,50 @@ on the committed plan); it is written only after both gate halves run on the rea
 What is red and why: none of the three entries has been graduated, so the heading-anchored
 count is 0 and the test exits 1 (run at plan time; bare-mention greps false-positive on
 cross-references in other entries' prose, and a single-id grep can green with two entries
-ungraduated — plan R1 F9 — so the count demands ALL THREE headings). It exits 0 once Step 2
-moves all three entries into `BACKLOG-archive.md` as their own entries;
-`tests/docs/_metaLedgerInProgress.test.ts` (Step 3) then holds the rest of the invariant-12
-contract (markers gone, archives reject in-flight work).
+ungraduated — plan R1 F9 — so the count demands ALL THREE headings). It exits 0 once Step 3
+applies the reviewed graduation patch moving all three entries into `BACKLOG-archive.md` as
+their own entries; `tests/docs/_metaLedgerInProgress.test.ts` (Step 4) then holds the rest of
+the invariant-12 contract (markers gone, archives reject in-flight work).
 
-- [ ] **Step 1: Full local gates under the slot wrapper**: `pnpm heavy pnpm test` ·
-  `pnpm typecheck` · `pnpm exec eslint .` · `pnpm format:check` ·
+- [ ] **Step 1: Draft the graduation as a reviewed artifact (plan R4 F1).** Author the full
+  graduation change — the three `BACKLOG-archive.md` entries with provenance (census history
+  32/34/53/55, Family D ratification, the Task 4 census counts), the three BACKLOG.md entry
+  removals including their `**Status:** IN PROGRESS` marker lines — as a git patch file
+  committed to the branch at `docs/superpowers/plans/2026-08-14-ui-interactive-token-policy.graduation.patch (new)`,
+  produced by `git diff` from a locally staged (then reset) application. The patch's SEMANTIC
+  content is thereby inside the whole-diff review's corpus; Step 3 applies it verbatim.
+  Run the local gates in the same step: `pnpm heavy pnpm test` · `pnpm typecheck` ·
+  `pnpm exec eslint .` · `pnpm format:check` ·
   `pnpm spec:lint docs/superpowers/specs/2026-08-14-ui-interactive-token-policy-design.md`.
-  All green.
-- [ ] **Step 2: Whole-diff cross-model review on the COMMITTED content tree** (codex-guard,
-  `--stage diff`; every product/test/docs change through Task 7 is already committed), split
-  tight-scope briefs if the file list is large; APPROVE required. **Fix loop (plan R3 F2):**
-  any fix this review forces follows the full discipline — TDD cycle, its own conventional
-  commit, re-run of the Step 1 local gates, re-run of BOTH impeccable halves if the fix
-  touched any UI file (Task 7's marker updates from the new final run) — and then the
-  whole-diff review RERUNS on the new tree. Loop until APPROVE lands on the tree that will
-  merge.
-- [ ] **Step 3: Graduate the three ledger entries** to `BACKLOG-archive.md` with full
-  provenance (census history 32/34/53/55 recorded; Family D ratification noted; the Task 4
-  census counts pasted), remove the three `**Status:** IN PROGRESS` markers, and **COMMIT** —
-  `docs: graduate ui-token-policy ledger entries` — as the PR's LAST commit, after the review
-  APPROVE (plan R3 F2; invariant 12's letter: the marker comes off in the last commit and
-  never reaches main). This commit is mechanical docs-only by construction; its own gate is
-  Step 4, so review-covers-what-merges holds: the APPROVE covered every non-graduation change
-  and the graduation commit's correctness is machine-checked. Run the marker command — verify
-  exit 0.
+  All green. (The ledger meta-test stays green here because the patch is not yet applied —
+  markers are still on and the archive unchanged.)
+- [ ] **Step 2: Whole-diff cross-model review on the COMMITTED tree** (codex-guard,
+  `--stage diff`; every change through Task 7 plus the graduation patch file is committed),
+  split tight-scope briefs if the file list is large; APPROVE required. **Fix loop (plan R3
+  F2):** any fix this review forces follows the full discipline — TDD cycle, its own
+  conventional commit, re-run of the Step 1 local gates, re-run of BOTH impeccable halves if
+  the fix touched any UI file (Task 7's marker updates from the new final run), regeneration
+  of the graduation patch if the fix touched ledger text — then the whole-diff review RERUNS
+  on the new tree. Loop until APPROVE lands.
+- [ ] **Step 3: Apply the reviewed patch as the PR's LAST commit.**
+  `git apply` of the committed graduation patch file,
+  verify the working diff equals the patch (`git diff | diff - <patchfile>` modulo headers —
+  any mismatch means the tree moved since review: STOP, regenerate, re-review), commit —
+  `docs: graduate ui-token-policy ledger entries` (invariant 12's letter: markers come off in
+  the last commit and never reach main; review-covers-what-merges holds because the commit
+  reproduces reviewed bytes). Run the marker command — verify exit 0.
 - [ ] **Step 4: Run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts
   tests/docs/_metaReviewRoundEconomy.test.ts tests/docs/_metaInvariant8Closeout.test.ts`** —
   green (in-flight markers gone, archive shape valid, closeout marker present).
 - [ ] **Step 5: Push, real CI green, `gh pr merge --merge`, fast-forward local main**
   (`git rev-list --left-right --count main...origin/main` → `0  0`).
+  **Last-commit restoration loop (plan R4 F2):** if Step 4 or real CI forces ANY further
+  change, first `git revert` the graduation commit (markers return, ledger meta-test stays
+  lawful), land the fix through the Step 2 fix-loop discipline (including review rerun on the
+  delta), regenerate the patch if ledger text moved, then repeat Steps 3-5 so the graduation
+  commit is again the branch's last commit at merge time. Real-CI-only failures are an
+  expected class (AGENTS.md local-passes-CI-fails); they take this loop, never a hotfix on
+  top of the graduation commit.
 
 <!-- tasks: end -->
 
