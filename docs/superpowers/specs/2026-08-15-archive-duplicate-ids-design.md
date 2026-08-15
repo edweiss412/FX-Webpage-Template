@@ -74,10 +74,12 @@ construction to `tests/docs/_metaDeferralLedgerGraduation.test.ts`'s cross-file 
    this lane's domain (spec R1 F3).
 5. **Guard domain (the "CI" decision):** an id is IN DOMAIN only if it appears at its
    family's ratified entry levels (BACKLOG `##`/`###` with `BL-` prefix; DEFERRED `###`,
-   any SHOUTY id). The collision SCAN spans the UNION of the family's own registry
-   levels and levels 2-3 (spec R2 F1, restated here after the R3 F1 catch of a
-   silent no-op edit: a future family registered at other levels keeps its own
-   grammar in the scan, so an id its grammar mints twice is never missed), so a level-2
+   any SHOUTY id). The collision SCAN spans EVERY heading depth (1-6) with the
+   family's prefix rule (spec R4 F1, superseding R2 F1's union form: a duplicate
+   parked at ANY depth — including a one-character `####` typo — collides with an
+   in-domain id; the domain rule alone decides which ids are checked, so the wider
+   scan adds no false-positive surface beyond what the family grammar already
+   tolerates), so a level-2
    terminal stub shadowing a level-3 DEFERRED entry is caught (the four `PSQL-`/
    `NEWTAB-`/`DESTRUCT-` pairs), while the two `## CI …` prose section headings —
    which mint the token `CI` at level 2 only — are out of domain and can never false-
@@ -174,8 +176,9 @@ One new `describe` block in `tests/docs/_metaDeferralLedgerGraduation.test.ts`:
   (`scripts/lib/ledger-fields.ts:82`; resolves to the same
   `{ requirePrefix: "BL-", levels: [2, 3] }` / `{ requirePrefix: null, levels: [3] }`
   values the suite already holds) for the DOMAIN pass, and a second SCAN pass at
-  the union of the family's own `levels` and `[2, 3]` (one derivation from the
-  registry opts — spec R2 F1), with the family's prefix rule.
+  `levels: [1, 2, 3, 4, 5, 6]` — every mdast heading depth — with the family's
+  prefix rule (spec R4 F1: any-depth collisions, including depth typos, are in
+  scan range; the DOMAIN pass alone bounds which ids are judged).
 - **Offender rule:** an id is reported when it is in domain (appears at the family's
   ratified levels) AND the scan finds it on more than one heading. Failure message
   names file, id, and heading lines.
@@ -184,9 +187,10 @@ One new `describe` block in `tests/docs/_metaDeferralLedgerGraduation.test.ts`:
   premise is load-bearing). Fire rows: same-level duplicate (`## BL-X` twice);
   cross-level duplicate (`## BL-X` + `### BL-X`); DEFERRED `##` stub + `###` original;
   a synthetic family registered at `levels: [4]` with two `#### FUT-1` headings,
-  proving the union scan (spec R3 F2 — without this plant, a revert to hardcoded
-  scan levels [2, 3] passes every other plant while missing the future-family
-  domain).
+  proving a non-default-level family fires (spec R3 F2); a BACKLOG-family pair
+  `## BL-X — RESOLVED` + `#### BL-X — original` — the one-character depth-typo
+  shape (spec R4 F1: without this plant, a revert to a narrower scan passes every
+  other plant while a typo'd duplicate sits silent).
   Stays-quiet rows, each with the pin it protects: two `## CI …`-style SHOUTY prose
   headings at level 2 in a null-prefix family (out of domain — the live shape at
   `DEFERRED-archive.md:1218` and `DEFERRED-archive.md:1314`); a demoted bold line beside one heading (the
