@@ -799,8 +799,107 @@ No new Playwright surface: the guards are Vitest/AST; screenshot capture uses th
 pinned-container configs. The e2e harness-readiness checklist is therefore N/A — no new server
 boot, readiness gate, or sampler is introduced.
 
-## 12. Closeout (filled by the implementing session)
+## 12. Closeout
 
-Gate findings + dispositions land here (Task 7), followed by the marker line in the exact
-grammar `impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int>
-p1=<int> dispositions=<recorded|none>`, plus the Task 4 census category counts.
+### Task 4 census, derived by running the shipped scanner
+
+354 in-scope interactive elements; 303 clear the height floor statically; **51 census rows**:
+14 `full-bleed`, 13 `unresolvable-dynamic`, 8 `padding-arithmetic`, 7 `parent-label-target`,
+7 `inline-prose-link`, 2 `under-floor-filed`. The D2 side reproduced the ratified census
+exactly on its first run — 55 `text-text-subtle` hits across 44 files, matching spec §2.3 v3
+and every row of §4.3 by file, tag and line — which is the strongest available evidence that
+the shipped scanner and the drafting-time probe agree.
+
+Three grammar refinements landed during Task 4, each TDD'd first and each NARROWING false
+demotion rather than widening what passes: named spacing tokens read from `@theme` (so
+`min-h-tap-min` is one row of a map rather than a special case), descendant/pseudo token
+scoping (`[&_svg]:size-4` sizes a child, `before:h-4` sizes a pseudo — neither speaks for the
+element's own box), and an object-literal spread exception (a spread whose every reachable
+value is a static object literal without a `className` key is read rather than feared).
+Together they cleared 13 elements that a cruder grammar would have censused.
+
+Two real defects surfaced on the guard's first run: `AutoPublishToggle` and `NotifyToggle`
+were 28px switches with no hit-area expansion (repaired in-branch to the sibling
+`PublishedToggle` recipe, 28 + 2x8 = 44), and the two `app/admin/dev/page.tsx` buttons are
+~28px with classes Tailwind does not even compile (filed as `BL-ADMIN-DEV-PANEL-TAP-FLOOR`,
+because a class-level repair there would emit no CSS while making the guard report a floor the
+browser never applies).
+
+### Invariant-8 dual gate (Task 7)
+
+Both halves ran on the implementing diff with the canonical v3 setup (`context.mjs` load of
+PRODUCT.md + DESIGN.md, product register read). The critique half ran **dual-agent** in all
+three rounds: Assessment A (design review) and Assessment B (detector + browser evidence) as
+isolated sub-agents, neither seeing the other's output. No round was degraded.
+
+**Assessment B, all three rounds.** `detect.mjs` over the changed `.tsx` set returned the same
+9 findings at the same locations every round, all one rule (`broken-image`), all FALSE
+POSITIVES: every cited line is a JS comment containing the literal text `<img>`, and the one
+real `<img>` in those files was never flagged. Browser evidence (both themes, live server):
+the swapped resting colour computes `--color-text` (#1a1b1f / #e8e6e0), a `border
+border-text-faint` probe computes #8b8c92 / #74736d, and `min-h-tap-min` measures 44px.
+Measured contrast for the new outline: 3.21 / 3.35 / 3.02 light and 4.00 / 3.76 / 4.11 dark
+against bg / surface / surface-sunken — every ground clears the 3:1 non-text floor; the token
+it replaced failed all six by roughly 2x. The new resting colour measures 16.47:1 light /
+15.23:1 dark on bg, against the AA-only ~6.5:1 the 40 controls rested at.
+
+**Findings and dispositions.**
+
+| # | Round | Sev | Finding | Disposition |
+|---|---|---|---|---|
+| 1 | 1 | P1 | 25 sites carry the secondary-action recipe INLINE over a `bg-bg` fill and were left at 1.59:1, making the new §1.2a rule false on the surfaces it describes | FIXED — all 25 swapped; cover checked for the multi-line case |
+| 2 | 1 | P1 | `ShowRowActions.tsx` "… and N more" row got a dead `text-text` override of a constant that already sets it | FIXED — token removed; the row is an action and its copy carries the distinction |
+| 3 | 1 | P1 | `BellPanel.tsx` HELP_LINK comment still claimed the link was quiet/subtle | FIXED — rewritten to name hue and the hover-only underline as what separates it from the CTA |
+| 4 | 1 | P2 | Family D read as an enumeration, so `EventFilters` and `DashboardBucketSegmentedControl` looked inconsistent | FIXED — §1.1a states the excluding predicate (a pair whose active member inverts the fill is not Family D) |
+| 5 | 1 | P2 | The review modal's monitoring-only pill now out-contrasts the needs-you branch | FILED — `BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT`, exception (a): moving a site out of a ratified census table is the user's call |
+| 6 | 2 | P1 | Three controls were split from a swapped partner in the same row | FIXED — `Step2Verify.tsx:126`, `DriveConnectionPanel.tsx:284`, `RecentAutoAppliedStrip.tsx:516` |
+| 7 | 2 | P1 | 26 further in-scope controls carry the border token on surface fills | FILED — `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS`, exception (a): extending §1.2a's predicate is a DESIGN decision and would silently retune the switch-track boundary §1.2 pins against `--color-accent-edge`. Entry carries a DERIVED cover, later re-run to 23 |
+| 8 | 2 | P1 | Four controls rest at `text-text-faint`, one rung below the retired token | FILED — `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR`, exception (a) |
+| 9 | 2 | P2 | Stale prose: four sites asserting the old colour contract | FIXED (claimed complete — it was not; see 11) |
+| 10 | 2 | P3 | A control that paints its label through a nested span is invisible to the D2 scan | RECORDED — documented limit in `subtleInteractiveScan.ts` |
+| 11 | 3 | P1 | The co-visible criterion is TRANSITIVE: the strip repaired in round 2 renders `AcceptChangeButton` and `UndoChangeButton` from other files | FIXED — both swapped |
+| 12 | 3 | P2/P3 | Eight MORE stale-prose instances, two in files fed by this arc's own constant and one inside DESIGN.md | FIXED — all eight, then closed by a mechanical eleven-shape sweep that now returns only a history note and one true claim about a filed `text-faint` control |
+
+Round 3 reported `UNFIXED P0/P1: 1` (finding 11), which this branch then fixed; the audit half
+ran on the resulting tree. The stale-prose vector took three rounds because rounds 1 and 2 each
+repaired the instances they were shown instead of deriving the class — the round-3 close is a
+sweep over claim SHAPES, not a longer list.
+
+**Audit half (technical), run on the tree the third critique round produced.** Score 19/20:
+accessibility 4, performance 3, theming 4, responsive 4, anti-patterns 4. **P0 = 0, P1 = 0,
+P2 = 0.** Every contrast ratio was recomputed independently and matches DESIGN §1.2 to 0.01;
+the switch recipe measures exactly 44px with no clipping parent and no colliding neighbour;
+zero raw hex entered any component; every `max-sm:` variant survived the swap unchanged. The
+audit agreed that `disabled:opacity-60` on the new outline is a documented limit rather than a
+finding (SC 1.4.11 exempts inactive components), and that the tailwindcss shell-out inside the
+contrast suite is near-necessary, because it is the only mechanism that can see the
+`@source not "lib/"` failure mode at all.
+
+Four P3s, all addressed rather than deferred:
+
+- The `@source inline` entry no longer carries the load — peer controls wear the class now, so
+  deleting the entry would currently change nothing. The comment says so, and names the
+  compiled-CSS guard as the actual defence.
+- Six of the changed controls have a non-near-ground fill, which §1.2a's wording did not cover.
+  §1.2a now records exactly why those six moved (a split pair inside one rendered view) and
+  restates that the general predicate is the ledger entry's to settle.
+- The tailwindcss shell-out discarded stderr, so a compile failure would have surfaced as a
+  bare "Command failed"; it now rethrows with the captured output.
+- `--color-surface-raised` was an unpinned fourth ground for the outline; §1.2 now carries its
+  row (3.35:1 light / 3.53:1 dark).
+
+The audit independently verified that all four filed ledger entries exist in `BACKLOG.md` with
+a class-sweep exception and a reachability line, and its one prose objection — that the
+control-outline entry described only the `bg-bg` sites — is fixed in the entry.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=7 dispositions=recorded
+
+The counts are the gate's CUMULATIVE P0/P1 across all four runs, not the last run's. The task
+text says "the FINAL run's values", and the final run — the audit half, on the shipped tree —
+reported 0/0; but the marker grammar cross-checks the two against each other
+(`tests/docs/_invariant8Closeout.ts`: nonzero counts require `dispositions=recorded`, zero
+counts require `none`), so `p0=0 p1=0 dispositions=recorded` is rejected as malformed by
+construction. Reporting 0/0/none would then have to claim this gate found nothing, which is
+false: it found seven P1s, and the table above is what happened to each — five fixed in-branch,
+two filed with a named class-sweep exception. The cumulative reading is the only one the
+grammar and the history can both be true under.

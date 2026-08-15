@@ -81,10 +81,18 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
         // No --content: `@import "tailwindcss"` auto-detects sources from the
         // CSS file's project, honouring the `@source` rules in globals.css.
         // That detection IS the authority on what reaches the DOM.
-        execFileSync("pnpm", ["exec", "tailwindcss", "-i", "app/globals.css", "-o", out], {
-          cwd: process.cwd(),
-          stdio: "pipe",
-        });
+        try {
+          execFileSync("pnpm", ["exec", "tailwindcss", "-i", "app/globals.css", "-o", out], {
+            cwd: process.cwd(),
+            stdio: "pipe",
+          });
+        } catch (e) {
+          // Without this, a compile failure reaches the reader as a bare
+          // "Command failed" and the actual CSS error is discarded with stderr.
+          const err = e as { stderr?: Buffer | string; message?: string };
+          const detail = err.stderr ? String(err.stderr) : (err.message ?? String(e));
+          throw new Error(`tailwindcss failed to compile app/globals.css:\n${detail}`);
+        }
         const css = readFileSync(out, "utf8");
         const classes = new Set<string>();
         for (const m of css.matchAll(/\.((?:[^.\s,{>+~\\]|\\.)+)/g)) {

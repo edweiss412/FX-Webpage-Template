@@ -46,6 +46,11 @@
    live browser probe before the gate; `tests/styles/secondary-action-contrast.test.ts`
    now compiles this stylesheet and asserts EVERY token of that constant emits a
    rule, so the next class added there fails loudly instead of rendering wrong.
+   THE GUARD, NOT THIS LINE, IS THE LOAD-BEARING DEFENCE — peer controls under
+   `components/` wear `border-text-faint` today, so deleting this entry would
+   currently change nothing, and if that ever stops being true the compiled-CSS
+   assertion reds. The entry stays as belt-and-braces for the case where the
+   constant is the only wearer again.
    Inline rather than an `@source` include, for the reason stated just above: a
    child include does not compose with a parent `@source not` in Tailwind v4. */
 @source inline("border-text-faint");

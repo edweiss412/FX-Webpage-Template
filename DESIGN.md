@@ -138,6 +138,7 @@ affordance is a fill or a border keep it as-is.
 | `--color-text-faint` as OUTLINE vs `--color-surface`  | 3.35:1 | 3.76:1 | ≥3:1 non-text (SC 1.4.11) — the secondary action button's boundary on a card fill (§1.2a control-outline rule); pinned by tests/styles/secondary-action-contrast.test.ts |
 | `--color-text-faint` as OUTLINE vs `--color-surface-sunken` | 3.02:1 | 4.11:1 | ≥3:1 non-text — same button on the attention plate; light clears with a thin margin, so any `text-faint` or `surface-sunken` retune re-checks this row |
 | `--color-text-faint` as OUTLINE vs `--color-bg`       | 3.21:1 | 4.00:1 | ≥3:1 non-text — same button on the page ground |
+| `--color-text-faint` as OUTLINE vs `--color-surface-raised` | 3.35:1 | 3.53:1 | ≥3:1 non-text — popover and modal surfaces, pinned so a raised-surface control is not an unmeasured fourth ground |
 
 **Method note (D6):** ratios use the standard WCAG 2.x relative-luminance formula. The two `--color-text-subtle` rows above were recomputed against that formula (the previous light-on-bg `7.8:1` was a mistranscription — the same-method recompute of the neighbouring `--color-text`/`--color-text-strong` rows reproduces their published figures to within 0.1). The dark-mode figures elsewhere in this table carry a small historical calc offset (~0.3–0.4 more conservative than a fresh standard-formula recompute); a full-table recompute is tracked separately and is not load-bearing (every row already clears its stated floor with margin).
 
@@ -208,9 +209,17 @@ edges, hover borders, focus-adjacent chrome, and the status-emphasis outline on
 non-interactive chrome (the flagged pill, the judgment chip). A card is not a
 control, and its edge is read against the fill beside it rather than as a
 standalone stroke. Controls whose fill is a SURFACE rather than the page ground
-are the open question — 26 of them still carry the border token, tracked as
+are the open question — 23 of them still carry the border token, tracked as
 `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with the predicate decision
 that has to come first.
+
+Six such controls DID move on 2026-08-14, and only for one reason: each sat in a
+rendered row beside a near-ground control that moved, so leaving them would have
+shipped a split pair inside one view (`Step2Verify`'s re-scan button beside its
+folder input, `DriveConnectionPanel`'s two actions, and the
+`RecentAutoAppliedStrip` row together with the `AcceptChangeButton` and
+`UndoChangeButton` it renders). That is a consistency repair within a view, not
+a ruling on the general predicate — which is still the ledger entry's to make.
 
 ### 1.3 Status-signal hues (M12.2 Phase A amendment — the one scoped exception to "orange stays alone")
 

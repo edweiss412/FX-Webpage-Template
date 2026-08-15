@@ -349,7 +349,7 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** visual boundary / DESIGN scope. **Effort:** M. **Class-sweep exception:** (a) — the repair needs a DESIGN.md scope decision this PR cannot settle. **Reachability:** PROBED, with a DERIVED cover (below).
 
-This arc moved the secondary-action outline to `border-text-faint` (3.35:1) at the shared constant and at the 25 sites that carry the same recipe inline over a `bg-bg` fill. Twenty-three in-scope CONTROLS still carry `border border-border-strong` (1.59:1 light / 1.60:1 dark) over `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` or `bg-transparent` fills.
+This arc moved the secondary-action outline to `border-text-faint` (3.35:1) at the shared constant, at the 25 sites that carry the same recipe inline over a `bg-bg` fill, and at six further controls whose fill is a SURFACE rather than the page ground — those six moved only because each sat in a rendered row beside one of the 25, so leaving them would have shipped a split pair inside one view. Twenty-three in-scope CONTROLS still carry `border border-border-strong` (1.59:1 light / 1.60:1 dark) over `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` or `bg-transparent` fills.
 
 **Derived cover** (re-run it rather than trusting this list — it is a query, not an enumeration):
 
