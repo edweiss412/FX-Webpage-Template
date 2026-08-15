@@ -1564,6 +1564,24 @@ describe("TEMPLATE_QUANTITY_DRIFT — shape (c), spec §3.3", () => {
     expect(only(run(doc).findings, C)).toHaveLength(1);
   });
 
+  it.each([
+    ["a blockquote", ">"],
+    ["a NESTED blockquote", "> >"],
+  ])("an ordered marker inside %s is still not a quantity", (_label, quote) => {
+    // Review R15, probed: the marker strip only reached a marker that STARTED the trimmed
+    // line, so behind a quote prefix the ordinals survived as quantities and two
+    // consecutive quoted items drifted on their own numbering alone.
+    const body = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi 7";
+    const doc = [`${quote} 1. ${body}`, `${quote} 2. ${body}`, ""].join("\n");
+    expect(only(run(doc).findings, C)).toEqual([]);
+  });
+
+  it("a `1)` marker inside a blockquote is not a quantity either", () => {
+    const body = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi 7";
+    const doc = [`> 1) ${body}`, `> 2) ${body}`, ""].join("\n");
+    expect(only(run(doc).findings, C)).toEqual([]);
+  });
+
   it("quantity extraction is DIGIT-ONLY: a pair differing only in a number WORD is silent", () => {
     const doc = [
       "The disposition template names three reviewers and 2 rounds of adversarial dispatch",

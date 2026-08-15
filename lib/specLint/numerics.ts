@@ -812,6 +812,15 @@ const TEMPLATE_MAX_LEN = 400;
 const TEMPLATE_SIMILARITY = 0.85;
 const BULLET_PREFIX = /^[-*+]\s+/;
 const ORDERED_PREFIX = /^\d+[.)]\s+/;
+/**
+ * Blockquote markers, stripped BEFORE the list markers so a quoted list's ordinals are not
+ * read as quantities. The strip is repeated for nesting (`> > 1. …`).
+ *
+ * The list-marker rule is ratified — an ordered marker is not a quantity — and it was
+ * simply unreachable behind a quote prefix, so two consecutive quoted items drifted on
+ * their own numbering (review R15, probed).
+ */
+const QUOTE_PREFIX = /^(?:>\s*)+/;
 const DIGIT_RUN_RE = /\d+/g;
 const NON_TOKEN_RE = /[^a-z0-9]+/g;
 
@@ -828,7 +837,10 @@ function templateCandidates(model: DocModel): TemplateCandidate[] {
   const out: TemplateCandidate[] = [];
   for (let idx = 0; idx < model.lines.length; idx++) {
     if (model.fencedInfo[idx] !== undefined) continue;
-    const text = model.lines[idx]!.trim().replace(BULLET_PREFIX, "").replace(ORDERED_PREFIX, "");
+    const text = model.lines[idx]!.trim()
+      .replace(QUOTE_PREFIX, "")
+      .replace(BULLET_PREFIX, "")
+      .replace(ORDERED_PREFIX, "");
     if (text.length < TEMPLATE_MIN_LEN || text.length > TEMPLATE_MAX_LEN) continue;
     if (!/\d/.test(text)) continue;
     if (ISO_DATE_LINE.test(text)) continue;
