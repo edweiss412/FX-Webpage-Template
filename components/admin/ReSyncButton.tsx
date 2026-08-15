@@ -179,7 +179,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
         disabled={pending}
         data-testid="admin-resync-button"
         aria-busy={pending}
-        className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm px-2 text-[13px] font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60 max-sm:px-0 max-sm:ml-auto"
+        className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm px-2 text-[13px] font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60 max-sm:px-0 max-sm:ml-auto"
       >
         {/* Width reservation (§8, T-RESYNC-WIDTH). The trigger sits between the
             status line and an `ml-auto` Copy, so a naive label swap reflows the

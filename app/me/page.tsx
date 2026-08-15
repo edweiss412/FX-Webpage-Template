@@ -134,7 +134,7 @@ export default async function MePage() {
           <button
             data-testid="me-sign-out-button"
             type="submit"
-            className="inline-flex min-h-tap-min items-center px-2 text-sm text-text-subtle underline underline-offset-2 hover:text-text"
+            className="inline-flex min-h-tap-min items-center px-2 text-sm text-text underline underline-offset-2 hover:text-text-strong"
           >
             Sign out
           </button>

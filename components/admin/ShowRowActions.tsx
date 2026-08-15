@@ -1010,7 +1010,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                 }
                 dismissMenu(false);
               }}
-              className={`${MENU_ITEM_CLASS} text-text-subtle`}
+              className={`${MENU_ITEM_CLASS} text-text`}
             >
               {`… and ${overflowCrewCount} more (open the show)`}
             </Link>

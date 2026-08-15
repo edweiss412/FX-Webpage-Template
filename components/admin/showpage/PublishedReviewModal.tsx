@@ -978,7 +978,7 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
                       ? /* border separates button-gray from the passive label-gray
                            spans; hover moves the border, never fades toward the
                            page bg (impeccable critique P1+P2, 2026-07-22) */
-                        "border border-border bg-surface-sunken text-text-subtle hover:border-border-strong"
+                        "border border-border bg-surface-sunken text-text hover:border-border-strong"
                       : "bg-warning-bg text-warning-text hover:bg-warning-bg/80"
                   }`}
                 >

@@ -798,7 +798,7 @@ export function ShareHub({
         className={
           (published && !archived
             ? "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden"
-            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden") +
+            : "inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring max-sm:flex-1 max-sm:justify-center max-sm:min-h-tap-min max-sm:rounded-sm max-sm:border max-sm:border-border max-sm:whitespace-nowrap max-sm:min-w-0 max-sm:overflow-hidden") +
           triggerElevation
         }
       >

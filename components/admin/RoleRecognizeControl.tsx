@@ -102,7 +102,7 @@ const accentBtn = cn(
 );
 
 const ghostBtn = cn(
-  "min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle",
+  "min-h-tap-min rounded-sm px-2 text-sm font-medium text-text",
   "transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
   "disabled:cursor-not-allowed disabled:opacity-60",
 );

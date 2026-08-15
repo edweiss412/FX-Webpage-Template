@@ -142,7 +142,7 @@ export function SwitcherControls({
           <button
             type="button"
             data-testid="attention-switcher-excluded-toggle"
-            className="min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-2 text-xs text-text-subtle hover:border-accent active:bg-surface-sunken aria-expanded:border-accent aria-expanded:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring"
+            className="min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-2 text-xs text-text hover:border-accent active:bg-surface-sunken aria-expanded:border-accent aria-expanded:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring"
             aria-expanded={panelOpen}
             {...(panelOpen ? { "aria-controls": EXCLUDED_PANEL_ID } : {})}
             onClick={() => setShowExcluded((v) => !v)}

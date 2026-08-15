@@ -50,7 +50,7 @@ const outlineBtn = cn(
   "disabled:cursor-not-allowed disabled:opacity-60",
 );
 const ghostBtn = cn(
-  "min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle underline underline-offset-2",
+  "min-h-tap-min rounded-sm px-2 text-sm font-medium text-text underline underline-offset-2",
   "transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
   "disabled:cursor-not-allowed disabled:opacity-60",
 );
@@ -316,7 +316,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               type="button"
               disabled={busy}
               onClick={back}
-              className="min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-tap-min rounded-sm px-2 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
             >
               {COPY.CANCEL_LABEL}
             </button>
@@ -354,7 +354,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               type="button"
               disabled={busy}
               onClick={back}
-              className="min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-tap-min rounded-sm px-2 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
             >
               {COPY.REMOVE_KEEP}
             </button>

@@ -92,7 +92,7 @@ export function AppHealthPopover({
             onClick={onClose}
             aria-label="Close"
             data-testid="app-health-popover-close"
-            className="-mr-2 inline-flex size-tap-min items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            className="-mr-2 inline-flex size-tap-min items-center justify-center rounded-sm text-text transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             <span aria-hidden="true" className="text-xl leading-none">
               ×

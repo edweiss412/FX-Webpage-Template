@@ -24,7 +24,7 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-surface-sunken`            | `#F4F3F1`                          | `#0B0C10`                       | Empty-state plate, "Doug hasn't filled this in yet" backdrop. One step deeper than `--color-bg`.                                                                                                                                                                                                                                    |
 | `--color-text`                      | `#1A1B1F` (warm near-black)        | `#E8E6E0` (warm off-white)      | Body text, all primary copy. Contrast on `--color-bg`: light 16.5:1 (AAA), dark 14.8:1 (AAA).                                                                                                                                                                                                                                       |
 | `--color-text-strong`               | `#0E0F12`                          | `#F5F3EE`                       | Headlines, large numbers (call times, dates). Maximum contrast.                                                                                                                                                                                                                                                                     |
-| `--color-text-subtle`               | `#5A5B62` (warm slate)             | `#9C9A93` (warm dusk)           | Labels, captions, "as of …" timestamps. Light 6.5:1, dark 6.8:1 on `--color-bg` (both AA body ≥4.5:1; see §1.2). Never used for action targets.                                                                                                                                                                                               |
+| `--color-text-subtle`               | `#5A5B62` (warm slate)             | `#9C9A93` (warm dusk)           | Labels, captions, "as of …" timestamps. Light 6.5:1, dark 6.8:1 on `--color-bg` (both AA body ≥4.5:1; see §1.2). Never the resting color of an action target, **except the three carve-out families in §1.1a**.                                                                                                                                                                                               |
 | `--color-text-faint`                | `#8B8C92`                          | `#74736D`                       | Decorative text, divider labels. Min AA-large only (3:1) — never used for crew-actionable copy.                                                                                                                                                                                                                                     |
 | `--color-border`                    | `#E5E4E0`                          | `#2A2B30`                       | Tile borders, hairline dividers. Visible but quiet.                                                                                                                                                                                                                                                                                 |
 | `--color-border-strong`             | `#CFCDC7`                          | `#3A3B40`                       | Focus outlines (paired with `--color-accent` ring), tab-active underline. Also the status-emphasis outline on non-interactive chrome: the flagged "Needs a look" pill and the section-header judgment chip (2026-08-01, judgment-chip spec §2.2) — always beside a text cue, never the sole carrier of state.                                                                                                                                                                                                                                                           |
@@ -48,6 +48,50 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-status-degraded` / `-text` | `#B3261E` / `#FFFFFF`              | `#E5534B` / `#1A1A1A`           | App-health **degraded** signal (alert-audience-split). Red — the **third scoped §1.3 exception** to "orange stays alone", introduced for the app-health indicator's worst-active state. Unlike positive/review/warn, the `-text` is drawn ON the filled degraded pill (`bg-status-degraded text-status-degraded-text`), so its floor is text-on-fill (§1.2), not text-on-surface. Always dot/pill + label, never color-only.                                                    |
 | `--color-accent-tint`               | `#FEEEDE`                          | `#2A1E10`                       | Warm low-chroma wash behind the bell panel's **active-count pill**. The pill NUMBER stays `--color-text-strong` for hierarchy, not necessity. A quiet tint, never a CTA fill; the ≤10% accent-coverage cap is unaffected (a small pill). Also backs the review-modal mobile state badge's **Live pill** (`bg-accent-tint text-accent-on-bg` + `bg-accent-on-bg` dot — spec 2026-07-24-strip-mobile-stacked-band §3 R0; both legs are the pinned §1.2 accent-on-bg-on-tint pair). _(Was also the info severity icon-circle bg pre-2026-07-17; the Quiet-rail restyle (§16) replaced the circle with an on-surface stroke glyph, so the tint now backs the count pill only.)_                                              |
 | `--color-danger-bg`                 | `#FBEAE8`                          | `#3A1E1C`                       | Soft red wash — retained token. _(Was the bell panel's **critical** severity icon-circle bg pre-2026-07-17; the Quiet-rail restyle (§16) replaced the filled circle with a 3px rail + on-surface `--color-status-degraded` stroke glyph, so no bell surface fills this today. Kept as a defined danger wash for future use; still paired with row title text wherever a red wash is used, holding the §1 color-blind floor.)_                                                                                                                                                          |
+
+### 1.1a Subtle-on-interactive carve-outs (2026-08-14, user-ratified)
+
+`--color-text-subtle` is never the resting color of an action target — with
+three named exceptions. They are exceptions **by decision**, not by omission:
+each was argued, ratified by the owner on 2026-08-14, and is enforced
+executably by `tests/styles/_metaSubtleOnInteractive.test.ts`, whose registry
+(`tests/styles/subtleInteractiveExemptions.ts`) requires a family and a reason
+per site and fails by name on any unregistered site. Everything else
+interactive rests at `--color-text` or stronger.
+
+**Family S — `<summary>` disclosure headers.** A disclosure summary is half
+caption, half control: its text names the CONTENT it folds, and the fold
+affordance is carried by the marker/chevron and the interaction, not by label
+weight. Resting subtle is sanctioned. (7 sites.)
+
+**Family C — dismissable filter chips.** A chip's text names an APPLIED FILTER,
+which is a caption; the dismiss glyph is the control. Resting subtle is
+sanctioned. (2 sites.)
+
+**Family D — state-pair dim members.** The dim member of a state pair
+(inactive↔active, claimed↔unclaimed) may rest subtle **only while the pair
+stays distinguishable by at least one cue besides the text-color delta**. The
+cue may sit on EITHER member — fill, border, weight, glyph, or `aria-current`
+semantics — and every registry row names its cue and the file it lives in; the
+suite reads that file and fails the row if the cue is gone, so the claim cannot
+go stale. (6 sites.)
+
+| Dim member | The cue that carries the state |
+| --- | --- |
+| Inactive desktop admin nav link | active carries `bg-surface-raised` + `text-text-strong` + `aria-current="page"` |
+| Inactive admin bottom tab | active carries `aria-current="page"`; the visual delta is `text-accent-on-bg` vs subtle — a hue-plus-lightness delta with no layout cue, recorded as-is |
+| Inactive crew sub-nav tab | active desktop branch carries `border-accent` + `text-text-strong`; active mobile branch carries `text-accent-on-bg` plus `aria-current="page"` |
+| Unselected dashboard bucket segment (x2) | selected carries `bg-surface` + `shadow-tile` + `text-text-strong` + `aria-current="page"` |
+| Claimed picker row | the dim member ITSELF carries the cues: a `bg-surface-sunken` fill plus the lock glyph |
+
+No pair is color-ALONE in the semantic tree: every one carries `aria-current`
+or a structural glyph, holding the §1 color-blind floor while preserving the
+resting hierarchy the carve-out decision chose.
+
+**Hover is unchanged by this policy.** Where a swapped site's existing hover
+target became its new resting color, that site's hover steps to
+`--color-text-strong` so hover still visibly strengthens; sites whose hover
+affordance is a fill or a border keep it as-is.
 
 ### 1.2 Contrast summary (calculated, not estimated)
 

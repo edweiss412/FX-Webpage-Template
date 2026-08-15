@@ -42,7 +42,7 @@ export function IdentityHoldDisclosure({
         // sits inside a bg-surface card, and DESIGN.md section 15 requires the
         // offset to match the surrounding container. The card's own footer link
         // (reviewLinkClass) already offsets to surface.
-        className="group flex min-h-tap-min items-center gap-2 rounded-sm text-left text-sm text-text-subtle transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        className="group flex min-h-tap-min items-center gap-2 rounded-sm text-left text-sm text-text transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
       >
         <ChevronRight
           aria-hidden="true"

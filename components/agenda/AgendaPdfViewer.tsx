@@ -167,7 +167,7 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
             onClick={() => setInverted((prev) => !prev)}
             aria-pressed={inverted}
             aria-label={inverted ? "Show original colors" : "Dim agenda for dark mode"}
-            className="inline-flex min-h-tap-min items-center gap-1.5 rounded-sm px-2 py-1 text-xs font-medium text-text-subtle hover:bg-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            className="inline-flex min-h-tap-min items-center gap-1.5 rounded-sm px-2 py-1 text-xs font-medium text-text hover:bg-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             {inverted ? (
               <>

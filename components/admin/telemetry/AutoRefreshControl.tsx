@@ -121,7 +121,7 @@ export function AutoRefreshControl() {
         data-testid="autorefresh-manual"
         aria-label="Refresh now"
         onClick={doRefresh}
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border p-1.5 text-text-subtle hover:bg-surface-sunken hover:text-text"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border p-1.5 text-text hover:bg-surface-sunken hover:text-text-strong"
       >
         <RotateCw className="size-4" aria-hidden />
       </button>

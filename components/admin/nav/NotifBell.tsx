@@ -82,7 +82,7 @@ export function NotifBell({
       aria-haspopup="dialog"
       aria-expanded={open}
       onClick={openPanel}
-      className="relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-text-subtle hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+      className="relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-text hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
     >
       <Bell className="size-5" aria-hidden="true" />
       {typeof count === "number" && count > 0 ? (
