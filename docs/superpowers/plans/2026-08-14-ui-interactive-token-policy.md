@@ -752,7 +752,14 @@ the invariant-12 contract (markers gone, archives reject in-flight work).
   then verify byte identity: `git diff -- BACKLOG.md BACKLOG-archive.md > /tmp/applied.diff &&
   diff /tmp/applied.diff <patchfile>` — IDENTICAL bytes, no header allowance (same base tree
   produces the same headers; `git apply` failing OR any diff-of-diffs output means the tree
-  moved since review: STOP, revert the apply, regenerate the patch, re-review). Commit —
+  moved since review: STOP, revert the apply, regenerate the patch, re-review). The commit
+  contains EXACTLY two parts, both declared (plan R6 F1): the reviewed graduation bytes, and
+  the review-corpus JSONL row(s) the final APPROVE dispatch appended to
+  `docs/review-rounds/fix/ui-interactive-token-policy/` (wrapper-generated telemetry that by
+  definition cannot precede its own review; auditable as append-only —
+  `git diff --numstat` on the jsonl must show additions only). After committing, verify
+  `git status --porcelain` is EMPTY — any other residue means an unaccounted mutation: stop
+  and diagnose. Commit —
   `docs: graduate ui-token-policy ledger entries` (invariant 12's letter: markers come off in
   the last commit and never reach main; review-covers-what-merges holds because the commit
   reproduces reviewed bytes). Run the marker command — verify exit 0.
@@ -766,7 +773,9 @@ the invariant-12 contract (markers gone, archives reject in-flight work).
   lawful), land the fix through the Step 2 fix-loop discipline — including a FULL whole-diff review
   rerun on the new tree, never a delta-scoped review (plan R5 F3; the fresh-eyes whole-diff
   contract admits no narrower scope) — regenerate the patch if ledger text moved, then repeat
-  Steps 3-5 so the graduation commit is again the branch's last commit at merge time. Real-CI-only failures are an
+  Steps 3-5 so the graduation commit is again the branch's last commit at merge time (each
+  repeat's final-dispatch corpus row rides in that commit under the same two-part declaration
+  and the same clean-tree verification). Real-CI-only failures are an
   expected class (AGENTS.md local-passes-CI-fails); they take this loop, never a hotfix on
   top of the graduation commit.
 
