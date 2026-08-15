@@ -638,18 +638,6 @@ alert-audience-split (spec §6.7) makes health-alert resolution developer-gated 
 
 **Reachability:** PROBED. `pnpm exec vitest run tests/help` (642 tests, green) asserts none of the three, so the suite passing is not evidence against them. Findings 1 and 3 were measured on branch 2 (closeout §12); finding 2 by reading `RefAnchor.tsx:65-72` against the project's own `aria-live` pattern.
 
-### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
-
-**Status:** IN PROGRESS (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Branch:** feat/mutation-column-shift · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
-
-A spurious leading empty column shifts every cell in a section's row grid one position right, and the parse absorbs it — the East Coast column-shifted outlier, i.e. a shape observed in a LIVE show, not a synthetic one. Layout-shift class: every field in the section reads its neighbour's value, which is the most damaging silent outcome in this set because each individual value still looks well-formed.
-
-**Ledgered blast radius: 211 holes** (193 `wrong` / 18 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["column-shift"] = "BL-MUTATION-COLUMN-SHIFT"` (`tests/parser/mutation/knownHoles.ts:84`), pinned by `knownHoles.test.ts`.
-
-**Shape (M):** the discriminator is a section whose header-to-column alignment breaks while cell count holds, calibrated against the corpus so a legitimately indented section does not warn. Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
-
-**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
-
 ### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
 
 **Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
