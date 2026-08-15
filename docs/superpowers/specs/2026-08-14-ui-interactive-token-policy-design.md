@@ -128,6 +128,12 @@ classes are enumerated there (`min-h-tap-min` / `size-tap-min` / `min-w-tap-min`
 the sole blocker; buckets B/C/F are principled exemption families; bucket (D) is
 padding-arithmetic; bucket (A) is dispositioned (§1.1 R8).
 
+**Operative in-scope predicate (this spec's addition to the baseline):** the baseline set
+above, PLUS any JSX element whose tag is in the rule-7 floor-component allowlist (round-3 F2) —
+the predicate's component-tag arm derives from the allowlist import, so registering a component
+in rule 7 puts its call sites in scope by construction. Every §2.4 reference elsewhere in this
+spec means this operative predicate.
+
 Named class-string constants confirmed live: `SECONDARY_ACTION_CLASS`
 (`lib/ui/actionClass.ts`), `DISCARD_RESTING_CLASS` / `IGNORE_ARMED_CLASS`
 (`components/admin/PendingPanelDiscardButtons.tsx:49` and line 52), AccentButton's `BASE_CLASS`
@@ -197,8 +203,8 @@ New §1.1a defines:
   The dim member of a state pair (inactive↔active, claimed↔unclaimed) may rest subtle **only
   while the pair stays distinguishable by at least one cue besides the text-color delta** — the
   cue may sit on EITHER member (fill, border, weight, glyph, or `aria-current` semantics) and
-  is named per registry row and pinned executably (§4.4). The four current members, cues stated
-  truthfully (round-2 F3):
+  is named per registry row and pinned executably (§4.4). The six current members, cues stated
+  truthfully (round-2 F3; members 5-6 added round-3):
   - Inactive desktop admin nav links (`components/admin/nav/AdminNav.tsx:168`): active carries
     `bg-surface-raised` + `text-text-strong` + `aria-current="page"` (`AdminNav.tsx:171`).
   - Inactive admin bottom tabs (`AdminNav.tsx:232`): active carries `aria-current="page"`
