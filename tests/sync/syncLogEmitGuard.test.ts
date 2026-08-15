@@ -93,13 +93,13 @@ describe("sync_log emit guard — the helper chokepoint (AC-1, AC-4)", () => {
 
     const escalated = escalations();
     expect(escalated).toHaveLength(1);
-    expect(escalated[0].driveFileId).toBe("drive-file-1");
+    expect(escalated[0]!.driveFileId).toBe("drive-file-1");
     // Post-buildRecord: the shape `persistAppEvent` would write. The logger serializes
     // exactly once, so the thrown message survives into the persisted diagnostic. Passing
     // `serializeError(sinkError)` at the call site instead feeds a plain object back through
     // serializeError's non-Error branch (`String(value)`) and this collapses to
     // "[object Object]" — the double-serialize mutant this row kills.
-    expect(escalated[0].context.error).toMatchObject({
+    expect(escalated[0]!.context.error).toMatchObject({
       message: "probe-sink-connection-reset",
     });
   });
@@ -173,7 +173,12 @@ describe("sync_log emit guard — the helper chokepoint (AC-1, AC-4)", () => {
       "drive-file-4",
       "cron",
       file,
-      { perFileProcessor: vi.fn(async () => ({ outcome: "skip" as const, reason: "unchanged" })) },
+      {
+        perFileProcessor: vi.fn(async () => ({
+          outcome: "skip" as const,
+          reason: "watermark" as const,
+        })),
+      },
       async () => null,
     );
 
@@ -191,9 +196,9 @@ describe("sync_log emit guard — the helper chokepoint (AC-1, AC-4)", () => {
     );
 
     // The outcome the sync itself earned, not the sink's failure.
-    expect(result).toEqual({ outcome: "skipped", reason: "unchanged" });
+    expect(result).toEqual({ outcome: "skipped", reason: "watermark" });
     expect(escalations()).toHaveLength(1);
-    expect(escalations()[0].driveFileId).toBe("drive-file-4");
+    expect(escalations()[0]!.driveFileId).toBe("drive-file-4");
   });
 });
 
@@ -228,7 +233,7 @@ describe("sync_log emit guard — the cron runner's run-level emits (AC-1b)", ()
     });
     expect(result.processed).toEqual([]);
     expect(escalations()).toHaveLength(1);
-    expect(escalations()[0].context.error).toMatchObject({
+    expect(escalations()[0]!.context.error).toMatchObject({
       message: "probe-run-level-sink-down",
     });
   });
@@ -268,11 +273,11 @@ describe("sync_log emit guard — the cron runner's run-level emits (AC-1b)", ()
     // swallowed sink failure did not abort the iteration.
     expect(processOneFile).toHaveBeenCalledTimes(2);
     expect(result.processed.map((p) => p.driveFileId)).toEqual(["file-1", "file-2"]);
-    expect(result.processed[0].result).toMatchObject({ outcome: "parse_error" });
+    expect(result.processed[0]!.result).toMatchObject({ outcome: "parse_error" });
     // Exactly ONE swallowed failure, so exactly one escalation: file-1's escaped-failure emit.
     // file-2 succeeds through the INJECTED `processOneFile`, which never reaches a sink, so the
     // run-level loop pushes its result without emitting.
     expect(escalations()).toHaveLength(1);
-    expect(escalations()[0].driveFileId).toBe("file-1");
+    expect(escalations()[0]!.driveFileId).toBe("file-1");
   });
 });

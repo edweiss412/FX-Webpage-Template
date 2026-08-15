@@ -833,11 +833,11 @@ describe("/api/drive/webhook fallback sync_log emit guard (AC-3)", () => {
       dispatched: [{ driveFileId: null, result: { outcome: "error", code: "SYNC_INFRA_ERROR" } }],
     });
     expect(escalations()).toHaveLength(1);
-    expect(escalations()[0].driveFileId).toBeNull();
+    expect(escalations()[0]!.driveFileId).toBeNull();
     // Raw-error contract (§2.2): buildRecord serializes exactly once, so the thrown message
     // survives into the persisted diagnostic. Deleting the `error` field, or pre-serializing it,
     // is the mutant this kills.
-    expect(escalations()[0].context.error).toMatchObject({ message: SINK_MESSAGE });
+    expect(escalations()[0]!.context.error).toMatchObject({ message: SINK_MESSAGE });
   });
 
   test("per-file branch: the LOOP CONTINUES to later files under a rejecting sink", async () => {
@@ -864,10 +864,10 @@ describe("/api/drive/webhook fallback sync_log emit guard (AC-3)", () => {
     // file-a's swallowed sink failure did not escape the loop body.
     expect(runPushSyncForShow).toHaveBeenCalledTimes(2);
     expect(result.dispatched.map((d) => d.driveFileId)).toEqual(["file-a", "file-b"]);
-    expect(result.dispatched[1].result).toMatchObject({ outcome: "applied", showId: "show-b" });
+    expect(result.dispatched[1]!.result).toMatchObject({ outcome: "applied", showId: "show-b" });
     expect(escalations()).toHaveLength(1);
-    expect(escalations()[0].driveFileId).toBe("file-a");
-    expect(escalations()[0].context.error).toMatchObject({ message: SINK_MESSAGE });
+    expect(escalations()[0]!.driveFileId).toBe("file-a");
+    expect(escalations()[0]!.context.error).toMatchObject({ message: SINK_MESSAGE });
   });
 });
 

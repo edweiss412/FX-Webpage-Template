@@ -285,11 +285,11 @@ describe("runPushSyncForShow — sync_log emit guard (AC-2)", () => {
     expect(res).toEqual({ outcome: "parse_error", code: "SYNC_INFRA_ERROR" });
     const escalated = escalations(records);
     expect(escalated).toHaveLength(1);
-    expect(escalated[0].driveFileId).toBe("file-1");
+    expect(escalated[0]!.driveFileId).toBe("file-1");
     // Raw-error contract: `buildRecord` serializes exactly once, so the thrown message survives
     // into the persisted diagnostic. A `serializeError(...)` at the call site collapses it to
     // "[object Object]".
-    expect(escalated[0].context.error).toMatchObject({ message: SINK_MESSAGE });
+    expect(escalated[0]!.context.error).toMatchObject({ message: SINK_MESSAGE });
   });
 
   test("duplicate-skip branch: the push still returns its skip under a rejecting sink", async () => {
