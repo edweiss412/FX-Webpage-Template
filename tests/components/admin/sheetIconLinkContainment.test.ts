@@ -1955,6 +1955,13 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       // resolves .py as a module without a rules/loader entry (denied above), and
       // the module graph cannot reach it at all.
       ".py",
+      // The graduation artifact under docs/superpowers/plans/**: a unified diff
+      // committed so the whole-diff review can read the ledger bytes that land
+      // in the PR's LAST commit (invariant 12), where a review would otherwise
+      // never see them. Applied with `git apply`, never imported; no pinned-config
+      // resolver treats .patch as a module without a rules/loader entry (denied
+      // above).
+      ".patch",
     ]);
     const DOTFILE_BASENAMES = new Set([
       ".gitattributes",
