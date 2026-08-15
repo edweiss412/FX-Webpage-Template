@@ -70,6 +70,31 @@ const GUARD_MODULE = "tests/db/_localDbUrl";
  */
 const GUARD_NAMES: readonly string[] = ["assertLocalDbUrl"];
 
+/**
+ * A binding form all three name walkers used to miss: a NAMED function or class
+ * EXPRESSION binds its own name inside its own body. `const run = function assertLocalDbUrl(u)
+ * { … }` therefore shadows the guard within that body, and diff review R2 probed exactly
+ * that into an `ok:true` on a discovered whole-database wipe — an unguarded URL reading as
+ * guarded. Handled here so the shadow census, `declarationsOf` and the factory summary all
+ * answer it the same way, since three copies of a binding rule is how the last one drifted.
+ */
+function isNamedFunctionLike(n: ts.Node): n is (
+  | ts.FunctionDeclaration
+  | ts.FunctionExpression
+  | ts.ClassLikeDeclaration
+) & {
+  name: ts.Identifier;
+} {
+  return (
+    (ts.isFunctionDeclaration(n) ||
+      ts.isFunctionExpression(n) ||
+      ts.isClassDeclaration(n) ||
+      ts.isClassExpression(n)) &&
+    n.name !== undefined &&
+    ts.isIdentifier(n.name)
+  );
+}
+
 export function analyseDestructiveFile(
   filePath: string,
   rawSource: string,
@@ -117,11 +142,7 @@ export function analyseDestructiveFile(
     };
     const walk = (n: ts.Node): void => {
       if (ts.isVariableDeclaration(n) || ts.isParameter(n)) note(n.name);
-      else if (
-        (ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) &&
-        n.name &&
-        has(n.name.text)
-      ) {
+      else if (isNamedFunctionLike(n) && has(n.name.text)) {
         out.add(n.name.text);
       }
       ts.forEachChild(n, walk);
@@ -267,8 +288,9 @@ export function analyseDestructiveFile(
     factoryChecked.set(name, (factoryChecked.get(name) ?? true) && thisOne);
   };
   const walkFactories = (n: ts.Node): void => {
-    if (ts.isFunctionDeclaration(n) && n.name) summarize(n.name.text, n);
-    else if (
+    if ((ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n)) && n.name) {
+      summarize(n.name.text, n);
+    } else if (
       ts.isVariableDeclaration(n) &&
       ts.isIdentifier(n.name) &&
       n.initializer &&
@@ -289,6 +311,7 @@ export function analyseDestructiveFile(
   // named instance.
   const isFactoryDeclaration = (n: ts.Node): boolean =>
     ts.isFunctionDeclaration(n) ||
+    ts.isFunctionExpression(n) ||
     (ts.isVariableDeclaration(n) &&
       !!n.initializer &&
       (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer)));
@@ -581,7 +604,7 @@ function declarationsOf(
       fromBindingName(n.name, n, isConst);
     } else if (ts.isParameter(n)) {
       fromBindingName(n.name, n, false);
-    } else if ((ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) && n.name?.text === name) {
+    } else if (isNamedFunctionLike(n) && n.name.text === name) {
       out.push({ node: n, isConst: false });
       // A CATCH BINDING needs no branch of its own: `catch (url)` holds a real
       // ts.VariableDeclaration, and forEachChild walks it, so the first branch above

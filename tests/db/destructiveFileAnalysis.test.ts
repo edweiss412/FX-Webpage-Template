@@ -917,6 +917,67 @@ sql\`select public.prune_sync_log()\`;`;
     expectRejected(src, REASON.uncheckedExecution);
   });
 
+  /**
+   * Diff review R2: a NAMED FUNCTION EXPRESSION binds its own name inside its own body, and
+   * all three name walkers were blind to that form — the shadow census, `declarationsOf`,
+   * and the factory summary each handled `function f(){}` but not `const x = function f(){}`.
+   * The guard variant probed `ok:true` on a discovered whole-database wipe. One predicate,
+   * `isNamedFunctionLike`, now answers it for all three, because three copies of a binding
+   * rule is how this one drifted in the first place.
+   */
+  it("(bl) rejects a guard shadowed by a NAMED FUNCTION EXPRESSION", () => {
+    const src = `${IMPORT}
+const run = function assertLocalDbUrl(u: string | undefined) {
+  const url = assertLocalDbUrl(process.env.TEST_DATABASE_URL);
+  const sql = postgres(url);
+  sql\`select public.prune_sync_log()\`;
+  return url;
+};
+void run;`;
+    expectRejected(src, REASON.provenance);
+  });
+
+  it("(bm) rejects a driver shadowed by a NAMED FUNCTION EXPRESSION", () => {
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const run = function postgres(u: string | undefined) {
+  const sql = postgres(process.env.TEST_DATABASE_URL);
+  sql\`select public.prune_sync_log()\`;
+  return sql;
+};
+void run;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bn) rejects a checked factory shadowed by a NAMED FUNCTION EXPRESSION", () => {
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const make = () => postgres(DB_URL);
+const run = function make() {
+  const sql = make();
+  sql\`select public.prune_sync_log()\`;
+  return sql;
+};
+void run;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bo) rejects a guard shadowed by a NAMED CLASS EXPRESSION", () => {
+    // The neighbour of the same binding form: a named class expression binds its name in
+    // its own body too, and the predicate covers both rather than just the one probed.
+    const src = `${IMPORT}
+const Holder = class assertLocalDbUrl {
+  run() {
+    const url = assertLocalDbUrl(process.env.TEST_DATABASE_URL);
+    const sql = postgres(url);
+    sql\`select public.prune_sync_log()\`;
+    return url;
+  }
+};
+void Holder;`;
+    expectRejected(src, REASON.provenance);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.
