@@ -342,10 +342,22 @@ the `mutation-harness.yml` trigger posture (schedule + `workflow_dispatch` + pat
 
 - `schedule`: nightly, off-peak, offset from the parser harness's `0 7 * * *` so the two
   never contend (`17 8 * * *`).
-- `pull_request` paths: this workflow file, `tests/mutation/browser/**`,
-  `tests/e2e/_tapTargetFloorBundle.mjs`, `tests/e2e/tap-target-floor.layout.spec.ts`,
-  `tests/e2e/standalone.config.ts`, `tests/components/admin/wizard/Step3Review.test.tsx` —
-  the surfaces whose edits can change a verdict.
+- `pull_request` paths — the surfaces whose edits can change a verdict, and ALL of them:
+  this workflow file; `tests/mutation/**` (class-level, the `mutation-harness.yml:27-33`
+  precedent — covers the browser mode AND the shared verdict machinery it imports:
+  `tests/mutation/source/gate.ts`, `tests/mutation/source/ledger.ts`,
+  `tests/mutation/source/overlay.ts`, `tests/mutation/source/runner.ts`);
+  `tests/e2e/_tapTargetFloorBundle.mjs`; `tests/e2e/tap-target-floor.layout.spec.ts`;
+  `tests/e2e/standalone.config.ts`; `tests/components/admin/wizard/Step3Review.test.tsx`;
+  `vitest.projects.ts`; `package.json`; and every file named by an enrolled surface's
+  mutant or control edits (for the tap-target surface: the ten component files in the
+  payload table). The per-file mutant-target entries are an enumeration that would rot as
+  registries grow, so the CI wiring meta-test pins the DERIVED cover: every distinct
+  `edits[].file` (mutants and control) across `BROWSER_SURFACES` must appear in the
+  workflow's `paths:` list — a registry row whose target is missing from the filter fails
+  the meta-test, not a reviewer's memory. Concrete consequence this closes: without these
+  entries, an ordinary PR could move a mutant anchor or a scoring function and merge
+  silently, surfacing only on a later nightly run.
 - Job: `pnpm install`, playwright browser install (chromium only), `pnpm mutation:browser`.
   `timeout-minutes: 60`. Least-privilege permissions, same posture as the parser job.
 - Local-passes-CI-fails is its own bug class (AGENTS.md cross-cutting): close-out verifies a
