@@ -563,7 +563,10 @@ at Step 5 with the seeded census, and the task commits only then.
   on `./tapTargetScan` (invariant-1 ordering, plan R2 F4; the meaningful census RED follows at
   Step 3).
 - [ ] **Step 1b: Write `scanTapTargets`** — element `state` is `"clear"` when
-  `heightFloorSatisfied(el)` and not `defeaterPresent(el)`, else `"unclassified"`.
+  `heightFloorSatisfied(el)` and not `defeaterPresent(el)`, else `"unclassified"` — AND create
+  `tests/styles/tapTargetCensus.ts (new)` with its types and an EMPTY `TAP_TARGET_CENSUS`
+  array (plan R3 F1: the suite imports both modules, so the empty-census RED at Step 3 needs
+  the census FILE to exist while its array is empty; Step 4 seeds the existing file).
 - [ ] **Step 2: The suite (written at Step 1)** — the same shape as Task 3's, concretely:
 
 ```ts
@@ -714,17 +717,26 @@ contract (markers gone, archives reject in-flight work).
   `pnpm typecheck` · `pnpm exec eslint .` · `pnpm format:check` ·
   `pnpm spec:lint docs/superpowers/specs/2026-08-14-ui-interactive-token-policy-design.md`.
   All green.
-- [ ] **Step 2: Graduate the three ledger entries** to `BACKLOG-archive.md` with full
+- [ ] **Step 2: Whole-diff cross-model review on the COMMITTED content tree** (codex-guard,
+  `--stage diff`; every product/test/docs change through Task 7 is already committed), split
+  tight-scope briefs if the file list is large; APPROVE required. **Fix loop (plan R3 F2):**
+  any fix this review forces follows the full discipline — TDD cycle, its own conventional
+  commit, re-run of the Step 1 local gates, re-run of BOTH impeccable halves if the fix
+  touched any UI file (Task 7's marker updates from the new final run) — and then the
+  whole-diff review RERUNS on the new tree. Loop until APPROVE lands on the tree that will
+  merge.
+- [ ] **Step 3: Graduate the three ledger entries** to `BACKLOG-archive.md` with full
   provenance (census history 32/34/53/55 recorded; Family D ratification noted; the Task 4
   census counts pasted), remove the three `**Status:** IN PROGRESS` markers, and **COMMIT** —
-  `docs: graduate ui-token-policy ledger entries` — as the branch's final content commit (plan
-  R2 F9; invariant 12: the marker never reaches main). Run the marker command — verify exit 0.
-- [ ] **Step 3: Run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts
-  tests/docs/_metaReviewRoundEconomy.test.ts tests/docs/_metaInvariant8Closeout.test.ts`** — green.
-- [ ] **Step 4: Whole-diff cross-model review ON THE COMMITTED FINAL TREE** (codex-guard,
-  `--stage diff`), split tight-scope briefs if the file list is large; APPROVE required.
-  Review covers what merges: any fix this review forces is committed and the review RERUNS on
-  the new tree until APPROVE lands on the tree that merges.
+  `docs: graduate ui-token-policy ledger entries` — as the PR's LAST commit, after the review
+  APPROVE (plan R3 F2; invariant 12's letter: the marker comes off in the last commit and
+  never reaches main). This commit is mechanical docs-only by construction; its own gate is
+  Step 4, so review-covers-what-merges holds: the APPROVE covered every non-graduation change
+  and the graduation commit's correctness is machine-checked. Run the marker command — verify
+  exit 0.
+- [ ] **Step 4: Run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts
+  tests/docs/_metaReviewRoundEconomy.test.ts tests/docs/_metaInvariant8Closeout.test.ts`** —
+  green (in-flight markers gone, archive shape valid, closeout marker present).
 - [ ] **Step 5: Push, real CI green, `gh pr merge --merge`, fast-forward local main**
   (`git rev-list --left-right --count main...origin/main` → `0  0`).
 
