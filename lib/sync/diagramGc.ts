@@ -92,8 +92,9 @@ function suppressOrphanDeletion(show: DiagramGcShow): boolean {
   );
 }
 
-function defaultStorage(): DiagramGcStorage {
-  const supabase = createSupabaseServiceRoleClient();
+export function defaultStorage(
+  supabase: ReturnType<typeof createSupabaseServiceRoleClient> = createSupabaseServiceRoleClient(),
+): DiagramGcStorage {
   const bucket = supabase.storage.from(DIAGRAM_BUCKET);
   const listPaths = async (
     prefix: string,
@@ -123,6 +124,26 @@ function defaultStorage(): DiagramGcStorage {
   };
   return {
     list: listPaths,
+    async listChildren(prefix) {
+      const objectPrefix = prefix.startsWith(`${DIAGRAM_BUCKET}/`)
+        ? prefix.slice(DIAGRAM_BUCKET.length + 1)
+        : prefix;
+      const children: Array<{ name: string; isFolder: boolean }> = [];
+      const pageSize = 100;
+      let offset = 0;
+      while (true) {
+        // not-subject-to-meta: sync storage adapter -- throws on destructured error; consumed by runDiagramGc's cron-route summary
+        const { data, error } = await bucket.list(objectPrefix, { limit: pageSize, offset });
+        if (error) throw error;
+        const page = data ?? [];
+        for (const entry of page) {
+          children.push({ name: entry.name, isFolder: !("id" in entry && entry.id) });
+        }
+        if (page.length < pageSize) break;
+        offset += page.length;
+      }
+      return children;
+    },
     async remove(path) {
       const objectPath = path.startsWith(`${DIAGRAM_BUCKET}/`)
         ? path.slice(DIAGRAM_BUCKET.length + 1)
@@ -366,6 +387,14 @@ function defaultTx(): DiagramGcTx {
         `,
         [now.toISOString()],
       );
+    },
+    async listPendingTempPrefixes() {
+      // Deliberately NO state filter: any visible row, whatever its lifecycle
+      // state, keeps its prefix off-limits to the row-less _pending stage (§4).
+      const prefixRows = await rows<{ temp_prefix: string }>(
+        "select temp_prefix from public.pending_snapshot_uploads",
+      );
+      return prefixRows.map((row) => row.temp_prefix);
     },
     async close() {
       await sql.end({ timeout: 5 });

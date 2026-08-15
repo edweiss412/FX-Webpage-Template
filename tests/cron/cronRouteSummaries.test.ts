@@ -162,13 +162,15 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     expect(summaries[0]!.context).toMatchObject({ outcome: "partial" });
   });
 
-  test("diagram-gc: authorized → one ok summary with the three delete counts", async () => {
+  test("diagram-gc: authorized → one ok summary with the five delete counts", async () => {
     vi.resetModules();
     vi.doMock("@/lib/sync/diagramGc", () => ({
       runDiagramGc: async () => ({
         orphanBlobsDeleted: 1,
         pendingPrefixesDeleted: 2,
         promotedRowsDeleted: 3,
+        pendingOrphanPrefixesDeleted: 4,
+        pendingOrphanPrefixesRetainedNoCreatedAt: 5,
       }),
     }));
     const sink = await setSink();
@@ -183,7 +185,13 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     expect(summaries[0]!.source).toBe("cron.diagram-gc");
     expect(summaries[0]!.context).toMatchObject({
       outcome: "ok",
-      counts: { orphanBlobsDeleted: 1, pendingPrefixesDeleted: 2, promotedRowsDeleted: 3 },
+      counts: {
+        orphanBlobsDeleted: 1,
+        pendingPrefixesDeleted: 2,
+        promotedRowsDeleted: 3,
+        pendingOrphanPrefixesDeleted: 4,
+        pendingOrphanPrefixesRetainedNoCreatedAt: 5,
+      },
     });
   });
 

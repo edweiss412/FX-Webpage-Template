@@ -16,6 +16,8 @@ export async function GET(request: NextRequest): Promise<Response> {
           orphanBlobsDeleted: result.orphanBlobsDeleted,
           pendingPrefixesDeleted: result.pendingPrefixesDeleted,
           promotedRowsDeleted: result.promotedRowsDeleted,
+          pendingOrphanPrefixesDeleted: result.pendingOrphanPrefixesDeleted,
+          pendingOrphanPrefixesRetainedNoCreatedAt: result.pendingOrphanPrefixesRetainedNoCreatedAt,
         },
       },
     };
