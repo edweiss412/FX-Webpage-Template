@@ -85,6 +85,17 @@ describe("applyEdits — the substitution itself", () => {
     ).toThrow(/occurs 2 times/i);
   });
 
+  it("inserts a replacement containing `$&` verbatim, never as a pattern reference", () => {
+    // `String.prototype.replace` expands `$&`, `$1`, `` $` `` and `$'` in a
+    // STRING replacement. A mutant whose `to` carried one would be applied as
+    // something other than its declared text — silently — and the run would
+    // score a mutant nobody wrote.
+    const out = applyEdits(new Map([[A, "keep w-fit here\n"]]), [
+      { file: A, from: "w-fit", to: "$& $` $' $1" },
+    ]);
+    expect(out.get(A)).toBe("keep $& $` $' $1 here\n");
+  });
+
   it("is ATOMIC: one missing anchor refuses the whole mutant and lists every miss", () => {
     const edits: MutantEdit[] = [
       { file: A, from: "w-fit", to: "" },

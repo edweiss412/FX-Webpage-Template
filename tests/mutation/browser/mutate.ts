@@ -49,7 +49,15 @@ export function applyEdits(
       );
       continue;
     }
-    out.set(edit.file, current.replace(edit.from, edit.to));
+    // A FUNCTION replacement, never the string form: `String.prototype.replace`
+    // interprets `$&`, `$1`, `` $` `` and `$'` in a string replacement, so a
+    // mutant whose `to` contained one would be applied as something other than
+    // its declared text — silently, and the run would score a mutant nobody
+    // wrote. A function replacement is inserted verbatim.
+    out.set(
+      edit.file,
+      current.replace(edit.from, () => edit.to),
+    );
   }
 
   if (problems.length > 0) {
