@@ -22,7 +22,21 @@
 - Catalog admin-log-only row shape: `STALE_WRITE_ABORTED` (`lib/messages/catalog.ts:256`) — all-null facing fields, `warningClass: "general"`.
 - x1 gate command: `pnpm test:audit:x1-catalog-parity` (root package.json scripts block).
 - Double-serialize sweep: `grep -rn "error: serializeError(" lib/ app/` → 20 hits, 18 in-class (spec §2.2 list), 2 out (`lib/log/persist.ts:32`, `lib/log/persist.ts:38` — console-direct).
-- Alias sweep (spec §2.1, R2 F1): `grep -rn "logSync\|logSyncSink\|writeSyncLog\|insertSyncLog\|baseSink(\|\bsink(" lib/ app/ --include='*.ts'` — full output committed with the plan; every hit dispositioned (guarded catch/tracked regions, helper-mediated, onboarding tx-bound, or one of the three GUARD rows).
+- Alias sweep (spec §2.1, R2 F1; plan R1 F2): raw output COMMITTED at `docs/superpowers/plans/2026-08-15-sync-log-emit-guard/sink-sweep-2026-08-15.txt` (both grep forms, full output). Per-hit disposition of every AWAITED sink invocation in that artifact:
+
+  | Hits | Disposition |
+  |---|---|
+  | `lib/sync/runScheduledCronSync.ts:2313` | the helper emit point — GUARD (T1) |
+  | `lib/sync/runScheduledCronSync.ts` lines 2488, 2907, 2926, 3502, 3509, 3514, 3518, 3522, 3527, 3556, 3601, 3636, 3662, 3667, 3825; `lib/sync/runManualStageForFirstSeen.ts` lines 307, 316, 324, 335; `lib/sync/applyStaged.ts:2053` | calls to the exported HELPER (`writeSyncLogEntry` is its alias import) — covered by T1's chokepoint guard |
+  | `lib/sync/runScheduledCronSync.ts` lines 3976, 3992, 4149 | direct `deps.logSync?.({...})` run-level emits BYPASSING the helper — GUARD (T1b, plan R1 F1) |
+  | `lib/sync/runPushSyncForShow.ts:246` | direct sink in `logUnlessArchived` — GUARD (T2) |
+  | `app/api/drive/webhook/route.ts` lines 224, 234 | direct sink in the fallback dispatch catches — GUARD (T3) |
+  | `lib/sync/runManualSyncForShow.ts` lines 308, 507 (`baseSink` inside the tracked wrappers) | the tracked wrapper IS installed as `deps.logSync`, so its throw surfaces at the helper emit point — covered by T1 |
+  | `lib/sync/runManualSyncForShow.ts` lines 331, 559; `lib/sync/runManualStageForFirstSeen.ts:253`; `lib/sync/applyStaged.ts:2004` | catch-emits already wrapped by the 2026-08-14 arc's guards (escalate under the code; verified in the artifact's surrounding context) — no change |
+  | `app/api/admin/pending-ingestions/[id]/retry/route.ts` `logSyncSink` sites | route-body emits guarded per the 2026-08-14 spec — no change |
+  | `lib/sync/runOnboardingScan.ts` `tx.logSync` sites | out of class (spec §1.1 item 6, tx-bound by design) — no change |
+
+- Double-serialize sweep (plan R1 F2): raw output COMMITTED at `docs/superpowers/plans/2026-08-15-sync-log-emit-guard/double-serialize-sweep-2026-08-15.txt` — 20 hits; per-hit disposition is the spec §2.2 sweep list verbatim (18 in-class repaired in T5; `lib/log/persist.ts` lines 32 and 38 console-direct, untouched).
 - Existing sink-throw pins that assert the OLD loud behavior on the catch-emit paths (`runManualSyncForShowThrowEmission`, `runManualStageForFirstSeenEmission`) exercise DIRECT sink calls with their own guards — the helper guard does not change their semantics (spec §2.6); re-run both suites in T1 GREEN as the fix-round regression check.
 
 ## Meta-test inventory (declared)
@@ -60,19 +74,27 @@ GREEN: wrap exactly the `await deps.logSync?.(entry)` statement per spec §2.2. 
 
 Commit: `fix(sync): guard the logSync helper emit — a sync never fails because logging failed`
 
+### Task T1b — cron-runner run-level guards (plan R1 F1)
+
+<!-- task: red=`pnpm vitest run tests/sync/syncLogEmitGuard.test.ts` ac=AC-1b -->
+
+RED: three further cases in the SAME new file as T1. What is red and why: the three run-level emits (`lib/sync/runScheduledCronSync.ts` lines 3976, 3992, 4149) await `deps.logSync` directly with no try/catch, and the production route installs the throwing-capable `writeSyncLog` (`app/api/cron/sync/route.ts:21`) while the cron wrapper's catch rethrows — so today a sink throw fails the cron run. Cases (spec AC-1b): rejecting sink on the no-folder run → the skipped summary still returns; on the folder-infra branch → the `SYNC_INFRA_ERROR` summary still returns; on a per-file escaped failure (two-file fixture) → the file records into `processed` and the SECOND file still dispatches. One escalation per swallowed failure, code + raw error asserted.
+
+GREEN: wrap each of the three statements per spec §2.2. Commit: `fix(sync): guard the cron runner's run-level sync_log emits`
+
 ### Task T2 — push-path guard
 
-<!-- task: red=`pnpm vitest run tests/sync/runPushSyncForShowEmitGuard.test.ts` ac=AC-2 -->
+<!-- task: red=`pnpm vitest run tests/sync/runPushSyncForShow.test.ts` ac=AC-2 -->
 
-RED: new file tests/sync/runPushSyncForShowEmitGuard.test.ts (or extend the existing push suite if one is found by `grep -rln runPushSyncForShow tests/` — locate at execution; new-file default). What is red and why: `logUnlessArchived` (`lib/sync/runPushSyncForShow.ts:246`) awaits the sink unguarded, so a rejecting sink currently rejects the whole push. Cases: fetch-failure branch and duplicate-skip branch each with a rejecting sink → the original `result` is returned, one escalation with the code and raw error; resolving sink unchanged.
+RED: new cases in the EXISTING suite `tests/sync/runPushSyncForShow.test.ts` (verified present at plan time — plan R1 F3 killed the locate-at-execution indirection). What is red and why: `logUnlessArchived` (`lib/sync/runPushSyncForShow.ts:246`) awaits the sink unguarded, so a rejecting sink currently rejects the whole push. Cases: fetch-failure branch and duplicate-skip branch each with a rejecting sink → the original `result` is returned, one escalation with the code and raw error; resolving sink unchanged.
 
 GREEN: wrap the `await logSync(logEntry)` statement per spec §2.2. Commit: `fix(sync): guard the push-path deferred sync_log emit`
 
 ### Task T3 — webhook fallback guards
 
-<!-- task: red=`pnpm vitest run tests/drive/webhookEmitGuard.test.ts` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/drive/webhook.test.ts` ac=AC-3 -->
 
-RED: new file (or extend the existing webhook suite — locate via `grep -rln "drive/webhook" tests/`; same rule as T2). What is red and why: both fallback emits (`app/api/drive/webhook/route.ts:224` and line 234) sit inside catch blocks whose own throw escapes, so a rejecting sink currently fails the dispatch. Cases: listFolder-failure branch → `dispatched` still returned; per-file branch → the LOOP CONTINUES (a two-file fixture where file 1's sink emit rejects asserts file 2 still dispatches — the loop-abandonment mutant); one escalation per swallowed failure.
+RED: new cases in the EXISTING suite `tests/drive/webhook.test.ts` (verified present at plan time — plan R1 F3). What is red and why: both fallback emits (`app/api/drive/webhook/route.ts:224` and line 234) sit inside catch blocks whose own throw escapes, so a rejecting sink currently fails the dispatch. Cases: listFolder-failure branch → `dispatched` still returned; per-file branch → the LOOP CONTINUES (a two-file fixture where file 1's sink emit rejects asserts file 2 still dispatches — the loop-abandonment mutant); one escalation per swallowed failure.
 
 GREEN: wrap both statements per spec §2.2. Commit: `fix(sync): guard the drive-webhook fallback sync_log emits`
 
@@ -98,13 +120,14 @@ Commit: `fix(log): pass raw errors to log.* — the logger serializes once; guar
 
 <!-- task: red=`pnpm vitest run tests/docs/` ac=AC-6,AC-8 -->
 
-1. Archive `BL-SYNC-LOG-EMIT-UNGUARDED` (archive RED pattern: move WITH marker → `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` fails by name → strip marker → green), recording the §1.1 item 5 connection fence, §4 limits, and the fold-in paragraph.
-2. Add the guard-presence scope line to `BL-SYNC-LOG-ATTRIBUTION-METATEST` (spec §4 limit 6 / AC-8).
-3. Merge `origin/main`; full gates: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
-4. Whole-diff codex-guard `--stage diff` review to APPROVE (brief per AGENTS.md contract; REVIEWER ONLY; the spec's §1.1 do-not-relitigate list; consequence bound/probe domain/fence from the spec R3 brief).
-5. PR (body: preflight ran; probe/sweep transcripts linked); real CI green → `gh pr merge --merge` same turn → ff main → `0 0`.
+ORDER IS BINDING (plan R1 F4 — the marker-stripping archive commit must be the PR's LAST pre-merge commit, so everything that can generate later commits happens first):
 
-Commit (step 1-2): `docs(backlog): archive BL-SYNC-LOG-EMIT-UNGUARDED; record the guard-presence scope on the attribution-metatest entry`
+1. Merge `origin/main`; full gates: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
+2. Whole-diff codex-guard `--stage diff` review to APPROVE (brief per AGENTS.md contract; REVIEWER ONLY; the spec's §1.1 do-not-relitigate list; consequence bound/probe domain/fence from the spec R3 brief). Any repair commits land here, before step 3.
+3. LAST pre-merge commit: archive `BL-SYNC-LOG-EMIT-UNGUARDED` (archive RED pattern: move WITH marker → `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` fails by name → strip marker → green), recording the §1.1 item 5 connection fence, §4 limits, and the fold-in paragraph; the same commit adds the guard-presence scope line to `BL-SYNC-LOG-ATTRIBUTION-METATEST` (spec §4 limit 6 / AC-8). If ANY later commit becomes necessary (a late review repair, another `origin/main` merge with conflicts touching tracked files), the archive commit is re-done on top so it is again last.
+4. PR (body: preflight ran; probe/sweep artifacts linked); real CI green → `gh pr merge --merge` same turn → ff main → `0 0`.
+
+Commit (step 3): `docs(backlog): archive BL-SYNC-LOG-EMIT-UNGUARDED; record the guard-presence scope on the attribution-metatest entry`
 
 <!-- tasks: end -->
 
