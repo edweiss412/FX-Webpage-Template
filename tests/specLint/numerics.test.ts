@@ -1576,6 +1576,21 @@ describe("TEMPLATE_QUANTITY_DRIFT — shape (c), spec §3.3", () => {
     expect(only(run(doc).findings, C)).toEqual([]);
   });
 
+  it("markers nested in ANY order are all stripped", () => {
+    // Review R16, probed: stripping quote-then-bullet-then-ordered in a fixed order left
+    // `- > 1. …` with its ordinal, so the same defect R15 fixed one level up reappeared one
+    // level down. The rule is now a repeated alternation, which has no order to get wrong.
+    const body = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi 7";
+    for (const [a, b] of [
+      ["- > 1. ", "- > 2. "],
+      ["> - 1. ", "> - 2. "],
+      ["1. > ", "2. > "],
+    ]) {
+      const doc = [`${a}${body}`, `${b}${body}`, ""].join("\n");
+      expect(only(run(doc).findings, C)).toEqual([]);
+    }
+  });
+
   it("a `1)` marker inside a blockquote is not a quantity either", () => {
     const body = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi 7";
     const doc = [`> 1) ${body}`, `> 2) ${body}`, ""].join("\n");

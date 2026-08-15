@@ -1,7 +1,7 @@
 spec:lint prose-count parity arms — corpus survivor records
-measured 2026-08-15T11:33:13.340Z on branch feat/speclint-prose-count-parity
+measured 2026-08-15T12:04:09.550Z on branch feat/speclint-prose-count-parity
 documents linted: 1052 of 1053 (kind forced on 62; 1 refused by the CLI by design)
-elapsed: 12.4s
+elapsed: 11.0s
 
 == refused by the CLI by design (NOT covered by this scan) ==
 docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md — {"error":"not a regular file (symlink): docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-do

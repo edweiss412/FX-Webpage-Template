@@ -810,17 +810,16 @@ function countListItems(model: DocModel, start: number, stopAtChecklist: boolean
 const TEMPLATE_MIN_LEN = 40;
 const TEMPLATE_MAX_LEN = 400;
 const TEMPLATE_SIMILARITY = 0.85;
-const BULLET_PREFIX = /^[-*+]\s+/;
-const ORDERED_PREFIX = /^\d+[.)]\s+/;
 /**
- * Blockquote markers, stripped BEFORE the list markers so a quoted list's ordinals are not
- * read as quantities. The strip is repeated for nesting (`> > 1. …`).
+ * Every leading MARKER, in any order and any nesting: blockquote arrows, bullets, ordered
+ * markers.
  *
- * The list-marker rule is ratified — an ordered marker is not a quantity — and it was
- * simply unreachable behind a quote prefix, so two consecutive quoted items drifted on
- * their own numbering (review R15, probed).
+ * The rule that an ordered marker is not a quantity is ratified; it was simply unreachable
+ * behind other markers. Stripping the three in a FIXED order fixed `> 1. …` (review R15)
+ * and still left `- > 1. …` (review R16) — so this is one alternation, repeated by the
+ * regex engine, which has no order to get wrong and no loop to bound.
  */
-const QUOTE_PREFIX = /^(?:>\s*)+/;
+const MARKER_PREFIX = /^(?:(?:>\s*)+|[-*+]\s+|\d+[.)]\s+)+/;
 const DIGIT_RUN_RE = /\d+/g;
 const NON_TOKEN_RE = /[^a-z0-9]+/g;
 
@@ -837,10 +836,7 @@ function templateCandidates(model: DocModel): TemplateCandidate[] {
   const out: TemplateCandidate[] = [];
   for (let idx = 0; idx < model.lines.length; idx++) {
     if (model.fencedInfo[idx] !== undefined) continue;
-    const text = model.lines[idx]!.trim()
-      .replace(QUOTE_PREFIX, "")
-      .replace(BULLET_PREFIX, "")
-      .replace(ORDERED_PREFIX, "");
+    const text = model.lines[idx]!.trim().replace(MARKER_PREFIX, "");
     if (text.length < TEMPLATE_MIN_LEN || text.length > TEMPLATE_MAX_LEN) continue;
     if (!/\d/.test(text)) continue;
     if (ISO_DATE_LINE.test(text)) continue;
