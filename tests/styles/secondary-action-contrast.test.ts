@@ -1,6 +1,9 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { premise } from "../_shared/premise";
 import { SECONDARY_ACTION_CLASS } from "@/lib/ui/actionClass";
 
 const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
@@ -50,4 +53,56 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
       expect(contrast(faint, tokenIn(block, ground))).toBeGreaterThanOrEqual(3.0);
     }
   });
+
+  /**
+   * The ratios above are about a token. This is about whether the BUTTON can
+   * ever wear it.
+   *
+   * `app/globals.css` excludes `lib/` from Tailwind's source detection, and
+   * this constant is the one runtime class string that lives there. Every
+   * other class in it happens to be worn by markup under `app/`/`components/`,
+   * so the exclusion never bit — until the outline moved to
+   * `border-text-faint`, which no scanned file wears: Tailwind emitted no rule,
+   * `border-color` fell back to `currentColor`, and the button drew a
+   * near-black outline. Every assertion above stayed green, because a token's
+   * contrast says nothing about whether a utility exists.
+   *
+   * The subject here is therefore the COMPILED stylesheet, and the expectation
+   * is DERIVED from the constant rather than enumerated: a class added to
+   * `SECONDARY_ACTION_CLASS` tomorrow is checked by this test today.
+   */
+  const compiledClasses = (() => {
+    let cache: Set<string> | null = null;
+    return (): Set<string> => {
+      if (cache) return cache;
+      const dir = mkdtempSync(join(tmpdir(), "secondary-action-css-"));
+      try {
+        const out = join(dir, "out.css");
+        // No --content: `@import "tailwindcss"` auto-detects sources from the
+        // CSS file's project, honouring the `@source` rules in globals.css.
+        // That detection IS the authority on what reaches the DOM.
+        execFileSync("pnpm", ["exec", "tailwindcss", "-i", "app/globals.css", "-o", out], {
+          cwd: process.cwd(),
+          stdio: "pipe",
+        });
+        const css = readFileSync(out, "utf8");
+        const classes = new Set<string>();
+        for (const m of css.matchAll(/\.((?:[^.\s,{>+~\\]|\\.)+)/g)) {
+          classes.add(m[1]!.replace(/\\(.)/g, "$1"));
+        }
+        cache = classes;
+        return cache;
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+  })();
+
+  it("every class in the constant actually compiles to a rule", () => {
+    const classes = compiledClasses();
+    premise("the app compiled to real utilities", classes.size, 500);
+    const tokens = SECONDARY_ACTION_CLASS.split(/\s+/).filter((t) => t.length > 0);
+    premise("the constant carries utilities to check", tokens.length, 5);
+    expect(tokens.filter((token) => !classes.has(token))).toEqual([]);
+  }, 120_000);
 });
