@@ -85,6 +85,13 @@ describe("form 2 — named timing bindings", () => {
     expect(kinds("class C { retryDelayMs = 15; }")).toEqual(["named-constant:retryDelayMs"]);
   });
 
+  test("a class property whose name is QUOTED counts, like its unquoted twin", () => {
+    // `pushNamed` reads a BindingName, which is identifiers only; the quoted
+    // spelling is the same declaration and was silently uninventoried.
+    expect(kinds('class C { "ttlMs" = 17000; }')).toEqual(["named-constant:ttlMs"]);
+    expect(kinds('class C { "notATiming" = 5; }')).toEqual([]);
+  });
+
   test("the name must END in a timing word, and the value must be numeric", () => {
     expect(kinds("const msPerFrame = 16;")).toEqual([]); // starts with, does not end with
     expect(kinds("const SOMETHING_ELSE = 3;")).toEqual([]);
@@ -116,6 +123,23 @@ describe("form 3 — motion durations", () => {
     expect(kinds("useAnnounceLog({ ttlMs: 17000 });")).toEqual(["motion-duration:17000"]);
     expect(kinds("f({ closeDelay: 120 });")).toEqual(["motion-duration:120"]);
     expect(kinds("f({ notATiming: 5 });")).toEqual([]);
+  });
+
+  test("a JSX prop with a numeric timing value counts", () => {
+    // A prop is where a call-site option ends up when the consumer is a
+    // component — at least as ordinary as the options-object form.
+    expect(kinds("const el = <Log ttlMs={17000} />;")).toEqual(["motion-duration:17000"]);
+    expect(kinds("const el = <Log notATiming={5} />;")).toEqual([]);
+    expect(kinds("const el = <Log ttlMs={token} />;")).toEqual([]);
+  });
+
+  test("a COMPUTED key is a documented limit, not a site", () => {
+    // Declaring a fixed timing through a computed key is not a spelling an
+    // ordinary contributor reaches for, and the threat model is accidental
+    // mistakes rather than evasion. Pinned so the limit is a decision on record
+    // rather than an unnoticed hole.
+    expect(kinds('const m = { ["ttlMs"]: 17000 };')).toEqual([]);
+    expect(kinds('class C { ["ttlMs"] = 17000; }')).toEqual([]);
   });
 
   test("a STRING-LITERAL key counts, exactly as the identifier form does", () => {

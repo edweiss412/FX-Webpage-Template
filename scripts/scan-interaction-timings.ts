@@ -49,7 +49,11 @@
  * DOCUMENTED LIMIT (threat-model fence: accidental authoring mistakes by an
  * ordinary contributor, not adversarial obfuscation). A delay assembled at
  * runtime — read off a config object, returned by a call, computed from
- * arithmetic — is reported as `unclassified` rather than resolved. That is the
+ * arithmetic — is reported as `unclassified` rather than resolved. A COMPUTED
+ * key (`{ ["ttlMs"]: 17000 }`, `class C { ["ttlMs"] = 17000 }`) is likewise not
+ * a site: the key is an expression, and writing one to declare a fixed timing
+ * is not a spelling an ordinary contributor reaches for — unlike the quoted key
+ * and the JSX prop, which are, and which forms 2d / 3b cover. That is the
  * conservative direction: the worst case is a surfaced name someone must
  * disposition, never a silently unlisted timing.
  */
@@ -278,6 +282,47 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
     // Form 2c: numeric class properties with a timing name.
     if (ts.isPropertyDeclaration(node) && ts.isIdentifier(node.name)) {
       pushNamed(node.name, node.initializer);
+    }
+
+    // Form 2d: a class property whose name is a STRING LITERAL. `pushNamed`
+    // takes a BindingName and so reads identifiers only; `class C { "ttlMs" =
+    // 17000 }` is the same declaration written with quotes.
+    if (
+      ts.isPropertyDeclaration(node) &&
+      ts.isStringLiteral(node.name) &&
+      TIMING_NAME.test(node.name.text)
+    ) {
+      const init = node.initializer;
+      const value = init === undefined ? null : numericValue(init);
+      if (value !== null) {
+        sites.push({
+          file: filePath,
+          line: lineOf(node),
+          kind: "named-constant",
+          name: node.name.text,
+          value,
+        });
+      }
+    }
+
+    // Form 3b: a JSX attribute with a numeric-literal timing value —
+    // `<Thing ttlMs={17000} />`. A prop is where a call-site option ends up
+    // when the consumer is a component, and it is at least as ordinary a
+    // spelling as the options object below.
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && TIMING_NAME.test(node.name.text)) {
+      const init = node.initializer;
+      const expr = init !== undefined && ts.isJsxExpression(init) ? init.expression : undefined;
+      const value = expr === undefined ? null : numericValue(expr);
+      if (value !== null) {
+        sites.push({
+          file: filePath,
+          line: lineOf(node),
+          kind: "motion-duration",
+          name: null,
+          value,
+          propertyKey: node.name.text,
+        });
+      }
     }
 
     // Form 3: motion / transition `duration:` properties, and any OTHER numeric
