@@ -38,9 +38,11 @@
  *                         row is labelled by the key as written.
  *
  * TOTALITY IS PER-FORM, and the boundary is worth stating because the two
- * halves differ. For TIMER DELAYS it is complete: every `setTimeout` /
- * `setInterval` delay ARGUMENT is walked, not only the ones that happen to be
- * literals. A delay that is neither a numeric literal (form 1) nor an identifier
+ * halves differ. For TIMER DELAYS every `setTimeout` / `setInterval` delay
+ * ARGUMENT is walked, not only the ones that happen to be literals — with one
+ * hole: an identifier delay resolves by NAME, not by binding, so a LOCAL
+ * binding that happens to share a covered constant's spelling is treated as
+ * that constant and suppressed. `BL-TIMING-SCAN-NAME-VS-BINDING` carries it. A delay that is neither a numeric literal (form 1) nor an identifier
  * resolving to a covered binding (form 2) is emitted as `unclassified` and fails
  * the inventory test until it is dispositioned — renamed into the pattern, or
  * given a reasons-required row in `UNCLASSIFIED_DISPOSITIONS`. Every timer delay

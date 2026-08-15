@@ -107,6 +107,17 @@ type Owner = {
  */
 const activeOwners = new Map<string, Owner>();
 
+/**
+ * Identities two live islands have both claimed. A duplicate is an authoring
+ * mistake — `FactRows` uses the row's testid, and two lists reusing one is the
+ * ordinary way to make it happen — and for those identities the FALLBACK is
+ * switched off: a write whose own island is gone lands nowhere instead of on a
+ * row that never asked for it. Nowhere is the conservative outcome (the value
+ * is on screen, the clipboard already holds it, nothing is claimed), and the
+ * mistake is surfaced rather than absorbed (whole-diff review round 9).
+ */
+const collidedIdentities = new Set<string>();
+
 /** Latest dispatched write PER IDENTITY. `value` is recorded for diagnosis;
  *  `seq` routes the reset arming (never truth — see the header). */
 const writeLedgers = new Map<string, { seq: number; value: string }>();
@@ -137,7 +148,8 @@ function recordWrite(identity: string, value: string): number {
  * whole-diff review round 8 probed exactly that.
  */
 function deliverWrite(dispatcher: Owner, identity: string, seq: number, value: string): void {
-  const owner = dispatcher.mounted ? dispatcher : activeOwners.get(identity);
+  const fallback = collidedIdentities.has(identity) ? undefined : activeOwners.get(identity);
+  const owner = dispatcher.mounted ? dispatcher : fallback;
   if (owner === undefined) return;
 
   if (value === owner.currentValue()) {
@@ -306,6 +318,20 @@ export function CopyFactValue({
         if (resetRef.current === null) arm();
       },
     };
+    const incumbent = activeOwners.get(identity);
+    if (incumbent !== undefined && incumbent.mounted) {
+      // Two LIVE islands under one identity. React runs the outgoing island's
+      // cleanup before the incoming one's setup on a remount, so an incumbent
+      // that is still mounted is a genuine duplicate, never a swap.
+      collidedIdentities.add(identity);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(
+          `CopyFactValue: two live controls share the identity "${identity}". ` +
+            `A copy whose own control unmounts mid-write will now land nowhere ` +
+            `rather than on the wrong row. Give each row a distinct testId.`,
+        );
+      }
+    }
     activeOwners.set(identity, owner);
     ownerRef.current = owner;
     return () => {
@@ -314,6 +340,11 @@ export function CopyFactValue({
       // next island's setup, but an out-of-order cleanup must never clear a
       // registration it does not own.
       if (activeOwners.get(identity) === owner) activeOwners.delete(identity);
+      // A collision lasts only as long as the duplicate does. Cleanup runs
+      // before the next island's setup, so on an ordinary remount the identity
+      // is briefly unclaimed and the incoming island is not mistaken for a
+      // duplicate of the one it replaces.
+      if (!activeOwners.has(identity)) collidedIdentities.delete(identity);
       clearReset();
     };
   }, [clearReset, identity]);

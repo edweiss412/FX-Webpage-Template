@@ -781,6 +781,58 @@ describe("island lifecycle (§4.1)", () => {
     ).toEqual([]);
   });
 
+  test("a duplicated identity disables the fallback rather than misrouting", async () => {
+    // The fallback exists for one case: the dispatching island unmounted
+    // mid-write, so the write goes to whichever island now occupies that row.
+    // Under a DUPLICATED identity that inference is wrong — "whichever island"
+    // may be a different row entirely — so a duplicate switches the fallback
+    // off for that identity. Landing nowhere is conservative: the value is on
+    // screen, the clipboard already holds it, and nothing is claimed.
+    //
+    // The ordering is the whole test. Tapping B and unmounting it is not enough
+    // (B's own cleanup empties the registration, so the fallback finds nothing
+    // anyway); A must RE-REGISTER in between, which is what leaves a live,
+    // wrong island sitting under B's identity when B's write resolves.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const both = (keyA: string) => (
+      <>
+        <FactRows key={keyA} rows={[passwordRow()]} />
+        <FactRows key="b" rows={[passwordRow()]} />
+      </>
+    );
+    const { container, rerender } = render(both("a1"));
+    const rows = () => container.querySelectorAll(`[data-testid="${TESTID}"]`);
+    premiseHolds("both lists rendered the same testid", rows().length === 2);
+    premiseHolds("the duplicate was surfaced, not absorbed", warn.mock.calls.length > 0);
+
+    await act(async () => {
+      fireEvent.click(rows()[1]!.querySelector("button")!); // tap the SECOND list
+    });
+    await act(async () => {
+      rerender(both("a2")); // the FIRST list remounts and re-claims the identity
+    });
+    await act(async () => {
+      rerender(
+        <>
+          <FactRows key="a2" rows={[passwordRow()]} />
+        </>,
+      ); // the tapped list unmounts with its write still pending
+    });
+    premiseHolds("only the untapped list survives", rows().length === 1);
+
+    await settle(0);
+
+    const remaining = rows()[0]!;
+    expect(
+      remaining.querySelector("[data-slot='check-glyph']"),
+      "the surviving row must not inherit another row's confirmation",
+    ).toBeNull();
+    expect(
+      Array.from(remaining.querySelectorAll("[data-announce-id]")).map((n) => n.textContent),
+    ).toEqual([]);
+    warn.mockRestore();
+  });
+
   test("a write pending across a REAL remount delivers through the new owner", async () => {
     const { container, rerender } = render(<FactRows key="a" rows={[passwordRow()]} />);
 

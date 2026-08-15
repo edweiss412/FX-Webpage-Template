@@ -8,6 +8,41 @@ Last reconciled: 2026-08-15 — `fix/sync-observability-gaps` graduated `BL-MANU
 
 ---
 
+## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
+
+**Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today.
+
+`scripts/scan-interaction-timings.ts` resolves an identifier delay by NAME against the set of covered bindings, so any binding anywhere that carries the same spelling counts as coverage. A local one that shadows it is therefore suppressed:
+
+```ts
+// in some component, alongside the real lib/ui/copyFeedback.ts export
+const COPY_FEEDBACK_RESET_MS = readDelayFromRuntimeConfig();
+setTimeout(fn, COPY_FEEDBACK_RESET_MS);
+```
+
+Probed: before resolution the site is correctly `unclassified`; the global name filter then removes it, and neither §5.5 nor the unclassified list mentions it. That contradicts the delay-side totality claim — the one half of the scanner that IS complete — which is why this is a separate row from `BL-TIMING-SCAN-PROPERTY-TOTALITY` rather than folded into it.
+
+**Scope if promoted:** resolve identifiers against the binding in scope (the TypeScript checker already models this) instead of a name set, or narrow the name set per-file and report cross-file identifiers as `unclassified`. The consequence today is bounded — the value is a runtime one, so no fixed timing is being hidden, and the current tree contains no shadowing instance — but the claim the guard makes about delays should be true of delays.
+
+## BL-TIMING-SCAN-PROPERTY-TOTALITY — a timing-named property with a non-literal value is dropped, not reported
+
+**Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 7, finding 2). **Effort:** S. **Class-sweep exception:** (c) — the repair spans surfaces this arc does not otherwise touch. **Reachability: PROBED**, with the site list below as the probe.
+
+`scripts/scan-interaction-timings.ts` is complete for TIMER DELAYS — every `setTimeout` / `setInterval` delay argument is walked, and one that is neither a literal nor a resolvable identifier is reported `unclassified` so someone must disposition it. Its PROPERTY forms are not: a timing-named property whose value is not a numeric literal is dropped silently, so it appears in neither `DESIGN.md` §5.5 nor the unclassified list.
+
+Five sites in the tree are invisible for that reason today:
+
+| site | value |
+| --- | --- |
+| `components/admin/telemetry/EventRow.tsx` | `duration: reduce ? 0 : 0.22` |
+| `components/crew/RightNowHero.tsx` | `duration: prefersReducedMotion ? 0 : 0.22` |
+| `components/diagrams/GalleryLightbox.tsx` (x2) | `duration: emblaDuration(...)`, live value 22 |
+| `components/diagrams/GalleryLightbox.tsx` | `duration: motionDuration`, live value 0.22 |
+
+**This predates the key widening** that surfaced it — the original `duration:` form dropped non-literals the same way — so it is a pre-existing gap rather than a regression, and every one of the five is a real interaction timing a person watches.
+
+**Scope if promoted:** report a non-literal property value as `unclassified`, exactly as a delay argument is, and disposition the five above (the reduced-motion ternaries resolve to two constants; the GalleryLightbox pair resolve elsewhere in the same file). The consequence today is bounded and conservative — §5.5 lists fewer timings than exist, so the document undersells rather than misstates — but the guard's whole purpose is that no timing passes silently, and five do.
+
 ## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button is not perceivable as a box at the non-text floor
 
 **Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system
