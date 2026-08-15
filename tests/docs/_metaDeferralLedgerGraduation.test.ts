@@ -93,6 +93,10 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/changes-feed-batch-flake (2026-08-15): the e2e flake row whose own filed theory was
+  // refuted rather than confirmed — the repair is a wait helper that recovers once from the
+  // admin error boundary, not the fixture isolation the entry proposed.
+  { id: "BL-CHANGES-FEED-MODAL-BATCH-FLAKE", provenance: "fix/changes-feed-batch-flake" },
   // feat/diagram-viewing-polish (2026-08-11): the three diagram-viewing rows the
   // 2026-08-10 decision round bundled, each closing by a DIFFERENT route, which
   // is why they are three rows and not one. The progress-affordance row
