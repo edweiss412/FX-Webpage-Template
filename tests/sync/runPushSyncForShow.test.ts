@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
+import type { LogRecord } from "@/lib/log";
 import type { RunPushSyncForShowDeps } from "@/lib/sync/runPushSyncForShow";
 
 type Row = Record<string, unknown>;
@@ -228,5 +229,113 @@ describe("runPushSyncForShow", () => {
     expect(res).toEqual({ outcome: "skipped", reason: "archived" }); // ARCHIVED_SKIP_REASON
     expect(syncLogMock.writeSyncLog).not.toHaveBeenCalled(); // no misleading duplicate-skip log
     expect(processOneFile).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `logUnlessArchived` awaits the sync_log sink INSIDE the blocking `withLock` callback
+ * (lib/sync/runPushSyncForShow.ts). `sync_log` emits ride their own postgres connection, so a
+ * transient sink fault there escaped the lock callback and failed the whole push sync — the log
+ * write failing the thing it exists to observe.
+ *
+ * Spec: docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md §2.1/§2.2,
+ * AC-2.
+ */
+describe("runPushSyncForShow — sync_log emit guard (AC-2)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const SINK_MESSAGE = "probe-push-sink-connection-reset";
+  const rejectingSink = async () => {
+    throw new Error(SINK_MESSAGE);
+  };
+
+  /**
+   * Installed AFTER `importPushSync()` so it lands on the SAME `@/lib/log` module instance the
+   * freshly-imported push module resolves (`importPushSync` calls `vi.resetModules()`).
+   */
+  async function captureRecords(): Promise<LogRecord[]> {
+    const { setLogSink } = await import("@/lib/log");
+    const records: LogRecord[] = [];
+    setLogSink((record) => {
+      records.push(record);
+    });
+    return records;
+  }
+
+  function escalations(records: LogRecord[]): LogRecord[] {
+    return records.filter((r) => r.code === "SYNC_LOG_EMIT_FAILED");
+  }
+
+  test("fetch-failure branch: the push still returns its own result under a rejecting sink", async () => {
+    supabaseMock.client = createFakeSupabase().client;
+    const { runPushSyncForShow } = await importPushSync();
+    const records = await captureRecords();
+
+    const res = await runPushSyncForShow("file-1", {
+      // No `fileMeta` → the scoped fetch runs and returns the deferred fetch-failure shape.
+      getActiveWatchedFolderId: async () => ({ kind: "no_folder_configured" as const }),
+      logSync: rejectingSink,
+      isShowArchived: async () => false,
+      withPipelineLock: lockWithArchived(false),
+    });
+
+    // The push's OWN result, not the sink's failure.
+    expect(res).toEqual({ outcome: "parse_error", code: "SYNC_INFRA_ERROR" });
+    const escalated = escalations(records);
+    expect(escalated).toHaveLength(1);
+    expect(escalated[0].driveFileId).toBe("file-1");
+    // Raw-error contract: `buildRecord` serializes exactly once, so the thrown message survives
+    // into the persisted diagnostic. A `serializeError(...)` at the call site collapses it to
+    // "[object Object]".
+    expect(escalated[0].context.error).toMatchObject({ message: SINK_MESSAGE });
+  });
+
+  test("duplicate-skip branch: the push still returns its skip under a rejecting sink", async () => {
+    const meta = fileMeta();
+    supabaseMock.client = createFakeSupabase({
+      shows: [{ drive_file_id: "file-1", last_seen_modified_time: meta.modifiedTime }],
+    }).client;
+    const { runPushSyncForShow } = await importPushSync();
+    const records = await captureRecords();
+    const processOneFile = vi.fn();
+
+    const res = await runPushSyncForShow("file-1", {
+      fileMeta: meta,
+      processOneFile,
+      logSync: rejectingSink,
+      isShowArchived: async () => false,
+      withPipelineLock: lockWithArchived(false),
+    });
+
+    expect(res).toEqual({ outcome: "skipped", reason: "WEBHOOK_NOOP_ALREADY_SYNCED" });
+    expect(processOneFile).not.toHaveBeenCalled();
+    expect(escalations(records)).toHaveLength(1);
+  });
+
+  test("a resolving sink is unchanged: the entry is written, zero escalations", async () => {
+    const meta = fileMeta();
+    supabaseMock.client = createFakeSupabase({
+      shows: [{ drive_file_id: "file-1", last_seen_modified_time: meta.modifiedTime }],
+    }).client;
+    const { runPushSyncForShow } = await importPushSync();
+    const records = await captureRecords();
+    const logSync = vi.fn(async () => undefined);
+
+    const res = await runPushSyncForShow("file-1", {
+      fileMeta: meta,
+      logSync,
+      isShowArchived: async () => false,
+      withPipelineLock: lockWithArchived(false),
+    });
+
+    expect(res).toEqual({ outcome: "skipped", reason: "WEBHOOK_NOOP_ALREADY_SYNCED" });
+    expect(logSync).toHaveBeenCalledWith({
+      driveFileId: "file-1",
+      outcome: "skipped",
+      code: "WEBHOOK_NOOP_ALREADY_SYNCED",
+    });
+    expect(escalations(records)).toHaveLength(0);
   });
 });
