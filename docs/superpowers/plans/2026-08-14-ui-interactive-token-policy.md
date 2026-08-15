@@ -359,7 +359,7 @@ function tokenIn(block: string, name: string): string {
   if (!m || !m[1]) throw new Error(`token ${name} not found`);
   return m[1];
 }
-// Line-anchored regex anchors (plan R8 F1 — bare indexOf hits a comment at css line 43 and the
+// Line-anchored regex anchors (plan R8 F1: bare indexOf hits a comment at css line 43 and the
 // @theme alias block, leaving the dark block without runtime tokens; probed against live CSS:
 // light #8b8c92/#ffffff/#f4f3f1/#fafaf9, dark #74736d/#16171c/#0b0c10/#0f1014 all resolve).
 function anchor(re: RegExp): number {
