@@ -17,7 +17,8 @@ import {
  * one consumer bypasses is exactly the drift these catch.
  */
 
-const matchesAny = (patterns: RegExp[], text: string): boolean => patterns.some((p) => p.test(text));
+const matchesAny = (patterns: RegExp[], text: string): boolean =>
+  patterns.some((p) => p.test(text));
 
 describe("idPatterns — boundary, segmentation, escaping (spec §3.2)", () => {
   it("a bare id yields exactly one boundary-anchored pattern", () => {
@@ -184,7 +185,9 @@ describe("classifyIntent — tier order and window bounds (spec §3.3)", () => {
     expect(classifyIntent(at(blank(), 30, "  depsWithStart();"), 12, 12, ["deps"]).tier).toBe(
       "absent",
     );
-    expect(classifyIntent(at(blank(), 30, "  fooXbar();"), 12, 12, ["foo.bar"]).tier).toBe("absent");
+    expect(classifyIntent(at(blank(), 30, "  fooXbar();"), 12, 12, ["foo.bar"]).tier).toBe(
+      "absent",
+    );
   });
 });
 
@@ -211,10 +214,7 @@ describe("relocationHints — doc-ordered peer search (spec §3.4)", () => {
   it("skips a peer whose lines are null (unreadable or a tracked symlink)", () => {
     const hints = relocationHints(
       ["deps"],
-      [
-        { path: "lib/unreadable.ts", lines: null },
-        peer("lib/real.ts", "  deps();"),
-      ],
+      [{ path: "lib/unreadable.ts", lines: null }, peer("lib/real.ts", "  deps();")],
       3,
     );
     expect(hints).toEqual(["lib/real.ts"]);

@@ -1,6 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { runCli, type CliDeps } from "../../scripts/spec-lint";
 
@@ -320,6 +328,36 @@ describe("spec-lint CLI — report + encoding (spec §2/§8)", () => {
       } finally {
         chmodSync(p, 0o644);
       }
+    },
+    T,
+  );
+});
+
+describe("spec-lint CLI — citation intent through the real adapter (spec §6 wiring)", () => {
+  const INTENT_DOC =
+    "tests/specLint/fixtures/citationIntent/docs/superpowers/plans/intent-absent.md";
+
+  it(
+    "ABSENT advisory reaches the text report with its relocation detail, at the derived coordinates",
+    () => {
+      // Coordinates derived from the committed fixture's own bytes, never pasted
+      // from a run: the citation's line, and the column just past its opening
+      // backtick.
+      const text = readFileSync(join(ROOT, INTENT_DOC), "utf8");
+      const lines = text.split("\n");
+      const CITE = "`lib/specLint/emDash.ts:1`";
+      const docLine = lines.findIndex((l) => l.includes(CITE)) + 1;
+      const column = lines[docLine - 1]!.indexOf(CITE) + 2;
+      expect(docLine).toBeGreaterThan(0);
+
+      const r = cli([INTENT_DOC]);
+      expect(r.code).toBe(0); // advisory only
+      expect(r.stdout).toContain(
+        `ADVISORY CITATION_SYMBOL_ABSENT ${docLine}:${column} same-line identifiers absent from lib/specLint/emDash.ts`,
+      );
+      expect(r.stdout).toContain(
+        "detail: enclosing: (none) · identifiers: relocationHints · found in: lib/specLint/citationIntent.ts",
+      );
     },
     T,
   );
