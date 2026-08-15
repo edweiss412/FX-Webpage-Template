@@ -404,3 +404,29 @@ now including `E-mail:`) + 40 residual FP (24-3=21 `Room Diagram` in `Timestamp`
 - The **committed baseline for the spec is 72 rows across 17 fixtures** (§9) — this is the number
   a structural meta-test pinning "expected near-miss emissions" should assert, not the 66 from the
   original v0-final calibration.
+
+## 11. Addendum — r4 recalibration: resolution-site consumption (2026-08-15)
+
+The cross-model r4 review counted the retained `Room Diagram` family per-row and found the §9
+composition wrong in a way that exposed a semantics defect, not a tally slip: of the 21 retained
+`Room Diagram` rows, only 15 are `Timestamp`-block Google-Forms echoes; 6 sit in DETAILS-family
+blocks (incl. `GS DETAILS (FOR BOTH)`) as EXACT curated fields with EMPTY values. Under Part A's
+deletion-diff verdict they read UNCONSUMED (deleting an empty row changes no payload), so the
+write-site ledger kept them as candidates and the detector reported each correctly named field as
+a near-miss of ITSELF. Same defect on the roundtable's empty-value `Notes` row.
+
+Repair (spec §3.3, r4): the ledger marks at the RESOLUTION site — a row is consumed iff a block
+parser resolves its label to a curated canonical key, regardless of whether a value is written.
+Measured by Part D (appended to the follow-up probe; simulation = event `SECTION_HEADER_TOKENS`
+scope + `CANONICAL_KEY_MAP` exact + `gatedVocabCorrect` with event.ts's replicated gate options):
+
+- Resolution-site drops vs the 72-row Part C set: exactly 7, all `exact:` curated resolutions
+  (6× `Room Diagram` in DETAILS-family blocks, 1× roundtable `Notes`). No fuzzy drops.
+- All 7 audited TPs retained (Stage ×2, Storage ×2, Address:, Phone:, Client:/Contact: — the
+  fallback self-slug path is not resolution). All 15 `Timestamp` forms echoes retained.
+- **The committed baseline for the spec is now 65 rows across 17 fixtures**
+  (`SUMMARY-D room_diagram_timestamp=15 room_diagram_details=0 new_total=65`), superseding §9/§10's
+  72. Composition: 7 TP + 25 EXTRA + 33 residual FP (15 `Room Diagram` Timestamp echoes, 15
+  `Backdrop`, 2 `Speaker`, 1 `Diagrams?`). `Notes` leaves the residual set entirely.
+- Both probe scripts were made runnable from their committed paths in the same repair
+  (`@/`-alias imports replacing the stale `.claude/tmp`-relative ones — r4 finding 5).

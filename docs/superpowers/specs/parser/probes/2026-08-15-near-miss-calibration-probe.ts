@@ -51,7 +51,7 @@ import { SECTION_HEADER_TOKENS as VENUE_TOKENS } from "@/lib/parser/blocks/venue
 import { SECTION_HEADER_TOKENS as TRANSPORT_TOKENS } from "@/lib/parser/blocks/transport";
 import { SECTION_HEADER_TOKENS as ROOMS_TOKENS } from "@/lib/parser/blocks/rooms";
 import { SECTION_HEADER_TOKENS as HOTELS_TOKENS } from "@/lib/parser/blocks/hotels";
-import { FIXTURES, readFixture, type FixtureRef } from "../../tests/parser/mutation/fixtures";
+import { FIXTURES, readFixture, type FixtureRef } from "@/tests/parser/mutation/fixtures";
 
 // ── LABEL_TO_KIND keys, transcribed from lib/parser/sectionKind.ts:33-55 (not exported). ──
 const LABEL_TO_KIND_KEYS = [

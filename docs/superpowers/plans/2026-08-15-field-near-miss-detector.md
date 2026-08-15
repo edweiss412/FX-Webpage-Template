@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Read the governing spec first: `docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md` (§1.1 is do-not-relitigate).
 
-**Goal:** Replace the positional `UNKNOWN_FIELD` sweep with a content-keyed near-miss detector (spec AC-N1..N7), landing the 72-row calibrated baseline and closing `BL-MUTATION-SECTION-ORDER`.
+**Goal:** Replace the positional `UNKNOWN_FIELD` sweep with a content-keyed near-miss detector (spec AC-N1..N7), landing the 65-row calibrated baseline (r4-recalibrated, spec §3.2) and closing `BL-MUTATION-SECTION-ORDER`.
 
 **Architecture:** A consumption ledger on `ParseAggregator` records curated row resolutions; a new lib/parser/fieldNearMiss.ts (created by this plan) document pass matches unresolved rows against the derived vocabulary (v3 normalization + three guards) and becomes the sole `UNKNOWN_FIELD` emitter; the venue scope-window and event fallback emissions are retired. (No entity-decode repair ships - the encoded rooms header is already recognized and deliberately stub-gated; see the retired-task note.)
 
@@ -22,7 +22,7 @@
 
 ## Meta-test inventory
 
-- **CREATES:** tests/parser/fieldNearMiss.test.ts (created) (detector unit suite), tests/parser/fieldNearMissBaseline.test.ts (created) (72-row corpus pin), single-call-site structural pin (inside fieldNearMiss.test.ts), tests/parser/consumptionLedger.test.ts (created).
+- **CREATES:** tests/parser/fieldNearMiss.test.ts (created) (detector unit suite), tests/parser/fieldNearMissBaseline.test.ts (created) (65-row corpus pin), single-call-site structural pin (inside fieldNearMiss.test.ts), tests/parser/consumptionLedger.test.ts (created).
 - **EXTENDS:** `tests/mutation/source/registry.ts` (+1 `GuardSurface` row, Task 6), `tests/parser/mutation/knownHoles.ts` (−10 rows, Task 6), `tests/parser/venueSignalParity.test.ts` baseline (deliberate regen, Task 4).
 - Advisory-lock topology: N/A — no `pg_advisory*` surface. Supabase call-boundary registry: N/A — no Supabase calls.
 
@@ -54,10 +54,12 @@ The r2 re-review probed all three proposed sites: isKnownSectionHeader and canon
 
 ```ts
 // tests/parser/consumptionLedger.test.ts
-// Spec §3.3: curated resolutions mark rows consumed; fallback self-slug storage does NOT.
+// Spec §3.3 (resolution-site): curated RESOLUTIONS mark rows consumed - including
+// resolved rows whose value is empty/filtered; fallback self-slug storage does NOT.
 // Failure modes caught: fallback rows wrongly ledgered (would silence Stage/Storage, the
 // corpus's most-confirmed true positives); curated rows not ledgered (Room Diagram would
-// double-report as a near-miss).
+// self-report as a near-miss); write-site marking regression (empty-value Room Diagram
+// unledgered would resurrect the r4 self-near-miss false-positive class).
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { newAggregator } from "@/lib/parser/warnings";
@@ -79,12 +81,15 @@ describe("consumption ledger (spec §3.3)", () => {
     expect(consumedKeys.some((k) => k.startsWith("Storage\u0000"))).toBe(false);
     // At least one curated CANONICAL_KEY_MAP row from the fixture IS consumed
     expect(agg.consumed.size).toBeGreaterThan(0);
+    // Resolution-site: the fixture's EMPTY-value "Room Diagram" row (DETAILS block) is
+    // consumed even though presence() suppresses its write - the r4 semantics distinction.
+    expect(consumedKeys.some((k) => k.startsWith("Room Diagram\u0000"))).toBe(true);
   });
 });
 ```
 
 - [ ] **Step 2: FAIL:** `pnpm exec vitest run tests/parser/consumptionLedger.test.ts` — import error on `markConsumed`/missing `consumed` field.
-- [ ] **Step 3: Implement.** In `lib/parser/warnings.ts`: add `consumed: new Map<string, number>()` to `newAggregator()`, extend the `ParseAggregator` type, export `markConsumed` (increments the count; no-op on undefined agg). Mark AT THE WRITE SITE, after presence()/sentinel filters (spec 3.3: deletion-diff-equivalent semantics): in `event.ts` both the curated exact-match branch AND the gated fuzzy correction (`gatedVocabCorrect`, lib/parser/blocks/event.ts:200-212 and event.ts:292-298) mark when they WRITE; a resolved-but-filtered row marks nothing. In `contacts.ts`: mark where a regex-accepted row is stored. In `transport.ts`: mark where a `V2_SCHEDULE_LABELS` row is stored. Do NOT touch the `toCanonicalKey` fallback. Then run the derived-cover walk (spec 3.3): audit all 11 `lib/parser/blocks/*.ts` files taking a ParseAggregator for internal resolution vocabularies; record the per-file disposition in the commit body (the committed baseline is the executable arbiter for a missed site).
+- [ ] **Step 3: Implement.** In `lib/parser/warnings.ts`: add `consumed: new Map<string, number>()` to `newAggregator()`, extend the `ParseAggregator` type, export `markConsumed` (increments the count; no-op on undefined agg). Mark AT THE RESOLUTION SITE, BEFORE any presence()/sentinel write filter (spec 3.3 resolution-site semantics, r4 recalibration): in `event.ts` both the curated exact-match branch AND the gated fuzzy correction (`gatedVocabCorrect`, lib/parser/blocks/event.ts:200-212 and event.ts:292-298) mark the moment the label RESOLVES to a curated key — a resolved row whose value is then empty/filtered still marks (that is exactly the r4 false-positive class the semantics exist to exclude). In `contacts.ts`: mark where the regex resolves a row. In `transport.ts`: mark where a `V2_SCHEDULE_LABELS` row resolves. Do NOT touch the `toCanonicalKey` fallback. Then run the derived-cover walk (spec 3.3): audit all 11 `lib/parser/blocks/*.ts` files taking a ParseAggregator for internal resolution vocabularies; record the per-file disposition in the commit body (the committed baseline is the executable arbiter for a missed site).
 - [ ] **Step 4: PASS** the new test; also `pnpm exec vitest run tests/parser/blocks/event.test.ts tests/parser/blocks/venue.test.ts` (payload untouched).
 - [ ] **Step 5: Commit** `feat(parser): consumption ledger on ParseAggregator (curated resolutions only)`
 
@@ -94,11 +99,14 @@ describe("consumption ledger (spec §3.3)", () => {
 
 **Files:**
 - Create: lib/parser/fieldNearMiss.ts (created by this plan)
+- Modify: `lib/parser/warnings.ts` (`emitUnknownField` gains `candidate?: string` opt; `ParseWarning` gains an optional structured `candidate` field; message appends "looks like '<candidate>'" when present — spec §5's decided carrier, landed HERE so Task 4's baseline can read `warning.candidate` and Task 5 touches copy only)
+- Modify: `lib/parser/sectionKind.ts` (export `LABEL_TO_KIND_KEYS` — Step 3)
+- Create: lib/parser/sectionHeaderTokens.ts (created — barrel, Step 3)
 - Create: tests/parser/fieldNearMiss.test.ts (created)
 
 **Interfaces:**
 - Consumes: `FIELD_ALIASES` (`lib/parser/aliases.ts:19`), `resolveAlias` (`aliases.ts:166`), `isKnownSectionHeader` (`lib/parser/knownSections.ts:202`), `canonicalSectionKind` (`lib/parser/sectionKind.ts:82`), `decodeEntities` (`lib/parser/blocks/_helpers.ts:65`), `parseTableRows` (`_helpers.ts:20`), `ParseAggregator.consumed` (Task 1).
-- Produces: `detectFieldNearMisses(markdown: string, agg: ParseAggregator): void` — emits `UNKNOWN_FIELD` warnings via `emitUnknownField` with a new `candidate` opt (the matched vocabulary label). Also exports `buildVocabulary(): Map<string, Set<string>>` (normalized entry → token set) and `normalizeV3(raw: string): string` / `fusedForm(raw: string): string` for the test suite and mutation operators.
+- Produces: `detectFieldNearMisses(markdown: string, agg: ParseAggregator): void` — emits `UNKNOWN_FIELD` warnings via `emitUnknownField` with the new `candidate` opt (the matched vocabulary entry's RAW spelling, spec §3.1 tie-break). Also exports `buildVocabulary(): Map<string, VocabEntry>` where `VocabEntry = { tokens: Set<string>; raw: string }` (insertion order = derivation order; first raw spelling wins — spec §3.1) and `normalizeV3(raw: string): string` / `fusedForm(raw: string): string` for the test suite and mutation operators. `ParseWarning.candidate?: string` is readable by Task 4's baseline generator.
 
 Spec §3.1 is the normative rule; transcribe it exactly:
 
@@ -119,37 +127,47 @@ export const fusedForm = (raw: string): string =>
 
 const tokens = (s: string): Set<string> => new Set(s.split(" ").filter(Boolean));
 
-export function buildVocabulary(): Map<string, Set<string>> {
+export type VocabEntry = { tokens: Set<string>; raw: string };
+
+// Insertion order IS the spec §3.1 tie-break: derivation order, first raw spelling wins,
+// first matching entry selected, candidate reported as that entry's raw spelling.
+export function buildVocabulary(): Map<string, VocabEntry> {
   const raw: string[] = [
     ...Object.values(FIELD_ALIASES).flat(),
     ...SECTION_HEADER_TOKEN_SETS.flat(),
     ...LABEL_TO_KIND_KEYS,
   ];
-  const vocab = new Map<string, Set<string>>();
+  const vocab = new Map<string, VocabEntry>();
   for (const r of raw) {
     const n = normalizeV3(r);
-    if (n && !vocab.has(n)) vocab.set(n, tokens(n));
+    if (n && !vocab.has(n)) vocab.set(n, { tokens: tokens(n), raw: r });
   }
   return vocab;
 }
 
 const DISTINCTIVENESS_MAX = 4; // = vocab doc-frequency of "address", the least-distinctive required TP (spec §3.1)
 const MIN_LEN = 5;
-const ALL_CAPS_SINGLE = /^[A-Z][A-Z&#'.\-\s]*$/;
+// ALL-CAPS single-token guard, EXACTLY the calibration executable's form (r4 finding 6):
+// raw label matches /^[A-Z0-9&/#'.\-]+$/ AND its normalized token set has size 1.
+const ALL_CAPS_RAW = /^[A-Z0-9&/#'.\-]+$/;
+const isAllCapsSingle = (rawLabel: string, normTokens: Set<string>): boolean =>
+  ALL_CAPS_RAW.test(rawLabel) && normTokens.size === 1;
 
-// ... subset-or-equal match over plain + fused forms, guards per spec §3.1, then for each
-// unresolved candidate row (not alias/section-resolved, not in agg.consumed):
-//   emitUnknownField(agg, { block, kind, key: col0, value, candidate: matchedVocabularyLabel })
+// ... subset-or-equal match over plain + fused forms (first matching entry in insertion
+// order wins), guards per spec §3.1, then for each unresolved candidate row (not
+// alias/section-resolved, not in agg.consumed):
+//   emitUnknownField(agg, { block, kind, key: col0, value, candidate: entry.raw })
 //   where kind/block follow the spec 2.2 anchor-namespace mapping: "venue" for the venue
 //   block, "details" for DETAILS-family blocks, else the normalized block-opener label.
 ```
 
-(The elided match/guard body is fully specified by spec §3.1 plus the calibration probe `docs/superpowers/specs/parser/probes/2026-08-15-near-miss-calibration-probe.ts:180-232` — the implementer transcribes the v3 rule implementation in the follow-up probe, docs/superpowers/specs/parser/probes/2026-08-15-near-miss-followup-probe.ts:355-427, which is the measured artifact (the original probe's earlier lines are the retired v0). `emitUnknownField` gains an optional `candidate?: string` that appends "looks like '<candidate>'" to the message; Task 5 aligns copy.)
+(The elided match/guard body is fully specified by spec §3.1 plus the follow-up probe's Part B v3 rule implementation (`docs/superpowers/specs/parser/probes/2026-08-15-near-miss-followup-probe.ts`, the `firingsV3` computation — the measured artifact; the calibration probe's earlier rule is the retired v0). Both probes are runnable from their committed paths: `pnpm exec tsx --tsconfig tsconfig.json <path>`. The `emitUnknownField` `candidate?: string` opt + `ParseWarning.candidate` structured field land in THIS task (see Files); Task 5 aligns catalog copy only.)
 
 - [ ] **Step 1: Write the failing test** — RED because lib/parser/fieldNearMiss.ts (created by this plan) does not exist (import fails). Cases, each naming its failure mode:
   - TP fixtures fire: `Stage`→`Stage Size`, `Storage`→`Equipment Storage`, `Address:`→`VENUE ADDRESS`-family, `Phone:`→`Client Phone`, `Client:/Contact:`→`Client Contact` (v3 punctuation collapse), `E-mail:`→email aliases (fused form). Derive inputs from real fixture lines, not invented strings.
   - Guard-suppressed classes stay silent (one case each): crew-roster name row, agenda time row (`8:00 AM`), gear pull-sheet item row (`DIGITAL AUDIO CONSOLE- QU32 CONSOLE`), `NO_HEADER` artifact row, `#REF!` residue row, all-caps single tokens >=5 chars (`INTERNAL`), sub-5-char labels (`NAME`), `Details?`, and an `agg.consumed`-ledgered row (Task 1 integration).
-  - Pinned residual classes fire exactly as baselined (spec 3.2 authority): a Timestamp-block forms-echo row, `Speaker`, the roundtable `Notes` row, `Diagrams?`.
+  - Pinned residual classes fire exactly as baselined (spec 3.2 authority): a Timestamp-block forms-echo row, `Speaker`, `Diagrams?`.
+  - Consumption-excluded classes stay silent BOTH ways (spec 3.3 resolution-site semantics): a curated row with a written value (consultants `Notes`) AND a curated row with an EMPTY value (east-coast DETAILS-block `Room Diagram`) — the empty case is the r4 false-positive class; Stage/Storage in the same block still fire (fallback self-slug is not resolution).
   - Guard premises: `premiseHolds("vocabulary contains the target alias", vocab.has("stage size"))` before each TP assertion.
   - (The single-call-site structural pin is NOT in this task's suite — Task 2 would otherwise commit a RED test, violating TDD-per-task. Task 4 adds it after the legacy emitters are removed.)
 - [ ] **Step 2: FAIL:** `pnpm exec vitest run tests/parser/fieldNearMiss.test.ts`.
@@ -170,17 +188,17 @@ const ALL_CAPS_SINGLE = /^[A-Z][A-Z&#'.\-\s]*$/;
 - [ ] **Step 1: Write the failing baseline test** (explicit committed JSON, `UPDATE_NEAR_MISS_BASELINE=1` regen path; each baseline row carries FULL emission identity per spec AC-N1: `{fixture, key, block, kind, candidate}` - not a bare key multiset, so a wrong block/kind mapping or drifted candidate fails the pin). RED because the detector is not yet wired into `parseSheet` (production line: the missing `detectFieldNearMisses` call in `lib/parser/index.ts`) — corpus emissions are still the positional sweep's.
 - [ ] **Step 2: FAIL**, then wire the detector, remove both legacy emit sites, re-gate TYPO_NORMALIZED to venue-block membership (spec 2.1), and emit kind/block by the spec 2.2 anchor-namespace mapping ("venue" for the venue block, "details" for DETAILS-family blocks, else normalized block-opener label). ADD the single-call-site structural pin to fieldNearMiss.test.ts in this task (exactly one emitUnknownField call site under lib/parser/ outside warnings.ts, filesystem grep in-test) - it lands GREEN here because both legacy sites are gone in this same commit.
 - [ ] **Step 2b (AC-N8/AC-N9):** extend the baseline test file: TYPO_NORMALIZED census pinned at 0 across the corpus; unit tests for the re-keyed membership gate both directions (constructed fixture with a Hotal Contact Info row inside the venue block fires once; the corpus Hotal Contact Info rows in hotel blocks and the Virtaul Audience row stay silent, incl. under the B16/B17 swap); anchor assertions - the four Stage/Storage baseline rows resolve non-null sourceCell via resolveUnknownFieldCell (kind "details"), one Timestamp-block row asserts null (documented-safe).
-- [ ] **Step 3: Generate the baseline** (`UPDATE_NEAR_MISS_BASELINE=1 pnpm exec vitest run tests/parser/fieldNearMissBaseline.test.ts`), verify GREEN without the env var, and verify the count: 72 rows total (spec §3.2). If the implementation's count differs from 72, STOP and reconcile against the calibration probe before committing — the probe is rerunnable (`pnpm exec tsx --tsconfig tsconfig.json docs/superpowers/specs/parser/probes/2026-08-15-near-miss-calibration-probe.ts`).
+- [ ] **Step 3: Generate the baseline** (`UPDATE_NEAR_MISS_BASELINE=1 pnpm exec vitest run tests/parser/fieldNearMissBaseline.test.ts`), verify GREEN without the env var, and verify the count: 65 rows total (spec §3.2). If the implementation's count differs from 65, STOP and reconcile against the follow-up probe's Part D (resolution-site definitive set) before committing — the probe is rerunnable from its committed path (`pnpm exec tsx --tsconfig tsconfig.json docs/superpowers/specs/parser/probes/2026-08-15-near-miss-followup-probe.ts`; Part D prints the per-fixture set and `SUMMARY-D ... new_total=65`).
 - [ ] **Step 4:** Regenerate `tests/parser/__fixtures__/venueSignalParity.baseline.json` (`UPDATE_VENUE_PARITY_BASELINE=1 ...`) — the ratified §7.2(a) delta, same commit. `tests/parser/venueSwapInvariance.test.ts` flips RED→GREEN (10/10); `tests/parser/blocks/venue.test.ts` stays green (AC-N3).
 - [ ] **Step 5:** Exhaustive sweep GREEN: `pnpm heavy sh -c 'VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run tests/parser/mutationHarness.venueSwapSweep.test.ts --project mutation'`.
-- [ ] **Step 6: Commit** `feat(parser): content-keyed near-miss detector replaces positional sweep (72-row baseline, ratified quieting)`
+- [ ] **Step 6: Commit** `feat(parser): content-keyed near-miss detector replaces positional sweep (65-row baseline, ratified quieting)`
 
 ### Task 5: Copy + §12.4 fan-out (one commit)
 
 <!-- task: red=`pnpm exec vitest run tests/cross-cutting/codes.test.ts tests/messages/_metaWarningCardCopy.test.ts` ac=AC-N6 -->
 
 **Files:**
-- Modify: master spec §12.4 `UNKNOWN_FIELD` row (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`), `lib/messages/catalog.ts:1307-1321`, `tests/messages/warningCardCopyRegistry.ts:232-233`, `lib/parser/warnings.ts` (`emitUnknownField` message format with `candidate`)
+- Modify: master spec §12.4 `UNKNOWN_FIELD` row (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`), `lib/messages/catalog.ts:1307-1321`, `tests/messages/warningCardCopyRegistry.ts:232-233` and `tests/messages/warningCardCopyRegistry.ts:102`, the card-copy canonical doc row (`docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:147`) — catalog/doc/registry copy ONLY; the `emitUnknownField` `candidate` carrier already landed in Task 2
 
 - [ ] **Step 1:** Draft the near-miss copy for the SIX non-null catalog strings (title, dougFacing, followUp, helpfulContext, triggerContext, longExplanation; crewFacing is null and stays null - spec 5 enumerates why each currently asserts the retired framing; apostrophes `'`, no em-dashes, no raw codes). Update the master-spec 12.4 prose rows FIRST (dougFacing at docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2897, helpfulContext at :3253 - drafting-time locators; codes.test.ts:81-96 deep-matches four fields), run `pnpm gen:spec-codes`, then mirror in `catalog.ts`, the card-copy CANONICAL doc row (docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:147 - byte-compared by tests/messages/_metaWarningCardCopy.test.ts:94-128), the registry EXPECTED_HELPFUL_CONTEXT row (tests/messages/warningCardCopyRegistry.ts:232-233) AND the registry triggerContext fixture (warningCardCopyRegistry.ts:102). Interpolation: if the copy carries a `_<candidate>_` placeholder, wire its param through the lookup surface (lib/messages/lookup.ts:12-34); otherwise omit the placeholder deliberately and keep the candidate in the warning message only - decide and record in the commit body. RED going in: `tests/cross-cutting/codes.test.ts` fails while spec and catalog disagree mid-edit — the task's red observation point is after the spec-row edit and before the catalog edit; both land in this one commit.
 - [ ] **Step 2:** All marker suites green: the two named suites + `pnpm exec vitest run tests/parser/operatorActionableWarnings.test.ts tests/parser/dataGapsClassCompleteness.test.ts` (counts UNCHANGED — same code, same buckets).
@@ -188,13 +206,14 @@ const ALL_CAPS_SINGLE = /^[A-Z][A-Z&#'.\-\s]*$/;
 
 ### Task 6: Registry enrollment + ledger shrink
 
-<!-- task: red=`pnpm exec vitest run tests/parser/mutation/knownHoles.test.ts` ac=AC-N5,AC-N7 -->
+<!-- task: red=`pnpm exec vitest run tests/parser/mutation/knownHoles.test.ts tests/parser/fieldNearMiss.test.ts` ac=AC-N5,AC-N7 -->
 
-- [ ] **Step 1:** Enroll: add `GuardSurface` row to `tests/mutation/source/registry.ts` (`id: "fieldNearMiss"`, `sourcePath: "lib/parser/fieldNearMiss.ts"`, `suitePaths: ["tests/parser/fieldNearMiss.test.ts", "tests/parser/fieldNearMissBaseline.test.ts"]`, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95`, `broken`: flip `DISTINCTIVENESS_MAX` to `0` — kills every type-b TP, the suite MUST notice). Run `pnpm heavy pnpm mutation:guards`; record score + survivor dispositions in the commit body; unaccepted-survivor set must be empty.
-- [ ] **Step 2:** `perl -ni -e 'print unless /^section-reorder:(2025-03-dci-rpas-central:B1[459]|2025-04-asset-mgmt-cfo-coo:B1[45]|2025-06-ria-investment-forum:B[3478]|2025-10-consultants-roundtable:B22):/' tests/parser/mutation/knownHoles.ts` (wave plan Task 4 Step 1's exact command); `knownHoles.test.ts` green; `OPERATOR_FINDING_MAP` comment updated per wave plan Task 4 Step 2 (map VALUE unchanged).
-- [ ] **Step 3:** Full harness (8 shards): `pnpm heavy sh -c 'VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation'` — four buckets empty. Drifted fingerprints (the detector changes emission multisets on mutated docs) are regenerated in this same commit per the wave's drift rule.
-- [ ] **Step 4:** BACKLOG archive move is NOT done here - tests/docs/_metaLedgerInProgress.test.ts:77-81 rejects any archived entry still carrying IN PROGRESS. The move happens in Task 7's LAST commit, in the same commit that removes the IN PROGRESS marker (invariant 12: a graduating entry's marker comes off in the same commit that archives it).
-- [ ] **Step 5: Commit** `test(mutation): enroll fieldNearMiss guard; close BL-MUTATION-SECTION-ORDER (-10 rows)`
+- [ ] **Step 1: Write the failing tests FIRST (r4 finding 7 — this task's genuine RED).** (a) In `tests/parser/mutation/knownHoles.test.ts`: add a case asserting the 10 closed `section-reorder:` ids (the exact ids in Step 3's perl command) are ABSENT from `knownHoles.ts` — RED while the rows exist. (b) In the Task 2 detector suite (tests/parser/fieldNearMiss.test.ts (created)): add a case asserting `tests/mutation/source/registry.ts` SURFACES contains a row with `id: "fieldNearMiss"` — RED before enrollment.
+- [ ] **Step 2:** Enroll: add the `GuardSurface` row to `tests/mutation/source/registry.ts` matching the LIVE type (`registry.ts:12-37`): `id: "fieldNearMiss"`, `sourcePath: "lib/parser/fieldNearMiss.ts"`, `suitePaths: ["tests/parser/fieldNearMiss.test.ts", "tests/parser/fieldNearMissBaseline.test.ts"]`, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95`, `control: { from: "const DISTINCTIVENESS_MAX = 4", to: "const DISTINCTIVENESS_MAX = 0" }` (kills every type-b TP, the suite MUST notice), `accepted: []`. Run `pnpm heavy pnpm mutation:guards`; record score + survivor dispositions in the commit body; unaccepted-survivor set must be empty (a survivor is either killed by a strengthened test or added to `accepted` with a reason, in this same commit).
+- [ ] **Step 3:** `perl -ni -e 'print unless /^section-reorder:(2025-03-dci-rpas-central:B1[459]|2025-04-asset-mgmt-cfo-coo:B1[45]|2025-06-ria-investment-forum:B[3478]|2025-10-consultants-roundtable:B22):/' tests/parser/mutation/knownHoles.ts` (wave plan Task 4 Step 1's exact command); both Step 1 tests now GREEN; `knownHoles.test.ts` fully green; `OPERATOR_FINDING_MAP` comment updated per wave plan Task 4 Step 2 (map VALUE unchanged).
+- [ ] **Step 4:** Full harness (8 shards): `pnpm heavy sh -c 'VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation'` — four buckets empty. Drifted fingerprints (the detector changes emission multisets on mutated docs) are regenerated in this same commit per the wave's drift rule.
+- [ ] **Step 5:** BACKLOG archive move is NOT done here - tests/docs/_metaLedgerInProgress.test.ts:77-81 rejects any archived entry still carrying IN PROGRESS. The move happens in Task 7's LAST commit, in the same commit that removes the IN PROGRESS marker (invariant 12: a graduating entry's marker comes off in the same commit that archives it).
+- [ ] **Step 6: Commit** `test(mutation): enroll fieldNearMiss guard; close BL-MUTATION-SECTION-ORDER (-10 rows)`
 
 ### Task 7: Close-out: gates, PR, merge
 
@@ -202,13 +221,13 @@ const ALL_CAPS_SINGLE = /^[A-Z][A-Z&#'.\-\s]*$/;
 
 - [ ] **Step 1:** Impeccable dual gate on the help/warning-copy diff (`/impeccable critique` + `/impeccable audit`, canonical v3 setup gates); disposition P0/P1; record findings in section 12 below and REPLACE its impeccable-gate line with the filled form (this arc's UI touch is copy-only).
 - [ ] **Step 2:** `pnpm heavy pnpm test` + `pnpm typecheck` + `pnpm exec eslint .` + `pnpm format:check` — all green.
-- [ ] **Step 3:** PR: body carries the quieting stats (394→72), parity-supersession ratification cite, calibration probe pointer, review-mechanism record (codex silent-hang wedge → substitute independent-Claude review, per AGENTS.md ladder — NEVER claimed as cross-model APPROVE), and the wave AC-W1 arithmetic. In the PR's LAST commit: remove the BACKLOG IN PROGRESS marker AND move BL-MUTATION-SECTION-ORDER to BACKLOG-archive.md with the section-7 ratification + 72-ratified-rows documented-limit note + pointer to this spec (same commit - invariant 12 graduation shape; meta-test green). Real CI green (incl. `mutation-harness.yml` via path filter + `workflow_dispatch` verify). `gh pr merge --merge`; fast-forward main; `git rev-list --left-right --count main...origin/main` = `0  0`.
+- [ ] **Step 3:** PR: body carries the quieting stats (394→65), parity-supersession ratification cite, calibration probe pointer, review-mechanism record (the MIXED train: substitute independent-Claude rounds while codex was budget-misfit, then genuine codex rounds — substitute rounds NEVER claimed as cross-model APPROVE), and the wave AC-W1 arithmetic. In the PR's LAST commit: remove the BACKLOG IN PROGRESS marker AND move BL-MUTATION-SECTION-ORDER to BACKLOG-archive.md with the section-7 ratification + 72-ratified-ledger-rows documented-limit note + pointer to this spec (same commit - invariant 12 graduation shape; meta-test green). Real CI green (incl. `mutation-harness.yml` via path filter + `workflow_dispatch` verify). `gh pr merge --merge`; fast-forward main; `git rev-list --left-right --count main...origin/main` = `0  0`.
 
 <!-- tasks: end -->
 
 ## Acceptance criteria index (from spec, for task-marker resolution)
 
-- **AC-N1:** corpus emits exactly the 72-row calibrated baseline (committed JSON + env regen).
+- **AC-N1:** corpus emits exactly the 65-row calibrated baseline (committed JSON + env regen).
 - **AC-N2:** emission multiset invariant under every adjacent-block swap (10 named + 497-swap sweep GREEN).
 - **AC-N3:** venue payload byte-identical on the corpus.
 - **AC-N4:** N/A - retired; entity-encoded block already recognized and deliberately stub-gated (spec 2.3).

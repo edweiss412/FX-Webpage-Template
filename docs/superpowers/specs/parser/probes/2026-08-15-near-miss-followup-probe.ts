@@ -28,14 +28,15 @@ import { SECTION_HEADER_TOKENS as CLIENT_TOKENS } from "@/lib/parser/blocks/clie
 import { SECTION_HEADER_TOKENS as DATES_TOKENS } from "@/lib/parser/blocks/dates";
 import { SECTION_HEADER_TOKENS as DRESS_TOKENS } from "@/lib/parser/blocks/dress";
 import { SECTION_HEADER_TOKENS as CREW_TOKENS } from "@/lib/parser/blocks/crew";
-import { SECTION_HEADER_TOKENS as EVENT_TOKENS, CANONICAL_KEY_MAP as EVENT_CANONICAL_KEY_MAP } from "@/lib/parser/blocks/event";
+import { SECTION_HEADER_TOKENS as EVENT_TOKENS, CANONICAL_KEY_MAP as EVENT_CANONICAL_KEY_MAP, EVENT_LABEL_VOCAB } from "@/lib/parser/blocks/event";
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { SECTION_HEADER_TOKENS as VENUE_TOKENS } from "@/lib/parser/blocks/venue";
 import { SECTION_HEADER_TOKENS as TRANSPORT_TOKENS } from "@/lib/parser/blocks/transport";
 import { SECTION_HEADER_TOKENS as ROOMS_TOKENS } from "@/lib/parser/blocks/rooms";
 import { SECTION_HEADER_TOKENS as HOTELS_TOKENS } from "@/lib/parser/blocks/hotels";
-import { FIXTURES, readFixture, type FixtureRef } from "../../tests/parser/mutation/fixtures";
+import { FIXTURES, readFixture, type FixtureRef } from "@/tests/parser/mutation/fixtures";
 import { parseSheet } from "@/lib/parser";
-import { payloadOf, payloadChanged } from "../../tests/parser/mutation/oracle";
+import { payloadOf, payloadChanged } from "@/tests/parser/mutation/oracle";
 
 // ── LABEL_TO_KIND keys (same transcription as the original probe; re-verified below). ──
 const LABEL_TO_KIND_KEYS = [
@@ -649,6 +650,71 @@ function main() {
             })),
           })),
         },
+      },
+      null,
+      2,
+    ),
+  );
+
+  // ═══════════════════════════ PART D ═══════════════════════════
+  // RESOLUTION-SITE consumption semantics (cross-model r4 finding 3 repair measurement).
+  // Part C's deletion-diff cannot see "resolved to a curated key but value empty/filtered":
+  // deleting such a row changes no payload, so it reads UNCONSUMED and stays a candidate —
+  // and the detector then reports a correctly named curated field as a near-miss of itself.
+  // New semantics: a row is consumed iff a block parser RESOLVES its label to a curated
+  // canonical key, regardless of whether a payload value was written. Fallback self-slug
+  // storage still never consumes (Stage/Storage stay candidates).
+  // Simulation for this corpus: event.ts is the only curated resolver whose blocks hold
+  // retained rows (contacts/transport rows were already CONSUMED_OTHER_KEY-dropped in Part C).
+  // Event scope = block opener is an event SECTION_HEADER_TOKENS member (uppercased exact);
+  // resolution = CANONICAL_KEY_MAP exact hit OR gatedVocabCorrect into EVENT_LABEL_VOCAB.
+  console.log("\n\n=== PART D: RESOLUTION-SITE CONSUMPTION (r4-finding-3 semantics) ===");
+  const EVENT_SCOPE = new Set<string>(EVENT_TOKENS.map((t) => t.toUpperCase()));
+  const resolvesCurated = (col0: string): string | null => {
+    const exact = EVENT_CANONICAL_KEY_MAP[col0.toLowerCase().trim()];
+    if (exact !== undefined) return `exact:${exact}`;
+    // EVENT_GATE_OPTS replicated (event.ts:130-131 keeps it module-private): the exclude list
+    // must match or the fuzzy path over-consumes labels event.ts refuses to correct.
+    const fix = gatedVocabCorrect(col0.toUpperCase(), EVENT_LABEL_VOCAB, {
+      minLen: 5,
+      tieAbort: true,
+      exclude: ["LED", "LEAD", "DATE", "DAY", "ROOM", "TBD", "TBA", "N/A"],
+    });
+    if (fix?.corrected) {
+      const canon = EVENT_CANONICAL_KEY_MAP[fix.match.toLowerCase()];
+      if (canon) return `fuzzy:${canon}`;
+    }
+    return null;
+  };
+  const partD = finalSet.map((r) => {
+    const inEventScope = EVENT_SCOPE.has(r.block.toUpperCase().trim());
+    const res = inEventScope ? resolvesCurated(r.col0) : null;
+    return { ...r, resolutionDrop: res !== null, resolution: res };
+  });
+  const droppedD = partD.filter((r) => r.resolutionDrop);
+  const keptD = partD.filter((r) => !r.resolutionDrop);
+  console.log(`Part C kept: ${finalSet.length}; resolution-site drops: ${droppedD.length}; NEW BASELINE: ${keptD.length}`);
+  for (const d of droppedD) console.log(`    DROP ${fmtFiring(d)}  resolution=${d.resolution}`);
+  console.log("\n--- resolution-site definitive set per fixture ---");
+  for (const f of FIXTURES) {
+    const rows = keptD.filter((r) => r.fixture === f.path);
+    console.log(`${f.path.padEnd(60)} count=${rows.length}`);
+    for (const r of rows) console.log(`    col0="${r.col0}" block="${r.block}" ${r.matchType}(${r.via}) -> "${r.vocabEntry}"`);
+  }
+  const tally = new Map<string, number>();
+  for (const r of keptD) tally.set(r.col0, (tally.get(r.col0) ?? 0) + 1);
+  console.log("\n--- resolution-site composition by col0 ---");
+  for (const [k, v] of [...tally.entries()].sort((a, b) => b[1] - a[1])) console.log(`  ${k}: ${v}`);
+  const rdTimestamp = keptD.filter((r) => r.col0 === "Room Diagram" && r.block === "Timestamp").length;
+  const rdDetails = keptD.filter((r) => r.col0 === "Room Diagram" && r.block !== "Timestamp").length;
+  console.log(`\nSUMMARY-D room_diagram_timestamp=${rdTimestamp} room_diagram_details=${rdDetails} new_total=${keptD.length}`);
+  writeFileSync(
+    ".claude/tmp/near-miss-partD.json",
+    JSON.stringify(
+      {
+        newTotal: keptD.length,
+        resolutionDrops: droppedD.map((r) => ({ fixture: r.fixture, col0: r.col0, block: r.block, resolution: r.resolution })),
+        kept: keptD.map((r) => ({ fixture: r.fixture, col0: r.col0, block: r.block, matchType: r.matchType, via: r.via, vocabEntry: r.vocabEntry })),
       },
       null,
       2,
