@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-15 · **Authoring branch:** `docs/step3-tap-cluster-spec` · **Implementation branch:** `fix/step3-tap-cluster`
 **Closes:** `BL-TAP-TITLE-LINK-META-LINE-BLEED` + `BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR` + `BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING` (all BACKLOG.md)
-**Class:** accessibility / layout (admin UI, invariant 8 applies) · **Effort:** S
+**Class:** accessibility / layout (admin UI, invariant 8 applies) · **Effort:** S · **Status:** spec-APPROVED (codex-guard R5 APPROVE/0, 2026-08-15; R1-R4 findings repaired in-branch, R1-F1 refuted by probe)
 
 All three entries are fallout of the 2026-08-10 tap-target repairs on the wizard step-3 review surface (`docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md`), filed by that arc's own invariant-8 impeccable gate.
 
