@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { premiseHolds } from "../_shared/premise";
 import {
@@ -25,10 +25,23 @@ const el = (over: Partial<ScanElement>): ScanElement => ({
 // Fixture harness (plan R2 F3): the resolver is ALSO exercised end-to-end through temp files,
 // so a flattening scanner or first-wins lookup cannot stay green on unit cases alone.
 function scanFixture(source: string) {
+  return scanFixtureFiles({ "components/Fx.tsx": source });
+}
+
+/**
+ * The multi-file form. An import hop, a re-export chain and the hop CEILING can
+ * only be expressed across real files, and every one of those was a surviving
+ * mutant until this existed (2026-08-15 mutation run).
+ */
+function scanFixtureFiles(files: Record<string, string>) {
   const dir = mkdtempSync(join(tmpdir(), "scan-fixture-"));
   mkdirSync(join(dir, "components"), { recursive: true });
   mkdirSync(join(dir, "app"), { recursive: true });
-  writeFileSync(join(dir, "components", "Fx.tsx"), source);
+  for (const [name, source] of Object.entries(files)) {
+    const path = join(dir, name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, source);
+  }
   return scanInteractiveElements(dir);
 }
 
@@ -116,6 +129,409 @@ describe("resolver end-to-end fixtures (plan R2 F3, executable, not comments)", 
     expect(b?.unresolved).toBe(true);
     expect(b && heightFloorSatisfied(b)).toBe(false);
   });
+  // ---- resolver BOUNDS (added 2026-08-15 against surviving mutants) ----
+  //
+  // Each bound below was invisible to this suite: every fixture above sits well
+  // inside all three, so the constants could be moved and the comparisons
+  // loosened with nothing to notice. A bound is only pinned by a fixture that
+  // stands exactly ON it.
+  it("resolve depth: 6 nested parens resolve, 7 exhaust the budget", () => {
+    const at = (n: number) =>
+      scanFixture(
+        [
+          "export function C() {",
+          `  return <button className={${"(".repeat(n)}"min-h-tap-min"${")".repeat(n)}}>x</button>;`,
+          "}",
+        ].join("\n"),
+      ).find((e) => e.tag === "button");
+    // Each ParenthesizedExpression costs one level, so the literal at 7 is the
+    // first expression past MAX_RESOLVE_DEPTH.
+    const six = at(6);
+    expect(six?.unresolved).toBe(false);
+    expect(six && heightFloorSatisfied(six)).toBe(true);
+    const seven = at(7);
+    expect(seven?.unresolved).toBe(true);
+    expect(seven && heightFloorSatisfied(seven)).toBe(false);
+  });
+
+  it("path cap: exactly 64 alternatives survive intact, 65 collapse", () => {
+    // 2^6 ternaries = 64 paths, every one floored: the cap is checked BOTH
+    // inside `concat`'s inner loop and again in `capped`, so a fixture landing
+    // exactly on it pins both comparisons at once.
+    const arms = ["a", "b", "c", "d", "e", "f"]
+      .map((p) => `${p} ? "min-h-tap-min" : "h-11"`)
+      .join(", ");
+    const props = "{ a, b, c, d, e, f, g }: Record<string, boolean>";
+    const sixtyFour = scanFixture(
+      [
+        `export function C(${props}) {`,
+        `  return <button className={cn(${arms})}>{String(g)}</button>;`,
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(sixtyFour?.paths.length).toBe(64);
+    expect(sixtyFour?.unresolved).toBe(false);
+    expect(sixtyFour && heightFloorSatisfied(sixtyFour)).toBe(true);
+
+    // One more alternative, via an outer fork, is 65 and must collapse.
+    const sixtyFive = scanFixture(
+      [
+        `export function C(${props}) {`,
+        `  return <button className={g ? cn(${arms}) : "min-h-tap-min"}>x</button>;`,
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(sixtyFive?.paths.length).toBe(1);
+    expect(sixtyFive?.unresolved).toBe(true);
+  });
+
+  it("a collapsed resolution KEEPS its strings, it only stops tracking their structure", () => {
+    // `collapse` unions every string it saw into one path. If it returned an
+    // empty path instead, the tap guard would still demote (unresolved), but the
+    // SUBTLE guard reads the strings — so a policy hit inside a blown-out class
+    // string would silently vanish. That is the one consequence of collapsing
+    // that is not "demote", and nothing pinned it.
+    const arms = ["a", "b", "c", "d", "e", "f", "g"]
+      .map((p, i) => (i === 0 ? `${p} ? "text-text-subtle" : "p-1"` : `${p} ? "h-1" : "h-2"`))
+      .join(", ");
+    const b = scanFixture(
+      [
+        "export function C({ a, b, c, d, e, f, g }: Record<string, boolean>) {",
+        `  return <button className={cn(${arms})}>x</button>;`,
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(true);
+    expect(b && allStrings(b)).toContain("text-text-subtle");
+  });
+
+  it("import hops: a three-hop re-export chain resolves, a four-hop one does not", () => {
+    const chain = (links: number) => {
+      const files: Record<string, string> = {
+        "components/Fx.tsx": [
+          'import { K } from "./a";',
+          "export function C() {",
+          "  return <button className={K}>x</button>;",
+          "}",
+        ].join("\n"),
+      };
+      const names = ["a", "b", "c", "d"].slice(0, links);
+      names.forEach((name, i) => {
+        const next = names[i + 1];
+        files[`components/${name}.tsx`] = next
+          ? `export { K } from "./${next}";`
+          : 'export const K = "min-h-tap-min";';
+      });
+      return scanFixtureFiles(files).find((e) => e.tag === "button");
+    };
+    const three = chain(3);
+    expect(three?.unresolved).toBe(false);
+    expect(three && heightFloorSatisfied(three)).toBe(true);
+    const four = chain(4);
+    expect(four?.unresolved).toBe(true);
+    expect(four && heightFloorSatisfied(four)).toBe(false);
+  });
+
+  // ---- expression forms the corpus happens to use, but no fixture did ----
+  it.each([
+    ['{"min-h-tap-min" as string}', "an as-expression"],
+    ["{A || B}", "a `||` fork of two floored consts"],
+    ['{["min-h-tap-min", "px-2"].join(" ")}', "an array .join()"],
+  ])("%s resolves rather than demoting (%s)", (expr) => {
+    const b = scanFixture(
+      [
+        'const A = "min-h-tap-min";',
+        'const B = "min-h-tap-min";',
+        "export function C() {",
+        `  return <button className=${expr}>x</button>;`,
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(false);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  it("chained concise arrows resolve to the third level", () => {
+    // Each hand-off costs a level, so a 3-deep chain lands the literal exactly
+    // at the budget. Two levels cannot see a doubled increment; three can.
+    const b = scanFixture(
+      [
+        'const a = () => "min-h-tap-min";',
+        "const b = () => a();",
+        "const c = () => b();",
+        "export function C() {",
+        "  return <button className={c()}>x</button>;",
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  it("an EMPTY className expression is unresolved, not an empty resolution", () => {
+    // `className={}` reaches the else arm that assigns UNRESOLVED. Delete that
+    // assignment and the element keeps EMPTY_RESOLUTION, whose floor verdict is
+    // ALSO false — so only `.unresolved` can see the difference, and the tap
+    // guard's census reason ("unresolvable-dynamic") depends on it.
+    const b = scanFixture(
+      ["export function C() {", "  return <button className={}>x</button>;", "}"].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(true);
+  });
+
+  it("an empty expression in a NON-className attribute does not crash the walk", () => {
+    // `role={}` is read by the in-scope predicate. Nothing pinned that the
+    // predicate checks for a present expression before touching it.
+    expect(
+      scanFixture(["export function C() {", "  return <div role={}>x</div>;", "}"].join("\n")),
+    ).toEqual([]);
+  });
+
+  it("role in a braced string literal is in scope without an onClick", () => {
+    const els = scanFixture(
+      [
+        "export function C() {",
+        '  return <div role={"button"} className="min-h-tap-min">x</div>;',
+        "}",
+      ].join("\n"),
+    );
+    expect(els.some((e) => e.tag === "div")).toBe(true);
+  });
+
+  it("hasClassName reports the attribute's presence, not its content", () => {
+    // Written by the scanner, read by no predicate in this module — the census
+    // consumes it. Only a direct assertion on scanned output can pin it.
+    const els = scanFixture(
+      [
+        "export function C() {",
+        "  return (",
+        "    <>",
+        '      <button className="min-h-tap-min">a</button>',
+        "      <button onClick={() => {}}>b</button>",
+        "    </>",
+        "  );",
+        "}",
+      ].join("\n"),
+    );
+    expect(els.map((e) => e.hasClassName)).toEqual([true, false]);
+  });
+
+  // ---- the spread reader, arm by arm ----
+  //
+  // `spreadCannotCarryClassName` is the one place the scanner CLEARS something
+  // it could have feared, so every arm of it is a positive claim. Each case
+  // below is a distinct operator or wrapper, because a fixture using `||`
+  // cannot see a defect in the `??` arm and vice versa.
+  it.each([
+    ['({ target: "_blank" } as object)', "an as-wrapped object literal"],
+    ['(f && { target: "_blank" })', "a `&&` guard"],
+    ['({ target: "_blank" } || { rel: "noopener" })', "a `||` of two literals"],
+    ['({ target: "_blank" } ?? { rel: "noopener" })', "a `??` of two literals"],
+  ])("a spread of %s is read, not feared (%s)", (spread) => {
+    const b = scanFixture(
+      [
+        "export function C({ f }: { f: boolean }) {",
+        `  return <button {...${spread}} className="min-h-tap-min">x</button>;`,
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(false);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  it.each([
+    ['(f ? { target: "_blank" } : rest)', "one safe arm and one unreadable arm"],
+    ['(rest ?? { target: "_blank" })', "an unreadable left with a safe right"],
+  ])("a spread of %s still demotes (%s)", (spread) => {
+    // The mirror of the cases above: EVERY reachable value has to be provably
+    // className-free, so a conjunction weakened to a disjunction would clear
+    // these — which is a false clear, the only silent direction this scan has.
+    const b = scanFixture(
+      [
+        "export function C({ f, rest }: { f: boolean; rest: object }) {",
+        `  return <button {...${spread}} className="min-h-tap-min">x</button>;`,
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(true);
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
+
+  // ---- the cross-module resolver ----
+  //
+  // Everything here needs more than one file, which is why none of it was
+  // covered: the single-file harness could not express an import at all.
+  const chainFiles = (leaf: string, links: number): Record<string, string> => {
+    const files: Record<string, string> = {
+      "components/Fx.tsx": [
+        'import { K } from "./a";',
+        "export function C() {",
+        "  return <button className={K}>x</button>;",
+        "}",
+      ].join("\n"),
+    };
+    const names = ["a", "b", "c", "d"].slice(0, links);
+    names.forEach((name, i) => {
+      const next = names[i + 1];
+      files[`components/${name}.tsx`] = next
+        ? `export { K } from "./${next}";`
+        : `export const K = ${leaf};`;
+    });
+    return files;
+  };
+
+  it("a re-export chain's DEPTH budget is spent per hop, not per hop-pair", () => {
+    // A plain-string leaf cannot see a doubled depth increment — it lands on the
+    // budget either way. A leaf that is itself an expression pushes its arms one
+    // level further, which is where the difference becomes observable.
+    const b = scanFixtureFiles(chainFiles('true ? "min-h-tap-min" : "min-h-tap-min"', 3)).find(
+      (e) => e.tag === "button",
+    );
+    expect(b?.unresolved).toBe(false);
+    expect(b?.paths.length).toBe(2);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  it("resolves the REQUESTED export, not the module's first one", () => {
+    const b = scanFixtureFiles({
+      ...chainFiles('"unused"', 1),
+      "components/a.tsx": [
+        'export const OTHER = "min-h-0";',
+        'export const K = "min-h-tap-min";',
+      ].join("\n"),
+    }).find((e) => e.tag === "button");
+    expect(b && allStrings(b)).toEqual(["min-h-tap-min"]);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  it("a module's own IMPORT is not a re-export", () => {
+    // Both statements carry a module specifier; only one of them re-exports.
+    // Reading an import as a re-export invents an export the module never made.
+    const b = scanFixtureFiles({
+      ...chainFiles('"unused"', 1),
+      "components/a.tsx": ['import { K } from "./b";', "export const label = K;"].join("\n"),
+      "components/b.tsx": 'export const K = "min-h-tap-min";',
+    }).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(true);
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
+
+  it("follows `export * from` (no export clause at all)", () => {
+    const b = scanFixtureFiles({
+      ...chainFiles('"unused"', 1),
+      "components/a.tsx": 'export * from "./b";',
+      "components/b.tsx": 'export const K = "min-h-tap-min";',
+    }).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(false);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  it("does NOT follow a named re-export that omits the name being resolved", () => {
+    const b = scanFixtureFiles({
+      ...chainFiles('"unused"', 1),
+      "components/a.tsx": 'export { OTHER } from "./b";',
+      "components/b.tsx": ['export const K = "min-h-tap-min";', 'export const OTHER = "";'].join(
+        "\n",
+      ),
+    }).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(true);
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
+
+  it("parses each file ONCE per process, by path", () => {
+    // The scan runs three times over ~350 files (once per consuming suite), so
+    // the parse cache is why that is affordable rather than an optimisation
+    // nobody would miss. Within one process a file's parse is therefore FROZEN
+    // at first read — a real contract, because every consumer of this module
+    // scans a tree that does not change under it, and the alternative (an
+    // mtime check) buys nothing any caller needs.
+    const dir = mkdtempSync(join(tmpdir(), "scan-fixture-"));
+    mkdirSync(join(dir, "components"), { recursive: true });
+    mkdirSync(join(dir, "app"), { recursive: true });
+    const file = join(dir, "components", "Fx.tsx");
+    const at = (cls: string) =>
+      `export function C() {\n  return <button className="${cls}">x</button>;\n}`;
+    writeFileSync(file, at("min-h-tap-min"));
+    expect(allStrings(scanInteractiveElements(dir)[0]!)).toEqual(["min-h-tap-min"]);
+    writeFileSync(file, at("min-h-0"));
+    expect(allStrings(scanInteractiveElements(dir)[0]!)).toEqual(["min-h-tap-min"]);
+  });
+
+  it("a `case` clause is a scope for const lookup", () => {
+    const b = scanFixture(
+      [
+        "export function C({ k }: { k: number }) {",
+        "  switch (k) {",
+        // NO braces: a braced case body is an ordinary Block, which
+        // `statementsOf` already handles, so the case-clause arm stays dark.
+        // The binding has to sit in the clause ITSELF to exercise it.
+        "    case 1:",
+        '      const cls = "min-h-tap-min";',
+        "      return <button className={cls}>x</button>;",
+        "  }",
+        "  return null;",
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(false);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  // ---- the return-union walker (rule 6) ----
+  it.each([
+    ['const m = (x: string) => { return "min-h-0"; };', "a nested arrow"],
+    ['function inner() { return "min-h-0"; }', "a nested function declaration"],
+  ])("returns of %s belong to it, not to the helper (%s)", (nested) => {
+    const b = scanFixture(
+      [
+        "export function C() {",
+        "  function seg() {",
+        `    ${nested}`,
+        '    return "min-h-tap-min";',
+        "  }",
+        "  return <button className={seg()}>x</button>;",
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b && allStrings(b)).toEqual(["min-h-tap-min"]);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  it("only RETURN statements contribute to a helper's union", () => {
+    const b = scanFixture(
+      [
+        "export function C() {",
+        "  function seg() {",
+        '    console.log("x");',
+        '    return "min-h-tap-min";',
+        "  }",
+        "  return <button className={seg()}>x</button>;",
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(false);
+    expect(b?.paths.length).toBe(1);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  it("every return of a helper is an alternative, and the FIRST one is not dropped", () => {
+    // `reduce` with no seed never calls back with index 0, so an index test can
+    // be wrong in two directions and still union something plausible. Only a
+    // helper whose FIRST return is the floorless one shows the difference.
+    const b = scanFixture(
+      [
+        "export function C({ f }: { f: boolean }) {",
+        "  function seg() {",
+        '    if (f) return "px-2";',
+        '    return "min-h-tap-min";',
+        "  }",
+        "  return <button className={seg()}>x</button>;",
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.paths.length).toBe(2);
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
+
   it("nested conditional keeps ancestry: inner both-branch floor under a floorless outer arm never clears", () => {
     const els = scanFixture(
       [
@@ -199,6 +615,81 @@ describe("height floor (spec §5.1/§5.2 rules 1-4, 7) and defeaters (rule 8)", 
       expect(heightFloorSatisfied(el({ paths: [[tok as string]] }))).toBe(false);
     },
   );
+  // Everything below this comment was written against SURVIVING MUTANTS from the
+  // 2026-08-15 source-mutation run: each case names a mutation of
+  // `interactiveScanCore.ts` that the suite above could not see. They are boundary
+  // and unit-conversion cases, which is exactly the class a hand-written suite
+  // misses — the earlier cases all sat comfortably inside their ranges.
+  it.each([
+    // The rem conversion itself: 2.75rem IS the floor at 16px/rem. Kills the two
+    // capture-index mutants (`rem[1]` -> `rem[2]`, which yields NaN) and the
+    // 16 -> 17 rate mutant is killed by the pair below.
+    ["min-h-[2.75rem]", true],
+    // 2.6rem = 41.6px at the real rate and 44.2px at 17px/rem: the ONLY fixture
+    // shape that can see the conversion RATE rather than its presence.
+    ["min-h-[2.6rem]", false],
+  ])("arbitrary rem length %s floors -> %s", (tok, want) => {
+    expect(heightFloorSatisfied(el({ paths: [[tok as string]] }))).toBe(want);
+  });
+
+  it("an over-floor arbitrary height PROPERTY is not a defeater", () => {
+    // `px !== null && px < FLOOR_PX` — with the conjunction weakened to `||`,
+    // every readable arbitrary height becomes a defeater, including one that
+    // clears the floor by more than double.
+    expect(defeaterPresent(el({ paths: [["[min-height:100px]"]] }))).toBe(false);
+    expect(heightFloorSatisfied(el({ paths: [["min-h-tap-min [min-height:100px]"]] }))).toBe(true);
+  });
+
+  it("an arbitrary height property AT the floor is not a defeater (44 is not under 44)", () => {
+    expect(defeaterPresent(el({ paths: [["[min-height:44px]"]] }))).toBe(false);
+    expect(heightFloorSatisfied(el({ paths: [["min-h-tap-min [min-height:44px]"]] }))).toBe(true);
+  });
+
+  it("the negative-margin + padding recipe floors, and p-3 is its exact boundary", () => {
+    // The recipe had no fixture at all, so four mutations of it survived: the
+    // capture index, the NaN it produces, the `>=` boundary and the 3 itself.
+    expect(heightFloorSatisfied(el({ paths: [["-my-2 p-3"]] }))).toBe(true);
+    expect(heightFloorSatisfied(el({ paths: [["-my-2 p-2"]] }))).toBe(false);
+    // Both halves are required — neither alone is the recipe.
+    expect(heightFloorSatisfied(el({ paths: [["p-3"]] }))).toBe(false);
+    expect(heightFloorSatisfied(el({ paths: [["-my-2"]] }))).toBe(false);
+  });
+
+  // The variant-prefix scanner walks bracket depth by hand, and nothing here
+  // used a token whose brackets CONTAIN a colon or whose prefix list is longer
+  // than one — so every off-by-one in that walk survived.
+  it("a bracketed variant whose argument contains a colon still finds the real separator", () => {
+    expect(defeaterPresent(el({ paths: [["supports-[display:grid]:min-h-0"]] }))).toBe(true);
+    expect(heightFloorSatisfied(el({ paths: [["supports-[display:grid]:min-h-tap-min"]] }))).toBe(
+      true,
+    );
+  });
+
+  it("a token with TWO variant prefixes classifies on the last one", () => {
+    // With one prefix, the slice start never moves, so every single-variant
+    // token reads the same however the walk advances. These two need the
+    // SECOND prefix read exactly: `before` (pseudo) and `[&_svg]` (descendant).
+    expect(heightFloorSatisfied(el({ paths: [["hover:before:h-tap-min"]] }))).toBe(false);
+    expect(defeaterPresent(el({ paths: [["min-h-tap-min md:[&_svg]:size-4"]] }))).toBe(false);
+  });
+
+  it("an element with NO render alternative never clears (anti-vacuous-truth)", () => {
+    // `paths.length > 0 &&` guards `.every()`, which is vacuously true on an
+    // empty array. The scanner never emits an empty path set, so this predicate's
+    // own API is the only place the guard can be observed — and without the
+    // observation, relaxing it to `>= 0` passes every other test in this file.
+    expect(heightFloorSatisfied(el({ paths: [] }))).toBe(false);
+  });
+
+  it("a sub-floor pseudo height does not complete the expansion recipe", () => {
+    // The recipe needs `before:absolute` AND something that actually EXPANDS.
+    // `before:h-4` is readable and 16px: the conjunction in `tokenIsFloor`
+    // (`px !== null && px >= FLOOR_PX`) is what rejects it.
+    expect(heightFloorSatisfied(el({ paths: [["relative before:absolute before:h-4"]] }))).toBe(
+      false,
+    );
+  });
+
   it("the pseudo-element expansion recipes DO floor (spec §5.1)", () => {
     // Explicit-height form: a 44px absolutely-positioned pseudo IS the hit area.
     expect(
