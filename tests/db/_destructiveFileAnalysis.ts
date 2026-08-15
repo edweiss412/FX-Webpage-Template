@@ -338,6 +338,12 @@ export function analyseDestructiveFile(
   const beginParamReceiver = (param: ts.ParameterDeclaration): string | null => {
     const fn = param.parent;
     if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return null;
+    // ONLY parameter 0, and only without a default. `.begin(fn)` calls fn(tx): every later
+    // parameter is undefined and takes whatever default the author wrote, which diff review
+    // R3 probed into a wipe — `async (tx, other = getDbClient(TEST_DATABASE_URL)) => …`
+    // returned ok:true. The no-initializer half is conservative rather than reachable:
+    // argument 0 is always supplied, so a default there can never be the value that runs.
+    if (fn.parameters[0] !== param || param.initializer !== undefined) return null;
     const call = fn.parent;
     if (!ts.isCallExpression(call) || !call.arguments.includes(fn)) return null;
     const callee = call.expression;

@@ -10,15 +10,17 @@
  * The last four were demonstrated ESCAPING the shipped analyzer by the whole-diff
  * review; they are pinned here so the repair cannot silently regress.
  *
- * The exemption below is the line-comment form the guard's EXEMPTION regex requires.
+ * WHY DISCOVERY MATCHES THIS FILE, and what exempts it. The mutant sources below quote
+ * `select public.prune_sync_log()` — the very string the guard hunts — so the filesystem
+ * walk finds this file, as it should. It is exempted by NAME, through GUARD_OWN_FILES in
+ * tests/db/_destructiveStatements.ts, checked before any analysis runs. The inline
+ * `// not-subject-to-destructive-target-guard:` comment that used to sit here is GONE with
+ * the regex that read it: that mechanism exempted the meta-test by accident, because its
+ * own failure message happened to match the pattern.
+ *
+ * Blanking string bodies during discovery is not the alternative — it would un-discover the
+ * REAL destructive files too, which execute their SQL as string literals as well.
  */
-// not-subject-to-destructive-target-guard: this file contains destructive SQL only as
-// FIXTURE TEXT handed to a pure function. It imports no `postgres`, opens no connection,
-// and reads no database URL. Discovery matches it because the mutant sources quote
-// `select public.prune_sync_log()` - the very string the guard exists to find. Blanking
-// string bodies during discovery would un-discover the REAL destructive files too, since
-// they execute that SQL as a string literal as well, so the exemption is the honest
-// resolution rather than a widened recognizer.
 import { describe, expect, it } from "vitest";
 import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
 import { DESTRUCTIVE_STATEMENT_PATTERNS } from "./_destructiveStatements";
@@ -976,6 +978,32 @@ const Holder = class assertLocalDbUrl {
 };
 void Holder;`;
     expectRejected(src, REASON.provenance);
+  });
+
+  it("(bp) rejects a LATER .begin parameter defaulted to an unchecked client", () => {
+    // Diff review R3, verbatim probe. `.begin(fn)` calls fn(tx), so only parameter 0 is the
+    // transaction client; parameter 1 is undefined and takes its default — here a client
+    // the analyzer never checked, executing a wipe.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql.begin(async (tx, other = getDbClient(process.env.TEST_DATABASE_URL)) => {
+  await other\`select public.prune_sync_log()\`;
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bq) rejects a .begin parameter 0 that carries a default", () => {
+    // Conservative, and labelled as such: argument 0 is always supplied, so this default can
+    // never be the value that runs. The analyzer reasons about the value `.begin` passes, and
+    // a second possible source of that binding is not worth modelling for a degenerate shape.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql.begin(async (tx = getDbClient(process.env.TEST_DATABASE_URL)) => {
+  await tx\`select public.prune_sync_log()\`;
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
   });
 
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {

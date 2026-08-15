@@ -200,8 +200,11 @@ describe("destructive DB target guard", () => {
           "never calls a loopback assert. TEST_DATABASE_URL is the VALIDATION project in this " +
           "repo's .env.local, so this file wipes live validation on a plain `pnpm test`. Resolve " +
           "the URL from LOCAL_TEST_DATABASE_URL and pass it through assertLocalDbUrl() " +
-          "(tests/db/_localDbUrl.ts) before opening the connection, or add an inline " +
-          "`// not-subject-to-destructive-target-guard: <reason>` with a verified reason.",
+          "(tests/db/_localDbUrl.ts) before opening the connection. There is no inline " +
+          "opt-out: the comment form this message used to offer was deleted with the " +
+          "accidental self-exemption it enabled, and the only exemption now is an explicit " +
+          "GUARD_OWN_FILES entry in tests/db/_destructiveStatements.ts, which is for the " +
+          "guard's own fixture files and needs a reason in review.",
       ).toBe(true);
     },
   );
