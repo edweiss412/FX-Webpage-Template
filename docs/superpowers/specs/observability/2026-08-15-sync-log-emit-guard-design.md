@@ -1,6 +1,6 @@
 # Sync-log emit guard — a sync never fails because logging failed
 
-**Date:** 2026-08-15 · **Authoring branch:** `docs/sync-log-emit-guard-spec` · **Implementation branch:** `fix/sync-log-emit-guard` · **Status:** DRAFT
+**Date:** 2026-08-15 · **Authoring branch:** `docs/sync-log-emit-guard-spec` · **Implementation branch:** `fix/sync-log-emit-guard` · **Status:** spec-APPROVED (codex-guard R3, 2026-08-15; R1 two findings + R2 one finding repaired in-branch)
 **Entry:** `BL-SYNC-LOG-EMIT-UNGUARDED` (BACKLOG.md, filed 2026-08-10) · **Effort:** S · **Plan:** authored beside this spec in the plan directory docs/superpowers/plans/2026-08-15-sync-log-emit-guard/ (same PR)
 
 ## §0 Why
