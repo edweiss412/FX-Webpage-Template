@@ -1,46 +1,47 @@
 /**
- * tests/db/_destructiveFileAnalysis.ts (Task 5b, 2026-08-09; rewritten on the AST 2026-08-10)
+ * tests/db/_destructiveFileAnalysis.ts (AST rewrite 2026-08-10; execution-site 2026-08-14)
  *
- * `CALLS_LOCAL_GUARD` in the destructive-target guard matched a CALL WHOSE NAME LOOKS
- * RIGHT. That is three holes wide, and each one lets a file wipe or prune the validation
- * project while the meta-test stays green:
+ * A name match answers the wrong question. `CALLS_LOCAL_GUARD` accepted a CALL WHOSE NAME
+ * LOOKS RIGHT, which is three holes wide, and each one lets a file wipe or prune the
+ * validation project while the meta-test stays green:
  *
  *   (a) binding — the guard runs on a different string than the one connected.
  *   (b) ordering — the guard runs AFTER the connection is opened.
  *   (c) provenance — the name resolves to something local, not the imported guard.
  *
- * **Why this is a parser and not a pile of regexes.** The first version was regex-based
- * and leaked twice to the same class of finding: whole-diff r1 caught a commented-out
- * guard, a reassigned binding, and a second unguarded client; r2 then caught a guard
- * shadowed by a FUNCTION PARAMETER and rebinding via array and object DESTRUCTURING.
- * Every one is an ordinary JavaScript binding form, and each regex repair invited the
- * next escape. Enumerating binding syntax does not terminate; asking the parser which
- * declaration a name resolves to does.
+ * Those three are closed BY CONSTRUCTION rather than by enumeration: the connected URL
+ * must be a `const` initialized from a trusted guard call, EVERY same-named declaration
+ * must satisfy that, and the guard must be import-resolved. Regex versions of this leaked
+ * twice to the same class (a commented guard, a parameter shadow, array and object
+ * destructuring rebinds); enumerating binding syntax does not terminate, and asking the
+ * parser which declaration a name resolves to does.
+ *
+ * ACQUISITION was a fourth question and it never closed. Review found five ways to obtain
+ * a second driver (`import()`, `require()`, `import { default as … }`, `import * as …`,
+ * `createRequire`, `process.getBuiltinModule`); round 11 called the set closed at four and
+ * round 12 disproved it. So the question is no longer asked. What is checked instead:
+ *
+ *   every DB execution in a discovered file runs on a client this module checked, and
+ *   every recognized destructive statement sits inside one of those executions.
+ *
+ * A client obtained by a route nobody enumerated is simply not in the checked set. The
+ * acquisition rules are DELETED, not extended (BL-DESTRUCTIVE-GUARD-EXECUTION-SITE).
  *
  * Threat model: ordinary authoring mistakes by a contributor.
  *
- * **A DOCUMENTED LIMIT, stated because it is load-bearing and I got it wrong once.**
- * The BINDING questions this module answers are closed by construction: the connected
- * URL must be a `const` from a trusted guard call, every same-named declaration must
- * satisfy that, the guard and driver must be import-resolved, and the driver may appear
- * only in call position. No syntax escapes those.
- *
- * The ACQUISITION question is NOT closed. Whole-diff review found five distinct ways to
- * obtain a second driver — `import()`, `require()`, `import { default as … }`,
- * `import * as …`, `createRequire`, then `process.getBuiltinModule(…)` — and round 11 of
- * that review claimed the set was closed at four. Round 12 disproved it. Each rejection
- * below is real and worth having, but this module does NOT prove that no unchecked
- * connection exists; it raises the cost of writing one by accident.
- *
- * The sound framing is the EXECUTION SITE: every destructive statement must run on a
- * client bound to an already-checked connection, which makes acquisition irrelevant.
- * That was attempted and reverted here because real files build clients through local
- * factories (`resetValidationDataConcurrency.test.ts`'s `newConn()`), so it needs
- * interprocedural analysis. Filed as `BL-DESTRUCTIVE-GUARD-EXECUTION-SITE`.
- *
- * Also out of scope, and genuinely obfuscation rather than mistake: computed member
- * access (`mod["assertLocalDbUrl"]`), aliased re-export chains, a URL laundered through
- * a helper.
+ * DOCUMENTED LIMITS, each conservative-plus-loud, none silent:
+ *   - Rule 1's property-call leg keys on EXECUTION_METHODS, a closed set from postgres.js's
+ *     own API. A method outside it is backstopped by Rule 2, whose recognizer is the same
+ *     one that governs file DISCOVERY (itself spelling-sensitive —
+ *     BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION).
+ *   - Rule 2 does not anchor a literal whose nearest enclosing call is a non-execution
+ *     method on a call RESULT: `expect(job.command).toBe("select public.prune_sync_log();")`
+ *     is an assertion about a stored command (live at syncLogIndexesAndPrune.db.test.ts),
+ *     not an execution. Execution methods on a call result ARE still rejected.
+ *   - Factory summaries are one level and non-recursive; an unsummarizable factory makes
+ *     its call sites reject loudly.
+ *   - The REST wipe channel is unmodeled: resetValidationDataPostgrest.test.ts wipes over
+ *     HTTP behind a local `assertLocalRestUrl`. Execution-site checking covers DB clients.
  */
 import ts from "typescript";
 import { dirname, resolve } from "node:path";
@@ -50,20 +51,19 @@ export type DestructiveFileVerdict = { ok: true } | { ok: false; reason: string 
 /** The guard module every destructive file must actually call into. */
 const GUARD_MODULE = "tests/db/_localDbUrl";
 
-const GUARD_NAMES: readonly string[] = ["assertLocalDbUrl", "assertSafeDestructiveTarget"];
+/**
+ * `assertSafeDestructiveTarget` used to sit here too and could never be trusted: repo-wide
+ * it exists only as a local, non-exported function in _validation-cleanup-helpers.ts, so
+ * `imported.has(...)` was false for it at every call. A name that can satisfy a message
+ * regex but not the check behind it is a premise that is false where it runs.
+ */
+const GUARD_NAMES: readonly string[] = ["assertLocalDbUrl"];
 
 /**
  * The destructive-statement recognizer, owned HERE and imported by the meta-test's
- * discovery walk, because the analyzer now anchors recognized statements to checked
- * execution sites and the two must range over the same set. Two copies of these
- * patterns is a drift the guard cannot see: discovery would find a file the analyzer
- * would not anchor within it, or the reverse.
- *
- * A named record rather than the array the plan sketched — the meta-test binds each
- * pattern by name, and `noUncheckedIndexedAccess` would make positional destructuring
- * `RegExp | undefined` at every use.
- *
- * Keyed on the FUNCTION NAME, not on a statement shape (whole-diff r15).
+ * discovery walk: Rule 2 anchors recognized statements to checked executions, so the two
+ * must range over the same set or discovery finds a file nothing anchors within — or the
+ * reverse. Keyed on the FUNCTION NAME, not a statement shape (whole-diff r15).
  */
 export const DESTRUCTIVE_STATEMENT_PATTERNS = {
   /** Executes the whole-DB wipe RPC. */
@@ -75,15 +75,11 @@ export const DESTRUCTIVE_STATEMENT_PATTERNS = {
 } as const;
 
 /**
- * The guard's own two files, exempted from analysis BY NAME rather than by accident.
- * Both quote destructive SQL as FIXTURE TEXT handed to a pure function; neither imports
- * the driver, opens a connection, or reads a database URL. Discovery matches them for
- * exactly the reason it should — they contain the strings it hunts.
- *
- * Before this list, `_metaDestructiveDbTargetGuard.test.ts` survived its own discovery
- * only because its failure-MESSAGE text happened to match the inline-exemption regex.
- * An exemption that holds by coincidence is one edit away from not holding, and the
- * edit that breaks it looks unrelated.
+ * The guard's own two files, exempted BY NAME rather than by accident. Both quote
+ * destructive SQL as FIXTURE TEXT for a pure function; neither imports the driver, opens
+ * a connection, or reads a database URL. Before this list they were exempt only because
+ * one of them quoted the inline-exemption comment form inside a failure MESSAGE — an
+ * exemption that holds by coincidence is one unrelated-looking edit from not holding.
  */
 export const GUARD_OWN_FILES: readonly string[] = [
   "tests/db/_metaDestructiveDbTargetGuard.test.ts",
@@ -119,186 +115,67 @@ export function analyseDestructiveFile(
     }
   }
 
-  // Any LOCAL declaration of a guard name shadows it, whatever its syntax — a `const`,
-  // a `function`, a parameter (r2 finding 3), a destructured binding element. Asking the
-  // parser for declarations covers every form at once, including ones not yet invented
-  // as an escape.
-  const shadowed = new Set<string>();
-  const noteDeclared = (name: ts.BindingName): void => {
-    if (ts.isIdentifier(name)) {
-      if (GUARD_NAMES.includes(name.text)) shadowed.add(name.text);
-      return;
-    }
-    for (const el of name.elements) {
-      if (ts.isBindingElement(el)) noteDeclared(el.name);
-    }
+  // Any LOCAL declaration of an imported name shadows it, whatever its syntax — a
+  // `const`, a `function`, a parameter (r2 finding 3), a destructured binding element.
+  // Asking the parser for declarations covers every form at once, including ones not yet
+  // invented as an escape. The guard and the driver get the SAME treatment, from one
+  // walk: trusting either participant by spelling was the original mistake, twice.
+  const shadowedAmong = (names: ReadonlySet<string> | readonly string[]): Set<string> => {
+    const has = (t: string) =>
+      Array.isArray(names) ? names.includes(t) : (names as Set<string>).has(t);
+    const out = new Set<string>();
+    const note = (name: ts.BindingName): void => {
+      if (ts.isIdentifier(name)) {
+        if (has(name.text)) out.add(name.text);
+        return;
+      }
+      for (const el of name.elements) if (ts.isBindingElement(el)) note(el.name);
+    };
+    const walk = (n: ts.Node): void => {
+      if (ts.isVariableDeclaration(n) || ts.isParameter(n)) note(n.name);
+      else if (
+        (ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) &&
+        n.name &&
+        has(n.name.text)
+      ) {
+        out.add(n.name.text);
+      }
+      ts.forEachChild(n, walk);
+    };
+    ts.forEachChild(sf, walk);
+    return out;
   };
-  const walkDecls = (n: ts.Node): void => {
-    if (ts.isVariableDeclaration(n) || ts.isParameter(n)) noteDeclared(n.name);
-    else if ((ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) && n.name) {
-      if (GUARD_NAMES.includes(n.name.text)) shadowed.add(n.name.text);
-    }
-    ts.forEachChild(n, walkDecls);
-  };
-  ts.forEachChild(sf, walkDecls);
+  const shadowed = shadowedAmong(GUARD_NAMES);
 
   /** Trustworthy only if imported from the guard module AND not shadowed anywhere. */
   const trusted = (name: string): boolean => imported.has(name) && !shadowed.has(name);
 
-  // The DRIVER is resolved by import too, symmetric with the guard. r5 showed a local
-  // function named `postgres` wrapping a differently-imported driver: `postgres(url)`
-  // looked guarded, the wrapper discarded its argument and connected to
-  // TEST_DATABASE_URL. Trusting a call because of its NAME is the same mistake on the
-  // other participant, so it gets the same answer - provenance, not spelling.
+  // The DRIVER is resolved by import, symmetric with the guard: r5 showed a local
+  // function named `postgres` wrapping a differently-imported driver, so `postgres(url)`
+  // looked guarded while the wrapper connected to TEST_DATABASE_URL. Only the DEFAULT
+  // binding is collected; a named or namespace import is no longer rejected outright,
+  // because it simply is not the driver and its clients fail the execution rules.
   const driverNames = new Set<string>();
-  let nonDefaultDriverImport = false;
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
     if (stmt.moduleSpecifier.text !== "postgres") continue;
-    const clause = stmt.importClause;
-    if (clause?.name) driverNames.add(clause.name.text);
-    // ONE permitted import form. `import { default as pg2 }` and `import * as pg2`
-    // are ordinary static ECMAScript and both produced a callable driver the analyzer
-    // could not see, so a guarded first connection covered an unguarded second
-    // (whole-diff r10). Rather than teach it to follow each aliasing form - the same
-    // enumeration that has failed here repeatedly - a destructive file may import the
-    // driver only as a default binding. Everything else is rejected, so there is no
-    // alias route left to trace.
-    // TYPE-only bindings are erased and cannot produce a callable driver, so
-    // `import postgres, { type Sql } from "postgres"` - which the real destructive
-    // files use - stays legal. Only a VALUE binding can open a connection.
-    const nb = clause?.namedBindings;
-    if (nb && !clause?.isTypeOnly) {
-      if (ts.isNamespaceImport(nb)) nonDefaultDriverImport = true;
-      else if (nb.elements.some((el) => !el.isTypeOnly)) nonDefaultDriverImport = true;
-    }
+    if (stmt.importClause?.name) driverNames.add(stmt.importClause.name.text);
   }
-  if (nonDefaultDriverImport) {
-    return {
-      ok: false,
-      reason:
-        'the postgres driver is imported by a named or namespace binding; a destructive file must use the default form `import postgres from "postgres"` so every connection is visible',
-    };
-  }
-  // A local declaration of an imported driver name shadows it, exactly as for the guard.
-  const driverShadowed = new Set<string>();
-  const noteDriverDecl = (name: ts.BindingName): void => {
-    if (ts.isIdentifier(name)) {
-      if (driverNames.has(name.text)) driverShadowed.add(name.text);
-      return;
-    }
-    for (const el of name.elements) if (ts.isBindingElement(el)) noteDriverDecl(el.name);
-  };
-  const walkDriverDecls = (n: ts.Node): void => {
-    if (ts.isVariableDeclaration(n) || ts.isParameter(n)) noteDriverDecl(n.name);
-    else if (ts.isFunctionDeclaration(n) && n.name && driverNames.has(n.name.text)) {
-      driverShadowed.add(n.name.text);
-    }
-    ts.forEachChild(n, walkDriverDecls);
-  };
-  ts.forEachChild(sf, walkDriverDecls);
+  const driverShadowed = shadowedAmong(driverNames);
 
   const isDriver = (name: string): boolean => driverNames.has(name) && !driverShadowed.has(name);
 
-  // The driver must be acquired by the STATIC default import, the one form this module
-  // can see. r7 showed `(await import("postgres")).default` and `require("postgres")`
-  // each opening a second, unchecked connection — and that is ordinary authoring here,
-  // not obfuscation: tests/db/validation-schema-parity.test.ts already uses the dynamic
-  // form. Rather than teach the analyzer to trace dynamic acquisition, a destructive
-  // file simply may not use it. The requirement is legible and the fix is a one-line
-  // import.
-  // Module-loading capability, imported. `createRequire` from `node:module` produces a
-  // callable `require`, and this repo already uses it
-  // (tests/parser/fuzz/robustness.fuzz.test.ts), so it is ordinary authoring rather
-  // than obfuscation (whole-diff r11). Node's ways to load a module are a CLOSED set —
-  // static import, `import()`, `require`, and `createRequire` — which is why this
-  // enumeration terminates where the aliasing ones did not.
-  let dynamicAcquire = false;
-  for (const stmt of sf.statements) {
-    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
-    const spec = stmt.moduleSpecifier.text;
-    if (spec === "node:module" || spec === "module") dynamicAcquire = true;
-  }
-  const checkAcquire = (n: ts.Node): void => {
-    if (ts.isCallExpression(n)) {
-      const isDynamicImport = n.expression.kind === ts.SyntaxKind.ImportKeyword;
-      const isRequire = ts.isIdentifier(n.expression) && n.expression.text === "require";
-      // `process.getBuiltinModule("node:module").createRequire(...)` — r12's fifth
-      // acquisition route, and the one that disproved r11's "closed set" claim.
-      const isBuiltinModuleGetter =
-        ts.isPropertyAccessExpression(n.expression) &&
-        n.expression.name.text === "getBuiltinModule";
-      if (isBuiltinModuleGetter) dynamicAcquire = true;
-      if (isDynamicImport || isRequire) {
-        const a = n.arguments[0];
-        // Literal TEXT, not literal KIND. r9 slipped through on
-        // `import(`postgres`)` because a NoSubstitutionTemplateLiteral is not a
-        // StringLiteral — the same enumeration mistake one node type down. And an
-        // argument that is neither literal form cannot be read at all, so it is
-        // rejected rather than assumed innocent: in a destructive file, a module
-        // specifier this check cannot evaluate is itself the hazard.
-        const literalText =
-          a && (ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a)) ? a.text : null;
-        if (literalText === null || literalText === "postgres") dynamicAcquire = true;
-      }
-    }
-    ts.forEachChild(n, checkAcquire);
-  };
-  ts.forEachChild(sf, checkAcquire);
-  if (dynamicAcquire) {
-    return {
-      ok: false,
-      reason:
-        'the postgres driver is acquired dynamically (import()/require); a destructive file must use the static `import postgres from "postgres"` so every connection is visible',
-    };
-  }
-
   const guardCalls: ts.CallExpression[] = [];
   const connects: ts.CallExpression[] = [];
-  /** Any call to a name that LOOKS like the driver but does not resolve to it. */
-  let impostorConnect = false;
   const collect = (n: ts.Node): void => {
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
       const callee = n.expression.text;
       if (GUARD_NAMES.includes(callee)) guardCalls.push(n);
       else if (isDriver(callee)) connects.push(n);
-      else if (callee === "postgres") impostorConnect = true;
     }
     ts.forEachChild(n, collect);
   };
   ts.forEachChild(sf, collect);
-
-  if (impostorConnect) {
-    return {
-      ok: false,
-      reason: "`postgres(...)` is called on a name that is not the imported driver",
-    };
-  }
-
-  // The driver name may appear ONLY in call position. r6 aliased it — `const connect =
-  // postgres; connect(remote)` — and the aliased connection was never inspected, so
-  // "every connection is checked" was false while a safe first connection satisfied the
-  // count. Enumerating alias forms is the same losing game as enumerating rebinds, so
-  // this takes the same exit: if the identifier is never read except to call it, no
-  // alias can exist. That also covers passing it as a callback and reaching through a
-  // property, without naming either.
-  let nonCallUse: string | null = null;
-  const checkUses = (n: ts.Node): void => {
-    if (ts.isIdentifier(n) && driverNames.has(n.text) && !driverShadowed.has(n.text)) {
-      const p = n.parent;
-      const isCallee = p && ts.isCallExpression(p) && p.expression === n;
-      const isOwnImport = p && ts.isImportClause(p);
-      if (!isCallee && !isOwnImport) nonCallUse = n.text;
-    }
-    ts.forEachChild(n, checkUses);
-  };
-  ts.forEachChild(sf, checkUses);
-  if (nonCallUse !== null) {
-    return {
-      ok: false,
-      reason: `\`${nonCallUse}\` is referenced outside call position, so an alias could open an unchecked connection`,
-    };
-  }
 
   if (guardCalls.length === 0) return { ok: false, reason: "no loopback guard is called" };
   if (!guardCalls.some((c) => trusted((c.expression as ts.Identifier).text))) {
@@ -311,22 +188,256 @@ export function analyseDestructiveFile(
     };
   }
 
-  // A destructive file that opens NO postgres connection has nothing this analyzer can
-  // mis-target: its execution goes another way (PostgREST, in
-  // resetValidationDataPostgrest.test.ts), and it has already been shown to call the
-  // trusted guard above. The guard's claim is "every postgres connection is guarded",
-  // and zero connections satisfies it (whole-diff r15, after widening discovery pulled
-  // that file in).
-  if (connects.length === 0) return { ok: true };
-
   // EVERY connection, not just the first (r1 finding 2: a safe client followed by an
-  // unguarded one that runs the prune).
+  // unguarded one that runs the prune). After this loop, every driver call in the file
+  // is a CHECKED CONNECTION EXPRESSION, which is what the rules below build on.
   for (const connect of connects) {
     const verdict = checkConnection(sf, connect, trusted);
     if (!verdict.ok) return verdict;
   }
+
+  const line = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+  const isCheckedConnection = (n: ts.Node): boolean =>
+    ts.isCallExpression(n) && ts.isIdentifier(n.expression) && isDriver(n.expression.text);
+
+  // ── factory summaries, ONE LEVEL ─────────────────────────────────────────────
+  // The prior execution-site attempt was reverted because real files build clients
+  // through a local factory (`newConn()` in resetValidationDataConcurrency.test.ts) and
+  // interprocedural analysis looked like the price. It is not: a factory whose every
+  // return is a checked connection is checked, summarized once, never recursively.
+  const factoryChecked = new Map<string, boolean>();
+  const returnsOf = (fn: ts.SignatureDeclaration): ts.Expression[] | null => {
+    const body = (fn as { body?: ts.Node }).body;
+    if (!body) return null;
+    if (!ts.isBlock(body)) return [body as ts.Expression];
+    const out: ts.Expression[] = [];
+    let bare = false;
+    const walk = (n: ts.Node): void => {
+      if (n !== body && (ts.isFunctionLike(n) || ts.isClassLike(n))) return;
+      if (ts.isReturnStatement(n)) {
+        if (n.expression) out.push(n.expression);
+        else bare = true;
+      }
+      ts.forEachChild(n, walk);
+    };
+    ts.forEachChild(body, walk);
+    return bare ? null : out;
+  };
+  const summarize = (name: string, fn: ts.SignatureDeclaration): void => {
+    const returns = returnsOf(fn);
+    factoryChecked.set(
+      name,
+      returns !== null && returns.length > 0 && returns.every(isCheckedConnection),
+    );
+  };
+  const walkFactories = (n: ts.Node): void => {
+    if (ts.isFunctionDeclaration(n) && n.name) summarize(n.name.text, n);
+    else if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
+    ) {
+      summarize(n.name.text, n.initializer);
+    }
+    ts.forEachChild(n, walkFactories);
+  };
+  ts.forEachChild(sf, walkFactories);
+
+  const factoryCallName = (n: ts.Node): string | null =>
+    ts.isCallExpression(n) && ts.isIdentifier(n.expression) && factoryChecked.has(n.expression.text)
+      ? n.expression.text
+      : null;
+
+  // ── the checked set ──────────────────────────────────────────────────────────
+  // A NAME is a checked client when it has at least one declaration and EVERY declaration
+  // qualifies — the same closed-by-construction rule the connection leg uses, so the scope
+  // question never arises. Transaction callback parameters (`sql.begin(async (tx) => …)`)
+  // qualify against an already-checked receiver: that is how five of the seven real
+  // destructive files run their statements, and the fixpoint is what lets a checked `tx`
+  // derive from a client checked in the same pass.
+  const checked = new Set<string>();
+  const beginParamReceiver = (param: ts.ParameterDeclaration): string | null => {
+    const fn = param.parent;
+    if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return null;
+    const call = fn.parent;
+    if (!ts.isCallExpression(call) || !call.arguments.includes(fn)) return null;
+    const callee = call.expression;
+    // `begin` only: it is the one postgres.js method that hands a CLIENT to a callback.
+    if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "begin") return null;
+    return ts.isIdentifier(callee.expression) ? callee.expression.text : null;
+  };
+  const candidates = new Set<string>();
+  const walkCandidates = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      if (isCheckedConnection(n.initializer) || factoryCallName(n.initializer) !== null) {
+        candidates.add(n.name.text);
+      }
+    } else if (ts.isParameter(n) && ts.isIdentifier(n.name) && beginParamReceiver(n) !== null) {
+      candidates.add(n.name.text);
+    }
+    ts.forEachChild(n, walkCandidates);
+  };
+  ts.forEachChild(sf, walkCandidates);
+
+  const declQualifies = (d: { node: ts.Node; isConst: boolean }): boolean => {
+    if (ts.isVariableDeclaration(d.node)) {
+      const init = d.node.initializer;
+      if (!d.isConst || !init) return false;
+      if (isCheckedConnection(init)) return true;
+      const factory = factoryCallName(init);
+      return factory !== null && factoryChecked.get(factory) === true;
+    }
+    if (ts.isParameter(d.node)) {
+      const receiver = beginParamReceiver(d.node);
+      return receiver !== null && checked.has(receiver);
+    }
+    return false;
+  };
+  for (let pass = 0; pass < candidates.size + 1; pass++) {
+    let grew = false;
+    for (const name of candidates) {
+      if (checked.has(name)) continue;
+      const decls = declarationsOf(sf, name);
+      if (decls.length > 0 && decls.every(declQualifies)) {
+        checked.add(name);
+        grew = true;
+      }
+    }
+    if (!grew) break;
+  }
+
+  /** Why a name a reader expected to be a client is not one — factories name themselves. */
+  const explainUnchecked = (name: string): string => {
+    for (const d of declarationsOf(sf, name)) {
+      if (!ts.isVariableDeclaration(d.node) || !d.node.initializer) continue;
+      const factory = factoryCallName(d.node.initializer);
+      if (factory !== null && factoryChecked.get(factory) !== true) {
+        return `factory \`${factory}\` does not return a checked connection, so \`${name}\` is not a checked client`;
+      }
+    }
+    return `\`${name}\` is not a checked client`;
+  };
+
+  // ── Rule 1: every client-shaped execution runs on a checked client ───────────
+  // The tagged-template leg is UNIVERSAL: a tag is a callable receiving SQL, and in a
+  // discovered file there is no innocent one. The property-call leg keys on
+  // EXECUTION_METHODS, a closed set taken from postgres.js's own client API rather than
+  // from an open syntax space, and its misses are backstopped by Rule 2.
+  let rejection: string | null = null;
+  const checkedTag = (n: ts.Node): boolean => ts.isIdentifier(n) && checked.has(n.text);
+  const checkedReceiver = (call: ts.CallExpression): boolean =>
+    ts.isPropertyAccessExpression(call.expression) && checkedTag(call.expression.expression);
+  const walkExecutions = (n: ts.Node): void => {
+    if (rejection !== null) return;
+    if (ts.isTaggedTemplateExpression(n) && !checkedTag(n.tag)) {
+      const who = ts.isIdentifier(n.tag)
+        ? explainUnchecked(n.tag.text)
+        : "the tag is not an identifier";
+      rejection = `unchecked execution site at line ${line(n)}: ${who}`;
+      return;
+    }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      EXECUTION_METHODS.has(n.expression.name.text) &&
+      !checkedReceiver(n)
+    ) {
+      const recv = n.expression.expression;
+      const who = ts.isIdentifier(recv)
+        ? explainUnchecked(recv.text)
+        : "the receiver is not a checked client";
+      rejection = `unchecked execution site at line ${line(n)}: \`.${n.expression.name.text}()\` — ${who}`;
+      return;
+    }
+    ts.forEachChild(n, walkExecutions);
+  };
+  ts.forEachChild(sf, walkExecutions);
+  if (rejection !== null) return { ok: false, reason: rejection };
+
+  // ── Rule 2: every recognized destructive statement sits inside one ───────────
+  // This closes the detached-method probe: `const { unsafe } = target; await
+  // unsafe("select public.prune_sync_log()")` has no tagged template and no property
+  // call, so acquisition stays unknown — and the STATEMENT is caught anyway.
+  const patterns = Object.values(DESTRUCTIVE_STATEMENT_PATTERNS);
+  const walkStatements = (n: ts.Node): void => {
+    if (rejection !== null) return;
+    if (
+      (ts.isStringLiteral(n) ||
+        ts.isNoSubstitutionTemplateLiteral(n) ||
+        ts.isTemplateExpression(n)) &&
+      patterns.some((re) => re.test(n.getText(sf)))
+    ) {
+      let anc: ts.Node | undefined = n.parent;
+      while (anc && !ts.isCallExpression(anc) && !ts.isTaggedTemplateExpression(anc))
+        anc = anc.parent;
+      const inChecked =
+        anc !== undefined &&
+        ((ts.isTaggedTemplateExpression(anc) && checkedTag(anc.tag)) ||
+          (ts.isCallExpression(anc) && checkedReceiver(anc)));
+      // Unmodeled rather than rejected: a non-execution method on a call RESULT is an
+      // assertion shape (`expect(row.command).toBe(…)`), not an execution site.
+      const unmodeled =
+        anc !== undefined &&
+        ts.isCallExpression(anc) &&
+        ts.isPropertyAccessExpression(anc.expression) &&
+        !ts.isIdentifier(anc.expression.expression) &&
+        !EXECUTION_METHODS.has(anc.expression.name.text);
+      if (!inChecked && !unmodeled) {
+        rejection = `destructive statement outside a checked execution at line ${line(n)}`;
+        return;
+      }
+    }
+    ts.forEachChild(n, walkStatements);
+  };
+  ts.forEachChild(sf, walkStatements);
+  if (rejection !== null) return { ok: false, reason: rejection };
+
+  // ── Rule 3: a checked client cannot be laundered out of the checked set ──────
+  // Destructuring, a stored method reference, a computed member, an argument position:
+  // each hands the client's capability to a name this module no longer tracks, whose
+  // executions then look like ordinary calls. Closing that at the SOURCE end is what
+  // makes "every execution runs on a checked client" mean anything.
+  const walkContainment = (n: ts.Node): void => {
+    if (rejection !== null) return;
+    if (ts.isIdentifier(n) && checked.has(n.text)) {
+      const p = n.parent;
+      const isOwnBinding =
+        p !== undefined &&
+        ((ts.isVariableDeclaration(p) && p.name === n) || (ts.isParameter(p) && p.name === n));
+      const isTag = p !== undefined && ts.isTaggedTemplateExpression(p) && p.tag === n;
+      const isReceiver =
+        p !== undefined &&
+        ts.isPropertyAccessExpression(p) &&
+        p.expression === n &&
+        p.parent !== undefined &&
+        ts.isCallExpression(p.parent) &&
+        p.parent.expression === p;
+      if (!isOwnBinding && !isTag && !isReceiver) {
+        rejection =
+          `checked client \`${n.text}\` may only be used as a template tag or a method ` +
+          `receiver, not at line ${line(n)}`;
+        return;
+      }
+    }
+    ts.forEachChild(n, walkContainment);
+  };
+  ts.forEachChild(sf, walkContainment);
+  if (rejection !== null) return { ok: false, reason: rejection };
+
   return { ok: true };
 }
+
+/**
+ * postgres.js client methods that EXECUTE, from the library's own API rather than a guess
+ * at what a method call might mean. Deliberately narrow: `json`, `text`, `array`, `values`
+ * and friends collide with `Response` and `Object` members that real destructive files
+ * call on non-clients, and a false positive there pushes authors toward blanket
+ * exemptions, which is how a guard stops guarding.
+ */
+const EXECUTION_METHODS = new Set(
+  "unsafe begin end reserve savepoint listen notify subscribe cursor".split(" "),
+);
 
 function checkConnection(
   sf: ts.SourceFile,
@@ -348,29 +459,18 @@ function checkConnection(
   const connectPos = connect.getStart(sf);
 
   // ── (a) binding + (b) ordering, by an invariant the LANGUAGE enforces ────────
-  // Rounds 1-4 each found another escape in a recognizer: a commented guard, a
-  // reassigned binding, a second client, a parameter shadow, array and object
-  // destructuring rebinds, cross-function and cross-block and parameter-collision scope
-  // confusion, then `&&=` and for-of/for-in loop assignment. Every repair enumerated one
-  // more syntax and invited the next. Enumerating JavaScript's binding and assignment
-  // forms does not terminate.
+  // Rounds 1-4 each found one more escape in a recognizer (a reassigned binding, a
+  // parameter shadow, array and object destructuring rebinds, scope confusion, `&&=`,
+  // for-of heads), so the rule stops listing what is FORBIDDEN and states what must be
+  // TRUE: every declaration of the connected name is a `const` initialized directly from
+  // a trusted guard call. `const` is the whole mechanism — the language guarantees no
+  // reassignment by any syntax, invented or not — and requiring it of EVERY same-named
+  // declaration removes the scope question, since they are then all guarded.
   //
-  // So the rule stops describing what is FORBIDDEN and states what must be TRUE:
-  //
-  //   every declaration of the connected name in this file is a `const` initialized
-  //   directly from a trusted guard call.
-  //
-  // `const` is not a stylistic preference here, it is the whole mechanism. The language
-  // guarantees a `const` binding is never reassigned — by `=`, by `&&=`, by
-  // destructuring, by a loop head, or by any syntax not yet invented — so there is no
-  // rebinding check to leak. Requiring it of EVERY same-named declaration removes the
-  // scope question too: it no longer matters which one this connection resolves to,
-  // because they are all guarded.
-  //
-  // This is deliberately conservative. A file that reuses the name for something
-  // unguarded is REJECTED even if the connected one is fine. That false positive is
-  // loud, local, and fixed by renaming a variable — the right direction for a guard
-  // whose failure mode is silently pruning a shared project.
+  // Deliberately conservative: a file reusing the name for something unguarded is
+  // rejected even when the connected one is fine. That false positive is loud, local and
+  // fixed by renaming, which is the right direction for a guard whose failure mode is
+  // silently pruning a shared project.
   const decls = declarationsOf(sf, bound);
   if (decls.length === 0) return { ok: false, reason: `\`${bound}\` has no declaration` };
 

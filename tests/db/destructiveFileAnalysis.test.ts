@@ -29,6 +29,32 @@ const IMPORT = [
 ].join("\n");
 const PRUNE = `await sql.unsafe("select public.prune_sync_log()");`;
 
+/**
+ * Every rejection fixture pins the reason CLASS it is supposed to trip, not merely
+ * `ok:false`. Without that, a fixture passes by tripping some UNRELATED check — which is
+ * exactly what happened to the acquisition family when the rules it discriminated were
+ * deleted: each still rejected, none for its own reason. The classes are named once here
+ * so a reason-text edit shows up as one diff rather than thirty.
+ */
+const REASON = {
+  binding: /is not bound to a trusted guard call/,
+  letVar: /is declared with let\/var/,
+  provenance: /the guard name resolves to a local declaration/,
+  noGuard: /no loopback guard is called/,
+  unguardedArg: /postgres\(\) receives an expression that is not a guarded binding/,
+  notConst: /is declared as a \w+, not a guarded const/,
+  uncheckedExecution: /unchecked execution site/,
+  unanchoredStatement: /destructive statement outside a checked execution/,
+  containment: /checked client `\w+` may only be used as/,
+  uncheckedFactory: /factory `\w+` does not return a checked connection/,
+} as const;
+
+function expectRejected(src: string, reason: RegExp, label?: string): void {
+  const v = analyseDestructiveFile(P, src);
+  expect(v.ok, label).toBe(false);
+  if (!v.ok) expect(v.reason, label).toMatch(reason);
+}
+
 describe("analyseDestructiveFile — accepted forms", () => {
   it("accepts the two-step form: guard, bind, connect", () => {
     const src = `${IMPORT}
@@ -58,7 +84,7 @@ const url = process.env.TEST_DATABASE_URL!;
 assertLocalDbUrl("postgresql://localhost:54322/postgres");
 const sql = postgres(url, { max: 1 });
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.binding);
   });
 
   it("(b) ordering — the guard runs AFTER the connection opens", () => {
@@ -69,14 +95,14 @@ let url = process.env.TEST_DATABASE_URL!;
 const sql = postgres(url, { max: 1 });
 url = assertLocalDbUrl(url);
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.letVar);
   });
 
   it("(c) provenance — the name resolves to a local no-op, not the imported guard", () => {
     const src = `const assertLocalDbUrl = (u: string | undefined) => u!;
 const sql = postgres(assertLocalDbUrl(process.env.TEST_DATABASE_URL), { max: 1 });
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.provenance);
   });
 
   it("(d) the guard exists only inside a comment", () => {
@@ -86,7 +112,7 @@ ${PRUNE}`;
 // assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
 const sql = postgres(process.env.TEST_DATABASE_URL!, { max: 1 });
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.noGuard);
   });
 
   it("(e) the guard exists only inside a BLOCK comment", () => {
@@ -94,7 +120,7 @@ ${PRUNE}`;
 /* const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL); */
 const sql = postgres(process.env.TEST_DATABASE_URL!, { max: 1 });
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.noGuard);
   });
 
   it("(f) the guarded binding is REASSIGNED before the connection", () => {
@@ -105,7 +131,7 @@ let url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
 url = process.env.TEST_DATABASE_URL!;
 const sql = postgres(url, { max: 1 });
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.letVar);
   });
 
   it("(h) the guard is shadowed by a FUNCTION PARAMETER whose default is a no-op", () => {
@@ -117,7 +143,7 @@ async function run(assertLocalDbUrl = (u: string | undefined) => u!) {
   const sql = postgres(url, { max: 1 });
   ${PRUNE}
 }`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.provenance);
   });
 
   it("(i) the guarded binding is rebound via ARRAY destructuring", () => {
@@ -128,7 +154,7 @@ let url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
 [url] = [process.env.TEST_DATABASE_URL!];
 const sql = postgres(url, { max: 1 });
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.letVar);
   });
 
   it("(j) the guarded binding is rebound via OBJECT destructuring", () => {
@@ -139,7 +165,7 @@ let url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
 ({ url } = { url: process.env.TEST_DATABASE_URL! });
 const sql = postgres(url, { max: 1 });
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.letVar);
   });
 
   it("(k) a safe same-named binding in ANOTHER FUNCTION does not bless this one", () => {
@@ -156,7 +182,7 @@ async function unsafe() {
   const sql = postgres(url, { max: 1 });
   ${PRUNE}
 }`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.binding);
   });
 
   it("(l) a safe same-named binding in a SIBLING BLOCK does not bless this one", () => {
@@ -171,7 +197,7 @@ async function unsafe() {
   const sql = postgres(url, { max: 1 });
   ${PRUNE}
 }`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.binding);
   });
 
   it("(m) an outer guarded binding shadowed by a PARAMETER does not bless the inner use", () => {
@@ -184,7 +210,7 @@ async function run(url: string) {
   ${PRUNE}
 }
 void url;`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.notConst);
   });
 
   it("(n) `&&=` and loop-head assignment cannot bypass the const invariant", () => {
@@ -196,7 +222,7 @@ let url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
 url &&= process.env.TEST_DATABASE_URL!;
 const sql = postgres(url, { max: 1 });
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.letVar);
   });
 
   it("(o) a for-of head that rebinds an existing guarded name is rejected", () => {
@@ -206,7 +232,7 @@ for (url of [process.env.TEST_DATABASE_URL!]) {
   const sql = postgres(url, { max: 1 });
   ${PRUNE}
 }`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.letVar);
   });
 
   it("(p) a for-of DECLARATION shadowing the guarded name is rejected", () => {
@@ -218,7 +244,7 @@ for (const url of [process.env.TEST_DATABASE_URL!]) {
   const sql = postgres(url, { max: 1 });
   ${PRUNE}
 }`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.binding);
   });
 
   it("(q) a switch-case declaration shadowing the guarded name is rejected", () => {
@@ -230,7 +256,7 @@ switch (process.env.MODE) {
     const sql = postgres(url2, { max: 1 });
     ${PRUNE}
 }`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.binding);
   });
 
   it("(r) a LOCAL wrapper named `postgres` around a differently-imported driver", () => {
@@ -246,7 +272,7 @@ function postgres(_url: string, _opts?: unknown) {
 const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
 const sql = postgres(url, { max: 1 });
 ${PRUNE}`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.unguardedArg);
   });
 
   it("(s) an ALIAS of the driver cannot open an unchecked connection", () => {
@@ -260,7 +286,7 @@ const local = postgres(url, { max: 1 });
 const connect = postgres;
 const target = connect(process.env.TEST_DATABASE_URL!);
 await target.unsafe("select public.prune_sync_log()");`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.uncheckedExecution);
   });
 
   it("(t) a second connection loaded via dynamic import is rejected", () => {
@@ -274,7 +300,7 @@ const local = postgres(url, { max: 1 });
 const pg2 = (await import("postgres")).default;
 const target = pg2(process.env.TEST_DATABASE_URL!);
 await target.unsafe("select public.prune_sync_log()");`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.uncheckedExecution);
   });
 
   it("(u) a second connection loaded via require is rejected", () => {
@@ -284,7 +310,7 @@ const local = postgres(url, { max: 1 });
 const pg2 = require("postgres");
 const target = pg2(process.env.TEST_DATABASE_URL!);
 await target.unsafe("select public.prune_sync_log()");`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.uncheckedExecution);
   });
 
   it("(v) template-literal and computed dynamic acquisition are rejected too", () => {
@@ -303,7 +329,7 @@ const local = postgres(url, { max: 1 });
 const pg2 = ${acquire};
 const target = pg2(process.env.TEST_DATABASE_URL!);
 await target.unsafe("select public.prune_sync_log()");`;
-      expect(analyseDestructiveFile(P, src).ok, acquire).toBe(false);
+      expectRejected(src, REASON.uncheckedExecution, acquire);
     }
   });
 
@@ -324,7 +350,7 @@ const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
 const local = postgres(url, { max: 1 });
 const target = pg2(process.env.TEST_DATABASE_URL!);
 await target.unsafe("select public.prune_sync_log()");`;
-      expect(analyseDestructiveFile(P, src).ok, imp).toBe(false);
+      expectRejected(src, REASON.uncheckedExecution, imp);
     }
   });
 
@@ -341,7 +367,7 @@ const local = postgres(url, { max: 1 });
 const req = createRequire(import.meta.url);
 const target = req("postgres")(process.env.TEST_DATABASE_URL!);
 await target.unsafe("select public.prune_sync_log()");`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.uncheckedExecution);
   });
 
   it("(y) process.getBuiltinModule is rejected", () => {
@@ -356,7 +382,7 @@ const local = postgres(url, { max: 1 });
 const req = process.getBuiltinModule(${spec}).createRequire(import.meta.url);
 const target = req("postgres")(process.env.TEST_DATABASE_URL!);
 await target.unsafe("select public.prune_sync_log()");`;
-      expect(analyseDestructiveFile(P, src).ok, spec).toBe(false);
+      expectRejected(src, REASON.uncheckedExecution, spec);
     }
   });
 
@@ -380,8 +406,122 @@ function unused() {
 }
 const sql = postgres(targetUrl, { max: 1 });
 ${PRUNE}`;
-      expect(analyseDestructiveFile(P, src).ok, imp).toBe(false);
+      expectRejected(src, REASON.notConst, imp);
     }
+  });
+
+  /**
+   * The execution-site family. Everything above discriminates a BINDING property of
+   * the connection; these discriminate the property the redesign added — that a
+   * destructive statement must RUN on a client the analyzer checked. Acquisition is
+   * deliberately unmodeled in each of them: the client arrives by a route nobody
+   * enumerated, and the file is rejected anyway.
+   */
+  it("(aa) rejects a destructive string executed through a detached method of an unknown client", () => {
+    // Spec review R1 F1's probe, verbatim: no tagged template and no property call,
+    // so a client-shaped rule alone returns ok:true. The STATEMENT is what is caught.
+    const src = `${IMPORT}
+const safe = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const target = getDbClient(process.env.TEST_DATABASE_URL);
+const { unsafe } = target;
+await unsafe("select public.prune_sync_log()");`;
+    expectRejected(src, REASON.unanchoredStatement);
+  });
+
+  it("(ab) rejects destructuring a checked client", () => {
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL);
+const { unsafe } = sql;
+await unsafe("select 1");`;
+    expectRejected(src, REASON.containment);
+  });
+
+  it("(ac) rejects a stored method reference on a checked client", () => {
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL);
+const u = sql.unsafe;
+await u("select 1");`;
+    expectRejected(src, REASON.containment);
+  });
+
+  it("(ad) rejects a computed member on a checked client", () => {
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL);
+await sql["unsafe"]("select 1");`;
+    expectRejected(src, REASON.containment);
+  });
+
+  it("(ae) rejects passing a checked client as a function argument", () => {
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL);
+await helper(sql);`;
+    expectRejected(src, REASON.containment);
+  });
+
+  it("(af) rejects a factory whose body is not a checked-connection expression", () => {
+    // One level, non-recursive by design: a factory returning another factory's call
+    // is not summarized, and the failure is a LOUD rejection the author repairs by
+    // inlining -- never a silent pass.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const inner = () => postgres(DB_URL);
+const outer = () => inner();
+const sql = outer();
+sql\`select 1\`;`;
+    expectRejected(src, REASON.uncheckedFactory);
+  });
+
+  it("(ag) accepts a one-level factory returning a checked connection", () => {
+    // The live shape from resetValidationDataConcurrency.test.ts, which is why the
+    // execution-site framing was reverted the first time it was attempted.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const newConn = () => postgres(DB_URL, { max: 1 });
+const a = newConn();
+const b = newConn();
+a\`select 1\`;
+b\`select 1\`;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(ah) rejects an execution on a client acquired by an unenumerated route", () => {
+    // `Function("return require")()` is in none of the deleted acquisition rules.
+    // It does not need to be: the client it produces is simply not in the checked set.
+    const src = `${IMPORT}
+const safe = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const req = Function("return require")();
+const pg = req("postgres");
+const sql = pg(process.env.TEST_DATABASE_URL);
+sql\`select 1\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(ai) accepts a transaction callback parameter of a checked client", () => {
+    // `.begin(async (tx) => ...)` is how five of the seven real destructive files run
+    // their statements, so the checked set has to reach the callback's parameter.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL);
+await sql.begin(async (tx) => {
+  await tx\`select public.prune_sync_log()\`;
+});`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(aj) rejects a transaction callback parameter of an UNCHECKED client", () => {
+    // The negative twin of (ai): without it, "tx is checked" could be granted to any
+    // parameter named in any `.begin` call, which would re-open the whole class.
+    const src = `${IMPORT}
+const safe = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const target = getDbClient(process.env.TEST_DATABASE_URL);
+await target.begin(async (tx) => {
+  await tx\`select public.prune_sync_log()\`;
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
   });
 
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
@@ -392,6 +532,6 @@ const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
 const safe = postgres(url, { max: 1 });
 const other = postgres(process.env.TEST_DATABASE_URL!, { max: 1 });
 await other.unsafe("select public.prune_sync_log()");`;
-    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+    expectRejected(src, REASON.unguardedArg);
   });
 });
