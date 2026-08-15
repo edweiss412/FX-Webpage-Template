@@ -57,10 +57,25 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // the real tree only for the universe fences.
   "tests/docs/_metaInteractionTimingInventory.test.ts": 0,
   "tests/docs/interactionTimingScan.test.ts": 0,
+  // The 2026-08-15 arms suites, enrolled with citationIntent and redContract.
+  // All five are pure: they drive literal fixture documents through the core
+  // and read no member of ENVIRONMENT_SOURCES. Every subprocess-spawning case
+  // of this arc lives in tests/specLint/cli.test.ts, which is deliberately NOT
+  // enrolled, so no enrolled suite here spawns anything.
+  "tests/specLint/citationIntent.test.ts": 0,
+  "tests/specLint/citationIntentWiring.test.ts": 0,
+  "tests/specLint/citationIntentCorpus.test.ts": 0,
+  "tests/specLint/redContract.test.ts": 0,
+  "tests/specLint/redExec.test.ts": 0,
   "tests/specLint/taskContract.test.ts": 0,
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
   // exercises compareFindings over literal fixtures and reads no environment.
   "tests/specLint/taskContractFindingOrder.test.ts": 0,
+  // The v2 grammar suite, enrolled 2026-08-15 as taskContract's third suite.
+  // Pure by the corpus-suite rule: it reads committed legacy fixtures through
+  // node:fs, which is deliberately NOT provenance, and touches neither
+  // child_process, ledger-git, nor process.env.
+  "tests/specLint/taskContractV2Grammar.test.ts": 0,
   // The review-round economy's two suites, enrolled by reviewRoundCount and
   // reviewRoundCorpus. Both declare 0, and the declaration is honest rather
   // than convenient: neither reaches any member of ENVIRONMENT_SOURCES.
