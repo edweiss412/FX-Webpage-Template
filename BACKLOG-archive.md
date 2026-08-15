@@ -48,6 +48,49 @@
 
 **Shared core.** The in-scope predicate, the className resolver and the corpus walk live in ONE module that both this guard and the subtle-policy guard import, so the two cannot drift apart on scope or resolution. Its path-set model keeps branch ancestry: `outer ? (inner ? floor : floor) : ""` has a floorless outer path and never clears.
 
+## BL-CHANGES-FEED-MODAL-BATCH-FLAKE — admin-changes-feed-layout's review modal intermittently never mounts inside a batch run — CLOSED 2026-08-15 (fix/changes-feed-batch-flake, SHIPPED)
+
+**Severity:** MEDIUM (blocks wiring the spec into CI; no known product impact) · **Class:** e2e flake · **Effort:** M · **Filed:** 2026-08-09
+
+`tests/e2e/admin-changes-feed-layout.spec.ts` fails intermittently when run as part of a multi-spec batch: after `page.goto('/admin?show=<slug>')` the locator
+
+```
+[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])
+```
+
+never becomes visible inside its 30s wait — "element(s) not found", not a slow render.
+
+**Measured 2026-08-09 on real CI**, in the five-green acceptance loop for `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` batch 1, where the database is freshly bootstrapped and seeded per job and no other session can touch it:
+
+| run                                                                                       | head       | outcome                         |
+| ----------------------------------------------------------------------------------------- | ---------- | ------------------------------- |
+| [31335519416](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335519416) | `d07330a0` | green                           |
+| [31335770085](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335770085) | `5c7a0704` | green                           |
+| [31335985584](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335985584) | `7089ec9e` | **failed @720, mobile-safari**  |
+| [31337109375](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31337109375) | `434d753f` | **failed @1280, mobile-safari** |
+
+The failing WIDTH BAND differs between runs, and locally the same spec failed at `@390` under desktop-chromium — so it is not band- or project-specific.
+
+**It passes standalone.** `pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium` was 6/6 green on repeated local runs against a freshly seeded database. The defect appears only when other specs run first, which points at a cross-spec interaction — the spec resolves the seeded Waldorf show by `drive_file_id` and seeds `show_change_log` / `sync_holds` marker rows in `beforeAll`, and `report-modal.spec.ts` pins the SAME show.
+
+**First thing to check:** whether the show's state (published / archived, or the presence of the feed rows the modal renders from) is disturbed by a spec that runs earlier in the batch, and whether the modal's mount condition depends on it. A per-test re-seed, or resolving a show of its own rather than sharing the Waldorf fixture, are the obvious candidate repairs — but confirm the mechanism before choosing.
+
+**Not a product bug as far as anything shows** — no user-facing report, and the surface passes every other run. The cost is coverage: the spec stays `UNSEEN` until it is stable enough to clear five consecutive green runs.
+
+**RESOLVED 2026-08-15 — `fix/changes-feed-batch-flake` (PR #793).** The theory recorded above is WRONG, and it is left in place with this correction beneath it so no future reader re-derives it: there is no cross-spec fixture collision. Project order runs mobile-safari first and this spec is its FIRST file, so in run 31335985584 the failure was the second test executed in the entire run — nothing else had touched the database — and `report-modal.spec.ts` only READS the Waldorf show (its `/api/report` POST is `page.route()`-mocked, so it cannot disturb the modal's mount condition). The failures also bracket PASSING tests of the same describe block against the same seeded rows.
+
+**The measured cause**, from both failing runs' own job logs at the exact failure timestamp: a transient Supabase gateway 502 on the foreground `get_admin_show_review_snapshot` RPC. `readShowReviewSnapshot` maps it to `infra_error`, `ShowReviewModal` throws `show_review_snapshot_failed` (the ratified fail-hard posture), and `app/admin/error.tsx` replaces the surface — so a wait for the modal alone starves its full timeout on a page where the modal can never mount. The 502 attribution leaned on an unmasked same-class witness 62s later (`ADMIN_SHOW_VERSION_TOKEN_READ_FAILED … 'An invalid response was received from the upstream server'`), because the fatal path's own error logged as `'[object Object]'`; that logging defect shipped fixed in the same PR, so the next occurrence is diagnosable from the fatal line itself.
+
+**"Passes standalone, fails in batch" was a sampling artifact.** Standalone was only ever run LOCALLY, where the fault environment — a CI-runner-hosted local Supabase stack — does not exist, and the batch runs were the only CI samples. The flake correlated with "batch" by measurement design, not by mechanism. That is this entry's own "Only CI settles a flake question" principle applied to the exoneration side, and it is why the first thing to check was checked and refuted rather than assumed.
+
+**Shipped:** `tests/e2e/helpers/openShowReviewModal.ts` (waits for the loaded modal OR the admin error boundary, recovers EXACTLY once through the product's own Retry, and surfaces every recovery as an `infra-recovery` annotation); the PostgREST log-field fix; the executed-count oracle's annotation print, so a recovery is visible in the job log of a GREEN run; and the spec's re-entry into app-e2e batch 1 at a floor of 8 (3 width bands + a dead-slug diagnostic case, x 2 projects). Accepted under the AC-4 bar it was dropped under: five consecutive green `pull_request` runs at `--retries=0`, every one reporting `infra-recovery total: 0`.
+
+**Documented limit carried forward:** the boundary-recovery branch has no deterministic test (spec §7 limit 2, with its accepted survivor stated) — the snapshot RPC is called server-side, out of `page.route()` reach, and a dev-only fault hook is product surface this arc refused to add. Steps 1 and 7 of the helper contract ARE deterministically tested.
+
+**Peers filed rather than fixed here:** `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` (reason (c) — the same starve shape across 14 other specs and several workflows) and `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE` (reason (a) — absorbing one retry reverses a ratified posture, a product decision this test-infra arc cannot settle).
+
+Spec `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md`; plan `docs/superpowers/plans/ci/2026-08-15-changes-feed-modal-batch-flake.md`.
+
 ## BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row had no transcription affordance — CLOSED 2026-08-15 (`feat/wifi-password-legibility`, SHIPPED)
 
 **Resolution: SHIPPED.** Spec `docs/superpowers/specs/2026-08-10-wifi-password-legibility.md` (APPROVED at adversarial round 17), plan `docs/superpowers/plans/2026-08-10-wifi-password-legibility.md` (APPROVED at round 4).

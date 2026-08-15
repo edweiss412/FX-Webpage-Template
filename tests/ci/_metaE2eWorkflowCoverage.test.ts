@@ -116,7 +116,6 @@ const LOCAL_ONLY_GALLERY_CAPTURE =
 const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/screenshots-gallery-capture.spec.ts": LOCAL_ONLY_GALLERY_CAPTURE,
   "tests/e2e/admin-dev.spec.ts": UNSEEN,
-  "tests/e2e/admin-changes-feed-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/admin-lifecycle-transitions.spec.ts":
     "its lifecycle-layout-e2e.yml run block validates the REPEATS input in a case/if block, and the R12 scanner refuses control-flow run blocks (both branches DO run the spec on every PR — REPEATS defaults to '1' — but the scanner cannot prove branch liveness by regex; the census pins the same block via complex-invocation registry rows). NOT the BL-E2E-APP-DEPENDENT-SPECS-CI-DARK population: this spec runs on every PR.",
