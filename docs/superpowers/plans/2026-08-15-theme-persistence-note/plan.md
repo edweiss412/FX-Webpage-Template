@@ -96,7 +96,7 @@ GREEN: sibling status region after the menu element per spec §2.2. Commit: `fea
 ORDER IS BINDING — two rules hold simultaneously (plan R1 F5): the marker-stripping archive commit is the PR's LAST pre-merge commit, AND the final review round examines the diff that merges (archive included):
 
 1. Merge `origin/main`; full gates: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check` — the merge lands FIRST so every later step (impeccable, archive, review) examines the tree that will actually merge (sibling C3 ordering).
-2. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates: context.mjs PRODUCT.md + DESIGN.md load → register read). P0/P1 fixed or DEFERRED-entried; findings + dispositions recorded in `closeout.md` in this plan directory with the marker line `impeccable-gate: critique+audit <date> — <disposition summary>` (AC-7).
+2. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates: context.mjs PRODUCT.md + DESIGN.md load → register read). P0/P1 fixed or DEFERRED-entried; findings + dispositions recorded in `closeout.md` in this plan directory with the filled marker line in the walker grammar — `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` (AC-7).
 3. Archive `BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` as the intended-last commit (archive RED pattern: move WITH marker → `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` fails by name → strip → green), recording §4 limits (AC-8).
 4. Whole-diff codex-guard `--stage diff` review to APPROVE — the reviewed diff INCLUDES the archive commit, so the review covers exactly what merges. If a round returns findings: repair; if the repair touches any UI-surface file, re-run the impeccable pair on that delta before the next round; RE-DO the archive commit on top (so it is last again), and dispatch the next round against the full diff. Merge only from a round that examined the final tree.
 5. PR; real CI green → `gh pr merge --merge` same turn (no commits after the APPROVE-reviewed tree) → ff main → `0 0`.
@@ -118,7 +118,9 @@ Handoff-by-overlap, the L-wave §3 order-binding protocol (plan R1 F6 — the tr
 
 The unit's filled marker lands in this directory's `closeout.md` at close (N4.1).
 
-impeccable-gate: pending — filled at N4.1 (critique + audit on the implementation diff)
+The line below is the pre-implementation placeholder form the closeout walker accepts (the batch precedent: the 2026-08-15-step3-tap-cluster unit, merged with this exact shape). This unit IS a UI surface; N4.1 writes the real filled `critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` marker into `closeout.md` in this directory, which then carries the closeout truth.
+
+impeccable-gate: N/A — no UI surface
 
 ## Self-review checklist (run before dispatching the plan review)
 
