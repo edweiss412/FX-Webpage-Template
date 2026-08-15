@@ -158,7 +158,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
 });
 ```
 
-Add one `it` per remaining reader (`lsRemote`, `mergedIntoMain`, `readBlob`, `diffHunks`, `tipEpoch`, `isShallow`, `currentBranch`, `mergeBase`, `fileOids`, `showFile`) asserting `timeout: 30_000` + `maxBuffer: MAX` — derive each canned `stdout` from what the reader parses (empty string is fine for readers that tolerate empty output; give `mergeBase` a 40-hex line, `fileOids` `"<40-hex> <path>"`). Premise note per anti-tautology rule: each case's failure mode is "constant changed at source"; the expected literal lives in the test, so a 30001 mutant diverges.
+Add one `it` per remaining reader (`lsRemote`, `mergedIntoMain`, `readBlob`, `diffHunks`, `tipEpoch`, `isShallow`, `currentBranch`, `mergeBase`, `fileOids`, `showFile`) asserting `timeout: 30_000` + `maxBuffer: MAX` — derive each canned `stdout` from what the reader parses (empty string is fine for readers that tolerate empty output; give `mergeBase` a 40-hex line, `fileOids` `"<40-hex> <path>"`). **`currentBranch` needs an environment premise:** it returns `GITHUB_HEAD_REF` WITHOUT spawning when GitHub Actions variables are set (`scripts/lib/ledger-git.ts:313-316`; existing proof `tests/scripts/ledgerClaimsCheck.test.ts:1113-1118`), and the PR unit workflow sets them (`.github/workflows/unit-suite.yml:90-92`) — so its case must `vi.stubEnv("GITHUB_ACTIONS", "")` and `vi.stubEnv("GITHUB_HEAD_REF", "")` (restore via `vi.unstubAllEnvs()` in `afterEach`) before asserting the recorded spawn call, else `calls[0]` is empty in CI while green locally. Premise note per anti-tautology rule: each case's failure mode is "constant changed at source"; the expected literal lives in the test, so a 30001 mutant diverges.
 
 - [ ] **Step 2: Run to verify it fails.**
 Run: `pnpm vitest run tests/scripts/ledgerGitSpawnSeam.test.ts`
@@ -511,9 +511,11 @@ Then: `wc -l tests/db/_destructiveFileAnalysis.ts` — assert < 420 (AC-4), and 
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-6 -->
 
-- [ ] **Step 1: Add the registry row AND its gate expectation together** (the gate fails-by-default on any enrolled surface missing from `EXPECTED_LEDGER_KINDS` — `tests/mutation/guardSurfaces.gate.test.ts:85-89` asserts key-set equality with the registry; that missing-row failure is this task's observed RED). Registry row (mirror `registry.ts:370-385`): id `destructiveFileAnalysis`, sourcePath `tests/db/_destructiveFileAnalysis.ts`, suitePaths ["tests/db/destructiveFileAnalysis.test.ts"], operators `[...OPERATOR_NAMES]`, `scoreFloor: 0.8` (a concrete finite starting floor — `registry.ts:79-81` rejects a non-finite value; raise to measured-minus-0.05 after Step 2 if measured exceeds 0.85), control chosen from a live line (a boolean-flip on a Rule-1 rejection branch the suite provably kills). Gate row: `destructiveFileAnalysis: { equivalent: 0, "accepted-gap": 0 }` initially.
+- [ ] **Step 1: Add the registry row ONLY** (mirror `registry.ts:370-385`): id `destructiveFileAnalysis`, sourcePath `tests/db/_destructiveFileAnalysis.ts`, suitePaths ["tests/db/destructiveFileAnalysis.test.ts"], operators `[...OPERATOR_NAMES]`, `scoreFloor: 0.8` (concrete finite — `registry.ts:79-81` rejects otherwise; raise to measured-minus-0.05 after Step 3 if measured exceeds 0.85), control a boolean-flip on a Rule-1 rejection branch the suite provably kills. Do NOT add the gate row yet.
 
-- [ ] **Step 2: Run.** `pnpm heavy pnpm mutation:guards` — first run red on the missing gate row if Step 1 split, then on survivors. Triage every survivor: kill with a fixture, or ledger `equivalent`/`accepted-gap` with an argument and (for gaps) a `ref:` to a filed backlog row; update the gate row to the FINAL triaged counts. Record the final score + survivor set — these numbers go verbatim in the diff-review round-1 brief (AGENTS.md enrolment contract).
+- [ ] **Step 2: Observe the RED.** Run: `pnpm heavy pnpm mutation:guards` — Expected: FAIL on `EXPECTED_LEDGER_KINDS` key-set inequality (`tests/mutation/guardSurfaces.gate.test.ts:85-89`): the enrolled surface has no expectations row. This is the task's declared red, unconditional.
+
+- [ ] **Step 3: Add the gate row** `destructiveFileAnalysis: { equivalent: 0, "accepted-gap": 0 }`, rerun, and triage survivors. Triage every survivor: kill with a fixture, or ledger `equivalent`/`accepted-gap` with an argument and (for gaps) a `ref:` to a filed backlog row; update the gate row to the FINAL triaged counts. Record the final score + survivor set — these numbers go verbatim in the diff-review round-1 brief (AGENTS.md enrolment contract).
 
 - [ ] **Step 3: Commit.** `git commit -m "test(db): enroll destructive-file analyzer in source-mutation registry (score <measured>)"`
 
@@ -622,21 +624,31 @@ export function assertCronDispatchOrigin(
 
 <!-- task: red=`pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-14,AC-15 -->
 
-- [ ] **Step 1: Extract the census origin check as a named function IN THE SUITE FILE**, so the sabotage case exercises the census's OWN assertion path rather than calling the comparator directly (plan review R1 F3 probed that a direct comparator call passes whether or not the census wiring exists — it proves nothing about the wiring):
+- [ ] **Step 1: Stub-wire the census check, so the sabotage RED is observable.** In `pg-cron-coverage.test.ts`, add the shared function the census loop AND the sabotage case will both call — initially a stub performing NO origin check — and wire it into the census loop for every job row (GUC read over the SAME psql invocation that reads the queue: `select current_setting('app.fxav_vercel_url', true)` appended to the existing query batch; mode from the suite's existing `resolvePgCronMode` result, whose shape is `{ mode: "validation" | "local"; dbUrl: string }` — `tests/db/_validationTargetIdentity.ts:108` — so the comparator receives `resolved.mode`):
 
 ```ts
 // pg-cron-coverage.test.ts: used by BOTH the census loop and the sabotage case.
-function assertJobDispatchOrigin(job: { jobname: string; command: string }, guc: string | null, mode: PgCronMode): void {
-  const urls = queuedUrlsFromSmokeOutput(runFiringSmoke(job.command)); // existing helpers
-  const parsed = new URL(urls[0] ?? "");
-  const verdict = assertCronDispatchOrigin(parsed, mode, guc);
-  if (!verdict.ok) throw new Error(`${job.jobname}: ${verdict.reason}`);
+// urls come from the suite's existing firing-smoke path (firingSmokeSql ->
+// psql -> queuedUrlsFromSmokeOutput), exactly as the census already obtains them.
+function assertJobDispatchOrigin(
+  jobname: string,
+  queuedUrls: string[],
+  guc: string | null,
+  mode: "validation" | "local",
+): void {
+  void jobname; void queuedUrls; void guc; void mode; // stub: no origin check yet
 }
 ```
 
-Wire it into the census loop for EVERY job row; read the GUC over the SAME psql invocation that reads the queue (`select current_setting('app.fxav_vercel_url', true)` appended to the existing query batch), mode from `resolvePgCronMode` (`tests/db/_validationTargetIdentity.ts:115`).
+- [ ] **Step 2: Add the sabotage case — this is the observed RED.** Local-mode only (`describe.skipIf` on validation): in a rolled-back transaction, `update cron.job set command = replace(command, current_setting('app.fxav_vercel_url', true), 'http://evil.invalid')` for one job, re-run the firing smoke on the mutated command, and assert `assertJobDispatchOrigin(jobname, urls, guc, resolved.mode)` THROWS with the job's name and the origin mismatch in the message. Run: `pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` — Expected: FAIL (the stub never throws; the missing origin-check body is the absent production code). This is also the live-mismatch demonstration spec §5.3 requires.
 
-- [ ] **Step 2: Add the sabotage case** (local-mode only, `describe.skipIf` on validation): in a rolled-back transaction, `update cron.job set command = replace(command, current_setting('app.fxav_vercel_url', true), 'http://evil.invalid')` for one job, re-read that job row, and assert `assertJobDispatchOrigin(mutatedJob, guc, mode)` THROWS with the job's name and the origin mismatch in the message — the same function the census runs, so the case is red exactly while the census wiring is absent or wrong (this is the RED for this task) and the live-mismatch demonstration spec §5.3 requires.
+- [ ] **Step 2b: Implement the check** inside `assertJobDispatchOrigin`:
+
+```ts
+  const parsed = new URL(queuedUrls[0] ?? "");
+  const verdict = assertCronDispatchOrigin(parsed, mode, guc);
+  if (!verdict.ok) throw new Error(`${jobname}: ${verdict.reason}`);
+```
 
 - [ ] **Step 3: Run local mode.** `pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` Expected: PASS (10 existing + new cases).
 
@@ -649,9 +661,9 @@ Wire it into the census loop for EVERY job row; read the GUC over the SAME psql 
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-16 -->
 
-- [ ] **Step 1: Add the row AND gate expectation together:** id `pgCronSmokes`, sourcePath `tests/cross-cutting/pgCronSmokes.ts`, suitePaths ["tests/cross-cutting/pgCronSmokesUnit.test.ts"] (DB-free — the unit suite from Task 8 must import and exercise `firingSmokeSql` and `queuedUrlsFromSmokeOutput` too; add 2-3 direct cases for each if Task 8 did not), operators `[...OPERATOR_NAMES]`, `scoreFloor: 0.8` concrete (raise post-measurement as in Task 7), gate row `pgCronSmokes: { equivalent: 0, "accepted-gap": 0 }` updated to final triaged counts. RED: the gate's key-set equality fails while either half is missing.
+- [ ] **Step 1: Add the registry row (gate row comes in Step 2 after the observed red):** id `pgCronSmokes`, sourcePath `tests/cross-cutting/pgCronSmokes.ts`, suitePaths ["tests/cross-cutting/pgCronSmokesUnit.test.ts"] (DB-free — the unit suite from Task 8 must import and exercise `firingSmokeSql` and `queuedUrlsFromSmokeOutput` too; add 2-3 direct cases for each if Task 8 did not), operators `[...OPERATOR_NAMES]`, `scoreFloor: 0.8` concrete (raise post-measurement as in Task 7), The gate row `pgCronSmokes: { equivalent: 0, "accepted-gap": 0 }` (updated to final triaged counts) is added only AFTER Step 2's observed red.
 
-- [ ] **Step 2: Run, triage survivors, record score for the diff-review brief.** `pnpm heavy pnpm mutation:guards`
+- [ ] **Step 2: Observe the RED, then complete.** Run `pnpm heavy pnpm mutation:guards` after adding ONLY the registry row — Expected: FAIL on the missing `pgCronSmokes` gate key (same mechanism as Task 7 Step 2). Then add the gate row, rerun, triage survivors, record the score for the diff-review brief.
 
 - [ ] **Step 3: Commit.** `git commit -m "test(infra): enroll pgCronSmokes in source-mutation registry (score <measured>)"`
 
@@ -688,13 +700,13 @@ Discovery in `tests/db/_metaDestructiveDbTargetGuard.test.ts` is spelling-sensit
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts tests/docs/_metaLedgerInProgress.test.ts` ac=AC-18 -->
 
-- [ ] **Step 1:** For each of A, B, D (in one commit per entry, marker off in that entry's archive commit): move the entry to `BACKLOG-archive.md` under `## <id> <SEP> <title> <SEP> CLOSED 2026-08-<dd> (chore/guard-completeness-wave, SHIPPED)`, append a disposition block recording what shipped and the premise corrections the spec's §7.1 names (A: 7+2 partition, three-rule redesign; B: refuted "ENOBUFS is loud"; D: dead validation GUC probe, queue-origin oracle), and add the `BACKLOG_GRADUATED` row with provenance `chore/guard-completeness-wave`. The graduation suite is the red before each move (row added first, as in Task 1).
+- [ ] **Step 1:** ONE commit graduates all three of A, B, D — this satisfies every commit contract at once: invariant 6's one-commit-per-task (this is Task 12's commit), and invariant 12's graduating-entry rule, because each entry's marker comes off in the SAME commit that archives that entry (they all archive in this one). For each entry: move it to `BACKLOG-archive.md` under `## <id> <SEP> <title> <SEP> CLOSED 2026-08-<dd> (chore/guard-completeness-wave, SHIPPED)`, append a disposition block recording what shipped and the premise corrections spec §7.1 names (A: 7+2 partition, three-rule redesign; B: refuted "ENOBUFS is loud"; D: dead validation GUC probe, queue-origin oracle), and add its `BACKLOG_GRADUATED` row with provenance `chore/guard-completeness-wave`. RED first: add the three graduation rows, run the graduation suite, observe FAIL (no archive sections yet), then move the entries and observe green — same shape as Task 1.
 
 - [ ] **Step 2: Full gates.**
 Run: `pnpm heavy pnpm test` · `pnpm typecheck` · `pnpm exec eslint .` · `pnpm format:check` · `pnpm heavy pnpm mutation:guards`
 Expected: all green. For the validation-mode census leg: `PG_CRON_COVERAGE_TARGET=validation pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` locally (reads `TEST_DATABASE_URL`), then real CI green on the PR including `x-audits` (AGENTS.md: real CI is a separate gate from local green).
 
-- [ ] **Step 3: Commit** (final): `git commit -m "docs: graduate guard-completeness entries A/B/D to archive"`
+- [ ] **Step 3:** The Step 1 commit is this task's ONLY commit (`git commit -m "docs: graduate guard-completeness entries A/B/D to archive"`). Step 2's gates produce no commit of their own; any repair a gate forces belongs to the task that owns the touched surface and rides a dedicated commit there.
 
 <!-- tasks: end -->
 
