@@ -526,6 +526,22 @@ const BACKLOG_GRADUATED = [
     id: "BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES",
     provenance: "chore/guard-completeness-wave",
   },
+  // chore/guard-completeness-wave (2026-08-15): the wave's three BUILD entries,
+  // graduating together in the close-out commit. Each one's IN PROGRESS marker comes
+  // off in this same commit, because the in-progress guard rejects an archived entry
+  // that still declares itself in flight.
+  {
+    id: "BL-DESTRUCTIVE-GUARD-EXECUTION-SITE",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-PG-CRON-HOST-ASSERTION",
+    provenance: "chore/guard-completeness-wave",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

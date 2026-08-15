@@ -792,6 +792,55 @@ git commit -m "docs: graduate guard-completeness entries A/B/D to archive"
 
 impeccable-gate: N/A — no UI surface
 
+### Close-out evidence (implementation, 2026-08-15)
+
+**Ledger.** Entry C archived at implementation start as a documented limit; entries A, B and D
+graduate in the close-out commit, each marker coming off in the same commit that archives it.
+`BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION` is the one new open row, filed with its census.
+
+**Cross-model review.** Diff stage: R1 BLOCKING (2 findings), R2 BLOCKING (2), R3 <VERDICT>. Spec and plan stages
+each converged at round 6 and are filed in `docs/review-rounds/chore/guard-completeness-wave/`.
+
+The arc's rows are split across TWO corpus files, and the round numbers restart in the second
+one. Both are consequences of merging `origin/main` mid-arc rather than counts to read at face
+value: the corpus is keyed by `git merge-base origin/main HEAD`, which moved from `04f601134519`
+to `1e503d714b6e` at the merge, and that key IS the arc identity — so the rows after the merge
+belong to a new arc whose own numbering starts at 1 (precedent:
+`docs/review-rounds/test/resurrect-mobile-safari-e2e`, whose second file restarts the same way).
+
+Read end to end, the DIFF stage burned three rounds on this branch: R1 and R2 under the first key
+(recorded there as diff r1, and as diff r1 of the second key after the merge landed between them),
+then R3 on the complete tree. The economy gate counts per arc, so no stage reaches the four-round
+filing threshold in either file, and the spec and plan filings in `04f601134519.md` are unaffected.
+
+R1 finding 1 was a real escape: the reviewer built a file that discovery DOES pick up, ran it
+through the analyzer, and got `ok:true` on a whole-database wipe. Root cause — `factoryChecked` was the one place in the analyzer that answered
+the binding question with "last declaration wins". The class sweep (every `.set(`/`.add(` in the
+five changed source files) turned up three instances in total, the third found here rather than by
+the reviewer: shadowed factory names, reassignable factory bindings (`let`/`var`/`function`, plus
+the `.begin` callback parameter no `const` ever covered), and a factory name that is also a
+parameter. Nine fixtures pin the class; eight verified red against the pre-repair analyzer.
+
+R1 finding 2 was AC-4's line-count criterion. Escalated with the measurement — the analyzer's code
+alone is 412 lines against 262 — and amended by owner ratification 2026-08-15: the criterion is the
+deleted rules and the zeroed enumeration surface, with the growth recorded as a documented cost.
+
+**Mutation gate** (`pnpm heavy pnpm mutation:guards`, all surfaces):
+
+| surface | mutants | killed | score | ledger |
+| --- | --- | --- | --- | --- |
+| `destructiveFileAnalysis` (new) | <N> | <K> | <S> | <L> |
+| `pgCronSmokes` (new) | <N> | <K> | <S> | none |
+| `ledgerGit` | <N> | <K> | <S> | equivalent 6, accepted-gap 0 |
+
+The analyzer's first enrolment run scored 0.82 with 35 unaccepted survivors on a fully green suite:
+26 were real gaps now killed by fixtures, one was dead code the gate proved dead and which was
+deleted rather than blessed, and seven are reachability arguments recorded in the registry.
+
+**Gates.** Full suite, `typecheck`, `eslint`, `format:check` green before push; real CI green on
+PR #786 including the validation-mode pg-cron leg in `x-audits`, which was additionally exercised
+locally against the live validation project (all nine jobs baked with the stable production alias).
+
 ## Review-round economy note
 
 Spec stage consumed 6 counted rounds (filing: `docs/review-rounds/chore/guard-completeness-wave/04f601134519.md`). Plan-stage and diff-stage briefs inherit the same consequence bound, threat-model fence, and do-not-relitigate set from the spec §1.1, plus: the prList row-validation matrix is DERIVED (one missing + one wrong-type case per consumed field) — a proposal to extend it is admissible only with a NEW consumed field or a probed escape.
