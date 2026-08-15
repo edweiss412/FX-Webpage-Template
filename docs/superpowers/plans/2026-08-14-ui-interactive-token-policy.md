@@ -927,7 +927,7 @@ the correction with the family set explicitly untouched.
 AdminPageHeader's back link lost a clear they had been getting for the wrong reason.
 
 **One product finding is a recorded position rather than a repair.** The outline's ratios were
-pinned on three neutral grounds while DESIGN claimed four, and ten shipped controls stand on a
+pinned on three neutral grounds while DESIGN claimed four, and eleven shipped controls across ten sites stand on a
 TINTED plate where the outer edge measures 2.79-2.88:1. `surface-raised` is asserted now and the
 tinted numbers are pinned so they cannot drift in either direction; whether tinted plates deserve
 their own treatment is a design decision, filed as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` under
