@@ -127,7 +127,18 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
 5. Commit: `fix(ci): split screenshots-drift nextcache into restore/save with
    always-save so failing runs refresh their cache`.
 
-## Task B2 — dispatch proofs (commit = the recorded transcript; plan R2 F2)
+## Task B2 — dispatch proofs (an EVIDENCE task, not a code task; plan R3 F1)
+
+Invariant 1's red-then-green binds code tasks; B2 ships no code. Its shape is the
+repo's stated-proof precedent for non-code tasks (the L-wave plan's own rule:
+"Stamp-only and refile tasks use `pnpm vitest run tests/docs/` green as their proof
+(prose edits have no executable red of their own)",
+`docs/superpowers/plans/2026-08-06-l-wave/plan.md:26-27`). B2's deliverable is
+EVIDENCE; its executable proof is the conclusion check in step 3 below — three
+recorded run ids whose `gh run view <id> --json conclusion -q .conclusion` outputs
+match the expected values exactly (success, success, failure). The constructed
+failing dispatch is the mutant-red for the WORKFLOW gate (spec §2.3), not a vitest
+red.
 
 1. Push the branch. `gh workflow run screenshots-drift.yml --ref
    fix/screenshots-drift-cache`; the first run MISSES (empty v2 namespace), builds
@@ -141,13 +152,14 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
    impossible, live), the run FAILS at "Check screenshot drift", and the save still
    executes and saves under `if: always()`. Record the run id; delete the throwaway
    branch. The edit never reaches the impl branch.
-3. All three run ids, with per-run step-level observations, land in a committed
-   transcript — a new file named "dispatch-proofs" (markdown) in this plan directory (created by
-   the task; a citation-shaped path is deliberately avoided here since the file does
-   not exist until B2 runs) — commit `docs(plan): record screenshots-drift dispatch-proof run ids` (plan R2
-   F2: the task's executable red analog is the CONSTRUCTED failing dispatch observed
-   failing at the drift check; the commit puts the evidence in the reviewed diff).
-   The PR body and the B3 archive resolution cite the same ids.
+3. All three run ids, with per-run step-level observations AND the literal
+   `gh run view <id> --json conclusion -q .conclusion` output per run (expected:
+   `success`, `success`, `failure` — the task's executable proof, plan R3 F1), land
+   in a committed transcript — a new file named "dispatch-proofs" (markdown) in
+   this plan directory (created by the task) — commit
+   `docs(plan): record screenshots-drift dispatch-proof run ids`. The commit puts
+   the evidence in the reviewed diff (plan R2 F2). The PR body and the B3 archive
+   resolution cite the same ids.
 
 ## Task B3 — archive + close
 
@@ -157,10 +169,14 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
    R1 F3).
 2. Archive `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING` (archive RED)
    with: the shipped direction, the two rejected directions (spec §4.1-§4.2), and the
-   B2 run ids as resolution evidence. Marker strips inside the move — this archive
-   commit is the branch's LAST CONTENT commit (plan R2 F3): after it, only
-   mechanical `origin/main` merge commits and review-forced repairs may land, and a
-   review-forced repair re-runs the gates and re-dispatches the review. Commit:
+   B2 run ids as resolution evidence. Marker strips inside the move, which is
+   exactly where invariant 12 places it for a graduating entry ("A graduating
+   entry's marker comes off in the same commit that archives it — archives
+   categorically reject in-progress entries", AGENTS.md invariant 12; plan R3 F2
+   REFUTED the last-commit reading — that clause governs markers on entries that
+   STAY OPEN, and this branch's only entry graduates). Later review-forced repair
+   commits and mechanical `origin/main` merges are ordinary; a repair re-runs the
+   gates and re-dispatches the review. Commit:
    `docs(backlog): archive BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING
    with dispatch-run evidence`; push (plan R1 F5 — the archive, run ids, and marker
    release must reach the reviewed diff before the PR gate).
