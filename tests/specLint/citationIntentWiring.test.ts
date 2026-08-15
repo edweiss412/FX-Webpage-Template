@@ -31,12 +31,18 @@ function makeResolver(files: Record<string, string | null>): {
   };
 }
 
-function lint(text: string, files: Record<string, string | null>): Finding[] {
+function allFindings(
+  text: string,
+  files: Record<string, string | null>,
+  kind: "spec" | "plan" = "plan",
+): Finding[] {
   const { resolver } = makeResolver(files);
-  return runLint(
-    { text, repoRelPath: "docs/x.md", kind: "plan", kindSource: "explicit" },
-    resolver,
-  ).findings.filter((f) => f.check === "citations");
+  return runLint({ text, repoRelPath: "docs/x.md", kind, kindSource: "explicit" }, resolver)
+    .findings;
+}
+
+function lint(text: string, files: Record<string, string | null>): Finding[] {
+  return allFindings(text, files).filter((f) => f.check === "citations");
 }
 
 /** `prefix` + a backticked citation; the returned column is the span's content start. */
@@ -248,5 +254,96 @@ describe("peer-read economy (spec §3.4)", () => {
     ]);
     expect(reads.filter((p) => p === "lib/wrong.ts")).toHaveLength(1);
     expect(reads.filter((p) => p === "lib/peer.ts")).toHaveLength(1);
+  });
+});
+
+describe("red-contract surfaces through runLint (spec §5, §6 wiring)", () => {
+  const OPEN_RC = "<!-- tasks: depth=2 red-contract -->";
+  const END = "<!-- tasks: end -->";
+  const doc = (...lines: string[]) => lines.join("\n") + "\n";
+  const FILES = { "lib/a.ts": "one\ntwo\nthree\n" };
+  const targetColumn = (line: string) => line.indexOf("red-target=`") + "red-target=`".length + 1;
+
+  it("the red-target span is excluded from the citation pass and validated instead", () => {
+    const marker =
+      "<!-- task: red=`pnpm test` red-state=authored red-target=`zzz/gone.ts:1` why=`w` ac=AC-1 -->";
+    const findings = allFindings(doc(OPEN_RC, "## A", marker, "AC-1 here.", END), FILES);
+    expect(findings).toEqual([
+      expect.objectContaining({
+        check: "taskContract",
+        code: "RED_TARGET_INVALID",
+        severity: "fail",
+        docLine: 3,
+        column: targetColumn(marker),
+      }),
+    ]);
+    // The replacement is exact: no CITATION_FILE_MISSING for the same span.
+    expect(findings.some((f) => f.check === "citations")).toBe(false);
+  });
+
+  it.each([
+    ["red=", "<!-- task: red=`zzz/gone.ts:1` red-state=live why=`w` ac=AC-1 -->"],
+    ["why=", "<!-- task: red=`pnpm test` red-state=live why=`zzz/gone.ts:1` ac=AC-1 -->"],
+  ])(
+    "a citation-shaped span in %s keeps today's hard citation finding (probed, review R4)",
+    (_label, marker) => {
+      const codes = allFindings(doc(OPEN_RC, "## A", marker, "AC-1 here.", END), FILES).map(
+        (f) => f.code,
+      );
+      expect(codes).toContain("CITATION_FILE_MISSING");
+    },
+  );
+
+  it.each([
+    ["gate cmd=", "<!-- gate: cmd=`zzz/gone.ts:1` probed=`p` -->"],
+    ["gate probed=", "<!-- gate: cmd=`pnpm test` probed=`zzz/gone.ts:1` -->"],
+  ])("a citation-shaped span in a %s capture keeps its hard citation finding", (_label, gate) => {
+    const codes = allFindings(doc("# Plan", gate), FILES).map((f) => f.code);
+    expect(codes).toContain("CITATION_FILE_MISSING");
+  });
+
+  it("marker spans in a SPEC keep today's citation behavior entirely (probed, review R3)", () => {
+    const marker =
+      "<!-- task: red=`pnpm test` red-state=authored red-target=`zzz/gone.ts:1` why=`w` ac=AC-1 -->";
+    const codes = allFindings(doc("## Resolved scope", marker), FILES, "spec").map((f) => f.code);
+    expect(codes).toContain("CITATION_FILE_MISSING");
+    expect(codes).not.toContain("RED_TARGET_INVALID");
+  });
+
+  it("a §4.3 hard code and a gate code both reach the report under check taskContract", () => {
+    const findings = allFindings(
+      doc(
+        OPEN_RC,
+        "## A",
+        "<!-- task: red=`pnpm test` ac=AC-1 -->",
+        "AC-1 here.",
+        END,
+        "<!-- gate: cmd=`pnpm ci` -->",
+      ),
+      FILES,
+    );
+    expect(findings).toEqual([
+      expect.objectContaining({
+        check: "taskContract",
+        code: "RED_STATE_MISSING",
+        severity: "fail",
+        docLine: 3,
+        column: 1,
+      }),
+      expect.objectContaining({
+        check: "taskContract",
+        code: "RED_WHY_MISSING",
+        severity: "fail",
+        docLine: 3,
+        column: 1,
+      }),
+      expect.objectContaining({
+        check: "taskContract",
+        code: "GATE_UNPROBED",
+        severity: "advisory",
+        docLine: 6,
+        column: 1,
+      }),
+    ]);
   });
 });
