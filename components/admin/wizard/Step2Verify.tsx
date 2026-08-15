@@ -121,9 +121,12 @@ const PRIMARY_BUTTON = cn(
 );
 // Secondary CTA (re-scan in resume mode). A recessed `surface-sunken` fill +
 // strong text keeps it reading as a BUTTON, distinct from the `bg-bg` folder
-// input directly above it (which shares the same border token).
+// input directly above it. Both wear `border-text-faint` (2026-08-14, DESIGN
+// §1.2a): a stroke around a control whose fill is the near-ground is the
+// control's boundary, so it takes the text ramp rather than a tile-edge token,
+// and the two stay a matched pair.
 const SECONDARY_BUTTON = cn(
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface-sunken px-6 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-surface-sunken px-6 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
 );
 
 export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) {
@@ -433,7 +436,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           spellCheck={false}
           disabled={isSubmitting}
           aria-describedby={matchesScanned ? "wizard-step2-scanned-note" : undefined}
-          className="min-h-tap-min rounded-sm border border-border-strong bg-bg px-3 text-base text-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          className="min-h-tap-min rounded-sm border border-text-faint bg-bg px-3 text-base text-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         />
 
         {matchesScanned && priorScan ? (
@@ -626,7 +629,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           <Link
             href="/admin?step=1"
             data-testid="wizard-step2-back"
-            className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           >
             <ChevronLeft aria-hidden="true" className="size-4" />
             Back

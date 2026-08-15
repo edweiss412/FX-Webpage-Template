@@ -1,0 +1,172 @@
+diff --git a/BACKLOG-archive.md b/BACKLOG-archive.md
+index 52e63045e..72dbd9993 100644
+--- a/BACKLOG-archive.md
++++ b/BACKLOG-archive.md
+@@ -1,3 +1,53 @@
++## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button now carries its own boundary — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
++
++**Status:** SHIPPED 2026-08-14 · PR #787 · **Effort (as shipped):** S at the constant, M across the class
++
++**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system contrast. **Class-sweep exception at filing:** (c).
++
++**The decision the row asked for was made by the user on 2026-08-14**, each option rendered in a mockup: a darker outline from the existing text ramp, over a tinted fill and over documenting the label as the affordance. `SECONDARY_ACTION_CLASS` now wears `border-text-faint`. Measured against the runtime tokens, the boundary went from 1.59:1 / 1.60:1 to **3.35:1 light / 3.76:1 dark on `bg-surface`**, 3.02 / 4.11 on the attention plate, 3.21 / 4.00 on the page ground. Zero new tokens: DESIGN §1.2a already sanctioned the text ramp for a stroke that must stand on its own, and this arc extended that rule from hairlines to control outlines with the button as its worked example, plus a §1.2 row per ground.
++
++**The row's own framing was carried forward, not quietly dropped.** It said this was NOT a strict AA failure and NOT a regression; DESIGN §1.2a now says the same in the document, so nobody re-frames the upgrade as a compliance repair later.
++
++**The swap was a dead class for its first hour, and that is the finding worth keeping.** `app/globals.css:18` excludes `lib/` from Tailwind's source detection, and `lib/ui/actionClass.ts` is the one runtime class string that lives there. Every other class in the constant is also worn by markup under `app/`/`components/`, so the exclusion had never bitten — until the outline moved to a class no scanned file wore. Tailwind emitted no rule, `border-color` fell back to `currentColor`, and the button drew a near-black outline while every token-contrast assertion stayed green. A live browser probe caught it before the gate. The repair is `@source inline("border-text-faint")`; the DURABLE defence is `tests/styles/secondary-action-contrast.test.ts`, which compiles `app/globals.css` with the real `tailwindcss` CLI and asserts every token of the constant emits a rule — derived from the constant, so tomorrow's added class is checked today. Proven by mutation: with the inline entry stripped the suite reds naming the class.
++
++**Scope, as shipped.** The constant plus 25 sites that carry the same recipe inline over a `bg-bg` fill, plus six further controls, none of them a wider ruling: two sit directly beside one of those, two are connected through a row they share rather than by adjacency, and one inherits another's file-local constant — in every case leaving it would have shipped a split treatment inside one view. Twenty-three in-scope controls whose fill is a SURFACE rather than the page ground are deliberately NOT swept: extending §1.2a's predicate from "the fill is the page ground" to "the fill equals its container" is a DESIGN decision, and the wider predicate captures switch tracks whose OFF-state boundary §1.2 pins separately against `--color-accent-edge`. Filed as `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with a derived cover.
++
++## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on action targets is a policy with three ratified carve-outs — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
++
++**Status:** SHIPPED 2026-08-14 · PR #787 · **Effort (as shipped):** M
++
++**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate). **Class:** design-system policy. **Class-sweep exception at filing:** (a) — the four-site list was a class, and the class needed a decision.
++
++**The row was right that it was a class and right that its own count was low.** It recorded 32 sites / 19 files under a restricted tag set and said outright that the scan, not the excerpt, is the authority. The shipped scanner — AST, `app/**` + `components/**`, with identifier, one-hop import, and same-file helper resolution — reports **55 sites across 44 files** out of 354 in-scope interactive elements, and reproduced the spec's ratified census exactly on its first run, matching every row of the spec's §4.3 table by file, tag and line.
++
++**The user chose carve-outs (2026-08-14) over strict-swap-all and over freezing the census**, then ratified a THIRD family the same day once the widened census surfaced a shape the mockup had not shown. DESIGN §1.1's rule became "never the RESTING color of an action target, except the three carve-out families in §1.1a", and §1.1a defines them: `<summary>` disclosure headers (7 sites), dismissable filter chips (1), state-pair dim members (6). The other 41 sites rest at `text-text`, and many retarget hover to `text-text-strong` so hover still visibly strengthens. What the suite pins is one-sided and worth stating precisely: the registry's 14 rows, and the NEGATIVE guarantee that no other in-scope element rests at a bare `text-text-subtle`. It does not pin each swapped site's exact token (a move to `text-text-faint` would pass — see `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR`), the swap tally, or hover; hover retargets were verified once at implementation time (plan Step 6b). (An earlier draft counted the retargets by hand and said 14; the count drifted as the swap set changed, which is why the invariant is stated instead.)
++
++**Family D is a predicate, not a list, and the guard makes it executable.** Each `state-dim` row names the non-colour cue that keeps the pair distinguishable AND the file that cue lives in, and the suite reads that file and asserts the token is still there — so a refactor that removes the cue fails the row instead of leaving a stale claim. §1.1a also states what Family D EXCLUDES: a pair whose active member inverts the fill (the telemetry level filter) is not a Family D pair, because the inversion already separates the members at full strength.
++
++**Guard:** `tests/styles/_metaSubtleOnInteractive.test.ts` + `tests/styles/subtleInteractiveExemptions.ts`, fail-by-default over a filesystem walk, failing by name with site AND token. Steady state is exactly the 14 exempt rows. **Documented limit:** the policed token must sit on the control's OWN className, so a control that paints its label through a nested span is invisible to the scan — recorded in the scan module rather than papered over.
++
++**One row of the ratified census was wrong about its own site, and the correction is the count.** `ActiveFilterChips.tsx:101` was listed EXEMPT-C and is the "Clear filters" action — a plain underlined button with no filter caption and no dismiss glyph — so it never met Family C's definition. It was swapped rather than re-carved-out, taking the tallies from 15/40 to **14/41**; spec §4.3 carries the correction and the family SET is untouched. Found by the whole-diff cross-model review, which read the markup rather than the table.
++
++**Two peers filed rather than swept:** `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR` (four controls resting one rung quieter, which is a policy question the ratified census did not cover) and `BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT` (the swap left a "no action needed" pill louder than the "needs you" one; moving it into a carve-out edits a ratified table, which is the user's call).
++
++## BL-TAP-TARGET-STRUCTURAL-GUARD — the repo-wide tap-height guard ships, unblocked by static resolution — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
++
++**Status:** SHIPPED 2026-08-14 · PR #787 · **Effort (as shipped):** M-L, as filed
++
++**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §5 + §9.1). **Class:** structural defense. **Class-sweep exception at filing:** (c).
++
++**The row said the policy decision had to come first, and it did.** The user chose resolve-constants (2026-08-14) over require-literals and over accepting a standing UNCLASSIFIED census. The recogniser now statically resolves named constants, both branches of a conditional, template statics and spans, `cn()`/`clsx()`/`.join()` arguments, scope-aware identifiers (innermost wins), one-hop imported consts, and same-file helper calls — and a registered floor-carrying component clears by its base class while remaining subject to call-site defeaters.
++
++**What it claims is the HEIGHT floor, by declaration.** Width is content-driven at most legitimately-sized controls, so a static width demand would push the corpus into the census and the guard would pin nothing; width stays with the real-browser rect oracles. Height is also the dimension every measured defect in the filing corpus was.
++
++**Numbers, derived by running the shipped scanner rather than promised in advance:** 354 in-scope elements, **301 clear statically**, 53 census rows — 15 `full-bleed`, 13 `unresolvable-dynamic`, 9 `padding-arithmetic`, 7 `inline-prose-link`, 5 `under-floor-filed`, 4 `parent-label-target`. Those are the numbers AS SHIPPED: the whole-diff review tightened the recogniser (two sites had been clearing on a horizontal-only pseudo bleed) and corrected three `parent-label-target` rows whose label carries no floor. The tallies live in `tests/styles/tapTargetCensus.ts` and are asserted against its rows, per category and in total, so this paragraph is a snapshot and that file is the authority. The row's blocker — 94 non-literal classNames — is resolved rather than exempted: what remains is 13 genuinely unreadable classNames, each named with why.
++
++**It found real defects on its first run.** `AutoPublishToggle` and `NotifyToggle` were 28px switches with no hit-area expansion, repaired in-branch to the sibling `PublishedToggle` recipe (28 + 2×8 = 44). The two `app/admin/dev/page.tsx` buttons are ~28px AND their classes are not compiled at all (the file is Tailwind-excluded and build-gated out of production), so a class-level repair would emit no CSS while making the guard report a floor the browser never applies — filed as `BL-ADMIN-DEV-PANEL-TAP-FLOOR` and censused honestly instead.
++
++**The `under-floor-filed` pin got stronger than the plan asked for.** The plan pinned the category's `backlogRef` to `BL-TAP-TARGET-INLINE-TEXT-CONTROLS`; that entry graduated on 2026-08-11 and its residue no longer exists, so the assertion became shape-plus-existence against the live ledger — a filed row cannot name an entry nobody wrote.
++
++**Shared core.** The in-scope predicate, the className resolver and the corpus walk live in ONE module that both this guard and the subtle-policy guard import, so the two cannot drift apart on scope or resolution. Its path-set model keeps branch ancestry: `outer ? (inner ? floor : floor) : ""` has a floorless outer path and never clears.
++
+ ## BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row had no transcription affordance — CLOSED 2026-08-15 (`feat/wifi-password-legibility`, SHIPPED)
+ 
+ **Resolution: SHIPPED.** Spec `docs/superpowers/specs/2026-08-10-wifi-password-legibility.md` (APPROVED at adversarial round 17), plan `docs/superpowers/plans/2026-08-10-wifi-password-legibility.md` (APPROVED at round 4).
+diff --git a/BACKLOG.md b/BACKLOG.md
+index 11718eb0f..6587c4736 100644
+--- a/BACKLOG.md
++++ b/BACKLOG.md
+@@ -80,93 +80,6 @@ The terminating framing is the same one that closed acquisition: stop asking how
+ 
+ ---
+ 
+-## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button is not perceivable as a box at the non-text floor
+-
+-**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system
+-contrast. **Effort:** M — it is a token decision affecting every surface that renders the button, not
+-a patch. **Class-sweep exception:** (c). **Reachability: PROBED.**
+-**Status:** IN PROGRESS · **Branch:** fix/ui-interactive-token-policy
+-
+-The shared secondary treatment (`SECONDARY_ACTION_CLASS`, `lib/ui/actionClass.ts`) draws a
+-`border-border-strong` outline over a `bg-bg` fill, on cards that are `bg-surface`. Measured with the
+-standard WCAG relative-luminance formula against the runtime tokens:
+-
+-```
+-border-strong on surface   1.59:1 light   1.60:1 dark     (3:1 non-text floor)
+-bg fill      on surface     1.04:1 light   1.06:1 dark
+-label text   on the fill   16.47:1 light  15.23:1 dark
+-```
+-
+-So neither the outline nor the fill is perceivable at the floor: what identifies the control is its
+-label, not its box.
+-
+-**This is NOT a strict AA failure and NOT a regression.** WCAG 1.4.11 does not require the boundary
+-to reach 3:1 when the component is identifiable by other means, and the label clears every floor
+-with margin. It is also pre-existing: this is the class `RescanSheetButton` has shipped for months,
+-promoted verbatim into the constant precisely so its eight other call sites would not move. The
+-retired ghost "View" had no border at all, so nothing got worse.
+-
+-**Why it is still worth a row.** DESIGN.md §1.2a already records the same shape one layer down —
+-tokens tuned to sit BESIDE a filled surface do not carry contrast when they must stand on their own.
+-The border tokens are tuned as tile edges, and a button outline asks them to do a different job. A
+-deliberate decision would either give the secondary button a boundary that reads (a stronger token,
+-or a fill with real separation) or state explicitly that the label is the affordance and the box is
+-decorative — which is a legitimate answer, just not one anyone has written down.
+-
+-## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on interactive elements is a 32-site class, not a four-site list
+-
+-**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, task U4). **Class:** design-system conformance
+-(`DESIGN.md` §1.1 documents `--color-text-subtle` as "Labels, captions, 'as of …' timestamps. Never
+-used for action targets."). **Effort:** M. **Class-sweep exception:** (c) — it spans 19 files this
+-PR does not otherwise touch, and several members are genuine design questions rather than mechanical
+-swaps. **Reachability: PROBED.**
+-**Status:** IN PROGRESS · **Branch:** fix/ui-interactive-token-policy
+-
+-**Why this is filed at all: the previous cover was an enumeration, and enumerations of this shape
+-keep coming up short.** `SHEETLINK-SUBTLE-ACTION-CLASS-1` named four sites. U4 found a fifth while
+-implementing (the HelpSheet `?` trigger's painted span). A SIXTH —
+-`components/admin/FinalizeButton.tsx:818`, the finalize-blocker dismiss — surfaced only because the
+-z-index sweep happened to touch its line, which is luck, not method. That sixth is repaired in this
+-branch with the other five. The rest are filed here **with the derivation instead of a list**, so
+-the next pass does not re-enumerate and come up short a third time.
+-
+-**The probe** (AST over `app/**` + `components/**` `.tsx`, JSX opening elements whose tag is
+-`button` / `a` / `summary` and whose STATIC `className` — string, template, conditional branches,
+-`cn()`/`clsx()` arguments — contains the bare token `text-text-subtle`):
+-
+-```
+-total: 32 interactive elements
+-components/admin/dev/SwitcherControls.tsx:142        <button>
+-components/admin/nav/NotifBell.tsx:76                <button>
+-components/admin/nav/OnboardingTopBar.tsx:84         <button>
+-components/admin/nav/UserMenu.tsx:51                 <button>
+-components/admin/settings/AdministratorsSection.tsx:150  <summary>
+-components/admin/showpage/sectionWarningExtras.tsx:272    <summary>
+-components/admin/telemetry/ActiveFilterChips.tsx:90, :101 <button>
+-components/admin/telemetry/AutoRefreshControl.tsx:119     <button>
+-components/admin/wizard/Step3ReviewModal.tsx:475          <button>
+-components/admin/wizard/step3ReviewSections.tsx:1410, :1419  <a>
+-components/admin/wizard/step3ReviewSections.tsx:1595       <summary>
+-components/admin/wizard/step3ReviewSections.tsx:2590        <button>
+-components/agenda/AgendaPdfViewer.tsx:165                  <button>
+-components/crew/AgendaScheduleBlock.tsx:107                <summary>
+-components/crew/primitives/KeyTimesStrip.tsx:191           <summary>
+-components/layout/ThemeToggle.tsx:81                       <button>
+-components/shared/ReportModal.tsx:579                      <button>
+-(tail truncated in this listing; the scan is the authority, not this excerpt)
+-```
+-
+-**Worst case is cosmetic, which is why it is a backlog row and not a deferral with a trigger.** The
+-control renders and is operable; it renders quieter at rest than DESIGN.md intends, which reads as
+-de-emphasis where none was meant. Nothing is unreachable and no state is carried by colour alone.
+-
+-**Fix when prioritized — and the fix is a guard, not 32 edits.** Land the scan above as a structural
+-meta-test with a reasons-required registry (the `zIndexExemptions.ts` shape), so every new
+-interactive element is covered by default and the remaining debt is declared and countable rather
+-than rediscovered. Some members need a decision first, not a swap: a dismissable filter chip and a
+-`<summary>` disclosure are arguably caption-like, and DESIGN.md should say so explicitly in the same
+-pass rather than being read as absolute and then quietly excepted.
+-
+ ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
+ 
+ **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
+@@ -300,15 +213,6 @@ RangeError: Maximum call stack size exceeded
+ 
+ **First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
+ 
+-## BL-TAP-TARGET-STRUCTURAL-GUARD — repo-wide tap-target guard blocked on the non-literal-className policy
+-
+-**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §5 + §9.1). **Class:** structural defense (fail-by-default coverage for NEW small targets). **Effort:** M-L. **Class-sweep exception:** (c) — spans surfaces the filing PR does not otherwise touch. **Reachability:** PROBED — the full detector procedure and its output are in the spec's §2.6 (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
+-**Status:** IN PROGRESS · **Branch:** fix/ui-interactive-token-policy
+-
+-The mandated pre-draft detector pass ran a TypeScript-AST walk over every `.tsx` under `app/**` and `components/**`: **340** in-scope interactive elements, **139** the recogniser cannot clear, of which **94 carry a non-literal `className`** (template literal, ternary, named constant, `.join()`, or no `className` prop at all with the floor living in a child component's base string). A guard honouring the consequence bound — every element checked or reported by name, never silently passed — must report all 94 as UNCLASSIFIED, so it cannot go green until they are dispositioned. Shipping it weakened (passing constructs it cannot read) would have missed `components/admin/HelpSheet.tsx:139`, a real 36px defect the corpus pass caught.
+-
+-**First scheduled step is the policy decision, not the recogniser:** resolve named class constants, require literal classNames on interactive elements, or accept a standing UNCLASSIFIED census. The recogniser cannot be finished before that call. Until then, the filing branch's defence is its real-browser assertions pinning the thirteen repaired sites (regression coverage, not discovery coverage — spec §4 documents the limit).
+-
+ ## BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT — the "no action needed" pill now reads louder than the "needs you" one
+ 
+ **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique P2). **Class:** visual hierarchy. **Effort:** S. **Class-sweep exception:** (a) — the repair is a product decision this PR cannot settle. **Reachability:** PROBED — both branches are in `components/admin/showpage/PublishedReviewModal.tsx` at the alert pill (`data-testid` suffix `-alert-pill`), and the arithmetic is on the shipped class strings.
