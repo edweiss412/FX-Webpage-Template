@@ -32,6 +32,7 @@ import { createServer, type Server } from "node:http";
 import ts from "typescript";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 import { premise, premiseHolds } from "../_shared/premise";
+import { parseManifest } from "../mutation/browser/mutate";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
@@ -171,11 +172,26 @@ test.beforeAll(async ({ browser }) => {
   // every invariant fails with a misleading rect rather than a missing class.
   // `components/layout` is not decorative: AdminNav always renders ThemeToggle
   // from there (components/admin/nav/AdminNav.tsx:38).
+  // BROWSER-MUTANT MODE (mutation-browser spec §3.2). Tailwind compiles
+  // utilities by scanning source DIRECTORIES on disk, which cannot see the
+  // in-memory bundle overlay — so a mutant introducing a class absent from the
+  // baseline stylesheet (`rounded-[14px]` is in the enrolment payload) would
+  // render UNSTYLED and the verdict would measure a CSS-compilation artifact
+  // rather than the production edit. One `@source` per manifest entry adds the
+  // mutant's candidate tokens; the ORIGINAL files stay scanned via their
+  // directory lines, so the union is correct by construction. Env unset ⇒ this
+  // list is empty and the stylesheet is byte-identical to today's.
+  const overlayManifest = process.env.MUTATION_OVERLAY_MANIFEST;
+  const mutantSources = overlayManifest
+    ? parseManifest(readFileSync(overlayManifest, "utf8")).map((e) => `@source "${e.mutant}";`)
+    : [];
+
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
   writeFileSync(
     entryCss,
     [
+      ...mutantSources,
       `@source "${join(REPO_ROOT, "components", "admin")}";`,
       `@source "${join(REPO_ROOT, "components", "messages")}";`,
       `@source "${join(REPO_ROOT, "components", "crew", "primitives")}";`,
