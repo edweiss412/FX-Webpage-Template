@@ -85,4 +85,23 @@ describe("PROBE: switch-person close/pending/reopen race", () => {
     await waitFor(() => expect(screen.getByTestId("popover")).toBeTruthy());
     expect(screen.queryByRole("alert")).toBeNull(); // reset-on-open cleared it
   });
+
+  it("REOPEN WHILE STILL PENDING (Closed→Open-pending): submit disabled, no alert; then failure shows the alert (R3-F1)", async () => {
+    const d = deferred<{ ok: boolean }>();
+    render(<Harness action={() => d.promise} />);
+    fireEvent.click(screen.getByTestId("trigger"));
+    fireEvent.click(screen.getByTestId("submit"));
+    fireEvent.click(screen.getByTestId("close"));
+    // reopen BEFORE the promise settles — the transition (pending) persists on the mounted parent
+    fireEvent.click(screen.getByTestId("trigger"));
+    expect(screen.getByTestId("popover")).toBeTruthy();
+    expect((screen.getByTestId("submit") as HTMLButtonElement).disabled).toBe(true); // still pending
+    expect(screen.queryByRole("alert")).toBeNull(); // idle (reset), pending, no error yet
+    await act(async () => {
+      d.resolve({ ok: false }); // settles while OPEN → alert appears
+      await d.promise;
+    });
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect((screen.getByTestId("submit") as HTMLButtonElement).disabled).toBe(false); // re-enabled
+  });
 });

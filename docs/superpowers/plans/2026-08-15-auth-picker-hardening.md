@@ -310,6 +310,20 @@ it("close WHILE PENDING then resolve-failure: no throw, no alert; reopen stays c
   openMenu();
   expect(screen.queryByRole("alert")).toBeNull(); // reopen is idle
 });
+
+it("reopen WHILE STILL PENDING (Closed→Open-pending): submit disabled, no alert; failure then surfaces (R3-F1)", async () => {
+  const d = deferred<ClearIdentityResult>();
+  render(<AvatarMenu {...baseProps} clearAction={() => d.promise} />);
+  openMenu();
+  fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+  closeMenu();
+  openMenu();                        // reopen BEFORE the promise settles
+  expect((screen.getByTestId("avatar-menu-switch-person") as HTMLButtonElement).disabled).toBe(true); // pending persists
+  expect(screen.queryByRole("alert")).toBeNull();
+  await act(async () => { d.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }); await d.promise; });
+  expect(await screen.findByRole("alert")).toBeTruthy(); // failure surfaces in the open menu
+  expect((screen.getByTestId("avatar-menu-switch-person") as HTMLButtonElement).disabled).toBe(false); // re-enabled
+});
 ```
 
 Anti-tautology: `EXPECTED` is derived from `messageFor` (a copy edit can't pass a stale literal); the query is scoped to `role="alert"` (the identity header can't satisfy it); the sibling assertion mirrors the existing header contract (`avatarMenu.test.tsx:97`). RED premise: `AvatarMenu` currently discards the result (no alert node, no local switch state), so `findByRole("alert")` throws and the reopen-reset path does not exist.
@@ -347,11 +361,15 @@ In `AvatarMenu.tsx`:
   ```
 - reset on open: add `setSwitchStatus("idle")` in `openAt(...)` and the trigger's open branch;
 - bind the form `action={onSwitchSubmit}` (keep the hidden `slug`/`shareToken`/`showId` inputs); set the submit `disabled={switchPending}`;
-- render the alert as a SIBLING of the `role="menu"` element (inside the popover, like the identity header — NOT after `</form>`), when `switchStatus === "error"`:
+- render the alert as the LAST child of the popover, a SIBLING placed immediately AFTER the `role="menu"` element (NOT inside it, NOT after `</form>`), when `switchStatus === "error"`, using the repo's canonical inline-error idiom (verbatim from `components/admin/ShowRowActions.tsx:859` — `warning-*` tokens; `text-danger`/`border-danger` do NOT exist, R3-F2):
   ```tsx
   <div role="menu" ...>{/* theme item + form */}</div>
   {switchStatus === "error" ? (
-    <div role="alert" data-testid="avatar-menu-switch-error" className={/* danger tokens per DESIGN.md */}>
+    <div
+      role="alert"
+      data-testid="avatar-menu-switch-error"
+      className="mt-1 rounded-sm border border-border-strong bg-warning-bg px-3 py-2 text-xs/relaxed text-warning-text"
+    >
       {messageFor("PICKER_SWITCH_FAILED").crewFacing}
     </div>
   ) : null}
