@@ -80,93 +80,6 @@ The terminating framing is the same one that closed acquisition: stop asking how
 
 ---
 
-## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button is not perceivable as a box at the non-text floor
-
-**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system
-contrast. **Effort:** M — it is a token decision affecting every surface that renders the button, not
-a patch. **Class-sweep exception:** (c). **Reachability: PROBED.**
-**Status:** IN PROGRESS · **Branch:** fix/ui-interactive-token-policy
-
-The shared secondary treatment (`SECONDARY_ACTION_CLASS`, `lib/ui/actionClass.ts`) draws a
-`border-border-strong` outline over a `bg-bg` fill, on cards that are `bg-surface`. Measured with the
-standard WCAG relative-luminance formula against the runtime tokens:
-
-```
-border-strong on surface   1.59:1 light   1.60:1 dark     (3:1 non-text floor)
-bg fill      on surface     1.04:1 light   1.06:1 dark
-label text   on the fill   16.47:1 light  15.23:1 dark
-```
-
-So neither the outline nor the fill is perceivable at the floor: what identifies the control is its
-label, not its box.
-
-**This is NOT a strict AA failure and NOT a regression.** WCAG 1.4.11 does not require the boundary
-to reach 3:1 when the component is identifiable by other means, and the label clears every floor
-with margin. It is also pre-existing: this is the class `RescanSheetButton` has shipped for months,
-promoted verbatim into the constant precisely so its eight other call sites would not move. The
-retired ghost "View" had no border at all, so nothing got worse.
-
-**Why it is still worth a row.** DESIGN.md §1.2a already records the same shape one layer down —
-tokens tuned to sit BESIDE a filled surface do not carry contrast when they must stand on their own.
-The border tokens are tuned as tile edges, and a button outline asks them to do a different job. A
-deliberate decision would either give the secondary button a boundary that reads (a stronger token,
-or a fill with real separation) or state explicitly that the label is the affordance and the box is
-decorative — which is a legitimate answer, just not one anyone has written down.
-
-## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on interactive elements is a 32-site class, not a four-site list
-
-**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, task U4). **Class:** design-system conformance
-(`DESIGN.md` §1.1 documents `--color-text-subtle` as "Labels, captions, 'as of …' timestamps. Never
-used for action targets."). **Effort:** M. **Class-sweep exception:** (c) — it spans 19 files this
-PR does not otherwise touch, and several members are genuine design questions rather than mechanical
-swaps. **Reachability: PROBED.**
-**Status:** IN PROGRESS · **Branch:** fix/ui-interactive-token-policy
-
-**Why this is filed at all: the previous cover was an enumeration, and enumerations of this shape
-keep coming up short.** `SHEETLINK-SUBTLE-ACTION-CLASS-1` named four sites. U4 found a fifth while
-implementing (the HelpSheet `?` trigger's painted span). A SIXTH —
-`components/admin/FinalizeButton.tsx:818`, the finalize-blocker dismiss — surfaced only because the
-z-index sweep happened to touch its line, which is luck, not method. That sixth is repaired in this
-branch with the other five. The rest are filed here **with the derivation instead of a list**, so
-the next pass does not re-enumerate and come up short a third time.
-
-**The probe** (AST over `app/**` + `components/**` `.tsx`, JSX opening elements whose tag is
-`button` / `a` / `summary` and whose STATIC `className` — string, template, conditional branches,
-`cn()`/`clsx()` arguments — contains the bare token `text-text-subtle`):
-
-```
-total: 32 interactive elements
-components/admin/dev/SwitcherControls.tsx:142        <button>
-components/admin/nav/NotifBell.tsx:76                <button>
-components/admin/nav/OnboardingTopBar.tsx:84         <button>
-components/admin/nav/UserMenu.tsx:51                 <button>
-components/admin/settings/AdministratorsSection.tsx:150  <summary>
-components/admin/showpage/sectionWarningExtras.tsx:272    <summary>
-components/admin/telemetry/ActiveFilterChips.tsx:90, :101 <button>
-components/admin/telemetry/AutoRefreshControl.tsx:119     <button>
-components/admin/wizard/Step3ReviewModal.tsx:475          <button>
-components/admin/wizard/step3ReviewSections.tsx:1410, :1419  <a>
-components/admin/wizard/step3ReviewSections.tsx:1595       <summary>
-components/admin/wizard/step3ReviewSections.tsx:2590        <button>
-components/agenda/AgendaPdfViewer.tsx:165                  <button>
-components/crew/AgendaScheduleBlock.tsx:107                <summary>
-components/crew/primitives/KeyTimesStrip.tsx:191           <summary>
-components/layout/ThemeToggle.tsx:81                       <button>
-components/shared/ReportModal.tsx:579                      <button>
-(tail truncated in this listing; the scan is the authority, not this excerpt)
-```
-
-**Worst case is cosmetic, which is why it is a backlog row and not a deferral with a trigger.** The
-control renders and is operable; it renders quieter at rest than DESIGN.md intends, which reads as
-de-emphasis where none was meant. Nothing is unreachable and no state is carried by colour alone.
-
-**Fix when prioritized — and the fix is a guard, not 32 edits.** Land the scan above as a structural
-meta-test with a reasons-required registry (the `zIndexExemptions.ts` shape), so every new
-interactive element is covered by default and the remaining debt is declared and countable rather
-than rediscovered. Some members need a decision first, not a swap: a dismissable filter chip and a
-`<summary>` disclosure are arguably caption-like, and DESIGN.md should say so explicitly in the same
-pass rather than being read as absolute and then quietly excepted.
-
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
 **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
@@ -299,15 +212,6 @@ RangeError: Maximum call stack size exceeded
 **CI is unaffected** — a fresh checkout has no `.next-*` — which is exactly why this can sit here indefinitely and cost each developer the same half-hour bisect.
 
 **First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
-
-## BL-TAP-TARGET-STRUCTURAL-GUARD — repo-wide tap-target guard blocked on the non-literal-className policy
-
-**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §5 + §9.1). **Class:** structural defense (fail-by-default coverage for NEW small targets). **Effort:** M-L. **Class-sweep exception:** (c) — spans surfaces the filing PR does not otherwise touch. **Reachability:** PROBED — the full detector procedure and its output are in the spec's §2.6 (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
-**Status:** IN PROGRESS · **Branch:** fix/ui-interactive-token-policy
-
-The mandated pre-draft detector pass ran a TypeScript-AST walk over every `.tsx` under `app/**` and `components/**`: **340** in-scope interactive elements, **139** the recogniser cannot clear, of which **94 carry a non-literal `className`** (template literal, ternary, named constant, `.join()`, or no `className` prop at all with the floor living in a child component's base string). A guard honouring the consequence bound — every element checked or reported by name, never silently passed — must report all 94 as UNCLASSIFIED, so it cannot go green until they are dispositioned. Shipping it weakened (passing constructs it cannot read) would have missed `components/admin/HelpSheet.tsx:139`, a real 36px defect the corpus pass caught.
-
-**First scheduled step is the policy decision, not the recogniser:** resolve named class constants, require literal classNames on interactive elements, or accept a standing UNCLASSIFIED census. The recogniser cannot be finished before that call. Until then, the filing branch's defence is its real-browser assertions pinning the thirteen repaired sites (regression coverage, not discovery coverage — spec §4 documents the limit).
 
 ## BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT — the "no action needed" pill now reads louder than the "needs you" one
 
