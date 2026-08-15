@@ -103,10 +103,14 @@ function deliverWrite(seq: number, value: string): void {
   if (value === owner.currentValue()) {
     owner.announce(COPIED_MESSAGE);
     owner.setCopied(true);
-    // Only the newest write owns the window. An older resolution arriving
-    // mid-window still tells the truth about itself, but re-arming here would
-    // stretch the confirmation past the newest write's clock.
+    // Only the newest write OWNS the window — an older resolution arriving
+    // mid-window must not stretch the confirmation past the newest write's
+    // clock. But every success still needs SOME window: an older one landing
+    // after the newest window already expired re-lights the glyph, and with
+    // nothing armed it stays lit for as long as the page is open. `ensure`
+    // arms only when no window is running, so both halves hold at once.
     if (seq === writeLedger.seq) owner.armReset();
+    else owner.ensureResetArmed();
     return;
   }
 
@@ -193,7 +197,13 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
   // refreshes.
   useLayoutEffect(() => {
     const arm = () => {
-      resetRef.current = setTimeout(() => setCopied(false), COPY_FEEDBACK_RESET_MS);
+      // NULLS ITS OWN HANDLE. A fired timer left in the ref reads as "a window
+      // is running" forever, which made `ensureResetArmed` refuse to arm and
+      // stranded a confirmation re-lit after the first window expired.
+      resetRef.current = setTimeout(() => {
+        resetRef.current = null;
+        setCopied(false);
+      }, COPY_FEEDBACK_RESET_MS);
     };
     const owner: Owner = {
       currentValue: () => valueRef.current,

@@ -108,6 +108,24 @@ describe("form 3 — motion durations", () => {
     expect(kinds('const m = { duration: "fast" };')).toEqual([]);
     expect(kinds("const m = { duration: token };")).toEqual([]);
   });
+
+  test("any timing-named property key, not only `duration`", () => {
+    // An options object at a call site is the other place a person writes a
+    // timing, and hardcoding the option is easier than declaring a constant —
+    // the accidental shape this guard targets.
+    expect(kinds("useAnnounceLog({ ttlMs: 17000 });")).toEqual(["motion-duration:17000"]);
+    expect(kinds("f({ closeDelay: 120 });")).toEqual(["motion-duration:120"]);
+    expect(kinds("f({ notATiming: 5 });")).toEqual([]);
+  });
+
+  test("a STRING-LITERAL key counts, exactly as the identifier form does", () => {
+    // `{ "ttlMs": 17000 }` is ordinary formatting, not obfuscation — an
+    // identifier-only reading left it silently uninventoried while the
+    // identical unquoted key was caught.
+    expect(kinds('useAnnounceLog({ "ttlMs": 17000 });')).toEqual(["motion-duration:17000"]);
+    expect(kinds('const m = { "duration": 0.22 };')).toEqual(["motion-duration:0.22"]);
+    expect(kinds('f({ "notATiming": 5 });')).toEqual([]);
+  });
 });
 
 describe("totality — every delay argument is literal, resolved, or NAMED", () => {

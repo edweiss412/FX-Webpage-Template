@@ -516,6 +516,34 @@ describe("overlapping writes resolve by VALUE alone (§4.2)", () => {
     expect(logTexts(container)).toEqual([COPIED_TEXT]);
   });
 
+  test("an older same-value success landing AFTER the window still gets a window", async () => {
+    // The other ordering of the standing-confirmation class. The newest write
+    // resolves and its window runs out; THEN an older same-value write lands
+    // and sets copied again. It does not own the window, so it must not extend
+    // one — but there is none left to extend, and without arming here the check
+    // glyph stays lit for as long as the page is open.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container);
+    await clickCopy(container);
+    premise("two writes are genuinely in flight", writes.length, 1);
+
+    await settle(1); // the NEWEST write resolves and owns the window
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS + 1);
+    });
+    premiseHolds("the newest write's window really expired", !isCopied(container));
+
+    await settle(0); // the older write lands afterwards
+    premiseHolds("the older success re-lit the confirmation", isCopied(container));
+
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS + 1);
+    });
+    expect(isCopied(container), "a re-lit confirmation must expire too").toBe(false);
+  });
+
   test("a value change while copied resets AND appends the corrective", async () => {
     const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
 

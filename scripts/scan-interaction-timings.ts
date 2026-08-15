@@ -290,10 +290,19 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
     // §5.5 row names, which a reviewer demonstrated with exactly that mutant —
     // and it is the accidental shape this guard's threat model targets, since
     // hardcoding the option is easier than declaring a constant for it.
+    // The key is read from an identifier OR a string literal: `{ "ttlMs": 17000 }`
+    // is ordinary formatting rather than obfuscation, and an identifier-only
+    // reading left it silently uninventoried while the identical unquoted key
+    // was caught (whole-diff review round 2).
+    const propertyKey =
+      ts.isPropertyAssignment(node) &&
+      (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))
+        ? node.name.text
+        : null;
     if (
       ts.isPropertyAssignment(node) &&
-      ts.isIdentifier(node.name) &&
-      (node.name.text === "duration" || TIMING_NAME.test(node.name.text))
+      propertyKey !== null &&
+      (propertyKey === "duration" || TIMING_NAME.test(propertyKey))
     ) {
       const value = numericValue(node.initializer);
       if (value !== null) {
@@ -303,7 +312,7 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
           kind: "motion-duration",
           name: null,
           value,
-          propertyKey: node.name.text,
+          propertyKey,
         });
       }
     }
