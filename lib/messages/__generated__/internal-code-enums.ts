@@ -152,6 +152,9 @@ export const INTERNAL_CODE_ENUMS = {
   INVALID_REVIEWER_ACTION: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  LEADING_COLUMN_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
   LINKED_FOLDER_OVERFLOW_TRUNCATED: {
     source: "parse_warnings.code"
   },

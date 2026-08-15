@@ -1108,6 +1108,45 @@ earlier on this same branch.
 
 ---
 
+## BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal — CLOSED 2026-08-14 (`feat/mutation-column-shift`, PR #784, wave branch 4/5)
+
+**Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
+
+A spurious leading empty column shifted every cell in a section's row grid one position right and the parse absorbed it — the East Coast column-shifted outlier, a shape observed in a LIVE show rather than a synthetic one. Every field read its neighbour's value, which is the most damaging silent outcome in this set precisely because each individual value still looked well-formed.
+
+**Resolution: correction, not detection.** When every row a section owns — its header and its alignment row included — leads with an empty cell, the inverse transform is total, so `normalizeLeadingColumn` (`lib/parser/leadingColumnNormalize.ts`) drops the leading column and emits one warn-severity `LEADING_COLUMN_AUTOCORRECTED`. This is the wave's only correcting branch; its three siblings detect. The difference is earned rather than stylistic: dropping a uniformly-empty column cannot lose information, whereas branch 3's fused row would have required guessing which value belongs in which column.
+
+Wired at `lib/parser/index.ts` Step 2.55 — after the `normalizeSectionHeaders` seam and deliberately BEFORE Step 2.6's cell scanners, which read section width and would otherwise be handed a wrong first column and misfire `ROW_CELLS_FUSED`.
+
+**326 ledgered holes closed; `RAW_HOLES` 1,414 → 1,088.** All four reconciliation buckets empty across the full 8-shard harness.
+
+**The shrink was derived from the harness, and the two figures that looked authoritative were both wrong to delete by.** The plan said 211; the ledger's own `column-shift` rows numbered 202, and `knownHoles.ts` already instructed branch 4 to prefer the ledger over the plan (branch 3's width discriminator had closed 9 early). Deleting the 202 was tried and the harness rejected it: five of eight shards returned `newHoles`, the bucket spec §9 marks HARD. The parser was fine — the fix restores 508 of 535 sites, so the 27 that stay unrestored still survive, and removing their rows reclassified them from known holes into new ones.
+
+**Sizing a shrink by an operator's row count silently asserts that the fix closes every row of that operator.** Here that was false by the 12 `column-shift` rows those unrestored sites still carry. The correct shrink is the harness's own `fixedHoles` set — collected via `COLLECT_MUTATION_ALARMS` and reconciled against the untouched ledger — which is both smaller than 202 within `column-shift` (190) and larger overall (326), because the normalization pass also closes 136 `blank-row:inject` holes. Branch 3 recorded the same cross-operator lesson from the other side (its short-by-one discriminator closed 9 `column-shift` rows); this branch is the case where ignoring it would have shipped silent holes rather than merely understating a win. `newHoles` measured 0 against the FULL ledger, which is what discriminates "my ledger edit was wrong" from "the parser regressed"; three independent full runs agreed shard-for-shard on all eight alarm counts.
+
+**Corroboration took three review rounds, and each round killed a distinct mechanism.** The design accepts a cell-2 section label as a logical-section boundary, because a shifted section's own header leads empty. Review found a bare label match silently REWRITES unshifted data: `LABEL_TO_KIND` contains exactly the tokens that occur as ordinary cell values (`VENUE`, `CLIENT`, `DRIVER`), and `ROOM_FAMILY_PREFIXES` holds room names that appear as gear-table data.
+
+1. Bare cell-2 match, no corroboration — rewrote a contacts table whose second column read `Venue`.
+2. Corroborating on "the next line is an alignment row" — measured DEAD: 0 of 216 corpus mid-block headers carry one, because sections that own an alignment row are always block-initial and those never reach this branch. Cost 78 of 350 sites while still spoofable by a lone `-` placeholder.
+3. Corroborating on column width, but counting cells with a naive `split("|")` — an escaped in-cell `\|` inflated the count by exactly the +1 that was being read as proof of a shift.
+
+The shipped form compares two counts produced by ONE function applied to both sides (`splitCellsUnescaped`, exported from the sibling `rowWidthDiscriminator.ts` rather than reimplemented). That is a closable bound on a finite property of one function, rather than the open enumeration the first two rounds rested on.
+
+**Measured over all 535 harness `columnShift` sites: 508 payload-restored, 508 with exactly one warning, 0 with more than one.** A no-corroboration variant scores identically, so three rounds of safety work cost zero closures; cell-1-only scores 461.
+
+**Documented limits.**
+
+- **27 of 535 sites stay unrestored**, carrying 12 residual ledger rows across 8 shows. 14 of the 27 are a pre-existing vocabulary gap: `COI` and `IN HOUSE AV` are recognized headers in `knownSections.ts` and in the harness's own map but absent from `sectionKind.ts`'s `LABEL_TO_KIND`. Deliberately untouched — growing that table widens the cell-2 opener's false-positive surface, which is the exact class that took three rounds to close.
+- **A mid-block shifted section containing a data row whose cell 2 canonicalizes emits two warnings for one shift.** Payload always correct; 0 of 535 corpus sites reach it. Not patched: the only suppression also kills the legitimate two-adjacent-shifted-sections case, trading one correct behaviour for another.
+- **A block-initial shifted pair has no `lastUnshiftedWidth` reference**, so the pair is read as one combined span — one warning instead of two, payload still fully restored, since dropping a leading cell is idempotent whether done once or twice.
+- **`classifyVersion` is Step 1 and reads the uncorrected markdown.** Measured over all 540 block-start shift sites: payload restores 540/540, and `not_a_sheet=0` — that verdict is the one early-stub path that would bypass this pass entirely, and it never fires. 7 sites gain a `VERSION_AMBIGUOUS` the clean parse lacks; those restore fully and additionally hard-fail into review, and `origin/main` returns the identical verdict on the identical input.
+
+**§6.1 live-pipeline note.** The exporter drops the live shape today, so this defends the parser boundary rather than fixing a currently-reachable production path.
+
+`tests/parser/cleanCorpusCalibration.test.ts` pins the zero-warning clean-corpus base rate for this code, so a future shift is visible rather than silent.
+
+---
+
 ## BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells — CLOSED 2026-08-10 (`feat/mutation-merged-cell`, PR #771, wave branch 3/5)
 
 **Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
