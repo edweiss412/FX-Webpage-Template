@@ -359,9 +359,16 @@ function tokenIn(block: string, name: string): string {
   if (!m || !m[1]) throw new Error(`token ${name} not found`);
   return m[1];
 }
-const lightBlock = css.slice(css.indexOf(":root"), css.indexOf("@media (prefers-color-scheme: dark)"));
-const darkStart = css.indexOf('[data-theme="dark"]');
-const darkBlock = css.slice(darkStart, css.indexOf("}", css.indexOf("--color-status-degraded-text-runtime", darkStart)));
+// Line-anchored regex anchors (plan R8 F1 — bare indexOf hits a comment at css line 43 and the
+// @theme alias block, leaving the dark block without runtime tokens; probed against live CSS:
+// light #8b8c92/#ffffff/#f4f3f1/#fafaf9, dark #74736d/#16171c/#0b0c10/#0f1014 all resolve).
+function anchor(re: RegExp): number {
+  const m = css.match(re);
+  if (!m || m.index === undefined) throw new Error(`anchor ${re} not found`);
+  return m.index;
+}
+const lightBlock = css.slice(anchor(/^:root \{/m), anchor(/^@media \(prefers-color-scheme: dark\)/m));
+const darkBlock = css.slice(anchor(/^\[data-theme="dark"\] \{/m));
 
 describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule)", () => {
   it("premise: the constant actually wears the token the ratios pin", () => {
