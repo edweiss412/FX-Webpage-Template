@@ -40,6 +40,16 @@ describe("idPatterns — boundary, segmentation, escaping (spec §3.2)", () => {
     expect(matchesAny(p, "  logSyncEntry(entry)")).toBe(false);
   });
 
+  it("a THREE-character segment is exactly at the floor and DOES contribute a pattern", () => {
+    // The boundary in both directions: this is what a raised floor (>= 4) or a
+    // `<=` comparison would silently drop, taking `foo`/`bar`-length segments —
+    // the commonest identifier length in the corpus — out of the search.
+    const p = idPatterns("foo.bar");
+    expect(p).toHaveLength(3);
+    expect(matchesAny(p, "  bar(value)")).toBe(true);
+    expect(matchesAny(p, "const foo = 1")).toBe(true);
+  });
+
   it("segments shorter than 3 characters contribute no pattern (the floor)", () => {
     const p = idPatterns("a.of");
     expect(p).toHaveLength(1); // full id only: `a` is 1 char, `of` is 2
@@ -97,6 +107,13 @@ describe("enclosingName — upward declaration scan (spec §3.3 step 2)", () => 
     expect(scan(lines, 2)).toBe("outer");
   });
 
+  it("more than six hashes is not an ATX heading", () => {
+    // CommonMark caps ATX at six. A seventh hash is paragraph text, and reading
+    // it as a heading would invent an enclosing name out of ordinary prose.
+    expect(scan(["####### seven hashes is prose", "body"], 2)).toBeNull();
+    expect(scan(["###### six hashes is a heading", "body"], 2)).toBe("six hashes is a heading");
+  });
+
   it("returns null when no shape matches by line 1", () => {
     expect(scan(["  const x = 1;", "  return x;"], 2)).toBeNull(); // indented: not a declaration line
     expect(scan(["plain prose", "more prose"], 2)).toBeNull();
@@ -150,6 +167,14 @@ describe("classifyIntent — tier order and window bounds (spec §3.3)", () => {
   it("any one of several identifiers hitting is enough for clean", () => {
     const lines = at(blank(), 12, "  logSync(entry);");
     expect(classifyIntent(lines, 12, 12, ["nowhere", "logSync"]).tier).toBe("clean");
+  });
+
+  it("the window reaches line 1 itself when the citation sits near the head", () => {
+    // Cited 3 → lo = max(1, -2) = 1. A floor of 2 loses line 1 entirely, and the
+    // hit here is a CALL rather than a declaration so the enclosing-name tier
+    // cannot mask the loss.
+    const lines = ["  deps();", "x", "y", "z"];
+    expect(classifyIntent(lines, 3, 3, ["deps"]).tier).toBe("clean");
   });
 
   it("the window clamps at both ends of the file rather than throwing", () => {

@@ -79,8 +79,15 @@ describe("presence checks bind only inside red-contract regions (spec §4.3)", (
 
   it("`authored` without a red-target is RED_TARGET_MISSING; `live` without one is fine", () => {
     expect(
-      codes(inRegion("<!-- task: red=`pnpm test` red-state=authored why=`w` ac=AC-1 -->")),
-    ).toEqual(["RED_TARGET_MISSING"]);
+      check(inRegion("<!-- task: red=`pnpm test` red-state=authored why=`w` ac=AC-1 -->")),
+    ).toEqual([
+      expect.objectContaining({
+        code: "RED_TARGET_MISSING",
+        severity: "fail",
+        docLine: 3,
+        column: 1,
+      }),
+    ]);
     expect(
       codes(inRegion("<!-- task: red=`pnpm test` red-state=live why=`w` ac=AC-1 -->")),
     ).toEqual([]);
@@ -161,9 +168,34 @@ describe("RED_TARGET_INVALID is global on plan-kind v2 markers (spec §4.3, revi
   it.each([
     ["colon form on a tracked in-range line", "lib/a.ts:2"],
     ["colon form on a tracked range", "lib/a.ts:1-3"],
+    ["colon form on EXACTLY the last line", "lib/a.ts:3"],
+    ["a single-line range with equal endpoints", "lib/a.ts:2-2"],
     ["path-only form naming an absent module", "lib/notYet.ts"],
   ])("%s is VALID and draws nothing", (_label, target) => {
     expect(check(withTarget(target))).toEqual([]);
+  });
+
+  it("a range whose START is in range but whose END is past EOF is still invalid", () => {
+    // `lib/a.ts` has three lines. Only the end is out of range, so a check that
+    // required BOTH ends to be out would pass this silently.
+    expect(check(withTarget("lib/a.ts:2-99")).map((f) => f.code)).toEqual(["RED_TARGET_INVALID"]);
+  });
+
+  it("the invalid finding carries its repair instruction verbatim", () => {
+    const [finding] = check(withTarget("zzz/gone.ts:1"));
+    expect(finding?.message).toBe("invalid `red-target=`: cited file not tracked: zzz/gone.ts");
+    expect(finding?.detail).toBe(
+      "fix the target: a tracked file with an in-range line, or an untracked path for a module the task creates",
+    );
+  });
+
+  it("a marker on doc LINE 1 is validated like any other", () => {
+    // The scan starts at index 0; a scan starting one line in loses the first
+    // line of every document.
+    const text = "<!-- task: red=`x` red-target=`zzz/gone.ts:1` ac=AC-1 -->\nAC-1 here.";
+    expect(check(text)).toEqual([
+      expect.objectContaining({ code: "RED_TARGET_INVALID", docLine: 1 }),
+    ]);
   });
 
   it("validity is checked OUTSIDE contract regions too — but only validity", () => {
@@ -234,6 +266,25 @@ describe("same-extent advisories (spec §4.5)", () => {
     expect(codes(retiredDoc(["Then run git mv lib/old.ts lib/new.ts by hand."]))).toEqual([]);
   });
 
+  it("a flag between `git mv` and its object does not hide the move", () => {
+    expect(
+      codes(retiredDoc(["```sh", "git mv -f lib/old.ts lib/new.ts", "```"])).length,
+    ).toBeGreaterThan(0);
+    expect(codes(retiredDoc(["```sh", "git mv -f lib/old.ts lib/new.ts", "```"]))).toEqual([
+      "RED_TARGET_RETIRED",
+    ]);
+  });
+
+  it("two retired paths in one command draw exactly ONE advisory, not one each", () => {
+    const findings = check(
+      retiredDoc(
+        ["```sh", "git mv lib/old.ts lib/new.ts", "git rm lib/a.ts", "```"],
+        "test -f lib/old.ts -o -f lib/a.ts",
+      ),
+    );
+    expect(findings.map((f) => f.code)).toEqual(["RED_TARGET_RETIRED"]);
+  });
+
   it("an untracked path token in the red command never fires", () => {
     expect(
       codes(retiredDoc(["```sh", "git mv lib/ghost.ts lib/new.ts", "```"], "test -f lib/ghost.ts")),
@@ -254,6 +305,21 @@ describe("same-extent advisories (spec §4.5)", () => {
       codes(inRegion("<!-- task: red=`pnpm a ; pnpm b` red-state=live why=`w` ac=AC-1 -->")),
     ).toEqual([]);
     expect(check(inRegion(conj, OPEN))).toEqual([]);
+  });
+
+  it("a marker OUTSIDE every contract extent draws no conjunction advisory", () => {
+    // Containment is an AND of two bounds; either bound alone matches almost
+    // every line, so an orphaned marker would inherit the first extent's
+    // advisories.
+    const text = doc(
+      OPEN_RC,
+      "## A",
+      "<!-- task: red=`pnpm one` red-state=live why=`w` ac=AC-1 -->",
+      "AC-1 here.",
+      END,
+      "<!-- task: red=`pnpm a && pnpm b` red-state=live why=`w` ac=AC-1 -->",
+    );
+    expect(check(text)).toEqual([]);
   });
 });
 
@@ -298,7 +364,40 @@ describe("gate markers (spec §4.6)", () => {
     "<!-- gate: cmd=`pnpm test` probed=p -->",
     "<!-- gate: cmd=`a`  probed=`p` -->",
   ])("a gate-shaped line matching neither form is hard GATE_MALFORMED: %s", (gate) => {
-    expect(withGate(gate).map((f) => f.code)).toEqual(["GATE_MALFORMED"]);
+    expect(withGate(gate)).toEqual([
+      expect.objectContaining({ code: "GATE_MALFORMED", severity: "fail", docLine: 2, column: 1 }),
+    ]);
+  });
+
+  it("a gate line indented FOUR spaces is not a gate line", () => {
+    // Four spaces is an indented code block in markdown; the recognizer stops
+    // at three, exactly like the task-marker forms it sits beside.
+    expect(withGate("    <!-- gate: cmd=`` -->")).toEqual([]);
+  });
+
+  it("a gate marker on doc LINE 1 is still checked", () => {
+    expect(check("<!-- gate: cmd=`pnpm test` -->\nprose")).toEqual([
+      expect.objectContaining({ code: "GATE_UNPROBED", docLine: 1, column: 1 }),
+    ]);
+  });
+
+  it("findings come back in document order, whatever order the checks ran in", () => {
+    // Gates are scanned after markers, so an unsorted return would put the
+    // line-2 gate finding after the line-5 marker finding.
+    const text = doc(
+      "# Plan",
+      "<!-- gate: cmd=`pnpm ci` -->",
+      OPEN_RC,
+      "## A",
+      "<!-- task: red=`pnpm test` ac=AC-1 -->",
+      "AC-1 here.",
+      END,
+    );
+    expect(check(text).map((f) => [f.code, f.docLine])).toEqual([
+      ["GATE_UNPROBED", 2],
+      ["RED_STATE_MISSING", 5],
+      ["RED_WHY_MISSING", 5],
+    ]);
   });
 
   it("gate lines are inert in spec-kind docs and inside fences", () => {

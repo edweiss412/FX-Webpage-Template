@@ -39,6 +39,18 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // four sign-not-magnitude and two guarded-branch equivalents — all six with
   // control-flow arguments, which is why the surface now carries NO accepted gap.
   taskContract: { equivalent: 22 },
+  // The 2026-08-15 arms surfaces, enrolled with EMPTY ledgers. Both are pure
+  // classifiers over literal fixtures, so every survivor is repayable by a test
+  // rather than blessable: a row appearing here later is a coverage regression
+  // to explain, not a number to bump.
+  // citationIntent swept clean: 21/21 killed, no blessed survivor, so a row
+  // appearing here later is a coverage regression to repair.
+  citationIntent: {},
+  // redContract: SEVEN reachability arguments — the GATE bound that only ever
+  // runs on GATE_ANY hits, three one-past-the-end scan bounds, and the two
+  // extent-containment equalities a marker line can never occupy. No
+  // accepted-gap: every other survivor of the first run was repaid by a test.
+  redContract: { equivalent: 7 },
   // Counted from the surface, not read back off its ledger: `scripts/lib/
   // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
   // always present -- two in the tip comparator, one in the age loop -- and

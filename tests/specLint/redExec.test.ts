@@ -72,13 +72,21 @@ describe("synthesizeExecFindings — the §4.4 outcome map", () => {
       results({ 3: { kind: "signal", signal: "SIGTERM" } }),
     );
     expect(signalled[0]).toEqual(
-      expect.objectContaining({ code: "RED_EXEC_ERROR", severity: "advisory", docLine: 3 }),
+      expect.objectContaining({
+        code: "RED_EXEC_ERROR",
+        severity: "advisory",
+        docLine: 3,
+        column: 1,
+      }),
     );
     expect(signalled[0]!.detail).toContain("SIGTERM");
 
     const spawnFailed = synthesizeExecFindings(
       PLAN,
       results({ 3: { kind: "spawn-error", message: "spawn sh ENOENT" } }),
+    );
+    expect(spawnFailed[0]).toEqual(
+      expect.objectContaining({ code: "RED_EXEC_ERROR", docLine: 3, column: 1 }),
     );
     expect(spawnFailed[0]!.detail).toContain("spawn sh ENOENT");
     // Classifying either as observed red is the silent corruption §4.4 forbids.

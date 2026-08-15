@@ -41,6 +41,16 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // the real tree only for the universe fences.
   "tests/docs/_metaInteractionTimingInventory.test.ts": 0,
   "tests/docs/interactionTimingScan.test.ts": 0,
+  // The 2026-08-15 arms suites, enrolled with citationIntent and redContract.
+  // All five are pure: they drive literal fixture documents through the core
+  // and read no member of ENVIRONMENT_SOURCES. Every subprocess-spawning case
+  // of this arc lives in tests/specLint/cli.test.ts, which is deliberately NOT
+  // enrolled, so no enrolled suite here spawns anything.
+  "tests/specLint/citationIntent.test.ts": 0,
+  "tests/specLint/citationIntentWiring.test.ts": 0,
+  "tests/specLint/citationIntentCorpus.test.ts": 0,
+  "tests/specLint/redContract.test.ts": 0,
+  "tests/specLint/redExec.test.ts": 0,
   "tests/specLint/taskContract.test.ts": 0,
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
   // exercises compareFindings over literal fixtures and reads no environment.

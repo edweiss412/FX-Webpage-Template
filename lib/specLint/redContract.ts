@@ -76,7 +76,9 @@ function wellFormedMarkers(model: DocModel): MarkerRecord[] {
     if (!MARKER_ANY.test(line)) continue;
     const parsed = parseMarker(line, i + 1);
     if (parsed === null || parsed === "malformed") continue; // taskContract owns that code
-    out.push({ line: i + 1, parsed });
+    // The line comes back OUT of the parse rather than being recomputed here:
+    // two copies of the same number are two chances to disagree.
+    out.push({ line: parsed.line, parsed });
   }
   return out;
 }
