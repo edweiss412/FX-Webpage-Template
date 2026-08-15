@@ -6,7 +6,7 @@
 
 **Architecture:** one branch `feat/diagram-demote-notice` off `origin/main`, TDD per task, impeccable dual gate (UI surface, Opus-owned), cross-model diff review, CI-green merge.
 
-**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/crew/2026-08-15-diagram-demote-notice-design.md` (spec-APPROVED, codex-guard R5 2026-08-15) · **Status:** DRAFT
+**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/crew/2026-08-15-diagram-demote-notice-design.md` (spec-APPROVED, codex-guard R5 2026-08-15) · **Status:** plan-APPROVED (codex-guard R5, 2026-08-15, FINDINGS: 0)
 
 ## Global constraints
 
