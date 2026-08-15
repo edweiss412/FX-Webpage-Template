@@ -746,6 +746,41 @@ describe("island lifecycle (§4.1)", () => {
     expect(logTexts(container)).toEqual([COPIED_TEXT]);
   });
 
+  test("two lists sharing one testId do not steal each other's confirmations", async () => {
+    // Identity is caller-supplied and only as unique as the caller makes it,
+    // while the registry is module-wide — so two separate `FactRows` lists that
+    // reuse a testid (or both fall back to label-plus-index) collide. Routing a
+    // resolution to the DISPATCHING island whenever it is still mounted is what
+    // makes that a degraded fallback rather than a mis-delivery: the untouched
+    // control must never announce a copy nobody asked it for.
+    const { container } = render(
+      <>
+        <FactRows rows={[passwordRow()]} />
+        <FactRows rows={[passwordRow()]} />
+      </>,
+    );
+    const rows = container.querySelectorAll(`[data-testid="${TESTID}"]`);
+    premiseHolds("both lists really rendered the same testid", rows.length === 2);
+
+    const first = rows[0]!.querySelector("button")!;
+    await act(async () => {
+      fireEvent.click(first);
+    });
+    await settle(0);
+
+    expect(
+      rows[0]!.querySelector("[data-slot='check-glyph']"),
+      "the tapped row must be the one that confirms",
+    ).not.toBeNull();
+    expect(
+      rows[1]!.querySelector("[data-slot='check-glyph']"),
+      "an untouched row must not confirm a copy nobody asked it for",
+    ).toBeNull();
+    expect(
+      Array.from(rows[1]!.querySelectorAll("[data-announce-id]")).map((n) => n.textContent),
+    ).toEqual([]);
+  });
+
   test("a write pending across a REAL remount delivers through the new owner", async () => {
     const { container, rerender } = render(<FactRows key="a" rows={[passwordRow()]} />);
 

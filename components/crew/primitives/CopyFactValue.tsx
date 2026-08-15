@@ -73,6 +73,10 @@ const COPIED_MESSAGE = "Copied.";
 const CORRECTIVE_MESSAGE = "Copy again - the clipboard may be out of date.";
 
 type Owner = {
+  /** False once this island's cleanup has run. A write routes to its OWN island
+   *  whenever that island is still mounted, which is what makes two rows
+   *  sharing an identity a degraded fallback rather than a mis-delivery. */
+  mounted: boolean;
   currentValue: () => string;
   /** Enters the copied state. Never clears it — `clearCopied` is the only exit,
    *  because an exit must also kill the window's timer. */
@@ -122,8 +126,18 @@ function recordWrite(identity: string, value: string): number {
   return ledger.seq;
 }
 
-function deliverWrite(identity: string, seq: number, value: string): void {
-  const owner = activeOwners.get(identity);
+/**
+ * Route a resolution. The DISPATCHING island gets it whenever that island is
+ * still mounted — instance identity is exact, and no string can collide with
+ * it. The identity map is the FALLBACK, for the one case it exists to serve: the
+ * island unmounted mid-write, so the write is handed to whichever island now
+ * occupies that row. Identity is caller-supplied and only as unique as the
+ * caller makes it (`FactRows` uses the row's testid), so resting the ordinary
+ * two-row case on it would mis-deliver whenever two lists reused one testid —
+ * whole-diff review round 8 probed exactly that.
+ */
+function deliverWrite(dispatcher: Owner, identity: string, seq: number, value: string): void {
+  const owner = dispatcher.mounted ? dispatcher : activeOwners.get(identity);
   if (owner === undefined) return;
 
   if (value === owner.currentValue()) {
@@ -194,6 +208,9 @@ export function CopyFactValue({
   // a stale value). Refs cannot be written during render.
   const valueRef = useRef(value);
   const announceRef = useRef(announce);
+  /** This island's own registration, so a write it dispatches can be delivered
+   *  back to it by instance rather than by name. */
+  const ownerRef = useRef<Owner | null>(null);
   useLayoutEffect(() => {
     valueRef.current = value;
     announceRef.current = announce;
@@ -270,6 +287,7 @@ export function CopyFactValue({
       }, COPY_FEEDBACK_RESET_MS);
     };
     const owner: Owner = {
+      mounted: true,
       currentValue: () => valueRef.current,
       setCopied: () => setCopied(true),
       clearCopied: () => {
@@ -289,7 +307,9 @@ export function CopyFactValue({
       },
     };
     activeOwners.set(identity, owner);
+    ownerRef.current = owner;
     return () => {
+      owner.mounted = false;
       // Guard the swap: on a keyed remount React runs this cleanup before the
       // next island's setup, but an out-of-order cleanup must never clear a
       // registration it does not own.
@@ -301,6 +321,8 @@ export function CopyFactValue({
   const onClick = async () => {
     // Capture what THIS request is for; the value can move before it resolves.
     const requested = value;
+    const dispatcher = ownerRef.current;
+    if (dispatcher === null) return; // not registered yet: nothing can land anywhere
     const seq = recordWrite(identity, requested);
     try {
       await navigator.clipboard.writeText(requested);
@@ -313,7 +335,7 @@ export function CopyFactValue({
       // depending on a write that failed.
       return;
     }
-    deliverWrite(identity, seq, requested);
+    deliverWrite(dispatcher, identity, seq, requested);
   };
 
   const glyphClass = "size-3.5 shrink-0";
