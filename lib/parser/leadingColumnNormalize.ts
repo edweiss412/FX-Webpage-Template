@@ -124,6 +124,18 @@ export function normalizeLeadingColumn(markdown: string): {
   // requiring the row immediately before to be unshifted, which would also suppress the
   // legitimate two-adjacent-shifted-sections case the paragraph above documents as working -
   // trading one correct case for another rather than fixing anything.
+  //
+  // Documented limit (whole-diff review r1 §2.5, measured not assumed): this pass is Step 2.55,
+  // but `classifyVersion` is Step 1 and therefore reads the UNCORRECTED markdown. Over all 540
+  // block-start shift sites in the corpus, payload is restored at 540/540, and the load-bearing
+  // number is `not_a_sheet=0` - that verdict is the one path returning a stub early
+  // (index.ts:585), which would bypass this pass entirely, and it never fires. 7 sites do gain a
+  // `VERSION_AMBIGUOUS` the clean parse lacks; those still restore fully and additionally
+  // hard-fail into review, which is conservative-plus-signalled rather than silent. Not a
+  // regression either way: origin/main returns the identical verdict on the identical input,
+  // because the version gate is upstream of everything this module changes. Moving the pass
+  // earlier is the only thing that would alter that, and it would cost the Step 2.6 ordering
+  // this module depends on.
   const opener = (line: string, lastUnshiftedWidth: number | null): boolean => {
     const parts = line.split("|");
     const c1 = (parts[1] ?? "").trim();
