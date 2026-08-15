@@ -36,8 +36,11 @@
  *   - Seeded Waldorf show looked up by drive_file_id (lookupSeededShow), share
  *     token resolved from show_share_tokens (the REQUIRED path segment, R35).
  *   - Gated to the mobile-safari project so the seed mutation stays
- *     single-writer (the desktop-chromium project early-returns from every
- *     test); viewports are set explicitly per-assertion (390 / 1000).
+ *     single-writer (every test in THIS describe returns early under any other
+ *     project); viewports are set explicitly per-assertion (390 / 1000). The
+ *     claim is per-describe, not per-file: the diagrams describe at the bottom
+ *     has no beforeAll writer and deliberately runs one case under
+ *     desktop-chromium (spec 2026-08-10-diagram-viewing-polish §6).
  *
  * ── Today Mode A seeding ───────────────────────────────────────────────────
  * Mode A mounts iff `isShowDay && eligible && (displayableEntries(runOfShow
@@ -1363,7 +1366,11 @@ test.describe("crew gear scope grid — Scenic/Other 5-card stretch (Task 10)", 
  * assertion between two zero boxes passes tautologically. The invariants below
  * only exist as facts in a layout engine — and they are ENGINE-SPECIFIC: the
  * thumbnail case passes in Chromium and fails in WebKit (see its own docblock),
- * which is precisely why this file's crew describes run on mobile-safari.
+ * which is precisely why the geometry cases in this describe run on mobile-safari.
+ * Not the whole describe: the zoom-gate network-order case added by
+ * docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md §6 asserts REQUEST
+ * ORDER rather than a rect, needs the component's keyboard zoom path, and
+ * therefore runs under desktop-chromium.
  *
  * THE ORACLE IS THE CONTAINING BLOCK, NEVER THE OUTER ELEMENT (spec §6 R3 F2).
  * The lightbox `figure` carries `px-4`, and `inset-0` resolves against a
@@ -1388,7 +1395,15 @@ test.describe("crew gear scope grid — Scenic/Other 5-card stretch (Task 10)", 
  * missing fixture must fail as a PREMISE, never as a feature regression.
  *
  * HARNESS. Same as the suites above: `signInAs(ADMIN_FIXTURE)`, `lookupSeededShow`,
- * share token from `show_share_tokens`, mobile-safari only (single-writer). The
+ * share token from `show_share_tokens`. NOT single-writer, unlike the describes
+ * above: this one has no `beforeAll` mutation to serialize, which is what lets
+ * the zoom-gate case run under desktop-chromium while every geometry case
+ * DECLARES a mobile-safari skip. Every project gate here is a declared
+ * `test.skip`, never a bare early return — a bare return under an added project
+ * is a passing no-op, the false-coverage shape
+ * `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:623` documents, and
+ * `scripts/check-phantom-gap-executed.mjs` is the CI-side oracle that the cases
+ * this step names really executed under the project they were written for. The
  * marker command carries `CREW_E2E_ONLY=1` so ONLY the :3000 webServer boots —
  * without it the :3001-:3004 build servers cold-build and a failure can come from
  * port contention rather than from the code under test.
@@ -1647,7 +1662,7 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
    * block's content height (98px), so the image is 98×100 where the cell's content
    * box is 98×98 — the bottom 2px of every thumbnail is cropped by the cell's
    * `overflow-hidden`. Chromium resolves the same markup to 98×98 and passes, which
-   * is exactly why this assertion lives on the mobile-primary project.
+   * is exactly why this assertion declares a skip off the mobile-primary project.
    *
    * The image box therefore matches NEITHER candidate oracle (98×98 content box,
    * 100×100 border box), so the failure is not an oracle-choice quibble. The repair
@@ -1665,7 +1680,10 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
   test("T-DIAGRAM-VARIANTS thumbnails: every gallery image box === its grid-cell content box", async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer
+    test.skip(
+      testInfo.project.name !== "mobile-safari",
+      "the cropped-thumbnail class this pins is WebKit-specific (see the docblock)",
+    );
     const ctx = await loadGalleryContext();
     assertFixturePremises(ctx);
 
@@ -1748,7 +1766,10 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
   test("T-DIAGRAM-VARIANTS network: thumbnails fetch manifest-listed variant URLs with zero /_next/image requests", async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer
+    test.skip(
+      testInfo.project.name !== "mobile-safari",
+      "paired with the geometry case above; one project is enough for a URL contract",
+    );
     const ctx = await loadGalleryContext();
     assertFixturePremises(ctx);
 
@@ -1935,10 +1956,12 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     let previous: string | null = null;
     let lastError: unknown = null;
     let lastSlides: SlideSample[] | null = null;
-    // 90 frames was enough on an idle machine and not on a loaded one: the ACTIVE
-    // slide pins the ORIGINAL, so this gate waits on a full-resolution decode, not
-    // a thumbnail. Raising the READINESS budget only — the geometry assertion the
-    // caller passes in is unchanged, so a real layout defect still fails.
+    // 90 frames was enough on an idle machine and not on a loaded one. The budget
+    // stays at 300 after the §4.1 zoom gate shrank the un-zoomed active decode to a
+    // clamped tier: the zoom cases below DO pin the original, and a budget sized to
+    // the cheap path would turn a slow full-resolution decode into a flake.
+    // READINESS budget only — the geometry assertion the caller passes in is
+    // unchanged, so a real layout defect still fails.
     for (let attempt = 0; attempt < 300; attempt += 1) {
       let slides: SlideSample[] | null = null;
       try {
@@ -1971,6 +1994,34 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
   }
 
   /**
+   * Open the lightbox ON a named manifest entry, located by matching that key
+   * against the live thumbnail src — never by a remembered slot index. A variant
+   * URL contains its original key as a prefix, so the match holds in both tiers.
+   */
+  async function openLightboxOnEntry(
+    page: import("@playwright/test").Page,
+    key: string,
+  ): Promise<void> {
+    const targetTestId = await page.evaluate((k: string) => {
+      for (const cell of document.querySelectorAll('[data-testid^="diagram-slot-"]')) {
+        const image = cell.querySelector("img");
+        const src = image ? image.currentSrc || image.getAttribute("src") || "" : "";
+        if (src.includes(k)) return cell.getAttribute("data-testid");
+      }
+      return null;
+    }, key);
+    premiseHolds(
+      `a gallery thumbnail renders the entry under test (${key})`,
+      typeof targetTestId === "string" && targetTestId.length > 0,
+    );
+    await page
+      .getByTestId(targetTestId as string)
+      .getByRole("button")
+      .click();
+    await expect(page.getByTestId("diagrams-lightbox")).toBeVisible();
+  }
+
+  /**
    * §6 rows 2 and 3 + AC-12: the SAME no-dims entry measured in BOTH tiers, each
    * against its own containing block. One case rather than two because the second
    * measurement's premise — that this entry has become an inactive slide — is only
@@ -1979,7 +2030,10 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
   test("T-DIAGRAM-VARIANTS lightbox: the no-dims fill image measures equal to its containing block as the ACTIVE slide (TransformComponent wrapper) and as an INACTIVE slide (inner relative wrapper)", async ({
     page,
   }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer
+    test.skip(
+      testInfo.project.name !== "mobile-safari",
+      "the `fill` containing-block invariants are engine-specific; WebKit is the strict one",
+    );
     const ctx = await loadGalleryContext();
     assertFixturePremises(ctx);
     const noDims = ctx.entries.find((entry) => !entry.hasDims);
@@ -2009,25 +2063,7 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       0,
     );
 
-    // Open ON the no-dims entry, located by matching the manifest key against the
-    // live thumbnail src — never by a remembered slot index.
-    const targetTestId = await page.evaluate((key: string) => {
-      for (const cell of document.querySelectorAll('[data-testid^="diagram-slot-"]')) {
-        const image = cell.querySelector("img");
-        const src = image ? image.currentSrc || image.getAttribute("src") || "" : "";
-        if (src.includes(key)) return cell.getAttribute("data-testid");
-      }
-      return null;
-    }, noDims!.key);
-    premiseHolds(
-      `a gallery thumbnail renders the no-dims entry (${noDims!.key})`,
-      typeof targetTestId === "string" && targetTestId.length > 0,
-    );
-    await page
-      .getByTestId(targetTestId as string)
-      .getByRole("button")
-      .click();
-    await expect(page.getByTestId("diagrams-lightbox")).toBeVisible();
+    await openLightboxOnEntry(page, noDims!.key);
 
     // ── ACTIVE tier ──────────────────────────────────────────────────────────
     const openSlides = await settledLightboxSample(page, (slides) =>
@@ -2063,11 +2099,20 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       activeSlide.containerRect as Rect,
       "ACTIVE no-dims image box vs its TransformComponent wrapper box",
     );
-    // AC-12: the active tier is `pinOriginal` — the ORIGINAL key, never a variant.
+    // AMENDED by docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md §4.1:
+    // the active tier is `pinOriginal` only AFTER zoom intent. Opened with no
+    // gesture, it must serve a manifest-listed CLAMPED VARIANT — the same
+    // contract the inactive tier carries below. The two halves are asserted
+    // separately so a loader that emitted an unlisted key could not pass by
+    // merely differing from the original.
+    expect(
+      noDims!.variantKeys.includes(assetKeyOf(activeSlide.src)),
+      `the un-zoomed ACTIVE slide must request a manifest-listed variant; got ${activeSlide.src}, listed ${JSON.stringify(noDims!.variantKeys)}`,
+    ).toBe(true);
     expect(
       assetKeyOf(activeSlide.src),
-      `the ACTIVE slide must request the ORIGINAL key (pinOriginal); got ${activeSlide.src}`,
-    ).toBe(noDims!.key);
+      `the un-zoomed ACTIVE slide must NOT request the ORIGINAL key; got ${activeSlide.src}`,
+    ).not.toBe(noDims!.key);
 
     // ── Swipe away: the SAME entry becomes an INACTIVE slide. Everything below is
     // re-queried from the settled tree; a locator captured before this click would
@@ -2079,9 +2124,17 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       "the lightbox offers a reachable neighbouring slide (≥2 items), so an inactive tier exists",
       canGoPrevious || (await nextButton.isEnabled().catch(() => false)),
     );
-    // The slide we are leaving is the no-dims entry, whose key this case asserted
-    // immediately above. Naming it lets the RETURN prove it actually returned.
-    const departedActiveKey = noDims!.key;
+    // The slide we are leaving is the no-dims ENTRY, whose served key this case
+    // asserted immediately above. Naming the ENTRY (not the served key) lets the
+    // RETURN prove it actually returned: post-§4.1 the un-zoomed active tier
+    // serves a variant, so a served-key equality against `noDims.key` would now
+    // fail for a reason that has nothing to do with navigation.
+    const departedEntry = noDims!;
+    /** True when `src` serves the given entry in EITHER tier (original or variant). */
+    const servesEntry = (src: string, entry: { key: string; variantKeys: string[] }): boolean => {
+      const served = assetKeyOf(src);
+      return served === entry.key || entry.variantKeys.includes(served);
+    };
     if (canGoPrevious) await previousButton.click();
     else await nextButton.click();
     const wentForward = !canGoPrevious;
@@ -2143,15 +2196,22 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     // is exactly the shape a broken second selection would have.
     const returnedSlides = await settledLightboxSample(page, (slides) =>
       slides.some(
-        (slide) => slide.active && slide.complete && assetKeyOf(slide.src) === departedActiveKey,
+        (slide) => slide.active && slide.complete && servesEntry(slide.src, departedEntry),
       ),
     );
     const returnedActive = returnedSlides.find((slide) => slide.active);
     expect(returnedActive, "a slide is active again after navigating back").toBeTruthy();
     expect(
+      servesEntry(returnedActive!.src, departedEntry),
+      `navigating back must restore the ENTRY we left (${departedEntry.key}), not merely settle on some active slide; got ${returnedActive!.src}`,
+    ).toBe(true);
+    // ...and it is STILL un-zoomed, so §4.1 keeps it on the clamped tier: a
+    // navigation that silently re-pinned the original would pass the identity
+    // check above while re-introducing the multi-megabyte fetch this arc removed.
+    expect(
       assetKeyOf(returnedActive!.src),
-      `navigating back must restore the slide we left (${departedActiveKey}), not merely settle on some active slide`,
-    ).toBe(departedActiveKey);
+      `the restored slide must still serve a variant (no gesture was made); got ${returnedActive!.src}`,
+    ).not.toBe(departedEntry.key);
     expect(
       returnedActive!.complete && returnedActive!.naturalWidth > 0,
       "the slide that became active again decoded",
@@ -2161,5 +2221,188 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       optimizerRequests,
       `no lightbox request may target /_next/image; got ${JSON.stringify(optimizerRequests)}`,
     ).toEqual([]);
+  });
+
+  /**
+   * AC-1, the ORDER half: the original must not be on the wire until the user
+   * asks for it. Request ORDER is the oracle, not a final-state count — a
+   * lightbox that fetched the original up front AND again after the gesture
+   * would satisfy "an original request exists after zoom" while shipping exactly
+   * the bytes this arc removed.
+   *
+   * DESKTOP-CHROMIUM, deliberately (spec §6 R1 F2). The zoom is driven through
+   * the component's own keyboard path — `+`, which `useDialogFocus` makes
+   * reachable by landing initial focus on the close button inside the dialog —
+   * and WebKit's headless keyboard handling of `+` is not the surface under
+   * test. The mobile-safari half of this split is the case below, which needs no
+   * gesture at all.
+   *
+   * This case does NOT mutate seeded state (this describe has no beforeAll
+   * writer), so running it under a second project introduces no second writer.
+   */
+  test("T-DIAGRAM-VARIANTS lightbox zoom gate: the ORIGINAL is not requested until zoom intent, then it is", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop-chromium",
+      "desktop-chromium only: the keyboard zoom path is the trigger, and WebKit key handling is not the surface under test",
+    );
+    const ctx = await loadGalleryContext();
+    assertFixturePremises(ctx);
+    const noDims = ctx.entries.find((entry) => !entry.hasDims);
+    premiseHolds(
+      "the seed carries an AVAILABLE entry WITHOUT intrinsic dims",
+      noDims !== undefined,
+    );
+    premise(
+      "that entry lists variant keys — without a ladder the gate is a no-op and this case proves nothing",
+      noDims!.variantKeys.length,
+      0,
+    );
+
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+
+    /** Every diagram asset request, in wire order. */
+    const assetRequests: string[] = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (url.includes("/api/asset/diagram/")) assetRequests.push(url);
+    });
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await gotoVenue(page, ctx);
+    premise(
+      "the gallery rendered Image elements before the lightbox is opened",
+      await waitForDecodedGalleryImages(page),
+      0,
+    );
+
+    await openLightboxOnEntry(page, noDims!.key);
+
+    const openSlides = await settledLightboxSample(page, (slides) =>
+      slides.some(
+        (slide) =>
+          slide.active &&
+          slide.src.includes(noDims!.key) &&
+          slide.complete &&
+          slide.naturalWidth > 0,
+      ),
+    );
+    const beforeZoom = openSlides.find((slide) => slide.active && slide.src.includes(noDims!.key))!;
+    const servedBeforeZoom = assetKeyOf(beforeZoom.src);
+    premiseHolds(
+      "the active slide decoded a manifest-listed VARIANT before the gesture, so an upgrade is observable",
+      noDims!.variantKeys.includes(servedBeforeZoom),
+    );
+
+    // The snapshot the ORDER assertion is made against. Everything the browser
+    // asked for up to the moment before the gesture.
+    const requestsBeforeZoom = [...assetRequests];
+    premise(
+      "the request log is live (the browser asked for this entry before the gesture)",
+      requestsBeforeZoom.filter((url) => url.includes(noDims!.key)).length,
+      0,
+    );
+    expect(
+      requestsBeforeZoom.filter((url) => assetKeyOf(url) === noDims!.key),
+      `no request may target the ORIGINAL key before zoom intent; got ${JSON.stringify(
+        requestsBeforeZoom.filter((url) => assetKeyOf(url) === noDims!.key),
+      )}`,
+    ).toEqual([]);
+
+    // Zoom intent, through the component's own keyboard path.
+    await page.keyboard.press("+");
+    await expect(page.getByTestId("lightbox-reset-chip")).toBeVisible();
+
+    const zoomedSlides = await settledLightboxSample(page, (slides) =>
+      slides.some(
+        (slide) => slide.active && assetKeyOf(slide.src) === noDims!.key && slide.complete,
+      ),
+    );
+    const afterZoom = zoomedSlides.find((slide) => slide.active)!;
+
+    // currentSrc upgraded: the SAME slide moved from its clamped tier onto the
+    // original, which is the silent sharpen the spec describes.
+    expect(
+      assetKeyOf(afterZoom.src),
+      `after zoom the ACTIVE slide must serve the ORIGINAL; got ${afterZoom.src}`,
+    ).toBe(noDims!.key);
+    expect(
+      assetKeyOf(afterZoom.src),
+      "the served key must actually have CHANGED, or the upgrade claim is vacuous",
+    ).not.toBe(servedBeforeZoom);
+
+    // ...and the original's request landed AFTER the pre-gesture snapshot ended.
+    const originalIndex = assetRequests.findIndex((url) => assetKeyOf(url) === noDims!.key);
+    expect(
+      originalIndex,
+      `the ORIGINAL was never requested even after zoom; asset log ${JSON.stringify(assetRequests)}`,
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      originalIndex,
+      `the ORIGINAL must be requested AFTER the gesture: it landed at index ${originalIndex}, ` +
+        `inside the ${requestsBeforeZoom.length} requests that preceded it`,
+    ).toBeGreaterThanOrEqual(requestsBeforeZoom.length);
+  });
+
+  /**
+   * AC-1, the CDP-free half (spec §6 R1 F2): the mobile project asserts the
+   * opening tier itself. Kept out of the geometry case above for the same reason
+   * the thumbnail network gate is its own case — a layout regression must not
+   * take the tier contract's coverage down with it.
+   */
+  test("T-DIAGRAM-VARIANTS lightbox zoom gate: the active slide opens on a clamped variant, never the original", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "mobile-safari",
+      "the mobile half of the AC-1 capability split; the desktop half is the case above",
+    );
+    const ctx = await loadGalleryContext();
+    assertFixturePremises(ctx);
+    const noDims = ctx.entries.find((entry) => !entry.hasDims);
+    premiseHolds(
+      "the seed carries an AVAILABLE entry WITHOUT intrinsic dims",
+      noDims !== undefined,
+    );
+    premise(
+      "that entry lists variant keys — without a ladder the gate is a no-op and this case proves nothing",
+      noDims!.variantKeys.length,
+      0,
+    );
+
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoVenue(page, ctx);
+    premise(
+      "the gallery rendered Image elements before the lightbox is opened",
+      await waitForDecodedGalleryImages(page),
+      0,
+    );
+
+    await openLightboxOnEntry(page, noDims!.key);
+
+    const slides = await settledLightboxSample(page, (sample) =>
+      sample.some(
+        (slide) =>
+          slide.active &&
+          slide.src.includes(noDims!.key) &&
+          slide.complete &&
+          slide.naturalWidth > 0,
+      ),
+    );
+    const active = slides.find((slide) => slide.active && slide.src.includes(noDims!.key))!;
+
+    expect(
+      noDims!.variantKeys.includes(assetKeyOf(active.src)),
+      `the un-zoomed ACTIVE slide must serve a manifest-listed variant; got ${active.src}, listed ${JSON.stringify(noDims!.variantKeys)}`,
+    ).toBe(true);
+    expect(
+      assetKeyOf(active.src),
+      `the un-zoomed ACTIVE slide must NOT serve the ORIGINAL; got ${active.src}`,
+    ).not.toBe(noDims!.key);
   });
 });
