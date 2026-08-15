@@ -37,11 +37,16 @@ const waiverAdvisory = (line: number, message: string): Finding => ({
  * arm can never disagree about what a mention is. A path the resolver cannot
  * serve contributes nothing and is skipped silently (tripwire posture).
  */
-function resolveScriptTexts(model: DocModel, resolver: FileResolver): Record<string, string> {
-  const out: Record<string, string> = {};
+function resolveScriptTexts(
+  model: DocModel,
+  resolver: FileResolver,
+): { texts: Record<string, string>; ambiguous: ReadonlySet<string> } {
+  const texts: Record<string, string> = {};
   const lines = model.lines.filter((_, i) => model.fencedInfo[i] === undefined);
   const scripts = resolver.listTrackedFiles().filter((p) => p.startsWith("scripts/"));
   // A basename shared by two scripts identifies neither, so those resolve by path only.
+  // Returned alongside the texts because it is a fact about the TRACKED UNIVERSE: the arm
+  // cannot recompute it from what resolved here, since resolving narrows the universe.
   const ambiguous = ambiguousBasenames(scripts);
   for (const path of scripts) {
     // Compiled once per script, then tested against every non-fenced line.
@@ -49,18 +54,20 @@ function resolveScriptTexts(model: DocModel, resolver: FileResolver): Record<str
     if (!lines.some((line) => mentions.test(line))) continue;
     const text = resolver.readFileLines(path);
     if (text === null) continue;
-    out[path] = text.join("\n");
+    texts[path] = text.join("\n");
   }
-  return out;
+  return { texts, ambiguous };
 }
 
 export function runLint(doc: LintDoc, resolver: FileResolver): LintResult {
   const model = parseDoc(doc.text);
   const citations = checkCitations(model, resolver);
+  const scripts = resolveScriptTexts(model, resolver);
   const numerics = checkNumerics(
     model,
     citations.candidateSpans,
-    resolveScriptTexts(model, resolver),
+    scripts.texts,
+    scripts.ambiguous,
   );
   const copy = checkCopy(model);
   const sections = checkSections(model, doc.kind, citations.resolvedPaths);

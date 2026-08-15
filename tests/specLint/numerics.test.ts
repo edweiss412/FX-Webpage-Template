@@ -338,6 +338,24 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     expect(only(findings, A)[0]!.detail).toContain("scripts/a/check.mjs");
   });
 
+  it.each([
+    // Review R7, probed: `1,000 sites` split into `1` and `000`, and the `000` — the run
+    // the noun actually follows — compared as 0 against a constant of 1000, so prose that
+    // AGREES with the script drew an advisory reading "0 versus 1000".
+    ["thousands-grouped", "1,000"],
+    // The MALFORMED neighbours are the boundary, and they matter more than the well-formed
+    // case: a recognizer of strict thousands grouping leaves exactly these outside the
+    // exclusion, and then reads `567` / `200` as the count. Probed: both emit an advisory
+    // against a constant of 1000 unless the exclusion is comma-joined runs.
+    ["four leading digits", "1234,567"],
+    ["a four-digit group", "1,0200"],
+  ])("a comma-joined digit run is not read as one of its groups (%s)", (_label, num) => {
+    const { findings } = run(`| AC | \`${PARITY_SCRIPT}\` reports parity for all ${num} sites |\n`, {
+      [PARITY_SCRIPT]: scriptSrc(siteConst(1000)),
+    });
+    expect(only(findings, A)).toEqual([]);
+  });
+
   it("a period INSIDE a clause does not break the qualifier's binding", () => {
     // `i.e.` is not a sentence end, so the qualifier still binds the 38 (review R5).
     const { findings } = run(
@@ -541,6 +559,22 @@ describe("SCRIPT_CONSTANT_PARITY — resolver plumbing through runLint (spec §2
       },
     );
     expect(only(r.findings, A)).toHaveLength(1);
+  });
+
+  it("an ambiguous basename stays ambiguous even when only ONE of its scripts resolves", () => {
+    // Review R7, probed. The adapter resolves by the WHOLE tracked universe, but the arm
+    // re-derived ambiguity from the scripts it was handed — and a full-path mention of A
+    // narrows that universe to {A}, which makes `check.mjs` look unambiguous again. The
+    // bare mention then drew an advisory against A: exactly the false advisory the
+    // ambiguity rule exists to prevent, re-entering through the adapter boundary.
+    const a = "scripts/a/check.mjs";
+    const b = "scripts/b/check.mjs";
+    const r = lint(
+      [`\`${a}\` covers 3 sites`, "`check.mjs` covers 9 sites", ""].join("\n"),
+      [a, b],
+      { [a]: scriptSrc(siteConst(3)), [b]: scriptSrc(siteConst(4)) },
+    );
+    expect(only(r.findings, A)).toEqual([]);
   });
 
   it("only scripts/ paths are resolved (a lib/ mention is not a script mention)", () => {
@@ -976,6 +1010,15 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
     },
   );
 
+  it("a GROUPED numeral's trailing group is not a claim (shape (b))", () => {
+    // The same R7 defect on this arm, and it needs a group that survives the value gate:
+    // `1,020` offers a trailing run of `020`, which is 20 — inside [2, 40] and directly
+    // followed by the noun — so the claim read "20 rows" over a list of 3. Probed: without
+    // the grouped-numeral range this line emits exactly that advisory.
+    const doc = ["the ledger carries 1,020 accepted rows:", "", "- one", "- two", "- three", ""];
+    expect(only(run(doc.join("\n")).findings, B)).toEqual([]);
+  });
+
   it.each(["sixty", "hundred", "dozen"])("`%s` is outside the word table", (word) => {
     expect(only(run(claimOver(`The spec names ${word} measured shapes:`, 2)).findings, B)).toEqual(
       [],
@@ -1016,6 +1059,20 @@ describe("TEMPLATE_QUANTITY_DRIFT — shape (c), spec §3.3", () => {
       severity: "advisory",
       docLine: 1,
     });
+  });
+
+  it("a qualifier-EXCLUDED quantity cannot manufacture drift against an included one", () => {
+    // Review R7, probed. Both lines say 4; only the first carries a dated qualifier, so
+    // the per-number exclusion emptied ITS quantity list and left the other's intact.
+    // Comparing [] against ["4"] reported drift between two lines that agree — the
+    // exclusion turning into a false advisory instead of a silence.
+    const doc = [
+      "every enrolled guard surface in this arc reports parity for 4 sites at plan time",
+      "",
+      "every enrolled guard surface in this arc reports parity for 4 sites at merge time",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, C)).toEqual([]);
   });
 
   it("the message carries BOTH compared quantities", () => {

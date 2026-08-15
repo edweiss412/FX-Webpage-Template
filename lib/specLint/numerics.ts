@@ -77,6 +77,25 @@ const QUANTITY_RE = new RegExp(String.raw`\b(\d+(?:\.\d+)?|${WORD_ALTERNATION})\
 
 // ---- the shared three-part exclusion rule (spec §1.1), operationally LINE-BASED ----
 
+/**
+ * A THOUSANDS-GROUPED numeral (`1,000`), which none of the three arms can read: every
+ * scanner here is anchored on `\b`, so the comma splits `1,000` into `1` and `000` and it
+ * is the TRAILING group the noun follows. Shape (a) then compared 0 against a constant of
+ * 1000 and reported drift between two figures that agree (review R7, probed).
+ *
+ * The whole run is therefore excluded from all three arms rather than parsed: a grouped
+ * numeral is rare in this corpus's counting prose, and declining to compare one is the
+ * conservative direction (a tripwire that does not fire), where reading its tail is a
+ * confident false advisory. DOCUMENTED LIMIT, pinned by fixture.
+ *
+ * The shape is deliberately "digit runs joined by commas" rather than strict thousands
+ * grouping. A strict `\d{1,3}(?:,\d{3})+` leaves the MALFORMED neighbours — `1234,567`,
+ * `1,0200` — outside the exclusion, and those are precisely the strings whose trailing run
+ * the arm would then read as a count. Every one of them is unreadable for the same reason,
+ * so all of them fall silent.
+ */
+const GROUPED_NUMERAL = [/\b\d+(?:,\d+)+\b/g];
+
 /** (iii) a line carrying an ISO date is a dated historical record; never compared. */
 const ISO_DATE_LINE = /\d{4}-\d{2}-\d{2}/;
 /**
@@ -496,13 +515,17 @@ function templateCandidates(model: DocModel): TemplateCandidate[] {
     if (text.length < TEMPLATE_MIN_LEN || text.length > TEMPLATE_MAX_LEN) continue;
     if (!/\d/.test(text)) continue;
     if (ISO_DATE_LINE.test(text)) continue;
+    // A line is a candidate only when EVERY quantity on it is comparable. Dropping some
+    // and keeping others makes the two lists differ in LENGTH, and shape (c) reads any
+    // difference as drift — so two lines that both say `4 sites`, one of them dated,
+    // compared [] against ["4"] and reported drift between figures that agree (review R7,
+    // probed). An exclusion must produce SILENCE, never a finding of its own making.
     const bound = qualifierBoundStarts(text);
-    const quantities: string[] = [];
+    const grouped = rangesOn(text, GROUPED_NUMERAL);
     DIGIT_RUN_RE.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = DIGIT_RUN_RE.exec(text)) !== null) {
-      if (!bound.has(m.index)) quantities.push(m[0]);
-    }
+    const runs = [...text.matchAll(DIGIT_RUN_RE)];
+    if (runs.some((r) => bound.has(r.index) || inRange(r.index, grouped))) continue;
+    const quantities = runs.map((r) => r[0]);
     const tokens = new Set(
       text
         .toLowerCase()
@@ -523,10 +546,20 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 0 : shared / union;
 }
 
+/**
+ * @param ambiguousBases basenames that identify NO single script, computed over the whole
+ *   tracked universe by the caller. It cannot be re-derived from `scriptTexts`: that map
+ *   holds only the scripts a document actually mentions, and a full-path mention of ONE of
+ *   two `check.mjs` files narrows the map to that one, which makes the shared basename look
+ *   unambiguous again and re-admits the false advisory the rule exists to stop (review R7,
+ *   probed). Omitted, it falls back to the keys present — the best a caller who knows of no
+ *   other scripts can say, and correct for the direct-call fixtures.
+ */
 export function checkNumerics(
   model: DocModel,
   candidateSpans: InlineSpan[],
   scriptTexts?: Readonly<Record<string, string>>,
+  ambiguousBases?: ReadonlySet<string>,
 ): { findings: Finding[]; inventory: InventoryGroup[] } {
   interface Hit {
     raw: string;
@@ -592,7 +625,7 @@ export function checkNumerics(
   // ---- shape (a): SCRIPT_CONSTANT_PARITY (spec §3.1) ----
   if (scriptTexts !== undefined) {
     // Matcher compiled ONCE per script, outside the per-hit loop below.
-    const ambiguous = ambiguousBasenames(Object.keys(scriptTexts));
+    const ambiguous = ambiguousBases ?? ambiguousBasenames(Object.keys(scriptTexts));
     const constantsByPath = Object.entries(scriptTexts)
       .map(([path, text]) => ({
         path,
@@ -606,6 +639,7 @@ export function checkNumerics(
       const line = model.lines[h.docLine - 1]!;
       const following = NOUN_AFTER_ANY_CASE.exec(line.slice(h.column - 1 + h.raw.length));
       if (following === null) continue;
+      if (inRange(h.column - 1, rangesOn(line, GROUPED_NUMERAL))) continue;
       if (ISO_DATE_LINE.test(line)) continue; // exclusion (iii)
       let bound = boundCache.get(h.docLine);
       if (bound === undefined) {
@@ -643,7 +677,9 @@ export function checkNumerics(
     const spanRanges: Range[] = model.spans
       .filter((s) => s.line === idx + 1)
       .map((s) => ({ start: s.column - 1, end: s.column - 1 + s.content.length }));
-    const cards = cardinalsOn(line, spanRanges, markerEnd);
+    // A grouped numeral is unreadable here for the same reason as in shape (a): `12,345`
+    // would offer `12` as a claim, with the noun three words away (review R7).
+    const cards = cardinalsOn(line, [...spanRanges, ...rangesOn(line, GROUPED_NUMERAL)], markerEnd);
     if (cards.length === 0) continue;
     // Only the line's LAST recognized cardinality can qualify (spec §3.2's
     // "claim in the line's last clause", as the instrument measures it).
