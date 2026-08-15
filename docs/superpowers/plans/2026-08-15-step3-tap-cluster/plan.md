@@ -60,7 +60,7 @@ Commit: `fix(admin): bleed the sheet-title tap target upward, off the meta line`
 
 RED (new assertions in the existing "sites 6/7" test; each names its failing production line):
 
-1. Seed helper: add optional `vehicle?: string` to `SeedPreviewExtras` (`tests/e2e/helpers/devCaptureStaged.ts:386`), threaded to `transportationRow`'s `vehicle` field (`tests/e2e/helpers/devCaptureStaged.ts:419`), omitted-when-absent (callers passing nothing stay byte-identical). The test seeds `vehicle: "Sprinter ABC-1042"` beside the existing phone+email.
+1. Seed helper: add optional `vehicle?: string` to `SeedPreviewExtras` (`tests/e2e/helpers/devCaptureStaged.ts:386`), threaded to `transportationRow`'s `vehicle` field (`tests/e2e/helpers/devCaptureStaged.ts:419`), AND widen the inclusion predicate — `hasContact` at `tests/e2e/helpers/devCaptureStaged.ts:444` gates the `transportation` key on `driverPhone`/`driverEmail` only, so a vehicle-only caller would silently emit no transportation row; rename it (e.g. `hasTransport`) and include `preview?.vehicle !== undefined`, so the field works alone rather than only when it rides beside a contact. Callers passing nothing stay byte-identical (every branch stays omitted-when-absent). The test seeds `vehicle: "Sprinter ABC-1042"` beside the existing phone+email.
 2. Measurement contract (concrete — nothing left to invent). Extend the suite's evaluate helper for this test only: a sibling helper (same shape as `rectsWithin`, same single-`evaluate` snapshot) that returns, per element, the `Rect` fields PLUS computed `backgroundColor` and `borderTopWidth` (read inside the same `evaluate` via `getComputedStyle`). Element identification, all structural and rooted at the section wrapper testid (`-review-section-transport`, rendered by `ShowReviewSurface.tsx:1057`), each behind an asserted premise:
    - the GRID = the nearest ancestor `div` of the seeded `a[href^="tel:"]` whose computed `display` is `grid`; CELLS = its direct children;
    - DRIVER CELL = the cell containing the seeded tel anchor; VEHICLE CELL = the cell containing the seeded vehicle text and no anchor (premise: both exist);
@@ -73,7 +73,7 @@ RED (new assertions in the existing "sites 6/7" test; each names its failing pro
    - **visible edge, PER CHIP:** EACH of the tel and mailto chips has computed `backgroundColor` ≠ the driver cell's and computed `borderTopWidth` = `1px` (from the style-carrying snapshot above) — fails today: no background/border utilities on either shipped string; an asymmetric regression fails by name (spec §3.8).
    - Existing floor + disjoint assertions stay untouched.
 
-GREEN: apply spec §2.2 + §2.3 — `items-start` on `step3ReviewSections.tsx:1461`; `TransportCell` `py-2.5`→`py-2`, both `gap-1.5`→`gap-1` (`step3ReviewSections.tsx:1380`/`step3ReviewSections.tsx:1382`); the two normative chip strings (spec §2.3) on `step3ReviewSections.tsx:1415`/`step3ReviewSections.tsx:1425`. Then re-run the per-string pin grep for each replaced string (`grep -rn "<old string>" tests/` → expect only the e2e suite comment hits already updated). Green.
+GREEN: apply spec §2.2 + §2.3 — `items-start` on `step3ReviewSections.tsx:1461`; `TransportCell` `py-2.5`→`py-2`, both `gap-1.5`→`gap-1` (`step3ReviewSections.tsx:1380`/`step3ReviewSections.tsx:1382`); the two normative chip strings (spec §2.3) on `step3ReviewSections.tsx:1415`/`step3ReviewSections.tsx:1425`. In the SAME edit, rewrite the two links' load-bearing comments (`step3ReviewSections.tsx:1412-1414` "width shrink-wraps" and the `:1424` "same recipe" line) to describe the chip recipe citing spec §2.3 — both claims are false once `w-full` lands, and stale comments on the exact edited lines are the falsified-comment class Task 1 already handles for site 5. Then re-run the per-string pin grep for each replaced string (`grep -rn "<old string>" tests/` → expect only the e2e suite comment hits already updated). Green.
 
 Commit: `fix(admin): transport cells stop stretching; contact links become visible chip rows`
 
@@ -83,7 +83,7 @@ Commit: `fix(admin): transport cells stop stretching; contact links become visib
 
 RED: in the existing "site 4" test, assert the toggle's computed `text-decoration-line` contains `underline` at rest (no hover) — fails because `step3ReviewSections.tsx:2603` carries `hover:underline` only. Floor/shrink-wrap/disjoint assertions untouched.
 
-GREEN: spec §2.4 — swap `hover:underline` → `underline` in the `step3ReviewSections.tsx:2603` string. Green.
+GREEN: spec §2.4 — swap `hover:underline` → `underline` in the `step3ReviewSections.tsx:2603` string, and extend the site-4 comment above it (`step3ReviewSections.tsx:2598-2602`) with one line noting the at-rest underline per spec §2.4 (its "applied verbatim" claim stays true for the floor recipe; the note says what was added on top). Green.
 
 Commit: `fix(admin): give the pack-list overflow toggle an at-rest underline`
 
@@ -103,9 +103,10 @@ Commit: `docs(backlog): graduate the step3 tap-cluster entries; record the site-
 ### Task 5 — dual gate, pre-push gates, PR, merge (outside the enrolled task region: every command here is a gate expected GREEN, so no red-then-green marker can truthfully be declared — the red-executability rule rejects a marker that passes the moment it is authored)
 
 1. `/impeccable critique` + `/impeccable audit` on the branch diff (canonical v3 setup gates: the context load of PRODUCT.md + DESIGN.md, then the register read). P0/P1 fixed or DEFERRED-entried; findings + dispositions recorded in this directory's `closeout.md` with the filled `impeccable-gate:` marker line — `closeout.md` is the directory-unit home invariant 8's style clause sanctions ("directory units put it in `closeout.md`/`CLOSEOUT.md` or the handoff §12"; M-wave and L-wave closeouts are the precedent).
-2. Pre-push gates, all green: `pnpm heavy pnpm test` (full unit suite), `pnpm typecheck` (the canonical script — its `pretypecheck` generator then `tsc --noEmit` over the single root tsconfig, whose `**/*.ts(x)` include spans app, tests, and e2e), `pnpm exec eslint .`, `pnpm format:check`, plus one full `pnpm heavy pnpm exec playwright test tests/e2e/tap-target-inline-controls.layout.spec.ts --project=mobile-safari` (whole file, no grep filter).
-3. Merge `origin/main` (BACKLOG/archive conflicts resolve per-entry, both sides preserved), push, open PR. Whole-diff codex-guard review `--stage diff` to APPROVE (brief per AGENTS.md contract; round cap 4).
-4. Real CI green (including `lifecycle-layout-e2e.yml` — AC-7's proof) → `gh pr merge --merge` in the same turn → ff main → `git rev-list --left-right --count main...origin/main` = `0 0`.
+2. Commit the gate record before anything ships: `docs(plan): record the step3 tap-cluster impeccable gate in closeout.md` — `closeout.md` (findings, dispositions, filled RAN-form marker) plus any DEFERRED.md entries land in their own commit (invariant 6, commit per task); any P0/P1 remediation code from the gate lands in its own conventional commit(s) BEFORE this one.
+3. Pre-push gates, all green: `pnpm heavy pnpm test` (full unit suite), `pnpm typecheck` (the canonical script — its `pretypecheck` generator then `tsc --noEmit` over the single root tsconfig, whose `**/*.ts(x)` include spans app, tests, and e2e), `pnpm exec eslint .`, `pnpm format:check`, plus one full `pnpm heavy pnpm exec playwright test tests/e2e/tap-target-inline-controls.layout.spec.ts --project=mobile-safari` (whole file, no grep filter).
+4. Merge `origin/main` (BACKLOG/archive conflicts resolve per-entry, both sides preserved), push, open PR. Whole-diff codex-guard review `--stage diff` to APPROVE (brief per AGENTS.md contract; round cap 4).
+5. Real CI green (including `lifecycle-layout-e2e.yml` — AC-7's proof) → `gh pr merge --merge` in the same turn → ff main → `git rev-list --left-right --count main...origin/main` = `0 0`.
 
 ## Acceptance criteria mapping
 
@@ -114,7 +115,7 @@ Spec §8: AC-1 (Task 1), AC-2/AC-3 (Task 2), AC-4 (Task 3), AC-5 (Tasks 1+4), AC
 ## Adversarial review (cross-model)
 
 - This plan: self-review → codex-guard `--stage plan --round <n>` to APPROVE before execution handoff (briefs: REVIEWER ONLY, CONSEQUENCE BOUND / PROBE DOMAIN / THREAT-MODEL FENCE with the literal phrase "never silently wrong", VERDICT + FINDINGS lines, round cap 4).
-- Implementation branch: whole-diff codex-guard `--stage diff` review to APPROVE before merge (Task 5.3).
+- Implementation branch: whole-diff codex-guard `--stage diff` review to APPROVE before merge (Task 5.4).
 
 ## Execution handoff
 
