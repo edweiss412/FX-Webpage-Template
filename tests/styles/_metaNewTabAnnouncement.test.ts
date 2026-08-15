@@ -1054,7 +1054,16 @@ describe("every external link in the live tree announces its new tab", () => {
 // appears outside the scanned set, so the next one forces a decision instead of being
 // silently unscanned.
 it("no .tsx file lives outside the scanned roots", () => {
-  const scanned = new Set(["mdx-components.tsx"]);
+  const scanned = new Set([
+    "mdx-components.tsx",
+    // A SPEC-TIME PROBE, not shipped surface: it exists to drive one React
+    // ownership trace while its spec was being written, is never imported by
+    // `app/` or `components/`, and renders no link of any kind. It sits under
+    // docs/ because that is where its spec's evidence lives; the decision this
+    // guard exists to force is therefore "not a live tree", recorded here
+    // rather than by widening the roots to all of docs/.
+    "docs/superpowers/specs/probes/2026-08-10-wifi-ownership-spike.test.tsx",
+  ]);
   const roots = new Set(["components", "app", "tests", "node_modules"]);
   const walk = (dir: string): string[] => {
     const out: string[] = [];

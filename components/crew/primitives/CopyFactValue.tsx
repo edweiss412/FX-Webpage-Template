@@ -53,8 +53,13 @@ import { COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
  * error UI. The §12.4 catalog (AGENTS.md invariant 5) is the single source of
  * truth for copy that names an ERROR CODE the system can produce and a user may
  * report; neither string has a code, a surface variant, or a second reuse site,
- * and `messageFor(code)` has nothing to return for "the clipboard write you
- * just asked for succeeded". Hence the per-callsite exemptions.
+ * and a catalog lookup has nothing to return for "the clipboard write you just
+ * asked for succeeded". Hence the per-callsite exemptions.
+ *
+ * (The lookup is deliberately named in prose rather than written as a call:
+ * tests/messages/_metaEmphasisRenderContract.test.ts scans file TEXT for
+ * catalog accessors, so spelling one here would enroll this file as a catalog
+ * renderer it is not, and the honest fix is not to claim the accessor.)
  */
 // not-subject:M5-D8 — success announcement, not catalog error copy.
 const COPIED_MESSAGE = "Copied.";
