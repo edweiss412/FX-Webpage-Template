@@ -107,6 +107,18 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // blindness to nested helpers is the wider class, probed and filed as
   // BL-PREMISESCAN-NESTED-HELPER-SCOPE.
   "tests/ci/phantomGapExecuted.test.ts": 3,
+  // The interactive-scan guard surfaces, enrolled 2026-08-14
+  // (fix/ui-interactive-token-policy). All three declare 0, and the declaration
+  // is honest rather than convenient: each reads the live tree through node:fs
+  // (and, in the core's fixture cases, a tree it builds under mkdtempSync),
+  // which is deliberately NOT provenance by the same rule the corpus suite is
+  // declared 0 under. None spawns a child process, imports ledger-git, or reads
+  // process.env. The one suite in this arc that DOES spawn — the contrast
+  // suite's tailwindcss compile — is not a mutation suitePath and is therefore
+  // not walked here.
+  "tests/styles/interactiveScanCore.test.ts": 0,
+  "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
+  "tests/styles/_metaTapTargetFloor.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();
