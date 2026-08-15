@@ -52,6 +52,44 @@ const GUARD_MODULE = "tests/db/_localDbUrl";
 
 const GUARD_NAMES: readonly string[] = ["assertLocalDbUrl", "assertSafeDestructiveTarget"];
 
+/**
+ * The destructive-statement recognizer, owned HERE and imported by the meta-test's
+ * discovery walk, because the analyzer now anchors recognized statements to checked
+ * execution sites and the two must range over the same set. Two copies of these
+ * patterns is a drift the guard cannot see: discovery would find a file the analyzer
+ * would not anchor within it, or the reverse.
+ *
+ * A named record rather than the array the plan sketched — the meta-test binds each
+ * pattern by name, and `noUncheckedIndexedAccess` would make positional destructuring
+ * `RegExp | undefined` at every use.
+ *
+ * Keyed on the FUNCTION NAME, not on a statement shape (whole-diff r15).
+ */
+export const DESTRUCTIVE_STATEMENT_PATTERNS = {
+  /** Executes the whole-DB wipe RPC. */
+  executesWipe: /\bpublic\.reset_validation_data\s*\(/i,
+  /** Flips the prod-safety gate ON - the only thing between a test run and a live wipe. */
+  enablesWipeGate: /destructive_reset_gate\b[\s\S]{0,120}?\benabled\s*=\s*(?:true|\$\{?\s*true)/i,
+  /** Executes a retention prune: deletes by time window against whatever DB it hits. */
+  executesPrune: /\bpublic\.prune_(?:sync_log|app_events)\s*\(/i,
+} as const;
+
+/**
+ * The guard's own two files, exempted from analysis BY NAME rather than by accident.
+ * Both quote destructive SQL as FIXTURE TEXT handed to a pure function; neither imports
+ * the driver, opens a connection, or reads a database URL. Discovery matches them for
+ * exactly the reason it should — they contain the strings it hunts.
+ *
+ * Before this list, `_metaDestructiveDbTargetGuard.test.ts` survived its own discovery
+ * only because its failure-MESSAGE text happened to match the inline-exemption regex.
+ * An exemption that holds by coincidence is one edit away from not holding, and the
+ * edit that breaks it looks unrelated.
+ */
+export const GUARD_OWN_FILES: readonly string[] = [
+  "tests/db/_metaDestructiveDbTargetGuard.test.ts",
+  "tests/db/destructiveFileAnalysis.test.ts",
+];
+
 export function analyseDestructiveFile(
   filePath: string,
   rawSource: string,
