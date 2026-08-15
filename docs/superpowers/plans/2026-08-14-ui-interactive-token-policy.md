@@ -825,6 +825,65 @@ were 28px switches with no hit-area expansion (repaired in-branch to the sibling
 because a class-level repair there would emit no CSS while making the guard report a floor the
 browser never applies).
 
+### Task 5 mutation enrolment — two surfaces, not three, and a harness repair
+
+**`subtleInteractiveScan` is NOT enrolled, and that is a deviation from the plan's own
+Task 5 (three rows).** The harness rejected it by its own no-mutants condition: the module
+produced ZERO mutants. The cause is structural rather than an oversight to patch — the module
+is a filter over `interactiveScanCore` plus two data declarations, and the declared operator
+set is control-flow shaped (no relational, equality or logical operator; no integer literal;
+no regex quantifier; no removable statement). Every decision it makes belongs to the core,
+which IS enrolled, through the very suite that decides this module's verdicts. Restructuring
+it to grow mutation sites would be gaming the operator set, and a vacuous row is worse than an
+honest absence — the gate's no-mutants condition exists to say exactly that. The registry
+carries the reason at the row's former position, so the next reader finds it where they look.
+
+**A mutant that never terminates wedged the harness, and the harness had no ceiling.**
+`statement-removal` of `cursor = cursor.parent;` inside `while (cursor)`
+(`tests/styles/interactiveScanCore.ts`) makes the scan loop forever. `runSuite` called
+`execFileSync` with no `timeout`, so the child ran 1h48m and the run scored 0 of 207 mutants
+before it was killed by hand. This is not this surface's problem: four wedged
+`mutantOverlay.config.ts` children from OTHER arcs were alive on the same machine at that
+moment (2h28m, 2h55m, 3h53m, 5h43m). Repaired in-branch under TDD — a 180 s per-suite ceiling
+with `killSignal: "SIGKILL"`, and a timed-out child scored KILLED, which is both the standard
+convention (Stryker, PIT) and defensible for the same reason as the existing L-3: a guard that
+stops terminating never goes green again, so the mutant cannot ship silently. The
+discrimination is `code === "ETIMEDOUT"` ALONE, because a timeout kill and this machine's
+idle-process reaper arrive in the same no-status shape and must not share a verdict; a reaper
+SIGTERM still throws `MutantRunInfraError` and stays fatal. Recorded as L-9 in the harness
+spec, and pinned by three cases including a live unmocked probe that Node really does report
+`ETIMEDOUT` — without it, the two mocked cases would agree with each other while every real
+hang still wedged the run forever.
+
+**The gate found 61 gaps in a suite that had already passed three impeccable rounds, and 56 of
+them were repaid rather than blessed.** First run: 207 mutants, 146 killed, **score 0.7053**
+against a 0.9 floor. The survivors were not exotic — they were the boundaries and the
+cross-module forms the hand-written suite had no fixture for: all three resolver bounds
+(`MAX_RESOLVE_DEPTH`, `MAX_PATHS`, `MAX_IMPORT_HOPS`) sat comfortably inside every existing
+case, so each constant could be moved with nothing to notice; the negative-margin recipe had
+no fixture at all; the whole spread reader and the whole re-export chain were dark, because
+the fixture harness could only write ONE file. The repair added a multi-file harness and 34
+cases — a 6-vs-7 nested-paren pair on the depth budget, a 64-vs-65 alternative pair on the
+path cap, a 3-vs-4 link re-export chain on the hop ceiling, one case per spread arm
+(`as` / `&&` / `||` / `??`, plus the two that must still demote), and the two crash cases where
+an empty JSX expression reaches a predicate. Five survivors are ledgered `equivalent`, all one
+shape: a mutation whose only effect is on a value no consumer can distinguish (the empty
+string added to a token list nothing counts; a loop's off-the-end read of `undefined`).
+
+One case was wrong in a way worth recording: the case-clause scope fixture used a BRACED case
+body, which is an ordinary `Block` the resolver already handled, so the arm it meant to
+exercise stayed dark and its mutant survived a second run. Removing the braces killed it. A
+fixture can miss its own subject.
+
+**The CI job's ceiling was already gone before this arc touched it.** `mutation-harness` is
+non-gating by design, and it is not merge-blocking here either; but a job that always times
+out stops meaning anything. Measured 2026-08-15: 138 min on `main` (run 31871859884) with no
+new surfaces, and this arc's own PR head — which had enrolled NOTHING — hit the 180 min
+ceiling exactly (run 31876214966, 180m15s, step cancelled). Enrolment adds 207 mutants to the
+gates file's 519 (+40%), so `timeout-minutes` moves 180 -> 300 with the numbers in the comment.
+That is headroom, not a fix: the real repair is bounding the gates file's wall clock as
+surfaces enrol, filed as `BL-MUTATION-HARNESS-WALLCLOCK-CEILING`.
+
 ### Invariant-8 dual gate (Task 7)
 
 Both halves ran on the implementing diff with the canonical v3 setup (`context.mjs` load of

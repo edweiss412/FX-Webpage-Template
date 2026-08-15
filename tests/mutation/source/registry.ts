@@ -697,22 +697,55 @@ export const GUARD_SURFACES: GuardSurface[] = [
       from: "el.paths.length > 0 && el.paths.every((path) => pathHasFloor(path))",
       to: "el.paths.length > 0 && el.paths.some((path) => pathHasFloor(path))",
     },
-    accepted: [],
+    // Five equivalents, all one shape: the mutation's only effect is on a value
+    // no consumer can distinguish. The first run's other 56 survivors were real
+    // coverage gaps and were repaid with tests, not with rows.
+    accepted: [
+      {
+        siteId: "relational-boundary:127:50:>>>=",
+        kind: "equivalent",
+        reason:
+          'tokenize\'s filter becomes a no-op, so the only extra member is the empty string. Its four consumers are all existential (interactiveScanCore.ts:277, :286-290, :299-303, :320) and both predicates reject "": baseToken("") is not sr-only and utilityPx("") is null (:248), and neither defeater regex matches (:255, :261). tokenize is module-private, so no length or .every consumer exists',
+      },
+      {
+        siteId: "integer-literal:127:52:0>1",
+        kind: "equivalent",
+        reason:
+          'the same filter in the other direction: it now also drops 1-character tokens. The shortest string any predicate in this module can match is 3 characters ("p-3" at :301, "h-4" via the utility regex at :231, "-m-1" at :299), so a 1-character token evaluates false whether it is kept or dropped',
+      },
+      {
+        siteId: "relational-boundary:139:21:<><=",
+        kind: "equivalent",
+        reason:
+          "one extra iteration of baseToken's scan reads raw[raw.length], which is undefined in JS rather than a throw, so all three comparisons at :141-143 are false and neither `depth` nor `lastSep` changes. The return at :145 reads only those two",
+      },
+      {
+        siteId: "relational-boundary:166:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the same off-the-end iteration in variantPrefixes: no branch at :167-173 fires on undefined, and the function returns exactly what the loop accumulated (:175) with no post-loop push, so a trailing prefix cannot be appended",
+      },
+      {
+        siteId: "integer-literal:220:34:0>1",
+        kind: "equivalent",
+        reason:
+          "lengthPx's zero-length return value is only ever null-checked or compared against FLOOR_PX=44 (interactiveScanCore.ts:203, :248, :259, :264). 0 and 1 are both non-null and both under 44, and no consumer does arithmetic on it",
+      },
+    ],
   },
-  {
-    id: "subtleInteractiveScan",
-    sourcePath: "tests/styles/subtleInteractiveScan.ts",
-    suitePaths: ["tests/styles/_metaSubtleOnInteractive.test.ts"],
-    operators: [...OPERATOR_NAMES],
-    scoreFloor: 0.9,
-    // Polices a token no registry row is keyed to, so every exemption goes
-    // stale at once.
-    control: {
-      from: 'const POLICED_TOKEN = "text-text-subtle";',
-      to: 'const POLICED_TOKEN = "text-text-faint";',
-    },
-    accepted: [],
-  },
+  // NOT ENROLLED: tests/styles/subtleInteractiveScan.ts.
+  //
+  // It was enrolled on 2026-08-14 and the harness rejected it by its own
+  // no-mutants condition: the module produced ZERO mutants, so the row asserted
+  // nothing while looking like coverage. The cause is structural, not an
+  // oversight to patch — the module is a filter over `interactiveScanCore`
+  // (enrolled below) plus two data declarations, and the declared operator set
+  // is control-flow shaped: no relational, equality or logical operator, no
+  // integer literal, no regex quantifier, no removable statement. Every
+  // decision it makes belongs to the core, which IS mutated, through the suite
+  // that also decides this module's verdicts. Restructuring the module to grow
+  // mutation sites would be gaming the operator set, and a vacuous row is worse
+  // than an honest absence: the gate's no-mutants condition exists to say so.
   {
     id: "tapTargetScan",
     sourcePath: "tests/styles/tapTargetScan.ts",

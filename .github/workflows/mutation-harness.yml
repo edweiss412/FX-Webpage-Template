@@ -3,8 +3,11 @@ name: mutation-harness
 # mutants, split into 8 LPT-balanced shard files + 1 generation-only gates file
 # (sharding spec §3) run by the env-gated `mutation` vitest project with
 # fileParallelism:true — vitest's forks pool gives availableParallelism-1 = 3
-# workers on this 4-vCPU runner, so expect ~60-75 min wall-clock (was 167 min
-# serial) with live `[mutation shard i/8] n/total` progress lines in this log.
+# workers on this 4-vCPU runner, with live `[mutation shard i/8] n/total` progress
+# lines in this log. The original estimate here was ~60-75 min (was 167 min
+# serial); MEASURED on 2026-08-15 it is 138 min on `main`, because the gates file
+# has been growing with every source-mutation surface enrolled. See the
+# timeout-minutes comment below for the numbers and the filed follow-up.
 # Still far past any merge-gating leg budget, so it runs OFF the merge path on a
 # dedicated nightly job and is EXCLUDED from the default discovered suite; this
 # job opts back IN via VITEST_INCLUDE_MUTATION_HARNESS=1. NOT a required check:
@@ -39,7 +42,18 @@ concurrency:
 jobs:
   mutation-harness:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # 180 -> 300, measured rather than guessed. The 180 ceiling was set when the
+    # header's ~60-75 min estimate was current; on 2026-08-15 the same job took
+    # 138 min on `main` (run 31871859884, 07:24:20Z..09:42:08Z) with NO source-
+    # mutation surfaces added, and this arc's own PR run hit the ceiling exactly
+    # (run 31876214966, 09:15:24Z..12:15:39Z = 180m15s, step cancelled) on a head
+    # that had not yet enrolled anything — i.e. the headroom was already gone to
+    # runner variance alone. Enrolling the interactive-scan core adds 207 mutants
+    # to the gates file's 519 (+40%), so leaving 180 in place would make the
+    # timeout the normal outcome and the job would stop meaning anything.
+    # 300 is headroom, not a target: the real repair is bounding the gates file's
+    # wall clock as surfaces enrol, filed as BL-MUTATION-HARNESS-WALLCLOCK-CEILING.
+    timeout-minutes: 300
     # Runs UNTRUSTED code (pnpm install + tests) on PR/feature-branch runs, so it holds NO
     # issues:write — least privilege (Codex #369 R2). All issue mutation is isolated to the
     # separate, gated `notify` job below, which runs no untrusted code.
