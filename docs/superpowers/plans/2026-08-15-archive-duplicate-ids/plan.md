@@ -121,8 +121,20 @@ and the four scripts beside it). Facts this plan RELIES on, so no task re-derive
 5. **GREEN:** the graduation suite passes; then `pnpm vitest run tests/docs/` all
    green (referential integrity, in-progress, sizing, claims — the archives changed,
    so the whole docs surface is the regression net).
-6. **Diff discipline check, recorded:** `git diff --stat` over the two archive files
-   touches exactly the 43 demoted lines + the 9 preamble lines; no other hunk.
+6. **Survivor verification (plan R2 F1 — `git diff --stat` cannot see a direction
+   reversal):** BEFORE any repair, generate and commit an expectations table
+   `survivor-expectations.json` in this plan directory — one row per pair:
+   `{ id, file, survivorHeadingText, demotedHeadingText }`, derived from the live
+   tree plus the spec §2.1 direction column (the committed pair-table script
+   already classifies each heading; extend it to emit this JSON). AFTER the
+   repairs, run a small committed verifier (`verify-survivors.mts`, beside the
+   census scripts) asserting per row: the survivor heading text still exists as a
+   HEADING in its file, exactly once; the demoted text exists as a bold
+   paragraph line and NOT as a heading. A swapped pair fails by id.
+   **Gate-mutant treatment (writing-plans rule, run and recorded):** reverse ONE
+   pair's direction in a scratch copy and observe the verifier fail by that id;
+   restore. Then the aggregate check: `git diff --stat` over the two archive files
+   shows only those files changed (supporting evidence, not the discriminator).
 7. Commit: `test(docs): add within-file ledger id uniqueness; demote 43 duplicate
    archive headings to bold lines`.
 
