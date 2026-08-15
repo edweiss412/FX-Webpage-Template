@@ -21,10 +21,12 @@ Each row is a settled decision with its ratifying evidence. Reviewers verify the
 | 1 | **The same-origin gate is built on Fetch Metadata (`sec-fetch-site`) + an Origin-vs-`NEXT_PUBLIC_SITE_ORIGIN` fallback, and NEVER trusts `x-forwarded-host`/`host`.** This dissolves the trusted-proxy question that descoped the prior attempt — the gate depends on no forwardable header, so proxy overwrite behavior is irrelevant. It is NOT another attempt to derive the origin from `x-forwarded-host` (the vector that failed review three times). | §3.3; prior descope reasoning `docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md:175` (§4.3a); in-repo precedent `app/api/observe/client-error/route.ts:43-48` |
 | 2 | **The `sec-fetch-site: none`/absent and Origin-absent case is allowed (framework default preserved) and is a DOCUMENTED LIMIT, not a hole to patch.** It is reachable only by non-browser clients (which carry no victim cookies → cannot mount CSRF) or pre-Fetch-Metadata browsers. Do not file a review round on it; it is fenced in §7. | §3.3, §7; framework behavior at the vendor path in §2.1 |
 | 3 | **Failure presentation for the menu is Option A — an in-menu error; the menu stays open on failure.** Chosen over a page-level banner. User decision, batched 2026-08-15. | §4.2 |
-| 4 | **The failure copy is a NEW catalog code `PICKER_SWITCH_FAILED` = "Couldn't switch. Please try again."** Chosen over reusing the mismatched existing copy. User decision, batched 2026-08-15. Introduces the §12.4 three-lockstep (§4.4). | §4.4 |
+| 4 | **The failure copy is a NEW catalog code `PICKER_SWITCH_FAILED`; the crew-facing string is EXACTLY "Couldn't switch. Please try again."** Chosen over reusing the mismatched existing copy. User decision, batched 2026-08-15 — the crew string is ratified and fixed, not tunable at implementation (only the dev-facing fields are drafted). Introduces the §12.4 three-lockstep (§4.4). | §4.4 |
 | 5 | **The "Continue as guest" gate path (`clearIdentityAndSkip` in `_SignInOrSkipGate.tsx`) is NOT given a bespoke error state.** Its failure re-renders the mismatch gate, whose CTA is itself the retry — already documented as non-silent. User decision, batched 2026-08-15. It IS still covered by the same-origin gate (§3.2). | §4.5; `docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md` §4.3a |
 | 6 | **Menu-clear server-side failure telemetry is OUT OF SCOPE.** The `clearIdentityCore` catch stays silent and its pinning test (`tests/auth/picker/clearIdentity.test.ts:228`) is unchanged; the existing `// no-telemetry:` delegation exemption stands. The filed defect is that the USER is not told — this spec fixes that. Server-side observability of this branch remains tracked by `BL-CREW-PICKER-OBSERVABILITY`. | §5 invariant 10 |
 | 7 | **Gating the other ~37 destructive Server Actions is OUT OF SCOPE for this arc and re-filed.** This arc builds the reusable helper and applies it to the `clearIdentity.ts` endpoint set (the filed surface). Class-sweep disposition exception (c): the peer sweep spans enough sites to blow review scope; the helper makes each peer a one-line call. | §3.5 |
+| 8 | **The menu "Switch person" is INEFFECTIVE for a Google-authenticated crew member, and fixing that is OUT OF SCOPE here.** `clearIdentity` deletes the picker cookie entry but does not end the Google session, so for a viewer resolved via a Google `success` session the next resolve returns `needs_picker_bootstrap` and re-mints the SAME identity (`lib/auth/picker/resolveShowPageAccess.ts:246`). This is a pre-existing efficacy gap, NOT the filed silent-**failure** defect (which is the `{ ok: false }` branch reporting success). It is fixed neither here nor claimed away: it is a documented limit (§7) and re-filed as `BL-SWITCH-PERSON-GOOGLE-LOOPBACK` (§4.7). Making menu-switch sign a Google viewer out is a product decision (class-sweep exception (a)). | §2.2, §4.7, §7 |
+| 9 | **The same-origin gate RETURNS an existing catalogued code and emits the forensic `PICKER_ORIGIN_REJECTED` via `log.warn`.** A returned `code:` literal is a §12.4 producer under `PRODUCER_RE` (`lib/messages/__internal__/codeProducers.ts:14`) and an uncatalogued one fails `x1` (`tests/cross-cutting/codes.test.ts:125`). So the rejection returns catalogued `PICKER_INVALID_INPUT`, and `PICKER_ORIGIN_REJECTED` rides a `log.warn` emission span (stripped by `stripLogEmissionCalls`, scanner-exempt), mirroring `AUTH_SIGNOUT_FAILED`. NO new returned literal, NO orphan producer. | §3.2 |
 
 ---
 
@@ -50,7 +52,14 @@ if (!originHost) {
 
 `clearIdentity` resolves a typed result whose failure branch is reachable — `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }` from the `clearIdentityCore` catch (`lib/auth/picker/clearIdentity.ts:176-183`) or `{ ok: false, code: "PICKER_INVALID_INPUT" }` from validation (`lib/auth/picker/clearIdentity.ts:186-189`). The menu wrapper `clearIdentityFormAction` awaits it and returns `void` (`components/auth/IdentityChip.tsx:30-35`), so the result is discarded.
 
-**Why the failure is invisible while success is visible.** On **success**, `clearIdentityCore` calls `revalidatePath` (`lib/auth/picker/clearIdentity.ts:219`); the page re-resolves access, no longer finds a picker entry for the show, and renders `<PickerInterstitial>` instead of the show body — the entire `AvatarMenu` unmounts. That disappearance IS the success signal. On **failure**, no `revalidatePath` runs (the catch returns before it), nothing re-renders, and because `AvatarMenu` owns its `open` state locally with no close-on-submit, the menu stays exactly as it was — same identity header, same "Not you?" item. Success and failure are visually identical minus the unmount that only success produces. The crew member reads "menu did something, page looks normal" as "switched."
+**Why the failure is invisible.** On **failure** (`{ ok: false }`), no `revalidatePath` runs (the catch returns before it), nothing re-renders, and because `AvatarMenu` owns its `open` state locally with no close-on-submit, the menu stays exactly as it was — same identity header, same "Not you?" item. The crew member reads "menu did something, page looks normal" as "switched." This `{ ok: false }` branch is the filed defect, and §4 makes it legible.
+
+**The success branch is NOT uniformly "reaches the picker" — the model split by identity source (R1-F1 correction).** On `{ ok: true }` the page re-resolves access, and the outcome depends on how the viewer was resolved:
+
+- **Cookie-only viewer (share-link path, no Google session):** the deleted entry is gone, so the re-resolve falls to `first_contact` and renders `<PickerInterstitial>` — the entire `AvatarMenu` unmounts. That disappearance IS the success signal, and the switch is effective.
+- **Google-session viewer (resolved `source: "cookie"` after a bootstrap mint):** deleting the cookie entry does NOT end the Google session. The next resolve hits the Google `success` branch, finds no matching entry, and returns `needs_picker_bootstrap` (`lib/auth/picker/resolveShowPageAccess.ts:246`), which re-mints the SAME identity. The same person reappears; the menu-switch is INEFFECTIVE for them.
+
+The Google-session case is a pre-existing efficacy gap, distinct from the filed silent-**failure** defect, and out of scope here (Resolved scope #8). It is a documented limit (§7) and re-filed (§4.7). `AvatarMenu` receives no identity-source discriminator today, so it cannot branch on this — which is exactly why fixing it is a separate design, not a line in this one. This spec's success-path claims are therefore scoped to the `{ ok: false }` signaling change; §6C's component test asserts the source-agnostic `{ ok: false } → alert` and `idle → no-alert` behavior and makes no claim about reaching the picker.
 
 ---
 
@@ -68,18 +77,31 @@ All three perform or lead to the destructive cookie deletion, so **all three are
 
 ### 3.2 Where the gate runs
 
-The gate is the **first statement** of each of the three exported actions, before any validation or mutation — matching the sign-out route's "refuse before any teardown" ordering (`app/auth/sign-out/route.ts:88-97`). On rejection the action returns a non-exposing typed result and performs no mutation:
+The gate is the **first statement** of each of the three exported actions, before any validation or mutation — matching the sign-out route's "refuse before any teardown" ordering (`app/auth/sign-out/route.ts:88-97`). On rejection the action emits a forensic `log.warn` and returns a non-exposing **catalogued** typed result, performing no mutation:
 
 ```ts
 export async function clearIdentity(formData: FormData): Promise<ClearIdentityResult> {
-  if (!(await isSameOriginServerAction())) return { ok: false, code: "PICKER_ORIGIN_REJECTED" };
+  if (!(await isSameOriginServerAction())) return rejectCrossOrigin("clearIdentity");
   // ...existing body
+}
+```
+
+where the shared helper (co-located in `clearIdentity.ts`) is:
+
+```ts
+function rejectCrossOrigin(action: string): ClearIdentityResult {
+  log.warn("cross-origin picker action refused", {
+    source: "auth.picker.sameOriginGate",
+    code: "PICKER_ORIGIN_REJECTED", // forensic, rides the emit, stripped by stripLogEmissionCalls
+    action,
+  });
+  return { ok: false, code: "PICKER_INVALID_INPUT" }; // catalogued returned code (§12.4)
 }
 ```
 
 `clearIdentityAndSkip` and `clearIdentityCore` get the identical opening line. Because a legitimate in-app submission always passes, the internal call chain (`clearIdentityAndSkip` → `clearIdentityCore`) simply passes the check twice with the same header read — idempotent, no lock, no side effect.
 
-`PICKER_ORIGIN_REJECTED` is a **forensic-only** returned code with no §12.4 catalog row and no crew copy, following the established pattern for `AUTH_SIGNOUT_FAILED` (`lib/auth/picker/clearIdentity.ts:118-123` explains why a returned code that is never rendered stays out of the catalog). The crew UI never renders this branch: a cross-site request does not originate from our own menu. If it somehow surfaced in the menu path, §4's client maps *any* failure to the generic `PICKER_SWITCH_FAILED` copy, so no raw code leaks (invariant 5 holds).
+**Why the returned code is `PICKER_INVALID_INPUT`, not a new literal (R1-F2 correction).** A returned `code:` literal is a §12.4 producer under `PRODUCER_RE` (`lib/messages/__internal__/codeProducers.ts:14`); `stripLogEmissionCalls` exempts only codes inside `log.*`/`logAdminOutcome` spans, and `x1` fails on any orphan producer (`tests/cross-cutting/codes.test.ts:125`). So the *returned* code must be catalogued — `PICKER_INVALID_INPUT` fits ("the request was rejected before any cookie was written"). The distinguishing forensic code `PICKER_ORIGIN_REJECTED` rides the `log.warn` span (scanner-exempt, exactly as `AUTH_SIGNOUT_FAILED` does at `lib/auth/picker/clearIdentity.ts:111-123`), giving security-monitoring visibility of a CSRF attempt without a catalog row. The crew UI never renders this branch (a cross-site request does not originate from our own menu); if it somehow surfaced in the menu path, §4's client maps *any* failure to the generic `PICKER_SWITCH_FAILED` copy, so no raw code leaks (invariant 5 holds). This emit also newly instruments the origin-rejection branch (invariant 10, §5).
 
 ### 3.3 The helper — `isSameOriginServerAction()`
 
@@ -154,41 +176,47 @@ Because the gate never reads `x-forwarded-host` or `host`, the "which headers ar
 
 `IdentityChip` (Server Component) declares `clearIdentityFormAction(formData): Promise<void>` and passes it to `AvatarMenu` (client island) as the `clearAction` prop (`components/auth/IdentityChip.tsx:30-35`, `71`; `components/auth/AvatarMenu.tsx:87`). `AvatarMenu` renders `<form action={clearAction}>` with hidden `slug`/`shareToken`/`showId` inputs (`components/auth/AvatarMenu.tsx:349-352`). The typed result never reaches the client — the whole defect.
 
-### 4.2 The change — `useActionState`
+### 4.2 The change — a returned-result action + local reset-on-open state
 
-`useActionState` is already the established client-error pattern on this exact surface (`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` imports it). Apply it here:
+`useActionState` is the established client-error pattern elsewhere (`_PickerInterstitial.tsx`), but it is the WRONG tool here: React 19 gives it no reset API, and the avatar menu's open/close lifecycle needs the error CLEARED on reopen (R1-F4: `open=false` only hides the popover; `AvatarMenu` stays mounted, so a `useActionState` error would persist and reappear on the next open). So the failure state is a plain local `useState` that the menu resets when it opens.
 
-- **`IdentityChip`** replaces the `(formData) => void` wrapper with an action of the `useActionState` shape:
+- **`IdentityChip`** keeps the wrapper NAME `clearIdentityFormAction` (the role-chip contract pins `clearAction={clearIdentityFormAction}` — `tests/components/_metaPickerRoleChipContract.test.ts:21`, R1-F7) and only widens its return type from `Promise<void>` to `Promise<ClearIdentityResult>`:
 
   ```ts
-  export type SwitchActionState = { status: "idle" | "error" };
-
-  async function clearIdentitySwitchAction(
-    _prev: SwitchActionState,
-    formData: FormData,
-  ): Promise<SwitchActionState> {
+  async function clearIdentityFormAction(formData: FormData): Promise<ClearIdentityResult> {
     "use server";
-    const result = await clearIdentity(formData);
-    return result.ok ? { status: "idle" } : { status: "error" };
+    // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker clearIdentity,
+    // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
+    return clearIdentity(formData);
   }
   ```
 
-  The `// no-telemetry:` delegation comment is retained (§5, invariant 10). The forensic returned code is not carried into state — the UI shows one copy for any failure (§4.4), and the server-side forensic detail is unchanged (Resolved scope #6).
+  `ClearIdentityResult` is exported (type-only) from `clearIdentity.ts` so the client island can `import type` it (types are erased — no server code crosses the boundary).
 
-- **`AvatarMenu`** consumes it:
+- **`AvatarMenu`** consumes the result through a client-side action closure with local state:
 
   ```ts
-  const [switchState, switchFormAction, isSwitching] = useActionState(clearAction, { status: "idle" });
+  const [switchStatus, setSwitchStatus] = useState<"idle" | "error">("idle");
+  const [switchPending, startSwitch] = useTransition();
+  // clearAction prop type widens: (formData: FormData) => Promise<ClearIdentityResult>
+
+  const onSwitchSubmit = (formData: FormData): void => {
+    setSwitchStatus("idle");                        // clear a prior error before the retry
+    startSwitch(async () => {
+      const result = await clearAction(formData);   // invokes the server action
+      if (!result.ok) setSwitchStatus("error");     // success path re-renders/unmounts server-side
+    });
+  };
   ```
 
-  `clearAction`'s prop type widens from `(formData: FormData) => void | Promise<void>` to `(prev: SwitchActionState, formData: FormData) => Promise<SwitchActionState>`. The form binds `action={switchFormAction}`.
+  The form binds `action={onSwitchSubmit}` (keeping its hidden `slug`/`shareToken`/`showId` inputs — R1-F7 role inputs preserved). **Reset-on-open (R1-F4 fix):** `openAt(...)` and the trigger's open path call `setSwitchStatus("idle")`, so every reopen starts clean and a stale error can never reappear. Closing mid-pending is safe: the transition resolves on the still-mounted `AvatarMenu`, but the alert lives inside the `{open ? … }` popover, so nothing is shown while closed, and the next open has already reset to idle.
 
 ### 4.3 Rendered elements (exact placement, guard conditions)
 
-- **Error node.** When `switchState.status === "error"`, render, immediately **after** the `</form>` and still inside the `role="menu"` container's popover (below the "Not you?" item, above the popover's bottom padding): a block with `role="alert"` so assistive tech announces it on appearance, containing the text `messageFor("PICKER_SWITCH_FAILED").crewFacing`. It is NOT a `menuitem` (it is not focusable and not part of arrow-key traversal), consistent with the identity header's non-item treatment (`components/auth/AvatarMenu.tsx:271-297`). Styling uses existing danger tokens (`text-danger`/`bg-danger-bg`/`border-danger` families — the implementation resolves the exact token names against `DESIGN.md` at build time; impeccable dual-gate verifies contrast).
-- **Guard conditions.** `status: "idle"` (initial, and after a successful clear that has not yet unmounted) renders **no** error node. On success the component unmounts via `revalidatePath` (§2.2), so the idle-after-success state is transient and renders nothing extra. Partial identity (blank name/role) is unchanged by this feature — the error node does not depend on name/role.
-- **Pending.** While `isSwitching`, the "Not you?" submit button is `disabled` and the stale error node (if any) is removed (the in-flight retry clears it). This prevents a double-submit and gives the retry visible feedback.
-- **Menu stays open on failure.** No code sets `open = false` on submit; `useActionState` does not touch `open`. So on failure the menu is unchanged except the error node appears. (Ratified Resolved scope #3.)
+- **Error node.** When `switchStatus === "error"`, render a block with `role="alert"` (so assistive tech announces it on appearance) containing `messageFor("PICKER_SWITCH_FAILED").crewFacing`. **Placement (R1-F5 fix):** it is a SIBLING of the `role="menu"` element, inside the popover — NOT a child of `role="menu"` and NOT immediately after `</form>` (which sits inside the menu). This matches the identity header, which is deliberately a sibling of the menu, not one of its items (`components/auth/AvatarMenu.tsx:271-297`; pinned by `tests/components/auth/avatarMenu.test.tsx:97`, which asserts `menu.contains(header) === false`). The alert is not a `menuitem`, not focusable, not in arrow-key traversal. Styling uses existing danger tokens (`text-danger`/`bg-danger-bg`/`border-danger` families — implementation resolves exact names against `DESIGN.md`; impeccable dual-gate verifies contrast).
+- **Guard conditions.** `switchStatus === "idle"` (initial, after reopen, and after a successful clear that has not yet unmounted) renders **no** error node. Partial identity (blank name/role) is unchanged by this feature — the error node does not depend on name/role.
+- **Pending.** While `switchPending`, the "Not you?" submit button is `disabled`; the error node is already cleared by `setSwitchStatus("idle")` at the start of `onSwitchSubmit`, so the retry shows no stale error. This prevents a double-submit and gives the retry visible feedback.
+- **Menu stays open on failure.** No code sets `open = false` on submit. So on failure the menu is unchanged except the error node appears as a sibling of the menu. (Ratified Resolved scope #3.)
 
 ### 4.4 New catalog code `PICKER_SWITCH_FAILED` (three-lockstep)
 
@@ -198,18 +226,20 @@ Per `AGENTS.md` "§12.4 catalog row edits require three lockstep updates," all i
 2. **`pnpm gen:spec-codes`** (`scripts/extract-spec-codes.ts`) regenerates `lib/messages/__generated__/spec-codes.ts`.
 3. **`lib/messages/catalog.ts`** — add the `PICKER_SWITCH_FAILED` entry.
 
-Proposed catalog content (final copy tuned during implementation against `PRODUCT.md` voice; no em-dash, straight apostrophes):
+Catalog content. The `crewFacing` string is the **ratified, fixed** copy (Resolved scope #4) — it is not tunable at implementation. The dev-facing fields (`dougFacing`/`helpfulContext`/`longExplanation`) are drafted here and may be reworded for voice; no em-dash anywhere, straight apostrophes matching sibling PICKER rows:
 
 | field | value |
 | --- | --- |
 | `code` | `PICKER_SWITCH_FAILED` |
 | `warningClass` | `general` |
-| `crewFacing` | `Couldn't switch. Please try again.` |
-| `dougFacing` | `A crew member's "switch person" action failed; the identity was not cleared and they were shown a retry.` |
+| `crewFacing` (fixed) | `Couldn't switch. Please try again.` |
+| `dougFacing` (drafted) | `A crew member's switch person action failed; they were shown an in-menu retry.` |
 | `followUp` | `Crew → try again; Eric if repeated` |
 | `title` | `Switch person failed` |
-| `helpfulContext` / `longExplanation` | short, matching sibling PICKER rows |
+| `helpfulContext` / `longExplanation` (drafted) | short, matching sibling PICKER rows |
 | `helpHref` | `/help/errors#PICKER_SWITCH_FAILED` |
+
+The dev-facing copy deliberately does NOT assert "the identity was not cleared" (R1-F3): a reachable branch stages the cookie deletion before `revalidatePath` throws, returning `{ ok: false }` with the deletion already staged (`lib/auth/picker/clearIdentity.ts:199`, proven by `tests/auth/picker/clearIdentity.test.ts:327`). "They were shown an in-menu retry" is true in every failure branch.
 
 The `x1-catalog-parity` gate (`tests/cross-cutting/codes.test.ts`) fails the build if any of the three drift. The UI reads the copy via `messageFor("PICKER_SWITCH_FAILED")` (`lib/messages/lookup.ts:100`), satisfying invariant 5 (no raw code in UI).
 
@@ -223,18 +253,23 @@ States of the menu + switch action: **Closed**, **Open-idle**, **Open-pending**,
 
 | From → To | Treatment |
 | --- | --- |
-| Closed → Open-idle | existing `avatar-menu-in` animation (`components/auth/AvatarMenu.tsx:267`); unchanged |
+| Closed → Open-idle | existing `avatar-menu-in` animation (`components/auth/AvatarMenu.tsx:267`); `openAt` resets `switchStatus` to idle first, so a prior error never rides along (R1-F4) |
 | Open-idle → Open-pending | instant — button becomes `disabled`; no animation needed |
-| Open-pending → Open-error | instant — error node appears with `role="alert"`; deliberately instant so the alert is immediate (reduced-motion irrelevant) |
-| Open-pending → unmount (success) | the whole header unmounts via `revalidatePath`; no local transition |
-| Open-error → Open-pending (retry) | instant — error node removed while `isSwitching` |
-| Open-error → Closed | existing close (Escape/outside-pointer/Tab); error node unmounts with the popover |
+| Open-pending → Open-error | instant — error node appears with `role="alert"` as a sibling of `role="menu"`; deliberately instant so the alert is immediate (reduced-motion irrelevant) |
+| Open-pending → unmount (success, cookie-only viewer) | the whole header unmounts via `revalidatePath` (`{ ok: true }`, cookie-only); no local transition. (Google-session viewer: re-mints to the same identity — §4.7 limit, not a state here.) |
+| Open-error → Open-pending (retry) | instant — `onSwitchSubmit` sets idle at the start, removing the error before the transition |
+| Open-error → Closed | existing close (Escape/outside-pointer/Tab); the alert (inside the popover) unmounts with it |
 | Open-idle → Closed | existing close paths; unchanged |
-| Open-pending → Closed | possible if the user Escapes mid-flight; the pending action still resolves server-side but its state update lands on an unmounted tree (React no-ops it) — no error surfaces, matching "closed the menu, moved on" |
+| Open-pending → Closed | user Escapes mid-flight: the transition still resolves and `setSwitchStatus` may run on the still-mounted `AvatarMenu`, but the alert lives inside `{open ? … }`, so nothing renders while closed; the NEXT open has already reset to idle, so no stale error surfaces |
+| Closed → Open-idle (after a prior failure) | **explicitly idle** — because `openAt` resets `switchStatus`, reopening after a failure never re-shows the old alert (the transition the R1-F4 finding flagged, now closed by the reset rather than by an unmount that does not happen) |
 
-Compound: "close the menu while a switch is pending" is the last row — safe, React discards the post-unmount state update. No animation collides with another.
+Compound: "close the menu while a switch is pending, then reopen" — safe: nothing renders while closed, and reopen resets to idle. No animation collides with another.
 
-### 4.7 Dimensional invariants
+### 4.7 Google-authenticated switch is a documented limit (R1-F1)
+
+For a viewer resolved via a Google `success` session, `clearIdentity` deletes the cookie entry but not the session, so the next resolve returns `needs_picker_bootstrap` and re-mints the same identity (`lib/auth/picker/resolveShowPageAccess.ts:246`) — the menu-switch does not reach the picker for them. This spec does not fix it (that needs a product decision about whether menu-switch should sign a Google viewer out, and an identity-source discriminator `AvatarMenu` does not receive today). It is fenced in §7 and re-filed as `BL-SWITCH-PERSON-GOOGLE-LOOPBACK`. The `{ ok: false }` signaling fix in §4.2–4.3 is orthogonal and applies to every viewer.
+
+### 4.8 Dimensional invariants
 
 N/A — the error node is a normal-flow block inside the popover (`w-max min-w-56 max-w-[calc(100vw-2rem)]`, `components/auth/AvatarMenu.tsx:262`), which sizes to content; no fixed-height/width parent gains a flex/grid child through this change. The popover already scrolls its own width via `max-w`. No new parent→child dimension coupling is introduced.
 
@@ -243,24 +278,29 @@ N/A — the error node is a normal-flow block inside the popover (`w-max min-w-5
 ## 5. Plan-wide invariants touched
 
 - **Invariant 2 (advisory lock):** untouched. Neither the origin gate nor the failure state mutates `shows`/`crew_members`/etc.; `clearIdentity` writes only the picker cookie and takes no advisory lock (unchanged).
-- **Invariant 5 (no raw error codes in UI):** upheld. `PICKER_SWITCH_FAILED` copy renders via `messageFor` (`lib/messages/lookup.ts:100`); the forensic `PICKER_ORIGIN_REJECTED` is never rendered.
+- **Invariant 5 (no raw error codes in UI):** upheld. `PICKER_SWITCH_FAILED` copy renders via `messageFor` (`lib/messages/lookup.ts:100`); the origin-rejection returns the catalogued `PICKER_INVALID_INPUT` and the forensic `PICKER_ORIGIN_REJECTED` lives only in a `log.warn` span, never rendered.
 - **Invariant 8 (UI quality gate):** `IdentityChip.tsx` and `AvatarMenu.tsx` are UI surfaces → impeccable `critique` + `audit` dual-gate on the diff at milestone close-out, before adversarial review. Closeout marker `impeccable-gate:` recorded in the plan.
 - **Invariant 9 (Supabase call-boundary):** the file is already registered (`tests/auth/_metaInfraContract.test.ts:227`). The origin gate adds no Supabase client call; `isSameOriginServerAction` reads only `next/headers`. No registry change.
-- **Invariant 10 (mutation-surface observability):** `clearIdentity`/`clearIdentityAndSkip` keep their existing `// no-telemetry:` delegation exemptions (`lib/auth/picker/clearIdentity.ts:49`, `lib/auth/picker/clearIdentity.ts:72-74`); the success emit `PICKER_IDENTITY_CLEARED` is unchanged; the new `clearIdentitySwitchAction` inline action is a thin non-admin wrapper delegating to a registered surface, carrying the same delegation exemption. No admin surface is added. (Resolved scope #6: menu-clear failure telemetry stays out of scope.)
+- **Invariant 10 (mutation-surface observability):** `clearIdentity`/`clearIdentityAndSkip` keep their existing `// no-telemetry:` delegation exemptions (`lib/auth/picker/clearIdentity.ts:49`, `lib/auth/picker/clearIdentity.ts:72-74`); the success emit `PICKER_IDENTITY_CLEARED` is unchanged; the origin-rejection now carries a code-carrying `log.warn` (`PICKER_ORIGIN_REJECTED`, §3.2), which newly instruments a branch that was previously dark. The `IdentityChip` wrapper `clearIdentityFormAction` is the SAME function-scoped inline action as today (name preserved), keeping its delegation exemption; its return type widening does not change its observability class. No admin surface is added. (Resolved scope #6: the `clearIdentityCore` catch stays out of scope.)
 
 ---
 
 ## 6. Testing strategy
 
-**A — same-origin gate (`isSameOriginServerAction`):** a table-driven unit suite over every `{sec-fetch-site} × {origin}` row of §3.3, mocking `next/headers` `headers()` and `NEXT_PUBLIC_SITE_ORIGIN`. Each row asserts allow/reject. Plus: `clearIdentity`/`clearIdentityAndSkip`/`clearIdentityCore` each return `{ ok: false, code: "PICKER_ORIGIN_REJECTED" }` **and perform no cookie mutation** when the gate rejects (spy the cookie store) — the anti-tautology point is asserting *no mutation happened*, not merely that a rejection value returned.
+**A — same-origin gate (`isSameOriginServerAction`):** a table-driven unit suite over every `{sec-fetch-site} × {origin}` row of §3.3, mocking `next/headers` `headers()` and `NEXT_PUBLIC_SITE_ORIGIN`. Each row asserts allow/reject. Plus, per action: `clearIdentity`/`clearIdentityAndSkip`/`clearIdentityCore` each return `{ ok: false, code: "PICKER_INVALID_INPUT" }` (the catalogued rejection code, §3.2) **and perform no mutation** when the gate rejects — the cookie-store `set` spy is NOT called, and for `clearIdentityAndSkip` the `signOut` spy is NOT called either (R1-F6: the external `supabase.auth.signOut` mutation must be proven untouched, not just the cookie; the existing harness already exposes `createClient`/`signOut` spies at `tests/auth/picker/clearIdentity.test.ts`). Anti-tautology: assert *no mutation happened*, not merely that a rejection value returned; a guard-order regression that revoked before refusing would fail these.
 
 **B — bypass regression:** a test that drives the action with `sec-fetch-site: cross-site` and **no** `Origin` header (the exact §2.1 bypass) and asserts rejection — the case Next's default lets through.
 
-**C — silent-failure fix:** a component/integration test on `AvatarMenu` — force `clearAction` to resolve `{ status: "error" }`, assert the `role="alert"` node renders `PICKER_SWITCH_FAILED`'s crew copy, the menu stays `open`, and the submit is re-enabled after. Force `{ status: "idle" }`, assert no alert node. Anti-tautology: derive the expected string from `messageFor("PICKER_SWITCH_FAILED").crewFacing`, not a hardcoded literal, so a copy edit cannot pass a stale assertion; scope the query to the alert node so the identity header's text cannot satisfy it.
+**C — silent-failure fix:** a component test on `AvatarMenu` — pass a `clearAction` mock resolving `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }`; open the menu, submit "Not you?", and assert the `role="alert"` node (a SIBLING of `role="menu"`) renders `PICKER_SWITCH_FAILED`'s crew copy, the popover stays open, and the submit re-enables. Pass a mock resolving `{ ok: true }`, assert no alert node. Add the R1-F4 reopen case: after a failure, close and reopen the menu, assert no stale alert (the reset-on-open path). Anti-tautology: derive the expected string from `messageFor("PICKER_SWITCH_FAILED").crewFacing`, not a hardcoded literal; scope the query to `role="alert"` so the identity header's text cannot satisfy it. Four string-presence mutants recorded in the commit (empty copy; appended suffix; copy present but in a `title` attribute / outside the alert; `ok` true↔false varied).
 
-**D — catalog parity:** `x1-catalog-parity` (existing) covers the three-lockstep automatically once the row lands.
+**D — catalog parity:** `x1-catalog-parity` (existing) covers the three-lockstep automatically once the row lands, and rejects an orphan producer — which is why the origin rejection returns a catalogued code (§3.2, R1-F2).
 
-**E — existing suites:** `tests/auth/picker/clearIdentity.test.ts` must still pass — the origin gate is prepended, so tests that call the actions directly must supply a passing header context (add a `same-origin` default to their `headers()` mock). The no-emit pin at `tests/auth/picker/clearIdentity.test.ts:228` is unchanged (Resolved scope #6).
+**E — existing suites (R1-F7 enumerated).** The `clearAction` prop widens from `() => void | Promise<void>` to `(formData) => Promise<ClearIdentityResult>`, and `tsconfig` includes these files, so each void mock is a deterministic typecheck failure until updated:
+- `tests/components/auth/avatarMenu.test.tsx:37` — `const clearAction = (): void => {}` → return `{ ok: true }`.
+- `tests/components/IdentityChip.test.tsx:42` — same void mock → return `{ ok: true }`.
+- `tests/components/identityChipSrSeparator.test.tsx:34` — `clearAction: (): void => {}` → return `{ ok: true }`.
+- `tests/components/_metaPickerRoleChipContract.test.ts:21` — pins `clearAction={clearIdentityFormAction}`; the wrapper NAME is preserved (§4.2), so this passes unchanged. (If the name ever changes, this contract must change in lockstep.)
+- `tests/auth/picker/clearIdentity.test.ts` — the origin gate is prepended, so add a `same-origin` default to the suite's `headers()` mock; existing cases pass through. The no-emit pin at `tests/auth/picker/clearIdentity.test.ts:228` is unchanged (Resolved scope #6).
 
 All TDD per invariant 1: failing test → minimal impl → passing → commit, one task per commit.
 
@@ -268,21 +308,24 @@ All TDD per invariant 1: failing test → minimal impl → passing → commit, o
 
 - **Neither-signal requests are allowed.** A request carrying neither `sec-fetch-site` nor `Origin` passes the gate (framework default preserved). Reachable only by (a) non-browser clients — which cannot carry a victim's cookies, so cannot mount CSRF — or (b) pre-Fetch-Metadata browsers (roughly pre-2020). This is strictly no weaker than today's behavior, and strictly stronger on the `sec-fetch-site: cross-site` + missing-`Origin` path that is the filed bypass. Fenced both directions: it is not a hole to patch (Resolved scope #2) and not a regression.
 - **`same-site` is rejected.** A same-site cross-origin request (e.g. a sibling subdomain) is refused, matching the sign-out route's strictness. The app is single-origin on Vercel, so no legitimate same-site-cross-origin caller exists; if one is ever added, this is the line to revisit.
+- **Menu "Switch person" is ineffective for a Google-authenticated viewer** (R1-F1, §4.7). Clearing the cookie entry re-mints the same identity via bootstrap because the Google session survives. Not a regression (pre-existing), not the filed silent-failure defect, and out of scope; re-filed as `BL-SWITCH-PERSON-GOOGLE-LOOPBACK` for a product decision on whether menu-switch should sign a Google viewer out.
 
 ## 8. Files touched
 
 | File | Change |
 | --- | --- |
 | lib/auth/sameOriginServerAction.ts (new) | `isSameOriginServerAction()` helper (§3.3) |
-| `lib/auth/picker/clearIdentity.ts` | prepend the gate to the 3 exported actions; add `PICKER_ORIGIN_REJECTED` forensic returned code (§3.2) |
-| `components/auth/IdentityChip.tsx` | wrapper → `useActionState`-shaped `clearIdentitySwitchAction` (§4.2) — **UI** |
-| `components/auth/AvatarMenu.tsx` | `useActionState`, error `role="alert"` node, pending disable, widened `clearAction` prop type (§4.2–4.6) — **UI** |
+| `lib/auth/picker/clearIdentity.ts` | prepend the gate to the 3 exported actions via `rejectCrossOrigin` (forensic `log.warn` `PICKER_ORIGIN_REJECTED` + returns catalogued `PICKER_INVALID_INPUT`, §3.2); export `ClearIdentityResult` (type) |
+| `components/auth/IdentityChip.tsx` | widen `clearIdentityFormAction` return type to `Promise<ClearIdentityResult>` (NAME preserved, §4.2) — **UI** |
+| `components/auth/AvatarMenu.tsx` | local `useState`+`useTransition` switch state (reset-on-open), error `role="alert"` node as a SIBLING of `role="menu"`, pending disable, widened `clearAction` prop type (§4.2–4.8) — **UI** |
 | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` | §12.4 `PICKER_SWITCH_FAILED` row + helpfulContext (§4.4) |
 | `lib/messages/__generated__/spec-codes.ts` | regen via `pnpm gen:spec-codes` |
 | `lib/messages/catalog.ts` | `PICKER_SWITCH_FAILED` entry |
 | tests/auth/sameOriginServerAction.test.ts (new) | gate truth table + bypass regression (§6 A/B) |
-| `tests/auth/picker/clearIdentity.test.ts` | add same-origin default to `headers()` mock; gate-reject cases (§6 E) |
-| `components/auth/AvatarMenu.tsx` test(s) | in-menu error state (§6 C) |
-| `BACKLOG.md` | archive `BL-SERVER-ACTION-ORIGIN-GATE` + `BL-IDENTITY-CLEAR-FAILURE-IS-SILENT`; file `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP` (§3.5) |
+| `tests/auth/picker/clearIdentity.test.ts` | same-origin default in `headers()` mock; gate-reject cases incl. `signOut`-untouched for `clearIdentityAndSkip` (§6 A/E) |
+| `tests/components/auth/avatarMenu.test.tsx` | in-menu error state incl. reopen-reset; void-mock → `{ ok: true }` (§6 C/E) |
+| `tests/components/IdentityChip.test.tsx` | void-mock → `{ ok: true }` (§6 E) |
+| `tests/components/identityChipSrSeparator.test.tsx` | void-mock → `{ ok: true }` (§6 E) |
+| `BACKLOG.md` / `BACKLOG-archive.md` | archive `BL-SERVER-ACTION-ORIGIN-GATE` + `BL-IDENTITY-CLEAR-FAILURE-IS-SILENT`; file `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP` (§3.5) and `BL-SWITCH-PERSON-GOOGLE-LOOPBACK` (§4.7) |
 
 `impeccable-gate:` — UI surfaces present (`IdentityChip.tsx`, `AvatarMenu.tsx`); dual gate runs at implementation close-out.
