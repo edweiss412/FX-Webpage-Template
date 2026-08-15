@@ -267,14 +267,14 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/diagrams/Gallery.tsx",
-    line: 153,
+    line: 341,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
   },
   {
     file: "components/diagrams/GalleryLightbox.tsx",
-    line: 384,
+    line: 526,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",

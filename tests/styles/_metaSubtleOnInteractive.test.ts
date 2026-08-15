@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { stripCommentsSafely } from "../_shared/stripComments";
 import { premiseHolds } from "../_shared/premise";
 import { SUBTLE_INTERACTIVE_EXEMPTIONS } from "./subtleInteractiveExemptions";
 import { scanSubtleInteractive } from "./subtleInteractiveScan";
@@ -9,13 +11,14 @@ const key = (x: { file: string; line: number; token: string }) => `${x.file}:${x
 const registry = new Map(SUBTLE_INTERACTIVE_EXEMPTIONS.map((r) => [key(r), r]));
 const liveByKey = new Map(hits.map((h) => [key(h), h]));
 
-// Strip line comments so a cue or reason surviving only in commentary cannot satisfy a pin
-// (same false-green shape as plan R1 F6, applied to this suite's own source assertions).
+// Strip comments so a cue surviving only in commentary cannot satisfy a pin
+// (same false-green shape as plan R1 F6, applied to this suite's own source
+// assertions). The stripping itself comes from the shared module — a local
+// regex here is the duplicate-idiom class `_metaStripCommentsSingleSource`
+// exists to prevent, and its own header explains why hand-rolled variants
+// disagree at the edges.
 const nonCommentSource = (file: string): string =>
-  readFileSync(file, "utf8")
-    .split("\n")
-    .map((l) => l.replace(/\/\/.*$/, ""))
-    .join("\n");
+  stripCommentsSafely(readFileSync(file, "utf8"), ts.ScriptKind.TSX);
 
 describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
   it("premise: the scan sees the committed carve-out sites", () => {
