@@ -15,11 +15,12 @@ export const CREW_SCOPED_WARNING_CODES: ReadonlySet<string> = new Set([
   "ROLE_TOKEN_AUTOCORRECTED",
 ]);
 
-/** All five *_AUTOCORRECTED codes, the closed set the card copy layer composes for. */
+/** All six *_AUTOCORRECTED codes, the closed set the card copy layer composes for. */
 export const AUTOCORRECT_CODES: readonly string[] = [
   "STAGE_WORD_AUTOCORRECTED",
   "ROLE_TOKEN_AUTOCORRECTED",
   "SECTION_HEADER_AUTOCORRECTED",
   "COLUMN_HEADER_AUTOCORRECTED",
   "FIELD_LABEL_AUTOCORRECTED",
+  "LEADING_COLUMN_AUTOCORRECTED",
 ];

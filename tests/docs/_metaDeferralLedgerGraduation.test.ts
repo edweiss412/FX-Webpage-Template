@@ -93,6 +93,29 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/diagram-viewing-polish (2026-08-11): the three diagram-viewing rows the
+  // 2026-08-10 decision round bundled, each closing by a DIFFERENT route, which
+  // is why they are three rows and not one. The progress-affordance row
+  // graduates by SPEC AMENDMENT — it named two candidate shapes and said neither
+  // was settled; the round settled it on the zoom gate and DECLINED the progress
+  // affordance outright, so the alternative is a documented limit rather than a
+  // successor entry. The blur row graduates on PROBE EVIDENCE with no code
+  // change at all: it was filed INFERRED-NOT-PROBED, its own named probe was run,
+  // and it refuted the premise. The failed-item row graduates as a REPAIR, and
+  // the recovery affordance the repair deliberately omits is filed as
+  // DIAGRAM-FAILURE-RECOVERY-1 rather than left implicit inside a closed entry.
+  {
+    id: "BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE",
+    provenance: "feat/diagram-viewing-polish",
+  },
+  {
+    id: "BL-DIAGRAM-BLUR-EDGE-SIZE",
+    provenance: "feat/diagram-viewing-polish",
+  },
+  {
+    id: "BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE",
+    provenance: "feat/diagram-viewing-polish",
+  },
   // feat/crew-field-enrichment (2026-08-09): the two entries the corpus probe
   // closed together. The field-enrichment row graduates RESOLVED — its flight
   // bullet had already shipped (the entry's "not in the ShowForViewer

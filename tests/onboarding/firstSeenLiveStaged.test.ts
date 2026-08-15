@@ -43,6 +43,9 @@ function deps(
       showId: "show-1",
       syncAuditId: null,
       derivedSideEffects: { revokeFloorForNames: [] },
+      // Census class a (spec 2026-08-14 §5): parseWarnings is REQUIRED on the applied variant,
+      // so the post-commit sync_log emit cannot be built from a result that dropped it.
+      parseWarnings: [],
     })),
     discardStaged: vi.fn(async () => ({
       outcome: "discarded" as const,
@@ -82,6 +85,9 @@ describe("live first-seen staged apply/discard", () => {
         showId,
         syncAuditId: null,
         derivedSideEffects: { revokeFloorForNames: [] },
+        // Census class a (spec 2026-08-14 §5): parseWarnings is REQUIRED on the applied variant,
+        // so the post-commit sync_log emit cannot be built from a result that dropped it.
+        parseWarnings: [],
       })),
     });
 
