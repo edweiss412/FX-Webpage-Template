@@ -31,4 +31,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-14-guard-completeness-wave-design.md`](./2026-08-14-guard-completeness-wave-design.md) | 2026-08-14 |
 | [`2026-08-15-scanner-scope-totality-design.md`](./2026-08-15-scanner-scope-totality-design.md) | 2026-08-15 |
 | [`2026-08-15-changes-feed-modal-batch-flake-design.md`](./2026-08-15-changes-feed-modal-batch-flake-design.md) | 2026-08-15 |
+| [`2026-08-15-local-harness-false-failures-design.md`](./2026-08-15-local-harness-false-failures-design.md) | 2026-08-15 |
 | [`probes`](./probes) | 2026-08-04 |

@@ -1,3 +1,4 @@
+import { classifyIntent, relocationHints } from "./citationIntent";
 import type { DocModel, InlineSpan } from "./parse";
 import type { FileResolver, Finding } from "./types";
 
@@ -73,8 +74,10 @@ export function classifySpan(content: string): SpanClass {
 }
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$.]*$/;
-const PROXIMITY_WINDOW = 5;
 const CITED_LINE_CAP = 160;
+/** Relocation hints per finding (spec §3.4). */
+const RELOCATION_CAP = 3;
+const NO_RELOCATION = "none of the doc's other cited files";
 
 const basename = (p: string): string => p.split("/").pop() ?? p;
 
@@ -91,9 +94,26 @@ function fail(code: string, span: InlineSpan, message: string, detail?: string):
   return f;
 }
 
+/**
+ * A citation admitted to the intent pass (spec §3.1): resolved, readable,
+ * in-range, non-inverted, and sharing its doc line with at least one prose
+ * identifier. Classification is DEFERRED to a second pass, because relocation
+ * hints range over the document's full resolved set — including files cited
+ * only LATER than the citation being classified.
+ */
+interface PendingIntent {
+  span: InlineSpan;
+  resolved: string;
+  start: number;
+  end: number;
+  lines: string[];
+  ids: string[];
+}
+
 export function checkCitations(
   model: DocModel,
   resolver: FileResolver,
+  excludedSpans: ReadonlySet<string> = new Set<string>(),
 ): { findings: Finding[]; resolvedPaths: string[]; candidateSpans: InlineSpan[] } {
   const tracked = resolver.listTrackedFiles();
   const trackedSet = new Set(tracked);
@@ -110,8 +130,22 @@ export function checkCitations(
   const candidateSpans: InlineSpan[] = [];
   // in doc order: each citation that resolved to exactly one tracked path
   const anchors: { basename: string; path: string }[] = [];
+  const pending: PendingIntent[] = [];
+
+  // One read per distinct path for the whole document: the cited-line checks
+  // and the relocation search share it, so a file cited twice — or cited and
+  // then searched as a peer — never costs a second read (spec §3.4).
+  const fileMemo = new Map<string, string[] | null>();
+  const readLines = (path: string): string[] | null => {
+    if (!fileMemo.has(path)) fileMemo.set(path, resolver.readFileLines(path));
+    return fileMemo.get(path)!;
+  };
 
   for (const span of model.spans) {
+    // Span-exact exclusion (spec §5): a `red-target=` capture is a citation the
+    // red-contract module validates itself. Skipped BEFORE classification, so
+    // it is never a candidate, never resolves, never anchors, never relocates.
+    if (excludedSpans.has(`${span.line}:${span.column}`)) continue;
     const cls = classifySpan(span.content);
     if (cls.kind === "prose") continue;
     candidateSpans.push(span);
@@ -168,7 +202,7 @@ export function checkCitations(
 
     if (cls.start === undefined) continue;
     // Line checks (spec §4 rule 4) — resolution above is never undone by these.
-    const lines = resolver.readFileLines(resolved);
+    const lines = readLines(resolved);
     let hard = false;
     if (lines === null) {
       findings.push(
@@ -196,7 +230,8 @@ export function checkCitations(
         hard = true;
       }
       if (!hard) {
-        // Symbol proximity (advisory) — only with zero hard findings.
+        // Intent classification (advisory) — only with zero hard findings, and
+        // only once `resolvedPaths` is complete, so the pass below is deferred.
         const identifiers = model.spans.filter(
           (s) =>
             s.line === span.line &&
@@ -205,24 +240,52 @@ export function checkCitations(
             classifySpan(s.content).kind === "prose",
         );
         if (identifiers.length > 0) {
-          const lo = Math.max(1, cls.start - PROXIMITY_WINDOW);
-          const hi = Math.min(len, end + PROXIMITY_WINDOW);
-          const window = lines.slice(lo - 1, hi);
-          const anyFound = identifiers.some((id) => window.some((l) => l.includes(id.content)));
-          if (!anyFound) {
-            findings.push({
-              check: "citations",
-              code: "CITATION_SYMBOL_UNMATCHED",
-              severity: "advisory",
-              docLine: span.line,
-              column: span.column,
-              message: `no same-line identifier found near ${span.content}`,
-              detail: `cited line: ${(lines[cls.start - 1] ?? "").trim().slice(0, CITED_LINE_CAP)}`,
-            });
-          }
+          pending.push({
+            span,
+            resolved,
+            start: cls.start,
+            end,
+            lines,
+            ids: identifiers.map((s) => s.content),
+          });
         }
       }
     }
+  }
+
+  // ---- pass 2: tier classification and relocation (spec §3.3-§3.5) --------
+  const uniqueResolved = [...new Set(resolvedPaths)];
+  for (const p of pending) {
+    const { tier, enclosing } = classifyIntent(p.lines, p.start, p.end, p.ids);
+    if (tier === "clean") continue;
+    const enclosingText = enclosing ?? "(none)";
+    if (tier === "unmatched") {
+      findings.push({
+        check: "citations",
+        code: "CITATION_SYMBOL_UNMATCHED",
+        severity: "advisory",
+        docLine: p.span.line,
+        column: p.span.column,
+        message: `no same-line identifier found near ${p.span.content}`,
+        detail: `cited line: ${(p.lines[p.start - 1] ?? "").trim().slice(0, CITED_LINE_CAP)} · enclosing: ${enclosingText}`,
+      });
+      continue;
+    }
+    const peers = uniqueResolved
+      .filter((path) => path !== p.resolved)
+      .map((path) => ({ path, lines: readLines(path) }));
+    const hints = relocationHints(p.ids, peers, RELOCATION_CAP);
+    findings.push({
+      check: "citations",
+      code: "CITATION_SYMBOL_ABSENT",
+      severity: "advisory",
+      docLine: p.span.line,
+      column: p.span.column,
+      message: `same-line identifiers absent from ${p.resolved}`,
+      detail: `enclosing: ${enclosingText} · identifiers: ${p.ids.join(", ")} · found in: ${
+        hints.length > 0 ? hints.join(", ") : NO_RELOCATION
+      }`,
+    });
   }
 
   return { findings, resolvedPaths, candidateSpans };
