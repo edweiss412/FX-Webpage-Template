@@ -44,8 +44,8 @@ Flow (mirrors the published admin-preview route's shape, `app/admin/show/[slug]/
 1. `await requireAdmin()`.
 2. `await params` → `stagedId`; `await searchParams` → `{ as?: string; s?: string }` (`as` = surrogate viewer id §2.3; `s` = raw section deep-link threaded to `rawSection` exactly as the published preview does).
 3. Look up the staged row by `staged_id` with the session-bound server client (RLS engaged, defense-in-depth like `lookupShow` at `app/admin/show/[slug]/preview/[crewId]/page.tsx:71`): select `staged_id, drive_file_id, parse_result, source_anchors, staged_modified_time` from `pending_syncs` where `staged_id = <uuid>`, `maybeSingle()`. Three-way result per invariant 9: `found` / `not_found` → `notFound()` / `infra_error` → plain-language failure surface (§2.7). A non-UUID `stagedId` param short-circuits to `notFound()` before the query (Postgres would reject the cast; check with a regex first).
-4. Decode `parse_result` through the existing `asParseResult` decode path (the same guard `applyRescanDecisionUnderLock` uses, `lib/onboarding/applyRescanDecisionUnderLock.ts:107-116`) — never a bare cast. Decode failure → failure surface (§2.7).
-5. Build the projection: `buildStagedShowForViewer(parseResult, { driveFileId, sourceAnchors, requestedViewerId: as ?? null })` (§2.2–§2.3).
+4. Decode `parse_result` through the existing `asParseResult` decode path (the same guard `applyRescanDecisionUnderLock` uses, `lib/onboarding/applyRescanDecisionUnderLock.ts:107-116`) — never a bare cast. **Scope honestly stated:** `asParseResult` validates top-level container shapes only and casts the rest (`lib/db/coerceJsonbObject.ts:133-189`), so NESTED fields remain untrusted after it; the adapter treats them as such (§2.2 guard conditions). Container-level decode failure → failure surface (§2.7). As a backstop for anything the adapter's normalization cannot absorb, the route wraps adapter + projection prep in try/catch and renders the same decode-error surface — a malformed staged row must land on §2.7 copy, never on the generic admin error boundary.
+5. Build the projection: `buildStagedShowForViewer(parseResult, { driveFileId, sourceAnchors, stagedModifiedTime, requestedViewerId: as ?? null })` (§2.2–§2.3).
 6. Render: `StagedPreviewBanner` (§2.5) + `CrewShell` with `data`, `viewer: { kind: "admin_preview", crewMemberId: selectedId }`, `showId: "staged-preview"`, `rawSection: s`, and the new posture prop (§2.6). No `slug`/`shareToken` (both optional today).
 
 No advisory lock: the route mutates nothing (invariant 2 N/A — read-only surface, no lock holder added). No mutating handler, no server action: invariant 10 N/A, stated here so the meta-test discussion is pre-empted — `tests/log/_metaMutationSurfaceObservability.test.ts` discovers mutating routes only; a GET page is out of its population.
@@ -61,6 +61,9 @@ export function buildStagedShowForViewer(
   opts: {
     driveFileId: string | null;
     sourceAnchors: Record<string, SourceAnchor>;
+    // pending_syncs.staged_modified_time; becomes the projection's
+    // lastSyncedAt/lastCheckedAt so the footer renders a truthful "as of".
+    stagedModifiedTime: string | null;
     // The raw `?as=` value, unvalidated. The adapter owns the roster, so it
     // resolves the selection itself: unknown/absent → roster index 0.
     requestedViewerId: string | null;
@@ -73,27 +76,30 @@ export function buildStagedShowForViewer(
       roster: Array<{ id: string; name: string; role: string }>;
     }
   | { kind: "empty_roster" }
+  | { kind: "decode_error" } // nested data unrenderable after defensive normalization
+
 ```
 
-Derivability, covering all 23 top-level `ShowForViewer` fields (`lib/data/getShowForViewer.ts:143-321`; `ParseResult` at `lib/parser/types.ts:527`):
+**The adapter's governing rule (structural, closes the class):** the adapter reproduces, for staged data, EVERY viewer-dependent transform `readShowDataForViewer` applies between raw rows and the projection — reusing the exported helper wherever one exists, never a hand-rolled variant. The complete transform census below was swept from the projection assembly (the reads plus the post-wave block at `lib/data/getShowForViewer.ts:775-830`); a transform present there and absent here is a spec defect. Derivability, covering all 23 top-level `ShowForViewer` fields (`lib/data/getShowForViewer.ts:143-321`; `ParseResult` at `lib/parser/types.ts:527`):
 
-| Bucket | Fields | Source |
+| Bucket | Fields | Source / transform |
 | --- | --- | --- |
-| Direct | `show`, `hotelReservations`, `transportation`, `contacts`, `pullSheet`, `runOfShow` (`parse.runOfShow ?? null`; `RunOfShow` IS `Record<string, ScheduleDay>`, `lib/parser/types.ts:493` — same shape) | Same-named `ParseResult` fields |
-| Direct, reshaped | `crewMembers` (add surrogate `id`, camel-case restrictions per the projection shape at `lib/data/getShowForViewer.ts:145`), `rooms` (`RoomRow` → `ProjectedRoomRow`) | `parse.crewMembers`, `parse.rooms` |
+| Direct | `transportation`, `contacts`, `pullSheet` | Same-named `ParseResult` fields (entries defensively filtered to object shape, guard conditions below) |
+| Direct, reshaped | `show` (with `agenda_links` entries stripped of `fileId` and `extracted` — §2.6a: the agenda proxy authorizes against PERSISTED `agenda_links`, so inline embeds cannot work; `label`/`url` survive and render as plain external links) · `crewMembers` (surrogate `id` + the SAME two boundary transforms the projection applies: `normalizeDateRestriction(decoded, show.dates)` at `lib/data/getShowForViewer.ts:494-497` and the stage-restriction fold `effectiveViewerDateRestriction(show.dates, show.schedule_phases, normalized, stageRestriction)` at `lib/data/getShowForViewer.ts:511-516` (helper imported from `lib/crew/stageSchedule.ts`); `role_flags` coerced to array) · `rooms` (`RoomRow` → `ProjectedRoomRow` with minted `id: "staged-room-<index>"` — `RoomRow` has no id, `lib/parser/types.ts:259`, and `ProjectedRoomRow.id` is a sort tie-break and React key, `lib/crew/resolveKeyTimes.ts:37-44`; index-minted ids are collision-free even for duplicate names like the two MABEL 1 rooms in the East Coast fixture) | `parse.show`, `parse.crewMembers`, `parse.rooms` |
+| Viewer-filtered | `hotelReservations` — the projection filters for crew/admin_preview viewers (`isAdmin || viewerName === null ? allHotels : allHotels.filter(hotelVisibleToViewer(...))`, `lib/data/getShowForViewer.ts:784-787`); the adapter applies the SAME filter with the selected viewer's alias set · `runOfShow` — the projection gates days to (decoded keys) ∩ `aggregateDays(show.dates)` ∩ the ACTIVE viewer's normalized date restriction (`lib/data/getShowForViewer.ts:795-830`); the adapter applies the same gating (`parse.runOfShow ?? null` first; `RunOfShow` IS `Record<string, ScheduleDay>`, `lib/parser/types.ts:493`) | Parse fields + the selected viewer |
 | Derived in-memory | `transportationOwnerIds` via the existing `resolveTransportOwners` helper (applied at `lib/data/getShowForViewer.ts:792`) with the surrogate roster · `financials?: FinancialsRow` (shape at `lib/data/getShowForViewer.ts:85`) built from the parse's `ShowRow` `po`/`proposal`/`invoice`/`invoice_notes` fields (`lib/parser/types.ts:238`), PRESENT only when the selected roster row is entitled (LEAD or FINANCIALS flag, mirroring `financialsEntitled` at `lib/data/getShowForViewer.ts:385`) | Existing helpers over parse data |
-| Defaulted | `tileErrors: {}` · `lastSyncedAt: null` · `lastCheckedAt: null` · `lastSyncStatus: null` · `diagrams: null` · `openingReelHasVideo: false` · `viewerVersionToken: "staged-preview"` (inert; its consumer, the realtime bridge, is suppressed §2.6) · `sourceAnchors`/`driveFileId` from `opts` | Constants / opts |
+| Defaulted | `tileErrors: {}` · `lastSyncedAt` and `lastCheckedAt` = `opts.stagedModifiedTime` (the moment the sheet content was read — renders the footer's truthful "as of" line; `null`+`null` would render the footer's "syncing" arm, `components/layout/Footer.tsx:165-183`, which is false here) · `lastSyncStatus: null` · `diagrams: null` · `openingReelHasVideo: false` · `viewerVersionToken: "staged-preview"` (inert; its consumer, the realtime bridge, is suppressed §2.6) · `sourceAnchors`/`driveFileId` from `opts` | Constants / opts |
 | Viewer-derived | `viewerId` (= the selected surrogate id), `viewerName`, `viewerNameAliases` (`[name]`, matching the current-name-only contract near `lib/data/getShowForViewer.ts:345`), `viewerFlightInfo` | The selected roster row |
 
 Surrogate ids: `CrewMemberRow` has NO id (`lib/parser/types.ts:177-186` — `name/email/phone/role/role_flags/date_restriction/stage_restriction/flight_info`), and `resolveViewerContext` fail-closes by throwing `UnmatchedViewerError` when `viewer.crewMemberId` misses `data.crewMembers[].id` (`lib/data/viewerContext.ts` — the `c.id === viewer.crewMemberId` find in the crew/admin_preview branch). The adapter therefore mints deterministic ids `staged-crew-<index>` (roster order), resolves the requested viewer itself (unknown or absent `requestedViewerId` falls back to roster index 0 — never reaching the fail-closed throw), and returns the `roster` list plus `selectedId` so the route renders the picker and the identity line from the same source of truth. Empty roster (`parse.crewMembers.length === 0`) returns `{ kind: "empty_roster" }` and the route renders the §2.7 empty-roster surface — never a synthetic viewerless render (both viewer kinds that render crew pages require a matched row).
 
-Guard conditions (spec-self-review rule, per input): `parse` fields are trusted post-`asParseResult` (typed decode); `opts.driveFileId` null → projection `driveFileId: null` (existing `ShowForViewer` shape allows it; sheet-link affordances render their existing no-link state); `opts.sourceAnchors` `{}` → source-link affordances absent, existing behavior; `opts.requestedViewerId` null, empty, or unknown → adapter selects roster index 0 (never an error). Role flags pass through verbatim — `financialsVisible` and the budget gate then behave exactly as the published admin-preview does (gate follows the PREVIEWED member's LEAD flag, `app/admin/show/[slug]/preview/[crewId]/page.tsx:29-31` comment, enforced inside `CrewShell`).
+Guard conditions (spec-self-review rule, per input): NESTED parse fields are UNTRUSTED (`asParseResult` validates containers only, §2.1 step 4) and the adapter normalizes them defensively, mirroring the projection's own fallbacks — crew entries filtered to objects with a string `name`; `role_flags` via `Array.isArray(...) ? ... : []` (the projection's `?? []` at `lib/data/getShowForViewer.ts:504`); restrictions through `decodeJsonbColumn`-equivalent decode with `{ kind: "none" }` fallback (`lib/data/getShowForViewer.ts:495-497`); hotel/room/contact/pull-sheet entries filtered to object shape; anything else unrenderable makes the adapter return a typed `{ kind: "decode_error" }` rather than throw (route backstop catches residuals, §2.1). `opts.driveFileId` null → projection `driveFileId: null` (existing `ShowForViewer` shape allows it; sheet-link affordances render their existing no-link state); `opts.sourceAnchors` `{}` → source-link affordances absent, existing behavior; `opts.stagedModifiedTime` null → footer falls to its existing null arm (accepted, documented in §6); `opts.requestedViewerId` null, empty, or unknown → adapter selects roster index 0 (never an error). Role flags (post-coerce) pass through verbatim — `financialsVisible` and the budget gate then behave exactly as the published admin-preview does (gate follows the PREVIEWED member's LEAD flag, `app/admin/show/[slug]/preview/[crewId]/page.tsx:29-31` comment, enforced inside `CrewShell`).
 
 Placement note: `lib/data/` beside `getShowForViewer.ts`/`viewerContext.ts` — NOT a new lib/viewers directory (none exists; the arc brief's paths for this surface were stale: the step-3 section module really lives at `components/admin/wizard/step3ReviewSections.tsx`, not under an app/admin/wizard tree). Adapter-shape precedents: `buildStagedSectionData` (`components/admin/review/sectionData.ts:110`) and `buildPublishedSectionData` (`components/admin/review/publishedAdapter.ts:44`).
 
 ### §2.3 Viewing-as picker
 
-GET-only navigation: the banner (§2.5) renders one link per roster entry (`?as=staged-crew-<i>`, preserving `s`), current entry marked non-link. Cap (list-growth rule): at most 12 entries rendered inline; beyond 12, the banner renders the first 11 + an overflow `<details>` disclosure listing the rest (same roster, no truncation of CONTENT — only of inline chrome). Every link ≥44px tap target (`min-h-tap-min`). Default viewer = roster index 0.
+GET-only navigation: the banner (§2.5) renders one link per roster entry (`?as=staged-crew-<i>`), current entry marked non-link. Picker links deliberately do NOT carry `?s=`: section switching inside the page is `CrewSections`' shallow `history.pushState` toggle (`components/crew/CrewSections.tsx:75-83`), invisible to a Server-Component banner, so a server-composed `s` would routinely point at the WRONG section after in-page toggling; switching viewer therefore lands on the default section (documented in §6). The `?s=` deep-link still works on ENTRY (from the step-3 modal or a pasted URL) exactly as the published preview threads it. Cap (list-growth rule): at most 12 entries rendered inline; beyond 12, the banner renders the first 11 + an overflow `<details>` disclosure listing the rest (same roster, no truncation of CONTENT — only of inline chrome). Every link ≥44px tap target (`min-h-tap-min`). Default viewer = roster index 0.
 
 ### §2.4 What a staged preview cannot show (degradations, all to EXISTING states)
 
@@ -101,9 +107,11 @@ GET-only navigation: the banner (§2.5) renders one link per roster entry (`?as=
 | --- | --- | --- |
 | Diagrams / floor plans | `diagrams: null` | Gear section's no-diagrams rendering (already exercised by fixtures with `diagrams: null`, e.g. the `makeShowForViewer` default) |
 | Opening reel | `openingReelHasVideo: false` | Reel affordance absent — existing false-path |
-| Sync freshness line | `lastSyncedAt: null` | Existing "not yet synced" rendering |
+| Agenda PDFs | `agenda_links` entries stripped of `fileId`/`extracted` in the adapter (§2.2) — the proxy `app/api/asset/agenda/[show]/[id]/route.ts:17-20` authorizes against a persisted show's `agenda_links`, so an embed can only 404 | Label/`url` entries render as plain external links; no proxy iframe, no failing HEAD probes (`components/agenda/AgendaEmbed.tsx:95-100`, `AgendaPdfViewer.tsx:217-223` never mount for fileId-less links) |
+| Sync freshness line | `lastSyncedAt`/`lastCheckedAt` = staging read time | Footer's normal "as of" line (never the "syncing" arm, `components/layout/Footer.tsx:165-183`) |
 | Realtime refresh | Bridge not mounted (§2.6) | Static page; refresh = reload |
-| Report flows / share links | Footer report props absent in preview posture (§2.6) | Footer renders without report affordance |
+| Page-level report flow | Footer report props absent in preview posture (§2.6) | Footer renders without report affordance |
+| Card-level report triggers | `cardReport` context not built in preview posture (§2.6) | Card headers render without the report trigger (each `CardReportTrigger` site simply absent) |
 
 ### §2.5 `StagedPreviewBanner`
 
@@ -121,15 +129,30 @@ All copy strings are enumerated in the plan and run through the mechanical check
 New optional prop `staticPreview?: boolean` (default `false` — absent everywhere except the new route, so the two existing callers, crew page and published admin preview, are byte-identical in behavior). When `true`:
 
 1. **No alert writes.** The `TILE_PROJECTION_FETCH_FAILED` producer (`upsertAdminAlert` call, `_CrewShell.tsx` near line 162) is skipped — adapter output has `tileErrors: {}` anyway; the skip makes the invariant structural, not incidental.
-2. **No `after()` work.** The deferred `resolveAdminAlert`/`sweepTileRenderAlerts` calls (`_CrewShell.tsx` near lines 203 and 445) are skipped — they reference a persisted show id that does not exist.
+2. **No `after()` work.** The deferred `resolveAdminAlert`/`sweepTileRenderAlerts` calls (`_CrewShell.tsx` near lines 203 and 443) are skipped — they reference a persisted show id that does not exist.
 3. **No realtime bridge.** `ShowRealtimeBridge` (`_CrewShell.tsx` near line 507) is not mounted — it fetches `/api/realtime/subscriber-token` and `/api/show/[slug]/version` for a show that has no row (both would fail; the bridge's null render hides the failure but the requests are noise and the token RPC would log).
-4. **No report affordance.** Footer report props take their absent form (the footer already branches on viewer kind / report context, `buildCardReportContext`).
+4. **No page-level report affordance.** Footer report props take their absent form.
+5. **No card-level report triggers.** `CrewShell` builds and threads the `cardReport` context to every section (`_CrewShell.tsx:328-423`), and `CardReportTrigger` mounts whenever its `showId` is truthy (`components/shared/CardReportTrigger.tsx:49-54`) — with the synthetic id, every trigger would mount and its POST would be rejected by `/api/report`'s UUID check (`app/api/report/route.ts:28-44`): broken controls plus emitted POSTs. In preview posture `CrewShell` does not build `cardReport` (or threads its explicit absent form — the plan pins whichever shape the section props already type), so no trigger mounts at any of its call sites.
 
-Mode-boundary statement (spec-self-review rule): `staticPreview` gates exactly the four emissions above. Everything else — section registry, budget gate, section toggle, right-now derivation from `nowDate()`, empty states — is SHARED between live, published-preview, and staged-preview modes.
+#### §2.6a Emission census (closes the class)
+
+The five posture items plus two data-level strips above were derived from a SWEEP, not from incident reports: every `fetch(`/`/api/`-touching module under `CrewShell`'s tree (`grep -rln "CardReportTrigger\|/api/\|fetch(" components/crew/ components/agenda/ components/shared/CardReportTrigger.tsx components/layout/Footer.tsx components/realtime/`) plus every server-side write in `_CrewShell.tsx` itself. Complete disposition table — a `CrewShell`-descendant network/write surface absent from this table is a spec defect:
+
+| Surface | Mechanism | Disposition |
+| --- | --- | --- |
+| `upsertAdminAlert` write + `after()` resolve/sweep (`_CrewShell.tsx`) | server-side writes | Posture items 1–2 |
+| `ShowRealtimeBridge` (subscriber token + version poll) | client fetch | Posture item 3 |
+| Footer `/api/report` page-level flow | client POST | Posture item 4 |
+| `CardReportTrigger` sites across all seven sections | client POST | Posture item 5 |
+| `AgendaEmbed`/`AgendaPdfViewer` proxy GET/HEAD | client fetch keyed on `agenda_links[].fileId` | Data-level strip (§2.2 `show` row, §2.4) |
+| `DiagramsBlock` diagram asset proxy fetches | client fetch keyed on `diagrams` | Dead by `diagrams: null` (§2.2) |
+| `OpeningReelVideo` `/api/asset/reel/<showId>` (`components/crew/sections/GearSection.tsx:26-27`) | client fetch keyed on `openingReelHasVideo` | Dead by `openingReelHasVideo: false` (§2.2) |
+
+Mode-boundary statement (spec-self-review rule): `staticPreview` gates exactly the five emissions above; the two asset families are suppressed at the DATA level in the adapter. Everything else — section registry, budget gate, section toggle, right-now derivation from `nowDate()`, empty states — is SHARED between live, published-preview, and staged-preview modes.
 
 ### Transition Inventory
 
-The new surface is a static server render. Client-state transitions introduced by this spec: NONE. Every apparent state change is a full navigation — picker link (viewer A → viewer B), section deep-link, Back to setup — each **instant, no animation**. Inside `CrewShell`, the existing `CrewSections` client toggle keeps its own already-specced transitions unchanged in every mode; this spec adds no state to it, so there are no new pairs to enumerate (N=1 static state → 0 pairs) and no compound transitions.
+The new surface introduces NO client-state transitions of its own. The chrome this spec ADDS (banner, picker, exit link) changes state only by full navigation — picker link (viewer A → viewer B), entry deep-link, Back to setup — each **instant, no animation**. Inside `CrewShell`, in-page section taps remain the EXISTING `CrewSections` client toggle (shallow `history.pushState` + its already-specced section transition, `components/crew/CrewSections.tsx:75-83`), identical in every mode; this spec adds no state to it. New pairs to enumerate: none (the added chrome has N=1 static state → 0 pairs); compound transitions: none added (a picker navigation is a fresh document, so it cannot compose with a mid-flight section toggle).
 
 ### Dimensional Invariants
 
@@ -143,7 +166,7 @@ All admin-only, all plain-language, following the published preview's inline-cop
 | --- | --- |
 | Staged row not found / non-UUID param | `notFound()` |
 | Row read infra error | "We could not load this preview." + Back to setup link (testid `staged-preview-infra-error`) |
-| `parse_result` fails `asParseResult` decode | Same copy, testid `staged-preview-decode-error` |
+| `parse_result` fails `asParseResult` decode, adapter returns `decode_error`, or the route's try/catch backstop catches a residual (§2.1 step 4) | Same copy, testid `staged-preview-decode-error` — never the generic admin error boundary |
 | Empty roster | "This sheet has no crew members yet, so there is no crew page to preview." + Back to setup (testid `staged-preview-empty-roster`) |
 | `CrewShell` throws `MalformedProjectionError`/`UnmatchedViewerError` | Cannot occur by construction (adapter validates `?as=` and mints matching ids) — but the route does NOT strip CrewShell's own catch arms; they stay as the backstop they already are |
 
@@ -178,11 +201,11 @@ Existing admin-visible pipeline (all verified this branch):
 ## §4 Acceptance criteria
 
 - **AC-1** `buildStagedShowForViewer` returns a projection that renders every entitled section through the REAL `CrewShell` for a parser fixture with populated schedule/crew/hotels/rooms/contacts/pull-sheet — asserted via direct `CrewShell` invocation in jsdom (the `crewShellSections.test.tsx` harness pattern) with NO Supabase mock needed beyond the alert-sink spy proving zero calls.
-- **AC-2** Preview posture emits nothing: with `staticPreview: true`, `upsertAdminAlert` spy records zero calls even when `tileErrors` is non-empty (defect-injection arm), no `ShowRealtimeBridge` in the tree, no `after()` work registered.
-- **AC-3** `?as=` selects the viewer: restrictions/aliases/budget gate follow the selected roster row (LEAD row sees budget section key; non-LEAD does not — the entitlement assertion pattern of `crewShellSections.test.tsx`); unknown `?as=` lands on the default viewer, not an error.
-- **AC-4** Route guards: non-UUID → 404; missing row → 404; infra error / decode failure / empty roster → their §2.7 surfaces (testids), never a raw code string in the rendered output.
+- **AC-2** Preview posture emits nothing: with `staticPreview: true`, `upsertAdminAlert` spy records zero calls even when `tileErrors` is non-empty (defect-injection arm), no `ShowRealtimeBridge` in the tree, no `after()` work registered, no `CardReportTrigger` in any section's rendered output, and no element referencing `/api/asset/agenda/`, `/api/asset/diagram/`, or `/api/asset/reel/` anywhere in the tree.
+- **AC-3** `?as=` selects the viewer, through the REAL projection transforms: an explicit `M/D`-restricted viewer (RIA-fixture shape, `fixtures/shows/exporter-xlsx/ria.md:28`) sees exactly their normalized ISO days in schedule AND run-of-show; an `ONLY***` stage-restricted viewer (Fintech-fixture shape) sees only their folded worked days; a viewer named on one hotel reservation sees only that reservation (and Right Now uses it); LEAD sees the budget section key, non-LEAD does not (entitlement pattern of `crewShellSections.test.tsx`); unknown `?as=` lands on the default viewer, not an error. Expected day/reservation sets are DERIVED from the fixture, never hardcoded.
+- **AC-4** Route guards: non-UUID → 404; missing row → 404; infra error / decode failure / empty roster → their §2.7 surfaces (testids), never a raw code string in the rendered output. Nested-malformation arm: a staged row whose `parse_result` passes `asParseResult` but carries `role_flags: null` on one crew entry and one `null` crew element renders the preview with those normalized (never the admin error boundary); a `crewMembers: "garbage"`-class container failure lands on `staged-preview-decode-error`.
 - **AC-5** Step-3 modal renders the "Open crew preview" link with the row's `staged_id` href, `target="_blank"`, ≥44px target.
-- **AC-6** Real-browser (Playwright, seeded staged row): the route renders the banner + crew page in both themes at 390px and 1280px; picker navigation switches the identity line; "Back to setup" returns to `/admin`.
+- **AC-6** Real-browser (Playwright, seeded staged row): the route renders the banner + crew page in both themes at 390px and 1280px; picker navigation switches the identity line (landing on the default section by design, §2.3); "Back to setup" returns to `/admin`; the page emits zero requests to `/api/report`, `/api/realtime/`, or `/api/asset/` (network-request assertion).
 - **AC-7** Ledger: archive entry + new BL row land per §3.3; `tests/docs/_metaLedgerInProgress.test.ts` and the archive's no-in-flight rule stay green.
 - **AC-8** Both existing `CrewShell` callers behave byte-identically with the prop absent (regression: existing suites stay green untouched).
 
@@ -202,6 +225,9 @@ Existing admin-visible pipeline (all verified this branch):
 - "Back to setup" restores `/admin` (wizard step 3), not the modal's scroll/tab position.
 - The preview's "Right now" derivation uses the real clock against staged dates — a show staged before its dates exist renders the same pre-show state the live page would.
 - Surrogate ids are per-render-order; they are not stable across re-stages (a re-scan may reorder the roster). The picker always reflects the CURRENT staged roster, so a stale bookmarked `?as=` falls back to the default viewer (§2.2) — conservative, surfaced by the identity line.
+- Switching viewer via the picker lands on the default section, not the section currently toggled in-page (§2.3 — in-page section state is a client-only `pushState` the server-rendered picker cannot observe).
+- Agenda PDFs render as plain external links, not inline embeds, until publish (§2.4 — the asset proxy authorizes against persisted rows). Their extracted inline schedules are likewise absent in preview.
+- `staged_modified_time` null (legacy row) → footer falls to its existing null-timestamp arm; accepted for a preview surface.
 
 ## §7 Test plan (spec level; the plan carries task-grain TDD)
 
