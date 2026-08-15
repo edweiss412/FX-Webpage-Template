@@ -8,6 +8,29 @@ Last reconciled: 2026-08-15 — `fix/sync-observability-gaps` graduated `BL-MANU
 
 ---
 
+## BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES — derive the execution-method set from postgres.js's types instead of hand-typing it
+
+**Severity:** MEDIUM (a silent miss admits an unchecked wipe; the failure mode is acceptance, not rejection) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-15 (`chore/guard-completeness-wave`, diff review R6)
+
+`EXECUTION_METHODS` in `tests/db/_destructiveFileAnalysis.ts` is a hand-typed name list. Rule 1's property-call leg asks whether a method is in that set; a driver method the list omits is simply not an execution site, so a discovered file can run destructive SQL on an unchecked client and the analyzer returns `ok:true`.
+
+**Probe evidence — this is not hypothetical, it shipped and was caught in review.** The set omitted postgres.js's `.file()` for the entire life of the surface. Diff review R6 probed it and the repair landed in the same wave (`cdac23ae9`, fixture `(ca)`):
+
+```
+discovered true
+verdict {"ok":true}     // await remote.file("./destructive.sql") on an unchecked client
+```
+
+postgres.js's own types declare `file<T>(path, ...): PendingQuery<T>` (`postgres@3.4.9`, `types/index.d.ts:696`) — it reads the path and submits the contents as a query, executing caller-supplied SQL as directly as `unsafe` does.
+
+**Why the mutation gate cannot backstop this, which is the actual argument for the row.** The surface was at score **1.00 with zero unaccepted survivors** when R6 found the gap. Mutation testing perturbs code that EXISTS and asks whether a test notices; a missing member of a `Set` literal is not a mutation of existing code, and no operator in the registry adds one. The gate was faithfully measuring a program whose relevant line had never been written. A green gate here means "the suite pins what is there", never "the set is complete".
+
+**The terminating framing.** Derive the set from the driver's own type surface rather than from memory: every method the installed `postgres` types declare as returning `PendingQuery` / `PendingRequest` / `ListenRequest` is an execution site. Measured against the current pin, that derivation yields exactly the shipped set — `unsafe file begin end reserve savepoint listen notify subscribe cursor` — while `json` / `array` / `types` / `options` return `Parameter` or config and stay out. So the derivation is provably equivalent to the hand list TODAY; its value is that a postgres.js upgrade adding a query-submitting method cannot silently widen the gap, and the diff that adds it becomes visible.
+
+**Why M and not S.** The naive form (parse `node_modules` `.d.ts` at test time) coupled a guard to an install tree and is slow and brittle. Candidate shapes to weigh: a generator that writes a committed manifest from the pinned types with a drift test (same pattern as `pnpm gen:schema-manifest` + `validation-schema-parity`); or a narrower guard asserting only that no `PendingQuery`-returning method is absent from the set. The exclusion of `json` / `array` is deliberate and must survive whichever shape wins — they collide with `Response` and `Object` members that real destructive files call on non-clients, and fixture `(cb)` pins that.
+
+**Re-open trigger if deferred further:** any postgres.js version bump, or any second omission found by review rather than by a guard.
+
 ## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
 
 **Severity:** MEDIUM · **Class:** structural guard · **Effort:** L · **Filed:** 2026-08-14 (`chore/guard-completeness-wave`, spec `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §2.5)
