@@ -177,7 +177,7 @@ contrast, no snapshots):
 ### 4.1 Policy (DESIGN.md §1.1 amendment)
 
 The `--color-text-subtle` row's usage note becomes: "Labels, captions, 'as of …' timestamps.
-Never the resting color of an action target, **except the two carve-out families in §1.1a**."
+Never the resting color of an action target, **except the three carve-out families in §1.1a**."
 New §1.1a defines:
 
 - **Family S — `<summary>` disclosure headers.** A disclosure summary is half caption, half
@@ -186,14 +186,28 @@ New §1.1a defines:
 - **Family C — dismissable filter chips.** A chip's text names an *applied filter* (caption); the
   dismiss glyph is the control. Resting `text-text-subtle` is sanctioned.
 - **Family D — state-pair dim members** (added by the 2026-08-14 follow-up ratification, R2).
-  The inactive/claimed member of an active↔inactive pair may rest subtle **only while the
-  active sibling carries a strong non-color cue**, named in the registry row: inactive admin
-  nav links (active = `bg-surface-raised` + `text-text-strong`, `components/admin/nav/AdminNav.tsx:168`),
-  inactive bottom tabs (active = `text-accent-on-bg`, `AdminNav.tsx:232`), inactive crew
-  sub-nav tabs (active = `border-accent` + `text-text-strong`, `components/crew/CrewSubNav.tsx:114`),
-  claimed picker rows (`bg-surface-sunken` + lock glyph, `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233`).
-  This keeps no state color-alone (the §1.2a colour-blind floor) while preserving the resting
-  hierarchy the Option-2 ratification chose.
+  The dim member of a state pair (inactive↔active, claimed↔unclaimed) may rest subtle **only
+  while the pair stays distinguishable by at least one cue besides the text-color delta** — the
+  cue may sit on EITHER member (fill, border, weight, glyph, or `aria-current` semantics) and
+  is named per registry row and pinned executably (§4.4). The four current members, cues stated
+  truthfully (round-2 F3):
+  - Inactive desktop admin nav links (`components/admin/nav/AdminNav.tsx:168`): active carries
+    `bg-surface-raised` + `text-text-strong` + `aria-current="page"` (`AdminNav.tsx:171`).
+  - Inactive admin bottom tabs (`AdminNav.tsx:232`): active carries `aria-current="page"`
+    (`AdminNav.tsx:236`); the VISUAL delta is `text-accent-on-bg` vs subtle — a hue+lightness
+    color delta with no layout cue. Recorded as-is; the implementing invariant-8 gate reviews
+    whether the visual delta suffices, and any strengthening it orders is an implementation
+    finding, not a policy change.
+  - Inactive crew sub-nav tabs (`components/crew/CrewSubNav.tsx:114`): active desktop branch
+    carries `border-accent` + `text-text-strong` (`CrewSubNav.tsx:92`); active mobile branch
+    carries `text-accent-on-bg` only (`CrewSubNav.tsx:100`) plus `aria-current="page"`
+    (`CrewSubNav.tsx:118`) — both branches recorded on the one registry row.
+  - Claimed picker rows: the dim member ITSELF carries the distinguishing cues —
+    `bg-surface-sunken` fill plus the lock glyph
+    (`app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx`, `picker-row-lock` span). See the
+    census row note on where this class string is declared vs rendered (§4.3, round-2 F1).
+  This keeps no state color-alone in the semantic tree (every pair carries `aria-current` or a
+  structural glyph) while preserving the resting hierarchy the Option-2 ratification chose.
 
 Everything else interactive rests at `text-text` or stronger. Hover/focus treatments are
 unchanged by the policy (existing `hover:text-text` / `hover:text-text-strong` stay; where a
@@ -223,7 +237,7 @@ EXEMPT-S / EXEMPT-C / EXEMPT-D = registry row in the named family (§4.1); SWAP 
 | `app/auth/sign-in/page.tsx:267` | Link | SWAP | →strong |
 | `app/me/meShowSections.tsx:122` | summary | EXEMPT-S | — |
 | `app/me/page.tsx:134` | button | SWAP | →strong |
-| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233` | button | EXEMPT-D (claimed rows; lock glyph + sunken fill) | — |
+| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233` | button | EXEMPT-D (declaration site: `rowClasses` ternary; the subtle branch is DEAD here — claimed rows return earlier — and is RENDERED by `_ClaimedRowButton.tsx:101` via the `rowClassName` prop; row covers the pair) | — |
 | `components/admin/AppHealthPopover.tsx:89` | button | SWAP | →strong |
 | `components/admin/BellPanel.tsx:686` | a | SWAP (`HELP_LINK` const) | →strong |
 | `components/admin/BellPanel.tsx:1210` | a | SWAP | same |
@@ -285,9 +299,11 @@ element + the `data-testid` values visible at each site.
 New importable scan module `tests/styles/subtleInteractiveScan.ts (new)` + suite
 `tests/styles/_metaSubtleOnInteractive.test.ts (new)` + registry
 `tests/styles/subtleInteractiveExemptions.ts (new)` (shape of `tests/styles/zIndexExemptions.ts`:
-`{file, line, token, reason}` rows plus a `family: "summary-disclosure" | "dismissable-chip"`
-field — reasons never blank; the file+line key trade-off is the shipped precedent, accepted
-there for the same reason).
+`{file, line, token, reason}` rows plus a
+`family: "summary-disclosure" | "dismissable-chip" | "state-dim"` field, and for `"state-dim"`
+rows a required `siblingCue: { file, token }` naming the cue and where it lives — reasons never
+blank; the file+line key trade-off is the shipped precedent, accepted there for the same
+reason).
 
 - Scan = §2.3 procedure, walked from the filesystem (a NEW `.tsx` file is covered by default).
   The in-scope element predicate, the className resolver (rules 1–6 of §5.2), and the corpus
@@ -299,8 +315,10 @@ there for the same reason).
 - **Family-shape check:** a `family: "summary-disclosure"` row whose site's tag is not
   `summary` fails; Family C rows are checked to sit in the chips component
   (`components/admin/telemetry/ActiveFilterChips.tsx`) until a second chip surface ships;
-  Family D (`"state-dim"`) rows must carry a non-empty `siblingCue` field naming the active
-  sibling's non-color cue (§4.1 Family D lists the four current cues).
+  Family D (`"state-dim"`) rows must carry a `siblingCue: { file, token }`, and the suite
+  VALIDATES it against source: it reads `siblingCue.file` and asserts `siblingCue.token` is
+  present in that file (the rule-7-companion pattern), so a refactor that removes the cue fails
+  the row instead of leaving a stale claim (§4.1 Family D lists the four current cues).
 - **Premise pin:** the suite asserts the scan finds ≥ 1 hit in the committed tree (Family S
   sites exist by design), so an AST regression that finds nothing cannot pass silently; and it
   asserts registry rows resolve to live files/lines that actually carry the token (a stale row
@@ -365,15 +383,26 @@ is reachable anywhere in the resolved strings. Resolution rules:
    contains `min-h-tap-min`) so the row cannot outlive the component's contract. A registered
    component's call site is still subject to rule 8 on its own `className` prop (round-1 F3:
    `<AccentButton className="min-h-0!">` must not clear).
-8. **Defeater tokens (negative rule; round-1 F3).** After resolution, the element is
-   UNCLASSIFIED — reported by name, never passed — if ANY reachable resolved string (including
-   conditional branches and `&&` operands, i.e. reachability here is existential where rule 3's
-   is universal) contains a token whose effective CSS can push height back under the floor:
-   any `h-*`/`min-h-*`/`size-*` utility computing < 44px (numeric < 11, `0`, `auto`, `none`,
-   `fit`, `min`, `max`, arbitrary < 44px), any of those in `!`-important form, and any
-   variant-prefixed form (`sm:`, `md:`, `max-*:`, `hover:`, any `*:`-prefixed height-affecting
-   utility). Conservative by design: a defeater that turns out harmless (earlier in cascade
-   order, inapplicable variant) still demotes to the census with the arithmetic recorded in its
+8. **Defeater tokens (negative rule; round-1 F3, grammar widened round-2 F2).** After
+   resolution, the element is UNCLASSIFIED — reported by name, never passed — if ANY reachable
+   resolved string (including conditional branches and `&&` operands, i.e. reachability here is
+   existential where rule 3's is universal) contains a token whose effective CSS can push
+   height back under the floor. The defeater grammar, enumerated:
+   - any `h-*`/`min-h-*`/`max-h-*`/`size-*` utility computing < 44px (numeric < 11, `0`,
+     `auto`, `none`, `fit`, `min`, `max`, `px`, arbitrary value < 44px) — `max-h-*` caps an
+     otherwise-cleared `h-*`/`size-*` floor;
+   - any arbitrary-property form targeting height: `[height:...]`, `[min-height:...]`,
+     `[max-height:...]` with a sub-floor value;
+   - when the floor was proven by the negative-margin+padding recipe: any padding-affecting
+     token (`p-*`, `py-*`, `pt-*`, `pb-*`, and arbitrary padding properties) that shrinks the recipe's
+     vertical padding below the recipe arithmetic;
+   - when the floor was proven by the `before:absolute` inset recipe: any inset-affecting
+     token on the same pseudo-element (`before:inset-*`, `before:-inset-*`, `[inset:...]`)
+     that narrows the expansion;
+   - every form above in `!`-important form, and in any variant-prefixed form (`sm:`, `md:`,
+     `max-*:`, `hover:`, any `*:`-prefixed occurrence of the grammar).
+   Conservative by design: a defeater that turns out harmless (earlier in cascade order,
+   inapplicable variant) still demotes to the census with the arithmetic recorded in its
    reason — a false UNCLASSIFIED is a registry row, a false CLEAR is a silent hole.
 
 Everything outside the accept-set is **rejected by name**: reported UNCLASSIFIED, and the suite
@@ -425,7 +454,7 @@ admissible only with a surviving mutant from the declared operator set.
   states introduced. `EventFilters.tsx:85` and `StagedReviewCard.tsx:675` carry conditional
   classNames: the swap edits only the branch(es) carrying `text-text-subtle`; the other branch
   is untouched (mode boundary: selected-state inversion at EventFilters stays).
-- **Cap/truncation:** census registries are bounded by the scan (34 and the derived (E)
+- **Cap/truncation:** census registries are bounded by the scan (53 D2 sites and the derived (E)
   residue); no unbounded list renders anywhere.
 
 ### Transition Inventory
@@ -478,7 +507,7 @@ enumerates the affected manifest entries; heavy phases run under `pnpm heavy`.
 - **AC-4** All 40 SWAP sites rest at `text-text`; the 13 EXEMPT sites are registry rows with
   family + reason (Family D rows with `siblingCue`); `_metaSubtleOnInteractive` walks the filesystem and fails by name on an
   unregistered hit.
-- **AC-5** `_metaTapTargetFloor` ships unblocked: recogniser implements §5.2 rules 1–7; census
+- **AC-5** `_metaTapTargetFloor` ships unblocked: recogniser implements §5.2 rules 1–8 (rule 8's full defeater grammar included); census
   registry seeds per §5.3; suite fails by name on an unregistered UNCLASSIFIED element.
 - **AC-6** Both scan modules enrolled in `tests/mutation/source/registry.ts`;
   `pnpm mutation:guards` reports zero unaccepted survivors before the guard review dispatch.
@@ -502,15 +531,23 @@ enumerates the affected manifest entries; heavy phases run under `pnpm heavy`.
   conservative + surfaced, per §5.4 and rules 2/5.
 - **Rule 8 is token-syntactic, not a cascade engine.** It flags any reachable sub-floor
   height-affecting token regardless of source order, specificity, or variant applicability —
-  over-demotion is the accepted direction; it never under-demotes within the token grammar it
-  declares. A defeater expressed outside that grammar (a bespoke CSS class in `globals.css`, an
-  inline `style` prop) is outside the scanner's corpus by declaration.
-- **D2 partial classNames.** A hit is registered/failed when provable; a className whose only
-  `text-text-subtle` lives behind an unresolvable expression is invisible to the D2 scan (8
-  `[partial]` sites in §2.3 have proven hits plus an unread remainder; none has its ONLY hit
-  unread). D2's worst case is cosmetic (the ledger row's own framing), so the D2 scan does not
-  demote partial classNames the way D3's rule 2 does — asymmetry is deliberate and this line is
-  its record.
+  over-demotion is the accepted direction. Its guarantee is scoped to the grammar §5.2 rule 8
+  enumerates (widened round-2 to `max-h-*`, arbitrary height properties, and the two
+  recipe-scoped defeater families); a height defeater expressed OUTSIDE that grammar — a
+  bespoke CSS class in `globals.css`, an inline `style` prop, a plugin utility — is outside the
+  scanner's corpus by declaration, and the mutation-registry enrolment (R9) is the mechanism a
+  claimed new in-grammar gap must come through (live escaping mutant, not hypothesis).
+- **D2 partial classNames and prop-flow.** A hit is registered/failed when provable; a
+  className whose only `text-text-subtle` arrives through an expression the resolver cannot
+  read is invisible to the D2 scan. One live instance exists (round-2 F1):
+  `_ClaimedRowButton.tsx:101` renders the subtle claimed-row string via its `rowClassName`
+  prop — the scan sees the DECLARATION (the `rowClasses` ternary in `_PickerInterstitial.tsx`,
+  censused at §4.3) but not the prop flow, so the child element itself is not a hit. Registry
+  coverage is at the declaration site by design; className-as-prop flows are a documented
+  limit of the D2 scan, acceptable because D2's worst case is cosmetic (the ledger row's own
+  framing). The D3 scan is NOT exposed the same way: the child's own `className` template
+  contains an unresolvable identifier, so rule 2 demotes it to the census rather than clearing
+  it. The 8 `[partial]` sites in §2.3 have proven hits plus an unread remainder.
 - **Import-resolution depth** is bounded (3 hops); a deeper re-export chain lands UNCLASSIFIED,
   same posture.
 - **Non-JSX renderers** (e.g. `document.createElement` in scripts, non-`.tsx` files) are outside
