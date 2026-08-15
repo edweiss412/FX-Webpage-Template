@@ -997,7 +997,7 @@ A working draft exists in the shipping session's scratchpad; the design above is
 
 ### BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches
 
-**Status:** OPEN · **Severity:** HIGH (Doug's deliberate actions are invisible to `observe synclog`) · **Class:** sync observability · **Effort:** M · **Filed:** 2026-08-09
+**Status:** IN PROGRESS · **Branch:** fix/sync-observability-gaps · **Severity:** HIGH (Doug's deliberate actions are invisible to `observe synclog`) · **Class:** sync observability · **Effort:** M · **Filed:** 2026-08-09
 
 **Probe (cross-model review R8 F1, `fix/sync-log-show-id-duration`).** Installing a `logSync` sink is NOT sufficient for a manual attempt to be recorded. `runManualStageForFirstSeen` returns before its sole emission at `lib/sync/runManualStageForFirstSeen.ts:147` on four branches — `stage` (`:81-83`), `hard_fail` (`:84-85`), `pass` (`:87`), `defer` (`:185-186`) — plus phase-2 `stale` (`:133-135`). A probe supplying `logSync` and exercising the first four reported `logSyncCalls: 0` for every one. Thrown phase-1/phase-2 failures escape through unguarded awaits at `:117` and `:205`. Separately, `runManualSyncForShow` awaits `runOne` with no catch (`lib/sync/runManualSyncForShow.ts:431`); a probe with `processDeps.logSync` installed and `runOne` throwing produced `{"thrown":"probe-prepare-failure","logSyncCalls":0}`.
 
@@ -1011,7 +1011,7 @@ A working draft exists in the shipping session's scratchpad; the design above is
 
 ### BL-PENDING-RETRY-EXISTING-SHOW-THROWS — existing-show pending-ingestion retry throws before any sync work
 
-**Status:** OPEN · **Severity:** HIGH (a shipped admin action appears to work and cannot) · **Class:** sync pipeline · **Effort:** M · **Filed:** 2026-08-09
+**Status:** IN PROGRESS · **Branch:** fix/sync-observability-gaps · **Severity:** HIGH (a shipped admin action appears to work and cannot) · **Class:** sync pipeline · **Effort:** M · **Filed:** 2026-08-09
 
 **Probe.** `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` calls `runManualSyncForShow_unlocked(tx, driveFileId, "manual", metadata, {})`. That function invokes `processOneFile_unlocked` with **five** arguments (`lib/sync/runManualSyncForShow.ts:287-294`) — it never passes the sixth `prepared` parameter. `processOneFile_unlocked` throws unconditionally when `prepared` is absent (`lib/sync/runScheduledCronSync.ts:3299-3304`):
 
