@@ -95,10 +95,10 @@ GREEN: sibling status region after the menu element per spec §2.2. Commit: `fea
 
 ORDER IS BINDING — two rules hold simultaneously (plan R1 F5): the marker-stripping archive commit is the PR's LAST pre-merge commit, AND the final review round examines the diff that merges (archive included):
 
-1. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates: context.mjs PRODUCT.md + DESIGN.md load → register read). P0/P1 fixed or DEFERRED-entried; findings + dispositions recorded in `closeout.md` in this plan directory with the marker line `impeccable-gate: critique+audit <date> — <disposition summary>` (AC-7).
-2. Merge `origin/main`; full gates: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
+1. Merge `origin/main`; full gates: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check` — the merge lands FIRST so every later step (impeccable, archive, review) examines the tree that will actually merge (sibling C3 ordering).
+2. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates: context.mjs PRODUCT.md + DESIGN.md load → register read). P0/P1 fixed or DEFERRED-entried; findings + dispositions recorded in `closeout.md` in this plan directory with the marker line `impeccable-gate: critique+audit <date> — <disposition summary>` (AC-7).
 3. Archive `BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` as the intended-last commit (archive RED pattern: move WITH marker → `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` fails by name → strip → green), recording §4 limits (AC-8).
-4. Whole-diff codex-guard `--stage diff` review to APPROVE — the reviewed diff INCLUDES the archive commit, so the review covers exactly what merges. If a round returns findings: repair, RE-DO the archive commit on top (so it is last again), and dispatch the next round against the full diff. Merge only from a round that examined the final tree.
+4. Whole-diff codex-guard `--stage diff` review to APPROVE — the reviewed diff INCLUDES the archive commit, so the review covers exactly what merges. If a round returns findings: repair; if the repair touches any UI-surface file, re-run the impeccable pair on that delta before the next round; RE-DO the archive commit on top (so it is last again), and dispatch the next round against the full diff. Merge only from a round that examined the final tree.
 5. PR; real CI green → `gh pr merge --merge` same turn (no commits after the APPROVE-reviewed tree) → ff main → `0 0`.
 
 Commit (step 3): `docs(backlog): archive BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — note shipped on both controls`
