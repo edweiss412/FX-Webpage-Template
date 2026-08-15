@@ -79,19 +79,23 @@ comment is corrected by this change.
 
 Replace the combined step (`.github/workflows/screenshots-drift.yml:87-94`) with:
 
-- **Restore** — `actions/cache/restore@v4`, same `path`
+- **Restore** — `actions/cache/restore@v4`, `id: nextcache-restore`, same `path`
   (`.next-screenshots-help/cache`), **new key, no `restore-keys`:**
 
-  `key: ${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles('pnpm-lock.yaml', 'next.config.ts', 'package.json', <the render-input globs>) }}`
+  `key: ${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles('pnpm-lock.yaml', 'next.config.ts', 'package.json', <the render-input globs minus the baselines>) }}`
 
-  where `<the render-input globs>` is exactly the workflow's own `pull_request.paths`
-  allow-list (22 globs, `.github/workflows/screenshots-drift.yml:13-43` — R1 F4: 22,
-  not 20), which the workflow already maintains as its census of render inputs. Three
-  compiler inputs that are not PR-filter entries are added by name: `pnpm-lock.yaml`
-  (was already in the old key), `next.config.ts` (owns `distDir` and build config),
-  `package.json` (build scripts/deps surface). One list, one derivation: the §2.2 pin
-  asserts key-globs == filter-globs + the three named extras, so the two cannot
-  drift apart silently.
+  where the glob list is the workflow's own `pull_request.paths` allow-list (22
+  globs, `.github/workflows/screenshots-drift.yml:13-43` — R1 F4: 22, not 20) MINUS
+  `public/help/screenshots/**` (R2 F1: the capture step MUTATES those bytes mid-run,
+  and `actions/cache/save` re-evaluates a content-derived key at save time — its own
+  README warns of exactly this — so a baselines-in-key census made a drifting run
+  save under a phantom key no checkout ever requests; the baselines are the
+  comparison TARGET, not a compiler input), PLUS three compiler inputs that are not
+  PR-filter entries, added by name: `pnpm-lock.yaml` (was already in the old key),
+  `next.config.ts` (owns `distDir` and build config), `package.json` (build
+  scripts/deps surface). Net: 24 `hashFiles` arguments (22 − 1 + 3). One list, one
+  derivation: the §2.2 pin asserts key-globs == filter-globs − the baselines glob +
+  the three named extras, so the lists cannot drift apart silently.
   - The `-v2-` namespace segment is deliberate: it makes every pre-existing
     `Linux-nextcache-screenshots-*` entry — including the poisoned generation —
     unreachable by construction, without anyone running `gh cache delete`. Old
@@ -101,8 +105,13 @@ Replace the combined step (`.github/workflows/screenshots-drift.yml:87-94`) with
     by trusting Next's invalidation — the exact trust the incident broke. A miss
     builds cold (~30s, the number the current comment claims for the warm-build
     saving), which is the correct price for changed inputs.
-- **Save** — `actions/cache/save@v4`, `if: always()`, same `path`, the same key
-  expression, placed AFTER the "Reclaim Next cache ownership" chown step
+- **Save** — `actions/cache/save@v4`, `if: always()`, same `path`, and
+  `key: ${{ steps.nextcache-restore.outputs.cache-primary-key }}` — the key is
+  computed ONCE, at restore time, and the save reuses it by reference (R2 F1: never
+  re-evaluate a content-derived key after the job has mutated the tree; with the
+  baselines already out of the census this is belt-and-braces against any FUTURE
+  census addition that a later step mutates). Placed AFTER the "Reclaim Next cache
+  ownership" chown step
   (`.github/workflows/screenshots-drift.yml:108-110`, which stays `if: always()` and ordered before the save — the save
   reads files the Docker build left root-owned) and after the "Check screenshot
   drift" step (`.github/workflows/screenshots-drift.yml:111-114`). With the exact-input key, the save's job is warmth, not
@@ -115,6 +124,13 @@ Replace the combined step (`.github/workflows/screenshots-drift.yml:87-94`) with
   - Comment on the step cites `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING`
     with the one-line why (first run at any input set must save even when the byte
     gate fails).
+- **Drift-check step edit (R2 F3):** the untracked-capture branch currently hides
+  filenames (`test -z "$(git ls-files --others --exclude-standard
+  public/help/screenshots/)"`, `.github/workflows/screenshots-drift.yml:114` — a
+  probe reproduced `status=1 output_bytes=0`). It becomes: capture the list into a
+  variable, and when non-empty PRINT the names before exiting 1, so an untracked new
+  capture is reported by name exactly as tracked drift is (the `git diff
+  --exit-code` half already names files).
 - **Comment corrections in the same edit:** the restore block drops the refuted
   byte-safety paragraph and the post-save/`restore-keys` prose (`.github/workflows/screenshots-drift.yml:80-86`) in favor
   of the key-construction argument above; the chown comment (`.github/workflows/screenshots-drift.yml:104-107`)
@@ -134,16 +150,25 @@ substrings (R1 F3):
    path (the `~/.cache/ms-playwright` combined-cache assertions for OTHER workflows
    at `tests/cross-cutting/ci-workflow-speedup.test.ts:155-175` are untouched);
 2. the save step carries `if: always()` (asserted within the save step's block);
-3. restore and save declare the SAME `path` and byte-identical `key` expressions
-   (path/key parity — a wrong-path or wrong-key save is a silent warmth hole);
+3. restore and save declare the SAME `path`; the restore step carries
+   `id: nextcache-restore`, and the save step's `key` is exactly
+   `${{ steps.nextcache-restore.outputs.cache-primary-key }}` (single-evaluation
+   parity — a re-evaluated or hand-copied save key is the R2 F1 phantom-key hole);
 4. the restore step declares NO `restore-keys`;
 5. step ORDER: capture → chown → drift check → save (asserted on the index order of
    the extracted step names/`uses:` lines);
-6. the key's `hashFiles(...)` argument set equals the `pull_request.paths` glob set
-   plus exactly `pnpm-lock.yaml`, `next.config.ts`, `package.json` (parse both lists
-   from the YAML, compare as sets — the single-derivation discipline that keeps the
-   filter and the key from drifting apart);
-7. the save step's block cites the entry id.
+6. the restore key's `hashFiles(...)` argument set equals the `pull_request.paths`
+   glob set MINUS `public/help/screenshots/**` plus exactly `pnpm-lock.yaml`,
+   `next.config.ts`, `package.json` (parse both lists from the YAML, compare as
+   sets — the single-derivation discipline that keeps the filter and the key from
+   drifting apart, with the one mutated-target exclusion stated in the assertion's
+   own comment);
+7. the save step's block cites the entry id;
+8. **key SHAPE (R2 F4):** the restore key matches exactly
+   `${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles(...) }}` — the `-v2-`
+   namespace is present and the expression contains NO further components (no
+   `github.sha` suffix, no second interpolation), so a namespace regression or a
+   smuggled per-run component fails by name.
 
 This is the impl branch's executable RED: it fails against the current tree by name
 (combined step live at `.github/workflows/screenshots-drift.yml:87-94`), goes green with the §2.1 edit, and closes the class
@@ -212,7 +237,15 @@ None — CI workflow YAML, one test file, ledger prose; no visual states.
 4. **Same-input immutability:** a run at an already-saved input set cannot re-save
    (cache entries are immutable). Harmless by construction — a same-key restore is
    input-identical — and stated so the "every run saves" misreading cannot return.
-5. **Cross-workflow scope:** `help-affordances.yml`'s `nextcache-help` namespace
+5. **Content-identity, not path-identity (R2 F2).** `hashFiles` digests file
+   CONTENTS; a path-only rename that preserves bytes (and glob membership) keeps the
+   key while filesystem routing may change build semantics. Such a rename can
+   therefore restore a cache built under the old path layout. The byte gate still
+   reports any resulting divergence by name — never silently wrong — and the shape
+   is recorded here as a documented limit rather than engineered around (a
+   path-sensitive key would go cold on every rename to buy safety the gate already
+   provides).
+6. **Cross-workflow scope:** `help-affordances.yml`'s `nextcache-help` namespace
    keeps the combined pattern; it gates NO byte comparison, so staleness there
    cannot self-perpetuate a red main — out of scope per the entry and the brief. If
    it ever grows a byte gate, this spec is the template.
@@ -227,11 +260,13 @@ None — CI workflow YAML, one test file, ledger prose; no visual states.
 ## §6 Acceptance criteria
 
 - **AC-1:** the §2.2 pin observed RED against the unedited workflow, GREEN after
-  §2.1; all seven assertions land (split, always-save, path/key parity, no
-  restore-keys, step order, key/filter glob parity, entry-id comment).
-- **AC-2:** the workflow edit matches §2.1 — v2-namespaced exact input-hash key, no
-  fallback, split restore/save, save ordered after chown + drift check, corrected
-  comments; step order otherwise unchanged.
+  §2.1; all eight assertions land (split, always-save, single-evaluation key parity,
+  no restore-keys, step order, key/filter glob parity with the baselines exclusion,
+  entry-id comment, exact key shape).
+- **AC-2:** the workflow edit matches §2.1 — v2-namespaced exact input-hash key
+  (baselines excluded), no fallback, split restore/save with the save keyed on the
+  restore output, untracked captures named by the drift check, save ordered after
+  chown + drift check, corrected comments; step order otherwise unchanged.
 - **AC-3:** §2.3 executed with run ids recorded: cold-then-warm green dispatch pair,
   and the throwaway-branch failing dispatch showing key miss + new-chrome artifact +
   FAIL at the drift check + successful save.
@@ -241,11 +276,13 @@ None — CI workflow YAML, one test file, ledger prose; no visual states.
 ## §7 Convergence contract (for review dispatches on this spec and its diff)
 
 - **CONSEQUENCE BOUND:** after this change, no drift run can restore a cache whose
-  named render inputs differ from its own (exact key, no fallback, fresh v2
-  namespace), and the first run at any input set — pass or fail — saves; any render
-  divergence is still reported by name by the byte gate — never silently wrong. The
-  residuals in §4.3-§4.4 (an input outside the named census; same-input
-  immutability) are DOCUMENTED LIMITS, not findings.
+  named render-input CONTENTS differ from its own (exact content-hash key, no
+  fallback, fresh v2 namespace), and the first run at any input set — pass or fail —
+  saves under the key it restored with (computed once, at restore time); any render
+  divergence — tracked drift or untracked new captures — is reported by name by the
+  byte gate — never silently wrong. The residuals in §4.3-§4.5 (an input outside the
+  named census; same-input immutability; byte-preserving path renames) are
+  DOCUMENTED LIMITS, not findings.
 - **PROBE DOMAIN:** `.github/workflows/screenshots-drift.yml` and
   `tests/cross-cutting/ci-workflow-speedup.test.ts` on this branch, plus real
   `workflow_dispatch` runs of that workflow (the §2.3 run ids). A hypothetical about
