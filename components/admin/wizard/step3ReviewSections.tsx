@@ -1409,7 +1409,10 @@ function ContactCell({
       {hasContent(phone) ? (
         <a
           href={`tel:${phone.replace(/[^\d+]/g, "")}`}
-          className="flex items-center gap-1 text-[11px] tabular-nums text-text-subtle hover:text-text"
+          // Tap floor (spec §2, site 6). Composite-link recipe: `min-h-tap-min` on the existing
+          // `flex` string, display preserved. The parent cell is `flex-col items-center`, so the
+          // width shrink-wraps and a full phone number already clears 44px across.
+          className="flex min-h-tap-min items-center gap-1 text-[11px] tabular-nums text-text-subtle hover:text-text"
         >
           <Phone className="size-3 shrink-0" aria-hidden="true" />
           {phone}
@@ -1418,7 +1421,8 @@ function ContactCell({
       {hasContent(email) ? (
         <a
           href={`mailto:${email}`}
-          className="flex min-w-0 items-center gap-1 text-[11px] text-text-subtle hover:text-text"
+          // Tap floor (spec §2, site 7) — same recipe as the tel: link above.
+          className="flex min-h-tap-min min-w-0 items-center gap-1 text-[11px] text-text-subtle hover:text-text"
         >
           <Mail className="size-3 shrink-0" aria-hidden="true" />
           <span className="min-w-0 wrap-break-word">{email}</span>
@@ -2591,7 +2595,12 @@ function PackCaseItems({ items }: { items: PullSheetItem[] }) {
             type="button"
             onClick={() => setShowAll((v) => !v)}
             aria-expanded={showAll}
-            className="rounded-sm font-medium text-text-subtle underline-offset-2 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            // Class A tap-floor recipe (spec 2026-08-10-tap-target-inline-controls §2, site 4),
+            // applied verbatim. Growth is in flow: the tail row gets taller, nothing overlaps.
+            // `w-fit` is belt-and-braces HERE specifically — this control is inline-level inside a
+            // plain <li>, so it already shrink-wraps. It carries load at the recipe's other sites,
+            // where the control is a direct flex child and CSS blockifies it to full width.
+            className="inline-flex w-fit min-h-tap-min items-center rounded-sm font-medium text-text-subtle underline-offset-2 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             {showAll ? "Show fewer items" : `Show all ${items.length} items`}
           </button>

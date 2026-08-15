@@ -75,8 +75,12 @@ export default defineConfig({
       // precedents live here, and it is deliberately NOT named `canonical-layout-dimensions`
       // — that would substring-match the `layout-dimensions` alternative in BOTH projects
       // and silently run where it was never meant to.
+      // `tap-target-inline-controls.layout` is mobile-safari ONLY for the same
+      // reason its floors matter most on a phone: sites 6/7 are the tel:/mailto:
+      // links an operator taps from a load-out card. Its dot is escaped so the
+      // alternative cannot match a neighbouring basename.
       testMatch:
-        /(font-rendering-census|sample|crew-page|crew-section-toggle|report-modal|canonical-class-dimensions|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(font-rendering-census|sample|crew-page|tap-target-inline-controls\.layout|crew-section-toggle|report-modal|canonical-class-dimensions|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },

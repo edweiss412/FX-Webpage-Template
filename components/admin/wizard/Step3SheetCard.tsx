@@ -158,7 +158,14 @@ export function SheetTitleLink({ dfid, title }: { dfid: string; title: string })
           ? `Open the source sheet for ${strippedTitle} in Google Sheets (opens in a new tab)`
           : "Open the source sheet in Google Sheets (opens in a new tab)"
       }
-      className="wrap-break-word text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      // Tap floor (spec 2026-08-10-tap-target-inline-controls §2, site 5). `inline-block`, NOT
+      // flex: flex would make the trailing icon a nowrap sibling and break title wrapping, and
+      // `min-height` does not apply to inline boxes at all. Symmetric `py-2.5` (10px) over a
+      // one-line `text-base` line box (24.8px at line-height 1.55, app/globals.css:127) yields a
+      // 44.8px target with the text centred by construction; `-my-2.5` cancels the growth in flow.
+      // `-mx-2 px-2` fixes nothing horizontally today (titles are wide) but keeps the left text
+      // edge aligned — and is why this site carries neighbour-overlap assertions in both axes.
+      className="wrap-break-word inline-block -my-2.5 -mx-2 px-2 py-2.5 text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {title}
       {/* Persistent (non-hover) "opens the source sheet" cue, mirroring the
