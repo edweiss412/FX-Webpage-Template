@@ -14,6 +14,7 @@
 - **AC-B2** — `checkCorpus` reports `mechanizable_untracked` for a non-grandfathered filing section whose Mechanizable entry is non-none, cites no `BL-`/`DEF-` id inside the block, and has no `declined:` marker.
 - **AC-B3** — a block-scoped id or a `declined: <reason>` satisfies the duty; an id appearing only OUTSIDE the Mechanizable block (e.g. in Judgment) does not.
 - **AC-B4** — `**Mechanizable:** none` and `**Mechanizable:** none — <prose>` carry no duty.
+- **AC-B7** — a non-grandfathered section holding two canonical `**Mechanizable:**` markers reports `filing_malformed` in both orderings (spec §3.1, R6 finding).
 - **AC-B5** — a filing whose path is in `MECHANIZABLE_GRANDFATHERED` is exempt; the live corpus check stays green.
 - **AC-B6** — `lib/reviewRounds/filing.ts` is enrolled in `tests/mutation/source/registry.ts` and `pnpm mutation:guards` is green with any accepted rows dispositioned.
 - **AC-C1** — the six §4 candidates are dispositioned: five `BL-` rows filed at the ledger bar, one decline recorded (candidate 2, covered by the spec-registration detector).
@@ -22,6 +23,7 @@
 ## Meta-test inventory (mandatory declaration)
 
 - **EXTENDS:** `tests/docs/_metaReviewRoundEconomy.test.ts` (new problem-kind fixtures), `tests/reviewRounds/filing.test.ts` (parse contract), `tests/mutation/source/registry.ts` (new `reviewRoundFiling` row), `tests/mutation/_metaPremiseContract.test.ts` (`EXPECTED_ENV_TOUCHING` row for the newly enrolled suite; update the meta-test's own row counts in the same commit if the new fixture cases shift its declared number).
+<!-- spec-lint: ignore — file created by this plan's implementation; not yet tracked -->
 - **CREATES:** `tests/codexGuard/guardSurfaceGate.test.ts`.
 - Candidate registries from the writing-plans list (Supabase call boundaries, sentinel hiding, admin-alert catalog, advisory-lock topology, no-inline-email-normalization): **none applies** — the diff touches no auth, DB write, alert, or tile surface.
 - Advisory-lock topology: **N/A** — no `pg_advisory*` surface. e2e harness-readiness: **N/A** — no Playwright.
@@ -44,11 +46,13 @@ The closure set the review converges against, per the registry's declared operat
 
 ## Task 2: Half B corpus gate — `mechanizable_untracked` + grandfather set
 
-<!-- task: red=`pnpm exec vitest run tests/docs/_metaReviewRoundEconomy.test.ts` ac=AC-B2,AC-B3,AC-B4,AC-B5 -->
+<!-- task: red=`pnpm exec vitest run tests/docs/_metaReviewRoundEconomy.test.ts` ac=AC-B2,AC-B3,AC-B4,AC-B5,AC-B7 -->
 
 **What is red and why:** the new fixture case (non-none Mechanizable, no id, no decline, non-grandfathered path) asserts `problems` contains kind `mechanizable_untracked`; `checkCorpus` (`lib/reviewRounds/corpus.ts:171`) has no such kind, so the assertion fails.
 
+<!-- spec-lint: ignore — file created by this plan's implementation; not yet tracked -->
 - RED: extend the meta-test with fixture cases (existing `check(files)` helper, meta-test `check` at line ~97): fail case; block-id pass; outside-block id still fails; `declined:` pass; `none` pass; grandfathered pass — plant a filing at a REAL grandfathered path (`refactor/classname-array-join-cn/61281c23e8ce`) with violating content and assert clean, with a `premiseHolds` (from `tests/_shared/premise.ts`) immediately above asserting `MECHANIZABLE_GRANDFATHERED.has("docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md")` — the exemption case discriminates only while the frozen set actually contains the planted path.
+<!-- spec-lint: ignore — file created by this plan's implementation; not yet tracked -->
 - GREEN: add `lib/reviewRounds/mechanizableGrandfather.ts` (frozen 56-path set generated from the live corpus, header contract per spec §3.3) and the `mechanizable_untracked` check in `checkCorpus` per spec §3.2. The live-corpus case (meta-test line ~649) must stay green with zero content edits to any existing filing.
 - Sweep: after GREEN, run the FULL meta-test file plus `tests/reviewRounds/filing.test.ts` (fix-round regression budget).
 
@@ -58,6 +62,7 @@ The closure set the review converges against, per the registry's declared operat
 
 **What is red and why:** the new suite's exit-2 case writes a brief containing only `GUARD SURFACE: x` and dispatches `--stage diff --round 1` via the spawn harness (`runGuard`, `tests/codexGuard/harness.ts:177`); `scripts/codex-guard.mjs` has no guard-surface validation, so the dispatch proceeds against the fake codex and exits 0 — the `expect(res.code).toBe(2)` assertion fails.
 
+<!-- spec-lint: ignore — file created by this plan's implementation; not yet tracked -->
 - RED: author `tests/codexGuard/guardSurfaceGate.test.ts` on the existing harness (`mkRun` writes `run.briefPath`; the test overwrites it per case, then `runGuard(run, ["--stage", "diff", "--round", "1"])`): one case per AC-A1..A6 including the spec §6.1 probe-pair fixtures (`mixed_missing_score`, `two_enrolled_one_score`, `nonempty_survivor_set`), asserting exit code and (for AC-A1/A6) that stderr enumerates every nonconforming `GUARD SURFACE:` line. Passing cases assert the dispatch reached the fake codex (`readCalls(run)` non-empty) rather than merely exit 0.
 - GREEN: insert the check in `scripts/codex-guard.mjs` config validation, after `cfg.briefText` is read (the `--brief is empty` guard at line 176) — spec §2.1 algorithm, reusing `stripCodeBlocks` (line 537).
 - Pre-dispatch string-presence mutants on the exit-2 message per the closure section above; results recorded in the task commit message.
