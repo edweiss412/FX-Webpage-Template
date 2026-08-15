@@ -1,3 +1,35 @@
+## BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches — CLOSED 2026-08-15 (`fix/sync-observability-gaps`, SHIPPED)
+
+**Resolution: SHIPPED.** Spec `docs/superpowers/specs/observability/2026-08-14-sync-observability-gaps-design.md` (APPROVED at adversarial round 9), plan `docs/superpowers/plans/2026-08-14-sync-observability-gaps.md` (APPROVED at round 5).
+
+The row named three surfaces and all three now record: `runManualStageForFirstSeen` emits from ONE exhaustive site after `toResult` resolves, `runManualSyncForShow` (and the `_unlocked` runner the retry route calls directly) record escaped throws, and `applyStaged` writes the applied row itself at its post-commit chokepoint.
+
+**The row's own prescription was rejected in two places, and the spec says why.** It asked for an emit at each early-return branch — that is the shape that failed, since a future branch added without its emit is silent again; the single site switches exhaustively on the result outcome, so a new variant is a compile error until the mapping says what it records. It also asked both live apply routes to inject a sink into the tail: `firstPublishedTailDeps` REPLACES the tail's whole deps object, whose default is the tx-bound writer that exists to avoid an FK failure on the uncommitted show, and per-route wiring is the hand-enumerated cover that came up short five times in the parent arc. One default at the shared chokepoint covers both live routes and every future caller.
+
+**Two defects the sweep found that the row did not describe.** `toResult` ended in an implicit `return null` that the caller coalesced to `{ outcome: "parsed" }`, so an unhandled `Phase1Result` variant silently became a clean pass — defeating the outcome-layer guard from below; it is now exhaustive with its own terminating `never`. And the shared pipeline had four terminal branches with no row at all (three arms of `handleFetchFailure_unlocked` plus the pull-sheet-override TOCTOU skip), which benefit cron identically.
+
+**Where the emit sits was load-bearing twice.** Post-commit, because attribution resolves in the sink's subselect over `public.shows` — an in-tx emit would write a permanently NULL-attributed row for a first-seen apply, which the env-bound test observes against the DB column since `SyncLogEntry` carries no `show_id` field. And keyed on a TRACKED sink, because a throw can escape after an outcome row already landed; a naive catch-emit would file a factually wrong `parse_error` over a recorded outcome. The tracker deliberately observes the injected own-connection sink only: tx-bound recovery rows roll back with an aborted transaction, so counting them would suppress an emit for a row that no longer exists.
+
+**A hazard the census surfaced by probe, not by argument.** Adding the production sink default meant every existing test that reaches an applied path would open a real postgres connection: a suite run wrote 14 rows to the shared local DB before the injections landed. Rows deleted, zero after the re-run.
+
+**Not recorded, by decision:** non-applied live staged-apply outcomes (apply-request dispositions the operator sees synchronously, not sync attempts), the §1.1 ratified-silent refusal branches, and the wizard staged-apply path, which attempts no sync at all.
+
+**Effort:** M · **Closed:** 2026-08-15
+
+## BL-PENDING-RETRY-EXISTING-SHOW-THROWS — existing-show pending-ingestion retry throws before any sync work — CLOSED 2026-08-15 (`fix/sync-observability-gaps`, SHIPPED)
+
+**Resolution: SHIPPED.** Same spec and plan as `BL-MANUAL-SYNC-UNEMITTED` above (§3.1).
+
+The design question this row was filed to settle — prepare in-route, or switch to the locked entry point — is decided as **prepare in-route**. The route already holds the per-show advisory lock via `withRowTryLock`; `runManualSyncForShow` acquires the same key again on separate connections, which is precisely the nested-holder deadlock invariant 2's single-holder rule prohibits, and restructuring to release the row lock first would forfeit the `FOR UPDATE` pending-row guard for no observability gain. The route's own first-seen branch already runs its full preparation inside that same held lock, so the existing-show branch simply gains parity.
+
+`prepared` is a **required** sixth parameter on `runManualSyncForShow_unlocked` and on the injectable seams, not an optional one: optional would re-create the shipped defect for the next caller, required makes the omission a compile error (the precedent is `ProcessOneFileResult.applied.parseWarnings`).
+
+**The verification the row asked for is why this took a live test.** The shipped unit tests inject `processOneFile_unlocked`, which is exactly why the missing sixth argument never surfaced — mocked-only coverage observes what the test author thought the surface required. The env-bound probe runs the REAL handler, prepare, runner, and database with only Drive metadata stubbed, and it was verified to discriminate by re-injecting the defect: it fails with "prepared process data is required before acquiring the show lock".
+
+**Two prepare-failure paths gained recording along the way**, both through a new injectable route sink: the relocated `prepareProcessOneFile` (whose later work — XLSX anchor extraction, the discard-and-rerun reconcile — sits outside its internal catches and can throw, which would otherwise re-create the silence this arc closes) and the first-seen `prepareFirstSeenStage`, whose typed 502/409 responses are unchanged.
+
+**Effort:** M · **Closed:** 2026-08-15
+
 ## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking was raw Tailwind numerics — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
 
 **Resolution: SHIPPED.** Task U1 of the M-wave-2 plan
@@ -1105,6 +1137,45 @@ earlier on this same branch.
 `tests/e2e/admin-lifecycle-layout.spec.ts` and `tests/e2e/admin-lifecycle-transitions.spec.ts` appear in the `mobile-safari` project `testMatch` (`playwright.config.ts`), but every e2e workflow runs an explicit spec list and none names them — they run nowhere in CI. The archive-row-menu-idiom branch wires the LAYOUT spec (new `lifecycle-layout-e2e.yml`, since it carries that feature's load-bearing assertions); the TRANSITIONS spec remains dark. **Fix (when prioritized):** add `admin-lifecycle-transitions.spec.ts` to the same workflow (or its own) after fixing its local flake class — the 2026-07-24 flake audit (archive-row branch) measured: static source-guard red since 2026-07-20 (fixed on that branch via the ArchiveShowButton transition-opacity carve-out mirroring PublishedToggle's), plus 3 pre-hydration click-swallow failures (hub kebab open x2, published toggle x1) whose failing cases move between runs; the layout spec's toPass hydration-retry is the template. The structural guard for the class (workflow-coverage meta-test with a reasoned allowlist) SHIPPED with the archive-row-menu-idiom branch (spec §6 item 6); un-wiring work here is now just moving this spec off that allowlist by adding it to a workflow. Related owner decision (R18), **corrected 2026-07-26**: the claim that branch protection requires only the `quality` context is STALE — measured, the live required set holds TWELVE contexts. The e2e jobs are advisory not because one context is required, but because none of them is in that set. Promoting e2e jobs into it so a red e2e blocks merge at the GitHub layer remains an owner GitHub-settings action, not repo code; until then enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
 
 **New instance observed 2026-07-26 — FIXED 2026-08-03** on `chore/ci-boot-overlap-and-popover-flake`: T-REGROW's two armed measurements no longer take a fixed wait. The real run retries the whole measurement so a transient pre-re-placement state retries while a regression still times out; the ladder sweep settles on observed growth. A structural guard (`tests/cross-cutting/e2e-regrow-settle-contract.test.ts`) anchors a retry at each arming site so the fixed wait cannot creep back. The three fixed waits the class sweep found ELSEWHERE in that file are filed separately as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE`. The umbrella below — the ~60 app-dependent specs — is unchanged and stays OPEN. Original text follows, unedited, for provenance. (destruct-thumb-order PR #604): the LAYOUT spec — the one this row records as stabilized by the `toPass` hydration retry — failed once in `lifecycle-layout-e2e` on `mobile-safari`, at the archive-confirm popover assertions (`tests/e2e/admin-lifecycle-layout.spec.ts:411` `scrollIntoView(confirm) must have been called`, and `:538` armed body within the clip rect), 24 passed / 1 failed. Confirmed a flake, not a regression: the failing commit touched only `tests/e2e/pendingDiscardReal.layout.spec.ts`, which that workflow does not run, the two commits before it passed, and a re-run of the identical tree went green. So the hydration retry does NOT cover the popover-placement path — the growth-then-replace measurement takes a fixed `waitForTimeout(300)` rather than retrying to a condition, which is the likely remaining gap. \*\*Fix shape:\*\* replace that fixed wait with a `toPass` block around the armed measurement, same template as the rest of the spec.
+
+---
+
+## BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal — CLOSED 2026-08-14 (`feat/mutation-column-shift`, PR #784, wave branch 4/5)
+
+**Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
+
+A spurious leading empty column shifted every cell in a section's row grid one position right and the parse absorbed it — the East Coast column-shifted outlier, a shape observed in a LIVE show rather than a synthetic one. Every field read its neighbour's value, which is the most damaging silent outcome in this set precisely because each individual value still looked well-formed.
+
+**Resolution: correction, not detection.** When every row a section owns — its header and its alignment row included — leads with an empty cell, the inverse transform is total, so `normalizeLeadingColumn` (`lib/parser/leadingColumnNormalize.ts`) drops the leading column and emits one warn-severity `LEADING_COLUMN_AUTOCORRECTED`. This is the wave's only correcting branch; its three siblings detect. The difference is earned rather than stylistic: dropping a uniformly-empty column cannot lose information, whereas branch 3's fused row would have required guessing which value belongs in which column.
+
+Wired at `lib/parser/index.ts` Step 2.55 — after the `normalizeSectionHeaders` seam and deliberately BEFORE Step 2.6's cell scanners, which read section width and would otherwise be handed a wrong first column and misfire `ROW_CELLS_FUSED`.
+
+**326 ledgered holes closed; `RAW_HOLES` 1,414 → 1,088.** All four reconciliation buckets empty across the full 8-shard harness.
+
+**The shrink was derived from the harness, and the two figures that looked authoritative were both wrong to delete by.** The plan said 211; the ledger's own `column-shift` rows numbered 202, and `knownHoles.ts` already instructed branch 4 to prefer the ledger over the plan (branch 3's width discriminator had closed 9 early). Deleting the 202 was tried and the harness rejected it: five of eight shards returned `newHoles`, the bucket spec §9 marks HARD. The parser was fine — the fix restores 508 of 535 sites, so the 27 that stay unrestored still survive, and removing their rows reclassified them from known holes into new ones.
+
+**Sizing a shrink by an operator's row count silently asserts that the fix closes every row of that operator.** Here that was false by the 12 `column-shift` rows those unrestored sites still carry. The correct shrink is the harness's own `fixedHoles` set — collected via `COLLECT_MUTATION_ALARMS` and reconciled against the untouched ledger — which is both smaller than 202 within `column-shift` (190) and larger overall (326), because the normalization pass also closes 136 `blank-row:inject` holes. Branch 3 recorded the same cross-operator lesson from the other side (its short-by-one discriminator closed 9 `column-shift` rows); this branch is the case where ignoring it would have shipped silent holes rather than merely understating a win. `newHoles` measured 0 against the FULL ledger, which is what discriminates "my ledger edit was wrong" from "the parser regressed"; three independent full runs agreed shard-for-shard on all eight alarm counts.
+
+**Corroboration took three review rounds, and each round killed a distinct mechanism.** The design accepts a cell-2 section label as a logical-section boundary, because a shifted section's own header leads empty. Review found a bare label match silently REWRITES unshifted data: `LABEL_TO_KIND` contains exactly the tokens that occur as ordinary cell values (`VENUE`, `CLIENT`, `DRIVER`), and `ROOM_FAMILY_PREFIXES` holds room names that appear as gear-table data.
+
+1. Bare cell-2 match, no corroboration — rewrote a contacts table whose second column read `Venue`.
+2. Corroborating on "the next line is an alignment row" — measured DEAD: 0 of 216 corpus mid-block headers carry one, because sections that own an alignment row are always block-initial and those never reach this branch. Cost 78 of 350 sites while still spoofable by a lone `-` placeholder.
+3. Corroborating on column width, but counting cells with a naive `split("|")` — an escaped in-cell `\|` inflated the count by exactly the +1 that was being read as proof of a shift.
+
+The shipped form compares two counts produced by ONE function applied to both sides (`splitCellsUnescaped`, exported from the sibling `rowWidthDiscriminator.ts` rather than reimplemented). That is a closable bound on a finite property of one function, rather than the open enumeration the first two rounds rested on.
+
+**Measured over all 535 harness `columnShift` sites: 508 payload-restored, 508 with exactly one warning, 0 with more than one.** A no-corroboration variant scores identically, so three rounds of safety work cost zero closures; cell-1-only scores 461.
+
+**Documented limits.**
+
+- **27 of 535 sites stay unrestored**, carrying 12 residual ledger rows across 8 shows. 14 of the 27 are a pre-existing vocabulary gap: `COI` and `IN HOUSE AV` are recognized headers in `knownSections.ts` and in the harness's own map but absent from `sectionKind.ts`'s `LABEL_TO_KIND`. Deliberately untouched — growing that table widens the cell-2 opener's false-positive surface, which is the exact class that took three rounds to close.
+- **A mid-block shifted section containing a data row whose cell 2 canonicalizes emits two warnings for one shift.** Payload always correct; 0 of 535 corpus sites reach it. Not patched: the only suppression also kills the legitimate two-adjacent-shifted-sections case, trading one correct behaviour for another.
+- **A block-initial shifted pair has no `lastUnshiftedWidth` reference**, so the pair is read as one combined span — one warning instead of two, payload still fully restored, since dropping a leading cell is idempotent whether done once or twice.
+- **`classifyVersion` is Step 1 and reads the uncorrected markdown.** Measured over all 540 block-start shift sites: payload restores 540/540, and `not_a_sheet=0` — that verdict is the one early-stub path that would bypass this pass entirely, and it never fires. 7 sites gain a `VERSION_AMBIGUOUS` the clean parse lacks; those restore fully and additionally hard-fail into review, and `origin/main` returns the identical verdict on the identical input.
+
+**§6.1 live-pipeline note.** The exporter drops the live shape today, so this defends the parser boundary rather than fixing a currently-reachable production path.
+
+`tests/parser/cleanCorpusCalibration.test.ts` pins the zero-warning clean-corpus base rate for this code, so a future shift is visible rather than silent.
 
 ---
 
@@ -7430,6 +7501,67 @@ Both surfaces need a schema decision (new table vs derived view vs append-only c
 **Found by** cross-model plan review R2 F6 on `fix/sync-log-show-id-duration`, which extends that guard's discovery to `prune_(sync_log|app_events)`. That arc repairs this file as part of its Task 5b — the guard cannot reach green while a discovered test lacks the assertion — so this entry exists to record the hazard and its independence: it predates that change and would remain if the change were abandoned.
 
 **Fix:** route the URL through `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`), matching every other destructive DB test.
+
+### BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE
+
+**Decision:** 2026-08-11, RESOLVED BY AMENDMENT via `feat/diagram-viewing-polish`. The entry named two candidate shapes and said neither was settled; the 2026-08-10 decision round settled it on the first, and the probe the entry asked for was run to settle it. Measured on the seeded 707 KB fixture at a venue-grade throttle (1.5 Mbps / 300 ms RTT, CDP): blur paints at 28 ms, the 1024 tier at ~350 ms, the original's `load` at ~4,127 ms (median of 3, spread <10 ms), extrapolating to 5.9-28 s on the 1-5 MB stage plots the asset route's own cap comment describes. The lightbox now opens on the clamped tier and pins the original only on zoom intent, so the window the entry was about collapses from seconds to ~350 ms. The progress affordance the entry offered as its alternative was DECLINED by the same decision round and is recorded as a documented limit in `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §7 — it is closed, not deferred. The amendment is ratified in that spec §4.1 and back-referenced in the pipeline spec it supersedes.
+
+**The original entry, preserved:** — the lightbox pins the original with nothing to watch while it loads
+
+**Status:** GRADUATED · **Filed:** from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** medium · **Class:** UX · **Effort:** S
+
+The active lightbox slide sets `pinOriginal: true` (`components/diagrams/GalleryLightbox.tsx`), so
+opening a diagram downloads the full-resolution original — deliberately, because zoom needs it
+(spec `docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §6). On ballroom wifi
+that is seconds during which the only signal is a 16px blur, at the peak-stakes moment: a crew member
+tapped a stage plot mid-show and cannot tell whether anything is happening.
+
+**Reachability:** INFERRED, NOT PROBED. The probe that would settle it: throttle to a venue-grade
+profile, open a representative stage-plot original, and measure time-to-sharp against the blur.
+
+Two candidate shapes, neither settled: gate `pinOriginal` on zoom intent (the clamped 1024 tier paints
+fast, the original arrives on pinch, and the browser keeps the old bitmap during a src swap so the
+upgrade is a silent sharpen), or keep the pin and add a progress affordance. The first changes a
+ratified spec decision and needs a spec amendment, which is why it did not land in-branch.
+
+### BL-DIAGRAM-BLUR-EDGE-SIZE
+
+**Decision:** 2026-08-11, CLOSED ON PROBE EVIDENCE via `feat/diagram-viewing-polish`, with `BLUR_MAX_EDGE = 16` UNCHANGED. The entry was filed `Reachability: INFERRED, NOT PROBED` and named its own probe; the probe was run and refuted the premise. Rerunning the exact ingest pipeline (`lib/sync/diagramVariants.ts`, resize fit-inside + webp q40) at edge 16 and 32 on a synthesized 1600x1200 stage plot: 16 gives 54 B / 95 data-URI chars, 32 gives 120 B / 183 (both far under the 2048 belt). Rendered faithfully through next/image's SVG blur wrapper — which wraps the placeholder in `feGaussianBlur stdDeviation=20` — the two are indistinguishable at thumbnail scale; at lightbox scale 32 resolves a layout skeleton where 16 is a near-uniform field; and the dark-mode brightness complaint is NOT an edge-size problem at all (mean luma differs by 0.7/255 between them). The one surface where 32 helped no longer benefits: the zoom gate above collapses the lightbox blur window from ~4.1 s to ~350 ms. Documented limits, including the synthesized-plot caveat, are in `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §3.2 and §7.
+
+**The original entry, preserved:** — the 16px blur carries no structure for line art and is brightest where it hurts
+
+**Status:** GRADUATED · **Filed:** from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** UX · **Effort:** S
+
+`BLUR_MAX_EDGE = 16` (`lib/sync/diagramVariants.ts`) is the spec's bound (§3). A 16px downsample of a
+white stage plot with thin black lines averages to a near-uniform light field: it delivers the full
+brightness hit while carrying almost no content signal. At thumbnail scale the upscale is ~3x and it
+reads as a placeholder; on a full-viewport lightbox slide it is ~25x, and against the `bg-bg/95` scrim
+in dark mode a dark-adapted viewer reads it as a flash.
+
+**Reachability:** INFERRED, NOT PROBED. The probe: render a real stage-plot blur at both scales in
+both themes and compare against an emitting-nothing skeleton.
+
+Candidate: raise the bound to 32 (32x32 q40 still lands far under the 2048-char belt) and/or drop the
+placeholder on the lightbox tiers only. Both change spec §3, so neither landed in-branch.
+
+### BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE
+
+**Decision:** 2026-08-11, FIXED by `feat/diagram-viewing-polish`. Focus relocates BEFORE the state update that removes the button — next still-present thumbnail in DOM order, else previous, else the show-more control, else the gallery list (given `role="list"`, `tabIndex={-1}` and a visible focus ring for the purpose) — and the relocation excludes siblings failing in the same tick, because `isConnected` reports current attachment rather than pending removal. The entry's second half, the silent swap, is closed by two `role="log"` regions and a three-state router: the dialog is `aria-modal`, so a failure while it is open speaks in a region INSIDE it, one during the 220 ms exit window is buffered and delivered when the dialog is really gone, and a browse-state failure speaks at the gallery root. The detached-restore-target case the entry did not anticipate — the thumbnail that OPENED the lightbox failing while the dialog holds focus — is closed by a mutable-ref bridge that survives the AnimatePresence prop freeze, with a closure rule so A to B to C works rather than one hop. Findings and dispositions from the invariant-8 dual gate are in §12 of `docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md`; the recovery affordance the repair deliberately does not add is `DEFERRED.md` `DIAGRAM-FAILURE-RECOVERY-1`.
+
+**The original entry, preserved:** — a failed thumbnail drops focus and says nothing
+
+**Status:** GRADUATED · **Filed:** from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** A11Y · **Effort:** S
+
+When a thumbnail's runtime load fails, the gallery cell swaps from `<button>` to a non-interactive
+`<div>` (`components/diagrams/Gallery.tsx`). If that thumbnail held focus, focus falls to `<body>`.
+The lightbox already handles the identical transition deliberately — it relocates focus to its close
+button before the unmount cascade — so the pattern exists and is simply not applied here. Separately,
+the swap is silent to assistive tech: the replacement carries `sr-only` text discoverable only by
+re-browsing, not a live-region announcement.
+
+Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image migration that surfaced
+them; they are filed rather than fixed in that branch because the repair is a focus-management and
+announcement decision on a surface the branch does not otherwise change.
 
 ## BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES — promotion compares list lengths, not the names the manifest requires — RESOLVED 2026-08-10 (`fix/promote-identity-validation`, IMPLEMENTED)
 

@@ -159,10 +159,39 @@ export function findingFor(siteId: string): string {
 //     corrupt payload silently. What is zero is the DETECTOR'S OUTPUT — it abstains where
 //     it cannot tell rather than guessing. The corruption is real, still ledgered, and
 //     still owed to a future pass. ────
-// 1414 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
+// ─── SHRUNK 2026-08-14 by the leading-column normalization (`feat/mutation-column-shift`,
+//     mutation wave 4/5): 326 holes closed, 1414 → 1088. All four reconciliation buckets
+//     empty against the full 8-shard run.
+//
+//     THE SHRINK IS DERIVED FROM THE HARNESS, and the two figures that looked authoritative
+//     were both wrong to delete by. The plan said 211; this ledger's own `column-shift` rows
+//     numbered 202, and the branch-3 note directly above already said to prefer the ledger.
+//     Deleting the 202 was TRIED and the harness rejected it: five of eight shards returned
+//     `newHoles`, the bucket spec §9 marks HARD. The parser was fine — the fix restores 508
+//     of 535 sites, so the 27 that stay unrestored still survive, and removing their rows
+//     reclassified them from known holes into new ones. Sizing a shrink by an operator's row
+//     count silently asserts the fix closes every row of that operator; here that was false
+//     by 12 within `column-shift` alone.
+//
+//     The correct shrink is the harness's own `fixedHoles` set, collected via
+//     COLLECT_MUTATION_ALARMS and reconciled against the UNTOUCHED ledger. It is both
+//     SMALLER within the target operator (190 of 202 `column-shift` rows) and LARGER overall
+//     (326), because dropping a uniformly-empty leading column also closes 136
+//     `blank-row:inject` holes — the same cross-operator effect branch 3 recorded from the
+//     other side, and the reason a per-operator count is the wrong instrument in both
+//     directions. `newHoles` against the FULL ledger measured 0, which is what proves the
+//     earlier rejection was the ledger edit and not a parser regression.
+//
+//     RESIDUE: 12 `column-shift` rows remain, spread over 8 shows. They are the part of the
+//     27 unrestored sites that carries ledgered mutants; 14 of the 27 are a pre-existing
+//     vocabulary gap (`COI` and `IN HOUSE AV` are in `knownSections.ts` and in the harness's
+//     own map but absent from `sectionKind.ts`'s `LABEL_TO_KIND`), deliberately untouched
+//     because growing that table widens the cell-2 opener's false-positive surface — the
+//     exact class that took three review rounds to close. ────
+// 1088 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
 // hole) or a FIX (a resolved hole → stale row) both fail the nightly harness. Stored as
 // pipe-delimited rows inside a TEMPLATE LITERAL (prettier leaves its interior intact, so each hole
-// stays ONE line instead of prettier exploding 1414 object literals to ~12k lines). Row format:
+// stays ONE line instead of prettier exploding 1088 object literals to ~12k lines). Row format:
 //   siteId|kind|fingerprint|finding|note      (fields are pipe-free: siteId uses ':', fp is hex)
 // finding = OPERATOR_FINDING_MAP[operator] (audit #N or BL-MUTATION-* — never a blanket "unaudited",
 // Codex R3). Fingerprints use the EXHAUSTIVE-by-type signal redaction (oracle.ts redactNode) so an
@@ -183,25 +212,6 @@ blank-row:inject:2024-05-east-coast-family-office:B10:L77:Xgap8|wrong|bf12605c47
 blank-row:inject:2024-05-east-coast-family-office:B10:L78:Xgap9|wrong|3a82fa138b27fe50|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B10:L79:Xgap10|wrong|a64a72cd25a780d1|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B10:L80:Xgap11|wrong|d03fcbe6bc869139|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L100:Xgap16|wrong|81ce185ce54129cf|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L101:Xgap17|wrong|03fa005ca3832f52|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L102:Xgap18|wrong|d62daadd5f2ee06f|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L103:Xgap19|wrong|dc861b5f6cf0423d|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L104:Xgap20|wrong|5f81890ab6605d90|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L86:Xgap2|wrong|11c9b12f24223d70|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L87:Xgap3|wrong|fb6a47125526eb0c|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L88:Xgap4|wrong|e0a9ddb7a98578b1|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L89:Xgap5|wrong|1a2859107e33122e|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L90:Xgap6|wrong|61e3eb716672177d|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L91:Xgap7|wrong|cb469e32ccbebd49|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L92:Xgap8|wrong|27014d11aa9b4259|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L93:Xgap9|wrong|3dabe317413cd91d|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L94:Xgap10|wrong|9c5fd97f84bc1872|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L95:Xgap11|wrong|09c3e90d851eb73f|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L96:Xgap12|wrong|b210a22649d88ed8|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L97:Xgap13|wrong|16b601942f48cf9a|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L98:Xgap14|wrong|f3464f90490113f3|#10|blank-row wrong @ inject
-blank-row:inject:2024-05-east-coast-family-office:B11:L99:Xgap15|wrong|355151b54d53710f|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B14:L208:Xgap1|wrong|b76c144b22e3c8fa|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B14:L209:Xgap2|wrong|5e8fd700a0f4759b|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B14:L210:Xgap3|wrong|22093ed10919d71c|#10|blank-row wrong @ inject
@@ -329,19 +339,6 @@ blank-row:inject:2025-03-dci-rpas-central:B9:L214:Xgap7|wrong|250a572c00c62f8f|#
 blank-row:inject:2025-03-dci-rpas-central:B9:L215:Xgap8|wrong|b3adf3d091cfdabd|#10|blank-row wrong @ inject
 blank-row:inject:2025-03-dci-rpas-central:B9:L216:Xgap9|wrong|b3adf3d091cfdabd|#10|blank-row wrong @ inject
 blank-row:inject:2025-03-dci-rpas-central:B9:L217:Xgap10|wrong|3fef395c7f151175|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L319:Xgap3|wrong|9f0f2c4bda86e7ad|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L320:Xgap4|wrong|a3372adb282a8178|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L321:Xgap5|wrong|b6cffe8f28b96ec2|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L322:Xgap6|wrong|0e0f66df5fe8eae1|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L323:Xgap7|wrong|ea4481d4a9d9e22d|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L324:Xgap8|wrong|9c6273b6dc3ede29|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L325:Xgap9|wrong|d31c113fc14b1805|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L326:Xgap10|wrong|0c74be9673e017ad|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L327:Xgap11|wrong|f45e1802aece724a|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L328:Xgap12|wrong|052a769034e5c190|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L329:Xgap13|wrong|bec372c6a1c22961|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L330:Xgap14|wrong|8026ad5d608a76e7|#10|blank-row wrong @ inject
-blank-row:inject:2025-04-asset-mgmt-cfo-coo:B21:L331:Xgap15|wrong|3295c0d794e4dadd|#10|blank-row wrong @ inject
 blank-row:inject:2025-04-asset-mgmt-cfo-coo:B9:L111:Xgap0|wrong|885dee601c734922|#10|blank-row wrong @ inject
 blank-row:inject:2025-04-asset-mgmt-cfo-coo:B9:L112:Xgap1|wrong|1e89bf6acccf7839|#10|blank-row wrong @ inject
 blank-row:inject:2025-04-asset-mgmt-cfo-coo:B9:L113:Xgap2|wrong|e664b85ad4e469c5|#10|blank-row wrong @ inject
@@ -446,24 +443,6 @@ blank-row:inject:2025-05-redefining-fixed-income-private-credit:B6:L71:Xgap1|wro
 blank-row:inject:2025-05-redefining-fixed-income-private-credit:B6:L72:Xgap2|wrong|3957d749f1130b60|#10|blank-row wrong @ inject
 blank-row:inject:2025-05-redefining-fixed-income-private-credit:B6:L73:Xgap3|wrong|964b12c82410c019|#10|blank-row wrong @ inject
 blank-row:inject:2025-05-redefining-fixed-income-private-credit:B6:L74:Xgap4|wrong|c0f8f51a0ff35ba5|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L293:Xgap3|wrong|a39486d8aa0b4005|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L294:Xgap4|wrong|a4eb5d41860e312a|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L295:Xgap5|wrong|31f656e448c871f1|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L296:Xgap6|wrong|90e7bb554fd607a4|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L297:Xgap7|wrong|8c49d9dd36364030|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L298:Xgap8|wrong|9b78725355a257f2|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L299:Xgap9|wrong|ea0b808b5387ac55|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L300:Xgap10|wrong|d09b3304347d54fc|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L301:Xgap11|wrong|91f955db15d6d96e|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L302:Xgap12|wrong|df71b0bca6a23c61|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L303:Xgap13|wrong|b91759f158a9466b|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L304:Xgap14|wrong|15170ca3a66e1779|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L305:Xgap15|wrong|aa2cf618bede3f12|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L306:Xgap16|wrong|07ed94dccfbbe161|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L307:Xgap17|wrong|a44363c3c8f72144|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L308:Xgap18|wrong|2d6c895fcd2ea63a|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L309:Xgap19|wrong|c9883460c1caecc0|#10|blank-row wrong @ inject
-blank-row:inject:2025-06-ria-investment-forum:B18:L310:Xgap20|wrong|7cd2c636e9850a7e|#10|blank-row wrong @ inject
 blank-row:inject:2025-10-consultants-roundtable:B13:L82:Xgap0|wrong|96ca8aab00038840|#10|blank-row wrong @ inject
 blank-row:inject:2025-10-consultants-roundtable:B13:L83:Xgap1|wrong|22f7f7568fb6bf5f|#10|blank-row wrong @ inject
 blank-row:inject:2025-10-consultants-roundtable:B13:L84:Xgap2|wrong|132b7f309f2b207f|#10|blank-row wrong @ inject
@@ -480,10 +459,6 @@ blank-row:inject:2025-10-consultants-roundtable:B8:L58:Xgap2|wrong|dabe7c745ed24
 blank-row:inject:2025-10-fixed-income-trading-summit:B10:L84:Xgap0|wrong|1e76f9971bde6e36|#10|blank-row wrong @ inject
 blank-row:inject:2025-10-fixed-income-trading-summit:B10:L85:Xgap1|wrong|a49d93f7126d81ef|#10|blank-row wrong @ inject
 blank-row:inject:2025-10-fixed-income-trading-summit:B10:L86:Xgap2|wrong|4b486500805e74a6|#10|blank-row wrong @ inject
-blank-row:inject:2025-10-fixed-income-trading-summit:B1:L11:Xgap1|wrong|fac8290a055f9293|#10|blank-row wrong @ inject
-blank-row:inject:2025-10-fixed-income-trading-summit:B1:L12:Xgap2|wrong|fac8290a055f9293|#10|blank-row wrong @ inject
-blank-row:inject:2025-10-fixed-income-trading-summit:B1:L13:Xgap3|wrong|7a4beb285ae47c3f|#10|blank-row wrong @ inject
-blank-row:inject:2025-10-fixed-income-trading-summit:B1:L14:Xgap4|wrong|7a4beb285ae47c3f|#10|blank-row wrong @ inject
 blank-row:inject:2025-10-fixed-income-trading-summit:B5:L39:Xgap0|wrong|b446083525d858ee|#10|blank-row wrong @ inject
 blank-row:inject:2025-10-fixed-income-trading-summit:B5:L40:Xgap1|wrong|255924a92cd64fd4|#10|blank-row wrong @ inject
 blank-row:inject:2025-10-fixed-income-trading-summit:B5:L41:Xgap2|wrong|255924a92cd64fd4|#10|blank-row wrong @ inject
@@ -521,17 +496,6 @@ blank-row:inject:2026-03-rpas-central-four-seasons:B11:L106:Xgap2|wrong|0f1b00a2
 blank-row:inject:2026-03-rpas-central-four-seasons:B12:L111:Xgap0|wrong|1422554f7589997c|#10|blank-row wrong @ inject
 blank-row:inject:2026-03-rpas-central-four-seasons:B12:L112:Xgap1|wrong|1558e633574359be|#10|blank-row wrong @ inject
 blank-row:inject:2026-03-rpas-central-four-seasons:B12:L113:Xgap2|wrong|226c00d4106d5984|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L19:Xgap1|wrong|0bf0b8b893762939|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L20:Xgap2|wrong|0bf0b8b893762939|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L21:Xgap3|wrong|a1126cd074796048|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L22:Xgap4|wrong|a1126cd074796048|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L23:Xgap5|wrong|83d6258903539e05|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L24:Xgap6|wrong|83d6258903539e05|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L25:Xgap7|wrong|83d6258903539e05|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L26:Xgap8|wrong|c6b69c9585d7e5a8|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L27:Xgap9|wrong|c6b69c9585d7e5a8|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L28:Xgap10|wrong|182b69c0a11a2fcc|#10|blank-row wrong @ inject
-blank-row:inject:2026-03-rpas-central-four-seasons:B2:L29:Xgap11|wrong|182b69c0a11a2fcc|#10|blank-row wrong @ inject
 blank-row:inject:2026-03-rpas-central-four-seasons:B6:L53:Xgap0|wrong|1b2400e2e69bbd08|#10|blank-row wrong @ inject
 blank-row:inject:2026-03-rpas-central-four-seasons:B6:L54:Xgap1|wrong|d509a9ed100081b1|#10|blank-row wrong @ inject
 blank-row:inject:2026-03-rpas-central-four-seasons:B6:L55:Xgap2|wrong|eb2be9073ef6fc25|#10|blank-row wrong @ inject
@@ -591,14 +555,6 @@ blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L50:Xgap15|wrong|10cf28f7
 blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B5:L54:Xgap0|wrong|ea45f3f2e68c6720|#10|blank-row wrong @ inject
 blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B5:L55:Xgap1|wrong|4cc69d503ef20fee|#10|blank-row wrong @ inject
 blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B5:L56:Xgap2|wrong|5c0a31e23419d277|#10|blank-row wrong @ inject
-blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B7:L68:Xgap1|wrong|31b0dd2d63031cd0|#10|blank-row wrong @ inject
-blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B7:L69:Xgap2|wrong|31b0dd2d63031cd0|#10|blank-row wrong @ inject
-blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B7:L70:Xgap3|wrong|971a22ab87c3e4a4|#10|blank-row wrong @ inject
-blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B7:L71:Xgap4|wrong|971a22ab87c3e4a4|#10|blank-row wrong @ inject
-blank-row:inject:2026-05-fintech-forum-cto-summit:B1:L11:Xgap1|wrong|f62beddad6bfaba7|#10|blank-row wrong @ inject
-blank-row:inject:2026-05-fintech-forum-cto-summit:B1:L12:Xgap2|wrong|f62beddad6bfaba7|#10|blank-row wrong @ inject
-blank-row:inject:2026-05-fintech-forum-cto-summit:B1:L13:Xgap3|wrong|41dd12ab1764678d|#10|blank-row wrong @ inject
-blank-row:inject:2026-05-fintech-forum-cto-summit:B1:L14:Xgap4|wrong|41dd12ab1764678d|#10|blank-row wrong @ inject
 blank-row:inject:2026-05-fintech-forum-cto-summit:B3:L25:Xgap0|wrong|6098748b25e30385|#10|blank-row wrong @ inject
 blank-row:inject:2026-05-fintech-forum-cto-summit:B3:L26:Xgap1|wrong|7a5f007487176a07|#10|blank-row wrong @ inject
 blank-row:inject:2026-05-fintech-forum-cto-summit:B3:L27:Xgap2|wrong|a1570e44bd728edb|#10|blank-row wrong @ inject
@@ -689,25 +645,6 @@ blank-row:inject:east-coast:B18:L91:Xgap1|wrong|19159b9083030d8d|#10|blank-row w
 blank-row:inject:east-coast:B18:L92:Xgap2|wrong|038ab70e26d79be0|#10|blank-row wrong @ inject
 blank-row:inject:east-coast:B18:L93:Xgap3|wrong|60359f0a74fbba4d|#10|blank-row wrong @ inject
 blank-row:inject:east-coast:B18:L94:Xgap4|wrong|9a9d8cd5a7c1f0c6|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L102:Xgap3|wrong|1a54496e637867bd|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L103:Xgap4|wrong|2ac71b2478936b21|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L104:Xgap5|wrong|9ae0ddc9f456d4ef|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L105:Xgap6|wrong|fd7fb4a04562315c|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L106:Xgap7|wrong|abe16c7882aa31cd|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L107:Xgap8|wrong|d2cd78d0293de71a|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L108:Xgap9|wrong|da2a85313578ae18|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L109:Xgap10|wrong|e3e15ecacee37789|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L110:Xgap11|wrong|3dc50433613d6524|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L111:Xgap12|wrong|3564b1b72c759b69|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L112:Xgap13|wrong|3646079c465bb5a2|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L113:Xgap14|wrong|2df2de4111f4c8e7|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L114:Xgap15|wrong|31d3f48f52adeadd|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L115:Xgap16|wrong|0d095f16a919fc69|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L116:Xgap17|wrong|36b6c331963794c2|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L117:Xgap18|wrong|39d5e8fe9091f113|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L118:Xgap19|wrong|372b34492aceb168|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L119:Xgap20|wrong|1ff74de82f07dc5c|#10|blank-row wrong @ inject
-blank-row:inject:east-coast:B19:L120:Xgap21|wrong|9e274d3bc6dc6335|#10|blank-row wrong @ inject
 blank-row:inject:east-coast:B24:L141:Xgap2|wrong|b76c144b22e3c8fa|#10|blank-row wrong @ inject
 blank-row:inject:east-coast:B24:L142:Xgap3|wrong|5e8fd700a0f4759b|#10|blank-row wrong @ inject
 blank-row:inject:east-coast:B24:L143:Xgap4|wrong|22093ed10919d71c|#10|blank-row wrong @ inject
@@ -831,17 +768,6 @@ blank-row:inject:fintech:B14:L99:Xgap8|wrong|2caafba6e62a292c|#10|blank-row wron
 blank-row:inject:fintech:B15:L111:Xgap0|wrong|bc7484a11ad636ee|#10|blank-row wrong @ inject
 blank-row:inject:fintech:B15:L112:Xgap1|wrong|0f2f7f8df1a7b342|#10|blank-row wrong @ inject
 blank-row:inject:fintech:B15:L113:Xgap2|wrong|90e77939abdd3c7b|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L46:Xgap1|wrong|19e2a502413c3e1b|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L47:Xgap2|wrong|19e2a502413c3e1b|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L48:Xgap3|wrong|253212cf1eeedbf9|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L49:Xgap4|wrong|253212cf1eeedbf9|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L50:Xgap5|wrong|89c22a83ef7c8102|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L51:Xgap6|wrong|89c22a83ef7c8102|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L52:Xgap7|wrong|89c22a83ef7c8102|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L53:Xgap8|wrong|849942460734771a|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L54:Xgap9|wrong|849942460734771a|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L55:Xgap10|wrong|f16622a229c6a645|#10|blank-row wrong @ inject
-blank-row:inject:fintech:B9:L56:Xgap11|wrong|f16622a229c6a645|#10|blank-row wrong @ inject
 blank-row:inject:fixed-income:B13:L78:Xgap0|wrong|efe99942298691d4|#10|blank-row wrong @ inject
 blank-row:inject:fixed-income:B13:L79:Xgap1|wrong|d723e2d120f58311|#10|blank-row wrong @ inject
 blank-row:inject:fixed-income:B13:L80:Xgap2|wrong|eb0c5050519cd827|#10|blank-row wrong @ inject
@@ -866,10 +792,6 @@ blank-row:inject:fixed-income:B15:L106:Xgap2|wrong|cda965434a60a3af|#10|blank-ro
 blank-row:inject:fixed-income:B23:L194:Xgap0|wrong|dc361dcac001d2af|#10|blank-row wrong @ inject
 blank-row:inject:fixed-income:B23:L196:Xgap1|wrong|dc361dcac001d2af|#10|blank-row wrong @ inject
 blank-row:inject:fixed-income:B23:L197:Xgap2|wrong|754a9c06463ebdab|#10|blank-row wrong @ inject
-blank-row:inject:fixed-income:B8:L46:Xgap1|wrong|5ea21e2f918554f2|#10|blank-row wrong @ inject
-blank-row:inject:fixed-income:B8:L47:Xgap2|wrong|5ea21e2f918554f2|#10|blank-row wrong @ inject
-blank-row:inject:fixed-income:B8:L48:Xgap3|wrong|676d35b8ad234b6b|#10|blank-row wrong @ inject
-blank-row:inject:fixed-income:B8:L49:Xgap4|wrong|676d35b8ad234b6b|#10|blank-row wrong @ inject
 blank-row:inject:fixed-income:B9:L54:Xgap0|wrong|42f5c6dceda3f548|#10|blank-row wrong @ inject
 blank-row:inject:fixed-income:B9:L55:Xgap1|wrong|01db710baa8f85a4|#10|blank-row wrong @ inject
 blank-row:inject:fixed-income:B9:L56:Xgap2|wrong|a4b45f2e127ce362|#10|blank-row wrong @ inject
@@ -960,24 +882,6 @@ blank-row:inject:ria:B19:L126:Xgap6|wrong|56de0b555fa4dc17|#10|blank-row wrong @
 blank-row:inject:ria:B19:L127:Xgap7|wrong|8ca6cf79cb860c79|#10|blank-row wrong @ inject
 blank-row:inject:ria:B19:L128:Xgap8|wrong|8ca6cf79cb860c79|#10|blank-row wrong @ inject
 blank-row:inject:ria:B19:L129:Xgap9|wrong|ff1725134c131e7e|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L319:Xgap4|wrong|215be89095dab55f|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L320:Xgap5|wrong|0a460d4c3164d478|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L321:Xgap6|wrong|223563dac5686829|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L322:Xgap7|wrong|1ebe257eca3362bd|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L323:Xgap8|wrong|22754fd1473bca5f|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L324:Xgap9|wrong|545ec1445a963b03|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L325:Xgap10|wrong|da889db05b3ce17d|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L326:Xgap11|wrong|3af25020512fc471|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L327:Xgap12|wrong|7fee879048b08661|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L328:Xgap13|wrong|28cffe6580495196|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L329:Xgap14|wrong|8c23718f9e4404bf|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L330:Xgap15|wrong|3128600f8e0c9360|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L331:Xgap16|wrong|e81bb6b9bdd3451d|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L332:Xgap17|wrong|f015ce0432623a3c|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L333:Xgap18|wrong|25825680b07af21a|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L334:Xgap19|wrong|32aab8013061b4ae|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L335:Xgap20|wrong|6349db9a6de129ae|#10|blank-row wrong @ inject
-blank-row:inject:ria:B25:L336:Xgap21|wrong|57f847e85b4d06d2|#10|blank-row wrong @ inject
 blank-row:inject:ria:B9:L42:Xgap0|wrong|4b376c9d512e2351|#10|blank-row wrong @ inject
 blank-row:inject:ria:B9:L43:Xgap1|wrong|06539f52f0f91e68|#10|blank-row wrong @ inject
 blank-row:inject:ria:B9:L44:Xgap2|wrong|1eedca0f5001f23b|#10|blank-row wrong @ inject
@@ -1024,17 +928,6 @@ blank-row:inject:rpas:B17:L131:Xgap2|wrong|a5d6f0f175f41f98|#10|blank-row wrong 
 blank-row:inject:rpas:B45:L315:Xgap0|wrong|4d5e12d7b6900b17|#10|blank-row wrong @ inject
 blank-row:inject:rpas:B45:L317:Xgap1|wrong|4d5e12d7b6900b17|#10|blank-row wrong @ inject
 blank-row:inject:rpas:B45:L318:Xgap2|wrong|352922408277dcd7|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L45:Xgap1|wrong|a6731fb2ee2d411d|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L46:Xgap2|wrong|a6731fb2ee2d411d|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L47:Xgap3|wrong|98a5e6c6d950bc51|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L48:Xgap4|wrong|98a5e6c6d950bc51|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L49:Xgap5|wrong|49c85cdfb18e4cdc|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L50:Xgap6|wrong|49c85cdfb18e4cdc|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L51:Xgap7|wrong|49c85cdfb18e4cdc|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L52:Xgap8|wrong|73f6cec1e456a17c|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L53:Xgap9|wrong|73f6cec1e456a17c|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L54:Xgap10|wrong|aacec5b7a82104a4|#10|blank-row wrong @ inject
-blank-row:inject:rpas:B8:L55:Xgap11|wrong|aacec5b7a82104a4|#10|blank-row wrong @ inject
 blank-row:remove:2024-05-east-coast-family-office:B2:L24:Xgap|wrong|e43544c3d07ae7ae|#10|blank-row wrong @ remove
 blank-row:remove:2025-03-dci-rpas-central:B0:L5:Xgap|wrong|95cf315b569f7a90|#10|blank-row wrong @ remove
 blank-row:remove:2025-03-dci-rpas-central:B17:L338:Xgap|wrong|b5dbe60934fe0024|#10|blank-row wrong @ remove
@@ -1045,208 +938,18 @@ blank-row:remove:east-coast:B21:L265:Xgap|wrong|43e5b699c0b71d29|#10|blank-row w
 blank-row:remove:fintech:B24:L276:Xgap|text_drift|0714e12baed4a061|#10|section fused: warning anchor moved
 blank-row:remove:fixed-income:B22:L245:Xgap|text_drift|0714e12baed4a061|#10|section fused: warning anchor moved
 blank-row:remove:rpas:B25:L229:Xgap|text_drift|0563a9eeee8deaa1|#10|section fused: warning anchor moved
-column-shift:2024-05-east-coast-family-office:B0:L0:X0|wrong|a021768c83b0d05d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
-column-shift:2024-05-east-coast-family-office:B10:L67:X0|wrong|dc5cd8285b10cb13|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
-column-shift:2024-05-east-coast-family-office:B14:L206:X0|wrong|9f6be2826ef677bd|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
-column-shift:2024-05-east-coast-family-office:B1:L7:X0|wrong|68e579f71b9de87f|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
-column-shift:2024-05-east-coast-family-office:B2:L12:X0|wrong|284049b458711a70|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
 column-shift:2024-05-east-coast-family-office:B4:L18:X0|wrong|a57db9af11930d1d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
-column-shift:2024-05-east-coast-family-office:B6:L25:X0|wrong|dbddaf22a585fd86|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
-column-shift:2024-05-east-coast-family-office:B8:L49:X0|wrong|bc50b4c7f5fd910d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
-column-shift:2024-05-east-coast-family-office:B9:L61:X0|wrong|9d40bb589fd5794d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2024-05-east-coast-family-office
-column-shift:2025-03-dci-rpas-central:B0:L0:X0|wrong|dafefeccec2a6311|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B11:L229:X0|wrong|d4c38c60cab160e0|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
 column-shift:2025-03-dci-rpas-central:B12:L231:X0|wrong|60c0d30a471d8aff|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B14:L238:X0|wrong|22524792c3ffa344|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B16:L250:X0|wrong|44b9e035f4ec0a3a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B19:L294:X0|wrong|fe0bab58235fc2bc|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B20:L315:X0|wrong|64c883ffa95e3f1d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B21:L320:X0|wrong|b1ccc572ccb57238|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B22:L334:X0|signal_loss|2cfe21b1cde3e1b7|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B23:L339:X0|signal_loss|3fe2de9701648ca9|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B24:L373:X0|signal_loss|be465f99b184a2b4|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B25:L420:X0|signal_loss|2998470a583efc45|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B4:L151:X0|wrong|d84683fae7a83d4b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B7:L182:X0|wrong|07dd75a9bd021802|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B8:L197:X0|wrong|3972d7e601867e71|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-03-dci-rpas-central:B9:L206:X0|wrong|8a411f48a341af7a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-03-dci-rpas-central
-column-shift:2025-04-asset-mgmt-cfo-coo:B0:L0:X0|wrong|19a0c810fb623afc|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
 column-shift:2025-04-asset-mgmt-cfo-coo:B11:L120:X0|wrong|809c152599e75750|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
-column-shift:2025-04-asset-mgmt-cfo-coo:B17:L223:X0|wrong|2a70086c556d3969|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
-column-shift:2025-04-asset-mgmt-cfo-coo:B20:L310:X0|wrong|00c017711272376e|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
-column-shift:2025-04-asset-mgmt-cfo-coo:B21:L315:X0|signal_loss|1ed369f76bca5f67|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-04-asset-mgmt-cfo-coo
-column-shift:2025-04-asset-mgmt-cfo-coo:B22:L334:X0|signal_loss|1a7f8a6d11d42b29|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-04-asset-mgmt-cfo-coo
-column-shift:2025-04-asset-mgmt-cfo-coo:B2:L16:X0|signal_loss|d11850c0a844aa90|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-04-asset-mgmt-cfo-coo
-column-shift:2025-04-asset-mgmt-cfo-coo:B3:L37:X0|wrong|1a9127682652722c|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
-column-shift:2025-04-asset-mgmt-cfo-coo:B4:L52:X0|wrong|70e1b572e47bc0bb|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-04-asset-mgmt-cfo-coo
-column-shift:2025-05-redefining-fixed-income-private-credit:B0:L0:X0|wrong|788dad20685fdd17|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
-column-shift:2025-05-redefining-fixed-income-private-credit:B10:L86:X0|wrong|8f8b151ee53f5dde|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
-column-shift:2025-05-redefining-fixed-income-private-credit:B15:L197:X0|wrong|afba5e232795d545|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
-column-shift:2025-05-redefining-fixed-income-private-credit:B17:L210:X0|wrong|f7e2363aecb93cc6|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
-column-shift:2025-05-redefining-fixed-income-private-credit:B1:L6:X0|wrong|c02125c269bf77d9|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
-column-shift:2025-05-redefining-fixed-income-private-credit:B2:L27:X0|wrong|e9d86cf3d14f427f|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
-column-shift:2025-05-redefining-fixed-income-private-credit:B34:L359:X0|wrong|5e470c637c875e07|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
-column-shift:2025-05-redefining-fixed-income-private-credit:B3:L42:X0|wrong|3f97337b9013b0df|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
-column-shift:2025-05-redefining-fixed-income-private-credit:B4:L54:X0|wrong|3f97337b9013b0df|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
 column-shift:2025-05-redefining-fixed-income-private-credit:B8:L79:X0|wrong|b4ae64e0367024d4|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-05-redefining-fixed-income-private-credit
-column-shift:2025-06-ria-investment-forum:B10:L122:X0|wrong|f28ece7a5d31848a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-06-ria-investment-forum
-column-shift:2025-06-ria-investment-forum:B11:L136:X0|signal_loss|a98d978500e4b72e|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-06-ria-investment-forum
-column-shift:2025-06-ria-investment-forum:B12:L215:X0|wrong|21795940d8e1340b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-06-ria-investment-forum
-column-shift:2025-06-ria-investment-forum:B13:L236:X0|wrong|0a3bf4d6b6c0a1b7|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-06-ria-investment-forum
-column-shift:2025-06-ria-investment-forum:B15:L257:X0|wrong|0a3bf4d6b6c0a1b7|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-06-ria-investment-forum
-column-shift:2025-06-ria-investment-forum:B1:L4:X0|wrong|6d6cf697c1a7fa84|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-06-ria-investment-forum
-column-shift:2025-06-ria-investment-forum:B6:L28:X0|wrong|52ef734579b22391|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-06-ria-investment-forum
-column-shift:2025-06-ria-investment-forum:B7:L33:X0|wrong|6816d277d4183934|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-06-ria-investment-forum
-column-shift:2025-06-ria-investment-forum:B8:L38:X0|signal_loss|05952f96213c5e9d|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-06-ria-investment-forum
-column-shift:2025-06-ria-investment-forum:B9:L109:X0|signal_loss|066ca5748819c86f|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-06-ria-investment-forum
-column-shift:2025-10-consultants-roundtable:B0:L0:X0|wrong|8ecee9bd545fc7c3|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B15:L95:X0|wrong|ed1d95cce267627c|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B16:L100:X0|wrong|d3a694612c76aa65|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B17:L106:X0|wrong|675da566050147f1|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B18:L112:X0|wrong|073238219cde2f18|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B19:L118:X0|signal_loss|328370ca0e4005b6|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B20:L125:X0|wrong|e3c9ce37f3628a21|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B21:L133:X0|signal_loss|8f6cee795a223832|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B22:L139:X0|signal_loss|c12b5ccef511f170|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B23:L151:X0|signal_loss|1a13d6366ff620a1|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B24:L158:X0|wrong|f98b2b54190c9541|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B25:L164:X0|signal_loss|dc6866a157252169|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B26:L171:X0|signal_loss|7f7510469198b9b1|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B27:L173:X0|wrong|db40750d837b58c1|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B28:L209:X0|signal_loss|6f44ca82bbb6c746|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B29:L225:X0|signal_loss|66121741a4d0f501|BL-MUTATION-COLUMN-SHIFT|column-shift signal_loss @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B4:L16:X0|wrong|bd2b99b82548a44a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-consultants-roundtable:B6:L44:X0|wrong|495510fbce033df8|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-consultants-roundtable
-column-shift:2025-10-fixed-income-trading-summit:B0:L0:X0|wrong|37669a0346bf8842|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
-column-shift:2025-10-fixed-income-trading-summit:B10:L83:X0|wrong|ffe4dbbf6925ef5b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
-column-shift:2025-10-fixed-income-trading-summit:B1:L8:X0|wrong|42e1caea0731c22b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
-column-shift:2025-10-fixed-income-trading-summit:B3:L25:X0|wrong|26345318e65e06c3|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
-column-shift:2025-10-fixed-income-trading-summit:B4:L32:X0|wrong|787e0ab9bcefe6c0|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
 column-shift:2025-10-fixed-income-trading-summit:B6:L51:X0|wrong|2aff4ee97de87c00|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
-column-shift:2025-10-fixed-income-trading-summit:B8:L58:X0|wrong|0c0589748cd31722|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
-column-shift:2025-10-fixed-income-trading-summit:B9:L76:X0|wrong|64d04f40f35c6319|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2025-10-fixed-income-trading-summit
-column-shift:2026-03-rpas-central-four-seasons:B0:L0:X0|wrong|988154f818d5568a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-03-rpas-central-four-seasons
-column-shift:2026-03-rpas-central-four-seasons:B10:L96:X0|wrong|3659f1e3b032fd1d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-03-rpas-central-four-seasons
-column-shift:2026-03-rpas-central-four-seasons:B11:L103:X0|wrong|c92925e4fe3b1a4e|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-03-rpas-central-four-seasons
-column-shift:2026-03-rpas-central-four-seasons:B12:L110:X0|wrong|1c79a5ac162275c3|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-03-rpas-central-four-seasons
-column-shift:2026-03-rpas-central-four-seasons:B2:L16:X0|wrong|bbdd74e67fd75669|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-03-rpas-central-four-seasons
-column-shift:2026-03-rpas-central-four-seasons:B3:L32:X0|wrong|ff45c5f4fbe48a02|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-03-rpas-central-four-seasons
-column-shift:2026-03-rpas-central-four-seasons:B4:L39:X0|wrong|8e370e50d18a5f8d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-03-rpas-central-four-seasons
 column-shift:2026-03-rpas-central-four-seasons:B7:L67:X0|wrong|7722ba9f051e5903|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-03-rpas-central-four-seasons
 column-shift:2026-03-rpas-central-four-seasons:B8:L74:X0|wrong|d2c4b991602938f6|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-03-rpas-central-four-seasons
-column-shift:2026-04-asset-mgmt-cfo-coo-waldorf:B0:L0:X0|wrong|c1a5f37015187b7b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
 column-shift:2026-04-asset-mgmt-cfo-coo-waldorf:B2:L24:X0|wrong|7327e84a1d114abc|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
-column-shift:2026-04-asset-mgmt-cfo-coo-waldorf:B36:L744:X0|wrong|a650160ebe389e85|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
 column-shift:2026-04-asset-mgmt-cfo-coo-waldorf:B3:L31:X0|wrong|8f182ffcd6384b06|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
-column-shift:2026-04-asset-mgmt-cfo-coo-waldorf:B7:L65:X0|wrong|7cfe707e2c5764d0|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
-column-shift:2026-04-asset-mgmt-cfo-coo-waldorf:B8:L74:X0|wrong|2d62f85c3ef3fecf|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
-column-shift:2026-05-fintech-forum-cto-summit:B0:L0:X0|wrong|0fa81802445a2ea2|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-05-fintech-forum-cto-summit
-column-shift:2026-05-fintech-forum-cto-summit:B1:L8:X0|wrong|46d3d052f54460bc|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-05-fintech-forum-cto-summit
-column-shift:2026-05-fintech-forum-cto-summit:B2:L17:X0|wrong|5624c59228d60218|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-05-fintech-forum-cto-summit
 column-shift:2026-05-fintech-forum-cto-summit:B4:L40:X0|wrong|8cf64e04ff7a158b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-05-fintech-forum-cto-summit
 column-shift:2026-05-fintech-forum-cto-summit:B5:L47:X0|wrong|8b79a3d404234767|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-05-fintech-forum-cto-summit
-column-shift:2026-05-fintech-forum-cto-summit:B6:L50:X0|wrong|6085904bc049bd66|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-05-fintech-forum-cto-summit
-column-shift:2026-05-fintech-forum-cto-summit:B8:L75:X0|wrong|fbc77ae33f37037d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ 2026-05-fintech-forum-cto-summit
-column-shift:consultants:B0:L0:X0|wrong|ba4474d228b1c8b4|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B11:L53:X0|wrong|de2c8900f828ca7c|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B14:L62:X0|wrong|7665e51636dea024|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B15:L84:X0|wrong|e2d1fc88330bf9fe|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B16:L91:X0|wrong|38f1702d7a01be64|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B17:L98:X0|wrong|5b7383388d37218e|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B18:L105:X0|wrong|5bda47435b7e93e0|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B19:L112:X0|wrong|9694e7c0c838eed3|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B1:L3:X0|wrong|4f48c9034fdfdcdc|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B20:L119:X0|wrong|4bcdae965ff6b5de|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B22:L139:X0|wrong|b9d37d95158886ee|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B24:L146:X0|wrong|c6f615db0125cad2|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B26:L184:X0|wrong|fa15e85c8827828b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B28:L190:X0|wrong|d5c2f0e16097b8a8|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B2:L9:X0|wrong|f1902247ba473f8f|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B30:L199:X0|wrong|ded3ee29d2008365|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B32:L208:X0|wrong|c4a4e55dde0cfcef|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B34:L217:X0|wrong|9a313a1e8bb6515f|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B36:L225:X0|wrong|0c48fb857bf5481d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B37:L233:X0|wrong|7161431d065606f5|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B4:L21:X0|wrong|80a8edb249a37f8e|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:consultants:B5:L30:X0|wrong|993801de2186d725|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ consultants
-column-shift:east-coast:B0:L0:X0|wrong|60f013f8f6b42d02|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B12:L43:X0|wrong|4c612f1b1af54662|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B15:L66:X0|wrong|eb8dfeed61369e79|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B16:L77:X0|wrong|76cd218c32f14c7b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B17:L80:X0|wrong|cca02890cc945052|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B18:L89:X0|wrong|4f6e132d00be45bf|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B2:L5:X0|wrong|1ad62fcd6705ac5a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B3:L8:X0|wrong|68e579f71b9de87f|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B5:L20:X0|wrong|9d40bb589fd5794d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B7:L28:X0|wrong|065f21e8009b7bf5|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:east-coast:B9:L34:X0|wrong|5677484ee3eb6b08|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ east-coast
-column-shift:fintech:B0:L0:X0|wrong|a3813a868dcaabef|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B11:L77:X0|wrong|3ce9bef31602be59|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B14:L89:X0|wrong|80fff035b9e1f8ae|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B20:L144:X0|wrong|a6a26a1b01ae4194|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B22:L162:X0|wrong|a6a26a1b01ae4194|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B23:L199:X0|wrong|de3d7b81462bd4ae|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B2:L5:X0|wrong|8102847038cc7e4d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B3:L12:X0|wrong|3e3826d204a404a4|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B46:L299:X0|wrong|405a25847fdde412|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B6:L33:X0|wrong|c016a10cfab87f52|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fintech:B9:L43:X0|wrong|f535376942baa9ad|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fintech
-column-shift:fixed-income:B0:L0:X0|wrong|b78890acf4e3e4cf|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B10:L67:X0|wrong|de61c2722d5960b5|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B13:L76:X0|wrong|560ae3bd237e634a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B14:L95:X0|wrong|9c48e29410243513|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B15:L102:X0|wrong|72534093e0ee019c|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B16:L109:X0|wrong|448a4525c6751a99|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B18:L127:X0|wrong|c76b4cb8118993ba|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B1:L3:X0|wrong|3156a55309d0569b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B20:L165:X0|wrong|be86e1fac0d16e8a|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B21:L171:X0|wrong|63f7e9f75ae793f9|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B23:L194:X0|wrong|dc361dcac001d2af|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B2:L11:X0|wrong|0c2c144ed262a7c9|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B35:L221:X0|wrong|0973fc08eb8c4fc3|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B4:L25:X0|wrong|b6fe529063922871|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B5:L33:X0|wrong|bfefa8606c0be6fd|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:fixed-income:B8:L43:X0|wrong|3d573f9888d5655e|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ fixed-income
-column-shift:redefining-fi:B11:L54:X0|wrong|778de989849043ed|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B14:L63:X0|wrong|c794f14fc032941b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B15:L84:X0|wrong|bc062be05dc42f34|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B16:L98:X0|wrong|80cd732a28aeb0c5|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B17:L101:X0|wrong|11c240d7a83b7981|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B18:L115:X0|wrong|60828a47b6f53bd1|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B1:L3:X0|wrong|788dad20685fdd17|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B2:L9:X0|wrong|afba5e232795d545|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B4:L22:X0|wrong|f7e2363aecb93cc6|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B5:L30:X0|wrong|a1e59804ba382189|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:redefining-fi:B7:L37:X0|wrong|8f8b151ee53f5dde|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ redefining-fi
-column-shift:ria:B0:L0:X0|wrong|00c587b86d33cc86|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B12:L58:X0|wrong|b023606aaaeb6a34|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B15:L67:X0|wrong|a1f568e0cb8776ef|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B16:L88:X0|wrong|dc753f8687083fee|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B17:L101:X0|wrong|987fc9c2e6c74182|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B18:L104:X0|wrong|d9f2b07075a93080|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B19:L118:X0|wrong|cbce87f8a4591ff5|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B1:L4:X0|wrong|a7b975a16150acf3|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B2:L10:X0|wrong|eaac225dee666678|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B4:L23:X0|wrong|774cc6a612cef1c9|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:ria:B5:L29:X0|wrong|2a4735c2c75a3b21|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ ria
-column-shift:rpas:B0:L0:X0|wrong|94730c40c9c1ddfc|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B11:L81:X0|wrong|86087b14af30e766|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B14:L93:X0|wrong|d27a3b7a51ae6037|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B15:L113:X0|wrong|05c9d336b248925d|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B16:L120:X0|wrong|ab64cbb9064e6cf3|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B17:L127:X0|wrong|dfc72bc846dcd5c2|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B18:L134:X0|wrong|96193ac7c1ad77d5|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B1:L3:X0|wrong|f52e02262ccbd6af|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B20:L152:X0|wrong|a908a667b560b3f6|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B22:L192:X0|wrong|f1ff07bdb70ff396|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B24:L201:X0|wrong|7ce4e8a8d19c23b6|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B25:L207:X0|wrong|7b427e901065ae89|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B2:L11:X0|wrong|40a8b26c1aaa062b|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B36:L263:X0|wrong|ce0d1036f46ff827|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B45:L315:X0|wrong|4d5e12d7b6900b17|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B57:L342:X0|wrong|8cf7a962704fb721|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B5:L32:X0|wrong|dfff2dd439906e1e|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
-column-shift:rpas:B8:L42:X0|wrong|61ca0f9f79a61c08|BL-MUTATION-COLUMN-SHIFT|column-shift wrong @ rpas
 header-typo:2024-05-east-coast-family-office:B10:L67:X0|wrong|4c612f1b1af54662|#5|header-typo wrong @ 2024-05-east-coast-family-office
 header-typo:2024-05-east-coast-family-office:B1:L7:X0|wrong|68e579f71b9de87f|#5|header-typo wrong @ 2024-05-east-coast-family-office
 header-typo:2024-05-east-coast-family-office:B4:L18:X0|wrong|c944ab82bb665b7c|#5|header-typo wrong @ 2024-05-east-coast-family-office

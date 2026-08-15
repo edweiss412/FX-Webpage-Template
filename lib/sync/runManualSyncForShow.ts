@@ -17,6 +17,9 @@ import {
   SHEET_UNAVAILABLE,
   STAGED_PARSE_SOURCE_GONE,
   SYNC_INFRA_ERROR,
+  type PreparedProcessOneFile,
+  classifySyncFailure,
+  errorPayload,
   resolveStaleSyncProblemAlerts_unlocked,
   syncProblemCodeForStatus,
   withPostgresSyncPipelineLock,
@@ -25,7 +28,7 @@ import type { SyncMode } from "@/lib/sync/perFileProcessor";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { buildParseErrorContext } from "@/lib/sync/parseErrorContext";
 import { revalidateShowFromResult } from "@/lib/data/showCacheTag";
-import { log } from "@/lib/log";
+import { log, serializeError } from "@/lib/log";
 
 export const FINALIZE_OWNED_SHOW = "FINALIZE_OWNED_SHOW" as const;
 
@@ -52,12 +55,16 @@ export type RunManualSyncForShowDeps = {
   ) => Promise<boolean>;
   getActiveWatchedFolderId?: typeof getActiveWatchedFolderId;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
+  // `prepared` is REQUIRED here, not optional (spec 2026-08-14 §3.1): an optional parameter
+  // re-creates the shipped defect for the next caller, whereas a required one makes the omission a
+  // compile error. TS1016 forces the fifth parameter to lose its optional marker with it.
   processOneFile_unlocked?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
     mode: SyncMode,
     fileMeta: DriveListedFile,
-    deps?: ProcessOneFileDeps,
+    deps: ProcessOneFileDeps | undefined,
+    prepared: PreparedProcessOneFile,
   ) => Promise<ProcessOneFileResult>;
   processOneFile?: (
     driveFileId: string,
@@ -272,7 +279,12 @@ export async function runManualSyncForShow_unlocked(
   driveFileId: string,
   mode: Extract<SyncMode, "manual">,
   fileMeta: DriveListedFile,
-  deps: RunManualSyncForShowDeps = {},
+  deps: RunManualSyncForShowDeps,
+  // Required (spec §3.1). `processOneFile_unlocked` throws SyncInfraError unconditionally when
+  // `prepared` is absent, so the shipped five-argument forward made the retry of any non-archived
+  // existing show throw before any sync work. Required — not optional-with-fallback — so the next
+  // caller that forgets it fails to compile instead of failing in production.
+  prepared: PreparedProcessOneFile,
 ): Promise<ProcessOneFileResult> {
   await assertShowLockHeld(tx, driveFileId);
   const runUnlocked = deps.processOneFile_unlocked ?? defaultProcessOneFile_unlocked;
@@ -283,14 +295,67 @@ export async function runManualSyncForShow_unlocked(
   // already captured one wins - it knows the wider boundary.
   const attemptStartedAtMs =
     deps.processDeps?.attemptStartedAtMs ?? (deps.processDeps?.now?.() ?? new Date()).getTime();
-  return await runUnlocked(tx, driveFileId, mode, fileMeta, {
-    ...(deps.processDeps ?? {}),
-    attemptStartedAtMs,
-    ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
-    ...(deps.expectedModifiedTime !== undefined
-      ? { expectedModifiedTime: deps.expectedModifiedTime }
-      : {}),
-  });
+  // Tracked sink (spec §3.1 R3 F1): the retry route calls THIS entry point directly, bypassing the
+  // locked wrapper's catch, so a throw inside processOneFile_unlocked before its first emission
+  // would otherwise reach only the route's generic outer guard and record nothing. Family (i) only
+  // — tx-bound recovery rows roll back with an aborted tx, so a durable row exists iff this sink
+  // fired, and the catch-emit keys on exactly that.
+  const baseSink = deps.processDeps?.logSync;
+  let rowWritten = false;
+  const trackedSink: ProcessOneFileDeps["logSync"] = baseSink
+    ? async (entry) => {
+        rowWritten = true;
+        await baseSink(entry);
+      }
+    : undefined;
+  try {
+    return await runUnlocked(
+      tx,
+      driveFileId,
+      mode,
+      fileMeta,
+      {
+        ...(deps.processDeps ?? {}),
+        ...(trackedSink ? { logSync: trackedSink } : {}),
+        attemptStartedAtMs,
+        ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
+        ...(deps.expectedModifiedTime !== undefined
+          ? { expectedModifiedTime: deps.expectedModifiedTime }
+          : {}),
+      },
+      prepared,
+    );
+  } catch (error) {
+    if (!rowWritten && baseSink) {
+      try {
+        await baseSink({
+          driveFileId,
+          outcome: "parse_error",
+          code: classifySyncFailure(error),
+          payload: errorPayload(error),
+        });
+      } catch (sinkError) {
+        // Assigned to a local (NOT chained) so prettier keeps `log.error(` on ONE line —
+        // stripLogEmissionCalls cannot match a `log` / `.error` split across lines.
+        const escalation = log.error("manual sync sync_log emit failed", {
+          source: "sync.manualResync",
+          code: "SYNC_LOG_EMIT_FAILED",
+          driveFileId,
+          error: serializeError(sinkError),
+        });
+        // Invariant 10 (prod diff review R1 P0): this catch runs INSIDE the caller's held
+        // advisory lock — the retry route calls this entry point from within its own
+        // withRowTryLock — and an app_events emit must never extend that window. Fire-and-
+        // forget rather than awaited, the same shape as the PARSE_SHEET_THREW forensic emit
+        // in runScheduledCronSync. The sync_log write above is the ratified in-lock channel;
+        // this escalation is not.
+        void escalation.catch(() => {
+          /* best-effort: a recording failure must never displace the failure it was recording */
+        });
+      }
+    }
+    throw error;
+  }
 }
 
 export async function runManualSyncForShow(
@@ -427,45 +492,92 @@ export async function runManualSyncForShow(
     return earlyResult;
   }
 
-  const applyResult = await runOne(driveFileId, mode, fileMeta, {
-    ...(deps.processDeps ?? {}),
-    ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
-    ...(deps.expectedModifiedTime !== undefined
-      ? { expectedModifiedTime: deps.expectedModifiedTime }
-      : {}),
-    withShowLock: async (id, fn) =>
-      (await withLock(id, async (tx) => {
-        // DEF-3: authoritative in-lock archived re-read (an Archive may have landed since preflight).
-        if (await readShowArchived_unlocked(tx, driveFileId)) {
-          return { outcome: "blocked", code: SHOW_ARCHIVED_IMMUTABLE };
-        }
-        const isFinalizeOwned = await (
-          deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
-        )(tx, driveFileId);
-        if (isFinalizeOwned) {
-          return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
-        }
-        // DEF-3 (R30): manual re-sync overrides auto-suppression — delete any live non-wizard deferral
-        // under the lock so processing is not short-circuited by recheckLiveDeferralAfterLock.
-        const priorDeferral = await tx.readLiveDeferral?.(driveFileId);
-        priorDeferralKind = priorDeferral?.deferred_kind;
-        await tx.deleteLiveDeferral?.(driveFileId);
-        const result = await fn(tx);
-        // Clear the durable publish gate on a clean reconciliation (manual mode re-applies even an
-        // unchanged sheet, so "applied" is the clean signal for both changed and unchanged sheets).
-        if ("outcome" in result && result.outcome === "applied") {
-          await tx.queryOne(
-            "update public.shows set requires_resync = false where drive_file_id = $1 returning true as cleared",
-            [driveFileId],
-          );
-          await resolveStaleSyncProblemAlerts_unlocked(tx, result.showId, null);
-        }
-        if (usesInjectedProcessOneFile && "outcome" in result && result.outcome === "hard_fail") {
-          await emitManualParseErrorAlert_unlocked(tx, driveFileId, result.code);
-        }
-        return result;
-      })) as ProcessOneFileResult | ConcurrentSyncSkipped,
-  });
+  // Tracked sink (spec 2026-08-14 §3.3): `runOne` reaches many in-lock emissions before it can
+  // throw — every processOneFile_unlocked outcome row, the recovery sinks, and (for applied) the
+  // tail row — and can then still throw in the post-commit steps. The catch below must not file a
+  // parse_error OVER a recorded outcome, so it keys on whether this attempt's durable
+  // (own-connection) sink actually fired. Tx-bound recovery rows are deliberately invisible to the
+  // tracker: they roll back with an aborted tx, so counting them would suppress the catch-emit for
+  // a row that no longer exists.
+  const baseSink = deps.processDeps?.logSync;
+  let rowWritten = false;
+  const trackedSink: ProcessOneFileDeps["logSync"] = baseSink
+    ? async (entry) => {
+        rowWritten = true;
+        await baseSink(entry);
+      }
+    : undefined;
+  let applyResult: Awaited<ReturnType<typeof runOne>>;
+  try {
+    applyResult = await runOne(driveFileId, mode, fileMeta, {
+      ...(deps.processDeps ?? {}),
+      ...(trackedSink ? { logSync: trackedSink } : {}),
+      ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
+      ...(deps.expectedModifiedTime !== undefined
+        ? { expectedModifiedTime: deps.expectedModifiedTime }
+        : {}),
+      withShowLock: async (id, fn) =>
+        (await withLock(id, async (tx) => {
+          // DEF-3: authoritative in-lock archived re-read (an Archive may have landed since preflight).
+          if (await readShowArchived_unlocked(tx, driveFileId)) {
+            return { outcome: "blocked", code: SHOW_ARCHIVED_IMMUTABLE };
+          }
+          const isFinalizeOwned = await (
+            deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
+          )(tx, driveFileId);
+          if (isFinalizeOwned) {
+            return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
+          }
+          // DEF-3 (R30): manual re-sync overrides auto-suppression — delete any live non-wizard deferral
+          // under the lock so processing is not short-circuited by recheckLiveDeferralAfterLock.
+          const priorDeferral = await tx.readLiveDeferral?.(driveFileId);
+          priorDeferralKind = priorDeferral?.deferred_kind;
+          await tx.deleteLiveDeferral?.(driveFileId);
+          const result = await fn(tx);
+          // Clear the durable publish gate on a clean reconciliation (manual mode re-applies even an
+          // unchanged sheet, so "applied" is the clean signal for both changed and unchanged sheets).
+          if ("outcome" in result && result.outcome === "applied") {
+            await tx.queryOne(
+              "update public.shows set requires_resync = false where drive_file_id = $1 returning true as cleared",
+              [driveFileId],
+            );
+            await resolveStaleSyncProblemAlerts_unlocked(tx, result.showId, null);
+          }
+          if (usesInjectedProcessOneFile && "outcome" in result && result.outcome === "hard_fail") {
+            await emitManualParseErrorAlert_unlocked(tx, driveFileId, result.code);
+          }
+          return result;
+        })) as ProcessOneFileResult | ConcurrentSyncSkipped,
+    });
+  } catch (error) {
+    // The manual twin of the cron file-loop escaped-throw catch, minus the escalation alert: cron
+    // has no operator watching and raises a durable per-show alert, whereas this rethrows into a
+    // route/action that returns the failure to the operator who just clicked. The lock callback
+    // has already unwound (the throw tore it down), so this writes on the sink's own connection.
+    if (!rowWritten && baseSink) {
+      try {
+        await baseSink({
+          driveFileId,
+          outcome: "parse_error",
+          code: classifySyncFailure(error),
+          payload: errorPayload(error),
+        });
+      } catch (sinkError) {
+        // Assigned to a local (NOT chained) so prettier keeps `log.error(` on ONE line —
+        // stripLogEmissionCalls cannot match a `log` / `.error` split across lines.
+        const escalation = log.error("manual sync sync_log emit failed", {
+          source: "sync.manualResync",
+          code: "SYNC_LOG_EMIT_FAILED",
+          driveFileId,
+          error: serializeError(sinkError),
+        });
+        await escalation.catch(() => {
+          /* best-effort: a recording failure must never displace the failure it was recording */
+        });
+      }
+    }
+    throw error;
+  }
   // nav-perf tag-caching (Task 5 / whole-diff R2): the apply ran through processOneFile, whose
   // injected withShowLock wraps withPostgresSyncPipelineLock (sql.begin); when
   // `runOne` resolves the apply tx has COMMITTED. Revalidate the show's cache tag

@@ -21,7 +21,7 @@
  * or component-specific concerns. Both `GalleryLightbox` and the
  * `AgendaSheet` inside `AgendaEmbed` consume it identically.
  */
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -58,7 +58,30 @@ export function useDialogFocus(
    * runs once on mount exactly as before.
    */
   reattachKey?: unknown,
+  /**
+   * Optional, and added as a FOURTH parameter rather than by repurposing
+   * `reattachKey`, so every existing call site compiles and behaves unchanged.
+   *
+   * `restoreTargetRef` overrides the saved trigger at restore time. It exists
+   * because a trigger can be REMOVED while the dialog is open — a diagrams
+   * thumbnail whose image 404s swaps its button for a placeholder — and
+   * restoring to a detached node is a silent no-op that drops focus to
+   * `<body>`. A MUTABLE REF rather than a prop or state: the owner may need to
+   * re-point it during an `AnimatePresence` exit, when the dialog's props are
+   * frozen and no re-render can reach it, and a ref object's identity survives
+   * that freeze so a `.current` write is visible at the unmount cleanup below.
+   */
+  options?: { restoreTargetRef?: RefObject<HTMLElement | null> | undefined },
 ): void {
+  // Mirrored into a ref so the mount-lifetime effect below can read the LATEST
+  // one without taking `options` as a dependency — a new options object every
+  // render would otherwise re-run that effect and restore focus mid-dialog.
+  const restoreTargetRef = options?.restoreTargetRef;
+  const latestRestoreTarget = useRef(restoreTargetRef);
+  useEffect(() => {
+    latestRestoreTarget.current = restoreTargetRef;
+  }, [restoreTargetRef]);
+
   // Restore-to-trigger is a MOUNT-LIFETIME concern, split from the (possibly
   // re-running) attach effect below: a reattach cleanup must NOT yank focus
   // back to the trigger mid-dialog, and the trigger snapshot must be the one
@@ -67,11 +90,12 @@ export function useDialogFocus(
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     return () => {
-      // Restore focus to the trigger. If it's no longer reachable
-      // (removed during the dialog's lifetime), the browser falls
-      // through to document.body.
-      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
-        previouslyFocused.focus();
+      // Restore focus to the retarget when the owner set one, else to the
+      // trigger. If neither is reachable (removed during the dialog's
+      // lifetime), the browser falls through to document.body.
+      const target = latestRestoreTarget.current?.current ?? previouslyFocused;
+      if (target && typeof target.focus === "function") {
+        target.focus();
       }
     };
   }, []);

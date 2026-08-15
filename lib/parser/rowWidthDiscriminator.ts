@@ -48,8 +48,14 @@ const ALIGNMENT_CELL = /^:?-+:?$/;
  * Deliberately local rather than a fix to `splitRow`: that function has many callers whose
  * behavior is not in this branch's scope, and widening the blast radius to fix a counting
  * bug here would be the wrong trade.
+ *
+ * EXPORTED (review round 3): `leadingColumnNormalize.ts`'s width-delta corroboration hit the
+ * identical counting bug - a naive `split("|")` reads `\|` as a delimiter and inflates a
+ * row's count by exactly the +1 the corroboration reads as proof of a shift. Reusing this
+ * function rather than writing a second copy is the point; two copies of this rule is how a
+ * wave ends up fixing the same bug twice.
  */
-function splitCellsUnescaped(line: string): string[] {
+export function splitCellsUnescaped(line: string): string[] {
   const out: string[] = [];
   let cur = "";
   for (let i = 0; i < line.length; i++) {
