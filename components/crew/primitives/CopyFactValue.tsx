@@ -26,8 +26,8 @@
  *     resolution landing at any later moment observes the live island rather
  *     than a dead one (a passive effect leaves a commit-to-setup window; the
  *     spec-time spike at docs/superpowers/specs/probes/2026-08-10-wifi-ownership-spike.test.tsx
- *     drives exactly that trace) — plus a write LEDGER of the latest sequence
- *     and value.
+ *     drives exactly that trace) — plus a per-row write COUNTER, so two
+ *     resolutions for one row can be ordered.
  *
  * RESOLUTION TRUTH IS VALUE-ONLY (§4.2, the one normative rule). A resolution
  * whose value equals the island's CURRENT value appends a keyed "Copied." entry
@@ -36,7 +36,7 @@
  * corrective entry — because the clipboard may now hold the stale value while
  * an earlier "Copied." still stands in an append-only log. Sequence never
  * decides truth; it only routes the reset timer, so an older resolution landing
- * mid-window cannot extend the newest write's confirmation past its clock.
+ * mid-window cannot extend past the clock a newer resolution already armed.
  *
  * Any exit from `copied` other than the natural timeout appends the corrective
  * entry — one rule, so the log never ends on a claim this component cannot
@@ -81,6 +81,14 @@ type Owner = {
    * different row.
    */
   successor: Owner | null;
+  /**
+   * The write sequence that armed the window this island is currently showing,
+   * or 0 for an island that has never armed one. PER ISLAND, deliberately: the
+   * counter is keyed by identity and two islands may share one, so a
+   * module-wide "is this the newest write" test coupled confirmations that are
+   * otherwise routed by instance and entirely independent (round 16).
+   */
+  windowSeq: number;
   currentValue: () => string;
   /** Enters the copied state. Never clears it — `clearCopied` is the only exit,
    *  because an exit must also kill the window's timer. */
@@ -93,8 +101,8 @@ type Owner = {
   clearCopied: () => void;
   announce: (message: string) => void;
   armReset: () => void;
-  /** Arms the window ONLY if none is running, so a non-latest success never
-   *  extends the window the newest write owns. */
+  /** Arms the window ONLY if none is running, so an older success never extends
+   *  the window a newer resolution already armed. */
   ensureResetArmed: () => void;
 };
 
@@ -162,49 +170,42 @@ function offerVacancy(identity: string, owner: Owner): void {
   });
 }
 
-/** Claims the vacancy for `identity` if there is exactly one, and marks it used
- *  so a second setup in the same window cannot claim it too. */
+/**
+ * Claims the vacancy for `identity` if there is exactly one, and CONSUMES IT BY
+ * DELETION so a second setup in the same window cannot claim it too.
+ *
+ * Deleting rather than marking ambiguous, because those are two different facts
+ * that happen to have the same effect on a claim. Marking left the slot
+ * occupied, and `offerVacancy` reads an occupied slot as "a second island is
+ * vacating" — so the very next offer in the same window was refused. That offer
+ * is an ordinary event: an island that just claimed a vacancy can be replaced
+ * again before the sweep runs (a layout effect commits synchronously, ahead of
+ * any microtask). The chain then ended at a dead island, a late resolution
+ * landed nowhere, and the standing "Copied." it should have retracted stayed
+ * the log's last word with the clipboard already stale (round 16). Deleting
+ * keeps the claim-once rule — a second setup finds nothing — without spending
+ * the window's ambiguity on a vacancy that is already spoken for.
+ */
 function claimVacancy(identity: string, successor: Owner): void {
   const vacated = vacancies.get(identity);
   if (vacated === undefined || vacated === AMBIGUOUS) return;
   vacated.successor = successor;
-  vacancies.set(identity, AMBIGUOUS);
-}
-
-/** Dispatched writes PER IDENTITY. `value` is recorded for diagnosis; `seq`
- *  routes the reset arming (never truth — see the header), and `failed` is what
- *  keeps a write that can never succeed from holding that route. */
-type Ledger = { seq: number; value: string; failed: Set<number> };
-const writeLedgers = new Map<string, Ledger>();
-
-function ledgerFor(identity: string): Ledger {
-  const existing = writeLedgers.get(identity);
-  if (existing !== undefined) return existing;
-  const fresh: Ledger = { seq: 0, value: "", failed: new Set() };
-  writeLedgers.set(identity, fresh);
-  return fresh;
+  vacancies.delete(identity);
 }
 
 /**
- * Is `seq` the newest write that could still fill a window? The seq gate exists
- * so an older success cannot extend the NEWEST write's confirmation past its
- * clock — but a write that REJECTED has no confirmation to protect, and leaving
- * it as "the newest" makes the success that follows it look stale: it keeps
- * whatever is left of an older timer, and the confirmation it just earned can
- * expire in a fraction of its window (whole-diff review round 14).
+ * Dispatched writes PER IDENTITY, counted so two resolutions for one row can be
+ * ordered. It never decides truth (§4.2) — it decides only which of them owns
+ * the reset window, and it is keyed by the ROW rather than the island because a
+ * write dispatched by an island that has since been replaced must still be
+ * comparable with the writes its replacement dispatches.
  */
-function isNewestLive(ledger: Ledger, seq: number): boolean {
-  for (let later = seq + 1; later <= ledger.seq; later += 1) {
-    if (!ledger.failed.has(later)) return false;
-  }
-  return true;
-}
+const writeSeqs = new Map<string, number>();
 
-function recordWrite(identity: string, value: string): number {
-  const ledger = ledgerFor(identity);
-  ledger.seq += 1;
-  ledger.value = value;
-  return ledger.seq;
+function recordWrite(identity: string): number {
+  const next = (writeSeqs.get(identity) ?? 0) + 1;
+  writeSeqs.set(identity, next);
+  return next;
 }
 
 /**
@@ -213,7 +214,7 @@ function recordWrite(identity: string, value: string): number {
  * reach islands that replaced each other in a commit, so it cannot arrive at a
  * row that did not ask for this write.
  */
-function deliverWrite(dispatcher: Owner, identity: string, seq: number, value: string): void {
+function deliverWrite(dispatcher: Owner, seq: number, value: string): void {
   let owner: Owner | null = dispatcher;
   while (owner !== null && !owner.mounted) owner = owner.successor;
   if (owner === null) return;
@@ -221,14 +222,29 @@ function deliverWrite(dispatcher: Owner, identity: string, seq: number, value: s
   if (value === owner.currentValue()) {
     owner.announce(COPIED_MESSAGE);
     owner.setCopied();
-    // Only the newest write OWNS the window — an older resolution arriving
-    // mid-window must not stretch the confirmation past the newest write's
-    // clock. But every success still needs SOME window: an older one landing
-    // after the newest window already expired re-lights the glyph, and with
-    // nothing armed it stays lit for as long as the page is open. `ensure`
-    // arms only when no window is running, so both halves hold at once.
-    if (isNewestLive(ledgerFor(identity), seq)) owner.armReset();
-    else owner.ensureResetArmed();
+    // WHICH RESOLUTION OWNS THE WINDOW is decided against the write that armed
+    // the window now running — not against the newest write DISPATCHED. Only a
+    // resolution has a confirmation to protect: a newer write that is still in
+    // flight may reject or resolve to a different value, and until it lands the
+    // confirmation on screen is this one, entitled to a full window. Measuring
+    // against the dispatched maximum shortened a success to the remains of an
+    // older clock whenever any newer write was outstanding, needed a `failed`
+    // set to un-count the ones that rejected (round 14), and — since the
+    // counter is per identity while confirmations are per island — let a write
+    // dispatched by a DIFFERENT row sharing the identity expire this row's
+    // confirmation (round 16). Comparing per island against the arming seq
+    // retires all three: the bookkeeping existed only to patch the comparison.
+    if (seq >= owner.windowSeq) {
+      owner.windowSeq = seq;
+      owner.armReset();
+      return;
+    }
+    // An OLDER resolution landing mid-window must not stretch the confirmation
+    // past the clock the newer one armed. But every success still needs SOME
+    // window: one landing after that window already expired re-lights the
+    // glyph, and with nothing armed it stays lit for as long as the page is
+    // open. `ensure` arms only when no window is running, so both hold at once.
+    owner.ensureResetArmed();
     return;
   }
 
@@ -372,6 +388,7 @@ export function CopyFactValue({
     const owner: Owner = {
       mounted: true,
       successor: null,
+      windowSeq: 0,
       currentValue: () => valueRef.current,
       setCopied: () => {
         // ENTERING copied advances the generation, not merely arming a timer.
@@ -413,21 +430,20 @@ export function CopyFactValue({
     const requested = value;
     const dispatcher = ownerRef.current;
     if (dispatcher === null) return; // not registered yet: nothing can land anywhere
-    const seq = recordWrite(identity, requested);
+    const seq = recordWrite(identity);
     try {
       await navigator.clipboard.writeText(requested);
     } catch {
       // Clipboard unavailable (no HTTPS in dev, locked-down browser). The
       // password is still on screen in `.code-value` type for manual
       // transcription, which is the documented fallback (spec §7). Silent by
-      // spec §4.2. Nothing to hand back either: a success ALWAYS arms a window
-      // now (see deliverWrite), so no confirmation is ever left depending on a
-      // write that failed — but this write must stop counting as the newest,
-      // or the next success is treated as stale and inherits a spent clock.
-      ledgerFor(identity).failed.add(seq);
+      // spec §4.2, and nothing to hand back: a success ALWAYS arms a window
+      // (see deliverWrite), and window ownership is decided against the write
+      // that ARMED the running window, so a write that never resolved — this
+      // one included — has no bearing on the confirmations around it.
       return;
     }
-    deliverWrite(dispatcher, identity, seq, requested);
+    deliverWrite(dispatcher, seq, requested);
   };
 
   const glyphClass = "size-3.5 shrink-0";

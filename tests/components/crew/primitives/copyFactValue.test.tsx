@@ -31,6 +31,7 @@
 import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { useLayoutEffect, useState } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
@@ -654,6 +655,88 @@ describe("overlapping writes resolve by VALUE alone (§4.2)", () => {
     expect(isCopied(container)).toBe(false);
   });
 
+  test("a PENDING newer write does not shorten the confirmation now standing", async () => {
+    // The other half of the round-14 class, and the reason the seq gate was the
+    // wrong shape rather than merely incomplete: a newer write that has not
+    // resolved YET has no confirmation to protect either. It may reject, or
+    // resolve to a different value; until it lands, the confirmation on screen
+    // is this one and it is entitled to its full window. Measured against the
+    // newest write DISPATCHED, this success kept 250ms of an older clock.
+    // (Whole-diff review round 16.)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container);
+    await settle(0);
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS - 250);
+    });
+    premiseHolds("the first window is nearly out", isCopied(container));
+
+    await clickCopy(container); // write #1
+    await clickCopy(container); // write #2, newer, and it stays PENDING
+    await settle(1);
+    premise("the newer write really is still in flight", writes.length, 2);
+
+    await act(async () => {
+      vi.advanceTimersByTime(251); // past the ORIGINAL deadline
+    });
+    expect(
+      isCopied(container),
+      "the confirmation must run its own window, not the remains of an older one",
+    ).toBe(true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS);
+    });
+    expect(isCopied(container)).toBe(false);
+  });
+
+  test("a write from a row sharing the identity does not shorten this row's window", async () => {
+    // The same defect reached across islands, and the reason the comparison
+    // belongs to the ISLAND rather than the module: the sequence counter is
+    // keyed by identity, identity is caller-supplied, and two lists reusing one
+    // testid therefore share the counter. Their confirmations are otherwise
+    // routed by instance and fully independent — but a write dispatched by the
+    // untapped row made the tapped row's own success look stale, and its
+    // confirmation expired on the remains of an earlier clock.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container } = render(
+      <>
+        <FactRows rows={[passwordRow()]} />
+        <FactRows rows={[passwordRow()]} />
+      </>,
+    );
+    const rows = container.querySelectorAll(`[data-testid="${TESTID}"]`);
+    premiseHolds("both lists rendered the same testid", rows.length === 2);
+    const tap = async (index: number) => {
+      await act(async () => {
+        fireEvent.click(rows[index]!.querySelector("button")!);
+      });
+    };
+    const firstCopied = () => rows[0]!.querySelector("[data-slot='check-glyph']") !== null;
+
+    await tap(0);
+    await settle(0);
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS - 250);
+    });
+    premiseHolds("the first row's window is nearly out", firstCopied());
+
+    await tap(0); // the tapped row's second write
+    await tap(1); // the OTHER row's write, newer on the shared counter, pending
+    await settle(1);
+    premise("the other row's write really is still in flight", writes.length, 2);
+
+    await act(async () => {
+      vi.advanceTimersByTime(251);
+    });
+    expect(
+      firstCopied(),
+      "another row's in-flight write must not expire this row's confirmation",
+    ).toBe(true);
+  });
+
   test("a value change while copied resets AND appends the corrective", async () => {
     const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
 
@@ -1048,6 +1131,69 @@ describe("island lifecycle (§4.1)", () => {
     // region would stay empty.
     expect(logTexts(container)).toEqual([COPIED_TEXT]);
     expect(isCopied(container), "the live island is the one showing copied").toBe(true);
+  });
+
+  test("a replacement replaced AGAIN before the sweep still carries the chain", async () => {
+    // TWO swaps inside one vacancy window: a commit replaces island A with B,
+    // and a layout effect committed with it synchronously replaces B with C —
+    // no microtask runs in between, so the sweep has not cleared anything.
+    // Consuming a claimed vacancy by MARKING IT AMBIGUOUS conflated "already
+    // claimed" with "two islands vacated at once", so B's offer was refused, B
+    // got no successor, and A's older write walked A -> B -> null and landed
+    // nowhere. Nothing is mis-delivered — but nothing is RETRACTED either, and
+    // the consequence is the exact shape this arc's consequence bound forbids:
+    // C's "Copied." stays the log's last word while the clipboard holds the
+    // value A wrote. (Whole-diff review round 16.)
+    const OTHER = "FITS2025";
+    const commits: number[] = [];
+    function Swapper({ swap }: { swap: boolean }) {
+      const [generation, setGeneration] = useState(1);
+      useLayoutEffect(() => {
+        commits.push(generation);
+        // A layout effect's update commits synchronously, before the browser
+        // paints and before any microtask runs — which is what puts the second
+        // swap inside the first one's vacancy window.
+        if (swap && generation === 1) setGeneration(2);
+        else if (generation === 2) setGeneration(3);
+      }, [swap, generation]);
+      return (
+        <FactRows
+          key={`v${generation}`}
+          rows={[passwordRow(generation === 1 ? {} : { v: OTHER })]}
+        />
+      );
+    }
+
+    const { container, rerender } = render(<Swapper swap={false} />);
+    await clickCopy(container); // island A's write, for PASSWORD, still pending
+
+    await act(async () => {
+      rerender(<Swapper swap />);
+    });
+    premiseHolds(
+      "three islands really committed in order, so B existed to be replaced",
+      commits.slice(-3).join(",") === "1,2,3",
+    );
+    premiseHolds(
+      "the surviving island shows the NEW value",
+      valueSpan(container).textContent === OTHER,
+    );
+
+    // C copies its own value and stands a confirmation.
+    await clickCopy(container);
+    await settle(1);
+    premiseHolds("the survivor's own confirmation is standing", isCopied(container));
+
+    await settle(0); // A's older write finally lands, carrying the OLD value
+
+    expect(
+      isCopied(container),
+      "a confirmation the clipboard no longer backs must not stay lit",
+    ).toBe(false);
+    expect(
+      logTexts(container),
+      "the log must not end on a claim the clipboard stopped backing",
+    ).toEqual([COPIED_TEXT, CORRECTIVE_TEXT]);
   });
 });
 
