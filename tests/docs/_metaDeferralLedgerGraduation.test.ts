@@ -146,6 +146,17 @@ const BACKLOG_GRADUATED = [
     id: "BL-CLASSNAME-ARRAY-JOIN-MIGRATION",
     provenance: "refactor/classname-array-join-cn",
   },
+  // fix/help-tour-hydration (2026-08-11): /help/tour's hydration mismatch, whose
+  // filed cause (column-0 `<a>` wrapped in a `<p>`) was REFUTED by the compile
+  // probe and replaced by the real one — own-line text children inside a JSX flow
+  // element parse as markdown paragraphs. The archived section records both, so
+  // the superseded hypothesis is preserved rather than quietly corrected. The
+  // same PR spent the promotion the entry banked: help-pages.spec.ts is wired
+  // into app-e2e.yml and off the coverage allowlist.
+  {
+    id: "BL-HELP-TOUR-HYDRATION-MISMATCH",
+    provenance: "fix/help-tour-hydration",
+  },
   { id: "BL-CODEX-GUARD-COMMONMARK-PARSE", provenance: "feat/review-infra-gates" },
   { id: "BL-PLAN-SNIPPET-FENCE-GATE", provenance: "feat/review-infra-gates" },
   // feat/backlog-quick-wins (2026-08-07, arc C): the retainRows asymmetry. The

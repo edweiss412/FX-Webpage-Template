@@ -21,8 +21,11 @@ import { pathToFileURL } from "node:url";
 // summed over the projects each spec resolves under — never from `--list` arithmetic. `--list`
 // cannot see a runtime skip, which is the exact blindness this oracle exists to close (spec AC-5).
 // Measured 2026-08-09, full batch, both projects, --retries=0: 54 executions across the SEVEN
-// wired specs, all green. (An earlier eight-spec measurement read 60; admin-changes-feed-layout
-// then left the batch under AC-4 on a CI-reproduced flake, taking its 6 with it.)
+// specs wired at that point, all green. (An earlier eight-spec measurement read 60;
+// admin-changes-feed-layout then left the batch under AC-4 on a CI-reproduced flake, taking its 6
+// with it.) help-pages joined 2026-08-10 once its blocker closed
+// (BL-HELP-TOUR-HYDRATION-MISMATCH), measured at 15 on its own run — EIGHT wired specs, 69
+// executions.
 //
 // Each count is the spec's FULL executable set, not a floor of 1: a floor of 1 would let a nested
 // `beforeEach(() => test.skip())` runtime-skip every case but one while the job stayed green, and a
@@ -33,6 +36,11 @@ export const REQUIRED = {
   // 4 cases x 1 project — admin-phase2-surfaces resolves under mobile-safari only
   // (playwright.config.ts testMatch), so 4 is the whole suite, not half of it.
   "admin-phase2-surfaces.spec.ts": 4,
+  // 14 NAV routes + the NAV-parity guard, x 1 project — help-pages resolves under mobile-safari
+  // only (playwright.config.ts testMatch), and the route list derives from app/help/_nav.ts, so a
+  // NAV row added without a HELP_ROUTES row fails the parity guard rather than quietly lowering
+  // this count.
+  "help-pages.spec.ts": 15,
   // 7 cases x 2 projects.
   "me-page.spec.ts": 14,
   // 6 width bands + the dispatch case, x 2 projects.

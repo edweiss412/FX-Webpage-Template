@@ -145,7 +145,6 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/empty-state-reachability.spec.ts": UNSEEN,
   "tests/e2e/help-auth.spec.ts": UNSEEN,
   "tests/e2e/help-mobile.spec.ts": UNSEEN,
-  "tests/e2e/help-pages.spec.ts": UNSEEN,
   "tests/e2e/help-screenshots-clock-pipeline.spec.ts": UNSEEN,
   "tests/e2e/help-typography.spec.ts": UNSEEN,
   "tests/e2e/needs-attention-holds.spec.ts": PATH_GATED,

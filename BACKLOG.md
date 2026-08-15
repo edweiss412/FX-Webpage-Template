@@ -750,11 +750,11 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 24 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 23 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
-**The `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts` are e2e specs named by no CI workflow** — that allowlist is the population, and the count is whatever it holds (the table below records the measured figures; it was 43, then 32 after PR #743, 25 after that batch, and 24 after M-wave 2 W-E2E). No number is restated in this sentence, because a narrative copy of a machine-held count is exactly what went stale here. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
+**The `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts` are e2e specs named by no CI workflow** — that allowlist is the population, and the count is whatever it holds (the table below records the measured figures; it was 43, then 32 after PR #743, 25 after that batch, 24 after M-wave 2 W-E2E, and 23 once help-pages joined). No number is restated in this sentence, because a narrative copy of a machine-held count is exactly what went stale here. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
 
 **Census, RESTATED 2026-08-09 by counting the allowlist rather than by arithmetic** (the "~60" this
 entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated;
@@ -799,7 +799,7 @@ Path-gated rows are NOT this entry's scope: a workflow does name them, and "not 
 
 Five of the nine specced members were RED when first run — the spec had verified them by full-file read, and a read is not a run. Four were repaired in-branch as test-only staleness (a Next 16 streamed `redirect()` answering 200 where two specs asserted a 3xx first hop; a `/show/<slug>` href predating the M11.5 picker pivot; a Phase-2 dev-link guard whose telemetry exemption matched the raw href and so failed on its own sanctioned link once that link grew a `#health` fragment). Recorded here because the same read-not-run gap will otherwise be repeated by batch 2: **derive a batch's membership from a real run, not from reading the files.**
 
-**Ninth member deferred, not wired — `help-pages.spec.ts`.** It stays `UNSEEN` with its allowlist row intact. Its blocker is an APP defect, not a wiring gap: `/help/tour` throws a React hydration mismatch (13 page errors) under `pnpm dev` and the production build alike. The fix lands in `app/help/tour/page.mdx`, a UI surface under invariant 8, so repairing it drags the impeccable dual gate into what is otherwise a CI-wiring arc — its own arc, filed as `BL-HELP-TOUR-HYDRATION-MISMATCH`. The spec's route-coverage guard WAS repaired in that PR (it now derives from the `_nav.ts` export and covers `/help/admin/settings`), so promoting it later costs one allowlist-row deletion.
+**Ninth member deferred at batch 1, wired since — `help-pages.spec.ts`, census 24 → 23.** It was held back with its `UNSEEN` allowlist row intact because its blocker was an APP defect, not a wiring gap: `/help/tour` threw a React hydration mismatch (13 page errors) under `pnpm dev` and the production build alike. The fix landed in `app/help/tour/page.mdx`, a UI surface under invariant 8, so repairing it dragged the impeccable dual gate into what is otherwise a CI-wiring arc — it got its own arc, `BL-HELP-TOUR-HYDRATION-MISMATCH` (graduated to `BACKLOG-archive.md`, `fix/help-tour-hydration`), where the mismatch turned out to be nested markdown paragraphs emitted by three prettier-reformatted link cards. That arc then spent the promotion this paragraph had banked: the allowlist row is deleted, the spec is named by `app-e2e.yml`'s run step, and it carries a `"help-pages.spec.ts": 15` row in the executed-count oracle. The route-coverage guard was already repaired at batch 1 (it derives from the `_nav.ts` export and covers `/help/admin/settings`), which is why the promotion cost exactly the one allowlist-row deletion this paragraph predicted.
 
 **A second member was dropped mid-acceptance under AC-4 — `admin-changes-feed-layout.spec.ts`.** It stays `UNSEEN` with its allowlist row restored. Unlike help-pages this one is a genuine FLAKE, and it was caught by exactly the bar that exists to catch it: it passed the first two `pull_request` runs of the five-green loop and then failed two of the next three, on a DIFFERENT width band each time (`@720`, then `@1280`, both mobile-safari), with `published-show-review-modal` never appearing inside a 30s wait after `/admin?show=<slug>`. It passes standalone (6/6 locally, repeatedly) and fails only inside the batch, which points at a cross-spec interaction rather than a slow render. Filed as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`. Recorded because the local signal was misleading in BOTH directions here: the same spec's local reds were correctly attributed to a shared-database collision with a concurrent agent session, and that correct diagnosis then masked a real CI-reproducible flake underneath. **Only CI settles a flake question — AC-4 exists so an admitted flake never rides in.**
 
@@ -837,28 +837,6 @@ The failing WIDTH BAND differs between runs, and locally the same spec failed at
 **First thing to check:** whether the show's state (published / archived, or the presence of the feed rows the modal renders from) is disturbed by a spec that runs earlier in the batch, and whether the modal's mount condition depends on it. A per-test re-seed, or resolving a show of its own rather than sharing the Waldorf fixture, are the obvious candidate repairs — but confirm the mechanism before choosing.
 
 **Not a product bug as far as anything shows** — no user-facing report, and the surface passes every other run. The cost is coverage: the spec stays `UNSEEN` until it is stable enough to clear five consecutive green runs.
-
-## BL-HELP-TOUR-HYDRATION-MISMATCH — /help/tour throws a React hydration mismatch on every visit
-
-**Status:** OPEN · **Severity:** MEDIUM (a real user-visible page re-renders client-side after a failed hydration) · **Class:** app defect (UI surface) · **Effort:** S · **Filed:** 2026-08-09
-
-`/help/tour` emits a React hydration mismatch — "the server rendered HTML didn't match the client" — plus twelve further page errors, on every admin visit. Probed 2026-08-09 under BOTH server postures this repo runs, so it is not a dev-only artifact:
-
-```
-BASELINE_SERVER_ONLY=1 pnpm exec playwright test tests/e2e/help-pages.spec.ts --project=mobile-safari
-  ✘ /help/tour → 200, H1 "Tour", sidebar mounted, no console errors
-    Error: /help/tour: page errors observed
-    - Array []
-    + Array [ "Hydration failed because the server rendered HTML didn't match the client…" ] (13 entries)
-```
-
-Same failure against `pnpm build && pnpm start`. Every other one of the fourteen `/help/*` routes passes the identical assertions, so the defect is local to this page, not to the help layout.
-
-**Likely cause, not yet confirmed:** `app/help/tour/page.mdx` interleaves raw JSX blocks with markdown — several `<a>` elements begin at column 0 inside a `<div>` block, which MDX can wrap in a `<p>`, and a block element inside a paragraph is invalid nesting, one of the named causes in React's own mismatch message. Confirm before fixing.
-
-**Why it is filed rather than repaired in the arc that found it.** `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` batch 1 (PR #753) is a CI-wiring arc carrying `impeccable-gate: N/A — no UI surface`. The fix lands under `app/`, which is a UI surface under AGENTS.md invariant 8 and therefore owes the impeccable critique + audit dual gate — a different arc with a different gate, which is exception (c) of the class-sweep disposition rule (the repair is a change to a surface the PR does not otherwise touch). That arc dropped `help-pages.spec.ts` from its batch under AC-4 rather than wire a permanently-red job.
-
-**Closing this unblocks a one-line follow-up:** delete the `help-pages.spec.ts` row from `LOCAL_ONLY_ALLOWLIST` and add the spec to `.github/workflows/app-e2e.yml`'s run step. Its route-coverage guard is already repaired (derives from `app/help/_nav.ts`, covers all fourteen NAV routes including `/help/admin/settings`), so no other work is owed.
 
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
@@ -902,6 +880,22 @@ that just called `apply()`.
 restructures the effect body. Micro-optimisation otherwise.
 
 ---
+
+## BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS — the psql startup-file scan walks `.next-*` build outputs and blows the stack
+
+**Status:** OPEN · **Severity:** MEDIUM (a whole guard suite is red locally for a reason unrelated to any change; the failure names a TypeScript internal, not the cause) · **Class:** guard robustness · **Effort:** S · **Filed:** 2026-08-11
+
+**Probed 2026-08-11 on `fix/help-tour-hydration`**, where the suite failed 19/745 with `RangeError: Maximum call stack size exceeded` inside `tests/cross-cutting/psqlStartupFiles/scan.ts:535`, on a tree whose only source changes were one MDX page and CI wiring. Bisecting by reverting each changed file to `origin/main` left it red; the cause was never in the diff.
+
+`IGNORED_AT_ROOT` (`tests/cross-cutting/psqlStartupFiles/scan.ts:315`) lists `.next` but not the sibling output directories this repo's own tooling writes: `playwright.config.ts` and the screenshot/flip scripts build into **`.next-dev`, `.next-prod`, `.next-prod-flip`, and `.next-screenshots-help`**. Those are walked. An AST-depth probe over the walk's own directory rules found 6516 files, of which twelve are ~12 MB webpack chunks the walk skips only by luck of the parse, and several bundled files reach an AST depth of 4342 — the recursive `visit` at `:535` overflows long before the guard reaches a psql call site.
+
+Moving the four directories outside the repo and re-running takes the same suite to **745 passed** with no other change. Same command, same tree.
+
+**Why it matters more than a local annoyance.** The failure mode is silent misattribution: the stack trace names `typescript.js` and the scan's own line 535, so the reader's first hypothesis is their own diff. That cost a bisect on this arc. Worse, the walk is the guard's completeness claim — a walk that dies partway through has not certified the tree, and 19 red tests are the only thing standing between that and a false green if the overflow were ever caught and swallowed.
+
+**Why it is filed rather than repaired in the arc that found it — exception (c).** The repair is on a guard surface this PR does not otherwise touch, and this particular guard's review history (its own test names run to "R40 escaping mutants") is precisely about enumerated recognizers not terminating. Adding four literals to an enumerated ignore list is the shape that invites the next round to ask for a derived one. It deserves its own arc, where the derivation question can be answered properly.
+
+**The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
 
 ## Merged from the plans backlog (2026-08-02)
 
