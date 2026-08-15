@@ -34,6 +34,26 @@
 @source not "../app/admin/dev/actions.ts";
 @source not "../app/admin/dev/source-link-dim";
 @source not "../app/admin/dev/telemetry-dim";
+/* `lib/` is excluded above, and ONE runtime class string lives there:
+   `SECONDARY_ACTION_CLASS` (lib/ui/actionClass.ts), the single secondary-action
+   treatment. Every other class in that constant is also worn by markup under
+   `app/` or `components/`, so the exclusion never bit — until 2026-08-14, when
+   the outline moved to `border-text-faint`, which at that moment no scanned
+   file wore (peer sites under `app/`/`components/` wear it now — this comment
+   describes why the inline entry was needed, not today's occurrence count).
+   Tailwind emitted no rule, `border-color` fell back to `currentColor`, and the
+   button drew a near-black outline instead of a 3.35:1 hairline. Caught by a
+   live browser probe before the gate; `tests/styles/secondary-action-contrast.test.ts`
+   now compiles this stylesheet and asserts EVERY token of that constant emits a
+   rule, so the next class added there fails loudly instead of rendering wrong.
+   THE GUARD, NOT THIS LINE, IS THE LOAD-BEARING DEFENCE — peer controls under
+   `components/` wear `border-text-faint` today, so deleting this entry would
+   currently change nothing, and if that ever stops being true the compiled-CSS
+   assertion reds. The entry stays as belt-and-braces for the case where the
+   constant is the only wearer again.
+   Inline rather than an `@source` include, for the reason stated just above: a
+   child include does not compose with a parent `@source not` in Tailwind v4. */
+@source inline("border-text-faint");
 
 /*
  * Token surface for FXAV Crew Pages — pairs with DESIGN.md.

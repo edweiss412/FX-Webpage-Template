@@ -832,4 +832,123 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  {
+    id: "interactiveScanCore",
+    sourcePath: "tests/styles/interactiveScanCore.ts",
+    // All three suites: the core's own unit + fixture cases, plus the two
+    // guards that consume it. A mutant that survives the unit cases can still
+    // be killed by the census it silently changes, and vice versa.
+    suitePaths: [
+      "tests/styles/interactiveScanCore.test.ts",
+      "tests/styles/_metaSubtleOnInteractive.test.ts",
+      "tests/styles/_metaTapTargetFloor.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Universal -> existential on the path set: a floor on ANY render
+    // alternative would clear, which is exactly the branch-ancestry defect the
+    // path model exists to prevent.
+    control: {
+      from: "el.paths.length > 0 && el.paths.every((path) => pathHasFloor(path))",
+      to: "el.paths.length > 0 && el.paths.some((path) => pathHasFloor(path))",
+    },
+    // Five equivalents, all one shape: the mutation's only effect is on a value
+    // no consumer can distinguish. The first run's other 56 survivors were real
+    // coverage gaps and were repaid with tests, not with rows.
+    accepted: [
+      {
+        siteId: "relational-boundary:141:50:>>>=",
+        kind: "equivalent",
+        reason:
+          'tokenize\'s filter becomes a no-op, so the only extra member is the empty string. Its four consumers are all existential (the floor scan and two recipe checks inside `pathHasFloor`, plus `defeaterPresent`) and both predicates reject "": baseToken("") is not sr-only and utilityPx("") is null in `tokenIsFloor`, and neither regex in `tokenIsDefeater` matches. tokenize is module-private, so no length or .every consumer exists',
+      },
+      {
+        siteId: "integer-literal:141:52:0>1",
+        kind: "equivalent",
+        reason:
+          'the same filter in the other direction: it now also drops 1-character tokens. The shortest string any predicate in this module can match is 3 characters ("p-3" in `verticalPaddingPx`, "h-4" via the utility regex in `utilityPx`, "-m-1" in the negative-margin test inside `pathHasFloor`), so a 1-character token evaluates false whether it is kept or dropped',
+      },
+      {
+        siteId: "relational-boundary:153:21:<><=",
+        kind: "equivalent",
+        reason:
+          "one extra iteration of baseToken's scan reads raw[raw.length], which is undefined in JS rather than a throw, so all three comparisons in the loop body are false and neither `depth` nor `lastSep` changes; the return reads only those two",
+      },
+      {
+        siteId: "relational-boundary:180:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the same off-the-end iteration in variantPrefixes: no branch in the loop body fires on undefined, and the function returns exactly what the loop accumulated with no post-loop push, so a trailing prefix cannot be appended",
+      },
+      {
+        siteId: "relational-boundary:236:16:<><=",
+        kind: "equivalent",
+        reason:
+          'themeBlocks\' brace walk: the loop bound only decides where an UNBALANCED block stops, and both consumers erase the difference. `String.slice` clamps an end past the length, and `indexOf("@theme", end)` is -1 for every end at or past the length, so the extra iteration (which reads `undefined` and matches neither brace) cannot change the returned string',
+      },
+      {
+        siteId: "logical-connector:312:50:&&>||",
+        kind: "equivalent",
+        reason:
+          'only two operand combinations reach this line. With allowPseudo=false the scope is necessarily "element" (pseudo and descendant returned already), so both `false && X` and `false || (scope === "pseudo")` are false; the single allowPseudo=true call site filters on `t.startsWith("before:")`, and any such token has "before" among its variant prefixes, so both operators are true. The combination the operators disagree on is unreachable',
+      },
+      {
+        siteId: "equality-flip:380:21:===>!==",
+        kind: "equivalent",
+        reason:
+          'a consistent relabelling of the two padding accumulators: "t" writes bottom and "b" writes top, while "" and "y" still write both, so after any token sequence the pair is exactly the original pair transposed. Its only consumer is `Math.min(top ?? 0, bottom ?? 0) * 2`, which is symmetric in the two',
+      },
+      {
+        siteId: "integer-literal:383:26:0>1",
+        kind: "equivalent",
+        reason:
+          "the missing-side fallback can only ever be 0 or 1, so it moves the returned padding by at most 2px. The sole consumer compares `ASSUMED_TEXT_ROW_PX + padding` against FLOOR_PX with a 24px gap (20 -> 22 against 44), and the base is pinned at 20 because any readable declared height is already a floor token or a rule-8 defeater. No input can cross the floor",
+      },
+      {
+        siteId: "integer-literal:383:39:0>1",
+        kind: "equivalent",
+        reason:
+          "the mirror of the row above, on the other accumulator, with the same 2px-against-24px argument",
+      },
+      {
+        siteId: "integer-literal:394:15:0>1",
+        kind: "equivalent",
+        reason:
+          "the bleed initializer survives only when NO `before:-inset*` token matches or every match is horizontal — any real vertical bleed overwrites it last-wins. In that case the recipe computes 20 + 2*1 = 22 against a floor of 44, so the changed initial value cannot reach a verdict",
+      },
+      {
+        siteId: "integer-literal:285:34:0>1",
+        kind: "equivalent",
+        reason:
+          "lengthPx's zero-length return value is only ever null-checked or compared against FLOOR_PX=44 (the `spacingTokens` map build, `tokenIsFloor`, and both arms of `tokenIsDefeater`). 0 and 1 are both non-null and both under 44, and no consumer does arithmetic on it",
+      },
+    ],
+  },
+  // NOT ENROLLED: tests/styles/subtleInteractiveScan.ts.
+  //
+  // It was enrolled on 2026-08-14 and the harness rejected it by its own
+  // no-mutants condition: the module produced ZERO mutants, so the row asserted
+  // nothing while looking like coverage. The cause is structural, not an
+  // oversight to patch — the module is a filter over `interactiveScanCore`
+  // (enrolled below) plus two data declarations, and the declared operator set
+  // is control-flow shaped: no relational, equality or logical operator, no
+  // integer literal, no regex quantifier, no removable statement. Every
+  // decision it makes belongs to the core, which IS mutated, through the suite
+  // that also decides this module's verdicts. Restructuring the module to grow
+  // mutation sites would be gaming the operator set, and a vacuous row is worse
+  // than an honest absence: the gate's no-mutants condition exists to say so.
+  {
+    id: "tapTargetScan",
+    sourcePath: "tests/styles/tapTargetScan.ts",
+    suitePaths: ["tests/styles/_metaTapTargetFloor.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Clears everything: the census rows all go stale, which is the failure a
+    // guard that silently passes would produce.
+    control: {
+      from: 'state: heightFloorSatisfied(el) && !defeaterPresent(el) ? "clear" : "unclassified",',
+      to: 'state: "clear",',
+    },
+    accepted: [],
+  },
 ];
