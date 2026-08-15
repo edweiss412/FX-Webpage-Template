@@ -21,7 +21,7 @@ impeccable-gate: N/A — no UI surface
 - Conventional commits, one commit per task, scope `sync` (route file rides the Task 4 commit under the same scope).
 - No migration → validation-schema-parity checklist N/A (spec §1.1 R4). No §12.4 catalog change.
 - Meta-test inventory (declared): EXTENDS `tests/sync/_pendingSnapshotUploadsContract.test.ts` with one source-scan case (Task 4) pinning that the row-less-stage ledger listing carries no state filter. No other meta-suite is created or extended: no new auth boundary (`tests/auth/_metaInfraContract.test.ts` is auth-scoped; the sync storage adapters carry invariant-9 `not-subject-to-meta` comments instead), no admin-alert code changes, no lock-topology change, no tile/sentinel surface. Mutation-family closure: N/A — this plan ships product behavior + unit tests, not a structural guard or mutation harness surface (the one hand-run mutant is recorded in the dry-run bullet below, not a registry enrolment).
-- Four pre-dispatch mutants for string-presence guards: N/A — no planned assertion is a string-presence-in-output guard; assertions are port-STATE (surviving storage objects, counter values, result objects), per the anti-tautology posture.
+- Four pre-dispatch mutants for string-presence guards: applies to exactly ONE planned assertion — the Task 4 Step 1.3 source-scan contract case (a string-presence guard over `lib/sync/diagramGc.ts`). Its four-mutant record (run executably at plan time against the case's regex): (a) query emptied → no match, guard reds; (b) table-name suffix appended (`pending_snapshot_uploads_archive`) → the closing-quote anchor breaks the match, guard reds; (c) live query replaced while an exact quoted copy sits in a comment INSIDE the method → the guard stays green — recorded as the source-scan form's documented limit (the threat model is accidental WHERE-addition or table-swap by an ordinary contributor; a comment carrying the full quoted SQL beside a changed live query is not an accidental shape); (d) discriminating parameters varied → N/A, the query takes none. Every other planned assertion is port-STATE (surviving storage objects, counter values, result objects), per the anti-tautology posture.
 - Heavy phases (full suite, build) run under `pnpm heavy` per AGENTS.md; the scoped vitest runs named per task stay unwrapped.
 - Mocked-default blind spot rule (from `tests/sync/promoteSnapshotDefaultStorage.test.ts`): every NEW default production adapter this plan introduces gets a real-adapter fake-transport test in the same task that introduces it. Tasks 2 and 4 carry those tests.
 
@@ -908,18 +908,23 @@ describe("defaultStorage().listChildren (real adapter, fake transport)", () => {
   3. In `tests/sync/_pendingSnapshotUploadsContract.test.ts`, add this case (before the existing `"GC production storage listing recurses into revision directories"` case; the file's `readFileSync`/`join`/`root` helpers are module-scope):
 
 ```ts
-  test("the row-less _pending stage's ledger listing carries NO state filter", () => {
+  test("the row-less _pending stage's ledger listing is the exact unfiltered query", () => {
     // Spec §4 step 2: ANY visible row keeps its prefix off-limits to the
-    // storage-driven stage, whatever its lifecycle state -- a WHERE clause here
-    // would hand in-flight prefixes to a deleter.
+    // storage-driven stage, whatever its lifecycle state -- a WHERE clause or a
+    // table swap here would hand in-flight prefixes to a deleter. The closing
+    // quote is anchored so a suffixed table name (`..._archive`) or ANY trailing
+    // clause breaks the match, and the leading method-name tether keeps the
+    // guard pointed at the live listPendingTempPrefixes body.
     const source = readFileSync(join(root, "lib/sync/diagramGc.ts"), "utf8");
-    const query = source.match(/select temp_prefix from public\.pending_snapshot_uploads[^"]*/);
-    expect(query).not.toBeNull();
-    expect(query![0]).not.toMatch(/where/i);
+    expect(source).toMatch(
+      /listPendingTempPrefixes\(\)[\s\S]{0,400}?"select temp_prefix from public\.pending_snapshot_uploads"/,
+    );
   });
 ```
 
-- [ ] **Step 2: Run to verify the RED.** Run: `pnpm vitest run tests/cron/cronRouteSummaries.test.ts tests/sync/diagramGcDefaultStorage.test.ts tests/sync/_pendingSnapshotUploadsContract.test.ts`. Expected: the diagram-gc summary case FAILS (two new keys absent), the adapter file FAILS on the missing `defaultStorage` export, and the contract case FAILS on a null query match.
+  Four-mutant validation for this string guard (executed at plan time; record in Global Constraints): emptied query reds, suffixed table name reds, a WHERE-filtered query reds; the comment-copy mutant is the recorded documented limit of the source-scan form.
+
+- [ ] **Step 2: Run to verify the RED.** Run: `pnpm vitest run tests/cron/cronRouteSummaries.test.ts tests/sync/diagramGcDefaultStorage.test.ts tests/sync/_pendingSnapshotUploadsContract.test.ts`. Expected: the diagram-gc summary case FAILS (two new keys absent), the adapter file FAILS on the missing `defaultStorage` export, and the contract case FAILS (no `listPendingTempPrefixes` body exists to match).
 - [ ] **Step 3: Minimal implementation.**
   1. `app/api/cron/diagram-gc/route.ts` — add to `summary.counts`:
 
