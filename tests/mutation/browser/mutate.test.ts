@@ -12,6 +12,9 @@ import {
   reportEvidence,
 } from "./mutate";
 import type { MutantEdit } from "./registry";
+import { assertBrowserBaseline, childCommand, orderSuites, sentinelPath } from "./runner";
+import { BaselineNotGreenError } from "../source/oracle";
+import { MutantRunInfraError } from "../source/runner";
 
 /**
  * The pure half of the browser runner (spec §3.3, §3.4).
@@ -343,5 +346,108 @@ describe("accountOutcomes — the RunResult the gate consumes", () => {
         ],
       }),
     ).toThrow(/duplicate/i);
+  });
+});
+
+describe("runner seams — the pure decisions the spawn wrapper makes (spec §3.3)", () => {
+  it("orders vitest suites before playwright, preserving order within a kind", () => {
+    // Vitest children cost seconds and playwright children cost a browser boot,
+    // so short-circuiting on the first kill is only cheap if the cheap suites
+    // run first. Payload #17 is killed by the vitest suite alone, so this
+    // ordering saves a full browser boot on that mutant every run.
+    const pw = (filter: string) =>
+      ({
+        kind: "playwright",
+        config: "tests/e2e/standalone.config.ts",
+        filter,
+        project: "standalone-chromium",
+      }) as const;
+    const vi = (path: string) => ({ kind: "vitest", path }) as const;
+    const ordered = orderSuites([pw("a"), vi("x"), pw("b"), vi("y")]);
+    expect(ordered.map((s) => (s.kind === "vitest" ? s.path : s.filter))).toEqual([
+      "x",
+      "y",
+      "a",
+      "b",
+    ]);
+  });
+
+  it("leaves an already-ordered list untouched", () => {
+    const suites = [
+      { kind: "vitest", path: "x" } as const,
+      { kind: "playwright", config: "c", filter: "f", project: "p" } as const,
+    ];
+    expect(orderSuites(suites)).toEqual(suites);
+  });
+
+  it("spawns playwright through `pnpm exec`, with the config, filter and project", () => {
+    // `node_modules/.bin/*` entries are shell shims and are never handed to
+    // process.execPath; the existing harness spawns through `pnpm exec` for the
+    // same reason (tests/mutation/source/childRun.ts:18). A wrong argv here is a
+    // silent no-op run, which the §3.4 report evidence catches — after paying
+    // for the child.
+    expect(
+      childCommand({
+        kind: "playwright",
+        config: "tests/e2e/standalone.config.ts",
+        filter: "tap-target-floor",
+        project: "standalone-chromium",
+      }),
+    ).toEqual({
+      file: "pnpm",
+      args: [
+        "exec",
+        "playwright",
+        "test",
+        "--config",
+        "tests/e2e/standalone.config.ts",
+        "tap-target-floor",
+        "--project",
+        "standalone-chromium",
+      ],
+    });
+  });
+
+  it("spawns vitest through `pnpm exec` with the browser-mode overlay config", () => {
+    expect(childCommand({ kind: "vitest", path: "tests/components/x.test.tsx" })).toEqual({
+      file: "pnpm",
+      args: [
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "tests/mutation/browser/vitestOverlay.config.ts",
+        "tests/components/x.test.tsx",
+      ],
+    });
+  });
+
+  it("derives the sentinel path from the manifest path", () => {
+    expect(sentinelPath("/tmp/x/manifest.json")).toBe("/tmp/x/manifest.json.ok");
+  });
+
+  it("aborts the surface on a red baseline rather than scoring every mutant KILLED", () => {
+    // Against an already-red suite every mutant scores KILLED and the run
+    // reports a meaningless perfect score.
+    expect(() =>
+      assertBrowserBaseline("s", [{ label: "pw", exitStatus: 0, executed: 56 }]),
+    ).not.toThrow();
+    expect(() =>
+      assertBrowserBaseline("s", [{ label: "pw", exitStatus: 1, executed: 56 }]),
+    ).toThrow(BaselineNotGreenError);
+  });
+
+  it("aborts when a green baseline executed NO tests — the no-tests trap", () => {
+    // A filter or project resolving zero tests exits 0. Without this, every
+    // mutant would run nothing and score SURVIVED.
+    expect(() => assertBrowserBaseline("s", [{ label: "pw", exitStatus: 0, executed: 0 }])).toThrow(
+      /no tests|0 test/i,
+    );
+  });
+
+  it("aborts when the baseline child produced no numeric exit status", () => {
+    expect(() =>
+      assertBrowserBaseline("s", [{ label: "pw", exitStatus: null, executed: 56 }]),
+    ).toThrow(MutantRunInfraError);
   });
 });
