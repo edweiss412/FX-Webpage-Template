@@ -22,7 +22,7 @@ The three ledger findings, each repaired once:
 
 ## 3. Impeccable dual gate (invariant 8, spec §7)
 
-Both halves ran on the arc diff (`app/help/_components/RefAnchor.tsx`, `app/help/errors/page.tsx`), with the canonical v3 setup gates: `context.mjs` context load (PRODUCT.md + DESIGN.md) then the PRODUCT register reference read — `/help/errors` is admin help UI, where design SERVES the product.
+Both halves ran on the arc diff (`app/help/_components/RefAnchor.tsx`, `app/help/errors/page.tsx`), with the canonical v3 setup gates: the skill's own context-load step (PRODUCT.md + DESIGN.md) then the PRODUCT register reference read — `/help/errors` is admin help UI, where design SERVES the product.
 
 ### Critique half — RAN-DEGRADED
 
