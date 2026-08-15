@@ -56,26 +56,42 @@ Step 0 (probe, before any code): run the scanner-classification probe from the p
 
 RED: extend `tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` with new cases. What is red and why: no chip markup exists — the production line whose absence makes them fail is the chip render branch in the slide body.
 
+Harness note (plan R1 F1): the zoomGate suite mounts `GalleryLightbox` directly with a no-op `onClose` (`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx:248`), which cannot exercise the parent nonce or retained-instance lifecycle. Cases 1-5 and 8 extend that suite; the SESSION cases (6, 7, 9) are driven through the REAL parent `Gallery` (the `gallery.failedItem.test.tsx` harness pattern — it already exercises close, canceled exits, and retained instances) so `openNonce` and retention are the live mechanisms under test, not simulated props.
+
 1. Demote path (the :503 scenario) → chip present on the affected slide: `data-testid="lightbox-demote-chip"`, exact copy, `aria-hidden="true"`, `pointer-events-none` class; containment: the chip's closest figure IS the affected slide's figure (the active-branch figure gains `relative` per spec §2.2 R1 F3 — assert the chip is a descendant of that figure, not of the viewport container); the announce entry ALSO fired (both channels, one event — assert the announce spy count unchanged vs the pre-chip baseline of 1) (AC-1).
-2. Fake timers, spec-ratified literals (AC-2, R1 F4): advance 5999 → present; advance 1 more → gone (both literals in the test citing spec §2.1); separately assert the exported `DEMOTE_CHIP_VISIBLE_MS === 6000`. Timer cleanup on unmount (unmount inside the window, no act warnings / no state-update-after-unmount).
+2. Fake timers, spec-ratified literals (AC-2, R1 F4): advance 5999 → present; advance 1 more → gone (both literals in the test citing spec §2.1); separately assert the exported `DEMOTE_CHIP_VISIBLE_MS === 6000`. Timer-cancel ORACLE (plan R1 F2 — an absent act-warning is not a cleanup proof under React 19): the repository precedent `tests/devcapture/useDevCapture.test.tsx:342` — assert `vi.getTimerCount()` returns to its pre-chip baseline after unmount, after a close-clear, and after a second-failure clear.
 3. No-chip rows: successful original; FRESH clamped-tier failure with no preceding demote (placeholder path) (AC-3).
 4. A11y: chip absent from the a11y tree; `role="log"` entries and focus sequence unchanged by the chip's presence (AC-4).
-5. Second demote on another slide inside the window → first chip gone, second present (spec §2.1 clear 2, last-wins).
-6. Close-begin clear (AC-2b, spec §2.1 clear 3): demote → close → immediate re-open inside the 220ms exit window (the retained-instance shape at `tests/components/diagrams/gallery.failedItem.test.tsx:553`) → no chip.
-7. Exit-window repopulation blocked (AC-2b, spec R3 F1): close → demote DURING the exit window (the retained slide failing per the `gallery.failedItem.test.tsx:850` shape) → re-open (openNonce increments) → no chip; the sr announce entry still delivered per the parent contract.
-8. Second-failure clear (AC-2b, spec §2.1 clear 4): the two-stage failure (`galleryLightbox.zoomGate.test.tsx:697` scenario) → no chip once "Image unavailable" shows.
+5. Second demote on another slide inside the window → first chip gone, second present, AND the window RESTARTS (plan R1 F2): advance 5999 after the second demote → second chip still present (a non-restarted timer would have expired), then 1 more → gone.
+6. Close-begin clear, ALL THREE initiators (AC-2b, spec §2.1 clear 3; plan R1 F2): Escape, backdrop click, and the Close button each: demote → that initiator → immediate re-open inside the 220ms exit window (the retained-instance shape at `tests/components/diagrams/gallery.failedItem.test.tsx:553`) → no chip; timer count back to baseline.
+7. Exit-window repopulation blocked (AC-2b, spec R3 F1): close → demote DURING the exit window (the retained slide failing per the `gallery.failedItem.test.tsx:850` shape) → re-open (real parent increments `openNonce`) → no chip; the sr announce entry still delivered per the parent contract.
+8. Second-failure clear (AC-2b, spec §2.1 clear 4): the two-stage failure (`galleryLightbox.zoomGate.test.tsx:697` scenario) → no chip once "Image unavailable" shows; timer count back to baseline.
+9. POSITIVE re-entry ordering (spec R4 F1 — the case the render-time reset exists for; plan R1 F1): close → re-entry commits → the retained slide's PENDING original failure fires after the re-entry commit → the chip RENDERS (a conforming implementation that used an effect-timed reset fails this case; it is the executable pin of "render-time, not effect").
 
-GREEN: `demotedNoticeId` state + `closingRef` set-gate + the `openNonce` prop (parent increments per closed-to-open transition at `components/diagrams/Gallery.tsx:358`; lightbox effect resets `closingRef` + clears state) + timer effect (all four clear conditions) + `relative` on the active-branch figure + chip markup per spec §2.2 (`inset-x-0 bottom-2`, Reset-chip class family minus interactivity, fade-in via `duration-fast ease-out-quart` token utilities). Class-list assertion for AC-6: the chip's className names the token utility and contains no literal ms.
+GREEN: `demotedNoticeId` state + `closingRef` set-gate + the `openNonce` prop (parent increments per closed-to-open transition at `components/diagrams/Gallery.tsx:358`; the lightbox resets `closingRef` and clears chip state DURING RENDER via the guarded `lastNonceRef` comparison — spec §2.1 clear 3's render-time seam, NOT an effect; plan R1 F1) + the timer with all four clear conditions + `relative` on the active-branch figure + chip markup per spec §2.2 (`inset-x-0 bottom-2`, Reset-chip class family minus interactivity). Enter-motion mechanism, full class contract (plan R1 F3 — duration/easing classes alone transition nothing): the chip carries `transition-opacity duration-fast ease-out-quart` plus a mount-time opacity ramp (starting-style/appear pattern per the implementer's choice), and AC-6's assertion names the FULL set: `transition-opacity` present, a duration TOKEN utility present, no literal ms anywhere in the className.
 
-Commit: `feat(crew-page): transient demote chip on the affected lightbox slide`
+The §5.5 inventory row is PART OF THIS TASK and THIS COMMIT (plan R1 F4 — a separate task cannot satisfy both the one-commit-per-task invariant and the spec's same-commit timing lockstep, so the row belongs to C1): after the constant lands, run `pnpm vitest run tests/docs/_metaInteractionTimingInventory.test.ts` and OBSERVE it fail naming the unrowed constant (the inventory gate's own bidirectionality — this observed red is recorded in the task record); regen (`pnpm exec tsx scripts/scan-interaction-timings.cli.ts`) + add the DESIGN.md §5.5 row; the meta-test goes green on the same command; commit EVERYTHING as C1's single commit (AC-5).
 
-### Task C2 — §5.5 inventory row (same-commit discipline check)
+Commit: `feat(crew-page): transient demote chip on the affected lightbox slide (constant + §5.5 row in lockstep)`
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaInteractionTimingInventory.test.ts` ac=AC-5 -->
+### Task C2 — transition audit (writing-plans mandatory task; plan R1 F3)
 
-RED (observed mid-task, the inventory gate's own bidirectionality): after C1's constant lands, run the inventory meta-test and observe it FAIL naming the unrowed constant; then regen (`pnpm exec tsx scripts/scan-interaction-timings.cli.ts`) + add the §5.5 row; green. NOTE: if C1 and C2 land in one commit (preferred — the spec's same-commit rule), the red run is recorded in the task record between edits, not between commits; the committed state is green.
+<!-- task: red=`pnpm vitest run tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ac=AC-6 -->
 
-Commit (amend into C1 or immediately after, per the same-commit rule): `docs(design): DEMOTE_CHIP_VISIBLE_MS joins the §5.5 interaction-constant inventory`
+The spec's §2.3 Transition Inventory, carried as this task's audit table (every row gets an executable oracle or an explicit instant declaration; compound rows are exercised, not assumed):
+
+| Transition | Oracle |
+|---|---|
+| absent to visible (demote) | the AC-6 full class contract (C1 case 1 + the `transition-opacity` + token assertions; C1's GREEN carries the mount-time opacity ramp) |
+| visible to absent (timer) | instant unmount, declared deliberate — the audit lists every AnimatePresence/ternary/conditional in the diff and confirms the chip is inside no exit-presence wrapper |
+| visible while user swipes away and back (compound) | new case: demote, swipe away, swipe BACK inside the window → chip present with its REMAINING lifetime (advance to expiry proves the timer never reset on swipe) |
+| dialog closes while visible (compound) | C1 case 6 (all three initiators) |
+| second demote while visible (compound) | C1 case 5 (restart pinned) |
+| Reset chip visible simultaneously (compound) | new case: demote while scale > 1 → BOTH chips present, disjoint slots (top-2 vs bottom-2) — assert both testids visible simultaneously |
+
+RED: the swipe-return and simultaneous-Reset cases are new cases in the same suite, failing for the same production-line reason as C1 (no chip markup exists). GREEN: C1's implementation; this task adds only tests plus the audit record (the AnimatePresence/ternary enumeration, in the task record).
+
+Commit: `test(crew-page): transition audit for the demote chip (compounds + instant-exit declaration)`
 
 ### Task C3 — dual gate + ledger + close
 
@@ -83,10 +99,10 @@ Commit (amend into C1 or immediately after, per the same-commit rule): `docs(des
 
 ORDER IS BINDING — two rules hold simultaneously: the marker-stripping archive commit is the PR's LAST pre-merge commit, AND the final review round examines the diff that merges (archive included — a review creates no commit, so archiving BEFORE the review satisfies both):
 
-1. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates). P0/P1 fixed or DEFERRED-entried; findings + dispositions in `closeout.md` here with the filled `impeccable-gate:` marker line (AC-7).
-2. Merge `origin/main`; full gates: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
+1. Merge `origin/main` (resolve any conflicts); full gates: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
+2. `/impeccable critique` + `/impeccable audit` on the unit diff AS IT WILL MERGE — run AFTER the merge and gate repairs (plan R1 F5: invariant 8 binds on the affected diff, so the gate examines the final UI tree, not a pre-merge snapshot). P0/P1 fixed or DEFERRED-entried; findings + dispositions in `closeout.md` here with the filled `impeccable-gate:` marker line (AC-7).
 3. Archive `BL-DIAGRAM-DEMOTE-SIGHTED-PARITY` as the intended-last commit (archive RED pattern), recording §4 limits and the §1.1 boundary ratification (AC-8).
-4. Whole-diff codex-guard `--stage diff` review to APPROVE (REVIEWER ONLY; spec §1.1 do-not-relitigate list, including the two out-of-scope a11y siblings) — the reviewed diff INCLUDES the archive commit. If a round returns findings: repair, RE-DO the archive commit on top, and dispatch the next round against the full diff. Merge only from a round that examined the final tree.
+4. Whole-diff codex-guard `--stage diff` review to APPROVE (REVIEWER ONLY; spec §1.1 do-not-relitigate list, including the two out-of-scope a11y siblings) — the reviewed diff INCLUDES the archive commit. If a round's repairs touch ANY UI file, RE-RUN both impeccable halves on the delta before the next round (the closeout records each re-run); then RE-DO the archive commit on top and dispatch the next round against the full diff. Merge only from a round that examined the final tree, with the impeccable record covering that same tree.
 5. PR; real CI green → `gh pr merge --merge` same turn (no commits after the APPROVE-reviewed tree) → ff main → `0 0`.
 
 Commit (step 3): `docs(backlog): archive BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — sighted demote chip shipped`
