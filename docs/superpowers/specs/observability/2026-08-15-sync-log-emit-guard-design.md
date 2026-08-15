@@ -24,7 +24,7 @@ The sibling arc `docs/superpowers/specs/observability/2026-08-14-sync-observabil
 
 ### §2.1 The class and its instances (sweep run 2026-08-15, this worktree)
 
-Class shape: **an awaited separate-connection `sync_log` sink invocation with no try/catch, whose throw propagates to fail the observed operation.** Sweep commands and raw output land in the plan (reconciliation-sweep rule); the derived cover is `grep -rn "logSync(\|logSyncSink\|writeSyncLog" lib/ app/ --include='*.ts'` with every hit dispositioned below.
+Class shape: **an awaited separate-connection `sync_log` sink invocation with no try/catch, whose throw propagates to fail the observed operation.** Sweep commands and raw output land in the plan (reconciliation-sweep rule). The sweep is ALIAS-AWARE (R2 F1: a name-only grep missed the `baseSink(`/`sink(` locals the tracked wrappers bind): `grep -rn "logSync\|logSyncSink\|writeSyncLog\|insertSyncLog\|baseSink(\|\bsink(" lib/ app/ --include='*.ts'`, every hit dispositioned below or in the plan's table — at plan time all alias hits (`runManualSyncForShow.ts` lines 308/331/507/559, `runManualStageForFirstSeen.ts:253`, `applyStaged.ts:2004`) are inside the already-guarded catch/tracked regions or helper-mediated, verified per hit.
 
 | Site | Enclosing symbol | Disposition |
 |---|---|---|
@@ -80,7 +80,7 @@ No new mutation surface: the arc edits existing sync infrastructure and one exis
 - **AC-5 (lockstep triple).** §12.4 row + regen + catalog row land in one commit; `pnpm test:audit:x1-catalog-parity` green; the catalog row is all-null-facing (admin-log-only); no `WARNING_CARD_COPY_CODES` change.
 - **AC-6 (never silently wrong).** No guarded site swallows without escalating: the catch body's ONLY terminal outcomes are escalation-then-continue. A mutant deleting the `log.error` inside any guard's catch is killed by the AC-1/AC-2/AC-3 code assertions.
 - **AC-7 (double-serialize sweep).** All 18 in-class `error: serializeError(...)` sites (§2.2 sweep) pass the raw value instead; the walk-derived meta-test is green and fails when any `log.*` call regains a pre-serialized `error` field; the two `lib/log/persist.ts` console sites are untouched.
-- **AC-8 (ledger).** `BL-SYNC-LOG-EMIT-UNGUARDED` archives on the implementation PR's merge with the §1.1 item 5 fence and §4 limits recorded; markers strip per invariant 12.
+- **AC-8 (ledger).** `BL-SYNC-LOG-EMIT-UNGUARDED` archives on the implementation PR's merge with the §1.1 item 5 fence and §4 limits recorded; `BL-SYNC-LOG-ATTRIBUTION-METATEST` gains the §4 limit 6 guard-presence scope line in the same PR; markers strip per invariant 12.
 
 ## §4 Documented limits
 
@@ -89,6 +89,7 @@ No new mutation surface: the arc edits existing sync infrastructure and one exis
 3. **Per-emit dedicated connection stays; lock hold includes the emit round-trip** (§1.1 item 5, ratified). The entry's fold-in paragraph rides into the archive as the record of the rejected alternative.
 4. **The escalation's own persistence is best-effort.** If `app_events` is ALSO down, the durable record degrades to the synchronous console line + `persistHealth` counters (`lib/log/persist.ts`, `recordPersistFailure`) — the logger's designed floor, not this arc's to change.
 5. **Onboarding `tx.logSync` rows remain tx-bound** (§1.1 item 6): an onboarding scan that fails still rolls back its own scan-log rows. Designed atomicity, not a gap.
+6. **No CI-time completeness recognizer for FUTURE sink sites ships in this arc (R2 F1, ship-and-fence).** A structural walker asserting every sync_log sink invocation is guarded needs the writer-set derivation problem solved — aliases, nested-deps carriers, emission-vs-construction — and that design already exists, six rounds deep, as `BL-SYNC-LOG-ATTRIBUTION-METATEST` (writers derived from `lib/sync/syncLog.ts` exports plus the `logSync`/`insertSyncLog` method and callback forms, with two open definitional questions the shipping arc deliberately did not settle). A second ad-hoc walker here would fork the writer-set definition — the two-copies-drift shape. Instead: (a) the implementation PR adds one scope line to that entry's body recording that the walker, when built, ALSO asserts guard-presence (this finding's dimension) alongside attribution; (b) the regression's failure mode is bounded — an ordinary new UNGUARDED site regresses to today's shipped behavior, a LOUD failure of the observed operation (the throw propagates), never a silent one, so the consequence bound's "never silently wrong" holds even across the regression this limit accepts.
 
 ## §5 Test surface (plan owns the details)
 
