@@ -210,11 +210,13 @@ test("helper surfaces enriched diagnostics when a show never mounts (dead slug)"
   // gate), so neither the modal nor the error boundary ever appears.
   await expect(
     openShowReviewModal(page, "zz-e2e-no-such-show", { timeoutMs: 3_000 }),
-  ).rejects.toThrow(/published-show-review-modal[\s\S]*show_review_snapshot_failed/);
+  ).rejects.toThrow(
+    /published-show-review-modal[\s\S]*admin-route-error-boundary[\s\S]*show_review_snapshot_failed/,
+  );
 });
 ```
 
-The regex pins the two substrings present on every helper failure exit, so an incidental REAL 502 during this navigation (boundary path → retry → still no modal) still passes.
+The regex pins all three substrings (modal testid, boundary testid, server signature) in the order every helper failure message emits them, so an incidental REAL 502 during this navigation (boundary path → retry → still no modal) still passes.
 
 - [ ] **Step 6: Local e2e run — 8/8.** `pnpm heavy pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium` against a freshly seeded local DB (`pnpm db:seed` first; confirm no sibling arc is mid-e2e on the shared stack). Expected: 8 passed — (3 bands + 1 diagnostic) × 2 projects.
 
@@ -332,18 +334,29 @@ function passingTest(projectId: string): ReportTest {
 }
 
 function buildReport(): unknown {
+  // Real describe-wrapped reports NEST specs under suite.suites (see the live
+  // fixture tests/ci/fixtures/phantom-gap-diagrams-report.json); every spec
+  // here is nested one level down, so a collector that drops the walk(suite.suites)
+  // recursion finds ZERO specs and the count assertions fail.
   const suites = Object.entries(REQUIRED as Record<string, number>).map(([file, count]) => ({
     title: file,
     file: `tests/e2e/${file}`,
-    specs: Array.from({ length: count }, (_, i) => ({
-      title: `case ${i}`,
-      file: `tests/e2e/${file}`,
-      line: 10 + i,
-      tests: [passingTest(`proj-${i % 2}`)],
-    })),
+    specs: [],
+    suites: [
+      {
+        title: "describe block",
+        file: `tests/e2e/${file}`,
+        specs: Array.from({ length: count }, (_, i) => ({
+          title: `case ${i}`,
+          file: `tests/e2e/${file}`,
+          line: 10 + i,
+          tests: [passingTest(`proj-${i % 2}`)],
+        })),
+      },
+    ],
   }));
-  // Annotation cases ride on the FIRST suite's first three specs:
-  const first = suites[0]!;
+  // Annotation cases ride on the FIRST file's nested specs:
+  const first = suites[0]!.suites[0]!;
   first.specs[0]!.tests[0]!.annotations = [
     { type: "infra-recovery", description: "recovery one" },
     { type: "infra-recovery", description: "recovery two" },
@@ -353,7 +366,9 @@ function buildReport(): unknown {
   first.specs[1]!.tests[0]!.results[0]!.annotations = [
     { type: "infra-recovery", description: "dup" },
   ];
-  // specs[2] carries none.
+  // specs[2] carries a DIFFERENT annotation type that must NOT print; deleting
+  // the type filter makes the count assertion fail on this row.
+  first.specs[2]!.tests[0]!.annotations = [{ type: "slow", description: "not a recovery" }];
   return { suites };
 }
 
@@ -369,8 +384,12 @@ describe("check-app-e2e-executed annotation print seam", () => {
     );
     const lines = stdout.split("\n").filter((l) => l.startsWith("infra-recovery:"));
     expect(lines).toHaveLength(3); // two from spec[0], ONE from the duplicated spec[1]
-    expect(stdout).toContain("recovery one");
+    // Row format pins TITLE + description; a printer that drops the test
+    // identity (which run recovered?) fails here, not just the description.
+    expect(lines[0]).toContain("case 0");
+    expect(lines[0]).toContain("recovery one");
     expect(stdout).toContain("recovery two");
+    expect(stdout).not.toContain("not a recovery"); // the type filter is load-bearing
     expect(stdout).toContain("infra-recovery total: 3");
   });
 });
@@ -379,7 +398,7 @@ describe("check-app-e2e-executed annotation print seam", () => {
 (Adjust the identity fields to whatever the oracle's `walk` actually reads — `spec.file`, `spec.line`, `spec.title`, `test.projectId`, one `results[0].status === "passed"` — so every floor is met on first attempt. `execFileSync` throws on non-zero exit, which doubles as the exit-0 assertion.)
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 2: Run — RED a.** `pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts` — fails: the oracle prints no `infra-recovery` lines (its only stdout path today is the floor summary, `scripts/check-app-e2e-executed.mjs:152-157`).
+- [ ] **Step 2: Run the ENROLLED command — RED a.** `pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` — the annotation test fails (the oracle prints no `infra-recovery` lines; its only stdout path today is the floor summary, `scripts/check-app-e2e-executed.mjs:152-157`) while the wiring test is still green. Always this exact two-file command — the task marker's red-then-green is observed on the SAME command.
 
 - [ ] **Step 3: Implement the print duty.** In `scripts/check-app-e2e-executed.mjs`: add the exported collector next to `REQUIRED`:
 
@@ -424,16 +443,16 @@ console.log(`infra-recovery total: ${recoveries.length}`);
 Informational only — never a gate (a recovered run is a green run by design).
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 4: Run — GREEN a.** `pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts`
+- [ ] **Step 4: Run the enrolled command — annotation half GREEN.** `pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` — both green (the wiring edits have not started yet).
 
-- [ ] **Step 5: Re-wire, observing RED b on the same command.** Edit `.github/workflows/app-e2e.yml:144`: add `tests/e2e/admin-changes-feed-layout.spec.ts` to the run-step file list. Run `pnpm vitest run tests/cross-cutting/app-e2e-ci-wiring.test.ts` — RED: `REQUIRED` lacks the row the workflow now runs at live resolution. Then:
+- [ ] **Step 5: Re-wire, observing RED b on the same command.** Edit `.github/workflows/app-e2e.yml:144`: add `tests/e2e/admin-changes-feed-layout.spec.ts` to the run-step file list. Run the ENROLLED two-file command again (`pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts`) — RED b: the wiring test fails because `REQUIRED` lacks the row the workflow now runs at live resolution. Then:
   - `scripts/check-app-e2e-executed.mjs` `REQUIRED`: add `"admin-changes-feed-layout.spec.ts": 8` — (3 bands + 1 diagnostic) × 2 projects (`playwright.config.ts` testMatch resolves the spec in BOTH mobile-safari and desktop-chromium). Registry reconciliation, run at plan time: `grep -c '\.spec\.ts":' scripts/check-app-e2e-executed.mjs` → 8 rows today; 9 after; delta exactly this row.
-  - Update the stale header comment at `scripts/check-app-e2e-executed.mjs:25` (it records the AC-4 drop and the 6-case count).
+  - Reconcile EVERY count-bearing comment. Sweep authored AND run at plan time (2026-08-15): `grep -n "eight\|nine\|69\|77" .github/workflows/app-e2e.yml scripts/check-app-e2e-executed.mjs` hits exactly these sites — `.github/workflows/app-e2e.yml:2` ("eight specs" → nine), `.github/workflows/app-e2e.yml:11` ("taking the count to eight" — inside the paragraph rewritten below), `scripts/check-app-e2e-executed.mjs:23-27` header ("EIGHT wired specs, 69 executions" → NINE wired specs, 77 executions = 69 + this spec's 8; the AC-4-drop sentence at line 25 is superseded by the re-entry). Re-run the sweep after editing; zero stale hits.
   - Delete the allowlist row `tests/ci/_metaE2eWorkflowCoverage.test.ts:119` (`"tests/e2e/admin-changes-feed-layout.spec.ts": UNSEEN,`).
   - Rewrite the `.github/workflows/app-e2e.yml:5-14` header paragraph: the spec re-enters with the wait-helper repair; cite `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md`.
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 6: Run — GREEN b.** `pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` — all pass.
+- [ ] **Step 6: Run — GREEN b.** The enrolled two-file command passes; then also `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` (allowlist-row removal verified).
 
 - [ ] **Step 7: Commit.** `infra: re-admit admin-changes-feed-layout to app-e2e batch 1; oracle prints infra recoveries`
 
@@ -449,10 +468,10 @@ Informational only — never a gate (a recovered run is a green run by design).
 
 Steps:
 
-- [ ] Graduate `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` to `BACKLOG-archive.md`, recording the measured mechanism and explicitly correcting the filed fixture-collision theory (spec §2.3) so no future reader re-derives it. The `**Status:** IN PROGRESS · **Branch:**` marker comes OFF in the PR's LAST commit (invariant 12; archives categorically reject in-flight entries — the graduation and the marker removal land together in that final commit).
+- [ ] Graduate `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` to `BACKLOG-archive.md`, recording the measured mechanism and explicitly correcting the filed fixture-collision theory (spec §2.3) so no future reader re-derives it. In the SAME commit, amend the umbrella AC-4-drop paragraph at `BACKLOG.md:665` (the batch-1 narrative asserting "a cross-spec interaction") — it survives graduation and would keep asserting the disproven theory; point it at the archive entry and the measured mechanism. The `**Status:** IN PROGRESS · **Branch:**` marker comes OFF in the PR's LAST commit (invariant 12; archives categorically reject in-flight entries — the graduation and the marker removal land together in that final commit).
 - [ ] File `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` (deferral reason (c); member list derived by re-running the spec §8.1 greps at filing time; `**Reachability:** INFERRED, NOT PROBED` per-spec, with this arc's CI evidence as the class proof).
 - [ ] File `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE` (deferral reason (a): reverses the ratified fail-hard posture, `app/admin/_showReviewModal.tsx:25-30`; evidence = spec §2.1 log excerpts).
-- [ ] Add this plan's row to `docs/superpowers/plans/ci/README.md` (same table format as existing rows).
+- [ ] Verify this plan's row in `docs/superpowers/plans/ci/README.md` (it landed with the plan commit at `docs/superpowers/plans/ci/README.md:15` — do NOT add a duplicate).
 - [ ] Run `pnpm vitest run tests/docs` — ledger shape, review-round economy, invariant-8 closeout guards all green.
 - [ ] Commit: `docs: graduate BL-CHANGES-FEED-MODAL-BATCH-FLAKE; file helper-adoption and read-posture peers`
 
