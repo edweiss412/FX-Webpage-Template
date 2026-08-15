@@ -83,7 +83,7 @@ export function OnboardingTopBar({
         <form method="post" action="/auth/sign-out" data-testid="onboarding-signout-form">
           <button
             type="submit"
-            className="inline-flex min-h-tap-min items-center rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            className="inline-flex min-h-tap-min items-center rounded-sm px-2 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             Sign out
           </button>

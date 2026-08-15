@@ -27,8 +27,9 @@
  * insets would break DESIGN.md §10's tokenized-scale discipline; recorded
  * rather than traded.
  *
- * Colour: `text-text` at rest — `text-text-subtle` is banned for action
- * targets (DESIGN.md §1.1/§1.2) — lifting to `text-text-strong` plus the
+ * Colour: `text-text` at rest — `text-text-subtle` is not a resting colour for
+ * action targets outside DESIGN §1.1a's three carve-out families, and this link
+ * claims none of them — lifting to `text-text-strong` plus the
  * backdrop-matched wash from BACKDROP_SKIN on hover AND on :active (impeccable
  * critique P1 + audit P2: the ~12/255-per-channel text lift alone is
  * perceptually null on a 16px stroke; the wash is the sibling icon-control
