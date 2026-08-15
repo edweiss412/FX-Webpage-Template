@@ -591,7 +591,7 @@ alert-audience-split (spec §6.7) makes health-alert resolution developer-gated 
 
 ### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
 
-**Status:** IN PROGRESS · **Branch:** feat/mutation-section-order (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** IN PROGRESS (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Branch:** feat/mutation-section-order · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
 
 Reordering two adjacent top-level blocks silently reorders the parser's output arrays, because the parser preserves source order. **Order-sensitivity was DISCOVERED by the harness on 2026-07-06** and section-reorder was reclassified cosmetic → corrupting as a result — this class exists because the harness found something no one had posited, which is the strongest evidence in the set that the remaining classes are worth detecting.
 
