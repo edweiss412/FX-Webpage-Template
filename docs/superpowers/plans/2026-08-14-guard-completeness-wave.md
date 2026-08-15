@@ -27,7 +27,7 @@
 | AC-1 | §2.4-1 | Every existing rejection fixture still rejects, with its NEW reason asserted per fixture |
 | AC-2 | §2.4-2 | 7 real discovered files pass; guard's 2 own files carry explicit exemptions |
 | AC-3 | §2.4-3 | New reject fixtures: detached-method probe verbatim, unenumerated acquisition, Rule-3 laundering shapes, unclassifiable factory |
-| AC-4 | §2.4-4 | Acquisition rules deleted; net analyzer line count decreases |
+| AC-4 | §2.4-4 (AMENDED 2026-08-15) | Acquisition rules deleted and the enumeration surface goes to zero; the line-count half is retired as a refuted prediction — 412 code lines vs 262, measured |
 | AC-5 | §2.4-5 | Meta-test imports the shared recognizer; self-exemption explicit |
 | AC-6 | §2.4-6 | Analyzer enrolled in mutation registry; `mutation:guards` run pre-diff-review |
 | AC-7 | §3.2 | `realGitSurface(opts?: { spawn?: typeof spawnSync })`; all six spawn sites routed through the seam |
@@ -512,7 +512,7 @@ Implementation detail for Rule 1's property-call allowance: the allowed method s
 - [ ] **Step 4: Re-run the SAME declared command to verify green, then the meta-guard and line-count check.**
 Run: `pnpm vitest run tests/db/destructiveFileAnalysis.test.ts`
 Expected: PASS. Then, additional coverage (not the marker command): `pnpm vitest run tests/db/_metaDestructiveDbTargetGuard.test.ts` — PASS — all rewritten reasons, new fixtures, and the 7 real files (the meta-guard's per-file `test.each` IS the 7-file validation; if any real file trips Rule 3, apply the spec's containment contingency: file-local refactor of that test file, NOT a Rule-3 widening).
-Then: `wc -l tests/db/_destructiveFileAnalysis.ts` — assert < 420 (AC-4), and note the number in the commit message.
+Then: `wc -l tests/db/_destructiveFileAnalysis.ts` — RECORD the number in the commit message. The `< 420` assertion this step originally carried is retired with AC-4 (amended 2026-08-15, owner-ratified after diff review R1 finding 2): the module is 597 lines of which 412 are code, and the criterion is the deleted rules and the zeroed enumeration surface.
 
 - [ ] **Step 5: Commit.**
 

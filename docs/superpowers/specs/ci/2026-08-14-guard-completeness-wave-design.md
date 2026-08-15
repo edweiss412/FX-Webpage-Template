@@ -74,7 +74,24 @@ This admits `newConn` (arrow body is exactly `postgres(DB_URL, …)` with `DB_UR
 1. Every fixture in `tests/db/destructiveFileAnalysis.test.ts` still rejects — reasons may change (acquisition-rule reasons become unchecked-execution-site reasons); each fixture's new reason is asserted, not just `ok:false`.
 2. All 7 real discovered files still pass (the discovered population is 9: 7 real destructive files with ok verdicts plus the guard's own 2 files, which are exempted before analysis — today by the accidental self-exemption §2.1 documents, after this wave by an explicit registered exemption). `resetValidationDataConcurrency.test.ts` passes through the factory summary.
 3. A file acquiring a driver by a route not in the old rejection list is rejected — new fixtures prove it for at least: the detached-method probe from spec review R1 F1 verbatim (`const {unsafe} = target; await unsafe(...)` with a recognized destructive string), an unenumerated dynamic acquisition shape, a stored method reference and a computed member on a CHECKED client (Rule 3), and a factory the summary cannot classify.
-4. The acquisition rules are deleted; net module line count decreases.
+4. **AMENDED 2026-08-15, owner-ratified (diff review R1 finding 2).** As written this read "the
+   acquisition rules are deleted; net module line count decreases", carrying the ledger entry's
+   expectation that the redesign would make the module smaller. The first half holds and is the
+   part that was ever load-bearing. The second half was a prediction, and it is FALSE as measured:
+   `tests/db/_destructiveFileAnalysis.ts` went 420 to 597 lines, of which **412 are code** (262
+   before), so a sub-420 file is unreachable at any documentation level — the execution-site
+   machinery (factory summaries, the checked-set fixpoint, three rules) is simply more code than
+   the enumeration it retires, and shipping the number would have meant either splitting the module
+   or deleting the limits and probe records these guard files deliberately carry inline.
+
+   The criterion is therefore **rule count and enumeration surface, measured, not lines**: four
+   acquisition rejection rules deleted (named/namespace import ban, dynamic acquisition, impostor
+   `postgres(...)` call, driver-outside-call-position) and six enumerated acquisition routes reduced
+   to zero, with nothing enumerated in their place. The line growth is a documented cost, recorded
+   here and in the archive entry rather than reinterpreted. What the module does NOT do is grow a
+   new open-ended recognizer: the one closed set it gained, `EXECUTION_METHODS`, is backstopped by
+   Rule 2, whose recognizer governs file discovery too and is now shared from
+   `tests/db/_destructiveStatements.ts`.
 5. Discovery (`_metaDestructiveDbTargetGuard.test.ts`) keeps its walk and regexes, now importing the shared destructive-statement recognizer constant (§2.2 Rule 2) instead of declaring its own copies; its accidental self-exemption becomes explicit.
 6. The redesigned analyzer is ENROLLED in `tests/mutation/source/registry.ts` (sourcePath `tests/db/_destructiveFileAnalysis.ts`, suite `tests/db/destructiveFileAnalysis.test.ts` — pure AST, DB-free, ~1s) with `pnpm heavy pnpm mutation:guards` run BEFORE the diff-review round-1 dispatch and the measured score plus unaccepted-survivor set stated in that brief, per the AGENTS.md guard-surface enrolment contract.
 
