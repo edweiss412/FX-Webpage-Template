@@ -1021,36 +1021,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation in a case whose real-world frequency has not been measured. **Promotion prerequisite:** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date. Because the segments ARE structured, the cheap direction is a renderer question — give the date-only segment a labeled treatment of its own — rather than the parser widening an earlier draft implied.
 
-### BL-WIFI-FLATTENED-TRAILING-PROSE — prose after a credential on one flattened line is absorbed into it
-
-**Status:** IN PROGRESS · **Branch:** feat/wifi-password-legibility · **Effort:** S
-
-**Filed:** 2026-08-10, whole-diff review of `feat/crew-field-enrichment` (post-merge segment, F1), probe-demonstrated against the shipped `lib/crew/wifiDisplay.ts`.
-
-**Reachability: INFERRED, NOT PROBED against live data.** The behavior is proven — `"SSID: Guest Hardline from Encore"` yields the network name `Guest Hardline from Encore`, and `"SSID: Guest Password: secret Hardline from Encore"` yields the password `secret Hardline from Encore` — but NO corpus value has this shape. The full-corpus probe (10 fixture shows across both families, 4 live sheets) found prose only BEFORE the labels on flattened lines, or on its own line in the multi-line live cells, where it is correctly recovered as notes. **The probe that would settle it:** re-run the §4 corpus sweep looking specifically for a flattened `event_details.internet` value with text after the last credential.
-
-**Why it was not fixed in the originating branch.** The corpus contains `Network: Institutional Investor Passcode: Investor2025` — a genuine two-word SSID, structurally indistinguishable from `Guest Hardline`. Every candidate rule is a word-count or position cap calibrated on zero instances, which is the number-bounded recognizer this repo's writing-plans rule says the next reviewer defeats, and which spec §4 already rejected once on the same reasoning (the `/` rule that "would have been calibrated on nothing"). The consequence is also bounded: the text renders in full under the wrong row label, rather than vanishing or being silently rewritten.
-
-**And a multi-token network value followed by a password label** (`SSID: Guest Door Code: 2468` reading as network `Guest Door`) — spec §6.8. Folded here for the same reason: it is one structure with `Wifi for Polling Network: Institutional Investor Passcode: Investor2025`, a real corpus value whose SSID genuinely is two tokens, so no rule separates them and the probe that would settle it is the same corpus sweep this row already asks for.
-
-**The same row covers credential-ish prose with NO accepted syntax** — `SSID: Guest WPA is secret`, `WPA is secret\nSSID: Guest`, `Access key=secret\nSSID: Guest` — raised as a separate finding in a later review round and folded here because it is the identical undecidability: with no separator and no accepted label near the credential, nothing in the grammar marks it as one. Probed character by character, all six cited forms render every character of the cell to the crew member; what is imperfect is which row the text sits in.
-
-**Scope if promoted:** if the probe finds real instances, their shape supplies the discriminator (a trailing sentence-cased clause, a known prose lead-in like "Hardline"/"Encore", or a separator the corpus actually uses). If it finds none, this closes as a permanent documented limit — spec §6.7 already carries it.
-
-### BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row has no transcription affordance
-
-**Status:** IN PROGRESS · **Branch:** feat/wifi-password-legibility · **Effort:** S
-
-**Filed:** 2026-08-10, impeccable critique P2 during `feat/crew-field-enrichment` close-out (the arc that introduced the row).
-
-**Reachable live surface, not a hypothetical.** The Wi-Fi split now renders `event_details.internet` passwords as their own `venue-wifi-password` fact row. Probed 2026-08-09 across the four live sheets: two carry a password that reaches this row today (Fixed Income Trading Summit 2025 `FITS2025`; FinTech Forum CTO Summit 2026 `ORDTG.`). It renders as `text-sm font-semibold` proportional body text, right-aligned, like every other fact value.
-
-**The problem.** A password is transcribed by hand into a phone's Wi-Fi dialog, often in a dim ballroom, by someone standing up mid-task. Proportional type does not disambiguate the characters that matter for exactly that task: `O`/`0`, `l`/`1`/`I`, `rn`/`m`. `DESIGN.md` already mandates tabular figures on "every time, date, count, and confirmation number" for the same glance-and-transcribe reason; a Wi-Fi password is the same kind of value and currently gets none of it. The trailing-punctuation limit compounds it — `ORDTG.` deliberately preserves a period the crew member cannot tell from a sentence end (spec §6.3, an accepted limit on the parse side, but the render could disambiguate what the parse cannot).
-
-**Why deferred rather than fixed in the originating branch** (per the class-sweep disposition rule, which defaults to fixing peers in-branch): (a) it needs a design decision this PR cannot settle — tabular figures, a monospace treatment, a tap-to-copy control, or a larger type step are four different answers with different costs on a 390px phone; and (c) every one of them widens the shared `FactRows` primitive past the single optional `testId` that arc declared, on a surface the PR does not otherwise restyle.
-
-**Scope if promoted:** decide the affordance, add the per-row hook to `components/crew/primitives/FactRows.tsx`, apply it at the `venue-wifi-password` push site in `components/crew/sections/VenueSection.tsx`, and pin it with a render assertion. If tap-to-copy wins, it also needs a 44x44 target and a copied-state announcement, which is a materially bigger change than the other three.
-
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
 **Effort:** L (scope floor — design-gated)

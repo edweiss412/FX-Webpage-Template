@@ -519,6 +519,24 @@ const BACKLOG_GRADUATED = [
     id: "BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES",
     provenance: "fix/promote-identity-validation",
   },
+  // feat/wifi-password-legibility (2026-08-15): two rows, closing by two
+  // different routes, which is why they are two entries rather than one arc row.
+  // The transcription row graduates as a BUILD — the affordance question it was
+  // filed to settle got its owner decision (disambiguated type AND tap-to-copy),
+  // and both halves shipped with the geometry measured in the production route
+  // and a standalone harness. The trailing-prose row graduates on PROBE EVIDENCE
+  // with NO parser change: it was filed INFERRED-NOT-PROBED, its own named
+  // corpus sweep was run, and it found zero instances plus a third genuine
+  // multi-token SSID — so every candidate rule is a recognizer calibrated on
+  // nothing, and the limit is documented in the spec rather than left open.
+  {
+    id: "BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY",
+    provenance: "feat/wifi-password-legibility",
+  },
+  {
+    id: "BL-WIFI-FLATTENED-TRAILING-PROSE",
+    provenance: "feat/wifi-password-legibility",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
