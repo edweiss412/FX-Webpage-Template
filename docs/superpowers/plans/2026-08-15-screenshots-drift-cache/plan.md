@@ -13,7 +13,7 @@ pin the shape, and prove the design with real `workflow_dispatch` runs.
 **Architecture:** one implementation branch, `fix/screenshots-drift-cache`, off
 `origin/main`, three tasks, one PR.
 
-**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/ci/2026-08-15-screenshots-drift-cache-refresh-design.md` · **Status:** DRAFT
+**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/ci/2026-08-15-screenshots-drift-cache-refresh-design.md` · **Status:** plan-APPROVED (codex-guard R5, 2026-08-15; R1-R4 findings repaired in-branch. Spec APPROVED codex-guard R5 same day.)
 
 ## Global constraints
 
