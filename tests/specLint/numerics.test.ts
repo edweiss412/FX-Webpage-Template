@@ -1415,6 +1415,23 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
     expect(only(run(twoFences).findings, B)).toEqual([]);
   });
 
+  it("a PADDED marker moves the content column with it", () => {
+    // Review R18, probed: assuming one space after the marker put the content column at
+    // two, so a three-space fence was swallowed as item content and the list after it
+    // joined this one. `-   first` puts its content four columns in.
+    const doc = [
+      "There are 2 cases:",
+      "-   first",
+      "-   second",
+      "   ~~~text",
+      "- not an item",
+      "   ~~~",
+      "- separate list",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
   it("a fence indented LESS than the item content is a separate block", () => {
     // Review R17, probed: CommonMark lets a fence sit up to three spaces in and still be a
     // top-level block, so "deeper than the marker" admitted a one-space fence as item

@@ -759,8 +759,10 @@ function countListItems(model: DocModel, start: number, stopAtChecklist: boolean
   const indent = first[1]!.length;
   // Where this list's item CONTENT starts: a block must reach this column to belong to an
   // item. CommonMark lets a fence sit up to three spaces in and still be a top-level block,
-  // so "deeper than the marker" was not the test (review R17, probed).
-  const contentIndent = indent + first[2]!.length + 1;
+  // so "deeper than the marker" was not the test (review R17, probed) — and the column is
+  // measured from the line rather than assumed, since `-   first` pads its marker and puts
+  // the content four columns in (review R18, probed).
+  const contentIndent = first[0]!.length - first[3]!.length;
   let count = 0;
   let blanks = 0;
   /** Indent of the OPEN fence's delimiter, or null outside a fence. */
