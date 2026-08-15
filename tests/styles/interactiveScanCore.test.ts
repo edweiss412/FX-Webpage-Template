@@ -83,6 +83,39 @@ describe("resolver end-to-end fixtures (plan R2 F3, executable, not comments)", 
     expect(b?.paths.length).toBe(2);
     expect(b && heightFloorSatisfied(b)).toBe(false); // one floorless path
   });
+  // A spread CAN carry or override className, so the default is demotion. But
+  // the overwhelmingly common shape in this corpus is a conditional spread of
+  // object LITERALS (`{...(external ? { target, rel } : {})}`), whose keys are
+  // right there to read: it provably cannot touch className, and demoting it
+  // would put a dozen correctly-floored controls into a census that then rots.
+  it("a spread of object literals without a className key does not demote", () => {
+    const els = scanFixture(
+      [
+        "export function C({ external }: { external: boolean }) {",
+        '  return <button {...(external ? { target: "_blank", rel: "noopener" } : {})} className="min-h-tap-min">x</button>;',
+        "}",
+      ].join("\n"),
+    );
+    const b = els.find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(false);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+  it.each([
+    ["{...rest}", "an identifier the resolver cannot read"],
+    ['{...{ [key]: "" }}', "a computed key that could be className"],
+    ['{...{ className: "min-h-0" }}', "a literal className the element inherits"],
+  ])("a spread of %s demotes", (spread) => {
+    const els = scanFixture(
+      [
+        "export function C({ rest, key }: { rest: object; key: string }) {",
+        `  return <button ${spread} className="min-h-tap-min">x</button>;`,
+        "}",
+      ].join("\n"),
+    );
+    const b = els.find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(true);
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
   it("nested conditional keeps ancestry: inner both-branch floor under a floorless outer arm never clears", () => {
     const els = scanFixture(
       [
@@ -134,6 +167,51 @@ describe("height floor (spec §5.1/§5.2 rules 1-4, 7) and defeaters (rule 8)", 
   );
   it("a clean floor string carries no defeater", () => {
     expect(defeaterPresent(el({ paths: [["inline-flex min-h-tap-min px-4"]] }))).toBe(false);
+  });
+
+  // A named spacing token is the general case of which `min-h-tap-min` is one
+  // instance: the value lives in `app/globals.css`'s `@theme`, so the floor is
+  // read from the token surface rather than from a hand-kept list that goes
+  // stale the day a token is added.
+  it.each([
+    ["min-h-confirm-box", true], // --spacing-confirm-box: 60px
+    ["min-h-tile-min-h", true], // --spacing-tile-min-h: 96px
+    ["min-h-header-link-slot", false], // --spacing-header-link-slot: 30px, under the floor
+  ])("named spacing token %s floors -> %s", (tok, want) => {
+    expect(heightFloorSatisfied(el({ paths: [[tok as string]] }))).toBe(want);
+  });
+  it("a sub-floor named spacing token is a defeater", () => {
+    expect(defeaterPresent(el({ paths: [["min-h-tap-min h-header-link-slot"]] }))).toBe(true);
+  });
+
+  // Descendant-scoped and pseudo-element tokens style something OTHER than the
+  // element's own box, so they can neither prove nor destroy its height.
+  it.each(["[&_svg]:size-4", "[&>svg]:h-3", "before:h-4", "after:min-h-0"])(
+    "%s is not an element-level defeater",
+    (tok) => {
+      expect(defeaterPresent(el({ paths: [[`min-h-tap-min ${tok}`]] }))).toBe(false);
+      expect(heightFloorSatisfied(el({ paths: [[`min-h-tap-min ${tok}`]] }))).toBe(true);
+    },
+  );
+  it.each(["[&_svg]:min-h-tap-min", "before:h-tap-min"])(
+    "%s alone does not prove the element's own floor",
+    (tok) => {
+      expect(heightFloorSatisfied(el({ paths: [[tok as string]] }))).toBe(false);
+    },
+  );
+  it("the pseudo-element expansion recipes DO floor (spec §5.1)", () => {
+    // Explicit-height form: a 44px absolutely-positioned pseudo IS the hit area.
+    expect(
+      heightFloorSatisfied(el({ paths: [["relative before:absolute before:h-tap-min"]] })),
+    ).toBe(true);
+    // Negative-inset form.
+    expect(
+      heightFloorSatisfied(el({ paths: [["relative before:absolute before:-inset-y-2"]] })),
+    ).toBe(true);
+    // A non-expanding pseudo is not a recipe.
+    expect(heightFloorSatisfied(el({ paths: [["relative before:absolute before:inset-0"]] }))).toBe(
+      false,
+    );
   });
 });
 

@@ -32,9 +32,10 @@
  * Recipe-scoped defeaters (spec §5.2 rule 8, families 3 and 4) are enforced
  * structurally rather than as separate defeater tokens: the negative-margin
  * recipe floors only while its vertical padding still reaches the floor
- * arithmetic, and the `before:` recipe floors only in its EXPANDING form
- * (a negative inset). A token that shrinks either recipe therefore removes the
- * floor it was scoped to, which is the same demotion a defeater would produce.
+ * arithmetic, and the `before:` recipe floors only in its EXPANDING forms (a
+ * negative inset, or an explicit height already at the floor). A token that
+ * shrinks either recipe therefore removes the floor it was scoped to, which is
+ * the same demotion a defeater would produce.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve as resolvePath } from "node:path";
@@ -65,8 +66,8 @@ const MAX_RESOLVE_DEPTH = 6;
 const MAX_PATHS = 64;
 const MAX_IMPORT_HOPS = 3;
 
-/** The 4px scale step that first reaches 44px, and the floor in px. */
-const SCALE_FLOOR_STEP = 11;
+/** The tap-target height floor, in px. Named spacing tokens and the 4px
+ *  numeric scale are both measured against it. */
 const FLOOR_PX = 44;
 
 /** Class-composition helpers whose arguments concatenate into one class string. */
@@ -147,6 +148,69 @@ function baseToken(raw: string): string {
     .replace(/!+$/, "");
 }
 
+/**
+ * What an element's own box a token can speak for.
+ *
+ * `[&_svg]:size-4` sizes a DESCENDANT and `before:h-4` sizes a PSEUDO-ELEMENT;
+ * neither can prove or destroy the element's own height, so both are excluded
+ * from the element-level grammar. Pseudo tokens are read again, on their own
+ * terms, by the expansion recipes in `pathHasFloor` — that is the one place a
+ * `before:` token legitimately speaks about the hit area.
+ */
+type TokenScope = "element" | "pseudo" | "descendant";
+
+function variantPrefixes(raw: string): string[] {
+  const prefixes: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (ch === "[" || ch === "(") depth += 1;
+    else if (ch === "]" || ch === ")") depth -= 1;
+    else if (ch === ":" && depth === 0) {
+      prefixes.push(raw.slice(start, i));
+      start = i + 1;
+    }
+  }
+  return prefixes;
+}
+
+function tokenScope(raw: string): TokenScope {
+  const prefixes = variantPrefixes(raw);
+  if (prefixes.some((p) => p.startsWith("[&"))) return "descendant";
+  if (prefixes.some((p) => p === "before" || p === "after")) return "pseudo";
+  return "element";
+}
+
+/**
+ * Named spacing tokens, read from the app's own `@theme` block.
+ *
+ * `min-h-tap-min` is not a special case — it is one row of this map. Reading
+ * the map means a spacing token added tomorrow is measured, not ignored,
+ * without anyone remembering to extend a list here.
+ */
+const spacingTokens = (() => {
+  let cache: Map<string, number> | null = null;
+  return (): Map<string, number> => {
+    if (cache) return cache;
+    const map = new Map<string, number>();
+    const cssPath = join(process.cwd(), "app", "globals.css");
+    if (existsSync(cssPath)) {
+      for (const m of readFileSync(cssPath, "utf8").matchAll(
+        /--spacing-([a-z0-9-]+):\s*([^;]+);/g,
+      )) {
+        const px = lengthPx(m[2]!.trim());
+        if (px !== null) map.set(m[1]!, px);
+      }
+    }
+    // The floor token itself, so a fixture root with no stylesheet still
+    // measures the one value every recipe is written against.
+    if (!map.has("tap-min")) map.set("tap-min", FLOOR_PX);
+    cache = map;
+    return cache;
+  };
+})();
+
 /** px value of an arbitrary Tailwind length, or null when it is not a plain length. */
 function lengthPx(value: string): number | null {
   const px = value.match(/^(\d+(?:\.\d+)?)px$/);
@@ -160,36 +224,39 @@ function lengthPx(value: string): number | null {
 /** Height keywords that compute under the floor (spec §5.2 rule 8). */
 const SUB_FLOOR_KEYWORDS = new Set(["0", "auto", "none", "fit", "min", "max", "px"]);
 
-/** Does this single token PROVE a >= 44px height? */
-function tokenIsFloor(raw: string): boolean {
-  const t = baseToken(raw);
-  if (t === "min-h-tap-min" || t === "size-tap-min") return true;
-  // `sr-only`: the visible target is the parent label, per the 2026-08-07 baseline.
-  if (t === "sr-only") return true;
-  const scale = t.match(/^(?:min-h|h|size)-(\d+(?:\.\d+)?)$/);
-  if (scale?.[1]) return Number(scale[1]) >= SCALE_FLOOR_STEP;
-  const arbitrary = t.match(/^(?:min-h|h|size)-\[(.+)\]$/);
-  if (arbitrary?.[1]) {
-    const px = lengthPx(arbitrary[1]);
-    return px !== null && px >= FLOOR_PX;
-  }
-  return false;
+/** The height a height-affecting utility computes to, or null when unreadable. */
+function utilityPx(base: string): number | null {
+  const utility = base.match(/^(?:min-h|max-h|h|size)-(.+)$/);
+  if (!utility?.[1]) return null;
+  const value = utility[1];
+  if (/^\d+(?:\.\d+)?$/.test(value)) return Number(value) * 4; // the 4px scale
+  const arbitrary = value.match(/^\[(.+)\]$/);
+  if (arbitrary?.[1]) return lengthPx(arbitrary[1]);
+  const named = spacingTokens().get(value);
+  return named ?? null;
 }
 
-/** Does this single token push height back under the floor? */
+/** Does this single token PROVE a >= 44px height for the element's OWN box? */
+function tokenIsFloor(raw: string, allowPseudo = false): boolean {
+  const scope = tokenScope(raw);
+  if (scope === "descendant") return false;
+  if (scope === "pseudo" && !allowPseudo) return false;
+  const t = baseToken(raw);
+  // `sr-only`: the visible target is the parent label, per the 2026-08-07 baseline.
+  if (t === "sr-only") return true;
+  const px = utilityPx(t);
+  return px !== null && px >= FLOOR_PX;
+}
+
+/** Does this single token push the element's OWN height back under the floor? */
 function tokenIsDefeater(raw: string): boolean {
+  if (tokenScope(raw) !== "element") return false;
   const t = baseToken(raw);
   const utility = t.match(/^(?:min-h|max-h|h|size)-(.+)$/);
   if (utility?.[1]) {
-    const value = utility[1];
-    if (/^\d+(?:\.\d+)?$/.test(value)) return Number(value) < SCALE_FLOOR_STEP;
-    if (SUB_FLOOR_KEYWORDS.has(value)) return true;
-    const arbitrary = value.match(/^\[(.+)\]$/);
-    if (arbitrary?.[1]) {
-      const px = lengthPx(arbitrary[1]);
-      return px !== null && px < FLOOR_PX;
-    }
-    return false;
+    if (SUB_FLOOR_KEYWORDS.has(utility[1])) return true;
+    const px = utilityPx(t);
+    return px !== null && px < FLOOR_PX;
   }
   const property = t.match(/^\[(min-height|max-height|height):(.+)\]$/);
   if (property?.[2]) {
@@ -207,14 +274,20 @@ function tokenIsDefeater(raw: string): boolean {
  */
 function pathHasFloor(path: readonly string[]): boolean {
   const tokens = path.flatMap(tokenize);
-  if (tokens.some(tokenIsFloor)) return true;
+  if (tokens.some((t) => tokenIsFloor(t))) return true;
 
-  // `before:absolute` + a NEGATIVE inset is the expansion recipe. A
-  // non-negative `before:inset-*` does not expand and grants no floor, which is
-  // rule 8's inset-narrowing family enforced structurally.
+  // The pseudo-element expansion recipes. Both need `before:absolute` — an
+  // absolutely-positioned pseudo inside the control IS part of its hit area —
+  // plus something that actually EXPANDS: a negative inset, or an explicit
+  // height that already clears the floor. A non-negative `before:inset-*` does
+  // not expand and grants no floor, which is rule 8's inset-narrowing family
+  // enforced structurally rather than as a separate defeater.
   if (
     tokens.some((t) => t === "before:absolute") &&
-    tokens.some((t) => /^before:-inset(-[xy])?-/.test(t))
+    tokens.some(
+      (t) =>
+        /^before:-inset(-[xy])?-/.test(t) || (t.startsWith("before:") && tokenIsFloor(t, true)),
+    )
   ) {
     return true;
   }
@@ -554,6 +627,46 @@ function staticAttributeValue(attribute: ts.JsxAttribute | null): string | null 
   return null;
 }
 
+/**
+ * Can this spread expression put a `className` on the element?
+ *
+ * Provably NOT, when every reachable value is an object literal whose keys are
+ * static and none of them is `className` — the shape
+ * `{...(external ? { target, rel } : {})}` that the corpus uses a dozen times.
+ * Anything else (an identifier, a computed key, a call) is unreadable and
+ * demotes, because a spread can both add and OVERRIDE className.
+ */
+function spreadCannotCarryClassName(node: ts.Expression): boolean {
+  if (ts.isParenthesizedExpression(node)) return spreadCannotCarryClassName(node.expression);
+  if (ts.isAsExpression(node) || ts.isNonNullExpression(node)) {
+    return spreadCannotCarryClassName(node.expression);
+  }
+  if (ts.isConditionalExpression(node)) {
+    return spreadCannotCarryClassName(node.whenTrue) && spreadCannotCarryClassName(node.whenFalse);
+  }
+  if (ts.isBinaryExpression(node)) {
+    const kind = node.operatorToken.kind;
+    if (kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      return spreadCannotCarryClassName(node.right);
+    }
+    if (kind === ts.SyntaxKind.BarBarToken || kind === ts.SyntaxKind.QuestionQuestionToken) {
+      return spreadCannotCarryClassName(node.left) && spreadCannotCarryClassName(node.right);
+    }
+    return false;
+  }
+  if (!ts.isObjectLiteralExpression(node)) return false;
+  return node.properties.every((property) => {
+    if (ts.isSpreadAssignment(property)) return spreadCannotCarryClassName(property.expression);
+    if (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) {
+      const name = property.name;
+      if (ts.isComputedPropertyName(name)) return false;
+      const text = ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : null;
+      return text !== null && text !== "className";
+    }
+    return false;
+  });
+}
+
 function isInScope(tag: string, attributes: ts.JsxAttributes): boolean {
   if (INTRINSIC_TAGS.has(tag) || tag === "Link") return true;
   if (ALLOWLIST_TAGS.has(tag)) return true;
@@ -587,9 +700,13 @@ export function scanInteractiveElements(rootDir: string): ScanElement[] {
         const tag = node.tagName.getText(sf);
         if (isInScope(tag, node.attributes)) {
           const className = attributeNamed(node.attributes, "className");
-          // A spread can carry OR override className, and it is unreadable
-          // here, so it demotes exactly like an unresolved span (rule 2).
-          const hasSpread = node.attributes.properties.some((p) => ts.isJsxSpreadAttribute(p));
+          // A spread can carry OR override className, so an unreadable one
+          // demotes exactly like an unresolved span (rule 2). One whose every
+          // reachable value is a static object literal without a `className`
+          // key is read rather than feared.
+          const hasSpread = node.attributes.properties.some(
+            (p) => ts.isJsxSpreadAttribute(p) && !spreadCannotCarryClassName(p.expression),
+          );
           let resolution: Resolution = EMPTY_RESOLUTION;
           if (className?.initializer) {
             const initializer = className.initializer;

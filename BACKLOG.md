@@ -335,6 +335,16 @@ The mandated pre-draft detector pass ran a TypeScript-AST walk over every `.tsx`
 
 **First scheduled step is the policy decision, not the recogniser:** resolve named class constants, require literal classNames on interactive elements, or accept a standing UNCLASSIFIED census. The recogniser cannot be finished before that call. Until then, the filing branch's defence is its real-browser assertions pinning the thirteen repaired sites (regression coverage, not discovery coverage — spec §4 documents the limit).
 
+## BL-ADMIN-DEV-PANEL-TAP-FLOOR — the two dev-panel buttons are ~28px, and their classes are not even compiled
+
+**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, found by the shipped tap-height scanner's first run). **Class:** accessibility / dev-only surface. **Effort:** S. **Class-sweep exception:** (c) — the repair is a build-scope decision about a surface this branch does not otherwise touch. **Reachability:** PROBED — `pnpm vitest run tests/styles/_metaTapTargetFloor.test.ts` against an empty census names both sites.
+
+Both buttons are `className="border px-3 py-1 bg-blue-600 text-white"` (`app/admin/dev/page.tsx:151` and `:165`): 4px of vertical padding around a single line, roughly 28px, against the 44px `--spacing-tap-min` floor.
+
+**Why a class-level repair does not work here, which is the whole entry.** `app/globals.css:33` excludes this exact file from Tailwind's source detection, because the dev panel is build-gated out of production (`ADMIN_DEV_PANEL_ENABLED`). None of those classes is compiled — `bg-blue-600` renders nothing today. Adding `min-h-tap-min` would emit no CSS while making the static guard report a floor the browser never applies, which is strictly worse than the honest census row it carries now (`tests/styles/tapTargetCensus.ts`, category `under-floor-filed`).
+
+**First scheduled step:** decide whether the dev panel should be styled at all — either narrow the `@source not` exclusion so the surface compiles and can carry the floor, or ratify it as an unstyled developer tool and move the two census rows to a documented-limit record.
+
 ## BL-TAP-TITLE-LINK-META-LINE-BLEED — the sheet-title link's 44px hit box covers ~8px of the meta line beneath it
 
 **Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** accessibility / mis-tap. **Effort:** S. **Class-sweep exception:** (b) — a ratified scope decision fences it. **Reachability:** PROBED — the geometry is arithmetic on the shipped class strings, and the arc's own e2e suite measures the 44.8px box in a real browser (`tests/e2e/tap-target-inline-controls.layout.spec.ts`).
