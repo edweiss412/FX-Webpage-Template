@@ -267,7 +267,15 @@ None — CI workflow YAML, one test file, ledger prose; no visual states.
    already red at the killing step, and the NEXT run at those inputs simply
    misses and builds cold — no staleness is introduced, one warm opportunity is
    lost. Documented, not engineered around.
-7. **Cross-workflow scope:** `help-affordances.yml`'s `nextcache-help` namespace
+7. **A capture-step death SKIPS the drift check entirely (R4 F1).** The drift
+   check keeps GitHub's default `success()` condition, so a run whose capture
+   step fails — even after writing some files — names no filenames; it is loudly
+   red at the capture step instead. Deliberate, not a gap to engineer around: a
+   partially-written capture set is not a valid comparison population, and
+   running the byte gate over it would NAME false drift (worse than naming
+   nothing). The gate's naming duty applies to runs whose capture completed; a
+   capture failure has its own step-level red.
+8. **Cross-workflow scope:** `help-affordances.yml`'s `nextcache-help` namespace
    keeps the combined pattern; it gates NO byte comparison, so staleness there
    cannot self-perpetuate a red main — out of scope per the entry and the brief. If
    it ever grows a byte gate, this spec is the template.
@@ -303,11 +311,13 @@ None — CI workflow YAML, one test file, ledger prose; no visual states.
   fallback, fresh v2 namespace), and the first run at any input set whose build
   created the cache path — pass or fail at the byte gate — saves under the key it
   restored with (computed once, at restore time; the pre-build-death corner is
-  §4.6); any render
-  divergence — tracked drift or untracked new captures — is reported by name by the
-  byte gate — never silently wrong. The residuals in §4.3-§4.6 (an input outside the
-  named census; same-input immutability; byte-preserving path renames; the
-  pre-build-death save corner) are DOCUMENTED LIMITS, not findings.
+  §4.6); on every run whose capture completed, any render divergence — tracked
+  drift or untracked new captures — is reported by name by the byte gate, and a
+  run whose capture died is loudly red at that step (§4.7 — a partial capture set
+  is not a valid comparison population) — never silently wrong. The residuals in
+  §4.3-§4.7 (an input outside the named census; same-input immutability;
+  byte-preserving path renames; the pre-build-death save corner; the
+  capture-death skip) are DOCUMENTED LIMITS, not findings.
 - **PROBE DOMAIN:** `.github/workflows/screenshots-drift.yml` and
   `tests/cross-cutting/ci-workflow-speedup.test.ts` on this branch, plus real
   `workflow_dispatch` runs of that workflow (the §2.3 run ids). A hypothetical about
