@@ -17,6 +17,7 @@ import {
   SHEET_UNAVAILABLE,
   STAGED_PARSE_SOURCE_GONE,
   SYNC_INFRA_ERROR,
+  type PreparedProcessOneFile,
   classifySyncFailure,
   errorPayload,
   resolveStaleSyncProblemAlerts_unlocked,
@@ -54,12 +55,16 @@ export type RunManualSyncForShowDeps = {
   ) => Promise<boolean>;
   getActiveWatchedFolderId?: typeof getActiveWatchedFolderId;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
+  // `prepared` is REQUIRED here, not optional (spec 2026-08-14 §3.1): an optional parameter
+  // re-creates the shipped defect for the next caller, whereas a required one makes the omission a
+  // compile error. TS1016 forces the fifth parameter to lose its optional marker with it.
   processOneFile_unlocked?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
     mode: SyncMode,
     fileMeta: DriveListedFile,
-    deps?: ProcessOneFileDeps,
+    deps: ProcessOneFileDeps | undefined,
+    prepared: PreparedProcessOneFile,
   ) => Promise<ProcessOneFileResult>;
   processOneFile?: (
     driveFileId: string,
@@ -274,7 +279,12 @@ export async function runManualSyncForShow_unlocked(
   driveFileId: string,
   mode: Extract<SyncMode, "manual">,
   fileMeta: DriveListedFile,
-  deps: RunManualSyncForShowDeps = {},
+  deps: RunManualSyncForShowDeps,
+  // Required (spec §3.1). `processOneFile_unlocked` throws SyncInfraError unconditionally when
+  // `prepared` is absent, so the shipped five-argument forward made the retry of any non-archived
+  // existing show throw before any sync work. Required — not optional-with-fallback — so the next
+  // caller that forgets it fails to compile instead of failing in production.
+  prepared: PreparedProcessOneFile,
 ): Promise<ProcessOneFileResult> {
   await assertShowLockHeld(tx, driveFileId);
   const runUnlocked = deps.processOneFile_unlocked ?? defaultProcessOneFile_unlocked;
@@ -285,14 +295,61 @@ export async function runManualSyncForShow_unlocked(
   // already captured one wins - it knows the wider boundary.
   const attemptStartedAtMs =
     deps.processDeps?.attemptStartedAtMs ?? (deps.processDeps?.now?.() ?? new Date()).getTime();
-  return await runUnlocked(tx, driveFileId, mode, fileMeta, {
-    ...(deps.processDeps ?? {}),
-    attemptStartedAtMs,
-    ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
-    ...(deps.expectedModifiedTime !== undefined
-      ? { expectedModifiedTime: deps.expectedModifiedTime }
-      : {}),
-  });
+  // Tracked sink (spec §3.1 R3 F1): the retry route calls THIS entry point directly, bypassing the
+  // locked wrapper's catch, so a throw inside processOneFile_unlocked before its first emission
+  // would otherwise reach only the route's generic outer guard and record nothing. Family (i) only
+  // — tx-bound recovery rows roll back with an aborted tx, so a durable row exists iff this sink
+  // fired, and the catch-emit keys on exactly that.
+  const baseSink = deps.processDeps?.logSync;
+  let rowWritten = false;
+  const trackedSink: ProcessOneFileDeps["logSync"] = baseSink
+    ? async (entry) => {
+        rowWritten = true;
+        await baseSink(entry);
+      }
+    : undefined;
+  try {
+    return await runUnlocked(
+      tx,
+      driveFileId,
+      mode,
+      fileMeta,
+      {
+        ...(deps.processDeps ?? {}),
+        ...(trackedSink ? { logSync: trackedSink } : {}),
+        attemptStartedAtMs,
+        ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
+        ...(deps.expectedModifiedTime !== undefined
+          ? { expectedModifiedTime: deps.expectedModifiedTime }
+          : {}),
+      },
+      prepared,
+    );
+  } catch (error) {
+    if (!rowWritten && baseSink) {
+      try {
+        await baseSink({
+          driveFileId,
+          outcome: "parse_error",
+          code: classifySyncFailure(error),
+          payload: errorPayload(error),
+        });
+      } catch (sinkError) {
+        // Assigned to a local (NOT chained) so prettier keeps `log.error(` on ONE line —
+        // stripLogEmissionCalls cannot match a `log` / `.error` split across lines.
+        const escalation = log.error("manual sync sync_log emit failed", {
+          source: "sync.manualResync",
+          code: "SYNC_LOG_EMIT_FAILED",
+          driveFileId,
+          error: serializeError(sinkError),
+        });
+        await escalation.catch(() => {
+          /* best-effort: a recording failure must never displace the failure it was recording */
+        });
+      }
+    }
+    throw error;
+  }
 }
 
 export async function runManualSyncForShow(

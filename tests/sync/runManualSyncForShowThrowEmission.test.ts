@@ -11,13 +11,20 @@ import { describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { log } from "@/lib/log";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
+import type { ParseResult } from "@/lib/parser/types";
 import {
   runManualSyncForShow,
+  runManualSyncForShow_unlocked,
   type RunManualSyncForShowDeps,
 } from "@/lib/sync/runManualSyncForShow";
 import {
   classifySyncFailure,
+  STAGED_PARSE_REVISION_RACE,
+  STAGED_PARSE_REVISION_RACE_COOLDOWN,
+  STAGED_PARSE_SOURCE_GONE,
+  type PreparedProcessOneFile,
   type ProcessOneFileDeps,
+  type ProcessOneFileResult,
   type SyncLogEntry,
   type SyncPipelineTx,
 } from "@/lib/sync/runScheduledCronSync";
@@ -164,6 +171,208 @@ describe("runManualSyncForShow — escaped throws reach sync_log (spec §3.3)", 
             throw sinkError;
           },
         }),
+      ).rejects.toBe(thrown);
+
+      const escalations = errorSpy.mock.calls.filter(
+        ([, fields]) => (fields as { code?: string }).code === "SYNC_LOG_EMIT_FAILED",
+      );
+      expect(escalations).toHaveLength(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+});
+
+/**
+ * One fixture per `PreparedProcessOneFile` kind. The parameterized forwarding case below drives all
+ * six because §3.1's whole argument — threading `prepared` buys the retry path the full cron
+ * emission surface — rests on `processOneFile_unlocked` receiving each kind verbatim.
+ */
+const PREPARED_FIXTURES: Array<{
+  kind: PreparedProcessOneFile["kind"];
+  prepared: PreparedProcessOneFile;
+}> = [
+  {
+    kind: "skip",
+    prepared: {
+      kind: "skip",
+      result: { outcome: "skipped", reason: "watermark_unchanged" },
+    },
+  },
+  {
+    kind: "asset_recovery",
+    prepared: { kind: "asset_recovery", result: { outcome: "asset_recovery" } },
+  },
+  {
+    kind: "revision_race_cooldown",
+    prepared: {
+      kind: "revision_race_cooldown",
+      result: {
+        outcome: "revision_race_cooldown",
+        code: STAGED_PARSE_REVISION_RACE_COOLDOWN,
+        cooldownRemainingMs: 1_000,
+        retryCount: 2,
+      },
+      payload: { drive_file_id: FILE_ID },
+    },
+  },
+  {
+    kind: "revision_race",
+    prepared: {
+      kind: "revision_race",
+      result: { outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE },
+      racedHeadRevisionId: "head-2",
+      payload: { drive_file_id: FILE_ID },
+    },
+  },
+  {
+    kind: "fetch_failure",
+    prepared: {
+      kind: "fetch_failure",
+      binding: { bindingToken: "head-1", modifiedTime: "2026-08-14T12:00:00.000Z" },
+      error: new Error("probe-fetch-failure"),
+      code: STAGED_PARSE_SOURCE_GONE,
+    },
+  },
+  {
+    kind: "ready",
+    prepared: {
+      kind: "ready",
+      resolvedMode: "manual",
+      binding: { bindingToken: "head-1", modifiedTime: "2026-08-14T12:00:00.000Z" },
+      parseResult: {
+        show: { title: "Manual Throw Fixture" },
+        warnings: [],
+      } as unknown as ParseResult,
+    },
+  },
+];
+
+const APPLIED_RESULT: ProcessOneFileResult = {
+  outcome: "applied",
+  showId: "show-1",
+  parseWarnings: [],
+  appliedRoleMappings: [],
+};
+
+describe("runManualSyncForShow_unlocked — prepared threading + escaped throws (spec §3.1)", () => {
+  test.each(PREPARED_FIXTURES)(
+    "forwards the $kind prepared value as a sixth argument",
+    async ({ prepared }) => {
+      const calls: unknown[][] = [];
+      const processOneFile_unlocked = (async (...args: unknown[]) => {
+        calls.push(args);
+        return APPLIED_RESULT;
+      }) as NonNullable<RunManualSyncForShowDeps["processOneFile_unlocked"]>;
+
+      await runManualSyncForShow_unlocked(
+        fakeTx(),
+        FILE_ID,
+        "manual",
+        fileMetaFixture(),
+        { processOneFile_unlocked, processDeps: { logSync: async () => {} } },
+        prepared,
+      );
+
+      premiseHolds("the runner reached the injected processOneFile_unlocked", calls.length === 1);
+      // Six, not five: the shipped five-argument forward is exactly why processOneFile_unlocked
+      // threw SyncInfraError on every non-archived existing-show retry.
+      expect(calls[0]).toHaveLength(6);
+      expect(calls[0]?.[5]).toBe(prepared);
+    },
+  );
+
+  test("runUnlocked throws before any row → one parse_error row, ORIGINAL error rethrown", async () => {
+    const thrown = new Error("probe-unlocked-failure");
+    const entries: SyncLogEntry[] = [];
+
+    await expect(
+      runManualSyncForShow_unlocked(
+        fakeTx(),
+        FILE_ID,
+        "manual",
+        fileMetaFixture(),
+        {
+          processOneFile_unlocked: async () => {
+            throw thrown;
+          },
+          processDeps: {
+            logSync: async (entry) => {
+              entries.push(entry);
+            },
+          },
+        },
+        PREPARED_FIXTURES[5]?.prepared as PreparedProcessOneFile,
+      ),
+    ).rejects.toBe(thrown);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      driveFileId: FILE_ID,
+      outcome: "parse_error",
+      code: classifySyncFailure(thrown),
+    });
+    expect(entries[0]?.durationMs).toBeUndefined();
+  });
+
+  test("runUnlocked emits, then throws → NO second row (tracked-sink dedupe)", async () => {
+    const thrown = new Error("probe-unlocked-post-emission-failure");
+    const entries: SyncLogEntry[] = [];
+
+    await expect(
+      runManualSyncForShow_unlocked(
+        fakeTx(),
+        FILE_ID,
+        "manual",
+        fileMetaFixture(),
+        {
+          processOneFile_unlocked: (async (
+            _tx: unknown,
+            _driveFileId: string,
+            _mode: string,
+            _fileMeta: DriveListedFile,
+            deps?: ProcessOneFileDeps,
+          ) => {
+            await deps?.logSync?.({ driveFileId: FILE_ID, outcome: "stage" });
+            throw thrown;
+          }) as NonNullable<RunManualSyncForShowDeps["processOneFile_unlocked"]>,
+          processDeps: {
+            logSync: async (entry) => {
+              entries.push(entry);
+            },
+          },
+        },
+        PREPARED_FIXTURES[5]?.prepared as PreparedProcessOneFile,
+      ),
+    ).rejects.toBe(thrown);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ outcome: "stage" });
+  });
+
+  test("sink failure inside the catch → ORIGINAL error surfaces, SYNC_LOG_EMIT_FAILED escalated", async () => {
+    const thrown = new Error("probe-unlocked-failure");
+    const errorSpy = vi.spyOn(log, "error").mockResolvedValue(undefined);
+
+    try {
+      await expect(
+        runManualSyncForShow_unlocked(
+          fakeTx(),
+          FILE_ID,
+          "manual",
+          fileMetaFixture(),
+          {
+            processOneFile_unlocked: async () => {
+              throw thrown;
+            },
+            processDeps: {
+              logSync: async () => {
+                throw new Error("probe-sink-down");
+              },
+            },
+          },
+          PREPARED_FIXTURES[5]?.prepared as PreparedProcessOneFile,
+        ),
       ).rejects.toBe(thrown);
 
       const escalations = errorSpy.mock.calls.filter(
