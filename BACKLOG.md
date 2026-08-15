@@ -13,6 +13,7 @@ Last reconciled: 2026-08-11 — `fix/tap-target-inline-controls` graduated `BL-T
 **Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system
 contrast. **Effort:** M — it is a token decision affecting every surface that renders the button, not
 a patch. **Class-sweep exception:** (c). **Reachability: PROBED.**
+**Status:** IN PROGRESS · **Branch:** fix/ui-interactive-token-policy
 
 The shared secondary treatment (`SECONDARY_ACTION_CLASS`, `lib/ui/actionClass.ts`) draws a
 `border-border-strong` outline over a `bg-bg` fill, on cards that are `bg-surface`. Measured with the
@@ -47,6 +48,7 @@ decorative — which is a legitimate answer, just not one anyone has written dow
 used for action targets."). **Effort:** M. **Class-sweep exception:** (c) — it spans 19 files this
 PR does not otherwise touch, and several members are genuine design questions rather than mechanical
 swaps. **Reachability: PROBED.**
+**Status:** IN PROGRESS · **Branch:** fix/ui-interactive-token-policy
 
 **Why this is filed at all: the previous cover was an enumeration, and enumerations of this shape
 keep coming up short.** `SHEETLINK-SUBTLE-ACTION-CLASS-1` named four sites. U4 found a fifth while
@@ -327,6 +329,7 @@ RangeError: Maximum call stack size exceeded
 ## BL-TAP-TARGET-STRUCTURAL-GUARD — repo-wide tap-target guard blocked on the non-literal-className policy
 
 **Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §5 + §9.1). **Class:** structural defense (fail-by-default coverage for NEW small targets). **Effort:** M-L. **Class-sweep exception:** (c) — spans surfaces the filing PR does not otherwise touch. **Reachability:** PROBED — the full detector procedure and its output are in the spec's §2.6 (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
+**Status:** IN PROGRESS · **Branch:** fix/ui-interactive-token-policy
 
 The mandated pre-draft detector pass ran a TypeScript-AST walk over every `.tsx` under `app/**` and `components/**`: **340** in-scope interactive elements, **139** the recogniser cannot clear, of which **94 carry a non-literal `className`** (template literal, ternary, named constant, `.join()`, or no `className` prop at all with the floor living in a child component's base string). A guard honouring the consequence bound — every element checked or reported by name, never silently passed — must report all 94 as UNCLASSIFIED, so it cannot go green until they are dispositioned. Shipping it weakened (passing constructs it cannot read) would have missed `components/admin/HelpSheet.tsx:139`, a real 36px defect the corpus pass caught.
 
