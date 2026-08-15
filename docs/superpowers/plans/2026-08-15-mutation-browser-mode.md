@@ -144,9 +144,11 @@ only inside the env-guarded branch) plus the structural claim that the sibling
 `_step3ReviewModalBundle.mjs` contains no `MUTATION_OVERLAY_MANIFEST` reference. The
 sibling's BYTE-untouched guarantee (spec AC-3) is enforced at closeout, not by that
 structural test (plan R1 finding 4): Task 9 runs
-`git diff --quiet origin/main...HEAD -- tests/e2e/_step3ReviewModalBundle.mjs` — probed
-against a constructed failing input (touch the file, observe exit 1, revert) when the
-closeout step first runs.
+`git diff --quiet origin/main -- tests/e2e/_step3ReviewModalBundle.mjs` — the TWO-dot
+working-tree form, because the three-dot form compares committed trees only and is blind
+to an uncommitted constructed mutation (plan R2 finding 2). Probe when the closeout step
+first runs: append one byte to the sibling (`touch` changes no content and proves
+nothing), observe exit 1, revert with `git checkout -- tests/e2e/_step3ReviewModalBundle.mjs`.
 
 After the tap-target spec edit, run the e2e meta-suites that walk spec text:
 `pnpm vitest run tests/e2e/_metaFontFidelityWiring.test.ts tests/e2e/_metaFontWaitCoverage.test.ts`
@@ -276,14 +278,19 @@ guards' cross-file consistency rules.
 
 1. specs/ci README index row for the spec (if not already landed with the spec commit).
 2. Graduate both rows to `BACKLOG-archive.md` (terminal states + evidence: gate summary,
-   scores); update the `Last reconciled:` head line in `BACKLOG.md`. Final-commit protocol
-   (plan R1 finding 10, reconciling invariant 12 with "review covers what merges"): the
-   graduation edits land BEFORE the final whole-diff review dispatch, so the reviewed tree
-   is the merging tree; the PR's LAST commit — after APPROVE — contains EXACTLY two
-   mechanical files and nothing else: the final dispatch's own corpus `.jsonl` row and the
-   two IN PROGRESS marker removals (which invariant 12 mandates postdate review by
-   construction). Also verify the sibling fence here:
-   `git diff --quiet origin/main...HEAD -- tests/e2e/_step3ReviewModalBundle.mjs`.
+   scores); update the `Last reconciled:` head line in `BACKLOG.md`; and remove both
+   IN PROGRESS markers IN THAT SAME GRADUATION COMMIT — invariant 12 mandates it ("a
+   graduating entry's marker comes off in the same commit that archives it"), and
+   `tests/docs/_metaLedgerInProgress.test.ts` rejects marked archive entries, so the
+   markers cannot outlive the archive move (plan R2 finding 1). Final-commit protocol
+   (plan R1 finding 10 + R2 finding 1, reconciling invariant 12 with "review covers what
+   merges"): the graduation commit — archive moves, reconciliation line, marker removals,
+   all together — lands BEFORE the final whole-diff review dispatch, so the reviewed tree
+   is the merging tree; the PR's LAST commit, after APPROVE, contains EXACTLY ONE
+   mechanical file: the final dispatch's own corpus `.jsonl` row, which the dispatch wrote
+   at review time and which no review can ever precede. Also verify the sibling fence
+   here: `git diff --quiet origin/main -- tests/e2e/_step3ReviewModalBundle.mjs` (two-dot
+   working-tree form; see Task 3's probe note).
 3. Closeout marker line in this plan: see §Closeout below.
 4. Full gates in the worktree: `pnpm heavy pnpm test:fast`, `pnpm typecheck`,
    `pnpm exec eslint .`, `pnpm format:check`.
