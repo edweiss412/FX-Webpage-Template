@@ -1,6 +1,6 @@
 # UI interactive token policy — secondary-button boundary, subtle-on-interactive carve-outs, tap-target className resolution
 
-**Date:** 2026-08-14 · **Branch:** `fix/ui-interactive-token-policy` · **Status:** DRAFT
+**Date:** 2026-08-14 · **Branch:** `fix/ui-interactive-token-policy` · **Status:** APPROVED (codex adversarial review R5, 2026-08-14; rounds 1-4 BLOCKING repaired, corpus at docs/review-rounds/fix/ui-interactive-token-policy/)
 **Ledger entries:** `BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE`, `BL-SUBTLE-ON-INTERACTIVE-CLASS`,
 `BL-TAP-TARGET-STRUCTURAL-GUARD` (all marked IN PROGRESS on this branch).
 **Implementation routing:** every product-code surface here is UI (AGENTS.md hard rule) — the
