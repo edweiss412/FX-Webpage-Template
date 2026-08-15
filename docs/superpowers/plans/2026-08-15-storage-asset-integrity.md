@@ -54,7 +54,7 @@ impeccable-gate: N/A — no UI surface
 
 **RED validity:** the production lines whose defect makes the new tests fail are the unconditional cleanups in `lib/sync/assetRecovery.ts` — `await Promise.all(uploadedPaths.map((path) => deps.storage.remove?.(path)))` in BOTH the `isConcurrentSyncSkipped(locked)` branch and the `locked.outcome === "revision_drift" || locked.outcome === "no_op"` branch (currently ~:693-700). While those delete unconditionally, the keep-cases below fail on surviving-object state; the `lockedSnapshotRevisionId` assertions additionally fail because the field does not exist yet.
 
-- [ ] **Step 1: Write the failing tests.** Append this block inside the top-level `describe` of `tests/sync/assetRecovery.test.ts` (add `type AssetRecoveryTx` to the existing `@/lib/sync/assetRecovery` import). In the SAME step, DELETE the existing test `"no-op after canonical upload removes uploaded recovery bytes"` — it pins exactly the defect this task repairs (same-revision `no_op` deleting the winner's live objects; probe P1); its replacement is the same-revision keep case below. The sibling test titled "revision drift after canonical upload removes uploaded recovery bytes" (in `tests/sync/assetRecovery.test.ts`) stays UNCHANGED — drift deletion remains correct behavior and that test is the existing pin for it:
+- [ ] **Step 1: Write the failing tests.** Append this block inside the top-level `describe` of `tests/sync/assetRecovery.test.ts` (add `type AssetRecoveryTx` to the existing `@/lib/sync/assetRecovery` import, and add `premiseHolds` beside the file's existing `premise` import). In the SAME step, DELETE the existing test `"no-op after canonical upload removes uploaded recovery bytes"` — it pins exactly the defect this task repairs (same-revision `no_op` deleting the winner's live objects; probe P1); its replacement is the same-revision keep case below. The sibling test titled "revision drift after canonical upload removes uploaded recovery bytes" (in `tests/sync/assetRecovery.test.ts`) stays UNCHANGED — drift deletion remains correct behavior and that test is the existing pin for it:
 
 ```ts
   describe("proof-gated cleanup (spec §2, BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES)", () => {
@@ -130,21 +130,44 @@ impeccable-gate: N/A — no UI surface
       expect([...objects.keys()].sort()).toEqual([...uploads].sort());
     });
 
-    test("no_op with the SAME locked revision (winner committed it) keeps the winner's live objects", async () => {
+    test("no_op with the SAME locked revision (winner committed it) keeps the winner's MANIFEST-referenced objects", async () => {
       const { storagePort, objects, uploads } = liveStorage();
+      // The winner's committed manifest carries REAL snapshotPath values at the
+      // deterministic canonical paths -- the assertion below runs against THESE,
+      // not against the loser's upload list, so an empty winner manifest cannot
+      // vacuously pass (spec §6, probe P1's manifestTargetExists).
+      const base = partialDiagrams();
+      const winnerCommitted: PersistedDiagrams = {
+        ...base,
+        snapshot_status: "complete",
+        embeddedImages: base.embeddedImages.map((entry) => ({
+          ...entry,
+          snapshotPath: `diagram-snapshots/shows/${showId}/${snapshotRevisionId}/embedded-${entry.objectId}.png`,
+        })),
+        linkedFolderItems: base.linkedFolderItems.map((entry) => ({
+          ...entry,
+          snapshotPath: `diagram-snapshots/shows/${showId}/${snapshotRevisionId}/folder-${entry.driveFileId}.jpg`,
+        })),
+      };
+      const manifestPaths = [...winnerCommitted.embeddedImages, ...winnerCommitted.linkedFolderItems]
+        .map((entry) => entry.snapshotPath)
+        .filter((path): path is string => Boolean(path));
       const result = await assetRecovery(
         showId,
         depsWithSecondPass(storagePort, {
-          readLockedShow: async () => ({
-            showId,
-            driveFileId,
-            diagrams: { ...partialDiagrams(), snapshot_status: "complete" },
-          }),
+          readLockedShow: async () => ({ showId, driveFileId, diagrams: winnerCommitted }),
         }),
       );
-      premise("the loser uploaded the same canonical paths the winner committed", uploads.length, 0);
+      premise("the winner's manifest references concrete canonical paths", manifestPaths.length, 0);
+      premiseHolds(
+        "the deterministic canonical paths tie the manifest to the loser's uploads",
+        manifestPaths.every((path) => uploads.includes(path)),
+      );
       expect(result).toEqual({ outcome: "no_op", lockedSnapshotRevisionId: snapshotRevisionId });
-      // The manifest targets (deterministic canonical paths == the uploads) survive.
+      for (const path of manifestPaths) {
+        expect(objects.has(path)).toBe(true);
+      }
+      // And nothing else was deleted either.
       expect([...objects.keys()].sort()).toEqual([...uploads].sort());
     });
 
@@ -658,6 +681,27 @@ describe("row-less _pending reclamation (spec §4, BL-SNAPSHOT-UPLOAD-THROW-ORPH
     expect(result.pendingOrphanPrefixesRetainedNoCreatedAt).toBe(0);
   });
 
+  test("a MIXED-age group (one aged, one young, both valid) stays whole -- EVERY object must clear the gate", async () => {
+    agedPremise();
+    premise(
+      "the young member is inside the age gate",
+      PENDING_ORPHAN_MIN_AGE_MS,
+      now.getTime() - Date.parse(young),
+    );
+    const agedMember = `diagram-snapshots/shows/${ghostShowId}/_pending/${runA}/embedded-a.png`;
+    const youngMember = `diagram-snapshots/shows/${ghostShowId}/_pending/${runA}/embedded-b.png`;
+    const { storage: storagePort, survivors } = liveGcStorage([
+      { path: agedMember, createdAt: aged },
+      { path: youngMember, createdAt: young },
+    ]);
+    const result = await runDiagramGc({ now, storage: storagePort, tx: gcTx([]) });
+    // An "any object is old" or oldest-timestamp implementation deletes this
+    // prefix; the newest-object rule keeps it whole (spec §4 "EVERY object").
+    expect(survivors()).toEqual([agedMember, youngMember].sort());
+    expect(result.pendingOrphanPrefixesDeleted).toBe(0);
+    expect(result.pendingOrphanPrefixesRetainedNoCreatedAt).toBe(0);
+  });
+
   test("a group exactly AT the cutoff is retained (strictly-older gate, spec §4)", async () => {
     premiseHolds(
       "the fixture's age equals the gate exactly",
@@ -768,7 +812,7 @@ export const PENDING_ORPHAN_MIN_AGE_MS = 24 * 60 * 60 * 1000;
     }
 ```
 
-- [ ] **Step 4: Run to verify GREEN.** Run: `pnpm vitest run tests/sync/diagramGc.test.ts`. Expected (dry-run-verified): 15/15 — every pre-existing case passes untouched (their storage ports lack `listChildren`, so the stage is inert for them, and the file asserts named result fields — `result.orphanBlobsDeleted` etc. — never whole-object equality; verified at plan time: `grep -c "toEqual({" tests/sync/diagramGc.test.ts` → 0).
+- [ ] **Step 4: Run to verify GREEN.** Run: `pnpm vitest run tests/sync/diagramGc.test.ts`. Expected (dry-run-verified at 15/15 before the R2-amended mixed-age case; 16/16 with it) — every pre-existing case passes untouched (their storage ports lack `listChildren`, so the stage is inert for them, and the file asserts named result fields — `result.orphanBlobsDeleted` etc. — never whole-object equality; verified at plan time: `grep -c "toEqual({" tests/sync/diagramGc.test.ts` → 0).
 - [ ] **Step 5: Mutant check (dry-run-verified).** Temporarily flip the age condition to the non-strict `if (now.getTime() - newest < PENDING_ORPHAN_MIN_AGE_MS) continue;`, run the suite, and confirm EXACTLY the at-cutoff case fails (it does — this pins the destructive off-by-one); restore the strict form and confirm 15/15.
 - [ ] **Step 6: Commit.** `git add lib/sync/diagramGc.ts tests/sync/diagramGc.test.ts && git commit -m "feat(sync): diagram-gc stage reclaims row-less aged _pending prefixes"`
 
@@ -955,5 +999,5 @@ export function defaultStorage(
 - Spec coverage: §2 → Task 1; §3 → Task 2; §4 → Tasks 3-4; §5 route summary → Task 4; §6 shapes → Tasks 1-4 test blocks (each §6 bullet has a named case, including the file-shaped-entry case and the strictly-older boundary case); §7 L6 signal → Task 3 counter + Task 4 summary. No spec requirement without a task.
 - Registry count reconciliation: one meta-suite row change — `tests/sync/_pendingSnapshotUploadsContract.test.ts` gains exactly one case (Task 4 Step 1.3); declared in Global Constraints. No registry-array-bearing suite changes.
 - Type consistency: `lockedSnapshotRevisionId` (Task 1), `removePrefix` / `applySnapshotStorage` (Task 2), `PENDING_ORPHAN_MIN_AGE_MS` / `listPendingTempPrefixes` / `listChildren` / both counters / `defaultStorage` export (Tasks 3-4) — names identical across producer and consumer tasks.
-- **Plan-time dry-run (executed, then reverted — this worktree ships spec+plan only):** every task's snippets were applied to the live tree and the full red/green cycles run. Results: Task 1 RED = 4 failing cases (3 keeps on surviving-state + the `lockedSnapshotRevisionId` field case) on unmodified lib, GREEN = 20/20 with the diff; Task 2 RED = one case failing (`premise not met: the catch attempted the prefix removal`) plus the missing-export failure, GREEN = 11/11 + 3/3; Task 3 GREEN = 15/15 including the at-cutoff boundary and file-entry cases; Task 3 Step 5 mutant (non-strict age gate) fails EXACTLY the at-cutoff case and the strict form restores 15/15; Task 4 GREEN = 33/33 (`tests/cron/cronRouteSummaries.test.ts` + `tests/api/cron-sync.test.ts`) and separately 15/15 (adapter + contract files); `pnpm typecheck` clean; `pnpm exec eslint` clean over all five lib/app files + seven test files; probe re-run with the diff prints `PROBE P1 manifestTargetExists: true` (the Task 5 Step 4 expectation). The snippets in this plan are verbatim what ran.
+- **Plan-time dry-run (executed, then reverted — this worktree ships spec+plan only):** every task's snippets were applied to the live tree and the full red/green cycles run. Results: Task 1 RED = 4 failing cases (3 keeps on surviving-state + the `lockedSnapshotRevisionId` field case) on unmodified lib, GREEN = 20/20 with the diff; Task 2 RED = one case failing (`premise not met: the catch attempted the prefix removal`) plus the missing-export failure, GREEN = 11/11 + 3/3; Task 3 GREEN = 15/15 including the at-cutoff boundary and file-entry cases, and the two R2-amended cases (winner-manifest survival with real snapshotPath values; mixed-age group kept whole with counters 0/0) were re-dry-run against the patched tree with all premises true; Task 3 Step 5 mutant (non-strict age gate) fails EXACTLY the at-cutoff case and the strict form restores 15/15; Task 4 GREEN = 33/33 (`tests/cron/cronRouteSummaries.test.ts` + `tests/api/cron-sync.test.ts`) and separately 15/15 (adapter + contract files); `pnpm typecheck` clean; `pnpm exec eslint` clean over all five lib/app files + seven test files; probe re-run with the diff prints `PROBE P1 manifestTargetExists: true` (the Task 5 Step 4 expectation). The snippets in this plan are verbatim what ran.
 - Pre-existing-assertion check (run at plan time): exactly TWO assertion sites today in `tests/sync/assetRecovery.test.ts`, both `expect(removed).toEqual(uploads.map((upload) => upload.path))` lines: one in the drift test (stays, still correct) and one in the no_op test (pins the defect; Task 1 Step 1 deletes that test and replaces it with the same-revision keep case). `tests/sync/diagramGc.test.ts` asserts named result fields (`result.orphanBlobsDeleted` etc.), never whole-object equality on the result — additive counters are safe (grep for `toEqual({` in that file → 0 hits).
