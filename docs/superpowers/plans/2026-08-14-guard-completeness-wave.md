@@ -401,6 +401,8 @@ git commit -m "test(db): shared destructive-statement recognizer; guard self-exe
 
 - [ ] **Step 1: Write the failing fixtures first.** Add to `destructiveFileAnalysis.test.ts` (same inline-template style, `IMPORT`/`PRUNE` constants at lines 26-30):
 
+<!-- plan-fences: ignore MANGLED_TEMPLATE — the fixture sources in this block are JS TEMPLATE LITERALS whose bodies contain tagged templates (`sql`select 1``), so the inner backticks MUST be escaped for the snippet to be the code that ships. The rule's target is an escape that is a paste artifact; here it is the language. Shipped verbatim in tests/db/destructiveFileAnalysis.test.ts. -->
+
 ```ts
 // (aa) detached method from an unknown identifier: spec review R1 F1 probe VERBATIM.
 // Production line whose absence makes this fail today: no Rule-2 destructive-string

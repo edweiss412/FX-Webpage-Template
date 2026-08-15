@@ -96,7 +96,7 @@ The bare-env run adds two more — `step3-review-modal.interactions` and `step3-
 
 8 spec files shell `pnpm dlx esbuild@0.28.0`; **28** shell `pnpm dlx @tailwindcss/cli@4.2.4`; **36** call sites across **29** files. (Re-measured at plan time: the +190-commit merge added three more CSS call sites — `section-header-layout.layout`, `pusher-alignment.layout`, `share-link-flash`. An earlier draft said 25/33/26, which is precisely the drift §2's opening paragraph predicts.) Of the 8 esbuild sites, **2 carry stub aliases** (`compact-alert-card-layout`, `hoverhelp-geometry` — both already CI-wired, which is why they were repaired) and 6 do not.
 
-`esbuild@0.28.0` is already a devDependency at the identical pin (`package.json:107`), so those 8 fetch a package sitting in `node_modules`. `@tailwindcss/cli` is **not declared** (only `@tailwindcss/postcss` is installed), so those 25 are a genuine network fetch. Its binary is named `tailwindcss`, and the `tailwindcss` package declares no `bin` in v4, so the name resolves unambiguously once the CLI is a devDependency.
+`esbuild@0.28.0` is already a devDependency at the identical pin (root `package.json`, `devDependencies.esbuild`), so those 8 fetch a package sitting in `node_modules`. `@tailwindcss/cli` is **not declared** (only `@tailwindcss/postcss` is installed), so those 25 are a genuine network fetch. Its binary is named `tailwindcss`, and the `tailwindcss` package declares no `bin` in v4, so the name resolves unambiguously once the CLI is a devDependency.
 
 ### §2.5 Branch protection — measured, because the in-repo claim is stale
 
@@ -138,7 +138,7 @@ What ships is `compileEntryCss({ entryCss, outFile })`, which runs the CLI again
 
 The rationale is a trade, stated plainly: the PR's goal is removing the per-run **network fetch**, which this achieves in full. Deduplicating the `globals.css` read is cosmetic, and restructuring 28 harnesses to obtain it is not a trade this PR should make. This is recorded here, not only in a code comment, because the spec is canonical (`AGENTS.md` invariant 7) — a deviation living only in the implementation is precisely the drift that rule exists to prevent.
 
-Add `"@tailwindcss/cli": "4.2.4"` as an exact devDependency, plus a version-parity test: resolved `@tailwindcss/cli` and `tailwindcss` must agree on major and minor. Pinning alone is insufficient — `tailwindcss` is a range (`package.json:119`), so an install can pair the fixed CLI with a different minor.
+Add `"@tailwindcss/cli": "4.2.4"` as an exact devDependency, plus a version-parity test: resolved `@tailwindcss/cli` and `tailwindcss` must agree on major and minor. Pinning alone is insufficient — `tailwindcss` is a range (root `package.json`, `devDependencies.tailwindcss`), so an install can pair the fixed CLI with a different minor.
 
 ### §3.3 Guard
 
@@ -292,7 +292,7 @@ So under `process.env.CI`, an unreachable `psql` is a thrown error, and the suit
 
 The host embedded in `cron.job.command` is environment-supplied and varies by target — measured at `http://host.docker.internal:3000` on a developer stack, `https://fxav-screenshots-ci.invalid` in CI (`scripts/ci/supabase-local-bootstrap.sh:38`), a real host on validation. Assertions therefore key on the **route path**, which is host-agnostic and is what the suite already does.
 
-Host assertions are **out of scope** and filed as `BL-PG-CRON-HOST-ASSERTION` (§10.4). Two review rounds could not produce a sound comparison: keying off the target flag proves nothing about the connected database, and comparing against the in-session GUC still admits scheme mismatches, a trailing slash, and base paths. Shipping a host check that passes `http://` against an `https://` GUC would be worse than shipping none.
+Host assertions were **out of scope here** and filed as `BL-PG-CRON-HOST-ASSERTION` (RESOLVED 2026-08-14 by `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §5, which asserts the dispatch ORIGIN read back from `net.http_request_queue` per target mode; the original `§10.4` cross-ref was a mis-pointer — §10.4 is `BL-CI-VITEST-EXCLUSION-COVERAGE`). Two review rounds could not produce a sound comparison: keying off the target flag proves nothing about the connected database, and comparing against the in-session GUC still admits scheme mismatches, a trailing slash, and base paths. Shipping a host check that passes `http://` against an `https://` GUC would be worse than shipping none.
 
 ---
 
