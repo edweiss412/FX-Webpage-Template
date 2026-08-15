@@ -29,6 +29,8 @@ The state is per hook instance. That matches the surface: the instance lives in 
 
 Guard conditions: pre-mount `persistFailed` is `false` (SSR-stable, no hydration delta — the note region renders empty exactly as it does post-mount pre-failure). `setTheme` called pre-mount already promotes to `mounted: true`; the same shape carries `persistFailed`. The OS-change listener path never touches `persistFailed` (it does not write storage).
 
+**Mount sync preserves the flag (spec R1 F2).** The mount effect currently REPLACES hook state wholesale (`setState({ mounted: true, theme: readAppliedTheme() })`, `components/layout/useAppliedTheme.ts:67`), and the standalone toggle documents a reachable pre-effect interaction window (`components/layout/ThemeToggle.tsx:68`, the read-the-DOM-at-click-time comment). A blocked write in that window would set `persistFailed` and the effect would then silently clear it. The effect therefore becomes a functional update that preserves the flag: `setState((prev) => ({ mounted: true, theme: readAppliedTheme(), persistFailed: prev.persistFailed }))`. AC-9 pins the ordering.
+
 ### §2.2 Rendered note, both controls (rendered element, not a description)
 
 **Copy (both controls, identical string):** `This device won't remember this choice.` — the ratified direction verbatim; plain language, no technical chrome (PRODUCT.md:68), no em dash (DESIGN.md §9), straight apostrophe (matches shipped copy, e.g. §12.4 catalog strings). One exported const shared by both controls (single source; the announcer-and-visible-drift rule pinned at `components/admin/FinalizeButton.tsx:535`, through the COMPLETE_COPY const at line 545) — it lives in `components/layout/useAppliedTheme.ts` beside `THEME_STORAGE_KEY` so both consumers import the same string.
@@ -46,6 +48,7 @@ Two visual states per control: note-absent (default) and note-present. Transitio
 | Transition | Treatment |
 |---|---|
 | absent to present (persist write fails) | instant, no animation; announced via the live region |
+| present to present (a REPEATED failed write while the note is already shown) | no visual change, no re-announcement — the identical string is already displayed and `role="status"` announces content CHANGES only. Deliberate, not an oversight (spec R1 F1): the device's state has not changed, the visible note is the continuous sighted signal, and re-announcing on every further toggle would spam a screen-reader user exercising the control. Every TRANSITION into the failed state announces: fail, recover (note clears), fail again re-announces because the text goes absent to present again. §4 limit 4 records it; AC-1 pins the transition rule |
 | present to absent (a later persist write succeeds) | instant, no animation; no announcement (silence is the good news, and a polite region with emptied content announces nothing) |
 | theme flips light/dark while note present (compound) | note re-renders in tokens (`text-text-subtle` resolves per palette); no animation of its own; the note text does NOT re-announce (same string, same node — `role="status"` announces content CHANGES only) |
 | popover closes/re-opens while `persistFailed` true (avatar menu only, compound) | note unmounts with the popover and renders again on re-open (hook state survives, §2.1); re-mount renders the container WITH text already present, which polite live regions do not announce on insertion — accepted, the user already heard it at failure time (§4 limit 3) |
@@ -62,7 +65,8 @@ No change to: the no-FOUC script; `readAppliedTheme`; the OS-change subscription
 
 ## §3 Acceptance criteria
 
-- **AC-1 (signal on failure).** With `localStorage.setItem` throwing, activating either control applies the theme in-tab AND renders the note text in that control's status container. Assert BOTH halves; the theme-apply assertion pins that the guard did not break the absorb.
+- **AC-1 (signal on failure).** With `localStorage.setItem` throwing, activating either control applies the theme in-tab AND renders the note text in that control's status container. Assert BOTH halves; the theme-apply assertion pins that the guard did not break the absorb. Repeated-failure shape (R1 F1): a second failing activation keeps the note rendered (assert presence after both), and the fail-recover-fail sequence re-empties then re-fills the container (the announceable transition) — derive both from the same fixture.
+- **AC-9 (pre-effect ordering, standalone toggle).** With storage blocked, a click dispatched BEFORE the mount effect runs (the `ThemeToggle` pre-mount window) sets the flag, and the note is still rendered AFTER the mount effect completes — the functional-update preservation in §2.1 is the production line under test (R1 F2).
 - **AC-2 (silent on success).** With working storage, no note text renders anywhere, before or after toggling. The status containers exist (always-mounted) but are empty.
 - **AC-3 (clear on recovery).** Failing write then succeeding write (storage restored between activations) clears the note.
 - **AC-4 (announce reliability).** The `role="status"` container is present in the DOM BEFORE the failing activation (query it pre-click), not inserted with the note — the ReSyncButton trap pinned as a test.
@@ -75,8 +79,9 @@ No change to: the no-FOUC script; `readAppliedTheme`; the OS-change subscription
 
 1. **The note is per-control-instance and per-page-session.** It does not survive reload (nothing can persist it — that is the failure being reported) and does not render on load for a PREVIOUS session's failure: the signal fires at interaction time, which is when the user can act on it. A load-time probe write was considered and rejected: probing storage on every load to warn users who never touch the toggle spends a speculative write on everyone for a note almost nobody needs.
 2. **No telemetry.** A blocked client storage write is a device condition, not an operator event (§1.1 item 6).
-3. **Popover re-open renders the note without re-announcing** (§2.3 last row) — sighted parity holds (the text is visible); a screen-reader user re-opening the menu reads the menu contents anyway.
-4. **If BOTH controls could ever render at once** (today they cannot, `components/layout/Header.tsx:123`), each instance would track failure independently and only the touched control would show the note. Accepted: the note describes the interaction the user just had, not global device state.
+3. **Popover re-open renders the note without re-announcing** (§2.3) — sighted parity holds (the text is visible); a screen-reader user re-opening the menu reads the menu contents anyway.
+4. **Repeated failures while the note is shown do not re-announce** (§2.3, R1 F1). The announcement fires on every transition INTO the failed state; a steady failed state keeps the visible note and stays quiet in the live region. The alternative — one announcement per failed write — reads as spam under repeated toggling with permanently blocked storage, the entry's own probe scenario.
+5. **If BOTH controls could ever render at once** (today they cannot, `components/layout/Header.tsx:123`), each instance would track failure independently and only the touched control would show the note. Accepted: the note describes the interaction the user just had, not global device state.
 
 ## §5 Test surface (plan owns the details)
 
