@@ -68,7 +68,7 @@ construction to `tests/docs/_metaDeferralLedgerGraduation.test.ts`'s cross-file 
    filename match), so a newly REGISTERED ledger family's file pair is covered by
    default (the in-progress meta-test's pattern,
    `tests/docs/_metaLedgerInProgress.test.ts:241`). Discovery reaches exactly the
-   registered families' `<FAMILY>.md` / `<FAMILY>-archive.md` pairs
+   registered families' base and archive files
    (`LEDGER_FAMILIES`, `scripts/lib/ledger-fields.ts:47`); an UNREGISTERED
    ledger-shaped sibling is `unregisteredLedgerFiles`' complaint surface and out of
    this lane's domain (spec R1 F3).
