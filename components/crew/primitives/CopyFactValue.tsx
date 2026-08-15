@@ -220,7 +220,7 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
           // the precedent's `-m-2` becomes `-my-2 -ml-2`. Margin-right stays at
           // 0 so the 44px target's right edge is pinned to the row edge; the
           // leftward reach lands inside the wrapper's `gap-3.5`.
-          "-my-2 -ml-2 inline-flex size-tap-min shrink-0 items-center justify-center rounded-md",
+          "group -my-2 -ml-2 inline-flex size-tap-min shrink-0 items-center justify-center rounded-md",
           // The row sits on SectionCard's `bg-surface`, and DESIGN.md:40 makes
           // the ring offset match the backdrop — `ring-offset-bg` is wrong here.
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
@@ -229,10 +229,19 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
         {/* The FactRows icon tile, adapted: same 28px sunken square, but the
             glyph is sized here rather than by a child selector, and it carries
             `text-text` because this is an action target (DESIGN.md:27 forbids
-            `text-text-subtle` there). */}
+            `text-text-subtle` there).
+
+            The hover step is the glyph COLOR, not the tile fill, and that is a
+            constraint rather than a preference: the tile is already
+            `bg-surface-sunken`, and its 28px box is what makes this row exactly
+            as tall as an icon-bearing one (the DI-1 oracle), so a fill or size
+            change on hover would move a measured invariant. Darkening to
+            `text-text-strong` is the same half the sibling copy control uses
+            (app/admin/show/[slug]/ShareLinkCopyButton.tsx:151), so one product
+            has one copy affordance. */}
         <span
           aria-hidden="true"
-          className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text"
+          className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text transition-colors duration-fast group-hover:text-text-strong"
         >
           {copied ? (
             <svg

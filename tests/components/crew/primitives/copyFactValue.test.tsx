@@ -316,8 +316,20 @@ describe("copy control presentation (§4.2)", () => {
       // text-accent-text belongs on an accent fill; this is the neutral-surface
       // treatment ShareLinkCopyButton uses.
       "text-text",
+      // The hover step, asserted with the `group` that drives it: a
+      // `group-hover:` utility on the tile is inert unless the button carries
+      // `group`, and that pair silently splitting is the whole failure mode.
+      // It darkens the GLYPH rather than the tile fill, because the tile's 28px
+      // box is the row-height oracle (DI-1) and a fill change is also a
+      // contrast question on a surface that is already sunken.
+      "transition-colors",
+      "duration-fast",
+      "group-hover:text-text-strong",
     ]);
     expect(classesOf(tile!)).not.toContain("text-text-subtle");
+    expect(classesOf(requireCopyButton(container)), "group-hover needs its group").toContain(
+      "group",
+    );
 
     const glyph = tile!.querySelector("svg");
     premiseHolds("the tile renders a glyph", glyph !== null);
