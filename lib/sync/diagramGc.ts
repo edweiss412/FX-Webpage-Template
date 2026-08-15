@@ -23,9 +23,13 @@ export type DiagramGcPendingRow = {
   claimToken: string;
 };
 
+/** §4: a row-less _pending group is reclaimable only when its NEWEST object is STRICTLY older than this. */
+export const PENDING_ORPHAN_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
 export type DiagramGcTx = {
   listShows(): Promise<DiagramGcShow[]>;
   claimPendingRows(now: Date): Promise<DiagramGcPendingRow[]>;
+  listPendingTempPrefixes?(): Promise<string[]>;
   markPendingDeleteStarted?(id: string, claimToken: string, now: Date): Promise<void>;
   deletePendingRow(id: string, claimToken: string): Promise<void>;
   listPendingPromotionRetries?(now: Date): Promise<string[]>;
@@ -43,12 +47,15 @@ export type DiagramGcStorage = {
   list(prefix: string): Promise<Array<string | { path: string; createdAt?: string | null }>>;
   remove(path: string): Promise<void>;
   removePrefix(prefix: string): Promise<void>;
+  listChildren?(prefix: string): Promise<Array<{ name: string; isFolder: boolean }>>;
 };
 
 export type DiagramGcResult = {
   orphanBlobsDeleted: number;
   pendingPrefixesDeleted: number;
   promotedRowsDeleted: number;
+  pendingOrphanPrefixesDeleted: number;
+  pendingOrphanPrefixesRetainedNoCreatedAt: number;
 };
 
 export type RunDiagramGcArgs = {
@@ -373,6 +380,8 @@ export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<Di
   const now = args?.now ?? new Date();
   let orphanBlobsDeleted = 0;
   let pendingPrefixesDeleted = 0;
+  let pendingOrphanPrefixesDeleted = 0;
+  let pendingOrphanPrefixesRetainedNoCreatedAt = 0;
 
   try {
     for (const show of await tx.listShows()) {
@@ -411,6 +420,44 @@ export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<Di
       pendingPrefixesDeleted += 1;
     }
 
+    if (storage.listChildren && tx.listPendingTempPrefixes) {
+      // Spec §4: candidate discovery is STORAGE-driven so ghost shows (rolled-back
+      // first-seen apply, deleted rows) are visited; a DB-driven show list cannot see them.
+      const rowPrefixes = new Set(await tx.listPendingTempPrefixes());
+      const showDirs = await storage.listChildren("diagram-snapshots/shows/");
+      for (const showDir of showDirs) {
+        if (!showDir.isFolder) continue;
+        const pendingRoot = `diagram-snapshots/shows/${showDir.name}/_pending/`;
+        for (const runDir of await storage.listChildren(pendingRoot)) {
+          if (!runDir.isFolder) continue;
+          const prefix = `${pendingRoot}${runDir.name}/`;
+          if (rowPrefixes.has(prefix)) continue;
+          const objects = await storage.list(prefix);
+          if (objects.length === 0) continue;
+          let newest = Number.NEGATIVE_INFINITY;
+          let missingCreatedAt = false;
+          for (const entry of objects) {
+            const createdAt = typeof entry === "string" ? null : (entry.createdAt ?? null);
+            const created = createdAt === null ? Number.NaN : Date.parse(createdAt);
+            if (!Number.isFinite(created)) {
+              missingCreatedAt = true;
+              break;
+            }
+            if (created > newest) newest = created;
+          }
+          if (missingCreatedAt) {
+            // §7 L6: signaled, never silent -- surfaced per run via the counter.
+            pendingOrphanPrefixesRetainedNoCreatedAt += 1;
+            continue;
+          }
+          // STRICTLY older than the gate (spec §4/AC-6): an exactly-at-cutoff group is retained.
+          if (!(now.getTime() - newest > PENDING_ORPHAN_MIN_AGE_MS)) continue;
+          await storage.removePrefix(prefix);
+          pendingOrphanPrefixesDeleted += 1;
+        }
+      }
+    }
+
     for (const snapshotRevisionId of (await tx.listPendingPromotionRetries?.(now)) ?? []) {
       await promoteSnapshotUpload(snapshotRevisionId);
     }
@@ -423,6 +470,8 @@ export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<Di
       orphanBlobsDeleted,
       pendingPrefixesDeleted,
       promotedRowsDeleted,
+      pendingOrphanPrefixesDeleted,
+      pendingOrphanPrefixesRetainedNoCreatedAt,
     };
   } finally {
     await tx.close?.();
