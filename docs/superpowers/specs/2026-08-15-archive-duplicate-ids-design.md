@@ -74,7 +74,10 @@ construction to `tests/docs/_metaDeferralLedgerGraduation.test.ts`'s cross-file 
    this lane's domain (spec R1 F3).
 5. **Guard domain (the "CI" decision):** an id is IN DOMAIN only if it appears at its
    family's ratified entry levels (BACKLOG `##`/`###` with `BL-` prefix; DEFERRED `###`,
-   any SHOUTY id). The collision SCAN spans levels 2–3 in every family, so a level-2
+   any SHOUTY id). The collision SCAN spans the UNION of the family's own registry
+   levels and levels 2-3 (spec R2 F1, restated here after the R3 F1 catch of a
+   silent no-op edit: a future family registered at other levels keeps its own
+   grammar in the scan, so an id its grammar mints twice is never missed), so a level-2
    terminal stub shadowing a level-3 DEFERRED entry is caught (the four `PSQL-`/
    `NEWTAB-`/`DESTRUCT-` pairs), while the two `## CI …` prose section headings —
    which mint the token `CI` at level 2 only — are out of domain and can never false-
@@ -179,7 +182,11 @@ One new `describe` block in `tests/docs/_metaDeferralLedgerGraduation.test.ts`:
 - **Executable plants** (the suite's r21 pattern — synthetic text through
   `extractEntries`, unconditional execution, `tests/_shared/premise.ts` where a fixture
   premise is load-bearing). Fire rows: same-level duplicate (`## BL-X` twice);
-  cross-level duplicate (`## BL-X` + `### BL-X`); DEFERRED `##` stub + `###` original.
+  cross-level duplicate (`## BL-X` + `### BL-X`); DEFERRED `##` stub + `###` original;
+  a synthetic family registered at `levels: [4]` with two `#### FUT-1` headings,
+  proving the union scan (spec R3 F2 — without this plant, a revert to hardcoded
+  scan levels [2, 3] passes every other plant while missing the future-family
+  domain).
   Stays-quiet rows, each with the pin it protects: two `## CI …`-style SHOUTY prose
   headings at level 2 in a null-prefix family (out of domain — the live shape at
   `DEFERRED-archive.md:1218` and `DEFERRED-archive.md:1314`); a demoted bold line beside one heading (the
