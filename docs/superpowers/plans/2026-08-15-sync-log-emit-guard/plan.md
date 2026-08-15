@@ -6,7 +6,7 @@
 
 **Architecture:** one branch `fix/sync-log-emit-guard` off `origin/main`, TDD per task, cross-model diff review, CI-green merge. Non-UI: `impeccable-gate: N/A — no UI surface`.
 
-**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md` (spec-APPROVED, codex-guard R3 2026-08-15) · **Status:** DRAFT
+**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md` (spec-APPROVED, codex-guard R3 2026-08-15) · **Status:** plan-APPROVED (codex-guard R4, 2026-08-15, FINDINGS: 0)
 
 ## Global constraints
 
