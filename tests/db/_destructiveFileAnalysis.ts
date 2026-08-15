@@ -219,9 +219,19 @@ export function analyseDestructiveFile(
   // driver shadow checks already use, and for the same reason: it needs no scope
   // analysis to be sound.
   const assigned = new Set<string>();
+  //
+  // The unwrapping list is the COMPLETE set of node kinds TypeScript permits around an
+  // assignment target, not a sample: parentheses, `as`, `<T>`, `!`, and `satisfies`. Diff
+  // review R6 probed the four non-parenthesised forms and every one reassigned a checked
+  // factory to an unchecked client at ok:true, and every one compiles clean under `strict`
+  // -- so all four were reachable by ordinary authoring, not obfuscation.
   const noteTarget = (n: ts.Node): void => {
     if (ts.isIdentifier(n)) assigned.add(n.text);
     else if (ts.isParenthesizedExpression(n)) noteTarget(n.expression);
+    else if (ts.isAsExpression(n)) noteTarget(n.expression);
+    else if (ts.isTypeAssertionExpression(n)) noteTarget(n.expression);
+    else if (ts.isNonNullExpression(n)) noteTarget(n.expression);
+    else if (ts.isSatisfiesExpression(n)) noteTarget(n.expression);
     else if (ts.isSpreadElement(n)) noteTarget(n.expression);
     else if (ts.isArrayLiteralExpression(n)) n.elements.forEach(noteTarget);
     else if (ts.isObjectLiteralExpression(n)) {
@@ -519,8 +529,17 @@ export function analyseDestructiveFile(
  * call on non-clients, and a false positive there pushes authors toward blanket
  * exemptions, which is how a guard stops guarding.
  */
+// Every postgres.js method that SUBMITS sql, taken from the driver's own type surface:
+// each of these returns PendingQuery / PendingRequest / ListenRequest. `file` was missing
+// until diff review R6 probed `await remote.file("./destructive.sql")` on an unchecked
+// client to ok:true on a DISCOVERED file -- postgres.js reads that path and submits its
+// contents as a query, so it executes caller-supplied SQL as directly as `unsafe` does.
+//
+// `json` and `array` return a Parameter rather than a query and stay OUT deliberately:
+// they collide with Response and Object members that real destructive files call on
+// non-clients, which is why this set is closed by return type rather than by name.
 const EXECUTION_METHODS = new Set(
-  "unsafe begin end reserve savepoint listen notify subscribe cursor".split(" "),
+  "unsafe file begin end reserve savepoint listen notify subscribe cursor".split(" "),
 );
 
 function checkConnection(

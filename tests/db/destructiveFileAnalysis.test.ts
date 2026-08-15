@@ -1148,6 +1148,87 @@ await sql\`select public.prune_sync_log()\`;`;
     expectRejected(src, REASON.uncheckedFactory);
   });
 
+  it("(ca) rejects `.file()` on an unchecked client", () => {
+    // Diff review R6 finding 1, verbatim probe. postgres.js reads the path and submits its
+    // contents as a query, so `.file()` executes caller-supplied SQL exactly as `unsafe`
+    // does -- and it was the ONE method returning a query that EXECUTION_METHODS omitted.
+    // The checked client above it is what makes this a silent acceptance rather than a
+    // rejection for some unrelated reason: the file looks correct until the last line.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql\`select public.prune_sync_log()\`;
+const remote = getDbClient(process.env.TEST_DATABASE_URL);
+await remote.file("./destructive.sql");`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(cb) keeps `.json()` and `.array()` OUT of the execution set", () => {
+    // The other half of finding 1's class, pinned so a later widening cannot quietly add
+    // them: they return a Parameter, not a query, and they collide with Response and
+    // Object members that real destructive files call on non-clients. A file whose only
+    // `.json()` call is on a fetch Response must still pass.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+const res = await fetch("https://example.invalid/x");
+const body = await res.json();
+await sql\`select public.prune_sync_log()\`;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(cc) rejects a factory reassigned through an `as` assertion", () => {
+    // Diff review R6 finding 2. The census must see through every wrapper TypeScript
+    // allows around an assignment target, or a checked factory can be swapped for an
+    // unchecked one in a file that typechecks cleanly. Verified to compile under `strict`.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+let make = () => postgres(DB_URL, { max: 1 });
+(make as any) = () => getDbClient(process.env.TEST_DATABASE_URL);
+const sql = make();
+await sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(cd) rejects a factory reassigned through an angle-bracket assertion", () => {
+    // Diff review R6 finding 2. The census must see through every wrapper TypeScript
+    // allows around an assignment target, or a checked factory can be swapped for an
+    // unchecked one in a file that typechecks cleanly. Verified to compile under `strict`.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+let make = () => postgres(DB_URL, { max: 1 });
+(<any>make) = () => getDbClient(process.env.TEST_DATABASE_URL);
+const sql = make();
+await sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(ce) rejects a factory reassigned through a non-null assertion", () => {
+    // Diff review R6 finding 2. The census must see through every wrapper TypeScript
+    // allows around an assignment target, or a checked factory can be swapped for an
+    // unchecked one in a file that typechecks cleanly. Verified to compile under `strict`.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+let make = () => postgres(DB_URL, { max: 1 });
+(make!) = () => getDbClient(process.env.TEST_DATABASE_URL);
+const sql = make();
+await sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(cf) rejects a factory reassigned through a `satisfies` expression", () => {
+    // Diff review R6 finding 2. The census must see through every wrapper TypeScript
+    // allows around an assignment target, or a checked factory can be swapped for an
+    // unchecked one in a file that typechecks cleanly. Verified to compile under `strict`.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+let make = () => postgres(DB_URL, { max: 1 });
+(make satisfies unknown) = () => getDbClient(process.env.TEST_DATABASE_URL);
+const sql = make();
+await sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.

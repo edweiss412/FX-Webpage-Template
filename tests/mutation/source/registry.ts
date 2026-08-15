@@ -463,49 +463,49 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // deleted rather than blessed. These seven are reachability arguments.
     accepted: [
       {
-        siteId: "logical-connector:377:32:&&>||",
+        siteId: "logical-connector:387:32:&&>||",
         kind: "equivalent",
         reason:
           "`receiver !== null && checked.has(receiver)` decides whether a `.begin` callback parameter is checked. Under `||` a callback of an UNCHECKED receiver would also be checked -- but Rule 1 rejects that `.begin(...)` call itself (`begin` is in EXECUTION_METHODS and the receiver is not a checked client), and the call is an ANCESTOR of the callback body, so the walk reaches it first. Both operators produce the same verdict and the same reason; fixture (aj) is the case",
       },
       {
-        siteId: "integer-literal:381:19:0>1",
+        siteId: "integer-literal:391:19:0>1",
         kind: "equivalent",
         reason:
           "the checked-set fixpoint's start index. The loop breaks the first time a pass adds nothing, and each growing pass adds at least one name, so at most `candidates.size` passes can grow; starting at 1 still allows `size` iterations, which is enough to resolve any dependency chain over `size` names",
       },
       {
-        siteId: "relational-boundary:381:27:<><=",
+        siteId: "relational-boundary:391:27:<><=",
         kind: "equivalent",
         reason:
           "same loop: `<=` permits one further iteration that the `!grew` break has already made unreachable",
       },
       {
-        siteId: "integer-literal:381:47:1>2",
+        siteId: "integer-literal:391:47:1>2",
         kind: "equivalent",
         reason:
           "same loop: the bound is `candidates.size + n` for any n >= 1, and the break-on-no-growth condition fires before either bound is reached",
       },
       {
-        siteId: "relational-boundary:386:24:>>>=",
+        siteId: "relational-boundary:396:24:>>>=",
         kind: "equivalent",
         reason:
           "`decls.length > 0` guards `every()` returning true vacuously. A candidate name is only ever added from a VariableDeclaration or a Parameter, and declarationsOf collects both, so a candidate with zero declarations cannot occur -- the `>= 0` mutant admits a case the candidate set cannot contain",
       },
       {
-        siteId: "logical-connector:492:73:&&>||",
+        siteId: "logical-connector:502:73:&&>||",
         kind: "equivalent",
         reason:
           "Rule 3's tag test, `isTaggedTemplateExpression(p) && p.tag === n`. Under `||` the second disjunct alone would admit an identifier whose parent is a tagged template but which is NOT its tag -- and a TaggedTemplateExpression's identifier children are the tag and its type arguments only. A type argument is a type, not a value, so no checked CLIENT identifier can occupy that position",
       },
       {
-        siteId: "relational-boundary:583:29:>>>=",
+        siteId: "relational-boundary:602:29:>>>=",
         kind: "equivalent",
         reason:
           "`d.node.getStart(sf) > connectPos` is the ordering leg: the guard declaration must precede the connection. `>=` additionally rejects a declaration starting at exactly the connection's offset, which two distinct AST nodes in one file cannot do",
       },
       {
-        siteId: "logical-connector:360:61:&&>||",
+        siteId: "logical-connector:370:61:&&>||",
         kind: "equivalent",
         reason:
           "`walkCandidates`'s parameter leg. `&&` binds tighter, so the mutant reads `(isParameter && isIdentifier) || beginParamReceiver(n) !== null` and every identifier-named parameter joins `candidates`. Candidacy confers nothing on its own: `declQualifies` re-derives `.begin`-ness for a parameter independently (`beginParamReceiver(d.node) !== null && checked.has(receiver)`), so a wider CANDIDATE set cannot widen the CHECKED set, and only the checked set gates execution. The second disjunct admits no node either -- `beginParamReceiver` requires its argument to BE `fn.parameters[0]` of an arrow or function expression, which a non-parameter node never is. Probed against 13 inputs spanning both legs, including a plain parameter used as a client: neither the verdict nor the reason differs. This was the ONLY equivalent one of the twelve unaccepted survivors CI's whole-gate run found; the other eleven were real and are killed by fixtures (br)-(bz)",
