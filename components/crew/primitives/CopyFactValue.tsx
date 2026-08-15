@@ -179,10 +179,22 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
   // which cascades a render and is what the React compiler rejects. A counter
   // changes exactly once per exit, so the dependency array alone gates it.
   const [corrective, setCorrective] = useState({ seq: 0, gen: 0 });
+  // The corrective is owed for as long as an affirmative entry is STILL IN THE
+  // LOG, not merely while `copied` is set. The natural timeout retires the
+  // glyph silently and correctly — nothing is being claimed on screen any more
+  // — but the announcement outlives it, and a screen-reader user's last word on
+  // this row would otherwise stay "Copied." while the value beneath it moved
+  // and the clipboard went stale. Bounded by the channel's own TTL rather than
+  // forever: once the entry is pruned the log ends on nothing, so there is no
+  // claim left to retract and a value change announces nothing at all. (Found
+  // by whole-diff review round 6, against the consequence bound this arc's own
+  // review brief declared: an affirmative "Copied." must never be left standing
+  // as the log's last word once it stopped being true.)
+  const affirmativeStanding = entries.some((e) => e.text === COPIED_MESSAGE);
   if (seenValue !== value) {
     setSeenValue(value);
-    if (copied) {
-      setCopied(false);
+    if (copied || affirmativeStanding) {
+      if (copied) setCopied(false);
       // `gen` names the window that was live at THIS moment — the only one this
       // corrective is entitled to cancel.
       setCorrective((c) => ({ seq: c.seq + 1, gen: armGenRef.current }));

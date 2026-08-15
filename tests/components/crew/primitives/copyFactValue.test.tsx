@@ -633,6 +633,51 @@ describe("overlapping writes resolve by VALUE alone (§4.2)", () => {
     expect(logTexts(container)).toEqual([COPIED_TEXT, CORRECTIVE_TEXT]);
   });
 
+  test("a value change AFTER the window still retracts the standing announcement", async () => {
+    // The glyph is gone by then, correctly and silently — but the "Copied."
+    // entry is still in the log, so it is still this row's last word to a
+    // screen-reader user while the value beneath it moved and the clipboard
+    // went stale.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container);
+    await settle(0);
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS + 1);
+    });
+    premiseHolds("the window closed silently", !isCopied(container));
+    premiseHolds("the affirmative entry is still in the log", logTexts(container).length === 1);
+
+    await act(async () => {
+      rerender(<FactRows rows={[passwordRow({ v: "FITS2025" })]} />);
+    });
+
+    expect(logTexts(container)).toEqual([COPIED_TEXT, CORRECTIVE_TEXT]);
+  });
+
+  test("a value change after the entry is PRUNED announces nothing", async () => {
+    // The other half, and the reason this is bounded by the channel's TTL
+    // rather than running forever: once the entry is gone the log ends on
+    // nothing, so there is no claim to retract — and a crew page whose values
+    // refresh all day must not narrate a copy the user made an hour ago.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container);
+    await settle(0);
+    await act(async () => {
+      vi.advanceTimersByTime(ANNOUNCE_LOG_TTL_MS + 1);
+    });
+    premiseHolds("the log is empty once the entry is pruned", logTexts(container).length === 0);
+
+    await act(async () => {
+      rerender(<FactRows rows={[passwordRow({ v: "FITS2025" })]} />);
+    });
+
+    expect(logTexts(container)).toEqual([]);
+  });
+
   test("a value change while NOT copied appends nothing", async () => {
     const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
 
