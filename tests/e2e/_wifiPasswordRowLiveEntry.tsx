@@ -24,7 +24,7 @@
  *
  * FOUR ISLANDS ON ONE PAGE is a harness artifact, stated rather than hidden.
  * Production renders one, so `CopyFactValue` hardcodes one announce-region
- * testid and the module registers ONE active owner. Neither matters here:
+ * testid, and four islands share one identity here. Neither matters here:
  * this spec measures geometry and never clicks, so no clipboard write is ever
  * dispatched and no announcement is ever routed. The click behavior is proven
  * in jsdom (tests/components/crew/primitives/copyFactValue.test.tsx), where a

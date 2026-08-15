@@ -131,8 +131,8 @@ export function FactRows({ rows }: FactRowsProps) {
                     label={copyLabel}
                     // Same key the row itself uses: stable across the sibling
                     // churn that would otherwise remount the island, and
-                    // distinct between rows, so two opted-in rows can never
-                    // route each other's confirmations.
+                    // distinct between rows, so a vacancy one row offers on
+                    // unmount cannot be claimed by another row's island.
                     identity={row.testId !== undefined ? row.testId : `${row.k}-${i}`}
                   />
                 </div>

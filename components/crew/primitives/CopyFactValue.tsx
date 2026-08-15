@@ -21,13 +21,20 @@
  *     and orphaning an in-flight clipboard write. `FactRows` now keys a row by
  *     its `testId`, which is stable across churn.
  *   - A REAL remount is still reachable, and `navigator.clipboard.writeText`
- *     gives no latest-write guarantee. So the module keeps an ACTIVE-OWNER
- *     registration written in a LAYOUT effect — synchronous with commit, so a
- *     resolution landing at any later moment observes the live island rather
- *     than a dead one (a passive effect leaves a commit-to-setup window; the
- *     spec-time spike at docs/superpowers/specs/probes/2026-08-10-wifi-ownership-spike.test.tsx
+ *     gives no latest-write guarantee. So each island registers itself in a
+ *     LAYOUT effect — synchronous with commit, so a resolution landing at any
+ *     later moment observes live islands rather than dead ones (a passive
+ *     effect leaves a commit-to-setup window; the spec-time spike at
+ *     docs/superpowers/specs/probes/2026-08-10-wifi-ownership-spike.test.tsx
  *     drives exactly that trace) — plus a per-row write COUNTER, so two
  *     resolutions for one row can be ordered.
+ *
+ * WHAT THE REGISTRATION IS KEYED ON is the question this file spent seven
+ * review rounds on, and the spec's §4.1 amendment records the outcome: NOT a
+ * name. An affirmative follows a successor chain proven inside the commit that
+ * performs a swap (see below); a retraction broadcasts by VALUE to every
+ * mounted island, because the clipboard is one resource and only the
+ * confirmation is per island (`retractStaleClaims`).
  *
  * RESOLUTION TRUTH IS VALUE-ONLY (§4.2, the one normative rule). A resolution
  * whose value equals the island's CURRENT value appends a keyed "Copied." entry
@@ -139,9 +146,11 @@ type Owner = {
  *      same identity in one window cannot be told apart, so neither is offered
  *      at all, and a vacancy already claimed is not offered twice.
  *
- * Anything unlinked has NO successor and a late resolution simply lands
+ * Anything unlinked has NO successor, so a late resolution's AFFIRMATIVE lands
  * nowhere: the value is on screen, the clipboard already holds it, and nothing
- * is claimed.
+ * is claimed. Its RETRACTION is a different question with a different answer —
+ * see `retractStaleClaims`, which is not routed by this chain at all, because
+ * what it retracts is a claim about the clipboard rather than about a row.
  *
  * NOT A DEFECT, and worth writing down because it looks like one: a different
  * row that takes over an identity IN THE SAME COMMIT receives the confirmation
@@ -309,9 +318,10 @@ export function CopyFactValue({
   value: string;
   label: string;
   /** Stable across this row's remounts and distinct between rows — `FactRows`
-   *  passes the row's `testId`, falling back to its label. It keys the owner
-   *  registration, so it is what routes a resolution back to the row that asked
-   *  for it. */
+   *  passes the row's `testId`, falling back to its label. It keys the VACANCY
+   *  offered when this island unmounts, so it decides which incoming island may
+   *  be proven its replacement. It is not a routing table: no resolution is
+   *  ever delivered by looking this string up. */
   identity: string;
 }) {
   const [copied, setCopied] = useState(false);

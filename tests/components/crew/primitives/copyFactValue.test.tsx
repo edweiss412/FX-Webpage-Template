@@ -26,7 +26,8 @@
  *     key changes, React remounts the island, and its copied state is lost.
  *   - the remount-routing case drives the spike's regression form: a write that
  *     is still pending when its island is replaced must deliver its outcome
- *     through whichever island is registered at resolution time.
+ *     through the island proven to have replaced it in that commit — never
+ *     through a name lookup, which also matches a row that never asked.
  */
 import { readFileSync } from "node:fs";
 
@@ -816,8 +817,8 @@ describe("overlapping writes resolve by VALUE alone (§4.2)", () => {
 
 describe("island lifecycle (§4.1)", () => {
   test("a SECOND opted-in row does not receive the first row's confirmation", async () => {
-    // The module holds the owner registration so a write can outlive a remount
-    // (§4.1). Held as ONE global, the LAST island to mount wins it, and a
+    // The module holds the island registrations so a write can outlive a
+    // remount (§4.1). Held as ONE global, the LAST island to mount wins it, and a
     // second opted-in row anywhere on the page silently steals every
     // confirmation: the row the user tapped stays idle while an untouched row
     // lights up and announces. Production renders one island today, but that is
@@ -1126,9 +1127,9 @@ describe("island lifecycle (§4.1)", () => {
 
     await settle(0);
 
-    // The resolution routes to whichever island is registered at resolution
-    // time. Without that routing it would setState on a dead island and this
-    // region would stay empty.
+    // The resolution routes along the successor link proven in the commit that
+    // performed the swap. Without that routing it would setState on a dead
+    // island and this region would stay empty.
     expect(logTexts(container)).toEqual([COPIED_TEXT]);
     expect(isCopied(container), "the live island is the one showing copied").toBe(true);
   });
