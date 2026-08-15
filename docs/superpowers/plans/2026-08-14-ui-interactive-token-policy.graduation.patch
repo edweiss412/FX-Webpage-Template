@@ -1,10 +1,8 @@
 diff --git a/BACKLOG-archive.md b/BACKLOG-archive.md
-index 52e63045e..8f964d91d 100644
+index 52e63045e..72dbd9993 100644
 --- a/BACKLOG-archive.md
 +++ b/BACKLOG-archive.md
-@@ -1,5 +1,55 @@
- ## BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row had no transcription affordance — CLOSED 2026-08-15 (`feat/wifi-password-legibility`, SHIPPED)
- 
+@@ -1,3 +1,53 @@
 +## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button now carries its own boundary — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
 +
 +**Status:** SHIPPED 2026-08-14 · PR #787 · **Effort (as shipped):** S at the constant, M across the class
@@ -55,11 +53,11 @@ index 52e63045e..8f964d91d 100644
 +
 +**Shared core.** The in-scope predicate, the className resolver and the corpus walk live in ONE module that both this guard and the subtle-policy guard import, so the two cannot drift apart on scope or resolution. Its path-set model keeps branch ancestry: `outer ? (inner ? floor : floor) : ""` has a floorless outer path and never clears.
 +
- **Resolution: SHIPPED.** Spec `docs/superpowers/specs/2026-08-10-wifi-password-legibility.md` (APPROVED at adversarial round 17), plan `docs/superpowers/plans/2026-08-10-wifi-password-legibility.md` (APPROVED at round 4).
+ ## BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row had no transcription affordance — CLOSED 2026-08-15 (`feat/wifi-password-legibility`, SHIPPED)
  
- The entry was filed as a DESIGN QUESTION with four candidate answers — tabular figures, a monospace treatment, tap-to-copy, or a larger type step — and said explicitly that it could not be settled inside the arc that filed it. The owner settled it on 2026-08-10 by taking BOTH halves of the larger option: the value renders in `.code-value` (the product's own transcription treatment: slashed zero, tabular figures, bound family) AND the row carries a tap-to-copy control. The reasoning is in spec §1.1 — a font feature disambiguates `O`/`0` and `l`/`1`, but nothing typographic fixes `rn`/`m`, and nothing at all fixes a trailing period that IS part of the password (`ORDTG.`, a live value). Copy removes the transcription entirely; the type treatment serves the crew member who transcribes anyway because their phone refuses the clipboard.
+ **Resolution: SHIPPED.** Spec `docs/superpowers/specs/2026-08-10-wifi-password-legibility.md` (APPROVED at adversarial round 17), plan `docs/superpowers/plans/2026-08-10-wifi-password-legibility.md` (APPROVED at round 4).
 diff --git a/BACKLOG.md b/BACKLOG.md
-index 799df676b..cdd8bf824 100644
+index 11718eb0f..6587c4736 100644
 --- a/BACKLOG.md
 +++ b/BACKLOG.md
 @@ -80,93 +80,6 @@ The terminating framing is the same one that closed acquisition: stop asking how
