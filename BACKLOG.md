@@ -403,7 +403,7 @@ The host embedded in `cron.job.command` is environment-supplied and varies by ta
 
 **Why it is still open, and why it should not be closed cheaply:** two review rounds could not produce a sound comparison. Keying off the target flag proves nothing about the database actually connected to, and comparing against the in-session GUC still admits a scheme mismatch, a trailing slash, and base paths. A host check that passes `http://` against an `https://` GUC would be worse than none, because it would read as coverage. Any attempt here needs an oracle that survives all four of those, demonstrated against a live mismatch, before the assertion lands.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** chore/guard-completeness-wave
 
 ---
 
@@ -521,7 +521,7 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 ### BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES — two deliberate-authoring bypasses of the crew-e2e wiring guard
 
-**Severity:** LOW (both require deliberately writing a gate that looks like a declaration but is not; accidental cases are caught loudly) · **Class:** guard coverage · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 4, owner-ratified as a documented limit) · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** chore/guard-completeness-wave · **Severity:** LOW (both require deliberately writing a gate that looks like a declaration but is not; accidental cases are caught loudly) · **Class:** guard coverage · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 4, owner-ratified as a documented limit) · **Effort:** M
 
 **Both probed, with the mutants recorded so a future round starts from evidence:**
 
@@ -686,7 +686,7 @@ Each is a value the system is confident about and wrong about, with no signal pr
 
 ### BL-LEDGER-GIT-TIMEOUT-CONSTANTS — the git adapter's three spawn timeouts are unassertable through its own surface
 
-**Status:** OPEN (2026-08-04, `chore/guard-premise-reachability`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** chore/guard-completeness-wave · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** M
 
 `FETCH_MS`, `LS_REMOTE_MS` (both 30 000 ms) and `GH_MS` (10 000 ms) at `scripts/lib/ledger-git.ts:32-34` are handed straight to `spawnSync`'s `timeout` option. Three source mutants of them — `30_000 -> 30_001` twice and `10_000 -> 10_001` — survive `tests/scripts/ledgerClaimsCheck.test.ts` and cannot be killed through the adapter's public surface. The only behaviour that separates a mutant from clean is whether a child running for between 30 000 and 30 001 ms is killed, so an assertion means either waiting the bound out — a 30 s test per constant, on a suite that runs on every merge — or reaching into the spawn.
 
@@ -943,7 +943,7 @@ A middle option exists (guard, but emit a `log.error` with a durable code so the
 
 ### BL-DESTRUCTIVE-GUARD-EXECUTION-SITE — the destructive-target guard checks connections, when it should check execution sites
 
-**Status:** OPEN · **Severity:** MEDIUM (a guard that raises the cost of a mistake without proving absence) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-10
+**Status:** IN PROGRESS · **Branch:** chore/guard-completeness-wave · **Severity:** MEDIUM (a guard that raises the cost of a mistake without proving absence) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-10
 
 **Probe evidence.** `tests/db/_destructiveFileAnalysis.ts` verifies that every `postgres(...)` call it can SEE connects to a guarded loopback URL. Whole-diff review of PR #767 found five distinct ways to obtain a driver the analyzer cannot see — `import()`, `require()`, `import { default as … }`, `import * as … `, `createRequire`, and `process.getBuiltinModule("node:module").createRequire` — each demonstrated returning `{"ok":true}` on a file that pruned `TEST_DATABASE_URL`. Every one is now rejected, and round 11 of that review claimed the set was closed at four; round 12 disproved it. **The acquisition enumeration does not terminate**, so the current module raises the cost of writing an unchecked connection by accident without proving none exists.
 
