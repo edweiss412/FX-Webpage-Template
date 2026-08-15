@@ -808,7 +808,10 @@ describe("Step2Verify — resume after Back (priorScan)", () => {
     // Secondary = Verify and scan (outlined, no accent fill) — one accent per card.
     const submit = getByTestId("wizard-step2-submit");
     expect(submit.className).not.toContain("bg-accent");
-    expect(submit.className).toContain("border-border-strong");
+    // The secondary outline moved to `border-text-faint` on 2026-08-14 (DESIGN
+    // §1.2a); the hierarchy claim this test makes — not the accent CTA, an
+    // outlined secondary — is unchanged.
+    expect(submit.className).toContain("border-text-faint");
   });
 
   test("without priorScan the re-scan button stays the primary accent CTA", () => {

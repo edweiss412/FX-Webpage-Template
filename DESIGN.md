@@ -24,7 +24,7 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-surface-sunken`            | `#F4F3F1`                          | `#0B0C10`                       | Empty-state plate, "Doug hasn't filled this in yet" backdrop. One step deeper than `--color-bg`.                                                                                                                                                                                                                                    |
 | `--color-text`                      | `#1A1B1F` (warm near-black)        | `#E8E6E0` (warm off-white)      | Body text, all primary copy. Contrast on `--color-bg`: light 16.5:1 (AAA), dark 14.8:1 (AAA).                                                                                                                                                                                                                                       |
 | `--color-text-strong`               | `#0E0F12`                          | `#F5F3EE`                       | Headlines, large numbers (call times, dates). Maximum contrast.                                                                                                                                                                                                                                                                     |
-| `--color-text-subtle`               | `#5A5B62` (warm slate)             | `#9C9A93` (warm dusk)           | Labels, captions, "as of …" timestamps. Light 6.5:1, dark 6.8:1 on `--color-bg` (both AA body ≥4.5:1; see §1.2). Never used for action targets.                                                                                                                                                                                               |
+| `--color-text-subtle`               | `#5A5B62` (warm slate)             | `#9C9A93` (warm dusk)           | Labels, captions, "as of …" timestamps. Light 6.5:1, dark 6.8:1 on `--color-bg` (both AA body ≥4.5:1; see §1.2). Never the resting color of an action target, **except the three carve-out families in §1.1a**.                                                                                                                                                                                               |
 | `--color-text-faint`                | `#8B8C92`                          | `#74736D`                       | Decorative text, divider labels. Min AA-large only (3:1) — never used for crew-actionable copy.                                                                                                                                                                                                                                     |
 | `--color-border`                    | `#E5E4E0`                          | `#2A2B30`                       | Tile borders, hairline dividers. Visible but quiet.                                                                                                                                                                                                                                                                                 |
 | `--color-border-strong`             | `#CFCDC7`                          | `#3A3B40`                       | Focus outlines (paired with `--color-accent` ring), tab-active underline. Also the status-emphasis outline on non-interactive chrome: the flagged "Needs a look" pill and the section-header judgment chip (2026-08-01, judgment-chip spec §2.2) — always beside a text cue, never the sole carrier of state.                                                                                                                                                                                                                                                           |
@@ -49,6 +49,62 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-accent-tint`               | `#FEEEDE`                          | `#2A1E10`                       | Warm low-chroma wash behind the bell panel's **active-count pill**. The pill NUMBER stays `--color-text-strong` for hierarchy, not necessity. A quiet tint, never a CTA fill; the ≤10% accent-coverage cap is unaffected (a small pill). Also backs the review-modal mobile state badge's **Live pill** (`bg-accent-tint text-accent-on-bg` + `bg-accent-on-bg` dot — spec 2026-07-24-strip-mobile-stacked-band §3 R0; both legs are the pinned §1.2 accent-on-bg-on-tint pair). _(Was also the info severity icon-circle bg pre-2026-07-17; the Quiet-rail restyle (§16) replaced the circle with an on-surface stroke glyph, so the tint now backs the count pill only.)_                                              |
 | `--color-danger-bg`                 | `#FBEAE8`                          | `#3A1E1C`                       | Soft red wash — retained token. _(Was the bell panel's **critical** severity icon-circle bg pre-2026-07-17; the Quiet-rail restyle (§16) replaced the filled circle with a 3px rail + on-surface `--color-status-degraded` stroke glyph, so no bell surface fills this today. Kept as a defined danger wash for future use; still paired with row title text wherever a red wash is used, holding the §1 color-blind floor.)_                                                                                                                                                          |
 
+### 1.1a Subtle-on-interactive carve-outs (2026-08-14, user-ratified)
+
+`--color-text-subtle` is never the resting color of an action target — with
+three named exceptions. They are exceptions **by decision**, not by omission:
+each was argued, ratified by the owner on 2026-08-14, and is enforced
+executably by `tests/styles/_metaSubtleOnInteractive.test.ts`, whose registry
+(`tests/styles/subtleInteractiveExemptions.ts`) requires a family and a reason
+per site and fails by name on any unregistered site. Everything else
+interactive rests at `--color-text` or stronger.
+
+**Family S — `<summary>` disclosure headers.** A disclosure summary is half
+caption, half control: its text names the CONTENT it folds, and the fold
+affordance is carried by the marker/chevron and the interaction, not by label
+weight. Resting subtle is sanctioned. (7 sites.)
+
+**Family C — dismissable filter chips.** A chip's text names an APPLIED FILTER,
+which is a caption; the dismiss glyph is the control. Resting subtle is
+sanctioned. (1 site. The second was the "Clear filters" action standing beside
+the chips — a plain underlined button with no caption and no dismiss glyph — so
+it never met this definition; it rests at `text-text` like any other action.
+Corrected 2026-08-15.)
+
+**Family D — state-pair dim members.** The dim member of a state pair
+(inactive↔active, claimed↔unclaimed) may rest subtle **only while the pair
+stays distinguishable by at least one cue besides the text-color delta**. The
+cue may sit on EITHER member — fill, border, weight, glyph, or `aria-current`
+semantics — and every registry row names its cue and the file it lives in; the
+suite reads that file and fails the row if the cue is gone, so the claim cannot
+go stale. (6 sites.)
+
+| Dim member | The cue that carries the state |
+| --- | --- |
+| Inactive desktop admin nav link | active carries `bg-surface-raised` + `text-text-strong` + `aria-current="page"` |
+| Inactive admin bottom tab | active carries `aria-current="page"`; the visual delta is `text-accent-on-bg` vs subtle — a hue-plus-lightness delta with no layout cue, recorded as-is |
+| Inactive crew sub-nav tab | active desktop branch carries `border-accent` + `text-text-strong`; active mobile branch carries `text-accent-on-bg` plus `aria-current="page"` |
+| Unselected dashboard bucket segment (x2) | selected carries `bg-surface` + `shadow-tile` + `text-text-strong` + `aria-current="page"` |
+| Claimed picker row | the dim member ITSELF carries the cues: a `bg-surface-sunken` fill plus the lock glyph |
+
+No pair is color-ALONE in the semantic tree: every one carries `aria-current`
+or a structural glyph, holding the §1 color-blind floor while preserving the
+resting hierarchy the carve-out decision chose.
+
+**Family D is a predicate, not a list, and it EXCLUDES more pairs than it
+admits.** A state pair whose active member INVERTS the fill — the telemetry
+level filter's selected segment is `bg-text text-bg`
+(`components/admin/telemetry/EventFilters.tsx`) — is not a Family D pair: the
+inversion already separates the two members at full strength, so the inactive
+member has no reason to rest dim, and it rests at `text-text` like any other
+control. Family D is for pairs whose dim member would otherwise be
+distinguished by the text-color delta ALONE.
+
+**Hover is unchanged by this policy.** Where a swapped site's existing hover
+target became its new resting color, that site's hover steps to
+`--color-text-strong` so hover still visibly strengthens; sites whose hover
+affordance is a fill or a border keep it as-is.
+
 ### 1.2 Contrast summary (calculated, not estimated)
 
 | Pair                                              | Light  | Dark   | Floor                                                    |
@@ -57,7 +113,7 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-text` on `--color-bg`                    | 16.5:1 | 14.8:1 | AAA body (>7:1)                                          |
 | `--color-text-strong` on `--color-bg`             | 18.4:1 | 16.9:1 | AAA body                                                 |
 | `--color-text-subtle` on `--color-bg`             | 6.5:1  | 6.8:1  | AA body (≥4.5:1)                                         |
-| `--color-text-subtle` on `--color-surface`        | 6.8:1  | 6.4:1  | AA body (≥4.5:1) — subtle eyebrow/meta on the card fill (KeyTimesStrip labels, DayCard meta); never an action target. In light the surface `#FFFFFF` is whiter than bg (contrast rises); in dark the surface `#16171C` is one step lighter than bg (contrast dips just below the bg figure). (D6) |
+| `--color-text-subtle` on `--color-surface`        | 6.8:1  | 6.4:1  | AA body (≥4.5:1) — subtle eyebrow/meta on the card fill (KeyTimesStrip labels, DayCard meta); never an action target OUTSIDE the §1.1a carve-outs — the KeyTimesStrip `<summary>` itself is one (Family S). In light the surface `#FFFFFF` is whiter than bg (contrast rises); in dark the surface `#16171C` is one step lighter than bg (contrast dips just below the bg figure). (D6) |
 | `--color-text-strong` on `--color-surface-sunken` | 17.3:1 | 17.6:1 | AAA body — SheetIconLink pressed/hovered glyph on its `bg-surface-sunken` wash (modal-title sites); pinned by tests/styles/status-token-contrast.test.ts |
 | `--color-text-strong` on `--color-surface`         | 18.4:1 | 15.9:1 | AAA body — SheetIconLink pressed/hovered glyph on its `bg-surface` wash (section-header/bg site; the sunken wash measures ~1.03:1 against dark bg, so the bg site steps UP to surface); same pin |
 | `--color-accent` on `--color-bg` (text-on-bg use) | 2.23:1 | 8.16:1 | decorative-only in light — use `--color-accent-on-bg` for any load-bearing text/glyph |
@@ -82,6 +138,10 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-accent-on-bg` icon on `--color-accent-tint`  | 4.91:1 | 8.03:1 | ≥3:1 graphical (icon) — retained reference pair (was bell info circle pre-§16 restyle; clears 4.5:1 text too) |
 | `--color-text-strong` on `--color-accent-tint`        | 16.5:1 | 14.9:1 | AA body (≥4.5:1) — active-count pill number             |
 | `--color-text-subtle` on `--color-surface-sunken`     | 6.09:1 | 6.94:1 | AA body (≥4.5:1) — stacked-band Published/Draft pill (spec 2026-07-24 §3 R0); pinned by tests/styles/status-token-contrast.test.ts |
+| `--color-text-faint` as OUTLINE vs `--color-surface`  | 3.35:1 | 3.76:1 | ≥3:1 non-text (SC 1.4.11) — the secondary action button's boundary on a card fill (§1.2a control-outline rule); pinned by tests/styles/secondary-action-contrast.test.ts |
+| `--color-text-faint` as OUTLINE vs `--color-surface-sunken` | 3.02:1 | 4.11:1 | ≥3:1 non-text — same button on the attention plate; light clears with a thin margin, so any `text-faint` or `surface-sunken` retune re-checks this row |
+| `--color-text-faint` as OUTLINE vs `--color-bg`       | 3.21:1 | 4.00:1 | ≥3:1 non-text — same button on the page ground |
+| `--color-text-faint` as OUTLINE vs `--color-surface-raised` | 3.35:1 | 3.53:1 | ≥3:1 non-text — popover and modal surfaces, pinned so a raised-surface control is not an unmeasured fourth ground |
 
 **Method note (D6):** ratios use the standard WCAG 2.x relative-luminance formula. The two `--color-text-subtle` rows above were recomputed against that formula (the previous light-on-bg `7.8:1` was a mistranscription — the same-method recompute of the neighbouring `--color-text`/`--color-text-strong` rows reproduces their published figures to within 0.1). The dark-mode figures elsewhere in this table carry a small historical calc offset (~0.3–0.4 more conservative than a fresh standard-formula recompute); a full-table recompute is tracked separately and is not load-bearing (every row already clears its stated floor with margin).
 
@@ -116,6 +176,83 @@ signal.
 1px indicator, check it against §1.2 rather than assuming a border token is
 the border-shaped choice. The `-faint`/`-subtle` text pair is the sanctioned
 hairline ramp.
+
+**The rule extends to CONTROL OUTLINES (2026-08-14).** An outline drawn around
+a control whose fill is the near-ground (`bg-bg` on a `bg-surface` card, or on
+the `bg-surface-sunken` attention plate) is a standalone stroke by the same
+argument: the fill it encloses carries no visual weight of its own, so the
+stroke IS the control's boundary. Worked example — the one secondary action
+treatment (`lib/ui/actionClass.ts`, `SECONDARY_ACTION_CLASS`, 8 call sites):
+
+| Boundary | Token | Light vs `--color-surface` | Dark vs `--color-surface` |
+| --- | --- | --- | --- |
+| Before (2026-08-14) | `--color-border-strong` | 1.59:1 | 1.60:1 |
+| After | `--color-text-faint` | 3.35:1 | 3.76:1 |
+
+The four neutral ground pairings are pinned as §1.2 rows above (`surface`,
+`surface-sunken`, `bg`, `surface-raised`) and asserted live by
+`tests/styles/secondary-action-contrast.test.ts`, which also pins that the
+constant still wears the token the ratios are about.
+
+**What the outline is measured against, and where it does not clear 3:1.** The
+button paints its own `bg-bg` fill, so the outline has two neighbours: the fill
+INSIDE it (3.21:1 light / 4.00:1 dark, every instance) and whatever the button
+stands on OUTSIDE it. On the four neutral grounds above, both sides clear. On a
+TINTED plate they do not, and the measured numbers are recorded here rather than
+implied away — `warning-bg` 3.04 light / **2.79** dark, `info-bg` **2.87** light
+/ 3.48 dark, `danger-bg` **2.88** light / 3.19 dark. Eleven shipped controls stand on such a plate, across ten sites (the data-quality card, the maintenance and reap actions, the
+per-show alert resolve, the re-sync and show-row actions, the step-3 review and
+archived-tab offers).
+
+Two things follow, and the second is why this is a recorded position and not a
+defect. First, the outer edge dips to 2.79–2.88:1 in exactly one theme per
+plate, never both. Second, R5 above is the standing frame: the outline is an
+upgrade over a label that already carried the affordance, so a boundary that is
+strong against its own fill and slightly under 3:1 against a tinted plate is a
+weaker version of the upgrade, not a regression against the prior state (which
+was 1.59:1 against everything). Whether tinted plates should get their own
+treatment — a darker token, or a plate-matched outline — is a design decision
+this policy did not make, filed as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.
+
+**This was a design upgrade, not a compliance repair.** The 1.59:1 boundary
+was not a WCAG failure: the button's LABEL carried the affordance at 18.35:1,
+and SC 1.4.11 asks for a perceivable control boundary, which a legible label
+inside a padded, focusable target supplies. What was missing was a written-down
+posture, and the upgrade is that the outline now carries its own weight rather
+than depending on the label to do it. Do not re-frame the prior state as an AA
+failure (ratified 2026-08-14, spec §1.1 R5).
+
+`disabled:opacity-60` drops the new outline back under 3:1 — WCAG exempts
+inactive controls, and the disabled state is a documented limit, not a finding.
+
+**Scope, so this rule and §1.1's `--color-border-strong` row do not read as a
+contradiction.** This rule governs the OUTLINE OF A CONTROL whose fill is the
+near-ground. `--color-border-strong` keeps every other job it had: tile and card
+edges, hover borders, focus-adjacent chrome, and the status-emphasis outline on
+non-interactive chrome (the flagged pill, the judgment chip). A card is not a
+control, and its edge is read against the fill beside it rather than as a
+standalone stroke. Controls whose fill is a SURFACE rather than the page ground
+are the open question — 23 of them still carry the border token, tracked as
+`BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with the predicate decision
+that has to come first.
+
+Six such controls DID move on 2026-08-14, for one reason applied at three
+distances: leaving a control at the old outline while a control it renders WITH
+had moved would have shipped a split treatment inside one view. Two are direct
+pairs — `Step2Verify`'s re-scan beside its folder input, and
+`DriveConnectionPanel`'s two actions. Two are connected through a row they share
+rather than by adjacency — `RecentAutoAppliedStrip`, whose near-ground control
+sits in its confirmation row, and the `AcceptChangeButton`/`UndoChangeButton`
+pair that `ChangeFeedEntry.tsx:135` renders. One is inheritance:
+`Step2Verify`'s portaled footer advance takes the same file-local
+`SECONDARY_BUTTON` constant as the re-scan button. That is a consistency repair
+within a view, not a ruling on the general predicate — which is still the ledger
+entry's to make.
+
+The pair's render path was cited as `RecentAutoAppliedStrip` until the whole-diff
+review read it (R2 F2): that strip passes `quiet` to `UndoChangeButton`, whose
+quiet branch is borderless, and its bulk row uses a local Undo-all button. The
+STYLING shipped was right; the sentence naming where it renders was not.
 
 ### 1.3 Status-signal hues (M12.2 Phase A amendment — the one scoped exception to "orange stays alone")
 

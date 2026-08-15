@@ -51,7 +51,7 @@ function SubmitButton({
       disabled={disabled}
       aria-busy={ariaBusy}
       data-testid="change-feed-accept"
-      className={`min-h-tap-min min-w-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium tabular-nums text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60${stretch ? " w-full" : ""}`}
+      className={`min-h-tap-min min-w-tap-min rounded-sm border border-text-faint bg-surface px-4 py-2 text-sm font-medium tabular-nums text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60${stretch ? " w-full" : ""}`}
     >
       {children}
     </button>

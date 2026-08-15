@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const SOURCE = "lib/specLint/taskContract.ts";
@@ -8,29 +10,92 @@ type Outcome = number | { status: null; signal?: string; code?: string };
 /** Per-suite outcome; a function receives whether this call is the BASELINE. */
 type Behaviour = Record<string, Outcome | ((isBaseline: boolean) => Outcome)>;
 
-const calls: { suite: string; isBaseline: boolean }[] = [];
+const calls: {
+  suite: string;
+  isBaseline: boolean;
+  timeout: number | undefined;
+  killSignal: string | undefined;
+  cmd: string;
+  args: string[];
+}[] = [];
 let behaviour: Behaviour = {};
 
-vi.mock("node:child_process", () => ({
-  execFileSync: (_cmd: string, _args: string[], opts: { env: Record<string, string> }) => {
-    const suite = opts.env.MUTATION_SUITE!;
-    // The baseline run overlays the PRISTINE source; every other call overlays a
-    // mutant. Reading the overlay file is how the mock tells them apart, which
-    // lets a fixture make a suite reject mutants while still passing baseline.
-    const isBaseline = readFileSync(opts.env.MUTATION_MUTANT!, "utf8") === PRISTINE;
-    calls.push({ suite, isBaseline });
-    const entry = behaviour[suite] ?? 0;
-    const b = typeof entry === "function" ? entry(isBaseline) : entry;
-    if (typeof b === "number") {
-      if (b === 0) return "";
-      throw Object.assign(new Error("suite failed"), { status: b });
-    }
-    throw Object.assign(new Error("child died"), b);
-  },
-}));
+vi.mock("node:child_process", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...real,
+    spawnSync: (
+      cmd: string,
+      args: readonly string[],
+      opts: {
+        env?: Record<string, string>;
+        timeout?: number;
+        killSignal?: string;
+        encoding?: string;
+      },
+    ) => {
+      // `ps` is delegated to the REAL implementation: `reapOrphans` reads a live
+      // process table, and the orphan case below is only meaningful if that read
+      // is real.
+      if (cmd === "ps") return real.spawnSync(cmd, args, opts as never);
+      const suite = opts.env!.MUTATION_SUITE!;
+      // The baseline run overlays the PRISTINE source; every other call overlays
+      // a mutant. Reading the overlay file is how the mock tells them apart,
+      // which lets a fixture make a suite reject mutants while still passing
+      // baseline.
+      const isBaseline = readFileSync(opts.env!.MUTATION_MUTANT!, "utf8") === PRISTINE;
+      calls.push({
+        suite,
+        isBaseline,
+        timeout: opts.timeout,
+        killSignal: opts.killSignal,
+        cmd,
+        args: [...args],
+      });
+      const entry = behaviour[suite] ?? 0;
+      const b = typeof entry === "function" ? entry(isBaseline) : entry;
+      if (typeof b === "number") {
+        return { pid: FIXTURE_PID, status: b, signal: null, stdout: "", stderr: "", output: [] };
+      }
+      return {
+        pid: FIXTURE_PID,
+        status: null,
+        signal: b.signal ?? null,
+        error: Object.assign(new Error("child died"), b.code ? { code: b.code } : {}),
+        stdout: "",
+        stderr: "",
+        output: [],
+      };
+    },
+  };
+});
 
-const { MutantRunInfraError, runSuite, runSurface } = await import("./runner");
+/**
+ * The pid every mocked child reports.
+ *
+ * It has to be a pid that does NOT exist, because the no-status paths reap the
+ * tree: a real pid here would make the fixture kill some unrelated process. 2^31
+ * is above every pid_max on the platforms this runs on.
+ */
+const FIXTURE_PID = 2_147_483_646;
+
+const { GROUP_LEADER_ARGV, MUTANT_TIMEOUT_EXIT, MutantRunInfraError, runSuite, runSurface } =
+  await import("./runner");
+
+const { premiseHolds } = await import("../../_shared/premise");
+
+/** Is this pid still alive? Signal 0 tests for existence without delivering one. */
+const alive = (pid: number | undefined): boolean => {
+  if (pid === undefined) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 const { OPERATOR_NAMES } = await import("./operators");
+const { classify } = await import("./oracle");
 
 const surface = (suitePaths: string[]) => ({
   id: "fixture",
@@ -75,6 +140,132 @@ describe("runner — infrastructure faults are never coverage (whole-diff R1 F1)
     reset({ "a.test.ts": 1 });
     expect(runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site")).toBe(1);
   });
+});
+
+describe("runner — a mutant that never terminates (fix/ui-interactive-token-policy)", () => {
+  // Measured, not hypothetical. Enrolling `tests/styles/interactiveScanCore.ts`
+  // produced `statement-removal` of `cursor = cursor.parent;` inside
+  // `while (cursor)`, and the child ran for 1h48m without exiting; the run was
+  // killed by hand with 0 of 207 mutants scored. Four other wedged
+  // `mutantOverlay.config.ts` children from OTHER arcs were alive on the same
+  // machine at the same moment (2h28m, 2h55m, 3h53m, 5h43m), so the hole is the
+  // harness's, not this surface's.
+  it("scores a timed-out mutant as KILLED rather than aborting the run", () => {
+    // Node sets code ETIMEDOUT and kills with `killSignal`, so the shape reaching
+    // the catch is a NO-STATUS death — indistinguishable, without the code, from
+    // the reaper SIGTERM above, which must stay fatal.
+    reset({ "a.test.ts": { status: null, signal: "SIGKILL", code: "ETIMEDOUT" } });
+    const code = runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site");
+    expect(code).toBe(MUTANT_TIMEOUT_EXIT);
+    expect(classify(code)).toBe("KILLED");
+  });
+
+  it("arms the timeout the branch above depends on", () => {
+    // Premise, executable: without a real `timeout` passed to the child, no run
+    // can ever produce ETIMEDOUT and the case above is unreachable code that
+    // reads as protection. Asserted on the CALL, so deleting the option reds
+    // this rather than silently disarming the guard.
+    reset({ "a.test.ts": 0 });
+    runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site");
+    expect(calls[0]!.timeout).toBeGreaterThan(0);
+    expect(calls[0]!.killSignal).toBe("SIGKILL");
+    // And the child is launched as a process-GROUP LEADER, which is what makes
+    // the reap possible at all: `spawnSync` returns only after killing the
+    // process it spawned, so a parent link is already broken by then.
+    expect(calls[0]!.cmd).toBe("perl");
+    expect(calls[0]!.args.slice(0, GROUP_LEADER_ARGV.length)).toEqual([...GROUP_LEADER_ARGV]);
+  });
+
+  it.each([
+    ["a timeout", { status: null, signal: "SIGKILL", code: "ETIMEDOUT" }],
+    ["a signal death", { status: null, signal: "SIGTERM" }],
+  ])("runSuite itself reaps the group after %s", (_label, outcome) => {
+    // The live case below proves the MECHANISM; this proves the WIRING. Without
+    // it, deleting either call site in `runSuite` leaves every test green and
+    // the reap never runs in production (whole-diff R4 F1). Asserted on
+    // `process.kill` with the NEGATIVE pid, which is the group form — a plain
+    // `kill(pid)` would satisfy a laxer assertion while reaping nothing.
+    const killed: [number, string | number | undefined][] = [];
+    const spy = vi.spyOn(process, "kill").mockImplementation(((pid: number, sig?: string) => {
+      killed.push([pid, sig]);
+      return true;
+    }) as typeof process.kill);
+    try {
+      reset({ "a.test.ts": outcome as Outcome });
+      try {
+        runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site");
+      } catch {
+        // the signal-death arm throws by design; the reap must have run first
+      }
+      expect(killed).toContainEqual([-FIXTURE_PID, "SIGKILL"]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("reaps a grandchild that OUTLIVED its parent (live, unmocked, production order)", async () => {
+    // Production order is the whole point (whole-diff R3 F1): `spawnSync`
+    // returns only AFTER killing the process it spawned, so the survivor has
+    // already been reparented to init and no parent-based walk can find it.
+    // This runs the real sequence — group-leader launch, real timeout, then the
+    // group kill — rather than reaping while the parent is still alive.
+    const real = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    const pidFile = join(tmpdir(), `runner-orphan-${process.pid}.pid`);
+    const script = [
+      "const { spawn } = require('node:child_process');",
+      "const fs = require('node:fs');",
+      "const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+      `fs.writeFileSync(${JSON.stringify(pidFile)}, String(c.pid));`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+
+    const timedOut = real.spawnSync(
+      "perl",
+      [...GROUP_LEADER_ARGV, process.execPath, "-e", script],
+      { encoding: "utf8", timeout: 2_000, killSignal: "SIGKILL", stdio: "ignore" },
+    );
+    let grandchild = 0;
+    try {
+      premiseHolds(
+        "the parent really timed out",
+        (timedOut.error as { code?: string } | undefined)?.code === "ETIMEDOUT",
+      );
+      grandchild = Number(readFileSync(pidFile, "utf8"));
+      premiseHolds("the grandchild started", Number.isInteger(grandchild) && grandchild > 0);
+      premiseHolds("it OUTLIVED its parent, which is the case under test", alive(grandchild));
+      premiseHolds("the parent is gone, so no tree walk can reach it", !alive(timedOut.pid));
+
+      process.kill(-timedOut.pid!, "SIGKILL");
+
+      const deadline = Date.now() + 10_000;
+      while (alive(grandchild) && Date.now() < deadline)
+        await new Promise((r) => setTimeout(r, 50));
+      expect(alive(grandchild)).toBe(false);
+    } finally {
+      rmSync(pidFile, { force: true });
+      if (grandchild > 0 && alive(grandchild)) process.kill(grandchild, "SIGKILL");
+    }
+  }, 30_000);
+
+  it("Node really reports ETIMEDOUT on a timed-out child (live, unmocked)", async () => {
+    // The two cases above agree with a MOCK. This one agrees with Node: if the
+    // real runtime signalled a timeout some other way, both would pass green
+    // while every real hang still wedged the harness forever.
+    const real = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    let caught: { code?: string; status?: number | null } | null = null;
+    try {
+      real.execFileSync(process.execPath, ["-e", "setTimeout(() => {}, 600000)"], {
+        timeout: 300,
+        killSignal: "SIGKILL",
+        stdio: "pipe",
+      });
+    } catch (e) {
+      caught = e as { code?: string; status?: number | null };
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.code).toBe("ETIMEDOUT");
+    expect(typeof caught!.status === "number").toBe(false);
+  }, 20_000);
 });
 
 describe("runner — every declared suite runs (whole-diff R1 F3)", () => {

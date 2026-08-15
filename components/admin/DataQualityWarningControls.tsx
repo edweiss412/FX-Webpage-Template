@@ -18,7 +18,7 @@ type Props = {
 type State = { kind: "idle" } | { kind: "running" } | { kind: "error"; copy: string };
 
 const NEUTRAL_BTN = cn(
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
 );
 // Ring-offset color must match the CARD background the button sits on: warning-bg for
 // active cards, surface-sunken for the muted Ignored (N) cards (impeccable audit P2).

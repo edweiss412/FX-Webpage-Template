@@ -259,12 +259,15 @@ const SHOW_PAGE_LINK = cn(
 // same 28px so the shared right edge holds. WIDTH ONLY — a square would floor a
 // short row's height at 28px+ for nothing.
 const SHOW_PAGE_SLOT = cn("w-7 shrink-0");
-// Low-emphasis wayfinding link (impeccable critique P1 — alert-copy full-sweep):
-// routes to the code's longform /help/errors education. Quiet by default
-// (text-subtle, underline only on hover/focus) so it never competes with
-// LINK_CTA's accent weight or the row's real actions; keeps the 44px tap floor.
+// Wayfinding link (impeccable critique P1 — alert-copy full-sweep): routes to
+// the code's longform /help/errors education. It RESTS at `text-text` as of
+// 2026-08-14 — the subtle-on-interactive policy (DESIGN §1.1a) retired
+// `text-text-subtle` as a resting colour for action targets, and this link is
+// one. It still does not compete with LINK_CTA: that separation is carried by
+// HUE (the CTA is accent) and by the underline arriving only on hover/focus,
+// not by dimming the link below body weight. Keeps the 44px tap floor.
 const HELP_LINK = cn(
-  "inline-flex min-h-tap-min items-center rounded-sm text-[13px] text-text-subtle underline-offset-2 transition-colors duration-fast hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+  "inline-flex min-h-tap-min items-center rounded-sm text-[13px] text-text underline-offset-2 transition-colors duration-fast hover:text-text-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
 );
 
 /**
@@ -1210,7 +1213,7 @@ export function BellPanel({
               <a
                 href="/admin/dev/telemetry"
                 data-testid="bell-activity-log"
-                className="mt-3 flex min-h-tap-min items-center justify-center gap-1.5 rounded-lg border-t border-border pt-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                className="mt-3 flex min-h-tap-min items-center justify-center gap-1.5 rounded-lg border-t border-border pt-3 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 View activity log
                 <ArrowRight aria-hidden="true" className="size-[15px]" />
