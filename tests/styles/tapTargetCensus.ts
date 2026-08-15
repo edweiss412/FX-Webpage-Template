@@ -406,7 +406,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/SheetIconLink.tsx",
-    line: 90,
+    line: 91,
     tag: "a",
     category: "unresolvable-dynamic",
     reason:
@@ -452,7 +452,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/shared/ReportButton.tsx",
-    line: 141,
+    line: 142,
     tag: "button",
     category: "unresolvable-dynamic",
     reason:

@@ -199,8 +199,10 @@ export function RescanSheetButton({
         disabled={pending || disabled}
         aria-busy={pending}
         // The shared secondary-action treatment (lib/ui/actionClass.ts). This
-        // button's own class was the value promoted into that constant, so the
-        // rendered treatment is unchanged here; `self-start` is placement.
+        // button's own class was the value promoted into that constant; the
+        // outline has since moved to `border-text-faint` (2026-08-14, DESIGN
+        // §1.2a) and this call site inherited it with no edit here, which is
+        // the point of the constant. `self-start` is placement.
         className={cn(SECONDARY_ACTION_CLASS, "self-start")}
       >
         {pending ? "Re-scanning…" : "Re-scan this sheet"}

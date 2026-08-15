@@ -25,9 +25,10 @@
  *
  * Restrained accent palette — reuses the same Submit-button shape as
  * `components/admin/AlertBanner.tsx` (`bg-accent`, `text-accent-text`,
- * `hover:bg-accent-hover`, 44px tap target). The trigger button is
- * understated (text-only, underline) on the crew footer; the admin
- * surface uses the more prominent accent fill.
+ * `hover:bg-accent-hover`, 44px tap target). The trigger button is secondary
+ * (text-only, underline) on the crew footer and rests at `text-text` like any
+ * other action target (DESIGN §1.1a, 2026-08-14); the admin surface uses the
+ * more prominent accent fill.
  */
 import { useState } from "react";
 

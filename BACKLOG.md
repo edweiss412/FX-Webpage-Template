@@ -345,11 +345,11 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 
 **First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
 
-## BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS — 26 control outlines still at 1.59:1 on non-ground fills
+## BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS — 23 control outlines still at 1.59:1 on non-ground fills
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** visual boundary / DESIGN scope. **Effort:** M. **Class-sweep exception:** (a) — the repair needs a DESIGN.md scope decision this PR cannot settle. **Reachability:** PROBED, with a DERIVED cover (below).
 
-This arc moved the secondary-action outline to `border-text-faint` (3.35:1) at the shared constant and at the 25 sites that carry the same recipe inline over a `bg-bg` fill. Twenty-six in-scope CONTROLS still carry `border border-border-strong` (1.59:1 light / 1.60:1 dark) over `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` or `bg-transparent` fills.
+This arc moved the secondary-action outline to `border-text-faint` (3.35:1) at the shared constant and at the 25 sites that carry the same recipe inline over a `bg-bg` fill. Twenty-three in-scope CONTROLS still carry `border border-border-strong` (1.59:1 light / 1.60:1 dark) over `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` or `bg-transparent` fills.
 
 **Derived cover** (re-run it rather than trusting this list — it is a query, not an enumeration):
 
@@ -359,7 +359,7 @@ scanInteractiveElements(process.cwd()).filter((e) =>
 );
 ```
 
-from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 elements; three co-visible ones were repaired on the filing branch because THIS diff created their inconsistency (a swapped sibling sat beside them in one row: `Step2Verify.tsx:126`, `settings/DriveConnectionPanel.tsx:284`, `RecentAutoAppliedStrip.tsx:516`), leaving 26.
+from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 elements; six co-visible ones were repaired on the filing branch because THIS diff created their inconsistency — a swapped sibling sat beside them in one rendered row: `Step2Verify.tsx:126`, `settings/DriveConnectionPanel.tsx:284`, `RecentAutoAppliedStrip.tsx:516`, and then the two controls that strip RENDERS (`AcceptChangeButton.tsx:54`, `UndoChangeButton.tsx:49`), which the round-3 critique caught as the transitive case. That leaves 23, none of them co-visible with a swapped peer.
 
 **Why the sweep stopped there, and what has to be decided first.** DESIGN.md §1.2a's predicate is a control "whose fill is the near-ground". A `bg-surface` button ON a `bg-surface` card measures 1.00:1 against its container, so extending the rule to it is defensible — but that extension REWRITES the predicate from "the fill is the page ground" to "the fill equals its container", and the wider predicate then also captures the three switch TRACKS in the set (`PublishedToggle.tsx:292`, `settings/AutoPublishToggle.tsx:123`, `settings/NotifyToggle.tsx:131`), whose OFF-state boundary is pinned separately in §1.2 against `--color-accent-edge` as the load-bearing 1.4.11 pair. A blanket swap would silently retune that pinned pair. The text-level cover is also NOT safe to apply mechanically: of the 74 lines carrying `border border-border-strong`, most are cards, chips, tiles and popover surfaces that must keep the border token.
 
