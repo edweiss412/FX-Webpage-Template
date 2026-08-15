@@ -1133,6 +1133,85 @@ describe("island lifecycle (§4.1)", () => {
     expect(isCopied(container), "the live island is the one showing copied").toBe(true);
   });
 
+  test("a write landing with its island long gone still retracts the claim it invalidated", async () => {
+    // A resolution is a fact about the CLIPBOARD, which is one global resource,
+    // while a confirmation is per island. Routing the AFFIRMATIVE by proven
+    // chain is what keeps a "Copied." off a row that never asked — but applying
+    // the same routing to the RETRACTION means an unlinked write lands nowhere
+    // and says nothing, and the clipboard it just overwrote is now stale
+    // underneath whichever row is standing a confirmation. Here the row is
+    // removed and restored across two commits (a live crew page takes realtime
+    // refreshes), so no replacement link exists by construction. (Round 17.)
+    const OTHER = "FITS2025";
+    const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container); // pending write for PASSWORD
+    const firstButton = requireCopyButton(container);
+    await act(async () => {
+      rerender(<FactRows rows={[{ k: "Power", v: "3 x 20A", testId: "other" }]} />);
+    });
+    premiseHolds(
+      "the dispatching island really unmounted",
+      container.querySelector(`[data-testid="${TESTID}"]`) === null,
+    );
+    await act(async () => {
+      rerender(<FactRows rows={[passwordRow({ v: OTHER })]} />); // a LATER commit
+    });
+    premiseHolds("the restored row is a new island", requireCopyButton(container) !== firstButton);
+
+    await clickCopy(container);
+    await settle(1);
+    premiseHolds("the restored island's own confirmation is standing", isCopied(container));
+
+    await settle(0); // the original write finally lands, overwriting the clipboard
+
+    expect(
+      isCopied(container),
+      "a confirmation the clipboard no longer backs must not stay lit",
+    ).toBe(false);
+    expect(
+      logTexts(container),
+      "the log must not end on a claim the clipboard stopped backing",
+    ).toEqual([COPIED_TEXT, CORRECTIVE_TEXT]);
+  });
+
+  test("a copy on ANOTHER row retracts the confirmation it invalidated", async () => {
+    // The same fact from its other producer, and the one that needs no unmount:
+    // two opted-in rows write to the same clipboard, so the second copy makes
+    // the first row's standing "Copied." false. Same value on both rows is NOT
+    // this case — the claim is about the string, so it stays true (§4.2).
+    const roomCode: FactRow = {
+      k: "Room code",
+      v: "4821",
+      testId: "venue-room-code",
+      copyLabel: "Copy the room code",
+    };
+    const { container } = render(<FactRows rows={[passwordRow(), roomCode]} />);
+    const entriesIn = (testId: string) =>
+      Array.from(rowEl(container, testId).querySelectorAll("[data-announce-id]")).map(
+        (n) => n.textContent ?? "",
+      );
+    const copiedIn = (testId: string) =>
+      rowEl(container, testId).querySelector("[data-slot='check-glyph']") !== null;
+
+    await act(async () => {
+      fireEvent.click(requireCopyButton(container, "venue-room-code"));
+    });
+    await settle(0);
+    premiseHolds("the room code's confirmation is standing", copiedIn("venue-room-code"));
+
+    await clickCopy(container); // the password row copies over it
+    await settle(1);
+
+    expect(copiedIn(TESTID), "the row just tapped confirms").toBe(true);
+    expect(
+      copiedIn("venue-room-code"),
+      "a confirmation the clipboard no longer backs must not stay lit",
+    ).toBe(false);
+    expect(entriesIn("venue-room-code")).toEqual([COPIED_TEXT, CORRECTIVE_TEXT]);
+    expect(entriesIn(TESTID), "the tapped row's own claim is still true").toEqual([COPIED_TEXT]);
+  });
+
   test("a replacement replaced AGAIN before the sweep still carries the chain", async () => {
     // TWO swaps inside one vacancy window: a commit replaces island A with B,
     // and a layout effect committed with it synchronously replaces B with C —

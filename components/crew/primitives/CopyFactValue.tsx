@@ -100,6 +100,11 @@ type Owner = {
    *  it (whole-diff review round 3). */
   clearCopied: () => void;
   announce: (message: string) => void;
+  /** Told that the clipboard now holds `written`, so this island can retract a
+   *  claim that string just falsified. The island decides in its RENDER phase,
+   *  where `copied` and the standing entry are both accurate — see
+   *  `retractStaleClaims`. */
+  clipboardMoved: (seq: number, written: string) => void;
   armReset: () => void;
   /** Arms the window ONLY if none is running, so an older success never extends
    *  the window a newer resolution already armed. */
@@ -208,6 +213,40 @@ function recordWrite(identity: string): number {
   return next;
 }
 
+/** Every island currently mounted, in mount order. Not a routing table — see
+ *  `retractStaleClaims` for the one thing it is allowed to answer. */
+const liveOwners = new Set<Owner>();
+let clipboardWriteSeq = 0;
+
+/**
+ * A RESOLUTION IS A FACT ABOUT THE CLIPBOARD, and the clipboard is one resource
+ * shared by every row on the page; only the CONFIRMATION is per island. Routing
+ * the affirmative by proven chain is what keeps a "Copied." off a row that
+ * never asked for it — but applying that same routing to the RETRACTION made a
+ * write with no live chain say nothing at all, and a write for one row say
+ * nothing to another. Both leave an affirmative standing that the string just
+ * written falsified: an island unmounted and restored across two refreshes is
+ * unlinked by construction, and a second opted-in row needs no unmount at all
+ * (round 17).
+ *
+ * So the retraction is broadcast BY VALUE, which introduces no name lookup and
+ * cannot produce a false positive: an island whose current value differs from
+ * what the clipboard now holds is making a claim that is false, whichever row
+ * it belongs to. Matching values are left alone — the claim is about the
+ * string, so two rows showing it can both hold it truthfully (§4.2).
+ *
+ * The island decides in its own RENDER phase rather than here, both to reuse
+ * the corrective machinery whole (including the generation-guarded cancel) and
+ * because "is a claim standing" is only accurate there: read from a ref written
+ * in a layout effect it lags inside a batch, which is round 1's defect exactly.
+ */
+function retractStaleClaims(written: string, delivered: Owner | null): void {
+  clipboardWriteSeq += 1;
+  for (const owner of liveOwners) {
+    if (owner !== delivered) owner.clipboardMoved(clipboardWriteSeq, written);
+  }
+}
+
 /**
  * Route a resolution to the dispatching island, or to whatever chain of proven
  * replacements now stands in for it. No name is consulted: the walk can only
@@ -217,6 +256,10 @@ function recordWrite(identity: string): number {
 function deliverWrite(dispatcher: Owner, seq: number, value: string): void {
   let owner: Owner | null = dispatcher;
   while (owner !== null && !owner.mounted) owner = owner.successor;
+  // Before anything else, and whether or not this write has an owner left: the
+  // clipboard moved, and every OTHER island now claiming a different string is
+  // claiming something untrue.
+  retractStaleClaims(value, owner);
   if (owner === null) return;
 
   if (value === owner.currentValue()) {
@@ -320,6 +363,12 @@ export function CopyFactValue({
   // which cascades a render and is what the React compiler rejects. A counter
   // changes exactly once per exit, so the dependency array alone gates it.
   const [corrective, setCorrective] = useState({ seq: 0, gen: 0 });
+  // The clipboard's side of the same predicate, pushed in by `retractStaleClaims`.
+  // Only the LATEST write is tracked, because an island needs one fact — what
+  // the clipboard holds now — and a later write supersedes an earlier one for
+  // that purpose.
+  const [clipboardWrite, setClipboardWrite] = useState({ seq: 0, written: "" });
+  const [seenClipboardWrite, setSeenClipboardWrite] = useState(0);
   // The corrective is owed for as long as an affirmative entry is STILL IN THE
   // LOG, not merely while `copied` is set. The natural timeout retires the
   // glyph silently and correctly — nothing is being claimed on screen any more
@@ -332,14 +381,23 @@ export function CopyFactValue({
   // review brief declared: an affirmative "Copied." must never be left standing
   // as the log's last word once it stopped being true.)
   const affirmativeStanding = entries.some((e) => e.text === COPIED_MESSAGE);
+  /** Retract a standing claim, from either side of the same predicate: THIS
+   *  ROW'S VALUE moved out from under the clipboard, or the CLIPBOARD moved out
+   *  from under the row. */
+  const retractStandingClaim = () => {
+    if (!copied && !affirmativeStanding) return;
+    if (copied) setCopied(false);
+    // `gen` names the window that was live at THIS moment — the only one this
+    // corrective is entitled to cancel.
+    setCorrective((c) => ({ seq: c.seq + 1, gen: armGenRef.current }));
+  };
   if (seenValue !== value) {
     setSeenValue(value);
-    if (copied || affirmativeStanding) {
-      if (copied) setCopied(false);
-      // `gen` names the window that was live at THIS moment — the only one this
-      // corrective is entitled to cancel.
-      setCorrective((c) => ({ seq: c.seq + 1, gen: armGenRef.current }));
-    }
+    retractStandingClaim();
+  }
+  if (seenClipboardWrite !== clipboardWrite.seq) {
+    setSeenClipboardWrite(clipboardWrite.seq);
+    if (clipboardWrite.written !== value) retractStandingClaim();
   }
   useEffect(() => {
     if (corrective.seq === 0) return; // nothing has exited yet (mount)
@@ -405,6 +463,7 @@ export function CopyFactValue({
         setCopied(false);
       },
       announce: (message) => announceRef.current(message),
+      clipboardMoved: (seq, written) => setClipboardWrite({ seq, written }),
       armReset: () => {
         clearReset();
         arm();
@@ -417,9 +476,11 @@ export function CopyFactValue({
       },
     };
     claimVacancy(identity, owner);
+    liveOwners.add(owner);
     ownerRef.current = owner;
     return () => {
       owner.mounted = false;
+      liveOwners.delete(owner);
       offerVacancy(identity, owner);
       clearReset();
     };
