@@ -1,3 +1,37 @@
+## BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row had no transcription affordance — CLOSED 2026-08-15 (`feat/wifi-password-legibility`, SHIPPED)
+
+**Resolution: SHIPPED.** Spec `docs/superpowers/specs/2026-08-10-wifi-password-legibility.md` (APPROVED at adversarial round 17), plan `docs/superpowers/plans/2026-08-10-wifi-password-legibility.md` (APPROVED at round 4).
+
+The entry was filed as a DESIGN QUESTION with four candidate answers — tabular figures, a monospace treatment, tap-to-copy, or a larger type step — and said explicitly that it could not be settled inside the arc that filed it. The owner settled it on 2026-08-10 by taking BOTH halves of the larger option: the value renders in `.code-value` (the product's own transcription treatment: slashed zero, tabular figures, bound family) AND the row carries a tap-to-copy control. The reasoning is in spec §1.1 — a font feature disambiguates `O`/`0` and `l`/`1`, but nothing typographic fixes `rn`/`m`, and nothing at all fixes a trailing period that IS part of the password (`ORDTG.`, a live value). Copy removes the transcription entirely; the type treatment serves the crew member who transcribes anyway because their phone refuses the clipboard.
+
+**Scope held to the one row the entry named.** The SSID row above takes neither treatment: an SSID is picked from a phone's visible network list, not typed character by character.
+
+**What the entry predicted it would cost, and what it actually cost.** It predicted "a 44x44 target and a copied-state announcement, materially bigger than the other three". Both landed — `size-tap-min` with the target's right edge pinned to the row edge, and a `role="log"` append region rather than a label swap, because identical "Copied." text recurs on a repeat tap and an append always re-announces where a status swap may not. What it did not predict is where the real difficulty sat: `navigator.clipboard.writeText` gives no latest-write guarantee, and a crew page takes realtime updates, so the arc needed island-lifetime routing written in a LAYOUT effect, synchronous with commit. What that routing is KEYED ON took seven review rounds to settle: a name cannot answer it, because identity is caller-supplied and a lookup also matches a different row sharing it. As shipped, an affirmative follows a successor chain proven inside the commit that performs a swap; a retraction broadcasts BY VALUE to every mounted island, since the clipboard is one resource every row writes to while the confirmation is per island; and the per-row counter decides only which resolution owns the reset window, per island, against the write that armed the running one. The normative rule that fell out (spec §4.2) is that resolution truth is VALUE-ONLY — a resolution whose value still matches announces "Copied." whatever its sequence age; one whose value has moved clears any standing copied state and appends a corrective, because the clipboard may now hold the stale value while an affirmative claim still stands in an append-only log. Sequence routes the reset timer and never decides truth.
+
+**Measured in both homes, because neither alone is sufficient.** The production route proves the shipped page (control present, reachable, clears the tap floor, disjoint from fixed chrome); a standalone harness proves the oracles the route cannot host, since it renders the row exactly once — the counterfactual height equality against an icon-bearing row, both list topologies, the focus indicator's measured reach, and a 40-character wrap.
+
+**Three measurements corrected assumptions along the way**, each recorded where the next reader hits it: `focus-visible:outline-none` does not suppress the outline anywhere in this repo (a layered utility against an unlayered `:focus-visible` in `app/globals.css`, so the global orange outline is what paints at ~256 call sites); a blockified span reports one client rect however many lines it renders; and `first:pt-0` / `last:pb-0` make a row's height encode its list position, so a counterfactual comparison must sandwich its rows into one padding regime.
+
+**Two P2s from the invariant-8 gate were fixed rather than deferred** (record in plan §12): the announce channel is TTL-pruned, since a crew page is opened once and left open for the show; and the control gained the hover state its admin sibling already had.
+
+**Effort:** S · **Closed:** 2026-08-15
+
+## BL-WIFI-FLATTENED-TRAILING-PROSE — prose after a credential on one flattened line is absorbed into it — CLOSED 2026-08-15 (`feat/wifi-password-legibility`, DOCUMENTED LIMIT)
+
+**Resolution: DOCUMENTED LIMIT, on the probe the entry itself named.** No parser change shipped, and that is the finding rather than a deferral.
+
+The entry was filed `**Reachability: INFERRED, NOT PROBED**` and named its own settling probe: re-run the §4 corpus sweep looking for a flattened `event_details.internet` value with text after the last credential. The sweep ran against the shipped `lib/crew/wifiDisplay.ts` — 23 fixture files yielding 12 `event_details.internet` cells (8 distinct values), plus the validation-project DB (7 rows, the synced values of the live sheets) and the local seeded stack (12 shows, 5 with internet); every DB value is a subset of the 8 fixture shapes. It found **zero** instances of the trailing-prose class and zero of the folded no-accepted-syntax class — and a third genuine multi-token SSID (`Network: Four Seasons Meeting`) alongside the `Network: Institutional Investor Passcode: Investor2025` the entry already cited.
+
+**Residual gap, recorded rather than rounded off:** the live Google Sheets were not read directly this round; their synced DB values were (spec §3).
+
+That result closes the question in the direction the entry anticipated: with no instances, every candidate discriminator is a word-count or position cap calibrated on nothing, which is precisely the number-bounded recognizer this repo's writing-plans rule says the next reviewer defeats, and which spec §4 had already rejected once on the same reasoning. A rule invented here would misparse the real two-token SSIDs the corpus DOES contain in order to fix a shape it does not.
+
+The consequence was bounded before and is bounded now: every character of the cell renders to the crew member. What is imperfect is which row the text sits in. That is a conservative outcome with a visible fallback, which the ledger filing bar classifies as a documented limit rather than open queue work — so it lives in spec §6.7 (with §6.8's multi-token-SSID form and the no-accepted-syntax variants folded into the same undecidability), not here.
+
+**If it ever becomes reachable**, the reopening condition is the same probe returning a non-zero count — including a direct live-sheet read, which is the one leg this round substituted with synced values. Real instances supply the discriminator their own shape dictates, which is the only calibration that would not be invented.
+
+**Effort:** S · **Closed:** 2026-08-15
+
 ## BL-DESTRUCTIVE-GUARD-EXECUTION-SITE — the destructive-target guard checks connections, when it should check execution sites — CLOSED 2026-08-15 (chore/guard-completeness-wave, SHIPPED)
 
 **Severity:** MEDIUM (a guard that raises the cost of a mistake without proving absence) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-10

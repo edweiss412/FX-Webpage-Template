@@ -681,6 +681,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       from: "(?:ms|delay|duration|timeout|seconds)$",
       to: "(?:ms|delay|timeout|seconds)$",
     },
+    // A siteId is keyed by LINE, so ANY edit to the source above a row shifts
+    // every row below it and the gate reports the whole accepted set stale by
+    // construction. Re-derive rather than hand-adjust: `enumerateSites(path,
+    // source, OPERATOR_NAMES)` from tests/mutation/source/operators.ts prints
+    // the current ids. (Whole-diff review round 3 caught all eight of these
+    // stale after the recognizer widening moved them 161/287/347/362 to
+    // 188/333/393/408 — same columns, same operators, same reasons.)
     accepted: [
       // ---- equivalent: comparator sign-not-magnitude (spec §2.4) ----------
       //
@@ -691,46 +698,46 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // differ and `<=` cannot decide anything `<` did not. Same class
       // taskContract carries four of.
       {
-        siteId: "relational-boundary:161:14:<><=",
+        siteId: "relational-boundary:208:14:<><=",
         kind: "equivalent",
         reason:
           "universeFiles' comparator reaches this `<` only when the two entry names differ, so `<=` cannot change the ordering",
       },
       {
-        siteId: "integer-literal:161:26:1>2",
+        siteId: "integer-literal:208:26:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — Array.sort consumes the sign only",
       },
       {
-        siteId: "integer-literal:161:30:1>2",
+        siteId: "integer-literal:208:30:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       {
-        siteId: "relational-boundary:347:50:<><=",
+        siteId: "relational-boundary:453:50:<><=",
         kind: "equivalent",
         reason:
           "the site comparator reaches this `<` only when the files differ, because `a.file === b.file` is tested first",
       },
       {
-        siteId: "integer-literal:347:62:1>2",
+        siteId: "integer-literal:453:62:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — sign only",
       },
       {
-        siteId: "integer-literal:347:66:1>2",
+        siteId: "integer-literal:453:66:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       // ---- equivalent: the flip cannot change which branch is taken -------
       {
-        siteId: "logical-connector:287:43:&&>||",
+        siteId: "logical-connector:393:43:&&>||",
         kind: "equivalent",
         reason:
           "both arms yield the SAME name for every input that reaches them: for an identifier `delay.text` equals `delay.getText(sf)` (no whitespace, far under the 60-char slice), and for a non-identifier `delay.text` is undefined so the `||` arm is false anyway",
       },
       {
-        siteId: "logical-connector:362:38:||>&&",
+        siteId: "logical-connector:468:38:||>&&",
         kind: "equivalent",
         reason:
           "the operands are never independently true: a site is `unclassified` if and only if its value is null, because the push sites guarantee it — so `||` and `&&` select the same rows",
