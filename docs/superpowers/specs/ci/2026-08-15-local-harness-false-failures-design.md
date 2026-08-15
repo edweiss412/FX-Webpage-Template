@@ -1,6 +1,6 @@
 # Local-harness false failures — gitignore-derived root skip + in-memory probe mutants
 
-**Date:** 2026-08-15 · **Arc branch:** `docs/harness-false-failures-spec` (authoring) → `fix/local-harness-false-failures` (implementation) · **Status:** DRAFT
+**Date:** 2026-08-15 · **Arc branch:** `docs/harness-false-failures-spec` (authoring) → `fix/local-harness-false-failures` (implementation) · **Status:** spec-APPROVED (codex-guard R2, 2026-08-15, FINDINGS: 0; R1 finding repaired in-branch)
 
 ## §0 Why
 
