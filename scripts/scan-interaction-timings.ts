@@ -93,6 +93,16 @@ export const EXPLICIT_INCLUDES: readonly { readonly file: string; readonly reaso
       "ARM_REVERT_MS is the armed-window countdown a person watches and races; it lives in lib/ " +
       "only because the state machine does, and it is consumed by components/admin/BlockedRowResolver.tsx.",
   },
+  {
+    file: "lib/ui/copyFeedback.ts",
+    reason:
+      "COPY_FEEDBACK_RESET_MS is how long a copy confirmation stays on screen — interaction " +
+      "timing a person watches, not an infrastructure budget. It lives in lib/ precisely BECAUSE " +
+      "it is shared: its consumers are app/admin/show/[slug]/ShareLinkCopyButton.tsx and " +
+      "components/crew/primitives/CopyFactValue.tsx, in two different trees, so neither can own " +
+      "it. Without this include the delay resolves to nothing scanned and both call sites report " +
+      "`unclassified` — the constant would be less visible in §5.5 than the bare literal it replaced.",
+  },
 ];
 
 /**

@@ -623,11 +623,24 @@
     "tests/e2e/toggle-edge-layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"435958e6bf16d314628f-280e120bb4cfca31201b\",[\"toggle-edge-layout.spec.ts\",\"accent-edge boundary — computed style + §9.1 geometry\",\"ON toggle border is the accent-edge token and geometry invariants hold\"]]"
     ],
+    "tests/e2e/wifi-password-row.layout.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-38e3232ceb40ee580d14\",[\"wifi-password-row.layout.spec.ts\",\"DI-3 (mid-list): the target sits inside the SectionCard border box\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-4bce7b176f1332585776\",[\"wifi-password-row.layout.spec.ts\",\"DI-4 (mid-list): the target is disjoint from every other row's box\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-4d028daee94749d45520\",[\"wifi-password-row.layout.spec.ts\",\"DI-4 (last-row): the target is disjoint from every other row's box\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-747549ba4761e830bf36\",[\"wifi-password-row.layout.spec.ts\",\"DI-3b: the last-row topology really is the shortened one, or DI-3 proves nothing\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-8398e7e4781e888117d5\",[\"wifi-password-row.layout.spec.ts\",\"DI-2 (mid-list): the target is 44x44 with its right edge pinned to the row edge\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-b0612f9d2cc0c1d14d82\",[\"wifi-password-row.layout.spec.ts\",\"DI-1: the control row is exactly as tall as the same row carrying an icon\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-b8314c529305be047bdc\",[\"wifi-password-row.layout.spec.ts\",\"DI-1b: a bare-text row is STRICTLY shorter than the control row\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-ddf0ac14849baee2ce56\",[\"wifi-password-row.layout.spec.ts\",\"DI-6: a 40-character value WRAPS and the control stays in the row\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-e2ddb53e0c10514c6d23\",[\"wifi-password-row.layout.spec.ts\",\"DI-2 (last-row): the target is 44x44 with its right edge pinned to the row edge\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-e5fccf7b23456b5db67e\",[\"wifi-password-row.layout.spec.ts\",\"DI-5: the FOCUSED indicator paints and its measured reach clears the value text\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"87073d832dd487efcd9b-f21c536cc2c85bb6ebe0\",[\"wifi-password-row.layout.spec.ts\",\"DI-3 (last-row): the target sits inside the SectionCard border box\"]]"
+    ],
     "tests/e2e/wizard-blocker-modal.layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-66131e70b73208914383\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"opening the modal does NOT change the sticky footer height (no layout shift)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e089a7c66648cb8b65cf\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"focus continuity: on dismiss, focus returns to the element focused before the blocker (real inert)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 550
+  "totalTests": 561
 }
