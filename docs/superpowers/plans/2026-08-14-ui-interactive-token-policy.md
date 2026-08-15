@@ -529,7 +529,9 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
 - [ ] **Step 6: Run the suite, verify PASS.** Also `pnpm exec eslint .` (canonical class order)
   and Task 1's suite (the census expectations there reference files this step edits — the
   segClass/subtle expectations still hold because Family D sites keep their tokens).
-- [ ] **Step 6b: One-shot hover verification (plan R2 F5).** The guard pins REST color only, so
+- [ ] **Step 6b: One-shot hover verification (plan R2 F5).** The guard makes no hover claim at
+  all — what it pins is the registry's rows plus the absence of any other bare
+  `text-text-subtle`, not a site's replacement token — so
   hover retargets are verified once, executably, at this step: for each of the 14 spec-§4.3
   rows whose Hover cell is `→strong`, run
   `rg -n "hover:text-text-strong" <file>` and confirm a hit on the edited element's class
