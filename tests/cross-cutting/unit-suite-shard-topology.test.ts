@@ -308,6 +308,52 @@ describe("unit-suite matrix topology", () => {
   });
 });
 
+// A depth-1 fetch that writes a remote-tracking ref must FORCE it. actions/checkout
+// leaves a shallow clone whose refs/remotes/origin/main is the checked-out commit
+// with its ancestry grafted away, so when main advances mid-job git cannot prove a
+// fast-forward and rejects the update outright:
+//
+//   ! [rejected] main -> origin/main (non-fast-forward)
+//
+// The step exits 1 and the leg fails a REQUIRED check on a diff that has nothing to
+// do with it. Measured on run 31904542867: the nodb leg fetched at 19:55:44Z, 3m22s
+// after an unrelated PR merged to main at 19:52:22Z, and died. The race window is
+// checkout -> this step, so its rate is set by how often anything merges — with many
+// concurrent sessions that is routinely inside one job's lifetime.
+describe("unit-suite fetches survive main advancing mid-job", () => {
+  // Every `git fetch` line in the workflow, comment-free so the prose explaining a
+  // refspec can never satisfy the guard that checks it.
+  const FETCHES = directives(YAML)
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /(^|\s)git fetch\s/.test(l));
+
+  // Premise, executable: the assertion below discriminates only over fetches that
+  // WRITE a remote-tracking ref. If a refactor leaves none, every `every()` passes
+  // vacuously and this file would keep reporting green over an unguarded workflow.
+  it("the workflow still contains a fetch that writes a remote-tracking ref", () => {
+    expect(FETCHES.length, "no `git fetch` found in unit-suite.yml at all").toBeGreaterThan(0);
+    expect(
+      FETCHES.filter((l) => /:refs\/remotes\//.test(l)).length,
+      "no fetch writes refs/remotes/*, so the forced-refspec guard below is vacuous — " +
+        "delete it or re-point it at whatever replaced the fetch",
+    ).toBeGreaterThan(0);
+  });
+
+  it.each(
+    // Indexed so a failure names the offending line rather than a boolean.
+    FETCHES.filter((l) => /:refs\/remotes\//.test(l)).map((l) => [l] as const),
+  )("forces the refspec: %s", (line) => {
+    expect(
+      /\s\+\S+:refs\/remotes\//.test(line),
+      `this fetch writes a remote-tracking ref with an UNFORCED refspec. Under ` +
+        `actions/checkout's shallow clone git rejects the update as non-fast-forward ` +
+        `the moment main advances mid-job, failing a required check on an unrelated ` +
+        `diff. Prefix the source ref with '+': \`origin +main:refs/remotes/origin/main\`.`,
+    ).toBe(true);
+  });
+});
+
 describe("unit-suite has no cache lever (reverted per spec 2026-07-19 §6.1)", () => {
   it("no soft-failed commands and no cache steps remain", () => {
     expect(
