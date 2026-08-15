@@ -90,9 +90,13 @@ and the four scripts beside it). Facts this plan RELIES on, so no task re-derive
      levels: [1, 2, 3, 4, 5, 6] })` — every mdast heading depth (spec R4 F1: a
      duplicate parked at any depth, including a one-character `####` typo, is in
      scan range; the DOMAIN pass alone bounds which ids are judged).
-   - Offender: an id whose SCAN occurrences exceed 1 AND (the family has a prefix OR
-     the id is in the DOMAIN set). Report `file`, `id`, and the `line` of every
-     occurrence in the failure message; assert the offender list equals `[]`.
+   - Offender: an id whose SCAN occurrences exceed 1 AND that is in the DOMAIN set —
+     for EVERY family, prefix or not (plan R1 F2: the earlier prefix-disjunct form
+     over-flagged a prefix-family id with zero occurrences at its ratified levels,
+     wider than spec §1.1.5's domain rule; pure domain membership still fires on all
+     43 live pairs and every fire plant — each has at least one in-domain heading).
+     Report `file`, `id`, and the `line` of every occurrence in the failure message;
+     assert the offender list equals `[]`.
 2. **Plants** (same `extractEntries`-on-synthetic-text pattern as the suite's terminal
    plants at `tests/docs/_metaDeferralLedgerGraduation.test.ts:698`; unconditional execution — never inside `.each`): FIRE rows —
    `## BL-X` twice; `## BL-X` + `### BL-X`; null-prefix family `## DEF-STUB-1 — RESOLVED`
@@ -111,8 +115,9 @@ and the four scripts beside it). Facts this plan RELIES on, so no task re-derive
    `#{2,4} <text>` to `**<text>**` (exact text kept; the two R5 F1 targets are
    `####`). Survivors per the spec tables:
    keep-first everywhere except `USE-RAW-FULL-LIST-1` (keep
-   `DEFERRED-archive.md:1905`, demote `DEFERRED-archive.md:1763`). Add the 8 preamble annotations listed
-   above.
+   `DEFERRED-archive.md:1905`, demote `DEFERRED-archive.md:1763`). Add the 9 preamble
+   annotations listed above (plan R1 F1: the count is the pre-draft list's 9 — the
+   earlier "8" predated the R5 census growth).
 5. **GREEN:** the graduation suite passes; then `pnpm vitest run tests/docs/` all
    green (referential integrity, in-progress, sizing, claims — the archives changed,
    so the whole docs surface is the regression net).
@@ -139,15 +144,26 @@ and the four scripts beside it). Facts this plan RELIES on, so no task re-derive
 
 ## Task A3 — close
 
-1. Terminal check, run and recorded:
-   `! grep -q 'Branch:\*\* chore/archive-duplicate-ids' BACKLOG.md DEFERRED.md` —
-   exits 0 exactly when no marker survives (a `grep -c` form exits 1 on the desired
-   zero-match state; class-swept from the sibling arc's plan R1 F3).
-2. Pre-push gates: `pnpm heavy pnpm test:fast` (full suite under the slot semaphore),
-   `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
-3. Merge `origin/main` (BACKLOG/archive conflicts resolve per-entry, both sides
-   preserved — the batch's sibling arcs are live on these files).
-4. Push every commit, then PR (body: preflight ran; census + RED transcripts
+1. Merge `origin/main` FIRST (BACKLOG/archive conflicts resolve per-entry, both
+   sides preserved — the batch's sibling arcs are live on these files), so every
+   later gate and the final review examine the tree that will merge (plan R1 F3,
+   the "review covers what merges" lint shape).
+2. Terminal check, run and recorded, over ALL FOUR ledger files:
+   `! grep -q 'Branch:\*\* chore/archive-duplicate-ids' BACKLOG.md
+   BACKLOG-archive.md DEFERRED.md DEFERRED-archive.md` — exits 0 exactly when no
+   marker spelling survives anywhere (plan R1 F4: the two-file form passed a marker
+   line surviving inside the archived entry), PLUS
+   `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` green — the
+   structural check that walks every ledger file from disk and categorically
+   rejects an archived in-flight entry.
+3. Pre-push gates: `pnpm heavy pnpm test:fast` (full suite under the slot
+   semaphore), `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
+4. Whole-diff codex-guard review (`--stage diff`) to APPROVE runs AFTER the
+   origin/main merge and gates, on the final tree. If a repair commit lands, gates
+   re-run and the review re-dispatches — the approved diff is the merging diff.
+   After approval, only mechanical `origin/main` merge commits may land (re-run
+   `pnpm vitest run tests/docs/` if such a merge touches a ledger file).
+5. Push every commit, then PR (body: preflight ran; census + RED transcripts
    linked) → real CI green → `gh pr merge --merge` in the same turn → ff main,
    verify `0 0`.
 
