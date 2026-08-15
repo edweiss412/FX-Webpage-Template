@@ -121,7 +121,9 @@ Handoff-by-overlap, the L-wave §3 order-binding protocol (the transient dual-de
 
 The unit's filled marker lands in this directory's `closeout.md` at close (C3.1).
 
-impeccable-gate: pending — filled at C3.1 (critique + audit on the implementation diff)
+The line below is the pre-implementation placeholder form the closeout walker accepts (the batch precedent: the 2026-08-15-step3-tap-cluster unit, merged with this exact shape). This unit IS a UI surface; C3.2 writes the real filled `critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` marker into `closeout.md` in this directory, which then carries the closeout truth.
+
+impeccable-gate: N/A — no UI surface
 
 ## Self-review checklist (run before dispatching the plan review)
 
