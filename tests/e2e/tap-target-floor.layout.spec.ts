@@ -1156,8 +1156,15 @@ test.describe("DI-3/DI-4/DI-5 — the step pills grow their target without movin
 
         // DI-5 (PRESERVATION, spec §8 — passes before AND after by design; do
         // not "strengthen" it into discriminating form). The margin box is what
-        // the stepper's layout actually spends, and at 320px the connectors are
-        // 0px wide (probe P3) so there is no slack to absorb a change.
+        // the stepper's layout actually spends.
+        //
+        // The ORIGINAL reason this held was that the connectors were 0px wide at
+        // 320px (probe P3), so the row had no slack at all. That is no longer
+        // true: the connectors are a fixed 60px (`w-confirm-box`). The
+        // assertion is unaffected, for a different and stronger reason — the
+        // pill carries `shrink-0` (components/admin/OnboardingWizard.tsx
+        // `base`), so it is excluded from flex distribution entirely and no
+        // connector width can move its box.
         expect(
           measured.w + measured.marginLeft + measured.marginRight,
           `pill ${n} horizontal margin box`,

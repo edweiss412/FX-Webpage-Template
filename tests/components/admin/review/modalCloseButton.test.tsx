@@ -17,10 +17,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ModalCloseButton } from "@/components/admin/review/ModalCloseButton";
 import { ReviewModalCloseContext } from "@/components/admin/review/ReviewModalShell";
+import { expectActionAffordanceColour } from "../../../_shared/actionAffordance";
 
 afterEach(cleanup);
 
 describe("ModalCloseButton", () => {
+  // SHEETLINK-SUBTLE-ACTION-CLASS-1: this X sits in the SAME modal header as the
+  // sheet link that was lifted off text-text-subtle in 2026-07-26, so while it
+  // stayed behind the secondary link rendered DARKER at rest than the primary
+  // dismiss beside it.
+  it("wears the action-affordance colour, not text-text-subtle", () => {
+    render(
+      <ReviewModalCloseContext.Provider value={() => {}}>
+        <ModalCloseButton testId="x-close" />
+      </ReviewModalCloseContext.Provider>,
+    );
+    expectActionAffordanceColour(screen.getByTestId("x-close"), "ModalCloseButton");
+  });
+
   // Failure mode: the button renders but is wired to the wrong close path,
   // so the X snaps shut while every other affordance animates.
   it("calls the context's requestClose on click", () => {

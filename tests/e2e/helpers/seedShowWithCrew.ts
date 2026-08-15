@@ -22,12 +22,27 @@
  * back. share_token shape `^[0-9a-f]{64}$` is enforced by a CHECK constraint
  * (show_share_tokens_share_token_check); freshShareToken() satisfies it.
  *
- * AGENTS invariant 9 (Supabase call-boundary): every call destructures
+ * AGENTS invariant 9 (Supabase call-boundary): every PostgREST call destructures
  * { data, error } and throws with context — a silent failed insert would
  * leave a half-seeded show that satisfies some assertions and hides the bug.
+ *
+ * AGENTS invariant 2 (M-wave 2 W-E2E, spec 2026-08-09-m-wave-2-design §2.4):
+ * the locked-table writes — the `shows` purge, the `shows` insert, and the
+ * `crew_members` insert — run inside ONE psql transaction holding
+ * `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))`, the
+ * lockedCrewRestriction pattern (its header explains the single-transaction
+ * shape and why per-helper copies of it are the bug). Single-holder: this
+ * transaction is the only lock holder on this path — nothing wraps it. The
+ * `show_share_tokens` update/read stays on the PostgREST admin client: that
+ * table is not lock-governed (invariant 2 names shows / crew_members /
+ * pending_syncs / pending_ingestions and the dropped M9.5 auth table this
+ * comment deliberately does not spell), and it runs after
+ * the seeding transaction committed.
  */
+import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { DateRestriction, ShowRow, StageRestriction } from "@/lib/parser/types";
+import { psqlChildEnv, resolvePsqlTarget } from "./psqlTarget";
 import { admin } from "./supabaseAdmin";
 
 export type SeedCrewMemberInput = {
@@ -95,6 +110,13 @@ export type SeedShowWithCrewOptions = {
    */
   eventDetails?: ShowRow["event_details"];
   crew?: SeedCrewMemberInput[];
+  /**
+   * shows_internal seed, written INSIDE the same locked transaction as the show
+   * insert. `runOfShow` lands in shows_internal.run_of_show — the per-day agenda
+   * store resolveKeyTimes reads for the RightNow hero's per-day Show anchors.
+   * Omit → no shows_internal row (getShowForViewer projects runOfShow: null).
+   */
+  internal?: { runOfShow?: unknown };
 };
 
 export type SeededShow = {
@@ -111,13 +133,99 @@ export function freshShareToken(): string {
   return randomBytes(32).toString("hex");
 }
 
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function sqlJsonbOrNull(value: unknown): string {
+  return value == null ? "null" : `${sqlString(JSON.stringify(value))}::jsonb`;
+}
+
+function sqlTextOrNull(value: string | null | undefined): string {
+  return value == null ? "null" : sqlString(value);
+}
+
+/** crew_members.role_flags is text[], not jsonb — encode as an array literal. */
+function sqlTextArray(values: string[]): string {
+  if (values.length === 0) return "'{}'::text[]";
+  return `array[${values.map(sqlString).join(", ")}]::text[]`;
+}
+
+/**
+ * The ONE locked seeding transaction (invariant 2): begin -> advisory lock on
+ * the show -> statements -> commit. Statements run in caller order under the
+ * held lock; the lock is acquired BEFORE the first write and released only by
+ * the commit after the last. Same psql target discipline as
+ * lockedCrewRestriction (resolved at spawn, remote refused by name, child env
+ * scrubbed so PG* variables cannot retarget libpq behind the validated DSN).
+ */
+/**
+ * Build the ONE locked-transaction SQL (exported for the unit pin, review r1
+ * F1): begin -> per-show advisory lock -> caller statements -> commit, in that
+ * order BY CONSTRUCTION. Caller statements may not smuggle their own
+ * transaction control — a statement containing top-level BEGIN/COMMIT/ROLLBACK
+ * is refused, so "commit before the writes" cannot be expressed through this
+ * builder at all (the reviewer's escaping-mutant class).
+ */
+export function lockedSeedTxSql(driveFileId: string, statements: string[]): string {
+  for (const st of statements) {
+    if (/\b(begin|commit|rollback)\b/i.test(st)) {
+      throw new Error(
+        "lockedSeedTxSql: a caller statement may not contain transaction control " +
+          "(begin/commit/rollback) — the builder owns the transaction shape",
+      );
+    }
+  }
+  return [
+    "begin;",
+    `select pg_advisory_xact_lock(hashtext('show:' || ${sqlString(driveFileId)}));`,
+    ...statements,
+    "commit;",
+  ].join("\n");
+}
+
+function runLockedSeedTx(driveFileId: string, statements: string[], context: string): string {
+  const sql = lockedSeedTxSql(driveFileId, statements);
+  // Deliberately NOT TEST_DATABASE_URL (the devCaptureStaged precedent): this
+  // helper's hazard is a SPLIT TARGET, not merely a remote one. The token
+  // read-back below and every consumer suite's PostgREST admin client resolve
+  // the loopback SUPABASE_URL stack, so the locked psql writes must land on the
+  // SAME database — honoring an ambient validation TEST_DATABASE_URL would seed
+  // one database and read another (or, with the refusal, fail every consumer
+  // under the canonical .env.local, which is what the first full crew run
+  // measured on 2026-08-10). The resolver falls through to the loopback default.
+  const dsn = resolvePsqlTarget({ caller: "seedShowWithCrew" });
+  try {
+    return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
+      input: sql,
+      encoding: "utf8",
+      // honorRemoteOptIn: false, deliberately (review r1 F2): this helper's DSN
+      // resolver never honors the remote opt-in — it is loopback-only by the
+      // split-target rationale above — so the child env must not either. With
+      // the opt-in honored, LOCKED_FIXTURE_ALLOW_REMOTE=1 would keep ambient
+      // PG* variables (probe: PGHOST=192.0.2.2 survived) and libpq could send
+      // the locked writes somewhere other than the loopback DSN psql was given.
+      env: psqlChildEnv({ honorRemoteOptIn: false }),
+    });
+  } catch (err) {
+    throw new Error(
+      `seedShowWithCrew: locked ${context} failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 /**
  * Purge any prior show seeded under `driveFileId` (and its FK-cascading
  * crew_members / show_share_tokens rows) so re-runs start clean. Idempotent.
+ * Locked (invariant 2): the delete mutates `shows` and runs under the per-show
+ * advisory lock like every other writer of that hashkey.
  */
 export async function deleteSeededShow(driveFileId: string): Promise<void> {
-  const { error } = await admin.from("shows").delete().eq("drive_file_id", driveFileId);
-  if (error) throw new Error(`deleteSeededShow(${driveFileId}) failed: ${error.message}`);
+  runLockedSeedTx(
+    driveFileId,
+    [`delete from public.shows where drive_file_id = ${sqlString(driveFileId)};`],
+    `deleteSeededShow(${driveFileId})`,
+  );
 }
 
 export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): Promise<SeededShow> {
@@ -125,31 +233,58 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
   const slug = options.slug ?? `picker-e2e-${randomUUID().slice(0, 8)}`;
   const pickerEpoch = options.pickerEpoch ?? 1;
 
-  // Create-or-replace: drop any residue from a prior run under this driveFileId
-  // first (FK ON DELETE CASCADE clears crew_members + show_share_tokens).
-  await deleteSeededShow(driveFileId);
-
   const showId = randomUUID();
-  const { error: showErr } = await admin.from("shows").insert({
-    id: showId,
-    drive_file_id: driveFileId,
-    slug,
-    title: options.title ?? "Picker E2E Show",
-    client_label: options.clientLabel ?? "Picker E2E Client",
-    template_version: options.templateVersion ?? "v1",
-    published: options.published ?? true,
-    archived: options.archived ?? false,
-    picker_epoch: pickerEpoch,
-    // JSONB dates column — postgres-js/supabase-js encodes the object directly.
-    // Omitted → NULL (getShowForViewer.ts:398-405 falls back to all-null dates).
-    dates: options.dates ?? null,
-    // JSONB agenda_links — same encoding note as `dates` above. Omitted → NULL →
-    // getShowForViewer decodes to [] and the crew page renders no agenda area.
-    agenda_links: options.agendaLinks ?? null,
-    // JSONB event_details — same encoding note as `dates` above.
-    event_details: options.eventDetails ?? null,
-  });
-  if (showErr) throw new Error(`seedShowWithCrew shows insert failed: ${showErr.message}`);
+  const crewInput = options.crew ?? [];
+  const crewRows = crewInput.map((c) => ({
+    id: c.id ?? randomUUID(),
+    name: c.name,
+    role: c.role,
+    email: c.email ?? null,
+    roleFlags: c.roleFlags ?? [],
+    claimedViaOauthAt: c.claimedViaOauthAt ?? null,
+    stageRestriction: c.stageRestriction ?? null,
+    dateRestriction: c.dateRestriction ?? null,
+  }));
+
+  // ONE locked transaction (invariant 2): purge residue, insert the show, insert
+  // the crew — all under the held show lock. FK ON DELETE CASCADE clears prior
+  // crew_members + show_share_tokens on the purge; the AFTER INSERT trigger mints
+  // the new show_share_tokens row inside this same transaction.
+  const statements: string[] = [
+    `delete from public.shows where drive_file_id = ${sqlString(driveFileId)};`,
+    `insert into public.shows
+       (id, drive_file_id, slug, title, client_label, template_version,
+        published, archived, picker_epoch, dates, agenda_links, event_details)
+     values
+       (${sqlString(showId)}::uuid, ${sqlString(driveFileId)}, ${sqlString(slug)},
+        ${sqlString(options.title ?? "Picker E2E Show")},
+        ${sqlString(options.clientLabel ?? "Picker E2E Client")},
+        ${sqlString(options.templateVersion ?? "v1")},
+        ${options.published ?? true}, ${options.archived ?? false}, ${pickerEpoch},
+        ${sqlJsonbOrNull(options.dates ?? null)},
+        ${sqlJsonbOrNull(options.agendaLinks ?? null)},
+        ${sqlJsonbOrNull(options.eventDetails ?? null)});`,
+  ];
+  for (const row of crewRows) {
+    statements.push(
+      `insert into public.crew_members
+         (id, show_id, name, role, email, role_flags, claimed_via_oauth_at,
+          stage_restriction, date_restriction)
+       values
+         (${sqlString(row.id)}::uuid, ${sqlString(showId)}::uuid, ${sqlString(row.name)},
+          ${sqlString(row.role)}, ${sqlTextOrNull(row.email)},
+          ${sqlTextArray(row.roleFlags)},
+          ${row.claimedViaOauthAt == null ? "null" : `${sqlString(row.claimedViaOauthAt)}::timestamptz`},
+          ${sqlJsonbOrNull(row.stageRestriction)}, ${sqlJsonbOrNull(row.dateRestriction)});`,
+    );
+  }
+  if (options.internal !== undefined) {
+    statements.push(
+      `insert into public.shows_internal (show_id, run_of_show)
+       values (${sqlString(showId)}::uuid, ${sqlJsonbOrNull(options.internal.runOfShow ?? null)});`,
+    );
+  }
+  runLockedSeedTx(driveFileId, statements, `seed (${driveFileId})`);
 
   // The AFTER INSERT trigger already created the show_share_tokens row. Set the
   // token to the caller's value when supplied; otherwise read the minted one.
@@ -176,35 +311,16 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     shareToken = data.share_token as string;
   }
 
-  const crewInput = options.crew ?? [];
-  const crewRows = crewInput.map((c) => ({
-    id: c.id ?? randomUUID(),
-    show_id: showId,
-    name: c.name,
-    role: c.role,
-    email: c.email ?? null,
-    role_flags: c.roleFlags ?? [],
-    claimed_via_oauth_at: c.claimedViaOauthAt ?? null,
-    // JSONB restriction columns — omit → NULL ({kind:'none'} on the read path).
-    stage_restriction: c.stageRestriction ?? null,
-    date_restriction: c.dateRestriction ?? null,
+  // The seeded rows equal their inputs by construction (ids minted above, values
+  // written verbatim in the locked transaction; ON_ERROR_STOP would have thrown
+  // on any refused row), so the return is built from the same data.
+  const crew: SeededCrewMember[] = crewRows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    email: row.email,
+    claimedViaOauthAt: row.claimedViaOauthAt,
   }));
-
-  let crew: SeededCrewMember[] = [];
-  if (crewRows.length > 0) {
-    const { data, error: crewErr } = await admin
-      .from("crew_members")
-      .insert(crewRows)
-      .select("id, name, role, email, claimed_via_oauth_at");
-    if (crewErr) throw new Error(`seedShowWithCrew crew_members insert failed: ${crewErr.message}`);
-    crew = (data ?? []).map((r) => ({
-      id: r.id as string,
-      name: r.name as string,
-      role: r.role as string,
-      email: (r.email as string | null) ?? null,
-      claimedViaOauthAt: (r.claimed_via_oauth_at as string | null) ?? null,
-    }));
-  }
 
   return { showId, slug, shareToken, driveFileId, pickerEpoch, crew };
 }

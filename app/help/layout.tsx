@@ -49,7 +49,7 @@ export default async function HelpLayout({ children }: { children: ReactNode }) 
           past the Header + Sidebar chrome. Visually hidden until focused. */}
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:inline-flex focus:min-h-tap-min focus:items-center focus:rounded-md focus:border focus:border-border-strong focus:bg-surface-raised focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-text-strong focus:shadow-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-overlay focus:inline-flex focus:min-h-tap-min focus:items-center focus:rounded-md focus:border focus:border-border-strong focus:bg-surface-raised focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-text-strong focus:shadow-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
       >
         Skip to content
       </a>

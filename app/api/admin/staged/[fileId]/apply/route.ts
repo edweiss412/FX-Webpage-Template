@@ -149,12 +149,10 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
       return NextResponse.json({ ok: false, error: "SYNC_INFRA_ERROR" }, { status: 500 });
     }
 
-    // sync-log-emission-gap: BL-MANUAL-SYNC-UNEMITTED
-    // This apply path writes NO sync_log row, so show attribution cannot reach it.
-    // Not a defect introduced here and not repaired here: the gap is that applyStaged
-    // emits nothing on most branches, which is a behaviour change needing its own
-    // scope decision. Probe measured logSyncCalls: 0. Marked so the silence is
-    // explicit rather than mistaken for an attribution bug in the sink.
+    // sync_log: applied attempts + escaped throws record inside applyStaged itself, post-commit
+    // (spec 2026-08-14 §3.4) — this route injects nothing. Non-applied dispositions
+    // (discarded / superseded / outdated / source_gone) stay unrecorded by design: they are
+    // apply-request outcomes the operator sees synchronously, not sync attempts (§6).
     const result = await applyStaged(
       body.source_scope === "wizard"
         ? {

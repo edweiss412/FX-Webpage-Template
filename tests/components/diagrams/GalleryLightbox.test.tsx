@@ -15,8 +15,12 @@
  * Per-item visual states, both components: blur (placeholder showing), empty (no
  * blur available, image not yet loaded), loaded, failed (runtime onError),
  * unavailable (manifest available:false / null path). Lightbox items
- * additionally carry a tier axis: inactive (clamped variant) vs active
- * (pinOriginal).
+ * additionally carry a tier axis: inactive (clamped variant) vs active — and
+ * since the zoom gate (spec 2026-08-10-diagram-viewing-polish §4.1) the ACTIVE
+ * tier is itself two states: clamped until that slide shows zoom intent, then
+ * pinOriginal. This file pins the pre-intent half (every case below opens
+ * without a gesture); `galleryLightbox.zoomGate.test.tsx` pins the flip and the
+ * per-slide persistence that follows it.
  *
  * | Pair | Lightbox treatment |
  * |---|---|
@@ -36,7 +40,7 @@
  * | Compound | Treatment |
  * |---|---|
  * | lightbox opens while a thumbnail is still in blur/empty | independent components, no shared state; lightbox loads its own tier |
- * | slide inactive → active (Embla) while inactive tier still loading | active render swaps to the pinOriginal URL — a NEW load cycle; blur (when present) covers the gap, else empty-then-image |
+ * | slide inactive → active (Embla) while inactive tier still loading | active render swaps to the pinOriginal URL WHEN that slide has zoom intent (§4.1) — a NEW load cycle; blur (when present) covers the gap, else empty-then-image. Without intent the URL is the same clamped tier, so there is no new cycle at all |
  * | slide active → inactive (swipe away) | src returns to the clamped variant URL — browser-cached from the inactive render, instant; no custom animation |
  * | tier swap on a FAILED item | no retry: the item stays in the unavailable branch in both directions (failure is per-item, not per-tier — declared) |
  * | tier swap after active-tier load, back and forth | both URLs browser-cached after first load of each; instant src swaps, no animation |
@@ -203,10 +207,26 @@ function inactiveImages(container: HTMLElement): HTMLImageElement[] {
 
 const ORIGINAL = (i: number) => `/api/asset/diagram/${SHOW_ID}/${REV}/embedded-obj-${i}.png`;
 
+/**
+ * The clamped tier both tiers serve before any zoom intent: the largest rung of
+ * `item()`'s ladder (`sizes="100vw"` pushes Next's candidate widths past the top
+ * rung, and clamping answers with it rather than falling through to the
+ * original). Derived from the fixture so a ladder edit cannot leave a stale
+ * literal behind.
+ */
+const TOP_TIER = (i: number) => {
+  const ladder = [...item(i).variants].sort((a, b) => a.width - b.width);
+  return `/api/asset/diagram/${SHOW_ID}/${REV}/${ladder[ladder.length - 1]!.key}`;
+};
+
 afterEach(() => cleanup());
 
 describe("GalleryLightbox — tiers", () => {
-  test("the ACTIVE slide serves the original at every candidate width (pinOriginal)", () => {
+  test("the ACTIVE slide serves clamped variants until zoom intent (spec §4.1)", () => {
+    // AMENDED contract: the active slide used to pin the original from the
+    // moment the lightbox opened, which spent multi-megabyte bytes on a view
+    // most crew never zoom. It now opens on the same clamped tier as an
+    // inactive slide; `galleryLightbox.zoomGate.test.tsx` owns the flip.
     const { container } = open([item(1), item(2)]);
     const img = activeImage(container);
 
@@ -216,9 +236,9 @@ describe("GalleryLightbox — tiers", () => {
       .filter(Boolean);
     premise("next/image emitted srcset candidates for the active slide", candidates.length, 1);
 
-    // Zoom needs full resolution: EVERY candidate is the original, so no
-    // viewport can talk the browser into a downscaled tier.
-    expect(new Set(candidates)).toEqual(new Set([ORIGINAL(1)]));
+    // No viewport can talk the browser into the original before a gesture.
+    expect(new Set(candidates)).toEqual(new Set([TOP_TIER(1)]));
+    expect(candidates).not.toContain(ORIGINAL(1));
   });
 
   test("an INACTIVE slide serves clamped variants and never the original", () => {
@@ -397,7 +417,9 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     // Identify WHICH slide is active, not just the counts: "still on the failed
     // item 2" and "back on item 1 with 2 inactive-failed" both satisfy a
     // one-image / one-placeholder assertion, so counts alone prove nothing here.
-    expect(pathOf(activeImage(container).getAttribute("src"))).toBe(ORIGINAL(1));
+    // The URL names the ITEM (obj-1 vs obj-2), so it still discriminates now
+    // that the un-zoomed active tier is the clamped one (spec §4.1).
+    expect(pathOf(activeImage(container).getAttribute("src"))).toBe(TOP_TIER(1));
     expect(container.querySelectorAll("img")).toHaveLength(before - 1);
     // Item 2 is inactive again and STILL failed — no retry on the way back.
     expect(screen.getByText(/unavailable/i)).toBeTruthy();
@@ -424,34 +446,42 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     );
   });
 
-  test("a REAL tier swap re-renders the slide and swaps the URL to the pinned original", () => {
+  test("a REAL tier swap re-renders both slides and, un-zoomed, costs no new load", () => {
     // Driven through the mocked Embla emitter, so this is React actually moving
     // both branches — not a static render inspected twice. Note what is NOT
     // claimed: the image NODE is replaced, because the two branches live under
     // different parents (TransformWrapper vs the inactive wrapper), so "the tiers
     // differ by URL and nothing else" would be false.
+    //
+    // AMENDED (spec §4.1): the swap used to move the newly-active slide onto the
+    // pinned original. Without zoom intent both tiers now resolve to the SAME
+    // clamped URL, so the property under test is URL CONTINUITY — swiping to a
+    // slide whose clamped tier already loaded starts no second fetch. Asserting
+    // per-item URLs (not just "contains @") keeps the oracle discriminating:
+    // a swap that never moved would leave obj-1 active and fail.
     const { container } = open([item(1), item(2)]);
+    const beforeActive = pathOf(activeImage(container).getAttribute("src"));
     const beforeInactive = pathOf(inactiveImages(container)[0]!.getAttribute("src"));
     premiseHolds(
-      "the inactive tier starts on a clamped VARIANT, or the swap proves nothing",
-      beforeInactive.includes("@") && beforeInactive !== ORIGINAL(2),
+      "both tiers start on a clamped VARIANT, or the swap proves nothing",
+      beforeActive === TOP_TIER(1) && beforeInactive === TOP_TIER(2),
     );
 
     act(() => emblaApis.at(-1)!.scrollTo(1));
 
-    expect(pathOf(activeImage(container).getAttribute("src"))).toBe(ORIGINAL(2));
-    // ...and the slide that was active falls back to its clamped variant.
-    const afterInactive = pathOf(inactiveImages(container)[0]!.getAttribute("src"));
-    expect(afterInactive).not.toBe(ORIGINAL(1));
-    expect(afterInactive).toContain("@");
+    // obj-2 is active now, on the very URL it already served while inactive.
+    expect(pathOf(activeImage(container).getAttribute("src"))).toBe(beforeInactive);
+    expect(pathOf(activeImage(container).getAttribute("src"))).not.toBe(ORIGINAL(2));
+    // ...and the slide that was active keeps ITS clamped URL as it goes inactive.
+    expect(pathOf(inactiveImages(container)[0]!.getAttribute("src"))).toBe(beforeActive);
 
     // BACK AGAIN — the inventory's "back and forth" row. A single navigation
     // would pass on a component whose first selection works and whose later ones
     // do not, which is the whole point of claiming the compound.
     act(() => emblaApis.at(-1)!.scrollTo(0));
 
-    expect(pathOf(activeImage(container).getAttribute("src"))).toBe(ORIGINAL(1));
-    expect(pathOf(inactiveImages(container)[0]!.getAttribute("src"))).toContain("@");
+    expect(pathOf(activeImage(container).getAttribute("src"))).toBe(TOP_TIER(1));
+    expect(pathOf(inactiveImages(container)[0]!.getAttribute("src"))).toBe(TOP_TIER(2));
     expect(container.innerHTML).not.toContain("data-framer");
   });
 });

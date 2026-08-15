@@ -63,7 +63,7 @@ export function AppHealthPopover({
       aria-modal="true"
       aria-labelledby="app-health-popover-heading"
       data-testid="app-health-popover"
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      className="fixed inset-0 z-overlay flex items-end justify-center sm:items-center"
     >
       {/* Scrim / tap-out. motion-safe transition; disabled under reduced motion. */}
       <button

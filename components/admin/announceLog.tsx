@@ -54,6 +54,18 @@ export const ANNOUNCE_LOG_TTL_MS = 30_000;
 export function useAnnounceLog(options?: { ttlMs?: number }): {
   announce: (message: string) => void;
   entries: ReadonlyArray<AnnounceLogEntry>;
+  /** Empty the channel. Additive and opt-in: no existing consumer calls it.
+   *
+   *  For a channel whose REGION outlives its subject — the diagrams lightbox
+   *  owns a dialog-local region whose state is held by the gallery, so it
+   *  survives the dialog — an unpruned log means the next session mounts a
+   *  region pre-loaded with the last one's failures: dead text between the
+   *  dialog header and the image on a top-down read, and a replay for any
+   *  assistive technology that reads an inserted live region. That is the same
+   *  accumulation the TTL above exists for, but bounded by a real lifecycle
+   *  event rather than a timer, so nothing is removed while it might still be
+   *  queued unspoken (the strand hazard the TTL doc weighs). */
+  reset: () => void;
 } {
   const ttlMs = options?.ttlMs;
   // Ids come from a per-mount monotonic ref, NEVER a timestamp or the log length:
@@ -93,7 +105,13 @@ export function useAnnounceLog(options?: { ttlMs?: number }): {
     [ttlMs],
   );
 
-  return { announce, entries };
+  const reset = useCallback(() => {
+    for (const t of timersRef.current) clearTimeout(t);
+    timersRef.current.clear();
+    setEntries((log) => (log.length === 0 ? log : []));
+  }, []);
+
+  return { announce, entries, reset };
 }
 
 /** The live region. One element, no wrapper — the shape is pinned by consumers'

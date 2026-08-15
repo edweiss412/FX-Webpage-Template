@@ -8,6 +8,100 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### HELPTOUR-CARD-GRID-MEASURE-1 — impeccable P1: the tour's card grids inherit the 70ch prose cap and render a 10.5-character measure (2026-08-11)
+
+**Effort:** M
+
+Surfaced by the invariant-8 dual gate on branch `fix/help-tour-hydration` (PR #778), by BOTH halves
+independently (critique P1, audit P1). Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-10-help-tour-hydration-fix.md`.
+
+**The finding.** `.help-prose` caps its column at `max-width: 70ch` (`app/globals.css:1148`), and
+the tour page puts two card grids inside it — `md:grid-cols-2` (`app/help/tour/page.mdx:7`) and
+`md:grid-cols-3` (`app/help/tour/page.mdx:53`). The three-column grid therefore divides a reading
+measure three ways.
+
+**Probed live 2026-08-11**, admin-signed-in, real render, three-column grid, body `<p>` at 16px:
+
+| viewport | card width | body width | measure | card height |
+| -------- | ---------- | ---------- | ------- | ----------- |
+| 768px    | 146.7px    | 104.7px    | 10.5ch  | 811.3px     |
+| 900px    | 190.7px    | 148.7px    | 14.9ch  | 617.2px     |
+| 1024px+  | 224.1px    | 182.1px    | 18.2ch  | 513.2px     |
+
+It does not improve past 1024px because the 70ch cap binds, not the viewport. `DESIGN.md` §2.5 caps
+measure at 65-75ch; 10.5ch is a seventh of the floor, and the 768px card is 811px tall for 45 words.
+Mobile (390px, one column) is unaffected and reads well.
+
+**Why deferred rather than repaired in-branch — reason (b), a ratified scope decision already fences
+it.** The arc's spec §1.1 states that any finding proposing copy or layout changes is out of scope;
+the diff converts text children only, changing no class and no layout. The finding is PRE-EXISTING
+on `origin/main` and survives the branch unchanged.
+
+**Un-defer trigger.** The next arc that touches `/help` layout or `.help-prose`, or any report that
+the tour page is hard to read on a laptop. **Two candidate repairs, and choosing between them is the
+work:** drop the second grid to `md:grid-cols-2` (cheap, keeps the grid inside the prose column), or
+lift both grids out of the 70ch cap with a full-bleed wrapper. The second is the better answer and
+the larger change — it touches `.help-prose`, which every `/help/*` page renders through, so it owes
+a sweep of the other twelve help pages for grids in the same position.
+
+### HELPTOUR-SETTINGS-CARD-MISSING-1 — impeccable P1: /help/tour claims to cover every admin screen and omits one (2026-08-11)
+
+**Effort:** S, but DESIGN-GATED
+
+Surfaced by the invariant-8 dual gate on branch `fix/help-tour-hydration` (PR #778), critique P1.
+Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-10-help-tour-hydration-fix.md`.
+
+**The finding.** The page opens "Below is every admin screen, grouped by when you use it"
+(`app/help/tour/page.mdx:3`) and then renders **seven** cards. `app/help/_nav.ts` declares **eight**
+`admin-surface` entries (`_nav.ts:22-29`); `/help/admin/settings` ("Settings") has no card. The
+claim is false by one, on the one page whose job is to be exhaustive.
+
+**Why deferred rather than repaired in-branch — reasons (a) and (b).** (a) The fix is a product
+decision: adding a Settings card means choosing its group — Settings is neither daily nor per-show,
+so it lands under "Once per environment" beside the onboarding wizard, which would make that group a
+two-card grid and change the page's rhythm. Softening the intro instead ("the screens you will use
+most") keeps the layout and gives up the completeness promise. Both are defensible; the page's
+author should pick. (b) The arc's spec §1.1 fences copy changes out, and AC-2 requires the page's
+text be preserved up to whitespace normalization.
+
+**Not caught by any existing guard.** `tests/e2e/help-pages.spec.ts` asserts every NAV route renders;
+nothing asserts the tour page LINKS to every admin-surface route.
+
+**Un-defer trigger.** The next content pass on `/help/tour`, or a new `/help/admin/*` page being
+added (which would widen the gap silently). Whichever repair is chosen, it should land with a
+derived guard — the tour's card hrefs must cover the `admin-surface` slugs — so the class closes
+rather than the instance.
+
+### DIAGRAM-FAILURE-RECOVERY-1 — a failed diagram is inert for the rest of the page session (2026-08-11)
+
+**Effort:** S
+
+Surfaced by the invariant-8 dual gate on branch `feat/diagram-viewing-polish`, by the critique half
+(P1). Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-10-diagram-viewing-polish.md`.
+
+**The finding.** A runtime image failure is terminal per item: `failedKeys` is never cleared in
+either `components/diagrams/Gallery.tsx` or `components/diagrams/GalleryLightbox.tsx`, so one
+dropped request on ballroom wifi costs that diagram until a full page reload the crew member has no
+reason to attempt. The branch's repair makes the failure legible — focus relocates, and the event is
+announced by name — but the announcement offers no next step, and the replacement cell is a
+non-interactive `<div>`. Heuristic 9 (recover from errors) scored 2/4 on that account.
+
+**Why deferred rather than repaired in-branch — reason (a), it needs a product decision this PR
+cannot settle.** The obvious repair is to make the placeholder a "Retry" control, and the obvious
+copy is "<name> could not be loaded. Tap to retry." Both are product calls this arc's ratified scope
+(spec §1.1: the repair is focus relocation plus announcement) does not cover, and the mechanism has
+a real cost: the asset route sends `private, max-age=0, must-revalidate` with no ETag
+(`app/api/asset/diagram/[show]/[rev]/[key]/route.ts`), so a retry on a 1-5 MB original is a full
+re-download, and a crew member tapping a dead tile twice pays for it twice. Whether the affordance
+should exist at all, whether it should retry the clamped tier rather than the original, and what it
+says while in flight are one decision, not three independent ones.
+
+**Un-defer trigger.** A product decision on failure recovery for diagrams — either taken directly,
+or forced by the first support report of a diagram that "just disappeared" on venue wifi.
+
 ### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement (2026-08-10)
 
 **Effort:** S
@@ -40,95 +134,6 @@ real screen-reader user affected by the stale name.
 "Needs attention"); only the supplementary count is missing, and it is restored on the next focus
 because both names are computed reactively from hook state. No control is unlabeled, mislabeled, or
 unreachable at any point.
-
-### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
-
-**Effort:** M (remaining: item (d) only)
-
-Surfaced by the invariant-8 dual gate on branch `test/step3-live-render-cluster`, run against the
-six-variant seeded Step-3 gallery — the first time all six card states rendered together. Findings
-and dispositions are recorded in §12 of
-`docs/superpowers/plans/admin/2026-08-02-step3-live-render-cluster.md`.
-
-**Every item is PRE-EXISTING and outside that branch's diff.** The branch changes exactly two
-UI-surface files and neither changes a pixel: `components/admin/OnboardingWizard.tsx` (mechanical
-`assembleStep3Row` extraction, no markup added) and `components/admin/wizard/Step3Review.tsx` (one
-string literal respelled from a raw NUL byte to its escape, runtime-identical). They are deferred
-rather than fixed here because fixing them would put unreviewed visual change into a
-test-and-docs branch.
-
-**Partially resolved 2026-08-08 by `fix/step3-a11y-cluster`** — spec
-`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`, plan
-`docs/superpowers/plans/2026-08-07-step3-a11y-cluster.md`. Items **(a)**, **(b)** and **(c)** ship
-there and are struck below. **(d) stays deferred with its own un-defer trigger, so this entry is
-NOT archived** — the archive is where an item goes when it ships, and (d) has not.
-
-Two of this entry's own citations were wrong and are CORRECTED in the spec rather than preserved
-(spec §1.1 R1): (a)'s `<summary>` is in `components/admin/HelpAffordance.tsx:95`, not
-`step3ReviewSections.tsx`, and its parent is not `min-h-12`. The 20.3px measurement itself
-reproduced exactly and was never in dispute. (b)'s proposed `before:-inset-2` recipe is REFUTED by
-probe (spec §1.1 R2, §7 probe P4): the box measures 44x44 but only its top and left edges take the
-pointer — the right edge returns the `<nav>` and the bottom returns the outer wrapper. What shipped
-instead is `-m-2 … size-tap-min` plus an inner visual span, measured at 44x44 with all four edge
-midpoints hitting and pill centres identical to before.
-
-**~~(a) [P1] The "What does this mean?" `<summary>` is 20.3px tall.~~ ✅ SHIPPED 2026-08-08.** Not
-one site but SEVEN — the corpus pass found every `<summary>` in the repo under the floor, and all
-seven are repaired (spec §2.1): `HelpAffordance.tsx:95`, `OnboardingWizard.tsx` (operator error),
-`ErrorExplainer.tsx:114`, `AdministratorsSection.tsx:131` (40.8px, a near-miss sized by `p-3`),
-`app/me/meShowSections.tsx`, `RunOfShowList.tsx:82`, and `HelpTooltip.tsx:57` (which takes the
-Class B recipe instead, since it is also a 28px pill). Original text below for provenance.
-
-**(a) [P1] The "What does this mean?" `<summary>` is 20.3px tall.** On the hard-failed card's
-help disclosure (`components/admin/wizard/step3ReviewSections.tsx`, the HelpAffordance block).
-Measured live at 390px: own box 274.0x20.3, no `<label>` wrapper, no positioned `::before`/`::after`
-hit expansion. Its PARENT is `min-h-12` (48px), so roughly 28px of the band looks tappable and is
-not. Fails the project's stated 44px floor (`PRODUCT.md` accessibility floor) and also WCAG 2.5.8
-Target Size (Minimum, AA), which requires 24px — the vertical axis is under that too. **Fix when
-prioritized:** give the `<summary>` the height its parent already reserves (`min-h-tap-min`, or
-`flex h-full items-center`) so the whole 48px band toggles it. **Un-defer trigger:** the next
-milestone that touches `step3ReviewSections.tsx` chrome, or any a11y sweep of the wizard.
-
-**~~(b) [P2] Four 28x28 chrome targets.~~ ✅ SHIPPED 2026-08-08.** Seven targets, not four: the
-three step pills, the HelpSheet trigger, its close button (36x36 — found ONLY by the corpus pass),
-HelpTooltip, and the `AdminNav` brand link. Each keeps its OWN painted box and radius; only the hit
-box grows. The proposed `before:-inset-*` idiom is refuted above. Original text below for
-provenance.
-
-**(b) [P2] Four 28x28 chrome targets.** The three step-indicator pills ("Go back to step 1",
-"Go back to step 2", "Step 3, current step") and the page-header help trigger ("Help: Review and
-publish your sheets") are all `size-7` (28x28) with no hit expansion — verified by
-`document.elementFromPoint` at each element's centre returning a box no larger than the element.
-These CLEAR WCAG 2.5.8 (AA, 24px) but fail the project's own 44px floor and WCAG 2.5.5 (AAA).
-**Fix when prioritized:** the `before:absolute before:-inset-*` hit-expansion idiom, which keeps
-the 28px visual pill while giving it a 44px target. **Un-defer trigger:** same as (a), or the
-first report of a mis-tap on the step rail from a phone.
-
-**~~(c) [P2] Heading levels skip h1 → h3; the page renders no `<h2>` at all.~~ ✅ SHIPPED
-2026-08-08.** Both page-level `h3`s in `Step3Review.tsx` are promoted to `h2` (spec §2.3); the
-SHARED `step3ReviewSections.tsx:897` heading is deliberately untouched, because it renders inside
-the review modal and the show-review surface, each below its own dialog heading. Class strings are
-byte-identical, so the tag changed and the type scale did not. Original text below for provenance.
-
-**(c) [P2] Heading levels skip h1 → h3; the page renders no `<h2>` at all.** Probed live: the
-heading sequence is `1,3,3` at every viewport (320/390/768/1280) and `document.querySelectorAll("h2")`
-returns empty. WCAG 1.3.1 (Info and Relationships) — a screen-reader user tabbing the outline hears
-a level that was never opened. **Fix when prioritized:** demote the section headings to `h2` (they
-are the page's top-level sections) or introduce the missing `h2`. **Un-defer trigger:** any
-screen-reader pass on the wizard, or the next change to the Step-3 section headers.
-
-**(d) [P2] Three affordance vocabularies in one row slot; nested card chrome.** Recorded in §12
-of the plan with the reasoning; both are design-consistency findings rather than standards
-violations, and both are pre-existing. **Un-defer trigger:** the next deliberate visual pass on
-the Step-3 row, where they should be resolved together rather than piecemeal.
-
-**Verified NOT findings (recorded so a future gate does not re-raise them):** the three
-`INPUT.peer.sr-only` checkboxes measure 1x1 but sit inside `<label>` wrappers of 44.0x44.0 and
-87.4x44.0 — the effective tap target meets the floor and the pattern is correct. The eight
-`broken-image` hits from `detect.mjs` (7 in `VenueMapTile.tsx`, 1 at `step3ReviewSections.tsx:3641`)
-are false positives: raw `<img>` with a required runtime `src` prop and an `onError` placeholder,
-a documented deliberate revert from `next/image` (which drops cookies), mirroring
-`components/diagrams/Gallery.tsx:130-144`.
 
 ### VOICEOVER-ANNOUNCER-SPOTCHECK — owner action (2026-07-22)
 
@@ -227,22 +232,6 @@ the local rotate path still carries its `role="status"` banner.
 **Un-defer trigger:** a repo-wide forced-colors pass, which should set the pattern
 once rather than have this one surface invent it.
 
-### SHARELINK-CONSTANTS-INVENTORY-1 — impeccable critique P2 (2026-07-25, share-link-chrome-backlog)
-
-**Effort:** M
-
-`DESIGN.md` section 5.5 claims to be the single source of truth for interaction
-constants but omits at least two: `ARM_REVERT_MS` (4000, the destructive-confirm
-auto-revert) and the bare `2_000` clipboard-reset literal at
-`app/admin/show/[slug]/ShareLinkCopyButton.tsx:81`. This milestone corrected the
-section's two FALSE claims (single-file ownership; "never produce a painted px")
-and added its own constant, but did not audit the rest of the codebase for
-unlisted ones.
-
-Un-defer trigger: the next DESIGN.md pass, or any milestone adding a third
-timing constant — at which point the inventory should be swept and pinned by a
-test rather than maintained by hand.
-
 ### ATTENTION-INDEX-JUMP-FOCUS-1 — [P1] pressing an index row drops focus to `<body>`
 
 **Effort:** L
@@ -265,16 +254,6 @@ From the same audit. A needs-you row's accessible name is now `"needs review —
 **Accepted, not fixed.** The spec makes rows deliberately jump-only and moves destination naming onto the card's chip (§2.2/§2.3), so adding a destination phrase back into the row name is an amendment to that ratified division, not a defect against it. It also reads awkwardly against the existing sr-only tone prefix (`"needs review — Go to Sheet unavailable"`).
 
 **Un-defer trigger:** owner review of the row's accessible name, or the first screen-reader pass on the merged panel.
-
-### SHEETLINK-SUBTLE-ACTION-CLASS-1 — [P1] `text-text-subtle` survives on four sibling icon-only action targets
-
-**Effort:** M
-
-From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07-26). The diff fixed the DESIGN.md "never an action target" violation on the three icon-only SHEET links, but the same bug shape lives on at `ModalCloseButton.tsx:20`, `RescanSheetButton.tsx:207`, `BellPanel.tsx:1294` (the `bell-panel-close` icon-only dismiss), and `HelpSheet.tsx:145` — and the close button sits in the SAME modal header, so post-merge the secondary sheet link renders DARKER at rest than the primary dismiss beside it (a deliberate-looking inversion that is actually drift).
-
-**Accepted, not fixed.** The backlog entry this branch closes scoped the icon-only sheet-link class; recolouring four more controls — one of which (ModalCloseButton) feeds the byte-for-byte header baselines and every modal suite — is its own class sweep with its own RED edges, not a rider on this diff. The header-inversion observation is the measured cost of waiting.
-
-**Un-defer trigger:** the next DESIGN.md conformance pass, or any edit to ModalCloseButton.
 
 ---
 

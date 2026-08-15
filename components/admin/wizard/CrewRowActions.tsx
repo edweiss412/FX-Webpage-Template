@@ -15,7 +15,7 @@
  * eligibility (spec §7).
  *
  * Close semantics are backdrop-simple (UserMenu idiom, spec §10.7): while open,
- * a fixed z-20 backdrop covers everything including triggers; any outside
+ * a fixed z-dropdown backdrop covers everything including triggers; any outside
  * click closes only. Esc restores trigger focus; backdrop click does not.
  */
 
@@ -253,7 +253,7 @@ export function CrewRowActions({
           onClick={() => {
             if (!resolving) closeFully(false);
           }}
-          className="fixed inset-0 z-20 cursor-default"
+          className="fixed inset-0 z-dropdown cursor-default"
         />
       )}
 
@@ -285,7 +285,7 @@ export function CrewRowActions({
           aria-label={`Actions for ${name}`}
           data-testid={`crew-row-menu-${crewId}`}
           onKeyDown={onMenuKeyDown}
-          className="route-enter absolute top-[calc(100%+6px)] right-0 z-30 min-w-52 rounded-md border border-border bg-surface-raised p-1.5 shadow-lg"
+          className="route-enter absolute top-[calc(100%+6px)] right-0 z-nav min-w-52 rounded-md border border-border bg-surface-raised p-1.5 shadow-lg"
         >
           <Link
             role="menuitem"
@@ -323,7 +323,7 @@ export function CrewRowActions({
           aria-label="Confirm resetting this crew member's picker selection"
           data-testid={`crew-row-reset-confirm-${crewId}`}
           onKeyDown={onConfirmKeyDown}
-          className="route-enter absolute top-[calc(100%+6px)] right-0 z-30 w-[268px] rounded-md border border-border bg-surface-raised p-3.5 shadow-lg"
+          className="route-enter absolute top-[calc(100%+6px)] right-0 z-nav w-[268px] rounded-md border border-border bg-surface-raised p-3.5 shadow-lg"
         >
           <p className="text-[13px] font-semibold wrap-break-word text-text-strong">
             Reset name picker

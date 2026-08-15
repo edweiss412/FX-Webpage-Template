@@ -632,6 +632,7 @@ import { handleResolveBlocker } from "@/app/api/admin/onboarding/resolve-blocker
 import type { ParseResult } from "@/lib/parser/types";
 import type { PreparedOnboardingFile } from "@/lib/sync/runOnboardingScan";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { readyPrepared } from "@/tests/_shared/preparedProcessOneFile";
 
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
@@ -2264,6 +2265,9 @@ describe("Batch 2 — clean DI-seam admin route POSTs observe success only", () 
             showId: "show-1",
             syncAuditId: null,
             derivedSideEffects: { revokeFloorForNames: [] },
+            // Census class a (spec 2026-08-14 §5): parseWarnings is REQUIRED on the applied variant,
+            // so the post-commit sync_log emit cannot be built from a result that dropped it.
+            parseWarnings: [],
           }),
         }),
       failure: (mark) =>
@@ -2315,6 +2319,10 @@ describe("Batch 2 — clean DI-seam admin route POSTs observe success only", () 
         modifiedTime: "2026-05-08T12:00:00.000Z",
         parents: ["folder-1"],
       }),
+      // Census class d (spec 2026-08-14 §5): `prepared` is a required sixth argument, so without
+      // this stub the route runs REAL preparation (Drive I/O) ahead of the runner double.
+      prepareProcessOneFile: async () => readyPrepared(),
+      logSyncSink: async () => {},
     });
     const request = () =>
       new Request("https://x/retry", {
@@ -3318,6 +3326,9 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
           showId: "show-1",
           syncAuditId: null,
           derivedSideEffects: { revokeFloorForNames: [] },
+          // Census class a (spec 2026-08-14 §5): parseWarnings is REQUIRED on the applied variant,
+          // so the post-commit sync_log emit cannot be built from a result that dropped it.
+          parseWarnings: [],
         }));
         return stagedApplyPost(req(), ctx());
       },

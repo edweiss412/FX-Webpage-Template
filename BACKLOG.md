@@ -4,78 +4,131 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 **This file is the OPEN queue only.** Resolved / shipped / superseded entries live in **[BACKLOG-archive.md](./BACKLOG-archive.md)** with full provenance — grep by id, ids are unchanged. When an item below ships, move its whole entry there rather than annotating it resolved in place; otherwise this queue silently turns into a changelog.
 
-Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated `BL-HARNESS-FONT-FIDELITY`: the face is declared once in `app/fonts.css` over the committed binary and read by BOTH Next roots AND by `compileEntryCss`, so the 32 standalone harnesses render what the product renders instead of the ambient host font. The entry's own count of 31 was right when filed and is 32 as shipped — the browser guard this work added is itself a caller, found by the fail-by-default wiring meta-test rather than by anyone remembering. The spec it asked for was written and its central premise EXPIRED before implementation: drafted against `next/font/google` with seven Google v20 subsets, while `main` had already moved to `next/font/local` over an upstream v4.1 subset, so shipping §3.3 verbatim would have stripped `ss04`/`zero`/`opsz` and reverted `BL-INTER-NUMERAL-DISAMBIGUATION`. User-ratified 2026-08-04 to one face over the existing bytes, with the stale sections marked SUPERSEDED in place because `consistency.mjs` cross-checks the document's own counts. Four claims were overturned by measurement rather than argument and each is corrected where it was wrong: the mutation matrix found the guard never compared the fallback's override VALUES; CI found a Linux/macOS rasterization gap (hinted 132px vs geometric 130.09375px) root-caused in the pinned container rather than papered over with a wider tolerance; the impeccable critique found a rationale written into five surfaces that this branch's own post-step had invalidated; and the audit found the binary had lost its one-year immutable cache on the move out of `.next/static/media/`, now restored by a content-hashed filename plus a `next.config.ts` header. Prior: 2026-08-04 — `fix/apply-undo-audit-fidelity` (PR #697, merge `644f8bb06`) graduated `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP`, `BL-IDENTITYLINK-LANDED-VS-REQUESTED` and `BL-UNDO-SELECTIONS-RESET-AT-DROP`. The notice and feed now derive from rename pairs that actually LANDED, with unlanded ones recorded as a durable `IDENTITY_LINK_RENAME_UNLANDED` event — and that row's own premise was partly wrong: the feed never consumed the requested `identityLinkRenames` at all, it re-derived its own pairs from `triggeredItems` with NO accept gate, a wider defect than the row described. The notice needed a two-arm split rather than a swap, because feeding landed pairs to arm (c) as well would have fired a FALSE capability-loss notice for every pair whose source row survived; arm (c) now suppresses a loss only when the source SURVIVED, which also surfaces a real loss the old suppression hid. The roleFlagsNotice row named ONE discard site and the class sweep found FOUR (finalize-cas, ordinary finalize, `runManualStageForFirstSeen`, and the pending-ingestion retry, which bypasses the locked wrapper's post-commit tail entirely), all repaired through one shared `lib/sync/emitRoleFlagsNotice.ts` and flushed in a `finally` after the outer transaction at three sites — including the STREAMING finalize-cas handler, the one real operator traffic reaches; the structural guard against a fifth is DESCOPED and refiled as `BL-ROLEFLAGSNOTICE-DROP-GUARD`. `selections_reset_at` survives an undo, the real fix being to capture the successor's marker BEFORE the delete — the common rename path takes the clean-INSERT branch, so a merge living only in `ON CONFLICT` would never have run — with `mi11_approve_hold` repaired as a second producer dropping the column at two sites, and two historical shapes left unrescuable as documented limits. The same branch filed `BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE`, `BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT` and `BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND`. Prior: 2026-08-03 — `feat/inter-numeral-disambiguation` graduated `BL-INTER-NUMERAL-DISAMBIGUATION` by changing the FONT rather than the CSS: the row's premise was false. Probed live before drafting — the Inter build Google Fonts serves has the character variants stripped (`calt ccmp dnom frac kern locl mark mkmk numr pnum tnum`, `wght` axis only), so the requested `"zero" 1, "cv05" 1` would have rendered nothing, exactly as the `"cv11" 1` beside it had been rendering nothing since `78662acb5` (2026-05-03). Two defects in the row itself besides: `cv05` never touches capital `I`, and `ss04` is Inter's own disambiguation set covering both letterforms. Shipped a latin + latin-ext SUBSET of the upstream v4.1 release (173 KB, built by `scripts/subset-inter.sh` from a checksum-pinned input, OFL alongside) via `next/font/local` — verbatim at 344 KB was the gate decision until the impeccable audit measured it costing FCP +136-164ms and a fallback-to-Inter swap landing 3.7s in on slow 4G. `ss04` at `html`, `ss04`/`tnum` on the tabular rule, and `zero` on a NARROWER `.code-value` class, because `.tabular-nums` turned out to sit on whole prose sentences including the Right Now hero's 30px bold h2. `ss04` is REPEATED on each rule because `font-feature-settings` inherits as a whole value, not a merged list. Fourteen false claims corrected across `DESIGN.md`, the font-binding spec and plan, and eight source comments, including that plan's own P3 disposition claiming the binding "deterministically activates Inter's alternates … for the first time" (it activated nothing). New guard `tests/styles/fontFeatureAvailability.test.ts` derives the font path from `app/fonts.ts` and fails the build on any tag the loaded binary cannot honor, with a regression proof against the committed Google binary; in the browser `zero` needs a PIXEL oracle because `zero` and `zero.slash` share an xAdvance of 1292, so no width assertion can ever see it. Cross-model spec review round 1 returned BLOCKING with 7 findings, five confirmed by probe and all repaired. Prior: 2026-08-03 — `feat/needs-attention-holds-rollup` graduated `BL-NEEDS-ATTENTION-HOLDS-ROLLUP` (the cross-show open-holds read plus the fourth needs-attention stream across page, inbox, badge, mobile chip, and digest; spec `docs/superpowers/specs/2026-08-03-needs-attention-holds-rollup-design.md`, plan `docs/superpowers/plans/2026-08-03-needs-attention-holds-rollup.md`). Prior: 2026-08-03 — `feat/sync-feed-undo-announce` graduated `BL-SYNC-FEED-UI-POLISH` and all three children. `BL-SYNCFEED-UI-1` shipped, with its own premise corrected: the note's proposed in-button `aria-live` region cannot work, because a successful undo flips the row out of `status='applied'` and unmounts the button before assistive technology reads anything. Six adversarial rounds then refuted every surface-level owner in turn (the group empties, the strip returns null, the dashboard returns a different tree, the feed is swapped for its error rendering), and the vector was settled by an executable spike rather than a seventh prose argument. The channel lives in `AdminAnnounceProvider`, mounted by the admin layout AND by `ReviewModalShell` — a modal needs its own, since content outside an `aria-modal` dialog is excluded from the accessibility tree. `BL-SYNCFEED-UI-3` graduated as already-shipped (fixture corrected at `c3920fe6a`); `BL-SYNCFEED-UI-2` ratified as untriggered with its re-open trigger preserved. The same work fixed a class defect the sweep found: all three feed action buttons rendered their failure card by conditional mount, so failures were silent to AT too. Filed `BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`, and `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`. Prior: 2026-08-03 — `feat/modal-freshness-cue` graduated `BL-MODAL-REALTIME-UPDATED-CUE` as SHIPPED: the published review modal now flashes the panel card of every registry section whose CONTENT changed across a realtime-driven reconcile, plus an sr-only announcement from the same detector, so a swap under the reader is attributable instead of silent. The entry's premise was wrong and is corrected in the archive: the 2026-07-19 realtime spec ratified that the BRIDGE renders `null`, never that the surface it refreshes must stay silent, so this was a new design decision rather than a reversal. The user chose flash-then-fade directly. Two adversarial rounds (the second split in half) returned BLOCKING and were repaired: the projection missed routed warnings, routed use-raw state, section anchors and attention items, and separately OVER-hashed the warnings panel and non-rendered decision fields; the mount baseline lived in a ref that abandoned renders consumed; and an aborted close hides the shell without unmounting the state owner. Prior: 2026-08-03 — `chore/scanner-precision-cluster` graduated `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN` and `BL-LEDGER-GUARD-BODY-DEFINED-IDS`, the two entries whose shared shape is a static scanner opening too small a set of files while a hand-maintained residue covers the gap. Both residues had already rotted: the enum's four-code list held one code that was long since absorbed while ELEVEN real §12.4 codes were dark, and the ledger guard's eight `KNOWN_DANGLING` rows were never debt at all. The scan is now type-aware and fail-closed (58 codes, 0 unresolved, 44 capture-linked skips) after six adversarial rounds established that every syntactic mechanism — root widening, type-stripping, written-return-type matching — is defeated by a spelling; the ledger guard now resolves body-defined sub-item ids under three corpus-measured conditions. One documented limit is fenced rather than overclaimed and filed as `BL-CATALOG-PARTITION-WARNING-CLASS`: provenance through `any` is undecidable, so the real closure is an enumerated catalog, not a better scanner. Prior: 2026-08-03 — `feat/font-binding-modal-freshness-cue` graduated `BL-HEADER-FONT-FALLBACK-WRAP`: the browser check it asked for refuted its own stated doubt (Next 16 registers the literal family name, so the crew import DID bind) and surfaced a wider finding — the product rendered two type families across its trees while `DESIGN.md` §2.1 commits to one, because the loader had never been wired at the root. Shipped as one shared loader instance in `app/fonts.ts` imported by BOTH Next roots (the crash screen replaces the root layout, so it was otherwise left behind), with `--font-sans` binding next/font's metric-matched fallback face so the swap window stops reflowing ~10%. Filed `BL-HARNESS-FONT-FIDELITY` (the 31 standalone harnesses have no Next runtime and keep measuring the ambient host font — zero cost today, needs a spec not a patch) and `BL-INTER-NUMERAL-DISAMBIGUATION` (impeccable P3). Prior: 2026-08-03 — `chore/orphan-components-lead-prose` settled the two entries the copy/dead-code sweep left behind. `BL-LEAD-CAPABILITY-PROSE-STALE` graduated: both prose claims turned out STALE rather than intentional — the `capabilityTransitions` line is a verbatim quote that stopped being verbatim at `e348c81ca`, and MI-9's "admin/ops" clause was inherited from §12.4 copy strings whose every other instance had already been retired or corrected. A third instance the literal sweep could not see (`lib/sync/phase2.ts`, a semantic variant in production source) was corrected with them, and two guards shipped in the same commits: `capabilityHeaderParity` extracts the expected flag set from `scopeTiles.ts` source, and `capabilityClaimProse` scans the MI-9 rows AND every `.ts`/`.tsx` under `app`/`components`/`lib` with a positive-claim recognizer. `BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS` was AMENDED, not archived: four components retired (each with a named superseding commit and live successor; `RightNowCard`'s two regression suites were retargeted onto `RightNowHero` and each proven by mutation before the deletion), and `WrappedTile` stays as a DECIDED retention — deleting it would orphan `TileErrorBoundary` and `TileServerFallback` rather than shrink the ledger, and the orphan guard now asserts its reason says so. Filed `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` (the matrix models five predicates, the code has six) and `BL-BELLPANEL-DISMISS-COMMENT-DRIFT` (six comments name a label the panel stopped rendering). New guard `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what was retired, keyed by LINE CONTENT with reasoned exemptions — three adversarial rounds each found references a hand-curated census had missed, so the census is now a walk. Prior: 2026-08-03 — `docs/close-v1-override-wont-build` graduated `BL-VERSION-AMBIGUOUS-V1-OVERRIDE` as RESOLVED — WON'T BUILD: no admin force-classify override gets built, now or trigger-gated. The row's premise was false as stated. `v1` is a fallback bucket, not a confirmed legacy template (`lib/parser/schema.ts:37`; the registry entry at `lib/parser/schema.ts:53` carries no `requires` array, so nothing positively identifies a v1 sheet), and its "a genuine legacy-v1 sheet has neither resolution" conflated _no markers registered today_ with _no registrable structure_ — a real legacy sheet, once actually seen, is indistinguishable from a genuinely-new template, and the gate spec's §7.1 resolution #2 (developer registers the markers) is not limited to new templates. Probed: all 10 committed fixtures classify confidently (6× v2 at 7/0, 4× v4 at 8/0), zero ambiguous, zero v1. The override would convert a signaled failure into a silent one, inverting the preparedness-audit posture, and it serves none of the four indistinguishable bucket occupants better than their existing disposition. Re-open trigger recorded in the archive entry, conjunctive: a real legacy sheet surfaces AND marker registration proves impossible. **Current state after this and the same-day `docs/graduate-bl-unpublish-to-held` graduation: six of the eight rows the 2026-08-02 segment below enumerates remain open** (`BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, `BL-HEADER-REACT-RECONCILE-HARNESS`, `BL-PG-CRON-HOST-ASSERTION`, `BL-NEEDS-ATTENTION-HOLDS-ROLLUP`, `BL-RESYNC-STAGED-REVIEW-UI`, `BL-STEP3-FULL-CREW-PREVIEW`); that segment's own "Eight open rows here" count is left as written, because it describes the state at the 2026-08-02 reconciliation and demoting it behind `Prior:` is what marks it as history. Prior: 2026-08-03 — `docs/graduate-bl-unpublish-to-held` graduated `BL-UNPUBLISH-TO-HELD` as already-shipped: the 2026-07-01 published toggle (`unpublish_show` RPC in `supabase/migrations/20260701000000_published_toggle_unpublish_show.sql`, driven by `setShowPublishedAction(slug, false)` from the admin show review modal, commit 945bd4ef0) is exactly the published→Held inverse the row asked for — the row's 2026-08-02 "Verified: no such RPC exists" was a false verification, and its premise that the M12.13 token-unpublish archives was stale too (both unpublish paths are pure `published=false`). A 10-point audit of the shipped surface before graduating found no functional gap and one gate-scope finding, filed as `BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED` (the validation-schema-parity gate covers tables×columns only, never functions — no current drift, probed live). Prior: 2026-08-02 — `chore/copy-deadcode-sweep` graduated three copy-and-dead-code entries (`BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT`: the §12.4 helpfulContext no longer claims either capability role unlocks admin access — probed, `is_admin()` never reads `role_flags` — landed as a five-surface lockstep in one commit plus the row's `longExplanation` and the `scopeTiles` header comment it contradicted; `BL-ADMIN-PARSEPANEL-ORPHANED`: the component deleted behind a new zero-production-importer guard that asks the compiler for both module edges and their targets, with the five peers the class sweep found filed as `BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS`; `BL-HELP-STRIP-COPYLINK-STALE`: the per-show help prose now names the Share link button, no screenshot regenerated). Also filed `BL-LEAD-CAPABILITY-PROSE-STALE` for the two remaining prose claims that need a contract read. Prior: 2026-08-02 — `docs/dangling-citation-ledger-filing` took the referential-integrity guard's `KNOWN_DANGLING` debt map from 50 rows to 9, filing 39 real entries and correcting one citation (`BL-FLOW4` came off as a side effect: with its family now defined, the stem suppresses as a family reference). Eight open rows here (`BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, `BL-HEADER-REACT-RECONCILE-HARNESS`, `BL-PG-CRON-HOST-ASSERTION`, `BL-NEEDS-ATTENTION-HOLDS-ROLLUP`, `BL-RESYNC-STAGED-REVIEW-UI`, `BL-STEP3-FULL-CREW-PREVIEW`, `BL-UNPUBLISH-TO-HELD`, `BL-VERSION-AMBIGUOUS-V1-OVERRIDE`) plus `BL-LEDGER-GUARD-BODY-DEFINED-IDS` as the handoff for the eight ids defined in a parent entry's BODY, which stay body-defined by decision. Thirty-one went straight to `BACKLOG-archive.md` at their terminal state: eleven already shipped (the row was deleted at close instead of graduated, twice on a spec's explicit instruction), fifteen were impeccable-gate deferrals whose promised row was never opened and whose deferral has since closed, and five name a branch that was never taken. One citation was corrected instead of filed: `BL-SYNC-FEED-UI-POLISH` pointed at a backlog-id family that exists nowhere in the repo. The 9 rows left are the eight body-defined ids above plus `BL-RESOLVED`, a prose placeholder in an audit doc, both handed to follow-ups. Prior: 2026-08-02 — `test/agenda-fold-seeded-e2e` graduated `BL-AGENDA-FOLD-NO-SEEDED-E2E` (the per-viewer agenda day fold exercised through the REAL crew page: seeded `agenda_links` + two complementary date-restricted viewers, each an email-matched Google session against its own seeded show, plus an unrestricted admin control in `stage-restricted-crew-schedule.spec.ts`, wired into `crew-e2e.yml` under desktop-chromium behind a run-command wiring guard) and `BL-AGENDA-A11Y-WEBKIT-COVERAGE` (grep-scoped `standalone-webkit-a11y` project resolving exactly one test, structurally pinned, plus webkit installs and a regenerated baseline). Prior: 2026-08-02 — docs/citation-rot-financials-vocab graduated BL-DANGLING-CITATIONS-RETIRED-WORKFLOW (15 dangling citations to the seven retired e2e workflows rendered as prose across 10 docs, class-swept per the AGENTS.md bug-shape rule; spec:lint target-class findings now zero tree-wide) and BL-MASTERSPEC-FINANCIALS-VOCAB (14 master-spec financials-entitlement claims reconciled to LEAD ∪ FINANCIALS ∪ admin, line-count-neutral; 4 seed exclusions + 8 window-probe non-claims ratified in docs/superpowers/specs/2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md; specs README line-count note corrected), and filed BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT (§12.4 copy over-grant, deferred to the next §12.4 copy pass). Earlier reconciliations (deduplicated 2026-08-02 — this line had accumulated 40 segments, 26 of them verbatim repeats of merge-concatenated chains): **[BACKLOG-archive.md § Reconciliation log](./BACKLOG-archive.md#reconciliation-log)**.
+Last reconciled: 2026-08-15 — `fix/sync-observability-gaps` graduated `BL-MANUAL-SYNC-UNEMITTED` and `BL-PENDING-RETRY-EXISTING-SHOW-THROWS`: manual sync now records every terminal outcome, and the existing-show pending-ingestion retry executes real sync work instead of throwing `SyncInfraError` before touching anything. Both rows' own prescriptions were partly rejected with reasons recorded in the archive — a per-branch emit is the shape that failed (the single site switches exhaustively, so a new outcome variant is a compile error until the mapping says what it records), and per-route tail injection is the hand-enumerated cover that came up short five times in the parent arc (one default at the shared `applyStaged` chokepoint covers both live routes and every future caller). Three things the rows did not describe were found by sweeping rather than reading: `toResult` fell through to an implicit `null` that turned an unhandled phase-1 variant into a clean pass, four terminal branches of the SHARED pipeline wrote no row at all (three fetch-failure arms plus the pull-sheet-override TOCTOU skip, all of which benefit cron identically), and adding the production sink default made every existing applied-path unit test open a real postgres connection — probed, 14 rows written to the shared local DB, deleted, zero after the injections landed. Emit placement is load-bearing twice: post-commit, because attribution resolves in the sink's subselect and an in-tx emit is permanently NULL-attributed at show birth; and keyed on a TRACKED sink, because a throw after an outcome row already landed must add nothing rather than file a `parse_error` over it. The two live probes are why this shipped correct — the retry defect survived because the shipped tests inject `processOneFile_unlocked` itself, and the env-bound probe was verified to discriminate by re-injecting the defect. Prior: 2026-08-11 — `fix/tap-target-inline-controls` graduated `BL-TAP-TARGET-INLINE-TEXT-CONTROLS`: the per-site prose-vs-chrome judgment the row was filed to obtain, ratified by the user 2026-08-10 as **3 exempt / 5 repaired**. The exempt three are pinned in SOURCE rather than in a browser — an exempt site's contract is "unchanged source", and a rendered box cannot say whether the exemption is still the ratified decision or an accident nobody recorded; the guard pins the comment AND the class string and was proven against four mutants. The repaired five are pinned by real-browser rects on the PRODUCTION routes (red observed first at 16.80 / 19.36 / 17.05 / 16.80px), wired into `lifecycle-layout-e2e.yml` behind an execution oracle that job did not previously have. Two of the row's own site labels were wrong and were corrected from the live tree. Two measurement lessons are recorded in the archive entry because each produced a wrong answer first: `boundingBox()` is viewport-relative and Playwright scrolls between reads, which manufactured a phantom 5.4px overlap, and the container change made to "fix" that phantom was reverted once a mutant showed the suite stayed green without it. The invariant-8 gate's one P1 was refuted by measurement against a stale contrast comment in `app/globals.css`; four follow-ups filed. Prior: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated `BL-HARNESS-FONT-FIDELITY`: the face is declared once in `app/fonts.css` over the committed binary and read by BOTH Next roots AND by `compileEntryCss`, so the 32 standalone harnesses render what the product renders instead of the ambient host font. The entry's own count of 31 was right when filed and is 32 as shipped — the browser guard this work added is itself a caller, found by the fail-by-default wiring meta-test rather than by anyone remembering. The spec it asked for was written and its central premise EXPIRED before implementation: drafted against `next/font/google` with seven Google v20 subsets, while `main` had already moved to `next/font/local` over an upstream v4.1 subset, so shipping §3.3 verbatim would have stripped `ss04`/`zero`/`opsz` and reverted `BL-INTER-NUMERAL-DISAMBIGUATION`. User-ratified 2026-08-04 to one face over the existing bytes, with the stale sections marked SUPERSEDED in place because `consistency.mjs` cross-checks the document's own counts. Four claims were overturned by measurement rather than argument and each is corrected where it was wrong: the mutation matrix found the guard never compared the fallback's override VALUES; CI found a Linux/macOS rasterization gap (hinted 132px vs geometric 130.09375px) root-caused in the pinned container rather than papered over with a wider tolerance; the impeccable critique found a rationale written into five surfaces that this branch's own post-step had invalidated; and the audit found the binary had lost its one-year immutable cache on the move out of `.next/static/media/`, now restored by a content-hashed filename plus a `next.config.ts` header. Prior: 2026-08-04 — `fix/apply-undo-audit-fidelity` (PR #697, merge `644f8bb06`) graduated `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP`, `BL-IDENTITYLINK-LANDED-VS-REQUESTED` and `BL-UNDO-SELECTIONS-RESET-AT-DROP`. The notice and feed now derive from rename pairs that actually LANDED, with unlanded ones recorded as a durable `IDENTITY_LINK_RENAME_UNLANDED` event — and that row's own premise was partly wrong: the feed never consumed the requested `identityLinkRenames` at all, it re-derived its own pairs from `triggeredItems` with NO accept gate, a wider defect than the row described. The notice needed a two-arm split rather than a swap, because feeding landed pairs to arm (c) as well would have fired a FALSE capability-loss notice for every pair whose source row survived; arm (c) now suppresses a loss only when the source SURVIVED, which also surfaces a real loss the old suppression hid. The roleFlagsNotice row named ONE discard site and the class sweep found FOUR (finalize-cas, ordinary finalize, `runManualStageForFirstSeen`, and the pending-ingestion retry, which bypasses the locked wrapper's post-commit tail entirely), all repaired through one shared `lib/sync/emitRoleFlagsNotice.ts` and flushed in a `finally` after the outer transaction at three sites — including the STREAMING finalize-cas handler, the one real operator traffic reaches; the structural guard against a fifth is DESCOPED and refiled as `BL-ROLEFLAGSNOTICE-DROP-GUARD`. `selections_reset_at` survives an undo, the real fix being to capture the successor's marker BEFORE the delete — the common rename path takes the clean-INSERT branch, so a merge living only in `ON CONFLICT` would never have run — with `mi11_approve_hold` repaired as a second producer dropping the column at two sites, and two historical shapes left unrescuable as documented limits. The same branch filed `BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE`, `BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT` and `BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND`. Prior: 2026-08-03 — `feat/inter-numeral-disambiguation` graduated `BL-INTER-NUMERAL-DISAMBIGUATION` by changing the FONT rather than the CSS: the row's premise was false. Probed live before drafting — the Inter build Google Fonts serves has the character variants stripped (`calt ccmp dnom frac kern locl mark mkmk numr pnum tnum`, `wght` axis only), so the requested `"zero" 1, "cv05" 1` would have rendered nothing, exactly as the `"cv11" 1` beside it had been rendering nothing since `78662acb5` (2026-05-03). Two defects in the row itself besides: `cv05` never touches capital `I`, and `ss04` is Inter's own disambiguation set covering both letterforms. Shipped a latin + latin-ext SUBSET of the upstream v4.1 release (173 KB, built by `scripts/subset-inter.sh` from a checksum-pinned input, OFL alongside) via `next/font/local` — verbatim at 344 KB was the gate decision until the impeccable audit measured it costing FCP +136-164ms and a fallback-to-Inter swap landing 3.7s in on slow 4G. `ss04` at `html`, `ss04`/`tnum` on the tabular rule, and `zero` on a NARROWER `.code-value` class, because `.tabular-nums` turned out to sit on whole prose sentences including the Right Now hero's 30px bold h2. `ss04` is REPEATED on each rule because `font-feature-settings` inherits as a whole value, not a merged list. Fourteen false claims corrected across `DESIGN.md`, the font-binding spec and plan, and eight source comments, including that plan's own P3 disposition claiming the binding "deterministically activates Inter's alternates … for the first time" (it activated nothing). New guard `tests/styles/fontFeatureAvailability.test.ts` derives the font path from `app/fonts.ts` and fails the build on any tag the loaded binary cannot honor, with a regression proof against the committed Google binary; in the browser `zero` needs a PIXEL oracle because `zero` and `zero.slash` share an xAdvance of 1292, so no width assertion can ever see it. Cross-model spec review round 1 returned BLOCKING with 7 findings, five confirmed by probe and all repaired. Prior: 2026-08-03 — `feat/needs-attention-holds-rollup` graduated `BL-NEEDS-ATTENTION-HOLDS-ROLLUP` (the cross-show open-holds read plus the fourth needs-attention stream across page, inbox, badge, mobile chip, and digest; spec `docs/superpowers/specs/2026-08-03-needs-attention-holds-rollup-design.md`, plan `docs/superpowers/plans/2026-08-03-needs-attention-holds-rollup.md`). Prior: 2026-08-03 — `feat/sync-feed-undo-announce` graduated `BL-SYNC-FEED-UI-POLISH` and all three children. `BL-SYNCFEED-UI-1` shipped, with its own premise corrected: the note's proposed in-button `aria-live` region cannot work, because a successful undo flips the row out of `status='applied'` and unmounts the button before assistive technology reads anything. Six adversarial rounds then refuted every surface-level owner in turn (the group empties, the strip returns null, the dashboard returns a different tree, the feed is swapped for its error rendering), and the vector was settled by an executable spike rather than a seventh prose argument. The channel lives in `AdminAnnounceProvider`, mounted by the admin layout AND by `ReviewModalShell` — a modal needs its own, since content outside an `aria-modal` dialog is excluded from the accessibility tree. `BL-SYNCFEED-UI-3` graduated as already-shipped (fixture corrected at `c3920fe6a`); `BL-SYNCFEED-UI-2` ratified as untriggered with its re-open trigger preserved. The same work fixed a class defect the sweep found: all three feed action buttons rendered their failure card by conditional mount, so failures were silent to AT too. Filed `BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`, and `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`. Prior: 2026-08-03 — `feat/modal-freshness-cue` graduated `BL-MODAL-REALTIME-UPDATED-CUE` as SHIPPED: the published review modal now flashes the panel card of every registry section whose CONTENT changed across a realtime-driven reconcile, plus an sr-only announcement from the same detector, so a swap under the reader is attributable instead of silent. The entry's premise was wrong and is corrected in the archive: the 2026-07-19 realtime spec ratified that the BRIDGE renders `null`, never that the surface it refreshes must stay silent, so this was a new design decision rather than a reversal. The user chose flash-then-fade directly. Two adversarial rounds (the second split in half) returned BLOCKING and were repaired: the projection missed routed warnings, routed use-raw state, section anchors and attention items, and separately OVER-hashed the warnings panel and non-rendered decision fields; the mount baseline lived in a ref that abandoned renders consumed; and an aborted close hides the shell without unmounting the state owner. Prior: 2026-08-03 — `chore/scanner-precision-cluster` graduated `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN` and `BL-LEDGER-GUARD-BODY-DEFINED-IDS`, the two entries whose shared shape is a static scanner opening too small a set of files while a hand-maintained residue covers the gap. Both residues had already rotted: the enum's four-code list held one code that was long since absorbed while ELEVEN real §12.4 codes were dark, and the ledger guard's eight `KNOWN_DANGLING` rows were never debt at all. The scan is now type-aware and fail-closed (58 codes, 0 unresolved, 44 capture-linked skips) after six adversarial rounds established that every syntactic mechanism — root widening, type-stripping, written-return-type matching — is defeated by a spelling; the ledger guard now resolves body-defined sub-item ids under three corpus-measured conditions. One documented limit is fenced rather than overclaimed and filed as `BL-CATALOG-PARTITION-WARNING-CLASS`: provenance through `any` is undecidable, so the real closure is an enumerated catalog, not a better scanner. Prior: 2026-08-03 — `feat/font-binding-modal-freshness-cue` graduated `BL-HEADER-FONT-FALLBACK-WRAP`: the browser check it asked for refuted its own stated doubt (Next 16 registers the literal family name, so the crew import DID bind) and surfaced a wider finding — the product rendered two type families across its trees while `DESIGN.md` §2.1 commits to one, because the loader had never been wired at the root. Shipped as one shared loader instance in `app/fonts.ts` imported by BOTH Next roots (the crash screen replaces the root layout, so it was otherwise left behind), with `--font-sans` binding next/font's metric-matched fallback face so the swap window stops reflowing ~10%. Filed `BL-HARNESS-FONT-FIDELITY` (the 31 standalone harnesses have no Next runtime and keep measuring the ambient host font — zero cost today, needs a spec not a patch) and `BL-INTER-NUMERAL-DISAMBIGUATION` (impeccable P3). Prior: 2026-08-03 — `chore/orphan-components-lead-prose` settled the two entries the copy/dead-code sweep left behind. `BL-LEAD-CAPABILITY-PROSE-STALE` graduated: both prose claims turned out STALE rather than intentional — the `capabilityTransitions` line is a verbatim quote that stopped being verbatim at `e348c81ca`, and MI-9's "admin/ops" clause was inherited from §12.4 copy strings whose every other instance had already been retired or corrected. A third instance the literal sweep could not see (`lib/sync/phase2.ts`, a semantic variant in production source) was corrected with them, and two guards shipped in the same commits: `capabilityHeaderParity` extracts the expected flag set from `scopeTiles.ts` source, and `capabilityClaimProse` scans the MI-9 rows AND every `.ts`/`.tsx` under `app`/`components`/`lib` with a positive-claim recognizer. `BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS` was AMENDED, not archived: four components retired (each with a named superseding commit and live successor; `RightNowCard`'s two regression suites were retargeted onto `RightNowHero` and each proven by mutation before the deletion), and `WrappedTile` stays as a DECIDED retention — deleting it would orphan `TileErrorBoundary` and `TileServerFallback` rather than shrink the ledger, and the orphan guard now asserts its reason says so. Filed `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` (the matrix models five predicates, the code has six) and `BL-BELLPANEL-DISMISS-COMMENT-DRIFT` (six comments name a label the panel stopped rendering). New guard `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what was retired, keyed by LINE CONTENT with reasoned exemptions — three adversarial rounds each found references a hand-curated census had missed, so the census is now a walk. Prior: 2026-08-03 — `docs/close-v1-override-wont-build` graduated `BL-VERSION-AMBIGUOUS-V1-OVERRIDE` as RESOLVED — WON'T BUILD: no admin force-classify override gets built, now or trigger-gated. The row's premise was false as stated. `v1` is a fallback bucket, not a confirmed legacy template (`lib/parser/schema.ts:37`; the registry entry at `lib/parser/schema.ts:53` carries no `requires` array, so nothing positively identifies a v1 sheet), and its "a genuine legacy-v1 sheet has neither resolution" conflated _no markers registered today_ with _no registrable structure_ — a real legacy sheet, once actually seen, is indistinguishable from a genuinely-new template, and the gate spec's §7.1 resolution #2 (developer registers the markers) is not limited to new templates. Probed: all 10 committed fixtures classify confidently (6× v2 at 7/0, 4× v4 at 8/0), zero ambiguous, zero v1. The override would convert a signaled failure into a silent one, inverting the preparedness-audit posture, and it serves none of the four indistinguishable bucket occupants better than their existing disposition. Re-open trigger recorded in the archive entry, conjunctive: a real legacy sheet surfaces AND marker registration proves impossible. **Current state after this and the same-day `docs/graduate-bl-unpublish-to-held` graduation: six of the eight rows the 2026-08-02 segment below enumerates remain open** (`BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, `BL-HEADER-REACT-RECONCILE-HARNESS`, `BL-PG-CRON-HOST-ASSERTION`, `BL-NEEDS-ATTENTION-HOLDS-ROLLUP`, `BL-RESYNC-STAGED-REVIEW-UI`, `BL-STEP3-FULL-CREW-PREVIEW`); that segment's own "Eight open rows here" count is left as written, because it describes the state at the 2026-08-02 reconciliation and demoting it behind `Prior:` is what marks it as history. Prior: 2026-08-03 — `docs/graduate-bl-unpublish-to-held` graduated `BL-UNPUBLISH-TO-HELD` as already-shipped: the 2026-07-01 published toggle (`unpublish_show` RPC in `supabase/migrations/20260701000000_published_toggle_unpublish_show.sql`, driven by `setShowPublishedAction(slug, false)` from the admin show review modal, commit 945bd4ef0) is exactly the published→Held inverse the row asked for — the row's 2026-08-02 "Verified: no such RPC exists" was a false verification, and its premise that the M12.13 token-unpublish archives was stale too (both unpublish paths are pure `published=false`). A 10-point audit of the shipped surface before graduating found no functional gap and one gate-scope finding, filed as `BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED` (the validation-schema-parity gate covers tables×columns only, never functions — no current drift, probed live). Prior: 2026-08-02 — `chore/copy-deadcode-sweep` graduated three copy-and-dead-code entries (`BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT`: the §12.4 helpfulContext no longer claims either capability role unlocks admin access — probed, `is_admin()` never reads `role_flags` — landed as a five-surface lockstep in one commit plus the row's `longExplanation` and the `scopeTiles` header comment it contradicted; `BL-ADMIN-PARSEPANEL-ORPHANED`: the component deleted behind a new zero-production-importer guard that asks the compiler for both module edges and their targets, with the five peers the class sweep found filed as `BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS`; `BL-HELP-STRIP-COPYLINK-STALE`: the per-show help prose now names the Share link button, no screenshot regenerated). Also filed `BL-LEAD-CAPABILITY-PROSE-STALE` for the two remaining prose claims that need a contract read. Prior: 2026-08-02 — `docs/dangling-citation-ledger-filing` took the referential-integrity guard's `KNOWN_DANGLING` debt map from 50 rows to 9, filing 39 real entries and correcting one citation (`BL-FLOW4` came off as a side effect: with its family now defined, the stem suppresses as a family reference). Eight open rows here (`BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, `BL-HEADER-REACT-RECONCILE-HARNESS`, `BL-PG-CRON-HOST-ASSERTION`, `BL-NEEDS-ATTENTION-HOLDS-ROLLUP`, `BL-RESYNC-STAGED-REVIEW-UI`, `BL-STEP3-FULL-CREW-PREVIEW`, `BL-UNPUBLISH-TO-HELD`, `BL-VERSION-AMBIGUOUS-V1-OVERRIDE`) plus `BL-LEDGER-GUARD-BODY-DEFINED-IDS` as the handoff for the eight ids defined in a parent entry's BODY, which stay body-defined by decision. Thirty-one went straight to `BACKLOG-archive.md` at their terminal state: eleven already shipped (the row was deleted at close instead of graduated, twice on a spec's explicit instruction), fifteen were impeccable-gate deferrals whose promised row was never opened and whose deferral has since closed, and five name a branch that was never taken. One citation was corrected instead of filed: `BL-SYNC-FEED-UI-POLISH` pointed at a backlog-id family that exists nowhere in the repo. The 9 rows left are the eight body-defined ids above plus `BL-RESOLVED`, a prose placeholder in an audit doc, both handed to follow-ups. Prior: 2026-08-02 — `test/agenda-fold-seeded-e2e` graduated `BL-AGENDA-FOLD-NO-SEEDED-E2E` (the per-viewer agenda day fold exercised through the REAL crew page: seeded `agenda_links` + two complementary date-restricted viewers, each an email-matched Google session against its own seeded show, plus an unrestricted admin control in `stage-restricted-crew-schedule.spec.ts`, wired into `crew-e2e.yml` under desktop-chromium behind a run-command wiring guard) and `BL-AGENDA-A11Y-WEBKIT-COVERAGE` (grep-scoped `standalone-webkit-a11y` project resolving exactly one test, structurally pinned, plus webkit installs and a regenerated baseline). Prior: 2026-08-02 — docs/citation-rot-financials-vocab graduated BL-DANGLING-CITATIONS-RETIRED-WORKFLOW (15 dangling citations to the seven retired e2e workflows rendered as prose across 10 docs, class-swept per the AGENTS.md bug-shape rule; spec:lint target-class findings now zero tree-wide) and BL-MASTERSPEC-FINANCIALS-VOCAB (14 master-spec financials-entitlement claims reconciled to LEAD ∪ FINANCIALS ∪ admin, line-count-neutral; 4 seed exclusions + 8 window-probe non-claims ratified in docs/superpowers/specs/2026-08-02-docs-hygiene-citation-rot-financials-vocab-design.md; specs README line-count note corrected), and filed BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT (§12.4 copy over-grant, deferred to the next §12.4 copy pass). Earlier reconciliations (deduplicated 2026-08-02 — this line had accumulated 40 segments, 26 of them verbatim repeats of merge-concatenated chains): **[BACKLOG-archive.md § Reconciliation log](./BACKLOG-archive.md#reconciliation-log)**.
 
 ---
 
-## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects
+## BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES — derive the execution-method set from postgres.js's types instead of hand-typing it
 
-**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M
+**Severity:** MEDIUM (a silent miss admits an unchecked wipe; the failure mode is acceptance, not rejection) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-15 (`chore/guard-completeness-wave`, diff review R6)
 
-`assetRecovery` gates under the show lock, RELEASES it, uploads to deterministic canonical paths,
-then re-takes the lock to commit. Two overlapping runs can both pass the gate. When one commits
-`snapshot_status: complete`, the other's locked read returns `no_op` (or `skipped` on contention) and
-its cleanup removes every path IT uploaded — which are byte-identical canonical paths to the ones the
-winner's committed manifest now references (`lib/sync/assetRecovery.ts`, the `uploadedPaths` cleanup
-in the skipped and drift/no_op branches). The crew page then renders a manifest pointing at objects
-that no longer exist.
+`EXECUTION_METHODS` in `tests/db/_destructiveFileAnalysis.ts` is a hand-typed name list. Rule 1's property-call leg asks whether a method is in that set; a driver method the list omits is simply not an execution site, so a discovered file can run destructive SQL on an unchecked client and the analyzer returns `ok:true`.
 
-Reviewer's interleaving probe: after A commits, the manifest points at
-`.../rev/embedded-obj.png@256.webp`; after B's cleanup, `manifestTargetExists: false`.
+**Probe evidence — this is not hypothetical, it shipped and was caught in review.** The set omitted postgres.js's `.file()` for the entire life of the surface. Diff review R6 probed it and the repair landed in the same wave (`cdac23ae9`, fixture `(ca)`):
 
-**Pre-existing, and widened by PR #761.** The race and the cleanup both predate that PR — it applied
-to ORIGINALS already. What the PR changed is blast radius: variant objects now ride the same
-`uploadedPaths` list, so a firing deletes the variants too. It is filed rather than fixed in-branch
-under class-sweep exception (a): the repair is a product decision the PR cannot settle — never
-deleting leaks orphans that GC only reclaims under a non-retained revision prefix, while deleting
-keeps risking live bytes, and picking between them is a spec question about recovery's concurrency
-model, not a patch.
+```
+discovered true
+verdict {"ok":true}     // await remote.file("./destructive.sql") on an unchecked client
+```
 
-**Cheapest probe to schedule first:** confirm whether two `runAssetRecoveryCron` invocations can
-actually overlap in production (the cron route has no job-level lock that this review found) — that
-sets the severity for real.
+postgres.js's own types declare `file<T>(path, ...): PendingQuery<T>` (`postgres@3.4.9`, `types/index.d.ts:696`) — it reads the path and submits the contents as a query, executing caller-supplied SQL as directly as `unsafe` does.
 
-## BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS — an upload exception leaves objects nothing will reclaim
+**Why the mutation gate cannot backstop this, which is the actual argument for the row.** The surface was at score **1.00 with zero unaccepted survivors** when R6 found the gap. Mutation testing perturbs code that EXISTS and asks whether a test notices; a missing member of a `Set` literal is not a mutation of existing code, and no operator in the registry adds one. The gate was faithfully measuring a program whose relevant line had never been written. A green gate here means "the suite pins what is there", never "the set is complete".
 
-**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** medium · **Class:** STORAGE HYGIENE · **Effort:** M
+**The terminating framing.** Derive the set from the driver's own type surface rather than from memory: every method the installed `postgres` types declare as returning `PendingQuery` / `PendingRequest` / `ListenRequest` is an execution site. Measured against the current pin, that derivation yields exactly the shipped set — `unsafe file begin end reserve savepoint listen notify subscribe cursor` — while `json` / `array` / `types` / `options` return `Parameter` or config and stay out. So the derivation is provably equivalent to the hand list TODAY; its value is that a postgres.js upgrade adding a query-submitting method cannot silently widen the gap, and the diff that adds it becomes visible.
 
-Two instances of one shape:
+**Why M and not S.** The naive form (parse `node_modules` `.d.ts` at test time) coupled a guard to an install tree and is slow and brittle. Candidate shapes to weigh: a generator that writes a committed manifest from the pinned types with a drift test (same pattern as `pnpm gen:schema-manifest` + `validation-schema-parity`); or a narrower guard asserting only that no `PendingQuery`-returning method is absent from the set. The exclusion of `json` / `array` is deliberate and must survive whichever shape wins — they collide with `Response` and `Object` members that real destructive files call on non-clients, and fixture `(cb)` pins that.
 
-- `snapshotAssets` uploads to `_pending/<runUuid>/` and, on any throw, calls
-  `markPendingSnapshotDeleteStarted` through the transaction that is about to roll back. With the
-  ledger insert rolled back, GC cannot discover that prefix, and its object sweep skips `_pending`
-  anyway. The storage port has no removal operation at all.
-- `assetRecovery` tracks uploaded paths but only cleans up on `skipped`, `revision_drift`, and
-  `no_op`; an upload exception goes straight to the `finally` that removes the local temp dir, and
-  the already-uploaded canonical objects stay.
+**Re-open trigger if deferred further:** any postgres.js version bump, or any second omission found by review rather than by a guard.
 
-Reviewer's probe against `snapshotAssets` with a real 800x600 PNG and an injected original-upload
-failure: three objects uploaded, `deleteMarkerCalls: ["rev-1"]`, `storageRemoveCapability: false`.
+## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
 
-**Pre-existing, and widened by PR #761** in the same way as the entry above: originals already
-orphaned this way; variants now orphan alongside them. Filed rather than fixed under exception (c) —
-the repair is a removal capability on the storage port plus a GC reach into `_pending`, which is a
-redesign of two surfaces the PR does not otherwise touch.
+**Severity:** MEDIUM · **Class:** structural guard · **Effort:** L · **Filed:** 2026-08-14 (`chore/guard-completeness-wave`, spec `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §2.5)
 
-## BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES — promotion compares list lengths, not the names the manifest requires
+Discovery in `tests/db/_metaDestructiveDbTargetGuard.test.ts` is spelling-sensitive, and its own header has recorded that as a documented limit since r16: the patterns require the schema-qualified, unquoted `public.<name>(` form, so an unqualified `select prune_sync_log()` or a quoted `select "public"."prune_sync_log"()` is never discovered and NO analysis runs on that file. The 2026-08-14 execution-site redesign closed the acquisition question inside a discovered file; it does not touch which files are discovered.
 
-**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** medium · **Class:** CORRECTNESS · **Effort:** S
+The terminating framing is the same one that closed acquisition: stop asking how the statement is spelled and ask whether the file OPENS A DATABASE CONNECTION, then require the loopback guard of all of them.
 
-`promoteSnapshot` computes how many objects the manifest describes and compares that number to the
-temp listing's length and then to the canonical listing's length. It never checks that each
-`snapshotPath` basename and each variant `key` is actually PRESENT. A missing required object plus an
-unrelated object of equal count passes both checks, gets moved to canonical, and cuts over a manifest
-pointing at bytes that are not there. Duplicate entries produce the same class.
+**Probe (2026-08-14), which is why this is an L and not a follow-up commit:** `rg -l 'from "postgres"|require\("postgres"\)' tests/` — about 150 test files import the driver, and roughly 60 of them never call `assertLocalDbUrl`. Many connect through shared helpers (`tests/db/_b2Helpers.ts`, `tests/sync/_holdAwareTestkit.ts`) rather than directly, and many legitimately target the validation project. Requiring the analyzer of all of them needs per-file dispositions, helper-module modeling, and a validation-target accept-set the loopback-only guard deliberately does not have.
 
-Reviewer's probe: `countCheckPasses: true` with `missingExpected: ["embedded-a.png@256.webp"]`; the
-only integrity conditions in the function are the two length comparisons, and there is no set or
-membership check anywhere.
+**Prereq:** its own spec. Do not attempt this as a widening of the existing guard — that is the recognizer ratchet the analyzer's own history documents.
 
-**Pre-existing.** The count-only check is what the function has always done; PR #761 widened the
-COUNT to include variants but did not change its nature. Filed rather than fixed under exception (c):
-moving from a count to a required-name set is a change to the promotion integrity contract itself —
-it needs a decision about what to do with EXTRA objects (today they are tolerated when counts match)
-and a matching rollback story, which is a spec, not a patch.
+---
+
+## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button is not perceivable as a box at the non-text floor
+
+**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system
+contrast. **Effort:** M — it is a token decision affecting every surface that renders the button, not
+a patch. **Class-sweep exception:** (c). **Reachability: PROBED.**
+
+The shared secondary treatment (`SECONDARY_ACTION_CLASS`, `lib/ui/actionClass.ts`) draws a
+`border-border-strong` outline over a `bg-bg` fill, on cards that are `bg-surface`. Measured with the
+standard WCAG relative-luminance formula against the runtime tokens:
+
+```
+border-strong on surface   1.59:1 light   1.60:1 dark     (3:1 non-text floor)
+bg fill      on surface     1.04:1 light   1.06:1 dark
+label text   on the fill   16.47:1 light  15.23:1 dark
+```
+
+So neither the outline nor the fill is perceivable at the floor: what identifies the control is its
+label, not its box.
+
+**This is NOT a strict AA failure and NOT a regression.** WCAG 1.4.11 does not require the boundary
+to reach 3:1 when the component is identifiable by other means, and the label clears every floor
+with margin. It is also pre-existing: this is the class `RescanSheetButton` has shipped for months,
+promoted verbatim into the constant precisely so its eight other call sites would not move. The
+retired ghost "View" had no border at all, so nothing got worse.
+
+**Why it is still worth a row.** DESIGN.md §1.2a already records the same shape one layer down —
+tokens tuned to sit BESIDE a filled surface do not carry contrast when they must stand on their own.
+The border tokens are tuned as tile edges, and a button outline asks them to do a different job. A
+deliberate decision would either give the secondary button a boundary that reads (a stronger token,
+or a fill with real separation) or state explicitly that the label is the affordance and the box is
+decorative — which is a legitimate answer, just not one anyone has written down.
+
+## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on interactive elements is a 32-site class, not a four-site list
+
+**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, task U4). **Class:** design-system conformance
+(`DESIGN.md` §1.1 documents `--color-text-subtle` as "Labels, captions, 'as of …' timestamps. Never
+used for action targets."). **Effort:** M. **Class-sweep exception:** (c) — it spans 19 files this
+PR does not otherwise touch, and several members are genuine design questions rather than mechanical
+swaps. **Reachability: PROBED.**
+
+**Why this is filed at all: the previous cover was an enumeration, and enumerations of this shape
+keep coming up short.** `SHEETLINK-SUBTLE-ACTION-CLASS-1` named four sites. U4 found a fifth while
+implementing (the HelpSheet `?` trigger's painted span). A SIXTH —
+`components/admin/FinalizeButton.tsx:818`, the finalize-blocker dismiss — surfaced only because the
+z-index sweep happened to touch its line, which is luck, not method. That sixth is repaired in this
+branch with the other five. The rest are filed here **with the derivation instead of a list**, so
+the next pass does not re-enumerate and come up short a third time.
+
+**The probe** (AST over `app/**` + `components/**` `.tsx`, JSX opening elements whose tag is
+`button` / `a` / `summary` and whose STATIC `className` — string, template, conditional branches,
+`cn()`/`clsx()` arguments — contains the bare token `text-text-subtle`):
+
+```
+total: 32 interactive elements
+components/admin/dev/SwitcherControls.tsx:142        <button>
+components/admin/nav/NotifBell.tsx:76                <button>
+components/admin/nav/OnboardingTopBar.tsx:84         <button>
+components/admin/nav/UserMenu.tsx:51                 <button>
+components/admin/settings/AdministratorsSection.tsx:150  <summary>
+components/admin/showpage/sectionWarningExtras.tsx:272    <summary>
+components/admin/telemetry/ActiveFilterChips.tsx:90, :101 <button>
+components/admin/telemetry/AutoRefreshControl.tsx:119     <button>
+components/admin/wizard/Step3ReviewModal.tsx:475          <button>
+components/admin/wizard/step3ReviewSections.tsx:1410, :1419  <a>
+components/admin/wizard/step3ReviewSections.tsx:1595       <summary>
+components/admin/wizard/step3ReviewSections.tsx:2590        <button>
+components/agenda/AgendaPdfViewer.tsx:165                  <button>
+components/crew/AgendaScheduleBlock.tsx:107                <summary>
+components/crew/primitives/KeyTimesStrip.tsx:191           <summary>
+components/layout/ThemeToggle.tsx:81                       <button>
+components/shared/ReportModal.tsx:579                      <button>
+(tail truncated in this listing; the scan is the authority, not this excerpt)
+```
+
+**Worst case is cosmetic, which is why it is a backlog row and not a deferral with a trigger.** The
+control renders and is operable; it renders quieter at rest than DESIGN.md intends, which reads as
+de-emphasis where none was meant. Nothing is unreachable and no state is carried by colour alone.
+
+**Fix when prioritized — and the fix is a guard, not 32 edits.** Land the scan above as a structural
+meta-test with a reasons-required registry (the `zIndexExemptions.ts` shape), so every new
+interactive element is covered by default and the remaining debt is declared and countable rather
+than rediscovered. Some members need a decision first, not a swap: a dismissable filter chip and a
+`<summary>` disclosure are arguably caption-like, and DESIGN.md should say so explicitly in the same
+pass rather than being read as absolute and then quietly excepted.
 
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
@@ -136,76 +189,6 @@ the change itself.
 **Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
 carry these two sites with it, since the marginal cost then collapses to the edit itself.
 
-## BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE — the lightbox pins the original with nothing to watch while it loads
-
-**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** medium · **Class:** UX · **Effort:** S
-
-The active lightbox slide sets `pinOriginal: true` (`components/diagrams/GalleryLightbox.tsx`), so
-opening a diagram downloads the full-resolution original — deliberately, because zoom needs it
-(spec `docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §6). On ballroom wifi
-that is seconds during which the only signal is a 16px blur, at the peak-stakes moment: a crew member
-tapped a stage plot mid-show and cannot tell whether anything is happening.
-
-**Reachability:** INFERRED, NOT PROBED. The probe that would settle it: throttle to a venue-grade
-profile, open a representative stage-plot original, and measure time-to-sharp against the blur.
-
-Two candidate shapes, neither settled: gate `pinOriginal` on zoom intent (the clamped 1024 tier paints
-fast, the original arrives on pinch, and the browser keeps the old bitmap during a src swap so the
-upgrade is a silent sharpen), or keep the pin and add a progress affordance. The first changes a
-ratified spec decision and needs a spec amendment, which is why it did not land in-branch.
-
-## BL-DIAGRAM-BLUR-EDGE-SIZE — the 16px blur carries no structure for line art and is brightest where it hurts
-
-**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** UX · **Effort:** S
-
-`BLUR_MAX_EDGE = 16` (`lib/sync/diagramVariants.ts`) is the spec's bound (§3). A 16px downsample of a
-white stage plot with thin black lines averages to a near-uniform light field: it delivers the full
-brightness hit while carrying almost no content signal. At thumbnail scale the upscale is ~3x and it
-reads as a placeholder; on a full-viewport lightbox slide it is ~25x, and against the `bg-bg/95` scrim
-in dark mode a dark-adapted viewer reads it as a flash.
-
-**Reachability:** INFERRED, NOT PROBED. The probe: render a real stage-plot blur at both scales in
-both themes and compare against an emitting-nothing skeleton.
-
-Candidate: raise the bound to 32 (32x32 q40 still lands far under the 2048-char belt) and/or drop the
-placeholder on the lightbox tiers only. Both change spec §3, so neither landed in-branch.
-
-## BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE — a failed thumbnail drops focus and says nothing
-
-**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** A11Y · **Effort:** S
-
-When a thumbnail's runtime load fails, the gallery cell swaps from `<button>` to a non-interactive
-`<div>` (`components/diagrams/Gallery.tsx`). If that thumbnail held focus, focus falls to `<body>`.
-The lightbox already handles the identical transition deliberately — it relocates focus to its close
-button before the unmount cascade — so the pattern exists and is simply not applied here. Separately,
-the swap is silent to assistive tech: the replacement carries `sr-only` text discoverable only by
-re-browsing, not a live-region announcement.
-
-Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image migration that surfaced
-them; they are filed rather than fixed in that branch because the repair is a focus-management and
-announcement decision on a surface the branch does not otherwise change.
-
-## BL-GLYPHS-OUTSIDE-INTER-SUBSET — ~150 UI glyph sites render in a fallback face, not Inter
-
-**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, the non-degraded invariant-8 re-run of the step3-a11y cluster). **Class:** visual consistency (`DESIGN.md` §2.1 commits to ONE type family). **Effort:** M — the fix is a decision plus either a wider subset or a glyph-to-icon migration, not a patch. **Class-sweep exception:** (c) — it spans surfaces no single PR touches. **Reachability: PROBED.**
-
-`app/fonts.css:28` loads `public/fonts/InterVariable-latin.fada467b.woff2`, a latin + latin-ext subset carrying **1004 codepoints**. Any character outside it falls back to a system face, so the glyph renders in a different family from the text beside it — which is what the one-family commitment says should not happen.
-
-**Probe** — fontTools over the shipped binary, then a scan of every tracked `.tsx`/`.ts` under `app/` and `components/`, comment-only lines excluded:
-
-```
-codepoints in shipped subset: 1004
-U+2192 →   84 sites     U+2265 ≥   21     U+2197 ↗   11     U+2713 ✓    6
-U+25B8 ▸    4           U+2194 ↔    4     U+2264 ≤    4     U+21D2 ⇒    2
-24 distinct glyphs, ~150 sites total (also ⚠ ⟷ ≠ ⌄ ⌃ ← ℹ 🔗 ⌘ 🔒 ✕ ≈ ☎ ✉ ⊘)
-```
-
-**Why it is filed rather than fixed, and why nothing was reverted.** It is overwhelmingly PRE-EXISTING: `→` at 84 sites and `↗` at 11 have shipped for months. The step3-a11y cluster added exactly two members — `components/admin/OnboardingWizard.tsx:644` and `components/admin/settings/AdministratorsSection.tsx:142`, the disclosure carets that replaced the native `<summary>` marker `inline-flex` removes. Reverting those would restore a real regression the cross-model review caught (two disclosures losing their open/closed cue) in exchange for a cosmetic inconsistency shared with ~148 other sites. The pattern they copy, `app/me/meShowSections.tsx:130`, predates the branch.
-
-**Worst case is cosmetic and already on screen:** the glyph renders, in a system face, at a slightly different weight and metric. Nothing is unreadable, and every one of these is decorative and `aria-hidden`, so assistive technology is unaffected. That is why this is a backlog row rather than a deferral with a trigger.
-
-**First scheduled step is the decision, not the edit:** either widen the subset to cover the arrows and math symbols actually in use (cheap in bytes, but `scripts/subset-inter.sh` and its checksum-pinned input make it deliberate), or migrate the recurring ones to the lucide icons the codebase already ships. Counting first is what makes that call possible; the counts above are the input.
-
 ## BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT — enrol the tap-target-floor spec in the source-mutation registry
 
 **Status:** WATCH · **Filed:** 2026-08-09 (`fix/step3-a11y-cluster`, diff-review round economy). **Class:** review-round economy (a convergence criterion that is machine-computed rather than argued). **Effort:** M-L (resized from S 2026-08-09 by the probe below — the cost is a harness mode, not a registry row). **Un-defer trigger:** the source-mutation harness gains a Playwright/component-mutant mode (or an equivalent runner exists). **Reachability: PROBED.**
@@ -234,13 +217,45 @@ The **nineteen** isolating mutants, as an operator list ready to enrol — every
 
 Extend `spec:lint`'s declared-task-contract arm (`pnpm spec:lint`, `scripts/spec-lint.ts`; task-region grammar per `docs/agents/spec-self-review.md`). For an enrolled plan, validating the same-command red-then-green cycle: (a) an execution mode that RUNS each `red=` the plan asserts is red NOW (its failing case exists at plan time) and reports a new code (e.g. `RED_ALREADY_GREEN`) when it exits 0 — opt-in per invocation, since a `red=` may be expensive; a `red=` whose failing case the task itself writes (a new test file OR a new case in an existing suite) is the ordinary invariant-1 shape, exempt from execution but not from validation: the arm instead checks the task names a production line verifiable as absent or defective on the live tree; (b) static cycle-breaker shapes needing no execution: a guard test green at authoring, a command whose target the GREEN step deletes or renames (the SAME command never passes), an `&&` conjunct behind an expected failure, and a task body with no one-line "what is red and why" statement; (c) an advisory listing declared gate commands that carry no "probed against a constructed failing input" annotation. The rule half binds immediately via the promoted writing-plans bullet; this row is the mechanical enforcement. Design and thresholds belong to the implementing arc, not this row.
 
-## BL-TAP-TARGET-INLINE-TEXT-CONTROLS — eight inline text controls sit under the 44px floor pending a per-site prose-vs-chrome call
+## BL-TESTFAST-RACES-TRANSIENT-MUTANT-FILE — a probe writes a temp test file into the tree while the other project is globbing
 
-**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §9.1). **Class:** accessibility (tap-target floor). **Effort:** S-M (the judgment, then a mechanical repair for whatever it classifies as chrome). **Class-sweep exception:** (a) — needs a product decision the filing branch cannot settle. **Reachability:** PROBED — every site and its computed height is in the spec's §2.6 corpus baseline (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** test-harness race (local false failure). **Effort:** S. **Class-sweep exception:** (c) — a harness surface the filing PR does not otherwise touch. **Reachability:** PROBED — observed, with the writer named and the victims cleared standalone.
 
-The `fix/step3-a11y-cluster` corpus pass (AST walk, 340 in-scope interactive elements) found 16 literal-className elements genuinely under the 44px floor. Eight were repaired on that branch (chrome: disclosures, icon buttons, pills, the brand link). These are the other eight — all inline text links or text buttons sitting inside sentences: "Refresh" in a banner (`app/admin/settings/admins/RevokeRowButton.tsx:283`), "Change" (`components/admin/RoleRecognizeControl.tsx:268`), "Start fresh" (`components/shared/ReportModal.tsx:526`), a "show more" toggle (`components/admin/wizard/step3ReviewSections.tsx:2585`), a sheet-title deep link (`components/admin/wizard/Step3SheetCard.tsx:149`), `tel:` and `mailto:` links (`components/admin/wizard/step3ReviewSections.tsx:1405`, `components/admin/wizard/step3ReviewSections.tsx:1414`), and a dev-page debug button (`app/admin/dev/page.tsx:334`).
+`tests/cross-cutting/pgCronCiVacuity.test.ts:159` writes a real file into the repo — `tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts` — runs it as a mutant, and removes it. `scripts/test-fast.mjs` runs the SERIAL and PARALLEL projects concurrently (that concurrency is the whole point of `test:fast`), so the other project's file glob can pick the transient up mid-run and execute it outside its harness.
 
-`PRODUCT.md:59` grants an explicit WCAG 2.5.5 exception to "links rendered inline within prose body text". Whether each of these eight is inline prose (exempt) or chrome (repair) is a per-site product judgment, not a mechanical class edit — several sit in sentence flow where a 44px box would visibly break the line. **First scheduled step:** make that call per site, then repair whatever it classifies as chrome using the recipes the spec ships.
+Observed once, in a full `pnpm test:fast`:
+
+```
+FAIL tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts > INERT MECHANISM PROBE
+Error: live case "INERT MECHANISM PROBE" issued NO database query — it is not a live case.
+FAIL tests/cross-cutting/pg-cron-coverage.test.ts
+```
+
+The failure is maximally confusing: the named file **does not exist** by the time anyone looks, and `pg-cron-coverage.test.ts` passes 8/8 standalone immediately afterwards. Nothing in the output says "this was a temp file".
+
+**Not a CI problem** — CI runs the projects in separate jobs, so the glob never overlaps. It costs local runs only, which is why it can persist.
+
+**First scheduled step:** write the mutant outside the globbed tree (a temp dir passed to vitest) rather than into `tests/`, or give it an extension the projects' `include` patterns do not match. Either removes the race outright; excluding the basename by name would leave the next such probe exposed.
+
+## BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS — the psql startup-file guard parses local `.next-*` build output and blows its own stack
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** guard usability (local-only false failure). **Effort:** XS. **Class-sweep exception:** (c) — a guard surface the filing PR does not otherwise touch. **Reachability:** PROBED, with a bisect that named the cause.
+
+`tests/cross-cutting/psqlStartupFiles/scan.ts:315`'s `IGNORED_AT_ROOT` skips `.next`, but this repo's own Playwright config builds into `.next-dev`, `.next-prod`, `.next-prod-flip` and `.next-screenshots-help` (`playwright.config.ts` webServer entries). Those are not skipped, so the walk hands megabytes of generated bundle JS to the TypeScript AST scan and it dies:
+
+```
+RangeError: Maximum call stack size exceeded
+ ❯ visit tests/cross-cutting/psqlStartupFiles/scan.ts:535:9
+ ❯ forEachChildInBinaryExpression typescript.js:32647:12
+```
+
+**19 of the guard's 745 cases fail** — including its own structural cases ("the walk is not vacuous", "the walk read every directory"), which is the confusing part: the failures read like a real psql violation and name no file.
+
+**Probed by bisect, all four steps:** the same commit passes 745/745 in a freshly-created worktree that has never built; it fails in a worktree that has; clearing `test-results/` and `.next/` does NOT fix it; moving the four `.next-*` directories aside DOES (745/745). So the trigger is the directory set, not the diff and not the environment more broadly.
+
+**CI is unaffected** — a fresh checkout has no `.next-*` — which is exactly why this can sit here indefinitely and cost each developer the same half-hour bisect.
+
+**First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
 
 ## BL-TAP-TARGET-STRUCTURAL-GUARD — repo-wide tap-target guard blocked on the non-literal-className policy
 
@@ -249,6 +264,47 @@ The `fix/step3-a11y-cluster` corpus pass (AST walk, 340 in-scope interactive ele
 The mandated pre-draft detector pass ran a TypeScript-AST walk over every `.tsx` under `app/**` and `components/**`: **340** in-scope interactive elements, **139** the recogniser cannot clear, of which **94 carry a non-literal `className`** (template literal, ternary, named constant, `.join()`, or no `className` prop at all with the floor living in a child component's base string). A guard honouring the consequence bound — every element checked or reported by name, never silently passed — must report all 94 as UNCLASSIFIED, so it cannot go green until they are dispositioned. Shipping it weakened (passing constructs it cannot read) would have missed `components/admin/HelpSheet.tsx:139`, a real 36px defect the corpus pass caught.
 
 **First scheduled step is the policy decision, not the recogniser:** resolve named class constants, require literal classNames on interactive elements, or accept a standing UNCLASSIFIED census. The recogniser cannot be finished before that call. Until then, the filing branch's defence is its real-browser assertions pinning the thirteen repaired sites (regression coverage, not discovery coverage — spec §4 documents the limit).
+
+## BL-TAP-TITLE-LINK-META-LINE-BLEED — the sheet-title link's 44px hit box covers ~8px of the meta line beneath it
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** accessibility / mis-tap. **Effort:** S. **Class-sweep exception:** (b) — a ratified scope decision fences it. **Reachability:** PROBED — the geometry is arithmetic on the shipped class strings, and the arc's own e2e suite measures the 44.8px box in a real browser (`tests/e2e/tap-target-inline-controls.layout.spec.ts`).
+
+`SheetTitleLink`'s repaired class string (`components/admin/wizard/Step3SheetCard.tsx:167`) carries `-my-2.5 py-2.5`: the padding lifts the target to 44.8px and the negative margin cancels the growth in flow, so the row does not get taller. The consequence is that 10px of live hit box hangs below the text, and the meta line under it only clears 2px of that with its own `mt-0.5` — leaving the top ~8px of a 21.7px non-interactive text line inside a target that opens Google Sheets in a NEW TAB. Which element wins a tap varies with x-position. The same shape exists at `Step3SheetCard.tsx:452` (`mt-1`, so 6px) over "We couldn't read the details of this sheet".
+
+**Why it was not repaired on the filing branch:** spec `docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md` §2 ratifies this recipe verbatim — "**Exactly** `inline-block -my-2.5 py-2.5 -mx-2 px-2` … (R1 F2: one recipe, no delegated choice)" — and the spec's neighbour-overlap contract is scoped to _interactive_ neighbours, which this diff satisfies and pins. Changing the bleed is a spec amendment, not an implementation call.
+
+**First scheduled step:** decide whether the overlap contract should cover non-interactive text at all (a mis-tap over prose is indistinguishable, to the user, from a mis-tap over a control). If yes, the candidate is a one-directional bleed — `-mt-5 pt-5 pb-0` — which keeps the whole 44.8px box inside the card's own 20px `--spacing-tile-pad` and off the meta line entirely.
+
+## BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR — contact cells grew ~54px and drag their grid row-mates to match
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** visual regression (layout). **Effort:** S. **Class-sweep exception:** (c) — a container redesign the filing PR does not otherwise touch. **Reachability:** PROBED — arithmetic on the shipped strings; the tap-floor heights are measured in a real browser by the arc's e2e suite.
+
+Lifting the `tel:` and `mailto:` links to the 44px floor (`components/admin/wizard/step3ReviewSections.tsx:1412`, `:1424`) takes the Driver cell from roughly 106px to roughly 160px. The cells sit in `grid grid-cols-2 gap-2 min-[560px]:grid-cols-3` (`:1461`) whose items stretch by default, so at ≥560px the Vehicle and Parking cells stretch to 160px around ~34px of content — a large `bg-surface-sunken` panel that reads as broken rather than spacious. Each contact cell also costs ~54px more scroll on a phone, which is where this surface is read.
+
+**First scheduled step:** pick one of — `items-start` on the grid so short cells stay short, or a shared `min-h` across every `TransportCell` so the row is uniform by intent rather than by accident.
+
+## BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING — two 44px contact targets sit 6px apart, and the taller boxes invert the grouping
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2 + P3). **Class:** accessibility / mis-tap + visual grouping. **Effort:** S. **Class-sweep exception:** (a) — needs a design decision the filing branch cannot settle. **Reachability:** PROBED — the arc's e2e suite asserts the two rects are disjoint and measures both at 44px; the 6px separation is the cell's `gap-1.5`.
+
+Two consequences of the floor repair at `components/admin/wizard/step3ReviewSections.tsx:1412`/`:1424`, neither a correctness defect:
+
+1. **Separation did not grow with the targets.** The `tel:` and `mailto:` links are now 44px tall and 6px apart in a `flex-col gap-1.5` cell. Bigger targets make the intended one easier to hit AND the wrong one easier to hit; here the wrong one dials the driver mid-show.
+2. **Grouping inverted.** With `items-center` in a 44px box, a 17px label leaves ~13.5px dead above and below, so the visual gap name→phone (~19.5px) is now smaller than phone→email (~33px). The two contact _methods_ became the furthest-apart things in the cell.
+
+Folded in from the same gate (P3): sites 4/6/7 rely on `hover:` treatments for their only affordance, which `PRODUCT.md:59`'s venue-floor constraint bans as a sole affordance — 44px of air that looks exactly like static text is a bigger _invisible_ target. Pre-existing (the repair enlarged the boxes, it removed no rest state), but it is the same cell and should be settled with it.
+
+**First scheduled step:** decide the resting presentation for a contact row — a container (`w-full justify-center rounded-sm bg-surface px-2`) so 44px reads as a row rather than a void — then set the gap from that decision rather than leaving `gap-1.5`.
+
+## BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT — globals.css states a contrast figure that has been wrong since 2026-07-16
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P3). **Class:** doc-rot with a measured cost. **Effort:** XS. **Reachability:** PROBED — the comment and the token are both in `app/globals.css`; the ratio was recomputed from the live values during the gate.
+
+`app/globals.css:1206-1209` tells the reader, in the repo's own voice, that "`--color-accent-on-bg` is 4.11:1 on `--color-bg` … below the 4.5:1 normal-text floor (see `BL-ACCENT-ON-BG-AA-CONTRAST`)". That was true of `#c25e00`. `BL-ACCENT-ON-BG-AA-CONTRAST` shipped 2026-07-16 (`BACKLOG-archive.md:4983`) and moved the light token to `#a65000`, which measures **5.34:1** — the comment survived the fix that invalidated it.
+
+**The cost is measured, not hypothetical:** in the impeccable critique of `fix/tap-target-inline-controls`, an assessment agent read this comment and raised a P1 against a token swap that in fact improves compliance, which then had to be refuted by recomputing both modes by hand. A stale figure in a load-bearing comment is a finding generator.
+
+**First scheduled step:** correct the two figures in place (light 5.34:1; the tinted Callout/aside fills need re-measuring too, since their ≈3.6-3.9:1 claim has the same provenance) and re-point the `BL-` reference at the archive. The prose conclusion — that the prose-link layer uses text colour + underline rather than the accent — is a ratified decision and stays.
 
 ## BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE — the mi11 genuine-removal fallback retains a frozen snapshot over a live row
 
@@ -272,18 +328,6 @@ So "retain the live row" is not obviously right at `:337`: the fallback runs whe
 
 **Promotion prerequisite:** the ruling above. If it lands as "defect", the fix mirrors arc C's: thread the live row and prefer it, with no-match falling back to today's behaviour.
 
-## BL-PG-CRON-HOST-ASSERTION — the pg-cron suite asserts route paths only, never the host it dispatches to
-
-**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:295` files it by name, and §10.4 scopes it out, with no row anywhere). **Class:** CI guard completeness. **Effort:** M (needs a sound oracle first).
-
-The host embedded in `cron.job.command` is environment-supplied and varies by target: `http://host.docker.internal:3000` on a developer stack, `https://fxav-screenshots-ci.invalid` in CI (`scripts/ci/supabase-local-bootstrap.sh:38`), a real host on validation. The suite therefore keys every assertion on the route PATH, which is host-agnostic, and never checks the host at all.
-
-**Why it is still open, and why it should not be closed cheaply:** two review rounds could not produce a sound comparison. Keying off the target flag proves nothing about the database actually connected to, and comparing against the in-session GUC still admits a scheme mismatch, a trailing slash, and base paths. A host check that passes `http://` against an `https://` GUC would be worse than none, because it would read as coverage. Any attempt here needs an oracle that survives all four of those, demonstrated against a live mismatch, before the assertion lands.
-
-**Status:** OPEN.
-
----
-
 ## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
@@ -295,39 +339,6 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 **Status:** OPEN.
 
 ---
-
-## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom
-
-**Effort:** M
-
-Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02),
-with live probes against the shipped guard. PRE-EXISTING: the cluster tightened the
-`fit-within-clip` import assertion and added rows, but did not introduce either gap.
-
-`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` compares a set
-of detected FILES against the registry's file rows, and `looksLikeAnchoredScroller`
-matches Tailwind class idiom in the source text. Two consequences:
-
-1. **Per-file, not per-overlay.** A second, undispositioned overlay added to an
-   already-registered file leaves the detected file set unchanged, so the guard stays
-   green. Reviewer probe: appending an `UndispositionedSecondOverlay` with
-   `className="absolute top-full overflow-y-auto"` to `ShareHub.tsx` gave
-   `SUMMARY 15/15 passed; undispositioned overlay appended in already-registered file=true`.
-   The same escape exists in all seven registered files.
-2. **Tailwind-only recognition.** An overlay written with inline styles
-   (`style={{ position: "absolute", top: "100%", overflowY: "auto" }}`) is genuinely an
-   anchored scroller but is not detected at all. Reviewer probe:
-   `CLASSIFIER inline-style mutant => false` and `SUMMARY 15/15 shipped guard cases passed`.
-
-So a new unsafe overlay can ship undispositioned despite the guard's stated
-fail-by-default contract. Fix shape: key the registry by OVERLAY (a stable per-element
-marker such as a testid or a declared symbol) rather than by file, and widen the
-classifier to computed/inline positioning as well as the class idiom — or state the
-limit explicitly in the registry header so the contract stops over-promising.
-
-Not fixed in the cluster that surfaced it: closing it means re-keying an existing
-registry and re-dispositioning seven files, which is its own change with its own
-review surface.
 
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
@@ -374,25 +385,6 @@ gh api -X POST repos/edweiss412/FX-Webpage-Template/branches/main/protection/req
 
 Run it, confirm with `gh api repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks --jq '.contexts'`,
 then archive this entry. Nothing else is owed.
-
-## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
-
-**Status:** PARTIALLY CLOSED 2026-07-26, PR3 of the CI-dark coverage cluster · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** M
-**l-wave-screen 2026-08-06:** KEEP at honest residual scope — the wired-in-CI half closed 2026-07-26/27 and only the per-job smoke residue remains, so it is resized L->M in this same commit.
-
-**What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
-
-**What stays open:** the per-job smoke-test residue (spec §9). The target-binding ceiling this entry used to inherit closed 2026-07-27: the connected cluster's `system_identifier` is now pinned and re-proven by a DO guard on every query's own connection (`feat/driveid-guard-cluster`, `docs/superpowers/specs/data-quality/2026-07-26-driveid-guard-cluster-design.md` §3.1) — a DSN substring check proves nothing, and no longer has to.
-
-**Original text (SUPERSEDED 2026-07-26 — the exclusion and the "nothing runs it" finding are both fixed; see the status note above):**
-
-`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It was excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there said it "runs against the validation project (like validation-schema-parity)". **Nothing ran it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
-
-So every assertion in it is dead in CI, including the `active=true` gate that exists specifically because a disabled job would otherwise satisfy the name/schedule/command checks.
-
-**Fix:** give it a job in `x-audits.yml` with `PG_CRON_COVERAGE_TARGET=validation` and `TEST_DATABASE_URL` pointing at the validation project, alongside `validation-schema-parity` which already has that shape. Then correct the stale comment in `unit-suite.yml`.
-
-**Wiring it up is necessary but not sufficient** (whole-diff R18). Every assertion this suite makes about `cron.job.command` is text matching: PostgreSQL resolves the OUTER `cron.schedule` call but stores the command body verbatim, comments included. A job whose `net.http_get(...)` is commented out, followed by an executable `select 1;`, satisfies the route check, the `net.http_get(` check and the exactly-one-timeout check while issuing no request — and `active=true` does not help, because the job runs, it just does nothing. Proving a job actually fires needs a smoke test per job; only the sync path has one today. Track that with this entry rather than by adding more text assertions.
 
 ## BL-SERVER-ACTION-ORIGIN-GATE — same-origin gate for the crew guest Server Action
 
@@ -447,21 +439,6 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 **Heading caveat:** only the first two items (`BL-SCAN-SSE-BODY-NULL-CODE`, `BL-PICKER-TAMPER-ADMIN-ALERT`) actually came out of that batch. The rest accreted under this heading afterwards from unrelated 2026-07-04+ work (agenda visibility, quiet-link a11y, alert-link e2e, health-resolve lockdown, Step-3 impeccable) and are grouped here by filing date, not by subject. Read each item on its own; the heading is not a topic.
 
 **Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
-
-### BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES — two deliberate-authoring bypasses of the crew-e2e wiring guard
-
-**Severity:** LOW (both require deliberately writing a gate that looks like a declaration but is not; accidental cases are caught loudly) · **Class:** guard coverage · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 4, owner-ratified as a documented limit) · **Effort:** M
-
-**Both probed, with the mutants recorded so a future round starts from evidence:**
-
-1. `expectRegistryRowsAreLive` accepts any `test.skip(...)` as live without proving its condition can exclude the registered projects. `test.skip(false, "…")` binds a row while gating nothing.
-2. One `PROJECT_GATED` row relaxes the identifier ban for the entire FILE, and the body scans deliberately skip nested callbacks — so a gate inside a `test.step` in another test of the same file is unscanned.
-
-**Why it is a limit, not an open bug.** The guard's threat model is ordinary authoring mistakes by a contributor adding or gating a test; both bypasses require deliberately constructing a fake declaration. Four review rounds each produced a narrower bypass with no product-code change, which is the recognizer ratchet the round-economy rule names: "no bypass exists" ranges over an open class and does not terminate. Owner ratified shipping with the limit documented in the guard's own header.
-
-**Promotion trigger:** a real contributor hits one of these by accident, or the guard is extended to a surface where a fake declaration is plausible.
-
----
 
 ### BL-IDENTITY-CLEAR-FAILURE-IS-SILENT — a failed "switch person" reports success
 
@@ -553,29 +530,19 @@ viewer reports seeing the whole show expanded when they expected their day marke
 
 alert-audience-split (spec §6.7) makes health-alert resolution developer-gated at every PRODUCT surface (the dev-gated `resolveHealthAlertFormAction` plus HEALTH_CODES rejects on the three legacy user-facing resolve surfaces: `resolveAdminAlertFormAction`, `app/api/admin/admin-alerts/[id]/resolve`, `app/api/admin/show/[slug]/alerts/[id]/resolve`). This is app-surface defense-in-depth + UI coherence, NOT a DB-enforced trust boundary: `admin_alerts` still GRANTs UPDATE to `authenticated` and its RLS policy allows any `public.is_admin()` caller to update rows (`supabase/migrations/20260501002000_rls_policies.sql`), so a non-developer admin could in principle `PATCH admin_alerts.resolved_at` directly through PostgREST, bypassing the app layer. We ACCEPT this (Doug is the trusted business owner, not an adversary; role filtering is UX not security). **Fix (when prioritized):** revoke direct `admin_alerts` UPDATE from `authenticated`/`anon` and route ALL resolution — doug alerts included — through `SECURITY DEFINER` RPCs with an `is_developer()` check for health codes. Materially larger, whole-resolve-path change; deferred as a cross-reference of the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` admin_alerts-class DML lockdown item.
 
-### BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells
+### BL-HELP-REFANCHOR-A11Y-PASS — the `/help/errors` copy-link needs one whole-surface a11y pass, not 200+ per-entry patches
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** OPEN (2026-08-09, filed from the invariant-8 dual gate on `feat/mutation-merged-cell`; the first two findings surfaced on `feat/mutation-ref-sub` and were recorded in the wave closeout §12 without a ledger row) · **Severity:** low · **Class:** A11Y / HELP SURFACE · **Effort:** S
 
-Deleting one interior pipe — which is exactly how a merged cell exports to markdown — fuses two adjacent cells with no signal. Cell-fusion class: two columns become one value, and every downstream column index shifts within that row.
+`RefAnchor` (`app/help/_components/RefAnchor.tsx`) renders the copy-link beside every catalog entry on `/help/errors`. It is ONE shared component rendered ~217 times, so each finding below is a single repair, applied once:
 
-**Ledgered blast radius: 2404 holes** (2271 `wrong` / 133 `signal_loss`), the second-largest class — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["merged-cell"] = "BL-MUTATION-MERGED-CELL"` (`tests/parser/mutation/knownHoles.ts:87`), pinned by `knownHoles.test.ts`.
+1. **All copy-links share one accessible name.** A screen-reader user tabbing the page hears the same label 217 times, with nothing saying which code each one copies. Fix: an `aria-label` composed from the entry's code.
+2. **The copy has no perceivable confirmation.** `writeText` succeeds silently; sighted users get the visual state change, screen-reader users get nothing. The repo already ships the pattern this wants (`role="status" aria-live="polite"`, e.g. `components/admin/FinalizeButton.tsx:549`).
+3. **217 tab stops precede the footer CTA.** Keyboard-only users traverse every copy-link to reach the report link.
 
-**Shape (M):** the discriminator is a row whose cell count is short by one against its section's established width, which needs corpus calibration — genuinely ragged rows are normal sheet authoring, so the heuristic must separate "merged cell" from "author left a trailing cell blank". Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
+**Why deferred rather than swept in-branch** (AGENTS.md class-sweep disposition, exception (c)): the repair is a redesign of a shared component this branch does not otherwise touch, and item 3 is not a local edit at all but a question about whether the copy-links belong in the tab order. Two consecutive branches have now incremented the count without being the right place to answer it. **This entry is the named owner: a later branch adding a help-family row cites it instead of re-deriving the findings.**
 
-**Ratchet contract:** SHRINK-ONLY, as above — `staleRows` on hardening, `newAlarms` on regression. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
-
-### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
-
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
-
-A spurious leading empty column shifts every cell in a section's row grid one position right, and the parse absorbs it — the East Coast column-shifted outlier, i.e. a shape observed in a LIVE show, not a synthetic one. Layout-shift class: every field in the section reads its neighbour's value, which is the most damaging silent outcome in this set because each individual value still looks well-formed.
-
-**Ledgered blast radius: 211 holes** (193 `wrong` / 18 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["column-shift"] = "BL-MUTATION-COLUMN-SHIFT"` (`tests/parser/mutation/knownHoles.ts:84`), pinned by `knownHoles.test.ts`.
-
-**Shape (M):** the discriminator is a section whose header-to-column alignment breaks while cell count holds, calibrated against the corpus so a legitimately indented section does not warn. Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
-
-**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+**Reachability:** PROBED. `pnpm exec vitest run tests/help` (642 tests, green) asserts none of the three, so the suite passing is not evidence against them. Findings 1 and 3 were measured on branch 2 (closeout §12); finding 2 by reading `RefAnchor.tsx:65-72` against the project's own `aria-live` pattern.
 
 ### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
 
@@ -610,22 +577,6 @@ Each is a value the system is confident about and wrong about, with no signal pr
 **Promotion prerequisite:** its own design session. The first question that session must settle is whether provenance is stored (a schema-carried per-field record) or derived (recomputed at read time from the parse), because that choice determines whether re-sync must preserve it — and the use-raw overlay (#388) is the worked precedent for a decision layer that survives a full-replace re-sync.
 
 **Source:** `docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md` §7 item 5, §10.5 (P0-2 row), §11 item 4.
-
-### BL-LEDGER-GIT-TIMEOUT-CONSTANTS — the git adapter's three spawn timeouts are unassertable through its own surface
-
-**Status:** OPEN (2026-08-04, `chore/guard-premise-reachability`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** M
-
-`FETCH_MS`, `LS_REMOTE_MS` (both 30 000 ms) and `GH_MS` (10 000 ms) at `scripts/lib/ledger-git.ts:32-34` are handed straight to `spawnSync`'s `timeout` option. Three source mutants of them — `30_000 -> 30_001` twice and `10_000 -> 10_001` — survive `tests/scripts/ledgerClaimsCheck.test.ts` and cannot be killed through the adapter's public surface. The only behaviour that separates a mutant from clean is whether a child running for between 30 000 and 30 001 ms is killed, so an assertion means either waiting the bound out — a 30 s test per constant, on a suite that runs on every merge — or reaching into the spawn.
-
-**Fourth family member (2026-08-09, from `BL-MUTATION-LEDGERGIT-SITE-DRIFT`):** `MAX_GIT_STDOUT` (64 MiB, `scripts/lib/ledger-git.ts:62`, added by `229563b76`) is handed straight to `spawnSync`'s `maxBuffer` the same way, so its three integer-literal mutants (`62:24:64>65`, `62:29:1024>1025`, `62:36:1024>1025`) are unassertable through the surface for the same reason — separating the cap from one mutant step past it means a child emitting that much stdout on a merge-gating suite. Ledgered `accepted-gap` against this entry; the injectable spawn seam described below closes all four constants at once.
-
-Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts`: a timeout a test could reach WOULD be observable, so an equivalence claim would overclaim. They therefore count as survivors and depress that surface's mutation score rather than being excluded from it.
-
-**Closing this** means giving the adapter an injectable spawn seam — a module-level `run = spawnSync` a test can replace, or an options object carrying the three bounds — and asserting the value each reader passes. That is a redesign of the one module in this repo permitted to spawn, and it widens the surface the "nothing outside this may spawn" structural guard has to police.
-
-**Deferred from `chore/guard-premise-reachability` under class-sweep exception (c) — the repair redesigns a surface this PR does not otherwise touch.** The sweep is complete: all three constants were found and dispositioned together, so this entry covers every instance of the class rather than one peer of several. The gap was named once before, in `5f1a98a66`'s commit message, and until now had no ledger row.
-
----
 
 ### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
 
@@ -677,11 +628,11 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 25 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 23 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
-**The `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts` are e2e specs named by no CI workflow** — that allowlist is the population, and the count is whatever it holds (the table below records the measured figures; it was 43, then 32 after PR #743, and 25 after this batch). No number is restated in this sentence, because a narrative copy of a machine-held count is exactly what went stale here. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
+**The `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts` are e2e specs named by no CI workflow** — that allowlist is the population, and the count is whatever it holds (the table below records the measured figures; it was 43, then 32 after PR #743, 25 after that batch, 24 after M-wave 2 W-E2E, and 23 once help-pages joined). No number is restated in this sentence, because a narrative copy of a machine-held count is exactly what went stale here. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
 
 **Census, RESTATED 2026-08-09 by counting the allowlist rather than by arithmetic** (the "~60" this
 entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated;
@@ -699,8 +650,12 @@ the 2026-08-06 counts are kept alongside so the delta is auditable):
 The 11-row drop in `UNSEEN` and the 9-row drop in the total are `BL-RESURRECT-MOBILE-SAFARI-E2E`
 (archived 2026-08-09): NINE rows removed with their deleted spec files, and TWO reclassified
 `UNSEEN` → `PATH_GATED_BY_EXCLUSION` as `crew-e2e.yml` grew crew-page and theme-toggle.
-`right-now-transitions` stays `UNSEEN` — its whole-file valve fired, so it is named by no workflow
-and is statically skipped (`BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). Only the NINE deletions move the
+`right-now-transitions` stayed `UNSEEN` at that count — its whole-file valve had fired
+(`BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). **RESTATED 2026-08-10 (M-wave 2 W-E2E):** that verdict was
+overturned by probe (the inertness was `getShowForViewer`'s per-show `unstable_cache` tag, not the
+anchor source); the spec is un-skipped, wired desktop-chromium in `crew-e2e.yml`, and reclassified
+`UNSEEN` → `PATH_GATED_BY_EXCLUSION` — `UNSEEN` 25 → **24**, `PATH_GATED_BY_EXCLUSION` 8 → **9**,
+total unchanged at 50. Only the NINE deletions move the
 TOTAL (66 → 57); the two reclassifications move a row between buckets and cannot change it. A first
 draft of this table said 54 by counting only rows whose value is a bare constant, which silently
 dropped the three custom-reason rows — recorded because an uncounted bucket is exactly how the
@@ -722,7 +677,7 @@ Path-gated rows are NOT this entry's scope: a workflow does name them, and "not 
 
 Five of the nine specced members were RED when first run — the spec had verified them by full-file read, and a read is not a run. Four were repaired in-branch as test-only staleness (a Next 16 streamed `redirect()` answering 200 where two specs asserted a 3xx first hop; a `/show/<slug>` href predating the M11.5 picker pivot; a Phase-2 dev-link guard whose telemetry exemption matched the raw href and so failed on its own sanctioned link once that link grew a `#health` fragment). Recorded here because the same read-not-run gap will otherwise be repeated by batch 2: **derive a batch's membership from a real run, not from reading the files.**
 
-**Ninth member deferred, not wired — `help-pages.spec.ts`.** It stays `UNSEEN` with its allowlist row intact. Its blocker is an APP defect, not a wiring gap: `/help/tour` throws a React hydration mismatch (13 page errors) under `pnpm dev` and the production build alike. The fix lands in `app/help/tour/page.mdx`, a UI surface under invariant 8, so repairing it drags the impeccable dual gate into what is otherwise a CI-wiring arc — its own arc, filed as `BL-HELP-TOUR-HYDRATION-MISMATCH`. The spec's route-coverage guard WAS repaired in that PR (it now derives from the `_nav.ts` export and covers `/help/admin/settings`), so promoting it later costs one allowlist-row deletion.
+**Ninth member deferred at batch 1, wired since — `help-pages.spec.ts`, census 24 → 23.** It was held back with its `UNSEEN` allowlist row intact because its blocker was an APP defect, not a wiring gap: `/help/tour` threw a React hydration mismatch (13 page errors) under `pnpm dev` and the production build alike. The fix landed in `app/help/tour/page.mdx`, a UI surface under invariant 8, so repairing it dragged the impeccable dual gate into what is otherwise a CI-wiring arc — it got its own arc, `BL-HELP-TOUR-HYDRATION-MISMATCH` (graduated to `BACKLOG-archive.md`, `fix/help-tour-hydration`), where the mismatch turned out to be nested markdown paragraphs emitted by three prettier-reformatted link cards. That arc then spent the promotion this paragraph had banked: the allowlist row is deleted, the spec is named by `app-e2e.yml`'s run step, and it carries a `"help-pages.spec.ts": 15` row in the executed-count oracle. The route-coverage guard was already repaired at batch 1 (it derives from the `_nav.ts` export and covers `/help/admin/settings`), which is why the promotion cost exactly the one allowlist-row deletion this paragraph predicted.
 
 **A second member was dropped mid-acceptance under AC-4 — `admin-changes-feed-layout.spec.ts`.** It stays `UNSEEN` with its allowlist row restored. Unlike help-pages this one is a genuine FLAKE, and it was caught by exactly the bar that exists to catch it: it passed the first two `pull_request` runs of the five-green loop and then failed two of the next three, on a DIFFERENT width band each time (`@720`, then `@1280`, both mobile-safari), with `published-show-review-modal` never appearing inside a 30s wait after `/admin?show=<slug>`. It passes standalone (6/6 locally, repeatedly) and fails only inside the batch, which points at a cross-spec interaction rather than a slow render. Filed as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`. Recorded because the local signal was misleading in BOTH directions here: the same spec's local reds were correctly attributed to a shared-database collision with a concurrent agent session, and that correct diagnosis then masked a real CI-reproducible flake underneath. **Only CI settles a flake question — AC-4 exists so an admitted flake never rides in.**
 
@@ -760,28 +715,6 @@ The failing WIDTH BAND differs between runs, and locally the same spec failed at
 **First thing to check:** whether the show's state (published / archived, or the presence of the feed rows the modal renders from) is disturbed by a spec that runs earlier in the batch, and whether the modal's mount condition depends on it. A per-test re-seed, or resolving a show of its own rather than sharing the Waldorf fixture, are the obvious candidate repairs — but confirm the mechanism before choosing.
 
 **Not a product bug as far as anything shows** — no user-facing report, and the surface passes every other run. The cost is coverage: the spec stays `UNSEEN` until it is stable enough to clear five consecutive green runs.
-
-## BL-HELP-TOUR-HYDRATION-MISMATCH — /help/tour throws a React hydration mismatch on every visit
-
-**Status:** OPEN · **Severity:** MEDIUM (a real user-visible page re-renders client-side after a failed hydration) · **Class:** app defect (UI surface) · **Effort:** S · **Filed:** 2026-08-09
-
-`/help/tour` emits a React hydration mismatch — "the server rendered HTML didn't match the client" — plus twelve further page errors, on every admin visit. Probed 2026-08-09 under BOTH server postures this repo runs, so it is not a dev-only artifact:
-
-```
-BASELINE_SERVER_ONLY=1 pnpm exec playwright test tests/e2e/help-pages.spec.ts --project=mobile-safari
-  ✘ /help/tour → 200, H1 "Tour", sidebar mounted, no console errors
-    Error: /help/tour: page errors observed
-    - Array []
-    + Array [ "Hydration failed because the server rendered HTML didn't match the client…" ] (13 entries)
-```
-
-Same failure against `pnpm build && pnpm start`. Every other one of the fourteen `/help/*` routes passes the identical assertions, so the defect is local to this page, not to the help layout.
-
-**Likely cause, not yet confirmed:** `app/help/tour/page.mdx` interleaves raw JSX blocks with markdown — several `<a>` elements begin at column 0 inside a `<div>` block, which MDX can wrap in a `<p>`, and a block element inside a paragraph is invalid nesting, one of the named causes in React's own mismatch message. Confirm before fixing.
-
-**Why it is filed rather than repaired in the arc that found it.** `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` batch 1 (PR #753) is a CI-wiring arc carrying `impeccable-gate: N/A — no UI surface`. The fix lands under `app/`, which is a UI surface under AGENTS.md invariant 8 and therefore owes the impeccable critique + audit dual gate — a different arc with a different gate, which is exception (c) of the class-sweep disposition rule (the repair is a change to a surface the PR does not otherwise touch). That arc dropped `help-pages.spec.ts` from its batch under AC-4 rather than wire a permanently-red job.
-
-**Closing this unblocks a one-line follow-up:** delete the `help-pages.spec.ts` row from `LOCAL_ONLY_ALLOWLIST` and add the spec to `.github/workflows/app-e2e.yml`'s run step. Its route-coverage guard is already repaired (derives from `app/help/_nav.ts`, covers all fourteen NAV routes including `/help/admin/settings`), so no other work is owed.
 
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
@@ -826,26 +759,31 @@ restructures the effect body. Micro-optimisation otherwise.
 
 ---
 
-## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking is raw Tailwind numerics, not named bands
+## BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS — the psql startup-file scan walks `.next-*` build outputs and blows the stack
 
-**Effort:** M
+**Status:** OPEN · **Severity:** MEDIUM (a whole guard suite is red locally for a reason unrelated to any change; the failure names a TypeScript internal, not the cause) · **Class:** guard robustness · **Effort:** S · **Filed:** 2026-08-11
 
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+**Probed 2026-08-11 on `fix/help-tour-hydration`**, where the suite failed 19/745 with `RangeError: Maximum call stack size exceeded` inside `tests/cross-cutting/psqlStartupFiles/scan.ts:535`, on a tree whose only source changes were one MDX page and CI wiring. Bisecting by reverting each changed file to `origin/main` left it red; the cause was never in the diff.
 
-The admin overlay cluster stacks by bare numeric utility: `z-20` (attention panel and hub
-backdrop), `z-30` (elevated hub trigger), `z-40` (PublishedToggle refusal banner). The bands
-and their ordering are explained only in code comments, so the relationships they encode —
-"the elevated trigger must outrank the backdrop", "the refusal banner outranks everything in
-the strip" — are invisible at each use site and are re-derived by hand every time an overlay
-is added.
+`IGNORED_AT_ROOT` (`tests/cross-cutting/psqlStartupFiles/scan.ts:315`) lists `.next` but not the sibling output directories this repo's own tooling writes: `playwright.config.ts` and the screenshot/flip scripts build into **`.next-dev`, `.next-prod`, `.next-prod-flip`, and `.next-screenshots-help`**. Those are walked. An AST-depth probe over the walk's own directory rules found 6516 files, of which twelve are ~12 MB webpack chunks the walk skips only by luck of the parse, and several bundled files reach an AST depth of 4342 — the recursive `visit` at `:535` overflows long before the guard reaches a psql call site.
 
-`app/globals.css` defines no `--z-*` tokens. The impeccable general rules ask for a semantic
-scale (dropdown, sticky, modal-backdrop, modal, toast, tooltip) so the intent is readable and
-a new surface picks a band rather than a number.
+Moving the four directories outside the repo and re-running takes the same suite to **745 passed** with no other change. Same command, same tree.
 
-**Trigger:** the next overlay added to this cluster, or the first stacking bug caused by two
-surfaces picking the same numeric. A tree-wide sweep is the natural companion to filing tokens,
-since the value of the scale is that every site uses it.
+**Why it matters more than a local annoyance.** The failure mode is silent misattribution: the stack trace names `typescript.js` and the scan's own line 535, so the reader's first hypothesis is their own diff. That cost a bisect on this arc. Worse, the walk is the guard's completeness claim — a walk that dies partway through has not certified the tree, and 19 red tests are the only thing standing between that and a false green if the overflow were ever caught and swallowed.
+
+**Why it is filed rather than repaired in the arc that found it — exception (c).** The repair is on a guard surface this PR does not otherwise touch, and this particular guard's review history (its own test names run to "R40 escaping mutants") is precisely about enumerated recognizers not terminating. Adding four literals to an enumerated ignore list is the shape that invites the next round to ask for a derived one. It deserves its own arc, where the derivation question can be answered properly.
+
+**The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
+
+## BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a failing drift run can never refresh the cache that made it fail
+
+**Status:** OPEN — filed 2026-08-14 from a live main-branch incident · **Severity:** MEDIUM · **Class:** CI-INFRA · **Effort:** S
+
+`screenshots-drift.yml` restores `.next-screenshots-help/cache` via `actions/cache` with a `restore-keys` prefix fallback, and `actions/cache` saves only in the post step of a SUCCESSFUL job. Those two facts compose into a trap: once every saved `Linux-nextcache-screenshots-*` cache predates a UI-changing merge, the nightly drift job restores a stale Next build cache, renders the OLD chrome, diffs against the CURRENT committed baselines, fails — and by failing, skips the cache save that would have replaced the stale cache. The failure self-perpetuates until a human deletes the caches.
+
+**Probe evidence (two-run, 2026-08-14).** Main-branch drift runs 31693276503 and 31748971797 failed on the same 6 `public/help/screenshots/crew-preview-*.webp` files (md5-verified as the only drifting set) while (a) the committed baselines were current — regenerated at `a5e1ee44d` AFTER the #779 UI change — and (b) the sanctioned `screenshots-regen.yml` on the same sha, same pinned image (`mcr.microsoft.com/playwright:v1.59.1-jammy`), same `pnpm screenshot:help` command committed NOTHING ("No baseline changes to commit") — the regen workflow has no cache step, so a fresh build reproduced the committed bytes exactly. All 12 saved caches predated #779. Deleting all 12 via `gh cache delete` and re-dispatching flipped the outcome: run 31749355724 SUCCESS with zero source change. Same sha, same image, same command; the only variable was the restored cache.
+
+**Repair directions (any one closes the class):** key the cache on a hash of the inputs that feed the build (so a stale restore is impossible, not merely unlucky); or split restore/save into explicit `actions/cache/restore` + `actions/cache/save` with `if: always()` so a failing run still refreshes its cache; or drop the `restore-keys` prefix fallback so a miss builds cold instead of restoring a wrong-generation cache. Whichever lands should note in the workflow why, citing this entry.
 
 ---
 
@@ -880,22 +818,6 @@ self-review, adversarial review, planning, adversarial review.
 A middle option exists (guard, but emit a `log.error` with a durable code so the gap is itself observable) and is probably right — but it needs a §12.4 code and therefore its own scoped change.
 
 **Related, same emit path (fold into whichever fix lands):** each emit opens and closes a dedicated postgres connection while the per-show advisory lock is held, lengthening lock hold on every manual sync. Cheap to fix by reusing the transaction's connection for the sink, but that changes the sink's isolation semantics — the row would then roll back with a failed sync rather than recording the failure, which is a behavior decision, not a refactor.
-
-### BL-DESTRUCTIVE-GUARD-EXECUTION-SITE — the destructive-target guard checks connections, when it should check execution sites
-
-**Status:** OPEN · **Severity:** MEDIUM (a guard that raises the cost of a mistake without proving absence) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-10
-
-**Probe evidence.** `tests/db/_destructiveFileAnalysis.ts` verifies that every `postgres(...)` call it can SEE connects to a guarded loopback URL. Whole-diff review of PR #767 found five distinct ways to obtain a driver the analyzer cannot see — `import()`, `require()`, `import { default as … }`, `import * as … `, `createRequire`, and `process.getBuiltinModule("node:module").createRequire` — each demonstrated returning `{"ok":true}` on a file that pruned `TEST_DATABASE_URL`. Every one is now rejected, and round 11 of that review claimed the set was closed at four; round 12 disproved it. **The acquisition enumeration does not terminate**, so the current module raises the cost of writing an unchecked connection by accident without proving none exists.
-
-**The sound framing, which does terminate.** Check the EXECUTION SITE rather than the connections: every destructive statement must run on a client bound to a connection the analyzer already checked. Acquisition then stops mattering — a client obtained by any route simply is not in the checked set.
-
-**Why it was not done in that PR (disposition reason (c) — a redesign of a surface the PR does not otherwise touch).** It was attempted and reverted. Real destructive files build clients through local factories: `tests/db/resetValidationDataConcurrency.test.ts:64` uses `const b = newConn()`. Propagating "checked" through a local factory needs interprocedural analysis, without which the invariant rejects correct code. That is a proper piece of work, not a follow-on tweak, and the PR it surfaced in was about sync-log attribution.
-
-**A SECOND open limit, same root cause (added 2026-08-10 after whole-diff r16).** Discovery is spelling-sensitive: the patterns require the schema-qualified, unquoted `public.<name>(` form, so `select prune_sync_log()` and `select "public"."prune_sync_log"()` are not discovered and no safety analysis runs on such a file. Nine other spellings were closed in that PR by keying on the function name instead of a statement shape, but quoting and qualification remain. Chasing SQL spellings has the same non-termination as the aliasing enumerations, so it is recorded rather than pursued.
-
-The terminating framing is the same one below, applied one layer up: **discover files by the fact that they OPEN A DATABASE CONNECTION**, and require the guard of all of them. That removes SQL spelling from the question entirely — a file cannot execute destructive SQL without a connection. It is a cross-cutting change over every DB test in the repo, which is why it is filed rather than done in a sync-log attribution PR.
-
-**Acceptance.** Every current fixture in `tests/db/destructiveFileAnalysis.test.ts` still rejects, all real destructive files still pass, AND a file acquiring a driver by a route not in the current rejection list is rejected because its client is not in the checked set. If that lands, the acquisition rules (dynamic import, require, createRequire, getBuiltinModule, non-default import form) can all be DELETED — the redesign should make the module smaller, not larger.
 
 ### BL-SPEC-LINT-CITATION-INTENT — spec:lint checks that a citation resolves, never that it resolves to the right file
 
@@ -935,41 +857,6 @@ A working draft exists in the shipping session's scratchpad; the design above is
 
 **Interim coverage:** `fix/sync-log-show-id-duration` ships `tests/sync/syncLogRepairSites.test.ts`, an enumerated pin over the fifteen sites it repairs. Delete it when this guard lands.
 
-### BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches
-
-**Status:** OPEN · **Severity:** HIGH (Doug's deliberate actions are invisible to `observe synclog`) · **Class:** sync observability · **Effort:** M · **Filed:** 2026-08-09
-
-**Probe (cross-model review R8 F1, `fix/sync-log-show-id-duration`).** Installing a `logSync` sink is NOT sufficient for a manual attempt to be recorded. `runManualStageForFirstSeen` returns before its sole emission at `lib/sync/runManualStageForFirstSeen.ts:147` on four branches — `stage` (`:81-83`), `hard_fail` (`:84-85`), `pass` (`:87`), `defer` (`:185-186`) — plus phase-2 `stale` (`:133-135`). A probe supplying `logSync` and exercising the first four reported `logSyncCalls: 0` for every one. Thrown phase-1/phase-2 failures escape through unguarded awaits at `:117` and `:205`. Separately, `runManualSyncForShow` awaits `runOne` with no catch (`lib/sync/runManualSyncForShow.ts:431`); a probe with `processDeps.logSync` installed and `runOne` throwing produced `{"thrown":"probe-prepare-failure","logSyncCalls":0}`.
-
-**Why the arc that found it did not fix it.** `fix/sync-log-show-id-duration` makes every sync writer attribute its show and wires a sink into all eight entry points that lacked one. That is necessary and, for the cron and Drive-webhook paths, sufficient. It is NOT sufficient for manual sync, because these branches never reach an emission at all. Repairing them means adding emission at each early return and deciding what a thrown attempt should record — a change to what the pipeline reports, not to how a row is attributed. Scope decision taken by the user 2026-08-09: ship attribution, file this.
-
-**Third surface, same defect (cross-model R10 F1):** the staged-apply path. `lib/sync/applyStaged.ts:1468-1498` invokes `emitSuccessfulPhase2Tail` with only `upsertAdminAlert` injected (`:1485-1493`) — no sink, no start, no clock — and neither of its two LIVE-CAPABLE callers supplies tail dependencies (`app/api/admin/staged/[fileId]/apply/route.ts:152` omits the argument; `app/api/admin/show/staged/[stagedId]/apply/route.ts:164` passes `{}`). The wizard caller at `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts:153` is NOT affected — it fixes `sourceScope: "wizard"`, which stages approval and manifest metadata only and never reaches `emitSuccessfulPhase2Tail`; the show apply happens later at finalize (`lib/sync/applyStaged.ts:2047-2066`). `rg -n "firstPublishedTailDeps" app lib` finds only the declaration, defaulting, and use inside `applyStaged.ts` — no production injection anywhere. A first-seen apply therefore records no attempt row.
-
-**Scope of a real fix:** emit at each early-return branch of `runManualStageForFirstSeen`; inject a sink and start into `applyStaged`'s tail from both live apply routes; wrap `runOne` in `runManualSyncForShow` so a throw records an `error` outcome. Verify with a live manual sync per branch — the existing tests inject `logSync` at the helper level and so never exercise the early returns.
-
-**Related:** `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` §6.2 fences this and scopes AC-1/AC-6 to the paths that do emit. Sibling defect on the same surface: `BL-PENDING-RETRY-EXISTING-SHOW-THROWS`.
-
-### BL-PENDING-RETRY-EXISTING-SHOW-THROWS — existing-show pending-ingestion retry throws before any sync work
-
-**Status:** OPEN · **Severity:** HIGH (a shipped admin action appears to work and cannot) · **Class:** sync pipeline · **Effort:** M · **Filed:** 2026-08-09
-
-**Probe.** `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` calls `runManualSyncForShow_unlocked(tx, driveFileId, "manual", metadata, {})`. That function invokes `processOneFile_unlocked` with **five** arguments (`lib/sync/runManualSyncForShow.ts:287-294`) — it never passes the sixth `prepared` parameter. `processOneFile_unlocked` throws unconditionally when `prepared` is absent (`lib/sync/runScheduledCronSync.ts:3299-3304`):
-
-```
-if (!prepared) {
-  throw new SyncInfraError("processOneFile_unlocked", "thrown_error",
-    new Error("prepared process data is required before acquiring the show lock"));
-}
-```
-
-So for any non-archived show, the existing-show retry path throws `SyncInfraError` before doing any sync work. Only the archived-skip early return at `:3296` avoids it.
-
-**Why this is not fixed by the arc that found it.** Surfaced by cross-model review R7 (F2/F3) during `fix/sync-log-show-id-duration`. That change makes every sync writer attribute its show, and it wires a `logSync` sink into this site along with seven others — but the throw precedes emission, so the sink is inert here. Repairing it means deciding what `prepared` data this route should construct before taking the lock, which is a design question about the retry flow rather than about logging. Class-sweep disposition exception (a): needs a design decision the current PR cannot settle.
-
-**Scope of a real fix:** decide whether the route should call `prepareProcessOneFile` itself, or use the locked `runManualSyncForShow` entry point instead of the `_unlocked` variant. Then verify with a live retry against an existing show — the current tests inject `processOneFile_unlocked`, which is why this never surfaced.
-
-**Related:** the same path is the third duration-capture boundary noted in `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` §6.1; duration there is moot until the path executes.
-
 ### BL-PICKER-LOCK-ICON-LUCIDIFY — replace U+1F512 emoji with lucide-react Lock in PickerInterstitial
 
 **Filed:** 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 1 — picker chain audit P2).
@@ -1005,22 +892,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED, stays open, NOT claimed by any bra
 **Reachability:** INFERRED, NOT PROBED — the probe that settles it: Playwright `setViewportSize({ width: 320 })` against the post-pick crew header, asserting the bounding boxes of `components/layout/Header.tsx:68` (the `min-w-0 flex-1` title column) and `:118` (`data-testid="page-header-right-slot"`, `shrink-0 self-start`) do not overlap, using the longest name+role string the corpus actually contains. Run that BEFORE any layout change.
 
 screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claimed. Two independent reasons to leave it: the entry's own words are hedged ("could collide depending on title length + chip's name+role string length", "320px is out of spec"), and its fence is external — "(b) the project's mobile primary target widens to include sub-390px viewports". The probe above is now the first scheduled step per the ledger filing bar, rather than the layout change.
-
----
-
-### BL-WIZARD-CONNECTOR-MAXW-INERT — the wizard step connector renders 0-width, so its `max-w` is a dead constraint
-
-**Severity:** LOW (cosmetic; an intended hairline separator never renders) · **Class:** UI correctness · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** S · **Reachability:** PROBED 2026-08-08 — measured `getBoundingClientRect()` in mobile-safari at 390px AND at 900px: both connectors are `0 × 1` at both widths.
-
-**Description:** `components/admin/OnboardingWizard.tsx` renders a step-indicator connector after steps 1 and 2 as `<span className={cn("h-px max-w-confirm-box flex-1 rounded-full", …)} />` — evidently intended as a hairline rule between the step pills. It never renders: measured 0px wide at every viewport.
-
-**Cause is structural, not a viewport threshold.** `StepIndicator`'s `<nav>` is `flex items-center gap-2`, and it sits inside `<div className="flex items-center justify-between gap-3">` — a ROW flex container, in which the nav is a flex ITEM with the default `flex: 0 1 auto` and therefore sizes to its CONTENT. A content-sized flex container has no free space to distribute, so the connector's `flex-1` resolves to 0 and its `max-w` upper bound never applies. Widening the viewport does not help; the nav simply stays as wide as its pills and labels.
-
-**Consequence for the cn arc, recorded so it is not rediscovered as a finding:** C1 (`max-w-[60px]` → `max-w-confirm-box`) cannot be verified by measuring this element — a rect equality there is `0 == 0` before and after. `tests/e2e/canonical-class-dimensions.spec.ts` keeps both connector keys as a REGRESSION TRIPWIRE and asserts the 0-width state explicitly, so the day the layout changes the spec says so; C1's discriminating proof is the deterministic token assertion in `tests/specLint/canonicalTokenIdentity.test.ts`.
-
-**Why not fixed in the arc that found it:** class-sweep exception (a) — it needs a design decision the cn arc could not settle. Making the connector visible is a deliberate visual change to the wizard's step indicator (spec §9.4 of that arc states no dimensional invariant may change), and whether the hairline should render at all — and at what width on a 390px viewport — is an impeccable/design call, not a mechanical repair.
-
-**Work:** decide whether the connector should render; if yes, let the nav stretch (`w-full` on the nav, or `flex-1` on its wrapper) and re-baseline `tests/e2e/__baselines__/canonical-dimensions.json`, which will then measure a real 60px clamp.
 
 ---
 
@@ -1120,120 +991,6 @@ $ git show ec06b825a^1:BACKLOG-archive.md | ... same pipeline ...
 
 ---
 
-### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
-
-**Status:** OPEN · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M
-
-**Not caused by the branch that measured it** — the same test fails the same way on an unrelated
-branch in the same window:
-
-```
-test/resurrect-mobile-safari-e2e   run 31310546822   1 failed, 2 flaky, 140 passed
-  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
-    › every mono manifest entry still matches something on its route
-
-refactor/classname-array-join-cn   run 31310136900   1 failed, 1 flaky, 118 passed
-  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
-    › every mono manifest entry still matches something on its route
-```
-
-Both fail inside the auto-fixture with the same message, on both the pre- and post-navigate sample:
-
-```
-Error: font oracle: the registered-face query failed on a document the element walk could read
-       (via pre-navigate). The guard cannot judge a document it cannot read, and passing on one
-       would make every other test's green meaningless.
-  at enforce (tests/e2e/helpers/fontFidelityFixture.ts:400:11)
-```
-
-`font-rendering-census.spec.ts:157` (`/admin/onboarding @ mobile renders the expected families`)
-flakes in the same runs, sometimes recovering on retry and sometimes not. Other branches DO go green
-in the same window (`chore/next-1630-wedge-remeasure`, `fix/step3-a11y-cluster`), so this is
-intermittent rather than a hard break.
-
-**Why it matters beyond one arc:** the guard is written to fail loud rather than pass on a document
-it cannot read, which is the right posture — but it means a transient read failure is indistinguishable
-from a real font regression, and it takes the whole job down with it. Any acceptance bar of the form
-"N consecutive green crew-e2e runs" is then a coin flip rather than a measurement.
-
-**First step if picked up:** determine WHY the registered-face query fails on a document the element
-walk could already read — a closed/navigating page during the fixture's sample, or a document whose
-`document.fonts` is not yet queryable. The message already distinguishes pre- from post-navigate,
-which should localise it.
-
----
-
-### BL-RIGHTNOW-SECTION57-FIXTURE-INERT — the §5.7 suite's run_of_show fixture does not drive the hero it asserts
-
-**Status:** OPEN · **Severity:** MEDIUM (the suite asserts nothing it claims to; it is now statically skipped so it cannot read as coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` §3.5 WHOLE-FILE valve, exception (c)) · **Effort:** M
-
-**Probed, not theorized** (TZ=UTC, to match the CI runner). `tests/e2e/right-now-transitions.spec.ts`
-seeds `shows_internal.run_of_show` in `beforeAll` and asserts the RightNowHero renders that day's
-anchor. Changing the fixture's Day-1 entry from `7:30am` to `7:13am` left the rendered hero
-UNCHANGED:
-
-```
-Expected pattern: /7:13\s*am/i
-Received string:  "Today: Show day 1 of 2Show7:30 AM"
-```
-
-The write lands (the `afterAll` restore reads the prior value back; `psql` confirms the column
-round-trips and returns to its seeded NULL). The hero simply does not source its RightNow anchor from
-`run_of_show` on this route — it renders a show-level anchor.
-
-**Two coincidences hid this**, and either alone kept the suite green for the wrong reason:
-
-1. Day 1's `7:30am` equals the seed's own show-start anchor.
-2. Day 2's `8:00am` equals noon-UTC rendered in America/New_York — so on a developer Mac the
-   assertion matched the pinned CLOCK, not any anchor. CI (UTC) renders the same instant as
-   `12:00 PM`, which is what exposed it: `"Today: Show day 2 of 2Strike4/22 @ 12:00 PM"`.
-
-This is why the file is NOT wired into `crew-e2e.yml` and is statically skipped: wiring it would pin
-a suite whose assertions pass off seed-derived values, which is precisely the "credited as coverage it
-does not provide" failure the executed-count registry exists to prevent.
-
-**What it needs:** identify the hero's ACTUAL anchor source under a real crew viewer, then re-point
-the fixture at it — the same per-test crew row + email-matched session harness
-[[BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER]] needs. Both rows are one piece of work.
-
-**Retained from the attempt** (they are improvements independent of the valve): the invariant-9
-call-boundary repairs on the file's five Supabase call sites, and the rendered-state assertion added
-to `driveToState`, which is what made the recovery case's state-entry failure loud instead of silent.
-
----
-
-### BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER — the §5.7 recovery case cannot be driven by an admin viewer
-
-**Status:** OPEN · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M
-
-**Probed, not theorized.** `tests/e2e/right-now-transitions.spec.ts`'s recovery case enters
-`viewer_off_day` by mutating the VIEWER's `date_restriction`. Admin resolution ignores
-`crew_members.date_restriction` by design, so an admin viewer never enters that state. With the
-rendered-state assertion this arc added to `driveToState`, the attempt now fails loudly instead of
-passing on coincident anchor text:
-
-```
-Error: RightNow hero must render state kind "viewer_off_day"
-Expected: "viewer_off_day"
-Received: "show_day_n"          (transiently "post_show" during hydration)
-```
-
-Under the previous helper — which checked only HTTP 200 — this case would have "entered" a state it
-was never in and asserted against whatever rendered.
-
-**What it needs:** a restricted crew viewer through REAL resolution — a per-test `crew_members` row
-plus an email-matched test-auth session, the pattern
-`tests/e2e/stage-restricted-crew-schedule.spec.ts` uses (its header explains why an email-matched
-Google session, not a picker cookie: WebKit will not store the `__Host-` Secure picker cookie over
-plain http, and this file runs under mobile-safari). That is a new harness, not a URL swap.
-
-**Superseded in scope by [[BL-RIGHTNOW-SECTION57-FIXTURE-INERT]]** — the WHOLE file's fixture turned
-out not to drive the hero, so the entire suite is now statically skipped and unwired, this case
-included. The two rows are one piece of work: find the hero's real anchor source under a crew viewer
-and the recovery case's restricted-viewer harness together.
-
----
-
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
 
 **Effort:** M
@@ -1271,18 +1028,78 @@ docblock states the gap rather than papering over it.
 
 ---
 
-## BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY — the /help UI-label crosswalk attests against all source, so a type annotation counts as a button label
+## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown
 
-**Filed:** 2026-08-05 (M-wave W-UI, U8 probe). **Class:** guard precision. **Effort:** M (touches every label in the crosswalk corpus). **Severity:** low.
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
 
-`tests/help/_metaUiLabelCrosswalk.test.ts` attests that a bolded /help label names a real control by searching a haystack built from ALL production source. Comments are stripped, and U8 added import statements — both are categorically non-rendered. What remains is everything else: type annotations, identifiers, object keys. So `**Viewer**` at `app/help/getting-started/page.mdx:10` is attested by `viewer: Viewer` in `app/show/[slug]/[shareToken]/_CrewShell.tsx`, a type annotation, and the guard reports a match that proves nothing about rendered UI.
+The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
+back to the clamped tier rather than showing "Image unavailable"
+(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
+The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
+nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
+again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
+backwards from the usual one.
 
-**Probed, not inferred** (U8, 2026-08-05): the word-boundary tier U8 shipped closes the ACCIDENTAL-SUBSTRING half of this — `Share` no longer matches inside `ShareHub`/`shareToken` — and is proven to discriminate by a premise fixture. It does not close the bare-identifier half, and no further lexical narrowing can: excluding identifiers wholesale would break every label that IS its component name, which is common and legitimate. `tests/help/_metaUiLabelCrosswalk.test.ts` pins the residual as an executable DOCUMENTED LIMIT that fails the day this is fixed.
+**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
+`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
+keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
+entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
+shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
+the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
+(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
+up first — one decision covers both.
 
-**Work:** build the haystack from RENDERED TEXT ONLY — string literals and JSX text children, via the TypeScript AST rather than a regex. Decidable and bounded. Expect a wave of newly-failing labels on the first run; each is either real drift or a third-party-UI label (below), and the triage is the bulk of the effort.
+## BL-DIAGRAMS-ANNOUNCE-CHANNEL-TTL — two crew announce channels ship without the pruning their own module prescribes
 
-**Also needs settling in the same pass: third-party UI labels have no home.** `**Share**` and `**Viewer**` in `app/help/getting-started/page.mdx` are GOOGLE DRIVE's controls, not this app's — "click **Share** on that folder… Give it **Viewer** access". They are correct copy that this guard should never have treated as candidates. The M-wave plan assumed the opposite (that the copy was wrong and should be rewritten to name real controls); the probe refuted it, and rewriting them would have made accurate documentation inaccurate. `tests/help/_uiLabelExceptions.ts` cannot hold them either: every row must cite a `DEFERRED.md M11-E-D<N>` id, and these are not deferrals. Needs a third-party-UI carve with its own reason field.
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, audit half) · **Severity:** low · **Class:** A11Y · **Effort:** XS
 
-**Deferral exception: (c)** — a redesign of the guard's oracle spanning the whole crosswalk corpus, on a surface this PR does not otherwise touch. W-UI shipped the half that is closable without it.
+`components/diagrams/Gallery.tsx` calls `useAnnounceLog()` twice with no `ttlMs`. The gallery
+channel's region lives for the whole page session, so N thumbnail failures leave N permanent
+`sr-only` sentences that a top-down screen-reader read recites before reaching the grid — the exact
+accumulation `components/admin/announceLog.tsx:31-51` documents and measures for the admin channel
+(12 undos = 12 sibling nodes / 686 chars). The dialog channel is bounded by
+`resetDialogChannel()` on `onExitComplete`, but a close CANCELLED by a re-open inside the 220 ms
+window retains the dialog instance and its log, so that session opens pre-populated.
 
-**Status:** OPEN
+**Reachability:** PROBED by reading — `ANNOUNCE_LOG_TTL_MS` exists and is exported for exactly this
+case, and neither call site passes it. Not repaired in-branch because the module's own doc weighs a
+strand hazard against accumulation and settles it per channel, and settling it for two NEW channels
+belongs with a look at whether the crew page should share the admin provider at all rather than
+carry two of its own.
+
+## BL-LIGHTBOX-INACTIVE-SLIDES-IN-A11Y-TREE — every carousel slide is exposed, with no current marker
+
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, audit half) · **Severity:** low · **Class:** A11Y · **Effort:** XS
+
+Embla keeps all slides mounted, and `components/diagrams/GalleryLightbox.tsx` marks none of them
+`aria-hidden`. A gallery of twelve diagrams therefore presents twelve images and twelve `sr-only`
+figcaptions to assistive technology with nothing saying which one is on screen; the visible
+"N of M" indicator is the only current-slide signal and it is not associated with the slides.
+The same shape is why arriving on a slide that failed while inactive is silent: nothing announces
+the active-slide transition.
+
+**Reachability:** PROBED by reading the rendered tree in
+`tests/components/diagrams/GalleryLightbox.test.tsx`, which queries inactive slides by DOM rather
+than by role precisely because they are all present. `aria-hidden={!isActive}` is a one-attribute
+change, deferred only because it moves several existing role-based queries and belongs with the
+current-slide announcement decision rather than ahead of it.
+
+### BL-PREMISESCAN-NESTED-HELPER-SCOPE — a helper declared inside `describe` hides its environment reach from the recognizer
+
+**Severity:** MEDIUM (the recognizer reports a clean corpus it no longer understands — a false NEGATIVE, which is the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-14 (`feat/diagram-viewing-polish`, found because the count it produced for a suite this arc enrolled was a false `0`) · **Effort:** S-M
+
+**Probed, not theorized.** Two sources differing ONLY in where the helper is declared — same `spawnSync`, same import, same call site:
+
+```
+$ # classifyTests(root, "tests/probe.test.ts") on each variant
+helper at MODULE scope   -> ["environment-touching"]
+helper at DESCRIBE scope -> ["environment-free"]
+```
+
+**Mechanism.** `premiseScan` registers declaration extents at MODULE SCOPE ONLY (`tests/mutation/source/premiseScan.ts:146-161`). `isModuleScope` (`:187-200`) walks parents and returns `false` at the first enclosing function — and a `describe("...", () => { ... })` body IS an arrow function. So a helper nested in a `describe` has no registered extent, its `node:child_process` reach is invisible, and every test calling it classifies `environment-free`.
+
+**This is a deliberate trade-off, not an oversight** — and that is the hard part of fixing it. The module-scope restriction exists to prevent OVER-classification (spec AC-10b): a flat name map collided `reportEnvelope`'s parameter `res` with an unrelated `const res` inside `main()`, and every test importing `reportEnvelope` went environment-touching. The comment at `:140-145` records that probe. A naive fix that registers all scopes re-opens exactly that. The repair therefore has to be scope-AWARE resolution (extents keyed by declaring scope, resolved innermost-out), not scope-blind registration.
+
+**Live cost already paid.** `tests/ci/phantomGapExecuted.test.ts` declared its spawning `runCli` inside the `describe` body; all three shipped-CLI cases classified environment-free and `EXPECTED_ENV_TOUCHING` recorded a truthful-looking `0`. Hoisting the helper to module scope moved it to `3`. Nothing failed in between — the corpus simply under-reported, silently, which is the failure mode the premise contract exists to prevent.
+
+**Fix:** scope-aware extent resolution in `premiseScan`, with the AC-10b `reportEnvelope`/`res` collision kept as a regression case so the repair cannot trade a false negative for the false positive it replaced. Until then the recognizer's contract is "module-scope helpers only", which no current caller states.

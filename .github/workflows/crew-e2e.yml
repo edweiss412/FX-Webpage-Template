@@ -1,5 +1,5 @@
 name: Crew e2e (mobile-safari + desktop-chromium)
-# Runs EIGHT e2e spec files against a real browser + a seeded local Supabase. Both
+# Runs NINE e2e spec files against a real browser + a seeded local Supabase. Both
 # projects are passed to one invocation and each project's testMatch claims its own
 # specs, so the per-project split is a RESOLUTION, not a list maintained here —
 # verify it with `--list` rather than trusting this comment:
@@ -26,11 +26,14 @@ name: Crew e2e (mobile-safari + desktop-chromium)
 #
 # BL-RESURRECT-MOBILE-SAFARI-E2E closed the mobile-safari gap on 2026-08-09, and this
 # job now ALSO runs crew-page.spec.ts (mobile-safari only — see below) and the
-# rewritten theme-toggle.spec.ts, bringing the invocation to EIGHT spec files. right-now-transitions.spec.ts is NOT wired: its
-# §5.7 fixture (shows_internal.run_of_show) proved inert against the hero's anchor
-# on the migrated route, so wiring it would pin a suite whose assertions pass off
-# seed-derived values — spec §3.5's whole-file valve, filed as
-# BL-RIGHTNOW-SECTION57-FIXTURE-INERT. The M4 tile specs this
+# rewritten theme-toggle.spec.ts. M-wave 2 W-E2E (2026-08-10) wired
+# right-now-transitions.spec.ts — NINE spec files: the §5.7 fixture-inertness the
+# whole-file valve recorded (BL-RIGHTNOW-SECTION57-FIXTURE-INERT) was the
+# getShowForViewer per-show cache, not the anchor source; the rewritten suite
+# seeds a PER-TEST show (fresh cache tag) with run_of_show in the same locked
+# transaction, runs as a real email-matched crew viewer, and is desktop-chromium
+# ONLY (the picker-bootstrap __Host- envelope is dark on WebKit over plain http —
+# the spec header records the measurement). The M4 tile specs this
 # comment used to name are GONE, not pending: nine were 100% test.describe.skip
 # against the retired ?crew= viewer mock AND the slug-only /show/[slug] route, which
 # has no page.tsx, so every navigation in them 404'd. Per-file coverage accounting is
@@ -176,7 +179,7 @@ jobs:
       - name: Run the crew e2e spec set (both projects, :3000 only)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/crew-e2e-report.json
-        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts tests/e2e/font-binding.spec.ts tests/e2e/font-rendering-census.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/theme-toggle.spec.ts --reporter=list,json
+        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts tests/e2e/font-binding.spec.ts tests/e2e/font-rendering-census.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/theme-toggle.spec.ts tests/e2e/right-now-transitions.spec.ts --reporter=list,json
       # Collected is not executed. A `beforeEach` calling test.skip() skips every case at RUNTIME
       # while --list still counts them, so the wiring guard, its skip registry and this job's exit
       # code all stay green on a suite that ran nothing (whole-diff review R10). This step reads

@@ -64,8 +64,8 @@ const MUTANTS: Mutant[] = [
     name: "append a second src to the Inter face",
     mutate: (c) =>
       c.replace(
-        '  src: url("/fonts/InterVariable-latin.fada467b.woff2") format("woff2");',
-        '  src: url("/fonts/InterVariable-latin.fada467b.woff2") format("woff2");\n  src: local("Arial");',
+        '  src: url("/fonts/InterVariable-latin.d5549562.woff2") format("woff2");',
+        '  src: url("/fonts/InterVariable-latin.d5549562.woff2") format("woff2");\n  src: local("Arial");',
       ),
   },
   {
@@ -110,8 +110,8 @@ const MUTANTS: Mutant[] = [
     name: "prepend a local() source that wins",
     mutate: (c) =>
       c.replace(
-        'src: url("/fonts/InterVariable-latin.fada467b.woff2") format("woff2");',
-        'src: local("Arial"), url("/fonts/InterVariable-latin.fada467b.woff2") format("woff2");',
+        'src: url("/fonts/InterVariable-latin.d5549562.woff2") format("woff2");',
+        'src: local("Arial"), url("/fonts/InterVariable-latin.d5549562.woff2") format("woff2");',
       ),
   },
   {
@@ -143,7 +143,7 @@ const MUTANTS: Mutant[] = [
     name: "uppercase SRC: with a local() impostor",
     mutate: (c) =>
       c.replace(
-        '  src: url("/fonts/InterVariable-latin.fada467b.woff2") format("woff2");',
+        '  src: url("/fonts/InterVariable-latin.d5549562.woff2") format("woff2");',
         '  SRC: local("Arial");',
       ),
   },
@@ -152,7 +152,7 @@ const MUTANTS: Mutant[] = [
     name: "escaped s\\72 c spelling of src",
     mutate: (c) =>
       c.replace(
-        '  src: url("/fonts/InterVariable-latin.fada467b.woff2") format("woff2");',
+        '  src: url("/fonts/InterVariable-latin.d5549562.woff2") format("woff2");',
         '  s\\72 c: local("Arial");',
       ),
   },

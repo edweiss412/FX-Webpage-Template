@@ -101,7 +101,10 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     // current counts; these are seed/cleanup/claim-stamp writes, distinct from the
     // date_restriction locked-seed concern this pin guards.
     ["claimStamp.ts", 1],
-    ["seedShowWithCrew.ts", 3],
+    // seedShowWithCrew.ts: REPAIRED 2026-08-10 (M-wave 2 W-E2E, spec §2.4) — its three
+    // locked-table writes (shows delete/insert, crew_members insert) moved into ONE
+    // psql transaction holding the per-show advisory lock (the lockedCrewRestriction
+    // pattern), so the exemption row is removed per the shrink-only contract.
     ["picker-flow.spec.ts", 1],
     // realtime-refresh (2026-07-19): the drivability probe + realtime e2e drive a
     // crew_members.role UPDATE via the SERVICE-ROLE admin client — the PINNED

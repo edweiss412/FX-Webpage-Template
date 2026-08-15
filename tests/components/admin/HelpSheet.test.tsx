@@ -14,6 +14,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { HelpSheet } from "@/components/admin/HelpSheet";
+import { expectActionAffordanceColour } from "../../_shared/actionAffordance";
 
 afterEach(() => cleanup());
 
@@ -92,5 +93,28 @@ describe("HelpSheet", () => {
     );
     fireEvent.keyDown(window, { key: "Escape" });
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe("HelpSheet action-affordance colour (SHEETLINK-SUBTLE-ACTION-CLASS-1)", () => {
+  // Both assertions target the element that PAINTS, not the one that takes the
+  // pointer: each control's hit box is a bare tap-min button and the visible
+  // glyph is an inner span, so asserting on the button would pass while the
+  // glyph stayed subtle.
+  test("the '?' trigger's visual sits at text-text", () => {
+    renderSheet();
+    expectActionAffordanceColour(
+      screen.getByTestId("help-affordance--wizard-step2--tooltip-trigger-visual"),
+      "HelpSheet trigger",
+    );
+  });
+
+  test("the sheet's close visual sits at text-text", () => {
+    renderSheet();
+    fireEvent.click(screen.getByTestId("help-affordance--wizard-step2--tooltip-trigger"));
+    expectActionAffordanceColour(
+      screen.getByTestId("help-affordance--wizard-step2--tooltip-close-visual"),
+      "HelpSheet close",
+    );
   });
 });

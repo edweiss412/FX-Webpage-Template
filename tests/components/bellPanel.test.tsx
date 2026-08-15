@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { BellPanel } from "@/components/admin/BellPanel";
+import { expectActionAffordanceColour } from "../_shared/actionAffordance";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 
@@ -496,5 +497,16 @@ describe("BellPanel — unmount invalidation (R4 Finding 1: a load in flight at 
     const openCalls = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/bell/open"));
     expect(openCalls).toHaveLength(0);
     expect(onOpened).not.toHaveBeenCalled();
+  });
+});
+
+describe("panel close colour (SHEETLINK-SUBTLE-ACTION-CLASS-1)", () => {
+  // The icon-only dismiss carries its own colour (the inner glyph span is
+  // sized, not coloured), so the button element is the painting element here.
+  it("bell-panel-close sits at text-text, not text-text-subtle", async () => {
+    routeFetch(feedBody());
+    const { getByTestId } = renderPanel();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expectActionAffordanceColour(getByTestId("bell-panel-close"), "BellPanel close");
   });
 });

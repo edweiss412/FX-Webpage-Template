@@ -58,7 +58,7 @@ const RETRY_COPY = "That didn’t go through. Refresh and try again.";
 // FINALIZE_CHIP below (CASP2-4 item 1, BL-CASP2-STRIP-POLISH) so it never overlays the rail
 // content below the strip during the longer-lived finalize window.
 const POPOVER_POSITION = cn(
-  "absolute inset-x-0 top-full z-40 mt-1 overflow-x-hidden overflow-y-auto rounded-sm p-2 text-sm wrap-break-word shadow-tile",
+  "absolute inset-x-0 top-full z-banner mt-1 overflow-x-hidden overflow-y-auto rounded-sm p-2 text-sm wrap-break-word shadow-tile",
 );
 
 // Inline FINALIZE hint — an IN-FLOW compact chip (a flex sibling of the switch inside the

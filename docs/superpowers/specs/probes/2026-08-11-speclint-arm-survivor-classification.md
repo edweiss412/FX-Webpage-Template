@@ -1,8 +1,9 @@
 # Prose-count arms — survivor classification (AC-3)
 
 **Measured:** 2026-08-11 on `feat/speclint-prose-count-parity`, over the SHIPPED recognizers'
-own populations. Source record: `2026-08-11-speclint-corpus-scan.survivors.txt` (1051 of
-1052 corpus documents; one tracked symlink the CLI refuses by design, named there).
+own populations, and re-derived at merge time. Source record:
+`2026-08-11-speclint-corpus-scan.survivors.txt` (1082 of 1083 corpus documents; one tracked
+symlink the CLI refuses by design, named there).
 
 **What this record is for, and what it is NOT.** Per spec §3.2/§3.3 ship posture and AC-3,
 this classification informs **severity copy and documented limits ONLY**. The contract's
@@ -20,26 +21,26 @@ misdescribes its own measurements is worse than no record.
 populations is classified MECHANICALLY, by the structural signature the record already
 carries (claim value, counted value, their delta, and the quantity lists). Within each
 stratum a subset was HAND-READ against the source document to name the mechanism:
-**18 of 174** shape-(b) rows and **8 of 84** shape-(c) rows. The per-stratum mechanisms
+**18 of 177** shape-(b) rows and **8 of 84** shape-(c) rows. The per-stratum mechanisms
 below are therefore named from hand-reading and counted mechanically; they are not a
-per-row verdict on all 258. No row is dropped or summarised away.
+per-row verdict on all 261. No row is dropped or summarised away.
 
 ---
 
-## Shape (b) — `SIBLING_LIST_CARDINALITY`, 174 advisories
+## Shape (b) — `SIBLING_LIST_CARDINALITY`, 177 advisories
 
 Distribution over `delta = counted - claimed`. Every row falls in exactly one bucket and
-the buckets sum to 174.
+the buckets sum to 177.
 
 | delta | rows | delta | rows |
 | --- | --- | --- | --- |
 | +12 | 1 | -1 | 14 |
 | +7 | 1 | -2 | 12 |
-| +6 | 1 | -3 | 9 |
+| +6 | 1 | -3 | 10 |
 | +5 | 3 | -4 | 5 |
 | +4 | 7 | -5 | 6 |
-| +3 | 7 | -6 | 4 |
-| +2 | 20 | -7 | 5 |
+| +3 | 8 | -6 | 4 |
+| +2 | 21 | -7 | 5 |
 | +1 | 66 | -8 | 1 |
 | | | -9 | 2 |
 | | | -10 | 1 |
@@ -50,8 +51,8 @@ the buckets sum to 174.
 | | | -29 | 1 |
 | | | -36 | 1 |
 
-106 rows where the list is LONGER than the claim, 68 where it is shorter. By document
-class: 86 specs, 82 plans, 3 `BACKLOG.md`, 2 handoffs, 1 review-round filing — i.e. the
+108 rows where the list is LONGER than the claim, 69 where it is shorter. By document
+class: 88 specs, 82 plans, 3 `BACKLOG.md`, 2 handoffs, 2 review-round filings — i.e. the
 arm fires where this repo's counted prose lives, not in one hot file.
 
 ### The mechanisms, named
@@ -102,7 +103,10 @@ counter now REFUSES a list whose extent it cannot decide, and one changed its co
 second hand-read instance this bullet used to cite,
 `docs/superpowers/plans/2026-07-20-warning-surface-trim/plan.md:168` ("Five states, six
 fixtures:"), is one of the five: it stopped at a lazy continuation and reported four items.
-No row entered the population, and every other mechanism's rows are untouched.
+No row entered the population, and every other mechanism's rows are untouched. Merging `main`
+before the PR then brought 30 more corpus documents, which added three shape-(b) rows and
+carried the population to 177; the buckets and class counts above are re-derived from the
+survivors file as committed.
 
 **M-b6 — markup interrupts noun extraction, moving which cardinality is "last".** A
 cardinality is only recognized when a WORD follows it, so inline code or emphasis right
@@ -158,7 +162,7 @@ not keep circulating as an example.
 population's FP rate and no such rate is claimed here — the hand-read set was chosen to
 cover every delta stratum, which deliberately over-samples the large deltas where M-b1
 lives. What the record does establish is that both genuine drift and every mechanism
-M-b1..M-b5 are present in the same 174, which is exactly why the arm stays ADVISORY.
+M-b1..M-b5 are present in the same 177, which is exactly why the arm stays ADVISORY.
 
 **Severity copy: unchanged.** Advisory, one line, both quantities in the message. Nothing
 in the above argues for promotion, and the two documented limits argue against it.
@@ -247,9 +251,9 @@ detail line, so c-L1 and c-L2 are dismissible at a glance.
 | population | emitted by the scan | classified here |
 | --- | --- | --- |
 | `SCRIPT_CONSTANT_PARITY` | 0 | 0 |
-| `SIBLING_LIST_CARDINALITY` | 174 | 174 |
+| `SIBLING_LIST_CARDINALITY` | 177 | 177 |
 | `TEMPLATE_QUANTITY_DRIFT` | 84 | 84 |
-| total | 258 | 258 |
+| total | 261 | 261 |
 
 Emitted equals classified in every row of that table, diffed mechanically from the record
 rather than asserted. Shape (a)'s zero is the expected result and not a dud: both live

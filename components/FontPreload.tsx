@@ -24,7 +24,7 @@ export function FontPreload() {
       rel="preload"
       as="font"
       type="font/woff2"
-      href="/fonts/InterVariable-latin.fada467b.woff2"
+      href="/fonts/InterVariable-latin.d5549562.woff2"
       crossOrigin="anonymous"
     />
   );

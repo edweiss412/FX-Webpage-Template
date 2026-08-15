@@ -133,9 +133,34 @@ describe("held-changes copy contract — phrase tier", () => {
   });
 
   it("9. tour names it inside the REVIEW QUEUES card", () => {
-    const card = between(raw("tour"), "Review queues</h3>", "</p>");
-    expect(card).toContain("crew identity changes held for your approval");
-    expect(card).not.toContain("Each queue is scoped to one show");
+    // TWO anchors, and both are load-bearing. The card is selected by its
+    // aria-label, and the BODY is then selected inside it by the body <p>'s
+    // className. Neither spells rendered text: since the hydration fix every
+    // text child in this card is a JSX expression child (`{"Review queues"}`),
+    // because MDX parses an own-line text child as a markdown paragraph, so a
+    // marker that spelled the heading broke on formatting alone. The
+    // aria-label and the className are what that arc's AC-2 pins byte-identical.
+    //
+    // The body anchor is not decoration. Slicing from the aria-label to the
+    // first `</p>` would widen the passage to the eyebrow, duration, and
+    // heading as well — and this test's whole premise (see `between`) is that
+    // a passage-scoped assertion must fail when the copy leaves the element
+    // that is supposed to carry it. Probed: with the wide window, moving the
+    // phrase from the body into the eyebrow keeps the assertion GREEN while
+    // the body no longer explains anything.
+    const tour = raw("tour");
+    const cardAt = tour.indexOf('aria-label="Review queues: read the reference"');
+    expect(cardAt, "review-queues card not found in the tour source").toBeGreaterThan(-1);
+    // Bounded by THIS card's closing </a>. Without that bound the slice runs to
+    // end-of-file, and every later card carries a body <p> with the same
+    // className — so deleting this card's body and putting the phrase in a
+    // sibling card leaves both assertions green. Probed.
+    const cardEnd = tour.indexOf("</a>", cardAt);
+    expect(cardEnd, "review-queues card is unterminated").toBeGreaterThan(-1);
+    const card = tour.slice(cardAt, cardEnd);
+    const body = between(card, '<p className="text-text leading-relaxed mb-3">', "</p>");
+    expect(body).toContain("crew identity changes held for your approval");
+    expect(body).not.toContain("Each queue is scoped to one show");
   });
 
   it("negatives: the stale one-show scoping claim and the absolute never-clears claim are gone", () => {

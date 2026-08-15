@@ -86,6 +86,38 @@ describe("makeLiveCaseCounter", () => {
     expect(h.count(), "a case that queried nothing must not count").toBe(1);
   });
 
+  it("enforces a DECLARED per-case query floor, naming the case", async () => {
+    // A multi-query case (the all-nine firing smoke: one census fetch + one
+    // smoke per canonical job) declares its floor; issuing fewer queries than
+    // declared is the same defect as issuing none — some legs silently did not
+    // run. Without this, a 10-query case that ran only its first leg passed.
+    let queries = 0;
+    const h = harness(() => queries);
+    h.liveCase(
+      "nine smokes",
+      () => {
+        queries += 3;
+      },
+      { queries: 10 },
+    );
+    await expect(h.registered[0]!.fn()).rejects.toThrow(
+      /"nine smokes" issued 3 database quer(y|ies) but declares 10/,
+    );
+    expect(h.count()).toBe(0);
+  });
+
+  it("exposes the declared-floor SUM so the aggregate backstop has zero slack", async () => {
+    // The vacuity backstop compares total queries to this sum. Against
+    // liveCaseCount() alone, one multi-query case donated slack that hid an
+    // inert case once per-case attribution was deleted (the mutant the
+    // pgCronCiVacuity aggregate case plants).
+    const h = harness();
+    h.liveCase("plain", () => {});
+    h.liveCase("multi", () => {}, { queries: 10 });
+    h.liveCase("also plain", () => {});
+    expect(h.expectedQueries(), "defaults 1 per case; declared floors add").toBe(12);
+  });
+
   it("does not attribute another case's queries to an empty one", async () => {
     // The exact bypass: one case issues several queries, the next issues none.
     let queries = 0;

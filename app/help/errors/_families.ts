@@ -67,6 +67,8 @@ export const FAMILIES: Family[] = [
       "DATE", // DATE_ORDER_SUGGESTS_DMY — show-date reading
       "USE", // USE_RAW_DECISION_STALE — "use the sheet's raw value" pin went stale
       "REF", // REF_ERROR_LITERAL — a broken #REF! reference read straight out of the sheet
+      "ROW", // ROW_CELLS_FUSED — a merged cell exported as a short row
+      "LEADING", // LEADING_COLUMN_AUTOCORRECTED — a section drag-shifted one column on export
     ],
   },
   {

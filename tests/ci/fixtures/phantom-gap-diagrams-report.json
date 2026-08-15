@@ -1,0 +1,188 @@
+{
+  "suites": [
+    {
+      "title": "crew-layout-dimensions.spec.ts",
+      "file": "crew-layout-dimensions.spec.ts",
+      "specs": [],
+      "suites": [
+        {
+          "title": "crew diagrams gallery — next/image variant tiers (private image pipeline)",
+          "file": "crew-layout-dimensions.spec.ts",
+          "specs": [
+            {
+              "title": "T-DIAGRAM-VARIANTS thumbnails: every gallery image box === its grid-cell content box",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 1680,
+              "id": "ed594352c1f77274529b-9d88622ca0ee0585890f",
+              "tests": [
+                {
+                  "projectName": "mobile-safari",
+                  "status": "expected",
+                  "results": [
+                    {
+                      "status": "passed"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "T-DIAGRAM-VARIANTS network: thumbnails fetch manifest-listed variant URLs with zero /_next/image requests",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 1766,
+              "id": "ed594352c1f77274529b-dd2e9fb36952ac2944ba",
+              "tests": [
+                {
+                  "projectName": "mobile-safari",
+                  "status": "expected",
+                  "results": [
+                    {
+                      "status": "passed"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "T-DIAGRAM-VARIANTS lightbox: the no-dims fill image measures equal to its containing block as the ACTIVE slide (TransformComponent wrapper) and as an INACTIVE slide (inner relative wrapper)",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 2030,
+              "id": "ed594352c1f77274529b-4f6f004dded3728b2d0b",
+              "tests": [
+                {
+                  "projectName": "mobile-safari",
+                  "status": "expected",
+                  "results": [
+                    {
+                      "status": "passed"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "T-DIAGRAM-VARIANTS lightbox zoom gate: the ORIGINAL is not requested until zoom intent, then it is",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 2243,
+              "id": "ed594352c1f77274529b-1cac773bdf8f9ce6ad0c",
+              "tests": [
+                {
+                  "projectName": "mobile-safari",
+                  "status": "skipped",
+                  "results": [
+                    {
+                      "status": "skipped"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "T-DIAGRAM-VARIANTS lightbox zoom gate: the active slide opens on a clamped variant, never the original",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 2355,
+              "id": "ed594352c1f77274529b-31fd69f77950c7ce7bdb",
+              "tests": [
+                {
+                  "projectName": "mobile-safari",
+                  "status": "expected",
+                  "results": [
+                    {
+                      "status": "passed"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "T-DIAGRAM-VARIANTS thumbnails: every gallery image box === its grid-cell content box",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 1680,
+              "id": "ed594352c1f77274529b-5f4833e627e8c9cc04b4",
+              "tests": [
+                {
+                  "projectName": "desktop-chromium",
+                  "status": "skipped",
+                  "results": [
+                    {
+                      "status": "skipped"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "T-DIAGRAM-VARIANTS network: thumbnails fetch manifest-listed variant URLs with zero /_next/image requests",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 1766,
+              "id": "ed594352c1f77274529b-c977e673577b5d0d8fc0",
+              "tests": [
+                {
+                  "projectName": "desktop-chromium",
+                  "status": "skipped",
+                  "results": [
+                    {
+                      "status": "skipped"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "T-DIAGRAM-VARIANTS lightbox: the no-dims fill image measures equal to its containing block as the ACTIVE slide (TransformComponent wrapper) and as an INACTIVE slide (inner relative wrapper)",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 2030,
+              "id": "ed594352c1f77274529b-4b58cf1229719cefaa7c",
+              "tests": [
+                {
+                  "projectName": "desktop-chromium",
+                  "status": "skipped",
+                  "results": [
+                    {
+                      "status": "skipped"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "T-DIAGRAM-VARIANTS lightbox zoom gate: the ORIGINAL is not requested until zoom intent, then it is",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 2243,
+              "id": "ed594352c1f77274529b-44cb6cc08d5462226ef8",
+              "tests": [
+                {
+                  "projectName": "desktop-chromium",
+                  "status": "expected",
+                  "results": [
+                    {
+                      "status": "passed"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "T-DIAGRAM-VARIANTS lightbox zoom gate: the active slide opens on a clamped variant, never the original",
+              "file": "crew-layout-dimensions.spec.ts",
+              "line": 2355,
+              "id": "ed594352c1f77274529b-5cee9661f8031d02c6c5",
+              "tests": [
+                {
+                  "projectName": "desktop-chromium",
+                  "status": "skipped",
+                  "results": [
+                    {
+                      "status": "skipped"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "suites": []
+        }
+      ]
+    }
+  ]
+}

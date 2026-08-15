@@ -21,24 +21,24 @@
  * only honest if the URL changes when the bytes do. Replacing the font means
  * renaming this file, which is exactly the review event a font swap deserves.
  */
-export const PUBLIC_FONT_PATH = "public/fonts/InterVariable-latin.fada467b.woff2";
+export const PUBLIC_FONT_PATH = "public/fonts/InterVariable-latin.d5549562.woff2";
 
 /**
  * The URL `app/fonts.css` requests. `compileEntryCss` rewrites this to a bare
  * sibling filename for the harnesses, whose stylesheet sits in the same
  * directory as the copied binary rather than at a server root.
  */
-export const PUBLIC_FONT_URL = "/fonts/InterVariable-latin.fada467b.woff2";
+export const PUBLIC_FONT_URL = "/fonts/InterVariable-latin.d5549562.woff2";
 
 /** Bare sibling form of the same file, as the harness-emitted CSS references it. */
-export const HARNESS_FONT_FILENAME = "InterVariable-latin.fada467b.woff2";
+export const HARNESS_FONT_FILENAME = "InterVariable-latin.d5549562.woff2";
 
 /**
  * Digest of the committed bytes. Measured, not copied from documentation —
  * `public/fonts/PROVENANCE.md` records the same value, and the two agreeing is
  * the point.
  */
-export const EXPECTED_SHA256 = "fada467be8d8ebb5dccc346d29dc6ea37423da14c87dafed009631cb85632a54";
+export const EXPECTED_SHA256 = "d554956247d03a2513f0514aebbfc9ec07e891409855b81be32ba723cc08407b";
 
 /**
  * The family the hand-written stylesheet declares. Capital `Inter`, which is

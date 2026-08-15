@@ -28,12 +28,13 @@
  *   mock and a route that 404s; its behavior keeps unit coverage in
  *   `tests/time/rightNow.test.ts` and `tests/components/crew/rightNowHero.test.tsx`
  *   (spec docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md
- *   §2.3). `right-now-transitions.spec.ts`'s §5.7 anchor block calls `driveToState`,
- *   but as of 2026-08-09 that block is STATICALLY SKIPPED and the file is not wired
- *   into any workflow: its `run_of_show` fixture proved not to drive the hero it
- *   asserts (spec §3.5 whole-file valve → §6.6;
- *   `BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). So this helper currently has NO
- *   executing caller — said plainly rather than left implying live coverage.
+ *   §2.3). `right-now-transitions.spec.ts` is this helper's live caller:
+ *   un-skipped 2026-08-10 (M-wave 2 W-E2E) and wired into crew-e2e.yml on
+ *   desktop-chromium. The 2026-08-09 "fixture inert" verdict
+ *   (`BL-RIGHTNOW-SECTION57-FIXTURE-INERT`) was overturned by probe: the
+ *   inertness was `getShowForViewer`'s per-show `unstable_cache` tag, not the
+ *   anchor source — a per-test show has a fresh tag, and the fixture drives
+ *   the hero (flip test: fixture 6:59am vs assertion 7:13am fails).
  *
  * Seed contract:
  *   • drive_file_id `seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf`

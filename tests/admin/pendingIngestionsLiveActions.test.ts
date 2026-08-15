@@ -4,6 +4,7 @@ import type {
   LivePendingIngestionRouteTx,
 } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
 import type { ParseResult } from "@/lib/parser/types";
+import { readyPrepared } from "@/tests/_shared/preparedProcessOneFile";
 import { handleLivePendingIngestionRetry } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
 import { handleLivePendingIngestionDiscard } from "@/app/api/admin/pending-ingestions/[id]/discard/route";
 
@@ -100,6 +101,16 @@ function deps(
       appliedRoleMappings: [],
     })),
     readFinalizeOwnershipGuardUnlocked: vi.fn(async () => false),
+    // Census class d (spec §5): without this injection the route runs REAL preparation (Drive I/O)
+    // ahead of the runner double, since `prepared` became a required sixth argument.
+    prepareProcessOneFile: vi.fn(async () => readyPrepared()) as unknown as NonNullable<
+      LivePendingIngestionRouteDeps["prepareProcessOneFile"]
+    >,
+    // Census class e (spec §5): the route-body catch emissions would otherwise open a real
+    // postgres connection from a unit test.
+    logSyncSink: vi.fn(async () => {}) as unknown as NonNullable<
+      LivePendingIngestionRouteDeps["logSyncSink"]
+    >,
     prepareFirstSeenStage: vi.fn(async (fileMeta) => ({
       fileMeta,
       binding: { bindingToken: "rev-1", modifiedTime: fileMeta.modifiedTime },
@@ -189,6 +200,9 @@ describe("live pending-ingestions actions", () => {
       "manual",
       expect.objectContaining({ driveFileId: "file-1" }),
       expect.any(Object),
+      // Sixth argument (spec 2026-08-14 §3.1): the route now prepares inside its own held row lock
+      // and threads the result through. Its absence is what made this retry throw SyncInfraError.
+      expect.objectContaining({ kind: "ready" }),
     );
   });
 

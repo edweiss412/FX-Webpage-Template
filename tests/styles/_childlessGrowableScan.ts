@@ -13,13 +13,12 @@
  */
 
 /** Exact-match paint members (§4.2a). Each paints on its own; color-only
- *  utilities (border-accent-edge) are deliberately absent. */
-export const PAINT_TOKENS: ReadonlySet<string> = new Set([
-  "bg-border",
-  "bg-border-strong",
-  "bg-accent",
-  "border",
-]);
+ *  utilities (border-accent-edge) are deliberately absent. `bg-border-strong`
+ *  was retired 2026-08-10: its last growable candidate (the wizard step
+ *  connector) was resized off `flex-1` and re-ramped to text tokens per
+ *  DESIGN.md §1.2a, and §6.3 forbids dead members from accumulating. Its
+ *  remaining live uses are non-growable 3px dots, which are not candidates. */
+export const PAINT_TOKENS: ReadonlySet<string> = new Set(["bg-border", "bg-accent", "border"]);
 
 /** Tokens in the flex/grow family that configure layout, never growth (§3.1). */
 const FLEX_LAYOUT_TOKENS = new Set([

@@ -64,6 +64,7 @@ import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 import { stripNewTabSuffix } from "@/components/shared/NewTabHint";
 import { cn } from "@/lib/ui/cn";
+import { SECONDARY_ACTION_CLASS } from "@/lib/ui/actionClass";
 
 // Summary date rendering (§4.2): `dateSummarySegments` moved to
 // step3ReviewSections.tsx in Task 4 (imported above) so the review modal's
@@ -157,7 +158,14 @@ export function SheetTitleLink({ dfid, title }: { dfid: string; title: string })
           ? `Open the source sheet for ${strippedTitle} in Google Sheets (opens in a new tab)`
           : "Open the source sheet in Google Sheets (opens in a new tab)"
       }
-      className="wrap-break-word text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      // Tap floor (spec 2026-08-10-tap-target-inline-controls §2, site 5). `inline-block`, NOT
+      // flex: flex would make the trailing icon a nowrap sibling and break title wrapping, and
+      // `min-height` does not apply to inline boxes at all. Symmetric `py-2.5` (10px) over a
+      // one-line `text-base` line box (24.8px at line-height 1.55, app/globals.css:127) yields a
+      // 44.8px target with the text centred by construction; `-my-2.5` cancels the growth in flow.
+      // `-mx-2 px-2` fixes nothing horizontally today (titles are wide) but keeps the left text
+      // edge aligned — and is why this site carries neighbour-overlap assertions in both axes.
+      className="wrap-break-word inline-block -my-2.5 -mx-2 px-2 py-2.5 text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {title}
       {/* Persistent (non-hover) "opens the source sheet" cue, mirroring the
@@ -191,7 +199,11 @@ function RescanReviewBanner({ dfid }: { dfid: string }) {
   return (
     <div
       data-testid={`wizard-step3-card-${dfid}-rescan-review`}
-      className="flex items-start gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+      // No border: this note lives INSIDE the row's own bordered card, and a
+      // bordered box inside a bordered box is the nested chrome item (d) names.
+      // The warning tint carries it (DESIGN.md §1.2 — warm warning, paired with
+      // the icon, never colour alone).
+      className="flex items-start gap-2 rounded-md bg-warning-bg p-tile-pad text-warning-text"
     >
       <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
       <p className="text-sm font-medium">
@@ -463,7 +475,7 @@ export function Step3SheetCard({
               data-testid={`wizard-step3-card-${dfid}-no-details-ignore`}
               onClick={() => void ignoreResolve()}
               disabled={isPublishRunActive}
-              className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className={SECONDARY_ACTION_CLASS}
             >
               Ignore this sheet
             </button>
@@ -566,23 +578,20 @@ export function Step3SheetCard({
     </span>
   );
 
-  // The modal trigger — the SAME self-managed modal in every variant. "View" for
-  // a clean row (ghost), "Review" for a needs-a-look / demoted row (outline —
-  // NOT accent; the accent budget is the bar's Publish CTA + checked boxes).
+  // The modal trigger — the SAME self-managed modal in every variant, and now
+  // the SAME treatment too (STEP3-GALLERY-TAP-TARGETS-1 item d). "View" used to
+  // be a bare-text ghost in `text-text-subtle`, which DESIGN.md §1.1 documents as
+  // "Never used for action targets", and which put two vocabularies side by side
+  // in one row slot. The label still carries the difference between a clean row
+  // and a needs-a-look one; the chrome no longer does. Neither is accent — that
+  // budget is the bar's Publish CTA + the checked boxes.
   const triggerButton = (label: "View" | "Review") => (
     <button
       type="button"
       data-testid={`wizard-step3-card-${dfid}-more`}
       aria-haspopup="dialog"
       onClick={() => setDetailsOpen(true)}
-      className={cn(
-        "inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
-        // Review = outline + strong text (the primary needs-a-look action); View =
-        // subtler ghost (a clean row needs no urging), so the two read distinctly.
-        label === "Review"
-          ? "border border-border-strong text-text-strong"
-          : "text-text-subtle hover:text-text-strong",
-      )}
+      className={cn(SECONDARY_ACTION_CLASS, "shrink-0")}
     >
       {label}
     </button>

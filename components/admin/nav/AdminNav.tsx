@@ -216,7 +216,7 @@ export function AdminNav({
       <nav
         data-testid="admin-bottom-tabs"
         aria-label="Admin (mobile)"
-        className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface min-[840px]:hidden"
+        className="fixed inset-x-0 bottom-0 z-nav flex border-t border-border bg-surface min-[840px]:hidden"
       >
         {mobileItems.map((item) => {
           const active = isNavItemActive(item.id, pathname);

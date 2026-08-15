@@ -12,11 +12,11 @@
  *     <PageTransition> (a framer-motion element whose settled inline transform
  *     opens a new stacking context); a fixed footer authored INSIDE that
  *     subtree is confined to it, so the layout's fixed mobile bottom tab bar
- *     (a SIBLING of PageTransition, z-30) paints over the footer regardless of
+ *     (a SIBLING of PageTransition, z-nav/30) paints over the footer regardless of
  *     the footer's own z-index. Portaling to <body> lifts the footer into the
- *     root stacking context where z-40 wins. (Mount-gated: renders null until
+ *     root stacking context where z-banner/40 wins. (Mount-gated: renders null until
  *     mounted, so the portal never runs during SSR.)
- *   - the fixed wrapper is `fixed inset-x-0 bottom-0 z-40`;
+ *   - the fixed wrapper is `fixed inset-x-0 bottom-0 z-banner`;
  *   - the bar is capped to the admin-shell container (mx-auto max-w-[1600px]
  *     px-page-pad-*) so its top rule + width MATCH <OnboardingTopBar> (the
  *     onboarding header) rather than bleeding full-viewport;
@@ -30,7 +30,7 @@ import { WizardFooter } from "@/components/admin/wizard/WizardFooter";
 afterEach(() => cleanup());
 
 describe("WizardFooter", () => {
-  test("portals a fixed bottom bar (z-40) to document.body and renders the primary slot", () => {
+  test("portals a fixed bottom bar (z-banner) to document.body and renders the primary slot", () => {
     render(<WizardFooter primary={<button>Continue</button>} />);
     const footer = screen.getByTestId("wizard-footer");
     // Portaled OUT of the render container, into document.body, so it escapes
@@ -39,8 +39,8 @@ describe("WizardFooter", () => {
     expect(footer.className).toContain("fixed");
     expect(footer.className).toContain("inset-x-0");
     expect(footer.className).toContain("bottom-0");
-    // z-40 beats the layout's z-30 mobile bottom tab bar once portaled to root.
-    expect(footer.className).toContain("z-40");
+    // z-banner (40) beats the layout's z-nav (30) mobile bottom tab bar once portaled to root.
+    expect(footer.className).toContain("z-banner");
     expect(footer.textContent).toContain("Continue");
   });
 

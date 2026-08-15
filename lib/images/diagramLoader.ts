@@ -72,6 +72,43 @@ function validVariants(raw: unknown): DiagramVariantRef[] {
   return rows.sort((a, b) => a.width - b.width);
 }
 
+/**
+ * The rows the clamped loader may actually select: valid, and NOT the original.
+ *
+ * A row can be perfectly well-formed and still name the original itself
+ * (`{ width: 256, key: <the original> }`). It survives every §4 guard, so it
+ * would land in the ladder and become selectable at whatever widths clamp to
+ * it — and then the loader serves the very original the zoom gate withholds.
+ * Dropping it here is what makes the "never the original" rule below hold at
+ * EVERY width, rather than only above the ladder.
+ */
+function servingVariants(raw: unknown, originalKey: string): DiagramVariantRef[] {
+  return validVariants(raw).filter((row) => row.key !== originalKey);
+}
+
+/**
+ * Whether this manifest data yields a tier the clamped loader can serve INSTEAD
+ * OF the original.
+ *
+ * Exported so callers never re-derive it: `pinOriginal` says the caller ASKED
+ * for the original, not that something smaller exists to fall back to. For an
+ * originals-only entry — old manifests, GIFs, generation failures, a ladder
+ * whose every row the §4 guards reject — both loader states resolve to the same
+ * URL, and a caller that treats the pin as proof of a fallback will offer one
+ * that cannot happen.
+ *
+ * `originalKey` is REQUIRED, and it is the whole difference between this
+ * predicate and "are there any usable rows?". It reads the SAME
+ * `servingVariants` the loader selects from, so the two cannot drift. An earlier
+ * version asked whether SOME valid row differed from the original, which a mixed
+ * ladder — 256 naming a variant, 1024 naming the original — satisfied while
+ * every request of 512px or more still selected the original. It is true exactly
+ * when a selectable non-original row exists, which is the claim callers rely on.
+ */
+export function hasVariantTier(variants: unknown, originalKey: string): boolean {
+  return servingVariants(variants, originalKey).length > 0;
+}
+
 export function makeDiagramLoader(
   args: MakeDiagramLoaderArgs,
 ): (props: ImageLoaderProps) => string {
@@ -79,12 +116,13 @@ export function makeDiagramLoader(
   // The active lightbox slide ignores width entirely: zoom needs full resolution.
   if (args.pinOriginal) return () => originalUrl;
 
-  const rows = validVariants(args.variants);
+  const rows = servingVariants(args.variants, args.key);
   if (rows.length === 0) return () => originalUrl;
 
   return ({ width }) => {
     // Smallest tier that covers the request; above the ladder, the largest tier —
-    // never the original. `quality` is ignored: encoding is fixed at ingest.
+    // never the original, which is why the ladder excludes any row naming it.
+    // `quality` is ignored: encoding is fixed at ingest.
     const chosen = rows.find((row) => row.width >= width) ?? rows[rows.length - 1]!;
     return diagramAssetUrl(args.showId, args.rev, chosen.key);
   };

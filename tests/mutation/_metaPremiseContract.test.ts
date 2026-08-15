@@ -33,7 +33,30 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // throwaway repo, so it counts as environment-touching like its
   // single-line sibling.
   "tests/scripts/ledgerClaimsCheck.test.ts": 16,
+  // chore/guard-completeness-wave (2026-08-15): the spawn-seam suite, enrolled as
+  // ledgerGit's second suite. All 16 of its cases import `realGitSurface`, so the scanner
+  // classifies every one environment-touching — correctly by its own rule, even though
+  // each case INJECTS its spawn and reaches no real process. The 13 recording cases carry
+  // a real premise (`calls.length > 0`: a reader that short-circuits before spawning,
+  // which `currentBranch` proves reachable under GitHub Actions variables, would otherwise
+  // assert on `undefined`); the 3 fault cases carry `no-premise`, because their spawn
+  // result is the fixture itself.
+  "tests/scripts/ledgerGitSpawnSeam.test.ts": 16,
+  // The analyzer suite enrolled by this branch. It declares 0 honestly: the cases drive
+  // literal source strings through a pure AST function and reach no member of
+  // ENVIRONMENT_SOURCES.
+  "tests/db/destructiveFileAnalysis.test.ts": 0,
+  // The pgCronSmokes unit suite enrolled by this branch: literal strings and URLs through
+  // pure helpers, reaching no member of ENVIRONMENT_SOURCES.
+  "tests/cross-cutting/pgCronSmokesUnit.test.ts": 0,
   "tests/scripts/ledgerClaims.test.ts": 0,
+  // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
+  // inventory suite reads DESIGN.md and walks the repo, but through the module
+  // under test rather than any member of ENVIRONMENT_SOURCES directly; the unit
+  // suite drives literal source strings through `scanTimingSites` and touches
+  // the real tree only for the universe fences.
+  "tests/docs/_metaInteractionTimingInventory.test.ts": 0,
+  "tests/docs/interactionTimingScan.test.ts": 0,
   "tests/specLint/taskContract.test.ts": 0,
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
   // exercises compareFindings over literal fixtures and reads no environment.
@@ -49,6 +72,26 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // decided by the ambient one.
   "tests/reviewRounds/count.test.ts": 0,
   "tests/docs/_metaReviewRoundEconomy.test.ts": 0,
+  // M-wave 2 W-GUARDS (2026-08-10): both guard-extractor suites are pure by
+  // the same rule as the corpus suite — they read the live tree via node:fs
+  // and walkSourceFiles, which is deliberately NOT provenance; neither touches
+  // child_process, ledger-git, or process.env.
+  "tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts": 0,
+  "tests/help/_metaUiLabelCrosswalk.test.ts": 0,
+  // Enrolled by feat/diagram-viewing-polish (2026-08-11) alongside the
+  // phantom-gap executed-count oracle. 3: the three shipped-CLI cases spawn the
+  // checker through node:child_process, because an exit code is the one thing
+  // an import cannot observe. The other 22 drive report fixtures this suite
+  // owns and read no environment — node:fs is deliberately not provenance, by
+  // the same rule the corpus suite is declared 0 under.
+  //
+  // This count started as a FALSE 0. The spawning helper was declared inside
+  // the describe body, and premiseScan registers declaration extents at module
+  // scope only (premiseScan.ts:146-161), so all three classified
+  // environment-free. The helper is now at module scope. The recognizer's
+  // blindness to nested helpers is the wider class, probed and filed as
+  // BL-PREMISESCAN-NESTED-HELPER-SCOPE.
+  "tests/ci/phantomGapExecuted.test.ts": 3,
   // Enrolled by specLintNumerics (2026-08-11). Pure, and the declaration is
   // honest rather than convenient: every case drives checkNumerics or runLint
   // over literal fixture text with a hand-built FileResolver, so it reaches no

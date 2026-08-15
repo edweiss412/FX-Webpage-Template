@@ -766,14 +766,14 @@ export function pointerSentenceParts(
  *  reveal control: text-sized inline button; 44x44 floor via a CENTERED
  *  before-overlay (translate + min-w/h-tap-min, width = max(text, 44px)) —
  *  zero line-box inflation. Same intent as HoverHelp's compactTrigger tap
- *  floor, different geometry (that one is a fixed inset box). z-10: the
+ *  floor, different geometry (that one is a fixed inset box). z-raised: the
  *  overlay must WIN hit-testing against the card's own padding box
  *  (elementFromPoint returns the topmost paint; without it the ±21px zone
  *  belongs to the card div). In the elsewhere state the sentence is the
  *  panel's only body content, so nothing interactive sits inside the raised
  *  zone (e2e disjointness proof). */
 const POINTER_INLINE_BUTTON_CLASS = cn(
-  "relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none",
+  "relative z-raised inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none",
 );
 
 /**
@@ -1409,7 +1409,10 @@ function ContactCell({
       {hasContent(phone) ? (
         <a
           href={`tel:${phone.replace(/[^\d+]/g, "")}`}
-          className="flex items-center gap-1 text-[11px] tabular-nums text-text-subtle hover:text-text"
+          // Tap floor (spec §2, site 6). Composite-link recipe: `min-h-tap-min` on the existing
+          // `flex` string, display preserved. The parent cell is `flex-col items-center`, so the
+          // width shrink-wraps and a full phone number already clears 44px across.
+          className="flex min-h-tap-min items-center gap-1 text-[11px] tabular-nums text-text-subtle hover:text-text"
         >
           <Phone className="size-3 shrink-0" aria-hidden="true" />
           {phone}
@@ -1418,7 +1421,8 @@ function ContactCell({
       {hasContent(email) ? (
         <a
           href={`mailto:${email}`}
-          className="flex min-w-0 items-center gap-1 text-[11px] text-text-subtle hover:text-text"
+          // Tap floor (spec §2, site 7) — same recipe as the tel: link above.
+          className="flex min-h-tap-min min-w-0 items-center gap-1 text-[11px] text-text-subtle hover:text-text"
         >
           <Mail className="size-3 shrink-0" aria-hidden="true" />
           <span className="min-w-0 wrap-break-word">{email}</span>
@@ -2591,7 +2595,12 @@ function PackCaseItems({ items }: { items: PullSheetItem[] }) {
             type="button"
             onClick={() => setShowAll((v) => !v)}
             aria-expanded={showAll}
-            className="rounded-sm font-medium text-text-subtle underline-offset-2 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            // Class A tap-floor recipe (spec 2026-08-10-tap-target-inline-controls §2, site 4),
+            // applied verbatim. Growth is in flow: the tail row gets taller, nothing overlaps.
+            // `w-fit` is belt-and-braces HERE specifically — this control is inline-level inside a
+            // plain <li>, so it already shrink-wraps. It carries load at the recipe's other sites,
+            // where the control is a direct flex child and CSS blockifies it to full width.
+            className="inline-flex w-fit min-h-tap-min items-center rounded-sm font-medium text-text-subtle underline-offset-2 hover:text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             {showAll ? "Show fewer items" : `Show all ${items.length} items`}
           </button>
@@ -3185,11 +3194,24 @@ export function __resetAgendaThrottleForTests(): void {
   agendaSlotWaiters.length = 0;
 }
 
-/** Retry-After is delta-seconds (the endpoint sends "10"); fall back to 5s. */
+/**
+ * How long to wait when the server asks us to retry but does not say how long.
+ *
+ * NAMED because it is ours, not the server's. It was an inline `5_000` behind a
+ * function whose §5.5 disposition claimed the delay was "dictated by the SERVER's
+ * Retry-After header" — true only when that header arrives and parses. A missing
+ * or malformed header lands here, on a number this project chose, and the
+ * disposition was suppressing it under a reason that did not cover it
+ * (whole-diff review, brief C). Naming it puts it in the derived inventory,
+ * where a timing anyone can tune belongs.
+ */
+const AGENDA_RETRY_FALLBACK_MS = 5_000;
+
+/** Retry-After is delta-seconds (the endpoint sends "10"); fall back to ours. */
 function parseRetryAfterMs(header: string | null): number {
-  if (!header) return 5_000;
+  if (!header) return AGENDA_RETRY_FALLBACK_MS;
   const secs = Number.parseInt(header, 10);
-  return Number.isFinite(secs) && secs >= 0 ? secs * 1_000 : 5_000;
+  return Number.isFinite(secs) && secs >= 0 ? secs * 1_000 : AGENDA_RETRY_FALLBACK_MS;
 }
 
 /** An abortable delay; resolves immediately if already aborted. */
@@ -3623,7 +3645,11 @@ export function NotPublishableNote({ dfid, testId }: { dfid: string; testId?: st
   return (
     <div
       data-testid={testId ?? `wizard-step3-card-${dfid}-not-publishable`}
-      className="flex items-start gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+      // No border: the note renders inside the row's own bordered card, and a
+      // bordered box inside a bordered box is the nested chrome of
+      // STEP3-GALLERY-TAP-TARGETS-1 item (d). The warning tint plus the icon
+      // carry it (DESIGN.md §1.2 — never colour alone).
+      className="flex items-start gap-2 rounded-md bg-warning-bg p-tile-pad text-warning-text"
     >
       <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
       <p className="text-sm font-medium">This sheet needs attention before it can be published.</p>

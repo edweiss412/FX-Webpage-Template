@@ -64,6 +64,14 @@ export const REQUIRED = {
   // wiring guard derives this same number from live per-project resolution minus
   // its PROJECT_GATED registry — it is not trusted as a literal here.
   "theme-toggle.spec.ts": 9,
+  // ── wired 2026-08-10 by M-wave 2 W-E2E (BL-RIGHTNOW-SECTION57-FIXTURE-INERT +
+  // BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER) ────────────────────────
+  // 3 = the §5.7 anchor pair (Day-1 anchor, midnight rollover) + the restricted-
+  // viewer recovery case, desktop-chromium ALONE (the picker-bootstrap __Host-
+  // envelope is dark on WebKit over plain http — the spec header records the
+  // measured failure). Derived from the 2026-08-10 local run's report: 3 passing
+  // unique spec ids under desktop-chromium.
+  "right-now-transitions.spec.ts": 3,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry

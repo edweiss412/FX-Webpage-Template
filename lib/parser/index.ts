@@ -27,7 +27,9 @@ import { parseVenue } from "./blocks/venue";
 import { parseDates } from "./blocks/dates";
 import { parseCrew } from "./blocks/crew";
 import { normalizeSectionHeaders } from "./sectionHeaderNormalize";
+import { normalizeLeadingColumn } from "./leadingColumnNormalize";
 import { detectRefErrorLiterals } from "./refErrorDetector";
+import { detectFusedRows } from "./rowWidthDiscriminator";
 import { parseTravelFlights } from "./blocks/travelFlights";
 import { parseHotels } from "./blocks/hotels";
 import { parseRooms } from "./blocks/rooms";
@@ -614,10 +616,20 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   markdown = secNorm.corrected;
   agg.warnings.push(...secNorm.warnings);
 
+  // Step 2.55: Auto-correct a uniformly-empty leading column (spec §6) — a whole section
+  // drag-shifted one column right on export. MUST run before Step 2.6: its scanners read
+  // section-opening labels and section width, and a still-shifted section would hand them
+  // a wrong first column and a wrong width, which is exactly the input that would make
+  // ROW_CELLS_FUSED misfire.
+  const colNorm = normalizeLeadingColumn(markdown);
+  markdown = colNorm.corrected;
+  agg.warnings.push(...colNorm.warnings);
+
   // Step 2.6: Whole-document cell scanners (spec §4). POST-SEAM by design — they read
   // section-opening labels to anchor their warnings, so they must see the NORMALIZED
   // headers a typo'd sheet would otherwise hide from them.
   agg.warnings.push(...detectRefErrorLiterals(markdown));
+  agg.warnings.push(...detectFusedRows(markdown));
 
   // Step 3: Call each block parser.
   const { client_label, client_contact } = parseClient(markdown, version, agg);

@@ -3,6 +3,8 @@
 // Copy strings are the spec §4.2 table, byte-for-byte - the frozen enforcement arm of the canonical table.
 export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
   "REF_ERROR_LITERAL",
+  "ROW_CELLS_FUSED",
+  "LEADING_COLUMN_AUTOCORRECTED",
   "AGENDA_BLOCK_UNRESOLVED",
   "AGENDA_DAY_AMBIGUOUS",
   "AGENDA_DAY_EMPTIED",
@@ -69,6 +71,8 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
   FIELD_LABEL_AUTOCORRECTED: "Appears when a row label is a letter or two off a standard label.",
   FIELD_UNREADABLE:
     "Appears when a crew phone or email cell can't work as a real phone number or email address.",
+  LEADING_COLUMN_AUTOCORRECTED:
+    "Appears when every row of a sheet section, including its header, starts with an empty column.",
   HOTEL_CARDINALITY_EXCEEDED: "Appears when the sheet has more than four hotel blocks.",
   HOTEL_ADDRESS_SPLIT_AMBIGUOUS:
     "Appears when a hotel line's name and street address may not have been separated correctly.",
@@ -84,6 +88,8 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
     "Appears when a room line mixes its name and dimensions in an unusual order.",
   REF_ERROR_LITERAL:
     "Appears when any cell in the sheet contains the text '#REF!', including a cell that mixes it with other text.",
+  ROW_CELLS_FUSED:
+    "Appears when a row in a section is exactly one cell short of the width its neighboring rows share.",
   SCHEDULE_STRIKE_DATE_OFF_SCHEDULE:
     "Appears when a Strike Time's date isn't one of the show's days.",
   SCHEDULE_TIME_UNPARSED: "Appears when a TIME cell doesn't begin with a readable time.",
@@ -181,6 +187,8 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
     "A reservation on a shared hotel line may be under the wrong hotel. Check it against your sheet. This cannot be fixed in the app: move the bookings into the sheet's HOTEL table, one booking per RESERVATION column, and the next sync will pick it up.",
   HOTEL_INLINE_GROUP_OWN_HOTEL:
     "One hotel line seems to book more than one hotel, so this reservation was given its own hotel instead of the line's first one. Check its hotel name, address, guests, and dates against your sheet. To avoid this, move the bookings into the sheet's HOTEL table, one booking per RESERVATION column.",
+  LEADING_COLUMN_AUTOCORRECTED:
+    "Every row in a section started with an empty column, so we read it one column to the left instead. Update the sheet if the empty column was intentional.",
   ORPHANED_CREW_ROWS:
     "Rows that look like crew assignments are not attached to a crew section header, so they were not read as crew. A blank row may have been added in the middle of the crew section. Check the crew section in the sheet and remove the stray blank row.",
   PULL_SHEET_AMBIGUOUS_FORMAT:
@@ -201,6 +209,8 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
     "A room's Strike Time is dated on a day outside the show's schedule, so it won't appear on crew schedules. Fix that cell's date to a show day.",
   REF_ERROR_LITERAL:
     "A cell here reads '#REF!' instead of a real value. That is what Sheets leaves behind when the cell a formula pointed at was deleted.",
+  ROW_CELLS_FUSED:
+    "A row here has one fewer column than the rows around it. That is what a merged cell looks like once the sheet is exported, and it can push values under the wrong headings.",
   SCHEDULE_TIME_UNPARSED:
     "One show day's TIME cell wasn't readable as a start time, so that day shows the standard schedule. Give it a clear start like '7:15am - Registration'.",
   SECTION_HEADER_AUTOCORRECTED:

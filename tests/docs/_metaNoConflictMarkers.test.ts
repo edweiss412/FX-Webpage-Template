@@ -47,6 +47,26 @@ const BINARY_EXTENSIONS = new Set([
 /** A marker only counts at line start — prose may legitimately quote one. */
 const MARKER_RE = /^(?:<{7}|={7}|>{7})(?:\s|$)/;
 
+/**
+ * The same marker AFTER a markdown formatter has been over it.
+ *
+ * Prettier reads `>>>>>>> origin/main` as a seven-deep blockquote and rewrites
+ * it as `> > > > > > > origin/main`. The document is still corrupt — a merge
+ * arm nobody resolved — but the contiguous form above no longer matches, so the
+ * guard reports clean. That is not hypothetical: this repo carried exactly one
+ * such line in `BACKLOG-archive.md`, and it survived every ledger assertion AND
+ * this guard until a cross-model reviewer read the file by eye.
+ *
+ * Only the `>` arm needs this. `<<<<<<<` and `=======` are not blockquote or
+ * heading syntax, so a formatter leaves them contiguous.
+ */
+const MANGLED_MARKER_RE = /^(?:>\s){6}>(?:\s|$)/;
+
+/** True when `line` is a conflict marker in either the raw or formatted shape. */
+export function looksLikeConflictMarker(line: string): boolean {
+  return MARKER_RE.test(line) || MANGLED_MARKER_RE.test(line);
+}
+
 function trackedTextFiles(): string[] {
   const out = execFileSync("git", ["ls-files", "-z"], {
     cwd: REPO_ROOT,
@@ -76,14 +96,40 @@ describe("no leftover merge-conflict markers", () => {
       } catch {
         continue; // submodule, symlink, or deleted-but-tracked: not our subject
       }
-      if (!body.includes("<<<<<<<") && !body.includes(">>>>>>>") && !body.includes("=======")) {
+      // The cheap pre-filter has to admit the mangled shape too, or the very
+      // line this guard was extended for is skipped before it is ever tested.
+      if (
+        !body.includes("<<<<<<<") &&
+        !body.includes(">>>>>>>") &&
+        !body.includes("=======") &&
+        !body.includes("> > > > > > >")
+      ) {
         continue;
       }
       body.split("\n").forEach((line, index) => {
-        if (MARKER_RE.test(line)) offenders.push(`${rel}:${index + 1}: ${line.slice(0, 40)}`);
+        if (looksLikeConflictMarker(line))
+          offenders.push(`${rel}:${index + 1}: ${line.slice(0, 40)}`);
       });
     }
 
     expect(offenders, `leftover conflict markers:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  it("recognises a marker a markdown formatter has re-spaced", () => {
+    // The walk above passes once the repo is clean, so it cannot show that the
+    // MANGLED shape is recognised at all. This is the discriminating half.
+    expect(looksLikeConflictMarker(">>>>>>> origin/main")).toBe(true);
+    expect(looksLikeConflictMarker("> > > > > > > origin/main")).toBe(true);
+    expect(looksLikeConflictMarker("<<<<<<< HEAD")).toBe(true);
+    expect(looksLikeConflictMarker("=======")).toBe(true);
+  });
+
+  it("does not fire on ordinary blockquotes or on prose that quotes a marker", () => {
+    // Seven levels is the marker; six is a (preposterous but legal) blockquote,
+    // and a marker quoted mid-line is prose — this file's own docblock does it.
+    expect(looksLikeConflictMarker("> > > > > > quoted six deep")).toBe(false);
+    expect(looksLikeConflictMarker("> quoted")).toBe(false);
+    expect(looksLikeConflictMarker("the marker `>>>>>>>` appears mid-sentence")).toBe(false);
+    expect(looksLikeConflictMarker(">>>>>>>>")).toBe(false);
   });
 });

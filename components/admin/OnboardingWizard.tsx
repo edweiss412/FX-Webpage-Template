@@ -171,8 +171,10 @@ export function StepIndicator({
   // The 44px TAP TARGET a reachable pill exposes (spec 2026-08-07-step3-a11y-cluster
   // §2.2). The painted 28px pill moves to an inner <span> and this anchor becomes
   // the hit box; `-m-2` cancels the growth exactly, so the pill's margin box stays
-  // 28×28 and the stepper's layout is untouched — required, not incidental, because
-  // the connectors measure 0px wide at 320 and 390 (probe P3) and there is no slack.
+  // 28×28 and the stepper's layout is untouched — required, not incidental. The
+  // original reason was that the connectors measured 0px (probe P3), leaving no
+  // slack; they are a fixed 60px now, and the reason is stronger: the pill is
+  // `shrink-0`, so it is out of flex distribution entirely.
   //
   // `group` is mandatory, not stylistic: the visual span's hover utilities are
   // rewritten `group-hover:*`, which Tailwind emits as `:is(:where(.group):hover *)`.
@@ -192,7 +194,25 @@ export function StepIndicator({
     <nav
       aria-label="Onboarding progress"
       data-testid="wizard-step-indicator"
-      className="flex items-center gap-2 sm:gap-3"
+      // CONTENT WIDTH, and that is the measured answer rather than the original
+      // one. Stretching this nav (`flex-1 min-w-0`) did make the connectors
+      // render — they had been 0px since the wizard shipped, because a
+      // content-sized flex parent has no free space for a `flex-1` child — but
+      // measurement showed the connectors land at EXACTLY 60px in all twelve
+      // step x viewport x theme cells, so the stretch grew nothing and the
+      // leftover collected as trailing dead space: 16-80px at 390px, 258px at
+      // 900px, with the rail's width jumping between steps 2 and 3 as the page
+      // container's max-width changed. Sizing the connector directly (below)
+      // renders identically with none of that.
+      //
+      // `min-w-0` STAYS, and dropping it was a regression CI caught that no
+      // local run did: a flex item's default `min-width: auto` floors it at
+      // content width, so a content-sized nav carrying two FIXED 60px
+      // connectors could no longer shrink to fit a narrow container and
+      // overflowed it (step3-review-page.layout.spec.ts:216, `navScrollW <=
+      // contClientW`). Removing `flex-1` was right; removing `min-w-0` with it
+      // was not — the two do different jobs, and only the growth was inert.
+      className="flex min-w-0 items-center gap-2 sm:gap-3"
     >
       {([1, 2, 3] as const).map((n) => {
         const isActive = n === step;
@@ -268,9 +288,27 @@ export function StepIndicator({
               <span
                 data-testid="wizard-step-connector"
                 aria-hidden="true"
+                // WIDTH IS SET DIRECTLY, not competed for. `flex-1` +
+                // `max-w-confirm-box` resolved to the same 60px in every
+                // measured case, so the cap was doing all the work and the
+                // flex-grow only shifted dead space around (see the <nav>).
+                //
+                // COLOURS ARE TEXT TOKENS, not border tokens, and that is a
+                // contrast fix rather than a taste change. Measured against the
+                // page in a real browser: `border` read 1.22:1 and
+                // `border-strong` 1.52:1 — a 1px line nobody can see — and the
+                // two differed from EACH OTHER by 1.25:1, so the done/ahead
+                // state the branch encodes was not perceivable either. Border
+                // tokens are sized for a hairline BESIDE a filled surface;
+                // this line sits alone on the page and needs text-grade
+                // contrast. `text-faint` clears the 3:1 non-text floor (3.16:1
+                // light, 4.22:1 dark) and `text-subtle` doubles it (6.5:1,
+                // 6.8:1), so the completed run reads heavier at a glance.
+                // State is still never colour-ALONE: the done pill carries a
+                // Check glyph (§1 colour-blind floor).
                 className={cn(
-                  "h-px max-w-confirm-box flex-1 rounded-full",
-                  isDone ? "bg-border-strong" : "bg-border",
+                  "h-px w-confirm-box rounded-full",
+                  isDone ? "bg-text-subtle" : "bg-text-faint",
                 )}
               />
             ) : null}

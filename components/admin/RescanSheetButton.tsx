@@ -34,6 +34,7 @@ import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { cn } from "@/lib/ui/cn";
+import { SECONDARY_ACTION_CLASS } from "@/lib/ui/actionClass";
 
 export type RescanSheetButtonProps = {
   driveFileId: string;
@@ -161,10 +162,17 @@ export function RescanSheetButton({
   // Stacked tone classes are byte-pinned by the default-placement test (the two
   // Step3SheetCard call sites pass no prop); overlay appends the out-of-flow
   // positioning + card shadow + right padding so copy clears the dismiss button.
+  // No border on either tone. In the stacked placement this block renders INSIDE
+  // the row's own bordered card, and a bordered box inside a bordered box is the
+  // nested chrome of STEP3-GALLERY-TAP-TARGETS-1 item (d) — reachable only after
+  // a re-scan returns, which is why the first version of the row-slot guard,
+  // asserting on the initial render alone, could not see it (whole-diff review,
+  // brief B r1 F1). The tint carries the tone in both placements, and the
+  // overlay placement additionally carries `shadow-tile` for separation.
   const toneClass =
     result?.kind === "coded"
-      ? "flex flex-col gap-1 rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
-      : "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong";
+      ? "flex flex-col gap-1 rounded-sm bg-warning-bg p-3 text-sm text-warning-text"
+      : "rounded-sm bg-info-bg px-3 py-2 text-sm text-text-strong";
   // Mobile-safe anchoring (impeccable audit P1): below sm the wrapper is NOT
   // the positioning context (root drops `relative` via `sm:relative`), so the
   // overlay anchors `left-0` against the nearest positioned ancestor — the
@@ -174,7 +182,7 @@ export function RescanSheetButton({
   // footer branch (and `left-0` on the wrapper would mirror-clip the demoted
   // right-aligned branch). ≥sm restores today's wrapper-anchored `right-0`.
   const overlayClass = cn(
-    "absolute bottom-full left-0 sm:left-auto sm:right-0 mb-2 z-10 w-max max-w-[min(20rem,80vw)] shadow-tile pr-10",
+    "absolute bottom-full left-0 sm:left-auto sm:right-0 mb-2 z-raised w-max max-w-[min(20rem,80vw)] shadow-tile pr-10",
   );
 
   return (
@@ -190,7 +198,10 @@ export function RescanSheetButton({
         onClick={() => void handleClick()}
         disabled={pending || disabled}
         aria-busy={pending}
-        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        // The shared secondary-action treatment (lib/ui/actionClass.ts). This
+        // button's own class was the value promoted into that constant, so the
+        // rendered treatment is unchanged here; `self-start` is placement.
+        className={cn(SECONDARY_ACTION_CLASS, "self-start")}
       >
         {pending ? "Re-scanning…" : "Re-scan this sheet"}
       </button>
@@ -220,7 +231,7 @@ export function RescanSheetButton({
                 triggerRef.current?.focus();
                 setResult(null);
               }}
-              className="absolute -right-2 -top-2 inline-flex size-tap-min items-center justify-center rounded-pill text-text-subtle hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className="absolute -right-2 -top-2 inline-flex size-tap-min items-center justify-center rounded-pill text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             >
               <X aria-hidden="true" className="size-4" />
             </button>

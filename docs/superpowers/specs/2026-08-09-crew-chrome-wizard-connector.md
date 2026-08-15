@@ -103,6 +103,29 @@ The menu is the arc's one multi-state component; footer band states swap instant
 
 ## §3 Wizard step connector — render the hairline
 
+> **AMENDED 2026-08-10, owner-ratified, after measurement.** This section as
+> originally written mandated a stretched nav (`flex-1 min-w-0`), a connector of
+> `h-px max-w-confirm-box flex-1`, border-ramp state colours, and a `>0 ∧ ≤60`
+> band. All four were implemented, measured, and then changed. The spec is
+> canonical (invariant 7), so what shipped is recorded HERE rather than left to
+> contradict the code:
+>
+> - **Fixed width, content-width nav.** The connectors measured EXACTLY 60.00px
+>   in all twelve step × viewport × theme cells, so `flex-1` grew nothing and
+>   only displaced trailing dead space (16-80px at 390px, 257.77px at 900px
+>   step 3), with the rail resizing between steps 2 and 3 as the page container
+>   changed. Shipped: connector `w-confirm-box`, nav content-width.
+> - **Text-ramp colours, not border-ramp.** As a standalone 1px rule on the page,
+>   `--color-border` measured 1.22:1 (light) / 1.35:1 (dark) and
+>   `--color-border-strong` 1.52:1 / 1.70:1 — all under the 3:1 non-text floor —
+>   and the two differed from EACH OTHER by 1.25:1, so the done/ahead state was
+>   not perceivable. Shipped: `text-faint` ahead (3.16:1 / 4.22:1), `text-subtle`
+>   done (6.5:1 / 6.8:1). The rule is generalized in DESIGN.md §1.2a.
+> - **Equality, not a band.** A fixed contract is asserted as `width === 60`; the
+>   band admitted a `max-w-8` mutant rendering done connectors at 32px.
+> - **AC-U5 is superseded by AC-U5a below.**
+
+
 `components/admin/OnboardingWizard.tsx` `StepIndicator` renders the connector (`wizard-step-connector`, :260) as `h-px max-w-confirm-box flex-1 rounded-full` with `bg-border`/`bg-border-strong` state colors already coded — it computes to 0×1 because the `<nav>` (:190-193, `flex items-center gap-2 sm:gap-3`) is a content-sized flex item inside a `justify-between` row (the entry's probe: 0×1 at 390px AND 900px).
 
 **Fix:** the `justify-between gap-3` wrapper holds `<StepIndicator>` as its ONLY child (probed 2026-08-09, `components/admin/OnboardingWizard.tsx` :738-740 — `justify-between` is currently inert; there is no sibling, contra the entry's framing — R1 F8). The nav takes `flex-1 min-w-0`; its connectors' `flex-1` then distributes real free space; `max-w-confirm-box` clamps each at 60px (`--spacing-confirm-box: 60px`, `app/globals.css` :186). Existing state colors (done `bg-border-strong`, ahead `bg-border`) ship as-is — they were coded for exactly this render.
@@ -131,7 +154,8 @@ The menu is the arc's one multi-state component; footer band states swap instant
 - **AC-U2:** constructed short page: under 720px the footer anchors at `viewport.bottom − clearance` (within 0.5px) with `footer.bottom ≤ bar.top`; at ≥720px it anchors at `viewport.bottom` (entry's 501.5px dead-space case renders anchored in both regimes).
 - **AC-U3:** footer band renders the three freshness states in the single-row [wrapping text cell][icon] structure; the longest catalog stale string at 390px produces no horizontal overflow, no cell/icon overlap, 44px icon floor intact (real-browser oracle); accessible name `Something looks wrong?`; modal opens unchanged.
 - **AC-U4:** ThemeToggle absent from Footer at all widths; avatar menu delivers theme switch + person switch with the full a11y contract (roles, Escape, focus return, 44px items); identity-less pages keep a reachable standalone toggle; admin nav untouched.
-- **AC-U5:** wizard connectors measure >0 and ≤60px wide at `?step=1` AND `?step=3`, each at 390px and 900px; state colors render; the numeric rect baseline updates through its native path; the tripwire comment plus the three rationale-rot sites (§3 consequences) all describe the rendered state.
+- **AC-U5 (SUPERSEDED 2026-08-10 by AC-U5a):** wizard connectors measure >0 and ≤60px wide at `?step=1` AND `?step=3`, each at 390px and 900px; state colors render; the numeric rect baseline updates through its native path; the tripwire comment plus the three rationale-rot sites (§3 consequences) all describe the rendered state.
+- **AC-U5a:** wizard connectors measure EXACTLY 60px × 1px at `?step=1`, `?step=2` AND `?step=3`, each at 390px and 900px. The done/ahead state renders as distinct tokens (`text-subtle` vs `text-faint`), and EACH connector clears the 3:1 non-text contrast floor against what is actually behind it — measured on the composited colour, including effective opacity, at every step in BOTH themes. The numeric rect baseline updates through its native path, and every rationale site describes the rendered state.
 - **AC-U6:** impeccable critique + audit pass per branch (P0/P1 fixed or DEFERRED.md-dispositioned); full suite + typecheck + lint + format + real CI green; three archives land with markers stripped (invariant 12).
 
 impeccable-gate: run — both branches are UI surfaces (crew chrome; admin wizard step indicator)

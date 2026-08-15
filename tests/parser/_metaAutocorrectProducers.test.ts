@@ -62,8 +62,8 @@ function discoverSites(): Site[] {
 describe("_metaAutocorrectProducers", () => {
   const sites = discoverSites();
 
-  it("discovers exactly 13 producer sites", () => {
-    expect(sites).toHaveLength(13);
+  it("discovers exactly 14 producer sites", () => {
+    expect(sites).toHaveLength(14);
   });
 
   it("every producer populates autocorrect", () => {
@@ -74,7 +74,7 @@ describe("_metaAutocorrectProducers", () => {
     ).toEqual([]);
   });
 
-  it("the 13 sites cover the five codes with the expected multiplicity", () => {
+  it("the 14 sites cover the six codes with the expected multiplicity", () => {
     const counts: Record<string, number> = {};
     for (const s of sites) counts[s.code] = (counts[s.code] ?? 0) + 1;
     expect(counts).toEqual({
@@ -83,10 +83,11 @@ describe("_metaAutocorrectProducers", () => {
       SECTION_HEADER_AUTOCORRECTED: 1,
       COLUMN_HEADER_AUTOCORRECTED: 2,
       FIELD_LABEL_AUTOCORRECTED: 8,
+      LEADING_COLUMN_AUTOCORRECTED: 1,
     });
   });
 
-  it("CREW_SCOPED_WARNING_CODES is exactly the two crew-scoped codes and a subset of the five", () => {
+  it("CREW_SCOPED_WARNING_CODES is exactly the two crew-scoped codes and a subset of the six", () => {
     expect([...CREW_SCOPED_WARNING_CODES].sort()).toEqual([
       "ROLE_TOKEN_AUTOCORRECTED",
       "STAGE_WORD_AUTOCORRECTED",

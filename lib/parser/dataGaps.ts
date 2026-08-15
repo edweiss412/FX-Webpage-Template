@@ -23,14 +23,15 @@ import type { ParseWarning } from "@/lib/parser/types";
  * didn't land / couldn't be resolved" with its PLAIN-LANGUAGE label (invariant 5 —
  * never the raw code). Ordered: this array drives set membership, the `GapCode`
  * union, the labels map, AND the `dataGapClassDetails` / `formatDataGapBreakdown`
- * display order. Curated allow-list (NOT "all warn-severity" — five autocorrect
+ * display order. Curated allow-list (NOT "all warn-severity" — six autocorrect
  * codes are warn yet benign); see the spec's §2 for the verified taxonomy and the
  * drift-guard meta-test (tests/parser/dataGapsClassCompleteness.test.ts) that pins
- * the full 57-code persisted-ParseWarning partition.
+ * the full 60-code persisted-ParseWarning partition.
  */
 export const GAP_CLASSES = [
   { code: "FIELD_UNREADABLE", label: "unreadable field" },
   { code: "REF_ERROR_LITERAL", label: "broken reference in sheet" },
+  { code: "ROW_CELLS_FUSED", label: "merged cell" },
   { code: "UNKNOWN_SECTION_HEADER", label: "unknown section" },
   { code: "ORPHANED_CREW_ROWS", label: "cut-off crew rows" },
   { code: "BLOCK_DISAPPEARED", label: "removed section" },
@@ -129,12 +130,12 @@ export function isDataQualityWarning(w: ParseWarning | null | undefined): boolea
 }
 
 /**
- * AUTO_FIX_CLASSES — the five benign `*_AUTOCORRECTED` warn codes the parser
+ * AUTO_FIX_CLASSES — the six benign `*_AUTOCORRECTED` warn codes the parser
  * emits when it corrected a value (stage word, role token, column/section
- * header, field label). Semantically POSITIVE ("we fixed it") — surfaced as a
- * neutral sibling count, NOT a data gap, so it is deliberately NOT in
- * GAP_CLASSES and does not feed summarizeDataGaps / the regression gate. Plain
- * labels (invariant 5). Scope is the five autocorrects only (spec §1 / audit
+ * header, field label, leading column). Semantically POSITIVE ("we fixed it") —
+ * surfaced as a neutral sibling count, NOT a data gap, so it is deliberately NOT
+ * in GAP_CLASSES and does not feed summarizeDataGaps / the regression gate. Plain
+ * labels (invariant 5). Scope is the six autocorrects only (spec §1 / audit
  * §6.3); the two agenda benign-warn codes are a documented follow-on.
  */
 export const AUTO_FIX_CLASSES = [
@@ -143,6 +144,7 @@ export const AUTO_FIX_CLASSES = [
   { code: "COLUMN_HEADER_AUTOCORRECTED", label: "corrected column header" },
   { code: "SECTION_HEADER_AUTOCORRECTED", label: "corrected section header" },
   { code: "FIELD_LABEL_AUTOCORRECTED", label: "corrected field label" },
+  { code: "LEADING_COLUMN_AUTOCORRECTED", label: "corrected leading column" },
 ] as const;
 
 export type AutoFixCode = (typeof AUTO_FIX_CLASSES)[number]["code"];
@@ -153,7 +155,7 @@ const zeroAutoFix = (): Record<AutoFixCode, number> =>
   Object.fromEntries(AUTO_FIX_CLASSES.map((c) => [c.code, 0])) as Record<AutoFixCode, number>;
 
 /**
- * Count the five autocorrect classes in `warnings`. Skips `severity:"info"`
+ * Count the six autocorrect classes in `warnings`. Skips `severity:"info"`
  * (defensive — these are all `warn`) and any non-autocorrect code.
  * `null`/`undefined`/`[]` → `{ total: 0 }`. Same fail-safe posture as
  * summarizeDataGaps; sibling type so the ~8 exact-`toEqual` DataGapsSummary
@@ -403,6 +405,7 @@ export function formatDataGapBreakdown(summary: DataGapsSummary, cap = 4): strin
  */
 export const OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> = new Set([
   "REF_ERROR_LITERAL",
+  "ROW_CELLS_FUSED",
   "SCHEDULE_TIME_UNPARSED",
   "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
   "UNKNOWN_ROLE_TOKEN",
@@ -414,6 +417,7 @@ export const OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> = new Set([
   "COLUMN_HEADER_AUTOCORRECTED",
   "SECTION_HEADER_AUTOCORRECTED",
   "FIELD_LABEL_AUTOCORRECTED",
+  "LEADING_COLUMN_AUTOCORRECTED",
   "AGENDA_GRID_MALFORMED",
   "AGENDA_BLOCK_UNRESOLVED",
   "AGENDA_DAY_AMBIGUOUS",

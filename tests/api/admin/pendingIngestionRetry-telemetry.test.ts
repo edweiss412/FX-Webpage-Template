@@ -7,6 +7,7 @@ import type {
 } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
 import { handleLivePendingIngestionRetry } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
 import { premiseHolds } from "@/tests/_shared/premise";
+import { readyPrepared } from "@/tests/_shared/preparedProcessOneFile";
 
 // P1 dark-path telemetry — the live pending-ingestion RETRY handler previously had NO
 // try/catch around the risky region (readDriveFileIdForPendingIngestion → withRowTryLock +
@@ -239,6 +240,10 @@ describe("live pending-ingestion retry: diagram variant failure telemetry", () =
       })),
       runManualSyncForShowUnlocked,
       readFinalizeOwnershipGuardUnlocked: vi.fn(async () => false),
+      // Census class d (spec 2026-08-14 §5): stubbed so the route does not run REAL preparation
+      // (Drive I/O) ahead of the runner double.
+      prepareProcessOneFile: vi.fn(async () => readyPrepared()),
+      logSyncSink: vi.fn(async () => {}),
     } as unknown as LivePendingIngestionRouteDeps;
 
     const response = await handleLivePendingIngestionRetry(

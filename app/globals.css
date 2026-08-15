@@ -16,6 +16,14 @@
 @source not "../docs";
 @source not "../tests";
 @source not "../lib";
+/* Root markdown — the ledgers, README, AGENTS.md and friends. Prose is not a
+   class list, but Tailwind's extractor cannot tell the difference: it reads raw
+   text and treats any candidate-shaped token as a candidate. A BACKLOG entry
+   discussing `z-40` was therefore emitting a real `.z-40` rule into the shipped
+   bundle for a class no element wears. Measured 2026-08-10, when the band guard
+   started reading the COMPILED stylesheet and found seven such rules, all
+   sourced from `BACKLOG-archive.md` and `DEFERRED-archive.md`. */
+@source not "../*.md";
 /* admin dev surface — the dev PANEL + dim harnesses are disabled in production
    builds (ADMIN_DEV_PANEL_ENABLED), so exclude ONLY those dev-only route dirs
    from Tailwind scanning. NOT the whole `app/admin/dev` tree: `/admin/dev/telemetry`
@@ -41,6 +49,22 @@
  */
 
 @theme {
+  /* Semantic z-index bands (BL-ADMIN-SEMANTIC-Z-INDEX-SCALE, M-wave 2 §2.6).
+   * One token per live numeral at sweep time — name substitution, zero
+   * stacking change. The band guard (tests/styles/_metaZIndexBands.test.ts)
+   * fails any NEW raw numeral in either idiom, so the scale stays semantic.
+   * raised: lifted in-flow chrome (rails, chips)      · dropdown: anchored menus
+   * nav: sticky nav chrome                            · banner: page banners
+   * overlay: modals/popovers/sheets                   · dev-controls: dev-only strip
+   * sticky-banner: the preview banner, above all admin chrome. */
+  --z-index-raised: 10;
+  --z-index-dropdown: 20;
+  --z-index-nav: 30;
+  --z-index-banner: 40;
+  --z-index-overlay: 50;
+  --z-index-dev-controls: 60;
+  --z-index-sticky-banner: 100;
+
   /* ── Color tokens (Tailwind utility names: bg-bg, text-text, etc.) ── */
   /* These resolve to CSS variables so a single :root → [data-theme="dark"] swap re-themes the page. */
   --color-bg: var(--color-bg-runtime);

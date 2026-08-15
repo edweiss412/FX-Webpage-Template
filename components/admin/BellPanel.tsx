@@ -197,7 +197,7 @@ function OccurrenceChip({ occurrences, alertId }: { occurrences: number; alertId
       <span aria-hidden="true">{occurrences}</span>
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-surface px-2 py-1 text-[11.5px] font-medium text-text opacity-0 shadow-popover transition-opacity duration-fast group-hover/occ:opacity-100 motion-reduce:transition-none"
+        className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-dropdown -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-surface px-2 py-1 text-[11.5px] font-medium text-text opacity-0 shadow-popover transition-opacity duration-fast group-hover/occ:opacity-100 motion-reduce:transition-none"
       >
         {label}
       </span>
@@ -1257,7 +1257,7 @@ export function BellPanel({
         aria-hidden="true"
         data-testid="bell-panel-backdrop"
         onClick={onClose}
-        className="fixed inset-0 z-40 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] sm:animate-none sm:bg-transparent"
+        className="fixed inset-0 z-banner bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] sm:animate-none sm:bg-transparent"
       />
       <div
         ref={containerRef}
@@ -1265,7 +1265,7 @@ export function BellPanel({
         aria-modal="true"
         aria-labelledby="bell-panel-heading"
         data-testid="bell-panel"
-        className="fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-[420px] rounded-t-lg bg-surface text-text shadow-popover motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-[calc(100%+10px)] sm:mx-0 sm:w-[420px] sm:rounded-lg sm:border sm:border-border sm:origin-top-right sm:motion-safe:animate-[bell-pop-in_var(--duration-normal)_var(--ease-out-quart)]"
+        className="fixed inset-x-0 bottom-0 z-overlay mx-auto w-full max-w-[420px] rounded-t-lg bg-surface text-text shadow-popover motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-[calc(100%+10px)] sm:mx-0 sm:w-[420px] sm:rounded-lg sm:border sm:border-border sm:origin-top-right sm:motion-safe:animate-[bell-pop-in_var(--duration-normal)_var(--ease-out-quart)]"
       >
         {/* Desktop caret pointing up at the bell (DI-9); hidden on mobile. */}
         <span
@@ -1308,7 +1308,7 @@ export function BellPanel({
               onClick={onClose}
               aria-label="Close"
               data-testid="bell-panel-close"
-              className="-mr-1 inline-flex size-tap-min items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              className="-mr-1 inline-flex size-tap-min items-center justify-center rounded-sm text-text transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
               <span aria-hidden="true" className="text-xl leading-none">
                 ×

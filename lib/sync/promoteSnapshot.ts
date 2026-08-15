@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { log } from "@/lib/log";
 import { withPromoteLock } from "@/lib/sync/lockedPromoteTx";
 import { withShowLock } from "@/lib/sync/lockedShowTx";
 
@@ -22,11 +23,22 @@ export type PromoteSnapshotStorage = {
   removePrefix?(prefix: string): Promise<void>;
 };
 
+/** Bounded name diagnostics on a comparison-derived `manifest_mismatch`
+ *  (spec §4.3). Absent on the rollback-failure and lock-skipped mismatches —
+ *  no comparison ran there. */
+export type PromoteManifestDeltas = {
+  missing: string[];
+  extra: string[];
+  duplicated: string[];
+  mispathed: string[];
+  truncated: boolean;
+};
+
 export type PromoteSnapshotResult =
   | { outcome: "promoted"; snapshotRevisionId: string }
   | { outcome: "already_promoted"; snapshotRevisionId: string }
   | { outcome: "not_found" }
-  | { outcome: "manifest_mismatch"; snapshotRevisionId: string }
+  | { outcome: "manifest_mismatch"; snapshotRevisionId: string; deltas?: PromoteManifestDeltas }
   | { outcome: "no_pending_payload"; snapshotRevisionId: string };
 
 export type PromoteSnapshotDeps = {
@@ -49,40 +61,58 @@ function databaseUrl(): string {
 }
 
 /**
- * Expected object count for a pending snapshot: every entry with a non-null
- * `snapshotPath`, PLUS its listed variants (spec §3 promotion change (a)).
+ * Required object names for a pending snapshot
+ * (spec docs/superpowers/specs/2026-08-10-promote-identity-validation.md §4.1):
+ * for every entry with a non-null `snapshotPath`, one `kind='original'` row
+ * carrying the FULL `snapshotPath` (path binding applies to every original) plus
+ * one `kind='variant'` row per listed variant key (variant keys ARE storage
+ * basenames by construction — lib/sync/diagramVariants.ts).
  *
- * Exported because the mocked `showTx.queryOne` seam in the unit suite returns a
- * canned count for ANY `jsonb_array_elements` SQL — SQL semantics are untestable
- * through it, so the real-DB suite evaluates THIS text against Postgres. A copy
- * of the query in the test would prove only that two copies agree.
+ * Exported because the mocked show-tx seam in the unit suite returns canned rows
+ * for ANY `jsonb_array_elements` SQL — SQL semantics are untestable through it,
+ * so the real-DB suite evaluates THIS text against Postgres. A copy of the query
+ * in the test would prove only that two copies agree.
  *
- * Integrity semantics are unchanged: a missing or extra object still mismatches,
- * now against the variant-inclusive count.
+ * One row per required name, multiplicities preserved (`union all`, no
+ * distinct): the `duplicated` delta class is computed from repeated rows. A
+ * non-array `variants` value contributes zero names instead of throwing, so the
+ * typed mismatch signal is still produced for malformed manifests.
  */
-export const EXPECTED_ASSET_COUNT_SQL = `
-        select (
-          select coalesce(sum(
-                   1 + jsonb_array_length(
-                         case when jsonb_typeof(e->'variants') = 'array'
-                              then e->'variants' else '[]'::jsonb end)
-                 ), 0)::int
+export const EXPECTED_ASSET_NAMES_SQL = `
+        select kind, name from (
+          select 'original' as kind, e->>'snapshotPath' as name
             from public.shows s,
                  jsonb_array_elements(coalesce(s.diagrams->'pending'->'embeddedImages', '[]'::jsonb)) e
            where s.id = $1::uuid
              and e->>'snapshotPath' is not null
-        ) + (
-          select coalesce(sum(
-                   1 + jsonb_array_length(
-                         case when jsonb_typeof(l->'variants') = 'array'
-                              then l->'variants' else '[]'::jsonb end)
-                 ), 0)::int
+          union all
+          select 'variant' as kind, v->>'key' as name
+            from public.shows s,
+                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'embeddedImages', '[]'::jsonb)) e,
+                 jsonb_array_elements(
+                   case when jsonb_typeof(e->'variants') = 'array'
+                        then e->'variants' else '[]'::jsonb end) v
+           where s.id = $1::uuid
+             and e->>'snapshotPath' is not null
+          union all
+          select 'original' as kind, l->>'snapshotPath' as name
             from public.shows s,
                  jsonb_array_elements(coalesce(s.diagrams->'pending'->'linkedFolderItems', '[]'::jsonb)) l
            where s.id = $1::uuid
              and l->>'snapshotPath' is not null
-        ) as count
+          union all
+          select 'variant' as kind, v->>'key' as name
+            from public.shows s,
+                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'linkedFolderItems', '[]'::jsonb)) l,
+                 jsonb_array_elements(
+                   case when jsonb_typeof(l->'variants') = 'array'
+                        then l->'variants' else '[]'::jsonb end) v
+           where s.id = $1::uuid
+             and l->>'snapshotPath' is not null
+        ) required_names
       `;
+
+export type ExpectedAssetNameRow = { kind: "original" | "variant"; name: string };
 
 function canonicalPrefix(showId: string, snapshotRevisionId: string): string {
   return `diagram-snapshots/shows/${showId}/${snapshotRevisionId}/`;
@@ -90,6 +120,55 @@ function canonicalPrefix(showId: string, snapshotRevisionId: string): string {
 
 function basename(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/** Each delta list is bounded to this many names — diagnostics, not a dump. */
+const DELTA_NAME_BOUND = 10;
+
+function boundedDeltas(lists: {
+  missing: string[];
+  extra: string[];
+  duplicated: string[];
+  mispathed: string[];
+}): PromoteManifestDeltas {
+  const truncated = Object.values(lists).some((names) => names.length > DELTA_NAME_BOUND);
+  const bound = (names: string[]): string[] => [...names].sort().slice(0, DELTA_NAME_BOUND);
+  return {
+    missing: bound(lists.missing),
+    extra: bound(lists.extra),
+    duplicated: bound(lists.duplicated),
+    mispathed: bound(lists.mispathed),
+    truncated,
+  };
+}
+
+/** The required-name view of the pending manifest (spec §4.2): basenames for the
+ *  set comparison, plus the `duplicated` class (two manifest entries claiming one
+ *  basename — unsatisfiable as a set, its own named failure, never `missing`). */
+function requiredNameSet(rows: ExpectedAssetNameRow[]): {
+  requiredSet: Set<string>;
+  duplicated: string[];
+} {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const name = row.kind === "original" ? basename(row.name) : row.name;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return {
+    requiredSet: new Set(counts.keys()),
+    duplicated: [...counts.entries()].filter(([, count]) => count > 1).map(([name]) => name),
+  };
+}
+
+function listingDeltas(
+  requiredSet: Set<string>,
+  listedPaths: string[],
+): { missing: string[]; extra: string[] } {
+  const listedSet = new Set(listedPaths.map(basename));
+  return {
+    missing: [...requiredSet].filter((name) => !listedSet.has(name)),
+    extra: [...listedSet].filter((name) => !requiredSet.has(name)),
+  };
 }
 
 function storageErrorMessage(error: unknown): string {
@@ -291,16 +370,42 @@ export async function promoteSnapshotUpload(
       const promoted = await withShowLock(
         row.drive_file_id,
         async (tx) => {
-          const expected = await tx.queryOne<{ count: number }>(EXPECTED_ASSET_COUNT_SQL, [
+          const requiredRows = await tx.queryRows<ExpectedAssetNameRow>(EXPECTED_ASSET_NAMES_SQL, [
             row.show_id,
           ]);
 
           const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
-          const paths = await storage.list(row.temp_prefix);
-          const expectedAssetCount = expected.count;
-          if (paths.length !== expectedAssetCount) {
+
+          // Path binding BEFORE any listing comparison (spec §4.2): every
+          // original's dirname must equal this revision's canonical prefix —
+          // the asset route serves only complete canonical paths, so a
+          // stale-revision snapshotPath would pass a basename check, cut over,
+          // and 410 at serve time. A slash-less path is mispathed by
+          // definition. Variant keys are basenames by construction and take no
+          // path check.
+          const mispathed = requiredRows
+            .filter((required) => required.kind === "original")
+            .map((required) => required.name)
+            .filter((path) => path.slice(0, path.lastIndexOf("/") + 1) !== canonical);
+          if (mispathed.length > 0) {
             await clearRolledBack(row);
-            return { outcome: "manifest_mismatch", snapshotRevisionId };
+            return {
+              outcome: "manifest_mismatch",
+              snapshotRevisionId,
+              deltas: boundedDeltas({ missing: [], extra: [], duplicated: [], mispathed }),
+            };
+          }
+
+          const { requiredSet, duplicated } = requiredNameSet(requiredRows);
+          const paths = await storage.list(row.temp_prefix);
+          const preMove = listingDeltas(requiredSet, paths);
+          if (preMove.missing.length > 0 || preMove.extra.length > 0 || duplicated.length > 0) {
+            await clearRolledBack(row);
+            return {
+              outcome: "manifest_mismatch",
+              snapshotRevisionId,
+              deltas: boundedDeltas({ ...preMove, duplicated, mispathed: [] }),
+            };
           }
 
           const renamed: Array<{ from: string; to: string }> = [];
@@ -318,10 +423,15 @@ export async function promoteSnapshotUpload(
             }
 
             const canonicalPaths = await storage.list(canonical);
-            if (canonicalPaths.length !== expectedAssetCount) {
+            const postMove = listingDeltas(requiredSet, canonicalPaths);
+            if (postMove.missing.length > 0 || postMove.extra.length > 0) {
               await rollback();
               await clearRolledBack(row);
-              return { outcome: "manifest_mismatch", snapshotRevisionId };
+              return {
+                outcome: "manifest_mismatch",
+                snapshotRevisionId,
+                deltas: boundedDeltas({ ...postMove, duplicated, mispathed: [] }),
+              };
             }
 
             const cutover = await tx.queryOne<{ updated: boolean }>(
@@ -394,6 +504,36 @@ export async function promoteSnapshotUpload(
   // withPromoteLock resolves (the show-lock cutover tx committed), NEVER inside the lock.
   if (result.outcome === "promoted") {
     revalidateShow(initial.show_id);
+  }
+  // Invariant-10 code-carrying emit for this non-admin surface (spec §4.3): all
+  // three production callers discard resolved mismatches, so the one place every
+  // caller shares emits it — POST-COMMIT, after withPromoteLock resolved, outside
+  // the advisory lock. Only comparison-derived mismatches carry deltas; the
+  // rollback-failure branch keeps its own PENDING_SNAPSHOT_ROLLBACK_STUCK alert
+  // and the lock-skipped branch ran no comparison, so neither warns here.
+  // Basenames derive from embedded object IDs and Drive file IDs this pipeline
+  // already logs — not secrets, not user content.
+  if (result.outcome === "manifest_mismatch" && result.deltas) {
+    // Variant keys embed `@<width>` (`x.png@256.webp`), which the logger's
+    // email-redaction safety net (lib/log/sanitize.ts) would collapse to
+    // `[email-redacted]` — destroying exactly the name this warn exists to
+    // report. `[at]` is a reversible, documented encoding for the emit only;
+    // the returned result's deltas stay raw.
+    const redactionSafe = (names: string[]): string[] =>
+      names.map((name) => name.replaceAll("@", "[at]"));
+    void log.warn("snapshot promote manifest mismatch", {
+      source: "sync",
+      code: "SNAPSHOT_PROMOTE_MANIFEST_MISMATCH",
+      showId: initial.show_id,
+      snapshotRevisionId,
+      deltas: {
+        missing: redactionSafe(result.deltas.missing),
+        extra: redactionSafe(result.deltas.extra),
+        duplicated: redactionSafe(result.deltas.duplicated),
+        mispathed: redactionSafe(result.deltas.mispathed),
+        truncated: result.deltas.truncated,
+      },
+    });
   }
   return result;
 }

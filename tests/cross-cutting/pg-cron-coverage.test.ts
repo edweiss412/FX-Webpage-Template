@@ -44,6 +44,14 @@
  */
 
 import { describe, expect, test, beforeAll, afterAll } from "vitest";
+import {
+  assertCronDispatchOrigin,
+  firingSmokeSql,
+  GUC_PROBE_SQL,
+  gucFromSmokeOutput,
+  NO_OP_MUTANT_COMMAND,
+  queuedUrlsFromSmokeOutput,
+} from "./pgCronSmokes";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -152,6 +160,22 @@ function psql(query: string): string {
 }
 
 /**
+ * The dispatch-origin assertion, called by BOTH the census loop and the sabotage case
+ * below — one function, so the sabotage proves the thing the census actually runs rather
+ * than a parallel copy of it.
+ */
+function assertJobDispatchOrigin(
+  jobname: string,
+  queuedUrls: string[],
+  guc: string,
+  mode: typeof coverageTarget,
+): void {
+  const parsed = new URL(queuedUrls[0] ?? "");
+  const verdict = assertCronDispatchOrigin(parsed, mode, guc);
+  if (!verdict.ok) throw new Error(`${jobname}: ${verdict.reason}`);
+}
+
+/**
  * Tri-state reachability (spec §3.1, R2-3): in validation mode the probe carries the identity
  * guard, and a guard abort is classified `identity_mismatch` — never relabeled as the generic
  * "psql unreachable", which would send an operator debugging connectivity instead of targeting.
@@ -192,7 +216,11 @@ const liveDbTest =
  * tested — inline, an adversarial round showed that deleting its `fn()` call
  * left every guard green while each case ran nothing.
  */
-const { liveCase, count: liveCaseCount } = makeLiveCaseCounter(liveDbTest, () => queryCount);
+const {
+  liveCase,
+  count: liveCaseCount,
+  expectedQueries,
+} = makeLiveCaseCounter(liveDbTest, () => queryCount);
 
 beforeAll(() => {
   if (coverageTarget === "validation") {
@@ -257,10 +285,15 @@ afterAll(() => {
   // — four adversarial rounds each defeated the next proxy (source patterns,
   // then case names, then this count). Recorded as
   // BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION.
-  if (isCi && queryCount < liveCaseCount()) {
+  // Compared against the DECLARED floor sum, not the case count: a
+  // multi-query case (the all-nine firing smoke) would otherwise donate slack
+  // that hides an inert case once per-case attribution is deleted — the exact
+  // mutant pgCronCiVacuity's aggregate case plants.
+  if (isCi && queryCount < expectedQueries()) {
     throw new Error(
       `pg-cron-coverage: ${liveCaseCount()} live cases ran but only ${queryCount} ` +
-        "database queries were issued — cases are executing without touching the database.",
+        `database queries were issued (declared floor ${expectedQueries()}) — ` +
+        "cases are executing without touching the database.",
     );
   }
 });
@@ -468,6 +501,124 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
     const actual = raw.length === 0 ? [] : raw.split("\n");
     expect(actual).toEqual([...EXPECTED_NON_FXAV_NON_ORPHAN_CRONS]);
   });
+
+  // ── Per-job FIRING smokes (BL-PG-CRON-COVERAGE-UNRUN residual, M-wave 2 W-E2E
+  // Task E3). Text pins cannot catch a commented-out net.http_get body (the R19
+  // note above); these EXECUTE each job's stored command in a rolled-back
+  // transaction and read back the request row it queued under THIS transaction's
+  // xid. The route-handler half is each route suite's territory — the named
+  // documented limit in pgCronSmokes.ts, uniform across all nine jobs. ──────────
+  liveCase(
+    "firing-smoke premise: a command with its net.http_get commented out queues NOTHING",
+    () => {
+      // The entry's planted mutant — the exact shape the text assertions pass.
+      const raw = psql(firingSmokeSql(NO_OP_MUTANT_COMMAND));
+      expect(queuedUrlsFromSmokeOutput(raw)).toEqual([]);
+    },
+  );
+
+  liveCase(
+    "every canonical job's stored command LIVE-queues a request to its canonical route (rolled back)",
+    () => {
+      const rawJobs = psql(
+        String.raw`SELECT coalesce(json_agg(json_build_object('jobname', jobname, 'command', command)), '[]'::json) FROM cron.job WHERE jobname LIKE 'fxav\_cron\_%' ESCAPE '\'`,
+      );
+      const rows = JSON.parse(rawJobs) as Array<{ jobname: string; command: string }>;
+      expect(rows, "the live job set must be the full canonical census").toHaveLength(
+        CANONICAL_JOBS.length,
+      );
+      const canonicalByName = new Map(CANONICAL_JOBS.map((j) => [j.jobname, j]));
+      for (const row of rows) {
+        const canonical = canonicalByName.get(row.jobname);
+        expect(canonical, `${row.jobname} missing from the canonical table`).toBeDefined();
+        if (!canonical) continue;
+        // ONE invocation carries both halves: the URL the command queued and the GUC
+        // this very database holds. Two calls would be two connections, and the
+        // expected value would stop being the connected database's own answer.
+        const smoke = psql(`${firingSmokeSql(row.command)}\n${GUC_PROBE_SQL}`);
+        const urls = queuedUrlsFromSmokeOutput(smoke);
+        expect(
+          urls,
+          `${row.jobname}: executing the stored command queued no request under this transaction — ` +
+            `its net.http_get body does not execute (commented out, unreachable, or erroring)`,
+        ).not.toHaveLength(0);
+        // Exactly ONE request, and its parsed path+query EQUALS the canonical
+        // route (review r2 F1: substring containment admitted /api/cron/sync-evil
+        // and /not-sync?next=/api/cron/sync; newest-row-only admitted a wrong
+        // request queued before the canonical one).
+        expect(
+          urls,
+          `${row.jobname}: the stored command queued ${urls.length} requests — the canonical command issues exactly one`,
+        ).toHaveLength(1);
+        const parsed = new URL(urls[0] ?? "");
+        expect(
+          parsed.pathname + parsed.search,
+          `${row.jobname}: the queued request targets the wrong route`,
+        ).toBe(canonical.route);
+        // ...and the ORIGIN, which this census has parsed and discarded since the firing
+        // smoke landed (BL-PG-CRON-HOST-ASSERTION). The host is baked into the command at
+        // migration time, so no text pin on cron.job.command can see a stale one.
+        assertJobDispatchOrigin(row.jobname, urls, gucFromSmokeOutput(smoke), coverageTarget);
+      }
+    },
+    // One census fetch + one smoke per canonical job, declared so the
+    // aggregate backstop keeps a zero-slack floor.
+    { queries: 1 + CANONICAL_JOBS.length },
+  );
+
+  /**
+   * The live-mismatch demonstration the ledger entry required before any host assertion
+   * could land: re-bake one real job's command against a WRONG origin and prove the
+   * census assertion goes red by name. Without it, "the assertion passes" is compatible
+   * with an assertion that cannot fail.
+   *
+   * Registration is gated, not the body (plan review R4 F2 probed both naive forms
+   * unsound): a `liveCase` inside a skipped describe still inflates `expectedQueries` at
+   * collection because Vitest executes skipped-suite factories, and a plain `test`
+   * bypasses the suite's local-unreachable skip. Validation mode never registers it —
+   * it mutates cron.job, and the rolled-back transaction is a local-stack liberty.
+   */
+  const sabotageCase =
+    coverageTarget !== "validation" && livePsqlReachable === "reachable" ? liveCase : undefined;
+  sabotageCase?.(
+    "the census origin assertion goes red by name on a re-baked foreign host",
+    () => {
+      const jobname = psql(
+        String.raw`SELECT jobname FROM cron.job WHERE jobname LIKE 'fxav\_cron\_%' ESCAPE '\' ORDER BY jobname LIMIT 1`,
+      );
+      // Shape-pinned before it reaches SQL text: the value comes from cron.job under a
+      // LIKE filter, and this is what keeps the interpolation below honest.
+      expect(jobname, "no canonical job to sabotage").toMatch(/^fxav_cron_[a-z0-9_]+$/);
+      // The re-bake happens IN the database, derived from the LIVE command text and the
+      // LIVE GUC those commands were baked from: a JS-side string edit would prove the
+      // comparator can reject a string, not that a stale bake is what it rejects.
+      //
+      // Read-only, deliberately. `UPDATE cron.job` is not available — probed on the local
+      // stack, `postgres` holds SELECT but not UPDATE on that table — and it would buy
+      // nothing: the census executes the command TEXT it read, so a mutated row would be
+      // unobservable to it anyway. What must be transactional is the SMOKE, and
+      // firingSmokeSql already rolls that back, which is what keeps the sabotaged request
+      // from ever being dispatched.
+      const mutated = psql(
+        `SELECT 'MUTANT:' || replace(command, split_part(current_setting('app.fxav_vercel_url', true), '://', 1) || '://', 'http://evil.invalid.') FROM cron.job WHERE jobname = '${jobname}'`,
+      );
+      // Everything after the marker, NOT the marker's line: a cron command is multi-line,
+      // and a line-oriented read of it returns the empty first line and looks like "no
+      // command" (probed — the first form of this case failed exactly that way).
+      const marker = mutated.lastIndexOf("MUTANT:");
+      const command = marker < 0 ? "" : mutated.slice(marker + "MUTANT:".length).trim();
+      expect(command, "the sabotage re-bake produced no command").toBeTruthy();
+      expect(command, "the re-bake did not change the origin").toContain("evil.invalid");
+      const smoke = psql(`${firingSmokeSql(command ?? "")}\n${GUC_PROBE_SQL}`);
+      const urls = queuedUrlsFromSmokeOutput(smoke);
+      expect(urls, "the sabotaged command queued nothing, so it proves nothing").toHaveLength(1);
+      expect(() =>
+        assertJobDispatchOrigin(jobname, urls, gucFromSmokeOutput(smoke), coverageTarget),
+      ).toThrow(new RegExp(`${jobname}.*evil\\.invalid`));
+    },
+    // One jobname fetch, one re-bake read, one smoke batch.
+    { queries: 3 },
+  );
 
   // Orphan-absent (R25 F49 + R26 F51): cleanup-bootstrap-nonces unscheduled by T3.
   liveCase("cleanup-bootstrap-nonces orphan cron has been unscheduled", () => {

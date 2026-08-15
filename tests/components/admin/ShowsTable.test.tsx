@@ -1077,6 +1077,7 @@ describe("AutoFixChip (Flow 6 6.3 — neutral auto-fixed sibling)", () => {
       COLUMN_HEADER_AUTOCORRECTED: 0,
       SECTION_HEADER_AUTOCORRECTED: 0,
       FIELD_LABEL_AUTOCORRECTED: 0,
+      LEADING_COLUMN_AUTOCORRECTED: 0,
       ...over,
     },
   });

@@ -46,16 +46,24 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repaid by a test, so a row appearing here later is a regression to
   // explain rather than a number to update.
   ledgerClaimsCore: { equivalent: 3 },
+  // Enrolled 2026-08-10 with an EMPTY ledger, deliberately. The surface's first
+  // run scored 0.607, and the answer was to assert the recognizer's forms
+  // directly (tests/docs/interactionTimingScan.test.ts) and to move the CLI out
+  // of the mutated module — not to accept survivors. A row appearing here later
+  // is therefore a regression to explain, not a number to update.
+  interactionTimingScan: { equivalent: 8 },
   // Counted from the surface: SIX reachability arguments -- the three two-field
-  // parses at ledger-git.ts:83, :130 and :192, the twice-tested regex group at :219,
-  // the `+++ b/` fallthrough at :280, and headRepo's three-way collapse at :325
-  // -- plus ONE accepted-gap family of exactly SIX sites: the spawn timeouts at
-  // :32-34 and MAX_GIT_STDOUT's three literals at :62, all of them spawnSync
-  // bounds unassertable through the surface and all ledgered against
-  // BL-LEDGER-GIT-TIMEOUT-CONSTANTS (extended 2026-08-09,
-  // BL-MUTATION-LEDGERGIT-SITE-DRIFT). A seventh accepted-gap row means a new
-  // family, which needs its own backlog entry rather than a bumped number here.
-  ledgerGit: { equivalent: 6, "accepted-gap": 6 },
+  // parses at ledger-git.ts:66, :142 and :232, the twice-tested regex group at :259,
+  // the `+++ b/` fallthrough at :320, and headRepo's three-way collapse at :365
+  // -- and NO accepted-gap rows at all. The one former family of six (the spawn
+  // timeouts at :32-34 and MAX_GIT_STDOUT's three literals at :62) is CLOSED:
+  // the injectable spawn seam makes every bound observable and
+  // tests/scripts/ledgerGitSpawnSeam.test.ts kills all six
+  // (chore/guard-completeness-wave, BL-LEDGER-GIT-TIMEOUT-CONSTANTS).
+  // "accepted-gap" is absent rather than 0 because the reducer omits kinds with
+  // no rows. A new accepted-gap row means a new family, which needs its own
+  // backlog entry rather than a bumped number here.
+  ledgerGit: { equivalent: 6 },
   // Counted from the surface: count.ts carries NO blessed survivor at all. Its
   // floor is 1, so any row appearing here is a coverage regression to repair
   // rather than a number to update.
@@ -76,6 +84,40 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
   // first, needing its own backlog entry.
   specLintNumerics: { equivalent: 50 },
+  // Counted from the surface: the executed-count oracle carries NO blessed
+  // survivor. Its floor is 1, so a row appearing here is a coverage regression
+  // to repair rather than a number to update. The surface exists in its current
+  // shape BECAUSE of this table: enrolled as one file with its CLI main block
+  // inline it scored 0.27, 18 of 19 survivors sitting in code the referring
+  // suite can never execute through an import.
+  phantomGapExecuted: {},
+  // M-wave 2 W-GUARDS (2026-08-10). popoverOverlayExtract: TWO equivalent rows
+  // (the template-separator connector flip, which can only inject the token
+  // `undefined` where no accept-set token contains it; and the null-key
+  // fall-through continue, which reaches only comparisons a null key cannot
+  // match). renderedTextHaystack: clean sweep, 17/17 killed after the
+  // hardening rows.
+  // chore/guard-completeness-wave (2026-08-15). destructiveFileAnalysis: EIGHT
+  // reachability arguments — the begin-callback receiver test Rule 1 already rejects
+  // ahead of, four fixpoint loop bounds the break-on-no-growth condition makes
+  // unreachable, the candidate-declaration count that cannot be zero by construction,
+  // Rule 3's tag test whose only other identifier position is a type argument, the
+  // ordering comparison two distinct nodes cannot tie, and the candidate-walker
+  // parameter leg where widening CANDIDATES cannot widen CHECKED because declQualifies
+  // re-derives `.begin`-ness independently. Everything else the runs surfaced was killed
+  // by a fixture, or deleted as dead code.
+  //
+  // The eighth row arrived late and is worth the sentence: CI's whole-gate run found
+  // TWELVE unaccepted survivors that three SIGTERM-killed local runs never reached, all
+  // in code this branch added. Eleven were real. Nine of those never flip `ok` — they
+  // move the rejection from Rule 1 to the containment rule — so only this suite's
+  // reason-CLASS pinning could kill them, which is the argument for that discipline.
+  destructiveFileAnalysis: { equivalent: 8 },
+  // pgCronSmokes: a clean sweep, 14/14 killed on first enrolment. Empty is the honest
+  // declaration and a row appearing here later is a regression to explain.
+  pgCronSmokes: {},
+  popoverOverlayExtract: { equivalent: 2 },
+  renderedTextHaystack: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

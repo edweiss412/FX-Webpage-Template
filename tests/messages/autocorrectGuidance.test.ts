@@ -42,6 +42,16 @@ describe("autocorrectGuidance — per-code sentences", () => {
       "We read 'Venue Adress' as 'Venue Address'. Fix the label in the sheet if that guess is wrong.",
     );
   });
+  it("LEADING_COLUMN: fixed sentence, ignores the canned pair, keeps diagnostic + fix instruction", () => {
+    expect(
+      autocorrectGuidance(
+        "LEADING_COLUMN_AUTOCORRECTED",
+        ac(null, ["empty leading column", "shifted left"]),
+      ),
+    ).toBe(
+      "Every row in this section started with an empty column, so we read the section one column to the left. Update the sheet if the empty column was intentional.",
+    );
+  });
 });
 
 describe("autocorrectGuidance — correction-list joins (surviving pairs)", () => {
@@ -91,7 +101,7 @@ describe("autocorrectGuidance — guards → null (fall back to helpfulContext)"
   it("undefined autocorrect", () => {
     expect(autocorrectGuidance("STAGE_WORD_AUTOCORRECTED", undefined)).toBeNull();
   });
-  it("code not one of the five", () => {
+  it("code not one of the six", () => {
     expect(autocorrectGuidance("UNKNOWN_ROLE_TOKEN", ac("Eric", ["a", "b"]))).toBeNull();
   });
   it("crew-scoped code with blank subject", () => {

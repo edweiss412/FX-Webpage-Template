@@ -90,7 +90,7 @@ export function CleanupAbandonedFinalizeButton({ sessionId }: Props) {
         // it overlays page content instead of growing the sticky footer — the
         // layout shift Doug flagged (owner decision 2026-07-06). Left-aligned to
         // the trigger (this control sits on the footer's left/center).
-        <div className="absolute bottom-full left-0 z-10 mb-3">
+        <div className="absolute bottom-full left-0 z-raised mb-3">
           <DiscardConfirmPopover
             onConfirm={confirmAndRun}
             onCancel={() => setState({ kind: "idle" })}

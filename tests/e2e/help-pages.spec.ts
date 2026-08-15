@@ -43,7 +43,15 @@ import { signInAs } from "./helpers/signInAs";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { NAV } from "../../app/help/_nav";
 
-const TEST_BASE_URL = "http://127.0.0.1:3000";
+// Honors the E2E_PORT relocation (playwright.config.ts:5-7). A hardcoded 3000
+// silently defeats that escape hatch: `reuseExistingServer: !CI` means a
+// sibling worktree's dev server on 3000 is reused and this spec then asserts
+// against ANOTHER BRANCH's pages while reporting on this one. Measured
+// 2026-08-11 — a probe of /help/tour showed the pre-fix nested-paragraph DOM
+// and a live hydration error on a tree where the fix was applied and CI was
+// green, because :3000 belonged to a different worktree. Same form as
+// published-review-modal.realtime.spec.ts:67.
+const TEST_BASE_URL = `http://127.0.0.1:${process.env.E2E_PORT ?? "3000"}`;
 
 type HelpRoute = {
   url: string;
@@ -143,7 +151,32 @@ test.describe("M11 Phase E — /help/* admin GET sweep (full NAV sweep)", () => 
       const sidebarNav = page.getByRole("navigation", { name: "Help navigation" });
       await expect(sidebarNav, `${route.url}: Sidebar nav not present`).toHaveCount(1);
 
-      // (5) No `pageerror` events fired during the navigation. Any
+      // (5) Hydration gate. `networkidle` says the network went quiet;
+      // it does NOT say React finished hydrating, so a hydration error
+      // can post-date the assertion window below and the page-error
+      // check would read an empty array on a broken page. Drive a
+      // React-owned state transition and await its rendered effect:
+      // clicking the sidebar disclosure flips `aria-expanded` only if an
+      // onClick handler is attached, which requires hydration to have
+      // completed. SSR-only DOM cannot respond. Restore the closed state
+      // afterwards so the page is left as found before reading errors.
+      const disclosure = sidebarNav.getByRole("button", { name: "Browse help pages" });
+      await expect(disclosure, `${route.url}: sidebar disclosure not rendered`).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      await disclosure.click();
+      await expect(disclosure, `${route.url}: sidebar disclosure did not hydrate`).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      await disclosure.click();
+      await expect(disclosure, `${route.url}: sidebar disclosure did not close`).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+
+      // (6) No `pageerror` events fired during the navigation. Any
       // uncaught exception in client components (hydration mismatch,
       // bad prop, etc.) would emit one. Assert empty array.
       expect(

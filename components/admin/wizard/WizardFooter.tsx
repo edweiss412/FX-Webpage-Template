@@ -13,10 +13,10 @@
  * inside <PageTransition>, an animated wrapper whose settled inline `transform`
  * opens a NEW stacking context. A fixed footer authored inside that subtree is
  * confined to it, so the layout's fixed mobile bottom tab bar — a SIBLING of
- * <PageTransition> at z-30 — paints OVER the footer no matter how
+ * <PageTransition> at z-nav — paints OVER the footer no matter how
  * high the footer's own z-index is (a transformed ancestor can't be escaped
  * with z-index alone). Portaling the bar to document.body lifts it into the
- * root stacking context, where its `z-40` beats the z-30 tab bar. Mount-gated
+ * root stacking context, where its `z-banner` beats the z-nav tab bar. Mount-gated
  * so the portal never runs during SSR (all consumers are client components, so
  * the one-frame first-paint gap before the bar mounts is acceptable).
  *
@@ -60,7 +60,7 @@ export function WizardFooter({
   if (!mounted) return null;
 
   return createPortal(
-    <div data-testid="wizard-footer" className="fixed inset-x-0 bottom-0 z-40">
+    <div data-testid="wizard-footer" className="fixed inset-x-0 bottom-0 z-banner">
       {/* Mirrors app/admin/layout.tsx's shell container so the bar's width +
           rule align with <OnboardingTopBar>. */}
       <div className="mx-auto max-w-[1600px] px-page-pad-mobile sm:px-page-pad-desktop">

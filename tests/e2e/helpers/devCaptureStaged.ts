@@ -371,7 +371,62 @@ const VARIANT_SPECS: Record<GalleryVariant, VariantSpec> = {
   },
 };
 
-function parseResultJson(spec: VariantSpec): string {
+/**
+ * Optional parse-preview content a caller can add on top of a variant's base
+ * parse_result. Every field is OMITTED from the emitted JSON when absent, so a
+ * caller that passes nothing gets byte-identical output to before this existed.
+ *
+ * Added for the tap-target inline-controls layout spec, whose render premises
+ * need review-section content the gallery variants never seeded: a pack case
+ * past `PACK_LIST_ITEMS_CAP` (which is what makes the "Show all N items" tail
+ * toggle exist at all) and a transport contact carrying phone + email (the
+ * `tel:` / `mailto:` links render only for populated fields).
+ */
+export type SeedPreviewExtras = {
+  /**
+   * Seed ONE pull-sheet case holding this many items. Pass a number ABOVE
+   * `PACK_LIST_ITEMS_CAP` (8) to make the overflow toggle render — at or below
+   * it the tail `<li>` does not exist.
+   */
+  packCaseItems?: number;
+  /** Driver phone, as-parsed. Renders the `tel:` link in the transport cell. */
+  driverPhone?: string;
+  /** Driver email, as-parsed. Renders the `mailto:` link in the same cell. */
+  driverEmail?: string;
+};
+
+function packSheetCases(count: number): unknown {
+  return [
+    {
+      caseLabel: "Tap Floor Case",
+      items: Array.from({ length: count }, (_, i) => ({
+        qty: 1,
+        cat: "AUDIO",
+        subCat: null,
+        item: `Seeded pack item ${i + 1}`,
+      })),
+    },
+  ];
+}
+
+function transportationRow(preview: SeedPreviewExtras): unknown {
+  return {
+    driver_name: "Tap Floor Driver",
+    driver_phone: preview.driverPhone ?? null,
+    driver_email: preview.driverEmail ?? null,
+    loadout_name: null,
+    loadout_phone: null,
+    loadout_email: null,
+    vehicle: null,
+    license_plate: null,
+    color: null,
+    parking: null,
+    schedule: [],
+    notes: null,
+  };
+}
+
+function parseResultJson(spec: VariantSpec, preview?: SeedPreviewExtras): string {
   if (spec.parseShape === "empty_object") return "{}";
   const warnings =
     spec.parseShape === "well_formed_with_gap_warning"
@@ -386,9 +441,14 @@ function parseResultJson(spec: VariantSpec): string {
           },
         ]
       : [];
+  const hasContact = preview?.driverPhone !== undefined || preview?.driverEmail !== undefined;
   return JSON.stringify({
     show: { title: spec.title, client_label: "Gallery Client" },
     warnings,
+    ...(preview?.packCaseItems !== undefined
+      ? { pullSheet: packSheetCases(preview.packCaseItems) }
+      : {}),
+    ...(hasContact ? { transportation: transportationRow(preview) } : {}),
   });
 }
 
@@ -465,6 +525,12 @@ export type SeedStagedRowOptions = {
   dsn?: string;
   /** Skip the app_settings write (the caller owns it — gallery seeds once for six rows). */
   skipSettings?: boolean;
+  /**
+   * Extra parse-preview content (pack case, transport contact). Only meaningful
+   * with a `variant` — the variant-less legacy row uses the fixed minimal
+   * PARSE_RESULT. Absent = byte-identical parse_result to before this option.
+   */
+  preview?: SeedPreviewExtras;
 };
 
 export async function seedStagedRow(options: SeedStagedRowOptions = {}): Promise<string> {
@@ -487,7 +553,7 @@ export async function seedStagedRow(options: SeedStagedRowOptions = {}): Promise
   const spec = variant ? VARIANT_SPECS[variant] : null;
   const name = options.name ?? spec?.title ?? "Dev Capture Staged Show";
   const parseResult = spec
-    ? parseResultJson(options.title ? { ...spec, title: options.title } : spec)
+    ? parseResultJson(options.title ? { ...spec, title: options.title } : spec, options.preview)
     : JSON.stringify(PARSE_RESULT);
 
   // Rows first, settings LAST: if the insert throws, app_settings is still

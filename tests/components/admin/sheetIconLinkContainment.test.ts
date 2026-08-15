@@ -1949,6 +1949,12 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       // resolver treats .jsonl as a module without a rules/loader entry (denied
       // above), and nothing imports one.
       ".jsonl",
+      // The repo's first Python file: scripts/with-heavy-slot.py, the heavy-phase
+      // slot wrapper. It is invoked as an argv to `python3` by a package.json
+      // script and by agent sessions - never imported. No pinned-config bundler
+      // resolves .py as a module without a rules/loader entry (denied above), and
+      // the module graph cannot reach it at all.
+      ".py",
     ]);
     const DOTFILE_BASENAMES = new Set([
       ".gitattributes",

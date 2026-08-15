@@ -18,6 +18,7 @@
  *     → { ok: false, code } → render Doug-facing copy
  */
 import { readFileSync } from "node:fs";
+import { expectActionAffordanceColour } from "../../_shared/actionAffordance";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
@@ -1352,6 +1353,27 @@ describe("FinalizeButton — streaming progress panel", () => {
     await findByTestId("wizard-finalize-error");
     // Focus lands on the modal dismiss control (useDialogFocus), not the alert region.
     expect(document.activeElement).toBe(getByTestId("wizard-finalize-blocker-dismiss"));
+  });
+
+  // SHEETLINK-SUBTLE-ACTION-CLASS-1, SIXTH instance — and the one that shows why
+  // that entry's four-site list was the wrong kind of cover. This control was
+  // never named; it surfaced only because the z-index sweep happened to touch
+  // its line. The derived census is in BL-SUBTLE-ON-INTERACTIVE-CLASS.
+  test("the blocker dismiss sits at text-text, not text-text-subtle", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }),
+    );
+    const { getByTestId, findByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await findByTestId("wizard-finalize-error");
+    expectActionAffordanceColour(
+      getByTestId("wizard-finalize-blocker-dismiss"),
+      "FinalizeButton blocker dismiss",
+    );
   });
 });
 

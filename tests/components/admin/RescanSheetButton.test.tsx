@@ -29,6 +29,7 @@ import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
 import type { ParseResult } from "@/lib/parser/types";
+import { expectActionAffordanceColour } from "../../_shared/actionAffordance";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -298,10 +299,13 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
   // strings mirror RescanSheetButton.tsx's stacked tone classes verbatim — if they
   // drift, the card call sites drifted too.
   const STACKED_ROOT = "flex flex-col gap-2";
+  // Borders dropped by STEP3-GALLERY-TAP-TARGETS-1 item (d): in the stacked
+  // placement this block renders INSIDE the row's own bordered card, and a
+  // bordered box inside a bordered box is that finding. The tint carries the
+  // tone; the overlay placement additionally carries `shadow-tile`.
   const STACKED_CODED =
-    "flex flex-col gap-1 rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text";
-  const STACKED_INFO =
-    "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong";
+    "flex flex-col gap-1 rounded-sm bg-warning-bg p-3 text-sm text-warning-text";
+  const STACKED_INFO = "rounded-sm bg-info-bg px-3 py-2 text-sm text-text-strong";
   // Mobile-safe anchor (impeccable audit P1): left-anchored below sm (the
   // footer is the positioning context there — the root wrapper is sm:relative
   // only), wrapper-anchored right-0 at ≥sm.
@@ -312,7 +316,7 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     "sm:left-auto",
     "sm:right-0",
     "mb-2",
-    "z-10",
+    "z-raised",
     "w-max",
     "max-w-[min(20rem,80vw)]",
     "shadow-tile",
@@ -540,5 +544,30 @@ describe("BL-ANNOUNCE-REGION-UNMOUNT-CLASS — success announces into a branch-s
     const own = getByTestId(`rescan-sheet-result-${DFID}`);
     expect(own.querySelector('[role="status"]')).toBeNull();
     expect(own.querySelector("[aria-live]")).toBeNull();
+  });
+});
+
+describe("overlay dismiss colour (SHEETLINK-SUBTLE-ACTION-CLASS-1)", () => {
+  // The floating overlay's X. Unlike the sheet-header controls, this one both
+  // paints and takes the pointer — its <X> glyph carries no colour of its own —
+  // so the button element is the right assertion target.
+  test("the overlay dismiss sits at text-text, not text-text-subtle", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({
+        ok: true,
+        status: "updated",
+        needsReview: false,
+        changed: true,
+        demoted: false,
+      }),
+    );
+    const { getByTestId, getByLabelText } = render(
+      <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} resultPlacement="overlay" />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
+    });
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    expectActionAffordanceColour(getByLabelText("Dismiss"), "RescanSheetButton overlay dismiss");
   });
 });

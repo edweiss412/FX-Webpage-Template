@@ -19,10 +19,13 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { renderedTextOf } from "./_renderedTextHaystack";
 import { stripCommentsForFile } from "../_shared/stripComments";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { DECLARED_UI_LABELS, UI_LABEL_EXCEPTIONS } from "./_uiLabelExceptions";
+import { INDIRECT_COPY_SOURCES } from "./_uiLabelIndirectCopySources";
+import { THIRD_PARTY_UI_LABELS } from "./_uiLabelThirdPartyCarve";
 
 const REPO_ROOT = process.cwd();
 
@@ -280,12 +283,21 @@ function stripProductionSource(source: string, filePath: string): string {
   return stripCommentsForFile(source, filePath).replace(/^\s*import\s[^;]*?;?\s*$/gm, "");
 }
 
+/**
+ * RENDERED TEXT ONLY (BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY, spec §2.5):
+ * the haystack is built from the AST's render-position text — JsxText,
+ * string/template content inside JSX expression CHILDREN, and a named
+ * allowlist of user-visible attributes. Type annotations, bare constant
+ * initializers, object keys, and test ids contribute nothing, so a match now
+ * attests a LABEL, not a lexeme. Copy rendered indirectly through constants
+ * is handled loud via _uiLabelIndirectCopySources.ts, never silently included.
+ */
 function buildProductionHaystack(): string {
   const files = productionSourceFiles();
   let haystack = "";
   for (const f of files) {
     try {
-      haystack += "\n" + stripProductionSource(readFileSync(f, "utf8"), f);
+      haystack += "\n" + renderedTextOf(readFileSync(f, "utf8"), f);
     } catch {
       // skip unreadable files
     }
@@ -395,6 +407,12 @@ describe("Help MDX UI-label crosswalk (Phase E meta-test)", () => {
 
         const exemptionsForFile = exceptions.get(c.file);
         if (exemptionsForFile && exemptionsForFile.has(c.label)) continue;
+        // Third-party controls (Drive's Share/Viewer) are correct copy that
+        // was never this app's label to attest; indirect-copy rows carry the
+        // labels whose strings live in constants/derive functions and render
+        // indirectly. Both registries are validated (shape + stale) below.
+        if (THIRD_PARTY_UI_LABELS.some((r) => r.file === c.file && r.label === c.label)) continue;
+        if (INDIRECT_COPY_SOURCES.some((r) => r.file === c.file && r.label === c.label)) continue;
 
         if (haystackAttestsLabel(haystack, c.label)) continue;
 
@@ -403,7 +421,11 @@ describe("Help MDX UI-label crosswalk (Phase E meta-test)", () => {
             `    Resolve via one of:\n` +
             `      (a) verify the label appears in app/ (excluding app/help) or components/ (typo/casing?);\n` +
             `      (b) remove the label from the MDX if it is drift; or\n` +
-            `      (c) add an entry to tests/help/_uiLabelExceptions.ts citing a DEFERRED.md M11-E-D<N> ID.`,
+            `      (c) add an entry to tests/help/_uiLabelExceptions.ts citing a DEFERRED.md M11-E-D<N> ID;\n` +
+            `      (d) if the string is defined in a constant and rendered indirectly, add a row to\n` +
+            `          tests/help/_uiLabelIndirectCopySources.ts citing the defining source file; or\n` +
+            `      (e) if the label names ANOTHER product's control (e.g. Google Drive), add a row to\n` +
+            `          tests/help/_uiLabelThirdPartyCarve.ts naming the product.`,
         );
       }
     }
@@ -432,6 +454,59 @@ describe("Help MDX UI-label crosswalk (Phase E meta-test)", () => {
       ).toBeGreaterThan(10);
       const abs = join(REPO_ROOT, ex.file);
       expect(() => statSync(abs)).not.toThrow();
+    }
+  });
+
+  it("every third-party carve row is shaped, live, and NOT a shipped control", () => {
+    for (const row of THIRD_PARTY_UI_LABELS) {
+      expect(row.file.startsWith("app/help/"), `carve file under app/help/: ${row.file}`).toBe(
+        true,
+      );
+      expect(
+        row.product.trim().length,
+        `carve row for "${row.label}" names a product`,
+      ).toBeGreaterThan(0);
+      expect(
+        row.reason.trim().length,
+        `carve row for "${row.label}" needs a reason`,
+      ).toBeGreaterThan(10);
+      // Stale check: the label still appears in its MDX file.
+      const content = readFileSync(join(REPO_ROOT, row.file), "utf8");
+      expect(
+        content.includes(row.label),
+        `Stale carve: "${row.label}" no longer appears in ${row.file} — remove the row.`,
+      ).toBe(true);
+    }
+  });
+
+  it("every indirect-copy row cites a source that really defines the label, and is not attested directly", () => {
+    const haystack = buildProductionHaystack();
+    for (const row of INDIRECT_COPY_SOURCES) {
+      expect(row.file.startsWith("app/help/"), `row file under app/help/: ${row.file}`).toBe(true);
+      expect(
+        row.reason.trim().length,
+        `indirect row for "${row.label}" needs a reason`,
+      ).toBeGreaterThan(10);
+      // The citation is executable: the defining source file carries the
+      // literal. A reworded constant fails HERE, by name, instead of silently
+      // un-anchoring the row.
+      const source = readFileSync(join(REPO_ROOT, row.source), "utf8");
+      expect(
+        source.includes(row.label),
+        `Indirect-copy row for "${row.label}" cites ${row.source}, which no longer contains the literal — update or remove the row.`,
+      ).toBe(true);
+      // Stale check the other way: if the label became RENDERED text, the row
+      // is dead weight and the automatic haystack should carry it instead.
+      expect(
+        haystackAttestsLabel(haystack, row.label),
+        `Indirect-copy row for "${row.label}" is stale: the rendered haystack now attests it directly — remove the row.`,
+      ).toBe(false);
+      // And the label must still appear in its MDX file.
+      const content = readFileSync(join(REPO_ROOT, row.file), "utf8");
+      expect(
+        content.includes(row.label),
+        `Stale indirect-copy row: "${row.label}" no longer appears in ${row.file} — remove the row.`,
+      ).toBe(true);
     }
   });
 
@@ -571,6 +646,69 @@ describe("Help MDX UI-label crosswalk: comment-stripping regression (R8)", () =>
   });
 });
 
+describe("rendered-text haystack premise (BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY)", () => {
+  // The entry's two premise fixtures, planted BEFORE the rebuild (plan G2
+  // step 1). Under the all-source haystack the negative fixture ATTESTS —
+  // a bare constant initializer is indistinguishable from a button label —
+  // which is exactly the false assurance the rebuild removes.
+  const FIXTURE = [
+    'const auditKind = "PlantedPhantomLabel";',
+    "type Props = { viewer: PlantedAnnotationLabel };",
+    "export function Fixture(props: Props) {",
+    "  return (",
+    '    <section data-testid="planted-testid-label" aria-label="Planted aria label">',
+    "      <button>PlantedJsxTextLabel</button>",
+    '      <span>{"PlantedExpressionChildLabel"}</span>',
+    "      <output>{`Connected · ${String(props.viewer)}`}</output>",
+    '      <input placeholder="Planted placeholder label" />',
+    "    </section>",
+    "  );",
+    "}",
+  ].join("\n");
+
+  it("NEGATIVE premise: a non-rendered constant or annotation contributes NOTHING", () => {
+    const text = renderedTextOf(FIXTURE, "components/Fixture.tsx");
+    expect(text).not.toContain("PlantedPhantomLabel");
+    expect(text).not.toContain("PlantedAnnotationLabel");
+    // data-testid is NOT on the user-visible attribute allowlist.
+    expect(text).not.toContain("planted-testid-label");
+  });
+
+  it("POSITIVE premise: JSX text, expression children, template fragments, and user-visible attributes contribute", () => {
+    const text = renderedTextOf(FIXTURE, "components/Fixture.tsx");
+    expect(text).toContain("PlantedJsxTextLabel");
+    expect(text).toContain("PlantedExpressionChildLabel");
+    // The DriveConnectionPanel seed shape: a TemplateHead fragment in render
+    // position ("Connected · " before the interpolation).
+    expect(text).toContain("Connected · ");
+    expect(text).toContain("Planted aria label");
+    expect(text).toContain("Planted placeholder label");
+  });
+});
+
+describe("rendered-text extraction hardening (mutation-gate survivors, 2026-08-10)", () => {
+  // Each row kills a surviving mutant from the surface's first enrollment
+  // (score 0.824 vs floor 0.9): an accept-set branch no premise fixture reached.
+  it("a string literal INSIDE a template interpolation in render position contributes", () => {
+    const source =
+      'export const P = ({ on }: { on: boolean }) => <i>{`state ${on ? "PlantedTernaryLabel" : "off"}`}</i>;';
+    expect(renderedTextOf(source, "components/P.tsx")).toContain("PlantedTernaryLabel");
+  });
+
+  it("a template TAIL fragment after the interpolation contributes", () => {
+    const source =
+      "export const P = ({ n }: { n: number }) => <i>{`Connected · ${n} tail-marker`}</i>;";
+    expect(renderedTextOf(source, "components/P.tsx")).toContain(" tail-marker");
+  });
+
+  it("an EMPTY attribute expression is skipped, not read through", () => {
+    // `title={}` parses as a JsxExpression with no expression; the guard must
+    // skip it (the surviving connector flip crashed here).
+    const source = "export const P = () => <span title={}><b>StillRenderedLabel</b></span>;";
+    expect(renderedTextOf(source, "components/P.tsx")).toContain("StillRenderedLabel");
+  });
+});
+
 describe("the short-label tier (BL-HELP-UI-LABEL-CROSSWALK-EXACT-MATCH)", () => {
   it("PREMISE: the tier discriminates — a short label matches only at word boundaries", () => {
     // Without this the tier could be `return true` and every crosswalk assertion
@@ -592,29 +730,24 @@ describe("the short-label tier (BL-HELP-UI-LABEL-CROSSWALK-EXACT-MATCH)", () => 
     expect(haystackAttestsLabel("(3)", "(3)")).toBe(true);
   });
 
-  it("DOCUMENTED LIMIT: a type annotation still attests, and these two rely on it", () => {
-    // The probe that settled U8, pinned so the finding cannot be re-derived.
-    //
-    // The plan expected `**Share**` and `**Viewer**` to FAIL once the tier
-    // landed. They do not, and the tier is not at fault: `Viewer` occurs as a
-    // bare word-bounded identifier in a TYPE ANNOTATION (`viewer: Viewer` in
-    // app/show/[slug]/[shareToken]/_CrewShell.tsx), which no lexical narrowing
-    // of a whole-source haystack can distinguish from a button label. Comments
-    // and imports are already excluded; annotations are not, and excluding
-    // identifiers wholesale would break every label that IS its component name.
-    //
-    // The plan also assumed the copy was wrong. It is not: both labels name
-    // GOOGLE DRIVE's controls ("click **Share** on that folder… Give it
-    // **Viewer** access"), so they are third-party UI and were never this app's
-    // labels to attest. That makes them the wrong instances to force through
-    // this guard at all.
-    //
-    // Real closure is a haystack of RENDERED TEXT ONLY (string literals + JSX
-    // text children), filed as BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY. This
-    // assertion fails the day that lands, which is the point: it is the
-    // reminder to revisit these two, not a permanent blessing.
+  it("CLOSED (was DOCUMENTED LIMIT): a type annotation no longer reaches the haystack", () => {
+    // U8's probe pinned the residual — `viewer: Viewer`, a TYPE ANNOTATION in
+    // app/show/[slug]/[shareToken]/_CrewShell.tsx, attested `**Viewer**` as a
+    // button label — and its pin was written to FAIL the day the rendered-text
+    // haystack landed. It did (M-wave 2 W-GUARDS,
+    // BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY), and this is the flipped form:
+    // the annotation text is structurally absent from the haystack now, so the
+    // false-attestation path the limit documented cannot recur silently.
+    // Share/Viewer themselves are third-party rows in
+    // _uiLabelThirdPartyCarve.ts — Google Drive's controls, never candidates.
     const haystack = buildProductionHaystack();
-    expect(haystackAttestsLabel(haystack, "Viewer")).toBe(true);
-    expect(haystack.includes("viewer: Viewer")).toBe(true);
+    expect(haystack.includes("viewer: Viewer")).toBe(false);
+    // The annotation's source file still carries it (else this pin is stale
+    // and proves nothing about exclusion — premise, not tautology).
+    const crewShell = readFileSync(
+      join(REPO_ROOT, "app/show/[slug]/[shareToken]/_CrewShell.tsx"),
+      "utf8",
+    );
+    expect(crewShell.includes("viewer: Viewer")).toBe(true);
   });
 });

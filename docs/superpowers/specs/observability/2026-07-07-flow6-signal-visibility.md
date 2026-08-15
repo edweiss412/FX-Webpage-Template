@@ -51,6 +51,8 @@ Part 2 is **specified here** (§5) so the design is ratified as one coherent Flo
 | Code generators | `scripts/extract-spec-codes.ts` (spec §12.4 → `lib/messages/__generated__/spec-codes.ts`); `scripts/extract-internal-code-enums.ts` (catalog → `internal-code-enums.ts`) | `pnpm gen:spec-codes`, `pnpm gen:internal-code-enums`. |
 | Flow-4 dependency (Part 2) | `feat/flow4-auto-applied-strip` migration | `roster_shift_counts(p_show_ids uuid[]) → (show_id, added, removed, renamed)`, service_role-only, counts unacknowledged `auto_apply` `crew_added/removed/renamed` in `show_change_log`. NOT on main. |
 
+**Amendment (2026-08-11, task-3 review round 1, Minor 4):** the "no sixth exists" clause in the autocorrect-codes row above was a snapshot of the worktree at this spec's `45251ddd8` base, not an invariant. A sixth `*_AUTOCORRECTED` code, `LEADING_COLUMN_AUTOCORRECTED`, landed via `docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md` §6.2. The row's citations and code list are otherwise historically accurate and left as-authored.
+
 ## 3. Part 1 — 6.3 autocorrect visibility + tuned gate
 
 ### 3.1 `AUTO_FIX_CLASSES` registry + `summarizeAutoFixes` (`lib/parser/dataGaps.ts`)

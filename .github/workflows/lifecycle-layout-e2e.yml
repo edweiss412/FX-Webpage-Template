@@ -143,6 +143,40 @@ jobs:
       # design, so CI can never regenerate the oracle it verifies against.
       - name: Run canonical-class dimension e2e (mobile-safari, :3000 only)
         run: pnpm exec playwright test --project=mobile-safari tests/e2e/canonical-class-dimensions.spec.ts
+      # Tap-target inline controls (spec 2026-08-10-tap-target-inline-controls §6): the five
+      # repaired chrome controls measured on their PRODUCTION routes. mobile-safari is where the
+      # floors matter most — sites 6/7 are the tel:/mailto: links an operator taps off a load-out
+      # card on a phone. This workflow is the right host for the same reason the canonical-class
+      # step lives here: its existing business is admin-route layout/dimension assertions, and it
+      # fires on UNFILTERED pull_request:, so a spec named here is PR-COVERED and needs no
+      # LOCAL_ONLY_ALLOWLIST row.
+      #
+      # This step carries its OWN execution oracle, which the job had none of before (spec R4 F1).
+      # --retries=0 is load-bearing, not decoration: playwright.config.ts sets
+      # `retries: process.env.CI ? 2 : 0`, so without the flag a fail-then-pass retry reads as a
+      # green run and the oracle's first-attempt bar is defeated silently.
+      - name: Run tap-target inline-controls layout e2e (mobile-safari, :3000 only)
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/lifecycle-layout-tap-target-report.json
+          # The wizard step-3 surfaces this spec measures reach
+          # lib/onboarding/sessionLifecycle.ts's postgres.js path, which resolves
+          # `TEST_DATABASE_URL ?? DATABASE_URL` and THROWS when neither is set and
+          # NODE_ENV is production — which is exactly this job (`pnpm build &&
+          # pnpm start`). The three older steps here never touch that path, so the
+          # job had no reason to carry a DSN until now. Measured on the first real
+          # CI run of this step: "onboarding session lifecycle requires
+          # DATABASE_URL in production", eight times, every wizard render.
+          # DATABASE_URL, not TEST_DATABASE_URL: the latter is this repo's name for
+          # the REMOTE validation project (x-audits.yml passes a secret into it),
+          # and pointing it at the local stack here would read as that.
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: pnpm exec playwright test tests/e2e/tap-target-inline-controls.layout.spec.ts --project=mobile-safari --retries=0 --reporter=list,json
+      # No `if:` — this must run on the success path, which is the only path where a
+      # vacuously-green run is dangerous. A runtime `test.skip()` skips every case while --list
+      # still reports them, so the run exits 0 having proved nothing; this reads the run's OWN
+      # report and enforces a per-spec executed floor measured from a real run.
+      - name: Assert the tap-target layout spec actually executed
+        run: node scripts/check-lifecycle-layout-executed.mjs
       - name: Upload Playwright traces/report (diagnosis artifact)
         # Dispatch runs are measurement runs — keep traces from GREEN samples
         # too (a wedge that self-recovers inside the budget is still evidence).

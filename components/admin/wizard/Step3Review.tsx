@@ -38,6 +38,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check } from "lucide-react";
+import { cn } from "@/lib/ui/cn";
+import { SECONDARY_ACTION_CLASS } from "@/lib/ui/actionClass";
 import { messageFor } from "@/lib/messages/lookup";
 import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
@@ -351,7 +353,7 @@ function HardFailedActions({
           data-testid={`wizard-step3-retry-${row.driveFileId}`}
           onClick={() => run("retry")}
           disabled={pending !== null || disabled}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          className={SECONDARY_ACTION_CLASS}
         >
           {pending === "retry" ? "Retrying…" : "Retry now"}
         </button>
@@ -360,7 +362,7 @@ function HardFailedActions({
           data-testid={`wizard-step3-defer-${row.driveFileId}`}
           onClick={() => run("defer")}
           disabled={pending !== null || disabled}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          className={SECONDARY_ACTION_CLASS}
         >
           {pending === "defer" ? "Deferring…" : "Defer until modified"}
         </button>
@@ -369,7 +371,7 @@ function HardFailedActions({
           data-testid={`wizard-step3-ignore-${row.driveFileId}`}
           onClick={() => run("ignore")}
           disabled={pending !== null || disabled}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          className={SECONDARY_ACTION_CLASS}
         >
           {pending === "ignore" ? "Ignoring…" : "Permanently ignore"}
         </button>
@@ -397,7 +399,10 @@ function DashboardResolveLink({ driveFileId }: { driveFileId: string }) {
     <Link
       href="/admin"
       data-testid={`wizard-step3-conflict-dashboard-${driveFileId}`}
-      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
+      // The row's OTHER exit ("Permanently ignore") is a button; an underlined
+      // text link beside it is the second vocabulary item (d) rules out. Both
+      // exits are equal choices, so both wear the secondary treatment.
+      className={cn(SECONDARY_ACTION_CLASS, "self-start")}
     >
       Resolve in the dashboard, then re-run setup
     </Link>
@@ -462,7 +467,7 @@ function ManifestIgnoreAction({
         data-testid={`wizard-step3-ignore-${row.driveFileId}`}
         onClick={() => void run()}
         disabled={pending || disabled}
-        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        className={cn(SECONDARY_ACTION_CLASS, "self-start")}
       >
         {pending ? "Ignoring…" : "Permanently ignore"}
       </button>
@@ -486,6 +491,7 @@ function RowItem({
   checked,
   onToggleChecked,
   quiet = false,
+  flat = false,
   isPublishRunActive = false,
   checkpointStatus = null,
 }: {
@@ -508,6 +514,14 @@ function RowItem({
   // resolved, no-action rows from competing with the actionable publish cards and
   // from wearing the solid-accent badge (DESIGN.md ≤10% accent coverage).
   quiet?: boolean;
+  /**
+   * The row is already inside a bordered container (the "Needs your attention"
+   * plate), so it renders as a flat list item — no border and no fill of its
+   * own — rather than a second bordered card.
+   * STEP3-GALLERY-TAP-TARGETS-1 item (d); pinned by
+   * tests/components/admin/wizard/step3RowSlot.test.tsx.
+   */
+  flat?: boolean;
 }) {
   // Spec §4.2: the badge derives from the unified displayState when present
   // (every buildStep3Row-produced row carries it). Legacy rows constructed
@@ -565,9 +579,28 @@ function RowItem({
     <article
       data-testid={`wizard-step3-row-${row.driveFileId}`}
       data-status={row.status}
-      className={`flex flex-col gap-3 rounded-md border border-border p-tile-pad ${
-        quiet ? "bg-surface-sunken" : "bg-surface"
-      }`}
+      // `flat` is for rows rendered INSIDE the "Needs your attention" plate: a
+      // bordered card inside a bordered plate is the nested chrome of item (d),
+      // and it costs real width at 390px.
+      //
+      // It drops the fill as well as the border, and the measurement is why.
+      // The first version kept `bg-surface` and claimed the row still separated
+      // from the plate on fill — it does not: `--color-surface` against
+      // `--color-surface-sunken` is 1.11:1 light and 1.09:1 dark, against a 3:1
+      // non-text floor. That is the same trap DESIGN.md §1.2a records for
+      // standalone hairlines, one layer up. Nor can the PLATE yield its border
+      // instead: `--color-surface-sunken` on the page `--color-bg` is ~1.05:1,
+      // so a borderless plate simply disappears.
+      //
+      // So the row is a genuine flat list item — no border, no fill of its own,
+      // separated by the list's `gap-3` and by its own content, which is the
+      // ordinary way a grouped list inside a titled container reads. One
+      // bordered level, and no contrast claim that the tokens do not support.
+      className={cn(
+        "flex flex-col gap-3 rounded-md p-tile-pad",
+        flat ? null : "border border-border",
+        flat ? null : quiet ? "bg-surface-sunken" : "bg-surface",
+      )}
     >
       <header className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
         <div className="flex flex-col gap-1">
@@ -1430,6 +1463,7 @@ export function Step3Review({
                       wizardSessionId={wizardSessionId}
                       isPublishRunActive={isPublishRunActive}
                       checkpointStatus={checkpointStatus}
+                      flat
                     />
                   </li>
                 ))}

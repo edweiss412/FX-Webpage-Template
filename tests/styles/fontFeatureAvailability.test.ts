@@ -28,6 +28,7 @@ import { dirname, join, resolve } from "node:path";
 import * as fontkit from "fontkit";
 import postcss from "postcss";
 import ts from "typescript";
+import { premise } from "../_shared/premise";
 import { describe, expect, test } from "vitest";
 import { stripCommentsForFile } from "../_shared/stripComments";
 
@@ -96,10 +97,18 @@ const PINNED_RANGE_COVERAGE = new Map<string, number>([
   ["U+2000-206F", 77],
   ["U+20AC", 1],
   ["U+2122", 1],
+  ["U+2190", 1],
   ["U+2191", 1],
+  ["U+2192", 1],
   ["U+2193", 1],
+  ["U+2197", 1],
   ["U+2212", 1],
   ["U+2215", 0],
+  ["U+2298", 1],
+  ["U+2303-2304", 2],
+  ["U+2318", 1],
+  ["U+26A0", 1],
+  ["U+2713", 1],
   ["U+FEFF", 1],
   ["U+FFFD", 0],
   ["U+0100-02BA", 435],
@@ -117,6 +126,34 @@ const PINNED_RANGE_COVERAGE = new Map<string, number>([
   ["U+2C60-2C7F", 2],
   ["U+A720-A7FF", 1],
 ]);
+
+/**
+ * BL-GLYPHS-OUTSIDE-INTER-SUBSET: the codepoints the 2026-08-10 probe found in
+ * RENDERED text (JSX text, string literals, MDX prose, CSS `content:`) that the
+ * shipped subset did not carry AND the upstream InterVariable face does — so
+ * each one is a glyph the product asks for and Inter can supply. Partition (a)
+ * of `docs/superpowers/plans/2026-08-09-m-wave-2/glyph-probe.md`.
+ *
+ * Membership, not counts: unlike the Google ranges above, this list was derived
+ * FROM the face, so every entry is known to exist and a zero is a regression
+ * rather than a legitimate superset gap.
+ *
+ * Partition (b) — what Inter LACKS — is deliberately not asserted here, because
+ * asserting it would need the 344 KB upstream face in the repo. It is recorded
+ * in the probe document with its sites; U+22EE is the notable member, and it was
+ * the spec's own headline "known add" until the probe refuted it.
+ */
+const PROBE_REQUIRED_CODEPOINTS: readonly { readonly cp: number; readonly site: string }[] = [
+  { cp: 0x2190, site: "app/admin/show/staged/[stagedId]/page.tsx" },
+  { cp: 0x2192, site: "app/help/_affordanceMatrix.ts and 19 more" },
+  { cp: 0x2197, site: "components/admin/BellPanel.tsx and 5 more" },
+  { cp: 0x2298, site: "components/diagrams/GalleryLightbox.tsx" },
+  { cp: 0x2303, site: "app/globals.css content:" },
+  { cp: 0x2304, site: "app/globals.css content:, components/admin/RoleRecognizeControl.tsx" },
+  { cp: 0x2318, site: "app/help/errors/page.tsx" },
+  { cp: 0x26a0, site: "app/help/_components/Callout.tsx and 2 more" },
+  { cp: 0x2713, site: "app/help/_components/Callout.tsx and 5 more" },
+];
 
 const GOOGLE_FIXTURE_SHA256 = "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4";
 
@@ -1125,6 +1162,23 @@ describe("font feature availability", () => {
     // Non-vacuity: the tabular rule alone requests `tnum`, so an empty result
     // would mean the walk stopped finding declarations.
     expect(requested.length, "font-variant declarations are being found at all").toBeGreaterThan(0);
+  });
+
+  test("the subset carries every glyph the probe found in rendered text", () => {
+    const font = fontkit.openSync(resolveLoadedFontPath());
+    premise(
+      "the probe partition is non-empty, so this assertion can discriminate",
+      PROBE_REQUIRED_CODEPOINTS.length,
+      0,
+    );
+    const absent = PROBE_REQUIRED_CODEPOINTS.filter(
+      ({ cp }) => !("hasGlyphForCodePoint" in font) || !font.hasGlyphForCodePoint(cp),
+    ).map(({ cp, site }) => `U+${cp.toString(16).toUpperCase().padStart(4, "0")} (${site})`);
+    expect(
+      absent,
+      "the product renders these characters and Inter carries them, but the shipped " +
+        "subset does not — widen the ranges in scripts/subset-inter.sh and regenerate.",
+    ).toEqual([]);
   });
 
   test("the subset covers every declared range, at its pinned density", () => {

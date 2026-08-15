@@ -280,6 +280,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
         >
           {COULDNT_CONFIRM_COPY}{" "}
+          {/* tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10 */}
           <button
             type="button"
             data-testid="admin-allowlist-couldnt-confirm-refresh"

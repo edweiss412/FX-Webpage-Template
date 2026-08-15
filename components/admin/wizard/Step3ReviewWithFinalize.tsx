@@ -165,7 +165,7 @@ export function Step3ReviewWithFinalize({
                   Doug flagged (owner decision 2026-07-06). Right-aligned to the
                   primary so it tracks the button on every width. */}
               {run.confirmOpen ? (
-                <div className="absolute right-0 bottom-full z-10 mb-3">
+                <div className="absolute right-0 bottom-full z-raised mb-3">
                   <FinalizeConfirm run={run} />
                 </div>
               ) : null}

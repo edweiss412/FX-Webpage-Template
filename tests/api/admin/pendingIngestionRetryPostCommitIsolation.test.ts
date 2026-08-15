@@ -30,6 +30,7 @@ import type {
   LivePendingIngestionRouteTx,
 } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
 import { handleLivePendingIngestionRetry } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
+import { readyPrepared } from "@/tests/_shared/preparedProcessOneFile";
 
 // Per-file faithful next/cache mock (the global tests/setup.ts one is a no-op spy): this file needs
 // revalidateTag to be able to THROW, which is the whole point of HIGH 1.
@@ -120,6 +121,15 @@ function deps(
       unlandedRenames,
     })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
     readFinalizeOwnershipGuardUnlocked: vi.fn(async () => false),
+    // Census class d (spec 2026-08-14 §5): without this stub the route runs REAL preparation
+    // (Drive I/O) ahead of the runner double, since `prepared` is a required sixth argument.
+    prepareProcessOneFile: vi.fn(async () => readyPrepared()) as unknown as NonNullable<
+      LivePendingIngestionRouteDeps["prepareProcessOneFile"]
+    >,
+    // Census class e: the route-body catch emissions must not open a real postgres connection.
+    logSyncSink: vi.fn(async () => {}) as unknown as NonNullable<
+      LivePendingIngestionRouteDeps["logSyncSink"]
+    >,
     ...overrides,
   } as LivePendingIngestionRouteDeps;
 }

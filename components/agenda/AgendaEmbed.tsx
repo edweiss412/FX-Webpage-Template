@@ -133,7 +133,7 @@ function AgendaSheet({ src, label, onClose }: { src: string; label: string; onCl
       aria-label={`${label} agenda`}
       data-testid="agenda-sheet"
       data-pdf-src={src}
-      className="fixed inset-0 z-50 flex flex-col bg-bg"
+      className="fixed inset-0 z-overlay flex flex-col bg-bg"
     >
       <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3">
         <div className="flex items-center gap-2">

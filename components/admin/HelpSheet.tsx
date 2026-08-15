@@ -14,7 +14,7 @@
  * context; a `position: fixed` overlay authored inside it would be sized +
  * clipped to that ancestor's box instead of the viewport. Portaling to <body>
  * lifts the sheet into the root context so `fixed inset-0` means the whole
- * viewport, and z-50 overlays the nav. Mount-gated so the portal never runs on
+ * viewport, and z-overlay overlays the nav. Mount-gated so the portal never runs on
  * the server.
  *
  * A11y (WCAG 2.4.3 / 2.1.2): the trigger advertises `aria-haspopup="dialog"` +
@@ -85,7 +85,7 @@ export function HelpSheet({ label, children, testId = "help-sheet" }: HelpSheetP
       >
         <span
           data-testid={`${testId}-trigger-visual`}
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-pill bg-surface-sunken align-middle text-sm font-semibold text-text-subtle transition-colors duration-fast group-hover:bg-surface group-hover:text-text-strong"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-pill bg-surface-sunken align-middle text-sm font-semibold text-text transition-colors duration-fast group-hover:bg-surface group-hover:text-text-strong"
         >
           <span aria-hidden="true">?</span>
         </span>
@@ -131,7 +131,7 @@ function HelpSheetOverlay({
   useDialogFocus(dialogRef, closeRef);
 
   return (
-    <div data-testid={`${testId}-overlay`} className="fixed inset-0 z-50">
+    <div data-testid={`${testId}-overlay`} className="fixed inset-0 z-overlay">
       <div
         data-testid={`${testId}-backdrop`}
         aria-hidden="true"
@@ -170,7 +170,7 @@ function HelpSheetOverlay({
           >
             <span
               data-testid={`${testId}-close-visual`}
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast group-hover:bg-surface-sunken group-hover:text-text-strong"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-sm text-text transition-colors duration-fast group-hover:bg-surface-sunken group-hover:text-text-strong"
             >
               <X aria-hidden="true" className="size-5" />
             </span>

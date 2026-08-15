@@ -873,6 +873,12 @@ describe("M9 C6c — image error while zoomed (Codex R2 HIGH regression)", () =>
     expect(screen.queryByTestId("lightbox-reset-chip")).not.toBeNull();
     const activeImg = screen.getAllByRole("img")[0];
     expect(activeImg).toBeDefined();
+    // ONE failure, and the fixture is why. The zoom gate's demote branch
+    // (docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md §4.1) fires
+    // only when a CLAMPED TIER EXISTS to retreat to; `items()` here carries an
+    // empty variant ladder, so both loader states resolve to the original and
+    // this error destroys rather than demotes — which is exactly the path whose
+    // chrome recovery this case owns.
     fireEvent.error(activeImg!);
     // resetTransform must still be invoked on the about-to-unmount
     // wrapper (for library-state hygiene) AND the local
@@ -899,8 +905,11 @@ describe("M9 C6c — image error while zoomed (Codex R2 HIGH regression)", () =>
     chip.focus();
     expect(document.activeElement).toBe(chip);
     const closeButton = screen.getByRole("button", { name: /close gallery/i });
-    const activeImg = screen.getAllByRole("img")[0];
-    fireEvent.error(activeImg!);
+    // `items()` carries no variant ladder, so there is no clamped tier to demote
+    // to and this error takes the destroy path — the one whose focus relocation
+    // this case owns. The demote's own no-steal-focus contract is asserted in
+    // galleryLightbox.zoomGate.test.tsx, against a fixture that has a ladder.
+    fireEvent.error(screen.getAllByRole("img")[0]!);
     // Focus must move to close button before chip unmounts.
     expect(document.activeElement).toBe(closeButton);
   });

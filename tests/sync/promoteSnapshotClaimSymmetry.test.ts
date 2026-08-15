@@ -84,10 +84,25 @@ vi.mock("@/lib/sync/lockedShowTx", () => ({
   withShowLock: async (_id: string, fn: (tx: unknown) => Promise<unknown>) =>
     fn({
       queryOne: vi.fn(async (sql: string) => {
-        if (/jsonb_array_elements/i.test(sql)) return { count: 2 }; // expected assets = 2
         if (/with\s+target/i.test(sql)) return { updated: true };
         return { ok: true };
       }),
+      // Required-name rows (kind/name shape) — two required objects while
+      // storage lists one, forcing the pre-move mismatch rollback.
+      queryRows: vi.fn(async (sql: string) =>
+        /jsonb_array_elements/i.test(sql)
+          ? [
+              {
+                kind: "original",
+                name: `diagram-snapshots/shows/${mock.initialRow.show_id}/${mock.initialRow.snapshot_revision_id}/a.png`,
+              },
+              {
+                kind: "original",
+                name: `diagram-snapshots/shows/${mock.initialRow.show_id}/${mock.initialRow.snapshot_revision_id}/b.png`,
+              },
+            ]
+          : [],
+      ),
     }),
 }));
 
@@ -106,7 +121,7 @@ describe("promote rollback path releases the claim without violating claim_symme
 
     const result = await promoteSnapshotUpload(snapshotRevisionId, { storage });
 
-    expect(result).toEqual({ outcome: "manifest_mismatch", snapshotRevisionId });
+    expect(result).toMatchObject({ outcome: "manifest_mismatch", snapshotRevisionId });
     // Pre-fix (claim_expires_at = now()) assertClaimSymmetry throws → this rejects.
   });
 });

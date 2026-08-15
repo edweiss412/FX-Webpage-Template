@@ -93,6 +93,29 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/diagram-viewing-polish (2026-08-11): the three diagram-viewing rows the
+  // 2026-08-10 decision round bundled, each closing by a DIFFERENT route, which
+  // is why they are three rows and not one. The progress-affordance row
+  // graduates by SPEC AMENDMENT — it named two candidate shapes and said neither
+  // was settled; the round settled it on the zoom gate and DECLINED the progress
+  // affordance outright, so the alternative is a documented limit rather than a
+  // successor entry. The blur row graduates on PROBE EVIDENCE with no code
+  // change at all: it was filed INFERRED-NOT-PROBED, its own named probe was run,
+  // and it refuted the premise. The failed-item row graduates as a REPAIR, and
+  // the recovery affordance the repair deliberately omits is filed as
+  // DIAGRAM-FAILURE-RECOVERY-1 rather than left implicit inside a closed entry.
+  {
+    id: "BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE",
+    provenance: "feat/diagram-viewing-polish",
+  },
+  {
+    id: "BL-DIAGRAM-BLUR-EDGE-SIZE",
+    provenance: "feat/diagram-viewing-polish",
+  },
+  {
+    id: "BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE",
+    provenance: "feat/diagram-viewing-polish",
+  },
   // feat/crew-field-enrichment (2026-08-09): the two entries the corpus probe
   // closed together. The field-enrichment row graduates RESOLVED — its flight
   // bullet had already shipped (the entry's "not in the ShowForViewer
@@ -156,6 +179,17 @@ const BACKLOG_GRADUATED = [
   {
     id: "BL-CLASSNAME-ARRAY-JOIN-MIGRATION",
     provenance: "refactor/classname-array-join-cn",
+  },
+  // fix/help-tour-hydration (2026-08-11): /help/tour's hydration mismatch, whose
+  // filed cause (column-0 `<a>` wrapped in a `<p>`) was REFUTED by the compile
+  // probe and replaced by the real one — own-line text children inside a JSX flow
+  // element parse as markdown paragraphs. The archived section records both, so
+  // the superseded hypothesis is preserved rather than quietly corrected. The
+  // same PR spent the promotion the entry banked: help-pages.spec.ts is wired
+  // into app-e2e.yml and off the coverage allowlist.
+  {
+    id: "BL-HELP-TOUR-HYDRATION-MISMATCH",
+    provenance: "fix/help-tour-hydration",
   },
   { id: "BL-CODEX-GUARD-COMMONMARK-PARSE", provenance: "feat/review-infra-gates" },
   { id: "BL-PLAN-SNIPPET-FENCE-GATE", provenance: "feat/review-infra-gates" },
@@ -486,6 +520,38 @@ const BACKLOG_GRADUATED = [
   {
     id: "BL-HELP-NON-SHOW-REPORT-SURFACE",
     provenance: "feat/help-report-surface",
+  },
+  // fix/promote-identity-validation (2026-08-10): promotion now validates the
+  // required-NAME set (exact set + path binding, bounded deltas, post-commit
+  // SNAPSHOT_PROMOTE_MANIFEST_MISMATCH emit) instead of comparing listing
+  // lengths; the count SQL is deleted and the names SQL is realdb-pinned
+  // through the composed promote-tx seam.
+  {
+    id: "BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES",
+    provenance: "fix/promote-identity-validation",
+  },
+  // chore/guard-completeness-wave (2026-08-14): owner-ratified documented limit
+  // (2026-08-10) demoted per the filing bar; the limits live in the guard's own
+  // JSDoc block (tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:215-245).
+  {
+    id: "BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES",
+    provenance: "chore/guard-completeness-wave",
+  },
+  // chore/guard-completeness-wave (2026-08-15): the wave's three BUILD entries,
+  // graduating together in the close-out commit. Each one's IN PROGRESS marker comes
+  // off in this same commit, because the in-progress guard rejects an archived entry
+  // that still declares itself in flight.
+  {
+    id: "BL-DESTRUCTIVE-GUARD-EXECUTION-SITE",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-PG-CRON-HOST-ASSERTION",
+    provenance: "chore/guard-completeness-wave",
   },
 ] as const;
 

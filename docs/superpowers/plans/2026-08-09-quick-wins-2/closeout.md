@@ -268,3 +268,75 @@ impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
 | --- | --- | --- |
 | B1 | `footer.bottom=843.91` vs `barTop=790.70` (the box ends 53px UNDER the bar); short page `footer.bottom=212.86` vs `viewport.bottom=900` (687px of dead space, unanchored) | both green after the flex chain + clearance |
 | B3 | the four identity-chip suites failed against the new component — 10 cases pinning the text-chip rendering | all four retargeted in the same commit; 21-case menu suite added |
+
+## Branch C — feat/wizard-step-connector
+
+### §12.1 — invariant-8 dual gate
+
+Both halves ran on the C1 diff (`components/admin/OnboardingWizard.tsx`, the
+StepIndicator connector). Critique ran dual-agent: Assessment A (design review)
+and Assessment B (detector + measured browser evidence) as isolated parallel
+sub-agents, per the command's hard invariant — not inline, so no degraded
+banner applies.
+
+**Design health: 27/40.** P0 = 0. P1 = 2. Deterministic scan
+(`detect.mjs`) on the component: **clean, zero findings, exit 0.**
+
+**The two assessments agreed to the second decimal**, which is what makes the
+findings actionable rather than a matter of taste. A computed the ratios from
+tokens; B measured them in a real browser at every step, at 390px and 900px, in
+both themes. Both landed on:
+
+| Comparison | Light | Dark | Floor | |
+| --- | --- | --- | --- | --- |
+| hairline vs page (`--color-border`) | 1.22:1 | 1.35:1 | 3:1 | invisible |
+| done vs ahead (`border-strong` vs `border`) | 1.25:1 | 1.26:1 | 3:1 | indistinguishable |
+| connector width, all 12 cells | 60.00px | 60.00px | — | `flex-1` never grew |
+| trailing dead space, 900px step 3 | 257.77px | — | — | unused |
+
+**P1-1 — the connector's state colour was imperceptible.** The done/ahead split
+the spec prescribes measured 1.25:1. Not a §1.4.1 violation (the element is
+`aria-hidden` and the done pill carries a Check glyph), which is precisely the
+finding: the colour branch was both invisible AND redundant.
+
+**P1-2 — `flex-1` on the nav was inert and cost layout.** The connectors cap at
+60px, so the grow never fired; the leftover collected as trailing space and the
+rail resized between steps 2 and 3 as `containerMaxWidth` changed.
+
+**Disposition: BOTH FIXED**, owner-decided (Option B plus a contrast repair,
+chosen over three alternatives rendered at true scale in both themes). The
+connector sets `w-confirm-box` directly and both colours moved from the border
+ramp to the text ramp — `text-faint` ahead (3.16:1 / 4.22:1), `text-subtle`
+done (6.5:1 / 6.8:1). The state distinction the spec asks for is preserved and
+now perceivable, rather than dropped.
+
+**P2 — DESIGN.md had no stepper entry at all**, which is why a border token was
+paired with a standalone rule unquestioned. FIXED: new §1.2a records the
+measured ratios and names the faint/subtle pair as the sanctioned hairline
+ramp, so the next 1px rule does not re-derive this.
+
+**P2 — token coupling** (`--spacing-confirm-box` is a confirm-BUTTON dimension,
+so resizing that button silently resizes the stepper): NOT fixed, and not
+deferred silently — it is the same token the C1 canonicalization pinned, and
+retargeting it is a token-taxonomy change beyond this arc's scope. The coupling
+is now at least documented in §1.2a's neighbourhood rather than implicit.
+
+**P3 — `justify-between` on the parent row is inert with a single child:**
+accepted. Harmless, and removing it would touch a row this arc does not
+otherwise own.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
+
+### §12.2 — observed RED
+
+`C1` RED was observed only after four harness faults were cleared, each of
+which would have produced a red run for the wrong reason: a sibling worktree
+owning port 3000 (Playwright's `reuseExistingServer` would have measured
+another branch's code), four booted webServers where one was needed
+(`BASELINE_SERVER_ONLY`), a hand-started dev server missing the config's
+test-auth env (`signInAs` 404, nine tests red for a reason unrelated to
+connectors), and a shared-DB strand from another session's crashed run
+(`enterWizardAdminState` refusing to capture all-null `app_settings`).
+
+Genuine RED: 6 band cases failed with `width: 0, height: 1, inBand: false` on
+both connectors. GREEN after the nav fix: 9/9.
