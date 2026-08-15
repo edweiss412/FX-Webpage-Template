@@ -280,6 +280,25 @@ export function analyseDestructiveFile(
   };
   ts.forEachChild(sf, walkFactories);
 
+  // ...and every declaration of a factory NAME must itself be a factory. `summarize` only
+  // ever sees function declarations and function-valued consts, so a same-named PARAMETER
+  // or import binding was invisible to it: probed, `const make = () => postgres(DB_URL)`
+  // beside `function run(make) { const sql = make(); sql`select public.prune_…()` }`
+  // returned ok:true, the checked outer factory blessing a client the parameter supplied.
+  // Third instance of diff review R1's class, found by sweeping the class rather than the
+  // named instance.
+  const isFactoryDeclaration = (n: ts.Node): boolean =>
+    ts.isFunctionDeclaration(n) ||
+    (ts.isVariableDeclaration(n) &&
+      !!n.initializer &&
+      (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer)));
+  for (const name of [...factoryChecked.keys()]) {
+    const decls = declarationsOf(sf, name);
+    if (decls.length === 0 || !decls.every((d) => isFactoryDeclaration(d.node))) {
+      factoryChecked.set(name, false);
+    }
+  }
+
   const factoryCallName = (n: ts.Node): string | null =>
     ts.isCallExpression(n) && ts.isIdentifier(n.expression) && factoryChecked.has(n.expression.text)
       ? n.expression.text

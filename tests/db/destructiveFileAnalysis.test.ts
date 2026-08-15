@@ -888,6 +888,35 @@ sql\`select public.prune_sync_log()\`;`;
     expectRejected(src, REASON.uncheckedExecution);
   });
 
+  it("(bj) rejects a factory name that is ALSO a parameter", () => {
+    // Third instance of R1's class, found by sweeping it rather than the named case:
+    // `summarize` only ever sees function declarations and function-valued consts, so a
+    // same-named PARAMETER was invisible to it and the checked outer factory blessed a
+    // client the parameter supplied. Probed ok:true before the repair.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const make = () => postgres(DB_URL, { max: 1 });
+function run(make) {
+  const sql = make();
+  sql\`select public.prune_sync_log()\`;
+}
+void run;`;
+    expectRejected(src, REASON.uncheckedFactory);
+  });
+
+  it("(bk) rejects a factory name that is also an IMPORT binding", () => {
+    // The neighbouring declaration kind, pinned as a regression rather than claimed as a
+    // kill: an imported `make` was never summarized at all, so Rule 1 already rejected it.
+    // It is here because the repair above makes the two cases one rule, and a later edit
+    // that "simplifies" the rule should have to notice both.
+    const src = `${IMPORT}
+import { make } from "./fixtures/factories";
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = make();
+sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.
