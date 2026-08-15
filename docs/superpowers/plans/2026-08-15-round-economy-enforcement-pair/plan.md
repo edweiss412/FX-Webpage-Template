@@ -4,12 +4,12 @@
 
 ## Acceptance criteria
 
-- **AC-A1** — round-1 `--stage diff` dispatch whose brief (fence-stripped) carries a line-anchored `GUARD SURFACE:` and neither arm exits 2 with a message naming both `MUTATION SCORE:` and `CANNOT-EXPRESS:`.
-- **AC-A2** — the score arm (`MUTATION SCORE:` remainder containing `\d+\s*/\s*\d+` and `survivor`, case-insensitive) passes validation and the dispatch proceeds.
-- **AC-A3** — the cannot-express arm (`CANNOT-EXPRESS:` with non-empty remainder) passes validation.
-- **AC-A4** — round ≥ 2 and stages `spec`/`plan`/`task` are exempt: the same declared-only brief dispatches.
-- **AC-A5** — a marker inside a fenced code block neither triggers (`GUARD SURFACE:`) nor satisfies (`MUTATION SCORE:`) the gate.
-- **AC-A6** — a `MUTATION SCORE:` line missing the fraction or the `survivor` token does not satisfy the score arm.
+- **AC-A1** — round-1 `--stage diff` dispatch whose brief (fence-stripped) carries a bare line-anchored `GUARD SURFACE:` line (no arm in its remainder) exits 2 with a message naming both arms and enumerating every nonconforming line.
+- **AC-A2** — a `GUARD SURFACE:` line whose remainder carries the score arm (`\d+\s*/\s*\d+` fraction AND `\b(0|no)\s+unaccepted\s+survivors?\b`, case-insensitive) passes validation and the dispatch proceeds.
+- **AC-A3** — a `GUARD SURFACE:` line whose remainder carries the cannot-express arm (`CANNOT-EXPRESS:` with non-empty tail) passes validation.
+- **AC-A4** — round ≥ 2 and stages `spec`/`plan`/`task` are exempt: the same bare-declared brief dispatches.
+- **AC-A5** — markers inside a fenced code block neither trigger (`GUARD SURFACE:`) nor satisfy (a fenced conforming disposition does not cover a live bare line).
+- **AC-A6** — per-line individually (spec §2.1, R1 findings 1–2): a MIXED brief (one conforming cannot-express line + one bare line) exits 2 naming the bare line; a score arm declaring a NON-empty unaccepted-survivor set (`1 unaccepted survivor`) or lacking the fraction exits 2.
 - **AC-B1** — `parseFiling` exposes per-section `mechanizable: { isNone, hasDecline, citedIds } | null`, block-scoped per spec §3.1.
 - **AC-B2** — `checkCorpus` reports `mechanizable_untracked` for a non-grandfathered filing section whose Mechanizable entry is non-none, cites no `BL-`/`DEF-` id inside the block, and has no `declined:` marker.
 - **AC-B3** — a block-scoped id or a `declined: <reason>` satisfies the duty; an id appearing only OUTSIDE the Mechanizable block (e.g. in Judgment) does not.
@@ -58,7 +58,7 @@ The closure set the review converges against, per the registry's declared operat
 
 **What is red and why:** the new suite's exit-2 case writes a brief containing only `GUARD SURFACE: x` and dispatches `--stage diff --round 1` via the spawn harness (`runGuard`, `tests/codexGuard/harness.ts:177`); `scripts/codex-guard.mjs` has no guard-surface validation, so the dispatch proceeds against the fake codex and exits 0 — the `expect(res.code).toBe(2)` assertion fails.
 
-- RED: author `tests/codexGuard/guardSurfaceGate.test.ts` on the existing harness (`mkRun` writes `run.briefPath`; the test overwrites it per case, then `runGuard(run, ["--stage", "diff", "--round", "1"])`): one case per AC-A1..A6, asserting exit code and (for AC-A1) that stderr names both `MUTATION SCORE:` and `CANNOT-EXPRESS:`. Passing cases assert the dispatch reached the fake codex (`readCalls(run)` non-empty) rather than merely exit 0.
+- RED: author `tests/codexGuard/guardSurfaceGate.test.ts` on the existing harness (`mkRun` writes `run.briefPath`; the test overwrites it per case, then `runGuard(run, ["--stage", "diff", "--round", "1"])`): one case per AC-A1..A6 including the spec §6.1 probe-pair fixtures (`mixed_missing_score`, `two_enrolled_one_score`, `nonempty_survivor_set`), asserting exit code and (for AC-A1/A6) that stderr enumerates every nonconforming `GUARD SURFACE:` line. Passing cases assert the dispatch reached the fake codex (`readCalls(run)` non-empty) rather than merely exit 0.
 - GREEN: insert the check in `scripts/codex-guard.mjs` config validation, after `cfg.briefText` is read (the `--brief is empty` guard at line 176) — spec §2.1 algorithm, reusing `stripCodeBlocks` (line 537).
 - Pre-dispatch string-presence mutants on the exit-2 message per the closure section above; results recorded in the task commit message.
 
