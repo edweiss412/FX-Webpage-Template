@@ -51,6 +51,7 @@ N/A. Neither the origin gate nor the failure state calls `pg_advisory*` or mutat
 - `components/auth/IdentityChip.tsx` (modify, UI) — widen `clearIdentityFormAction` return type (name preserved).
 - `components/auth/AvatarMenu.tsx` (modify, UI) — local `useState`+`useTransition` switch state (reset-on-open), alert node as sibling of `role="menu"`, pending disable, widened prop type.
 - tests/auth/sameOriginServerAction.test.ts (new), `tests/auth/picker/clearIdentity.test.ts` (modify), `tests/components/auth/avatarMenu.test.tsx` (modify), `tests/components/IdentityChip.test.tsx` (modify), `tests/components/identityChipSrSeparator.test.tsx` (modify).
+- `tests/components/auth/_probeSwitchCloseRace.test.tsx` (committed probe) — empirical close/pending/reopen evidence (spec §2.3), 3/3 pass; Task 4 folds its assertions onto the real `AvatarMenu`.
 - `BACKLOG.md` / `BACKLOG-archive.md` (modify) — archive two entries, file two sweep/limit entries.
 
 <!-- tasks: depth=3 -->
@@ -150,13 +151,16 @@ export async function isSameOriginServerAction(): Promise<boolean> {
 ```ts
 import { setSameOrigin, setHeaders } from "../helpers/headerMock"; // extend existing mock
 
-it("clearIdentity refuses a gate-failing request and writes no cookie", async () => {
+it("clearIdentity refuses a gate-failing request, writes no cookie, and emits the forensic code", async () => {
   setHeaders({ "sec-fetch-site": "cross-site" });
+  const warnSpy = vi.spyOn(log, "warn");
   const fd = new FormData();
   fd.set("slug", SLUG); fd.set("shareToken", TOKEN); fd.set("showId", SHOW_ID);
   const r = await clearIdentity(fd);
   expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
   expect(cookieSet).not.toHaveBeenCalled(); // no cookie mutation on reject
+  // R2-F3: the forensic emit is pinned, not just described; dropping it fails here
+  expect(warnSpy).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED" }));
 });
 
 it("clearIdentityAndSkip refuses cross-site WITHOUT signing out (no external mutation)", async () => {
@@ -176,7 +180,7 @@ it("bypass regression: cross-site with NO Origin header is refused", async () =>
 
 Also: add a `same-origin` default to the suite's `headers()` mock so all EXISTING cases (which do not set fetch-metadata) still pass through the gate. The `tests/auth/picker/clearIdentity.test.ts:228` no-emit pin is unchanged. (`supabaseMock.signOut` and `cookieSet` are already exposed by the existing harness.)
 
-RED premise: the gate line is absent from the three actions, so a cross-site request currently mutates and returns `{ ok: true }` — the assertion `{ ok: false, code: "PICKER_INVALID_INPUT" }` fails, and for `clearIdentityAndSkip` a pre-gate `signOut` would have fired. Anti-tautology: the `cookieSet` AND `signOut` spies assert NO mutation happened — a guard-order regression that revoked before refusing fails here.
+RED premise: the gate line is absent from the three actions, so a cross-site request currently mutates and returns `{ ok: true }` — the assertion `{ ok: false, code: "PICKER_INVALID_INPUT" }` fails, and for `clearIdentityAndSkip` a pre-gate `signOut` would have fired. Anti-tautology: the `cookieSet` AND `signOut` spies assert NO mutation happened, and the `log.warn` spy asserts the forensic emit FIRED — a guard-order regression that revoked before refusing, or a silent rejection with no emit, fails here.
 
 - [ ] **Step 2: Run tests, verify they fail** — Run `pnpm vitest run tests/auth/picker/clearIdentity.test.ts`; expected FAIL on the new cases (gate absent), existing cases green.
 
@@ -217,12 +221,12 @@ Import `isSameOriginServerAction`; `log` is already imported (`lib/auth/picker/c
 - [ ] **Step 1: Add the §12.4 prose** — insert the table row (columns matching the sibling PICKER rows near line 3084 of the master spec) and the helpfulContext line near line 3330:
 
 ```
-| `PICKER_SWITCH_FAILED` | M13 — a crew member's switch person clear failed; an in-menu retry was shown. | "A crew member's switch person action failed; they were shown an in-menu retry." | "Couldn't switch. Please try again." | Crew → try again; Eric if repeated |
+| `PICKER_SWITCH_FAILED` | M13 — a crew member's switch person clear did not land. | "A crew member's switch person clear did not land." | "Couldn't switch. Please try again." | Crew → try again; Eric if repeated |
 ```
 ```
-PICKER_SWITCH_FAILED: "The picker clear action failed for a crew member's switch-person tap; an in-menu retry was shown."
+PICKER_SWITCH_FAILED: "The picker clear action failed for a crew member's switch-person tap."
 ```
-(No em-dash; straight apostrophes. The dev copy deliberately does NOT claim "the identity was not cleared" — a reachable branch stages the deletion before revalidatePath throws, `lib/auth/picker/clearIdentity.ts:199`, proven by `tests/auth/picker/clearIdentity.test.ts:327`. Crew copy is the fixed ratified string.)
+(No em-dash; straight apostrophes. The dev copy asserts ONLY the server fact — it claims neither "the identity was not cleared" (R1-F3: deletion may be staged before revalidatePath throws, `lib/auth/picker/clearIdentity.ts:199`, `tests/auth/picker/clearIdentity.test.ts:327`) nor "they were shown a retry" (R2-F1: false on close-while-pending, §2.3 probe case 2). Crew copy is the fixed ratified string.)
 
 - [ ] **Step 2: Regen + run parity, verify RED→GREEN** — Run `pnpm gen:spec-codes && pnpm vitest run tests/cross-cutting/codes.test.ts`. Before adding the `catalog.ts` row (Step 3), parity FAILS (prose has a row the catalog lacks) — observe that failure first. RED premise: the catalog is missing the row the §12.4 prose now declares.
 
@@ -232,12 +236,12 @@ PICKER_SWITCH_FAILED: "The picker clear action failed for a crew member's switch
 PICKER_SWITCH_FAILED: {
   code: "PICKER_SWITCH_FAILED",
   warningClass: "general",
-  dougFacing: "A crew member's switch person action failed; they were shown an in-menu retry.",
+  dougFacing: "A crew member's switch person clear did not land.",
   crewFacing: "Couldn't switch. Please try again.",
   followUp: "Crew → try again; Eric if repeated",
-  helpfulContext: "The picker clear action failed for a crew member's switch-person tap; an in-menu retry was shown.",
+  helpfulContext: "The picker clear action failed for a crew member's switch-person tap.",
   title: "Switch person failed",
-  longExplanation: "A crew member tapped switch person and the clear did not land. An in-menu error offered a retry.",
+  longExplanation: "A crew member tapped switch person and the clear did not land.",
   helpHref: "/help/errors#PICKER_SWITCH_FAILED",
 },
 ```
@@ -292,6 +296,19 @@ it("clears a stale error when the menu is reopened (R1-F4)", async () => {
   closeMenu();          // Escape / outside pointer
   openMenu();           // reopen
   expect(screen.queryByRole("alert")).toBeNull(); // reset-on-open, no stale error
+});
+
+it("close WHILE PENDING then resolve-failure: no throw, no alert; reopen stays clean (R2-F2)", async () => {
+  // The §2.3 probe verified this lifecycle on a Harness; here it is pinned on the real AvatarMenu.
+  const d = deferred<ClearIdentityResult>();
+  render(<AvatarMenu {...baseProps} clearAction={() => d.promise} />);
+  openMenu();
+  fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+  closeMenu();                       // close before the clear resolves
+  await act(async () => { d.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }); await d.promise; });
+  expect(screen.queryByRole("alert")).toBeNull(); // nothing rendered while closed, no throw
+  openMenu();
+  expect(screen.queryByRole("alert")).toBeNull(); // reopen is idle
 });
 ```
 
