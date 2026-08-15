@@ -9,11 +9,12 @@ import {
   assetRecovery,
   runAssetRecoveryCron,
   type AssetRecoveryStorage,
+  type AssetRecoveryTx,
 } from "@/lib/sync/assetRecovery";
 import { DIAGRAM_VARIANT_WIDTHS } from "@/lib/sync/diagramVariants";
 import { resetLogSink, setLogSink } from "@/lib/log/logger";
 import type { LogRecord } from "@/lib/log/types";
-import { premise } from "@/tests/_shared/premise";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const showId = "11111111-1111-4111-8111-111111111111";
 const driveFileId = "sheet-file-1";
@@ -261,43 +262,6 @@ describe("assetRecovery", () => {
     expect(removed).toEqual(uploads.map((upload) => upload.path));
   });
 
-  test("no-op after canonical upload removes uploaded recovery bytes", async () => {
-    const { storagePort, uploads, removed } = storage();
-    let lockCount = 0;
-
-    const result = await assetRecovery(showId, {
-      readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
-      withShowLock: async (_driveFileId, fn) => {
-        lockCount += 1;
-        return await fn({
-          readLockedShow: async () => ({
-            showId,
-            driveFileId,
-            diagrams:
-              lockCount === 1
-                ? partialDiagrams()
-                : { ...partialDiagrams(), snapshot_status: "complete" },
-          }),
-          updateRecoveredDiagrams: async () => {
-            throw new Error("no-op recovery must not update diagrams");
-          },
-          upsertRecoveryCooldown: async () => undefined,
-          deleteRecoveryCooldown: async () => undefined,
-          upsertAdminAlert: async () => undefined,
-          resolveAdminAlerts: async () => undefined,
-        });
-      },
-      storage: storagePort,
-      drive: {
-        fetchEmbeddedImageBytes: async () => new TextEncoder().encode("embedded-bytes"),
-        fetchLinkedRevisionBytes: async () => new TextEncoder().encode("linked-bytes"),
-      },
-    });
-
-    expect(result).toEqual({ outcome: "no_op" });
-    expect(removed).toEqual(uploads.map((upload) => upload.path));
-  });
-
   test("busy show lock returns concurrent sync skipped", async () => {
     const result = await assetRecovery(showId, {
       readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
@@ -473,6 +437,184 @@ describe("assetRecovery", () => {
       { showId: "show-a", result: { outcome: "infra_error", code: "SYNC_INFRA_ERROR" } },
       { showId: "show-b", result: { outcome: "no_op" } },
     ]);
+  });
+
+  describe("proof-gated cleanup (spec §2, BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES)", () => {
+    const driftedRev = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+    // Map-backed storage: assertions run against surviving OBJECT STATE, not the
+    // remove call log (spec §6 anti-tautology -- a call-count test can pass with
+    // the wrong paths removed).
+    function liveStorage() {
+      const objects = new Map<string, true>();
+      const uploads: string[] = [];
+      const storagePort: AssetRecoveryStorage = {
+        async upload(path) {
+          objects.set(path, true);
+          uploads.push(path);
+        },
+        async remove(path) {
+          objects.delete(path);
+        },
+      };
+      return { storagePort, objects, uploads };
+    }
+
+    type LockedTxOverrides = {
+      readLockedShow?: () => Promise<{
+        showId: string;
+        driveFileId: string;
+        diagrams: PersistedDiagrams;
+      } | null>;
+      updateRecoveredDiagrams?: () => Promise<boolean>;
+    };
+
+    // Both lock passes (pre-upload gate, commit) share this builder; the second
+    // pass swaps in `secondPass` so tests can model a winner committing between
+    // the loser's gate and its commit attempt -- the probe P1 interleaving.
+    function depsWithSecondPass(
+      storagePort: AssetRecoveryStorage,
+      secondPass: LockedTxOverrides | "contended",
+    ) {
+      let lockCalls = 0;
+      return {
+        readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
+        withShowLock: async <R>(_driveFileId: string, fn: (tx: AssetRecoveryTx) => Promise<R>) => {
+          lockCalls += 1;
+          if (lockCalls > 1 && secondPass === "contended") {
+            return { skipped: CONCURRENT_SYNC_SKIPPED } as const;
+          }
+          const overrides = lockCalls > 1 && secondPass !== "contended" ? secondPass : {};
+          return await fn({
+            readLockedShow:
+              overrides.readLockedShow ??
+              (async () => ({ showId, driveFileId, diagrams: partialDiagrams() })),
+            updateRecoveredDiagrams: overrides.updateRecoveredDiagrams ?? (async () => true),
+            upsertRecoveryCooldown: async () => undefined,
+            deleteRecoveryCooldown: async () => undefined,
+            upsertAdminAlert: async () => undefined,
+            resolveAdminAlerts: async () => undefined,
+          });
+        },
+        storage: storagePort,
+        drive: {
+          fetchEmbeddedImageBytes: async () => new TextEncoder().encode("embedded-bytes"),
+          fetchLinkedRevisionBytes: async () => new TextEncoder().encode("linked-bytes"),
+        },
+      };
+    }
+
+    test("skipped at the commit lock keeps every uploaded object (no proof, no deletion)", async () => {
+      const { storagePort, objects, uploads } = liveStorage();
+      const result = await assetRecovery(showId, depsWithSecondPass(storagePort, "contended"));
+      premise("the loser uploaded before its contended commit attempt", uploads.length, 0);
+      expect(result).toEqual({ outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED });
+      expect([...objects.keys()].sort()).toEqual([...uploads].sort());
+    });
+
+    test("no_op with the SAME locked revision (winner committed it) keeps the winner's MANIFEST-referenced objects", async () => {
+      const { storagePort, objects, uploads } = liveStorage();
+      // The winner's committed manifest carries REAL snapshotPath values at the
+      // deterministic canonical paths -- the assertion below runs against THESE,
+      // not against the loser's upload list, so an empty winner manifest cannot
+      // vacuously pass (spec §6, probe P1's manifestTargetExists).
+      const base = partialDiagrams();
+      const winnerCommitted: PersistedDiagrams = {
+        ...base,
+        snapshot_status: "complete",
+        embeddedImages: base.embeddedImages.map((entry) => ({
+          ...entry,
+          snapshotPath: `diagram-snapshots/shows/${showId}/${snapshotRevisionId}/embedded-${entry.objectId}.png`,
+        })),
+        linkedFolderItems: base.linkedFolderItems.map((entry) => ({
+          ...entry,
+          snapshotPath: `diagram-snapshots/shows/${showId}/${snapshotRevisionId}/folder-${entry.driveFileId}.jpg`,
+        })),
+      };
+      const manifestPaths = [
+        ...winnerCommitted.embeddedImages,
+        ...winnerCommitted.linkedFolderItems,
+      ]
+        .map((entry) => entry.snapshotPath)
+        .filter((path): path is string => Boolean(path));
+      const result = await assetRecovery(
+        showId,
+        depsWithSecondPass(storagePort, {
+          readLockedShow: async () => ({ showId, driveFileId, diagrams: winnerCommitted }),
+        }),
+      );
+      premise("the winner's manifest references concrete canonical paths", manifestPaths.length, 0);
+      premiseHolds(
+        "the deterministic canonical paths tie the manifest to the loser's uploads",
+        manifestPaths.every((path) => uploads.includes(path)),
+      );
+      expect(result).toEqual({ outcome: "no_op", lockedSnapshotRevisionId: snapshotRevisionId });
+      for (const path of manifestPaths) {
+        expect(objects.has(path)).toBe(true);
+      }
+      // And nothing else was deleted either.
+      expect([...objects.keys()].sort()).toEqual([...uploads].sort());
+    });
+
+    test("no_op with a NULL locked show keeps uploads (no revision proof)", async () => {
+      const { storagePort, objects, uploads } = liveStorage();
+      const result = await assetRecovery(
+        showId,
+        depsWithSecondPass(storagePort, { readLockedShow: async () => null }),
+      );
+      premise("uploads happened before the locked show vanished", uploads.length, 0);
+      expect(result).toEqual({ outcome: "no_op" });
+      expect([...objects.keys()].sort()).toEqual([...uploads].sort());
+    });
+
+    test("no_op with a DIFFERENT locked revision deletes the run's own uploads (proof held)", async () => {
+      const { storagePort, objects, uploads } = liveStorage();
+      const result = await assetRecovery(
+        showId,
+        depsWithSecondPass(storagePort, {
+          readLockedShow: async () => ({
+            showId,
+            driveFileId,
+            diagrams: {
+              ...partialDiagrams(),
+              snapshot_revision_id: driftedRev,
+              snapshot_status: "complete",
+            },
+          }),
+        }),
+      );
+      premise("uploads happened under the superseded revision", uploads.length, 0);
+      expect(result).toEqual({ outcome: "no_op", lockedSnapshotRevisionId: driftedRev });
+      expect(objects.size).toBe(0);
+    });
+
+    test("commit-branch revision drift still deletes the run's own uploads (proof held)", async () => {
+      const { storagePort, objects, uploads } = liveStorage();
+      const result = await assetRecovery(
+        showId,
+        depsWithSecondPass(storagePort, {
+          readLockedShow: async () => ({
+            showId,
+            driveFileId,
+            diagrams: { ...partialDiagrams(), snapshot_revision_id: driftedRev },
+          }),
+        }),
+      );
+      premise("uploads happened under the superseded revision", uploads.length, 0);
+      expect(result).toMatchObject({ outcome: "revision_drift" });
+      expect(objects.size).toBe(0);
+    });
+
+    test("CAS-false drift deletes the run's own uploads (spec §2.1 form (b); unreachable via concurrent commits per §2.3, injected via the port seam)", async () => {
+      const { storagePort, objects, uploads } = liveStorage();
+      const result = await assetRecovery(
+        showId,
+        depsWithSecondPass(storagePort, { updateRecoveredDiagrams: async () => false }),
+      );
+      premise("uploads happened before the CAS refused the commit", uploads.length, 0);
+      expect(result).toMatchObject({ outcome: "revision_drift" });
+      expect(objects.size).toBe(0);
+    });
   });
 });
 
