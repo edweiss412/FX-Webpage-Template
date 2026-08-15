@@ -299,6 +299,28 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
       [`const u = ${gap('"// x"')}; const d = 4;`],
     ],
     [
+      // Review R14, probed: a backtick inside `${...}` opens a NEW template, and treating
+      // it as the outer one's closer exposed the outer template's text as live code. The
+      // interpolation ITSELF is code and stays readable.
+      "a nested template inside an interpolation",
+      'const g = `${a ? `x` : ""}`; const c = 3;',
+      [`const g = ${gap("`${")}a ? ${gap("`x`")} : ${gap('""')}${gap("}`")}; const c = 3;`],
+    ],
+    [
+      // An object literal inside an interpolation: its braces must NOT be read as the
+      // interpolation's own close, or the template never ends and the file reads as
+      // unfinished.
+      "braces inside an interpolation are counted",
+      "const g = `${ {a:1} }`; const c = 3;",
+      [`const g = ${gap("`${")} {a:1} ${gap("}`")}; const c = 3;`],
+    ],
+    [
+      // A bare `$` is not an interpolation, and neither is a `{` on its own.
+      "a lone dollar inside a template stays template text",
+      "const g = `a $ b {c}`; const d = 4;",
+      [`const g = ${gap("`a $ b {c}`")}; const d = 4;`],
+    ],
+    [
       "a template interior is blanked across lines",
       "const t = `\nconst EXPECTED_X = 1;\n`;",
       [`const t = ${gap("`")}`, gap("const EXPECTED_X = 1;"), `${gap("`")};`],
@@ -325,6 +347,8 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
     ["an unterminated string", 'const s = "a'],
     ["an unterminated template", "const t = `a"],
     ["an unterminated block comment", "/* a"],
+    ["an unclosed interpolation", "const g = `${a"],
+    ["an unclosed NESTED template", "const g = `${a ? `x"],
   ])("%s makes the whole scan unusable", (_label, src) => {
     expect(readableScriptLines(src)).toBeNull();
   });
@@ -503,6 +527,20 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     ["a block comment", "/* a stray ` in prose */"],
   ])("a backtick inside %s does not open a template", (_label, decoy) => {
     const body = [decoy, "const sample = `", siteConst(37), "`;", siteConst(38)].join("\n");
+    const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("a declaration inside a NESTED template is not live", () => {
+    // Review R14, probed: `${x ? ` opens an interpolation and the backtick after it a new
+    // template, so reading that backtick as the outer literal's close exposed the
+    // template's own text — and the script has no module-local site constant at all.
+    const body = [
+      "const generated = `${enabled ? `",
+      siteConst(37),
+      '` : ""}`;',
+      "const EXPECTED_OTHER_COUNT = 1;",
+    ].join("\n");
     const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
     expect(only(findings, A)).toEqual([]);
   });

@@ -462,6 +462,13 @@ export function readableScriptLines(text: string): string[] | null {
     lastChar = c;
   };
   let inClass = false;
+  // Template nesting. A backtick inside `${...}` opens a NEW template rather than closing
+  // the outer one, so the scan carries a stack: a template frame for each open literal, and
+  // an interpolation frame — counting its own braces — for each `${` inside one. Without
+  // it, `` `${x ? ` ... ` : ""}` `` closed the outer template at the inner backtick and
+  // exposed the template's text as live code (review R14, probed).
+  type Frame = { kind: "template" } | { kind: "interp"; braces: number };
+  const frames: Frame[] = [];
   for (let i = 0; i < text.length; i++) {
     const c = text[i]!;
     const next = text[i + 1];
@@ -486,6 +493,25 @@ export function readableScriptLines(text: string): string[] | null {
         inClass = false;
         line += " ";
         continue;
+      }
+      if (c === "`") {
+        frames.push({ kind: "template" });
+        state = "template";
+        line += " ";
+        continue;
+      }
+      const top = frames[frames.length - 1];
+      if (top?.kind === "interp") {
+        if (c === "{") top.braces++;
+        else if (c === "}") {
+          if (top.braces === 0) {
+            frames.pop();
+            state = "template";
+            line += " ";
+            continue;
+          }
+          top.braces--;
+        }
       }
       const opened = closers[c];
       if (opened !== undefined) state = opened;
@@ -528,9 +554,22 @@ export function readableScriptLines(text: string): string[] | null {
       }
       continue;
     }
+    if (state === "template" && c === "$" && next === "{") {
+      frames.push({ kind: "interp", braces: 0 });
+      state = "code";
+      line += " ";
+      i++;
+      continue;
+    }
+    if (state === "template" && c === "`") {
+      frames.pop();
+      state = "code";
+      continue;
+    }
     if (closers[c] === state) state = "code";
   }
   out.push(line);
+  if (frames.length > 0) return null;
   return state === "code" || state === "line-comment" ? out : null;
 }
 
