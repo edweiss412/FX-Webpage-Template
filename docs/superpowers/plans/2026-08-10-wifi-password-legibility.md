@@ -67,4 +67,26 @@ Then the graduation cycle, red-first WITHIN its own commit's cycle (invariant 1)
 
 ## §12 — impeccable gate record
 
-The marker line lands here, filled, at Task 4 completion, followed by the full findings table.
+impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=0 dispositions=none
+
+`dispositions=none` is the grammar's cross-check, not a claim that nothing was dispositioned: the field tracks P0/P1 only, and `p0+p1 == 0` forces `none` (`tests/docs/_invariant8Closeout.ts:141`). Both gates produced zero P0 and zero P1; the three P2s and two P3s below are dispositioned in the table, two of them by a shipped fix.
+
+**Scope.** The arc's UI surface: `components/crew/primitives/CopyFactValue.tsx` (new island), `components/crew/primitives/FactRows.tsx`, `components/crew/sections/VenueSection.tsx`, `lib/ui/copyFeedback.ts`, plus the two admin call sites that adopt the shared constant.
+
+**Provenance, stated rather than implied.** ⚠️ DEGRADED: the critique's two assessments were dispatched as isolated sub-agents per the command's hard invariant, and neither returned within ~50 minutes of the dispatch (two status pings each, no reply). Assessment B was then re-run directly — it is deterministic, so its evidence is unaffected by who ran it: `detect.mjs` over the three component files returned `[]`, exit 0. Assessment A's design review was carried out in this context, which is what makes the run degraded rather than clean. The audit half ran normally (it is not sub-agent gated), so it is recorded `RAN`.
+
+**Mechanical pre-code checklist** (AGENTS.md, run before the gate rather than discovered by it): em dashes appear only inside JSX comments, never in user-visible copy — the corrective announcement deliberately uses a plain hyphen; the tap target is `size-tap-min` (44px), measured at 44×44 in both homes by the e2e pair; no inline hex and no arbitrary bracket values in either component; type and color are canonical tokens throughout.
+
+### Findings
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | P2 | The announce channel took the shared hook's cap-only default. That default's stated condition is a channel that unmounts with its announcements; a crew page is opened once at the venue and left open for the show, so every "Copied." would still sit in the accessibility tree hours later and a top-down screen-reader read would recite them all — the same defect measured on the admin layout channel (12 undos = 12 sibling nodes / 686 chars). | **FIXED** `890f8d8ac`. Passes `ttlMs: ANNOUNCE_LOG_TTL_MS`, pinned in BOTH directions (survives TTL-1ms, gone at TTL) because pruning early strands an unspoken announcement. |
+| 2 | P2 | No hover state. The product register asks every interactive component for default / hover / focus / active, and the sibling copy control already darkens to `text-text-strong` on hover — two copy affordances in one product behaving differently on a pointer. | **FIXED** `b7aa73007`. The step is the glyph color, not the tile fill: the tile's 28px box is the DI-1 row-height oracle. The test asserts the `group-hover:` utility and the `group` together, since either alone is inert. |
+| 3 | P2 | The clipboard-unavailable path is entirely silent — no announcement, no visual change. A sighted user still has the password on screen; a screen-reader user gets no signal the tap did anything. | **ACCEPTED, spec-ratified.** Spec §4.2 states "No announcement on failure (nothing changed; the value remains visible)" and §7 makes the visible `.code-value` password the documented fallback. Per AGENTS.md invariant 7 the spec wins, and per the ledger filing bar a worst case of conservative behavior plus an intact visible fallback is a documented limit, not an open queue row. Recorded here so a later reviewer does not re-derive it. |
+| 4 | P3 | The control is icon-only, with no visible text label. | **ACCEPTED.** The clipboard glyph is the category-standard affordance (product register: earned familiarity), the accessible name is the full sentence "Copy the Wi-Fi password", and the row is 390px-wide on a phone where a text label would push the value into a wrap. |
+| 5 | P3 | No distinct `:active` / pressed treatment. | **ACCEPTED.** The glyph swap to a check IS the press feedback, and it is durable for the whole 2s window rather than only while the finger is down — which is the more useful signal on a touch surface where the finger covers the control. |
+
+**Design health.** Nielsen 10 scored 32/40 (Good). The two weakest rows are error recovery (finding 3) and status visibility, both bounded by the same ratified silent-failure decision. Cognitive load: 0 of 8 checklist items failed — the row adds one control to an existing list and no new decision. AI-slop verdict: clean. No gradient text, no glass, no card grid, no eyebrow, no hero metric; the control reuses the existing 28px sunken tile idiom rather than inventing an affordance.
+
+**Deterministic scan.** `detect.mjs` over the three component files: 0 findings, exit 0.
