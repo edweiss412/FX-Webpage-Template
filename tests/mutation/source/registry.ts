@@ -507,6 +507,28 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
   },
   /**
+   * The pg-cron smoke helpers (chore/guard-completeness-wave,
+   * BL-PG-CRON-HOST-ASSERTION). Exported pure functions with a DB-free referring suite:
+   * the dispatch-origin comparator, the firing-smoke SQL builder, and the two probe
+   * parsers. The census that consumes them needs a live database; these do not, which is
+   * what makes them expressible here at all.
+   */
+  {
+    id: "pgCronSmokes",
+    sourcePath: "tests/cross-cutting/pgCronSmokes.ts",
+    suitePaths: ["tests/cross-cutting/pgCronSmokesUnit.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // Measured 1.00 (14/14) on first enrolment; floor is measured-minus-0.05.
+    scoreFloor: 0.95,
+    // Flipping the scheme check accepts http:// in validation mode — the entry's own
+    // "worse than none, because it would read as coverage" case.
+    control: {
+      from: 'if (url.protocol !== "https:") {',
+      to: 'if (url.protocol === "https:") {',
+    },
+    accepted: [],
+  },
+  /**
    * The review-round economy gate's two sources, enrolled as TWO rows because
    * `sourcePath` is singular and the harness mutates exactly that file. A single
    * row naming count.ts would leave every structural decision in corpus.ts

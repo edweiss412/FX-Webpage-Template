@@ -46,6 +46,9 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // literal source strings through a pure AST function and reach no member of
   // ENVIRONMENT_SOURCES.
   "tests/db/destructiveFileAnalysis.test.ts": 0,
+  // The pgCronSmokes unit suite enrolled by this branch: literal strings and URLs through
+  // pure helpers, reaching no member of ENVIRONMENT_SOURCES.
+  "tests/cross-cutting/pgCronSmokesUnit.test.ts": 0,
   "tests/scripts/ledgerClaims.test.ts": 0,
   // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
   // inventory suite reads DESIGN.md and walks the repo, but through the module

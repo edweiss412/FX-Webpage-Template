@@ -88,6 +88,9 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // ordering comparison two distinct nodes cannot tie. Everything else the first run
   // surfaced was killed by a fixture, or deleted as dead code.
   destructiveFileAnalysis: { equivalent: 7 },
+  // pgCronSmokes: a clean sweep, 14/14 killed on first enrolment. Empty is the honest
+  // declaration and a row appearing here later is a regression to explain.
+  pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
 };
