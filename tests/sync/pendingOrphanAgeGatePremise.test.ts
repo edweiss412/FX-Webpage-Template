@@ -31,6 +31,16 @@
 //
 // Reddening either half is the signal to revisit the gate, not to raise the
 // constant.
+//
+// WHAT THIS CANNOT SEE, stated so it is a documented limit rather than the next
+// round's finding. The threat model is an ordinary contributor adding a caller,
+// not someone evading a test. Containment reads STATIC module edges -- `from`,
+// `import()`, and `require()` with literal specifiers -- so a specifier built at
+// runtime, a module loaded through a computed path, or an upload driven by
+// shelling out to another process is outside its reach. Those are deliberate
+// acts, not authoring slips, and the deployment bound (§7 L8) is what the
+// spec relies on regardless; this guard exists to make an accidental
+// regression loud, not to be unevadable.
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -47,6 +57,14 @@ const SAFETY_FACTOR = 24;
 
 /** Constructing either of these hands snapshotAssets a live Supabase storage port. */
 const WIRING_SYMBOLS = /\b(makeSnapshotAssetsForApply|applySnapshotStorage)\s*\(/;
+
+/**
+ * The entry points that RUN an upload. An exempt module that calls one is no
+ * longer render-only, so its exemption is void -- the row is granted for the
+ * stated behavior, not for the filename.
+ */
+const UPLOAD_ENTRY_SYMBOLS =
+  /\b(makeSnapshotAssetsForApply|applySnapshotStorage|snapshotAssets|applyStaged|runScheduledCronSync|runManualStageForFirstSeen|runManualSyncForShow)\s*\(/;
 
 /** Trees whose modules only ever execute inside the Next.js app server. */
 const PLATFORM_BOUNDED_TREES = ["app", "lib", "components"];
@@ -113,6 +131,7 @@ function importGraph(files: string[]): Map<string, string[]> {
     const specifiers = [
       ...[...source.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1]!),
       ...[...source.matchAll(/import\s*\(\s*["']([^"']+)["']\s*\)/g)].map((match) => match[1]!),
+      ...[...source.matchAll(/require\s*\(\s*["']([^"']+)["']\s*\)/g)].map((match) => match[1]!),
     ];
     graph.set(
       file,
@@ -144,13 +163,19 @@ describe("row-less _pending age gate: the premise it rests on (spec §4, §7 L8)
   // assertion about production reachability.
   const production = allFiles.filter((file) => !relative(root, file).startsWith("tests/"));
 
-  // Derived, never listed: any production module that constructs the real
-  // adapter. The definitions' own module is excluded -- it declares them.
-  const wiringModules = new Set(
-    production.filter(
+  // The containment TARGETS. The adapter module itself is one of them, which is
+  // what makes the check immune to how a caller spells the symbol: an aliased
+  // `import { makeSnapshotAssetsForApply as make }` still produces an edge to
+  // this module, so no call-site regex has to recognize `make(`. The derived set
+  // below adds the lib/ wrappers that construct the adapter internally -- they
+  // all import it too, so they are strictly redundant today, and are kept so the
+  // targets stay correct if one is ever restructured to build a port inline.
+  const wiringModules = new Set([
+    ADAPTER_MODULE,
+    ...production.filter(
       (file) => file !== ADAPTER_MODULE && WIRING_SYMBOLS.test(readFileSync(file, "utf8")),
     ),
-  );
+  ]);
 
   const reachingTarget = production.filter(
     (file) => file !== TARGET && reaches(file, new Set([TARGET]), graph),
@@ -176,11 +201,20 @@ describe("row-less _pending age gate: the premise it rests on (spec §4, §7 L8)
       .filter((file) => !PLATFORM_BOUNDED_TREES.some((tree) => file.startsWith(`${tree}/`)))
       .filter((file) => reaches(join(root, file), wiringModules, graph));
 
+    // An exemption is granted for BEHAVIOR, so it is re-checked against that
+    // behavior rather than trusted by filename: a listed script that gains a
+    // direct apply/sync invocation stops being render-only and stops being
+    // exempt, in the same run that introduces the call.
+    const stillRenderOnly = (file: string) =>
+      file in NON_EXECUTING_EXEMPTIONS &&
+      !UPLOAD_ENTRY_SYMBOLS.test(readFileSync(join(root, file), "utf8"));
+
     // A standalone process -- queue consumer, cron worker, one-off script -- has
     // no platform duration bound and could hold a run open past the gate.
-    // Reachability rather than a symbol scan, so a worker that calls an existing
-    // lib/ wrapper (applyStaged, runScheduledCronSync) is caught too.
-    expect(outsiders.filter((file) => !(file in NON_EXECUTING_EXEMPTIONS))).toEqual([]);
+    // Reachability rather than a call-site scan, so a worker is caught whether it
+    // calls an existing lib/ wrapper, aliases the factory on import, or reaches
+    // it through require().
+    expect(outsiders.filter((file) => !stillRenderOnly(file))).toEqual([]);
 
     // No stale exemption: a row that stopped reaching is a row that stopped
     // being an exemption, and leaving it invites the next one to be waved past.
