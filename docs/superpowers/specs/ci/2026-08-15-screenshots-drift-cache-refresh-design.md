@@ -1,6 +1,6 @@
 # Screenshots-drift cache refresh — make a stale restore impossible, and save on failure
 
-**Date:** 2026-08-15 · **Authoring branch:** `docs/screenshots-drift-cache-spec` · **Implementation branch:** `fix/screenshots-drift-cache` · **Entry:** `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING` (BACKLOG.md) · **Status:** DRAFT (spec R1 repaired — direction ratified as input-hash key, see §1.1.2)
+**Date:** 2026-08-15 · **Authoring branch:** `docs/screenshots-drift-cache-spec` · **Implementation branch:** `fix/screenshots-drift-cache` · **Entry:** `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING` (BACKLOG.md) · **Status:** spec-APPROVED (codex-guard R5, 2026-08-15; R1-R4 findings repaired in-branch — direction ratified as input-hash key, §1.1.2)
 
 ## §0 The trap, and the settled evidence
 
