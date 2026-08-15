@@ -201,55 +201,6 @@ the change itself.
 **Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
 carry these two sites with it, since the marginal cost then collapses to the edit itself.
 
-## BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE — the lightbox pins the original with nothing to watch while it loads
-
-**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** medium · **Class:** UX · **Effort:** S
-
-The active lightbox slide sets `pinOriginal: true` (`components/diagrams/GalleryLightbox.tsx`), so
-opening a diagram downloads the full-resolution original — deliberately, because zoom needs it
-(spec `docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §6). On ballroom wifi
-that is seconds during which the only signal is a 16px blur, at the peak-stakes moment: a crew member
-tapped a stage plot mid-show and cannot tell whether anything is happening.
-
-**Reachability:** INFERRED, NOT PROBED. The probe that would settle it: throttle to a venue-grade
-profile, open a representative stage-plot original, and measure time-to-sharp against the blur.
-
-Two candidate shapes, neither settled: gate `pinOriginal` on zoom intent (the clamped 1024 tier paints
-fast, the original arrives on pinch, and the browser keeps the old bitmap during a src swap so the
-upgrade is a silent sharpen), or keep the pin and add a progress affordance. The first changes a
-ratified spec decision and needs a spec amendment, which is why it did not land in-branch.
-
-## BL-DIAGRAM-BLUR-EDGE-SIZE — the 16px blur carries no structure for line art and is brightest where it hurts
-
-**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** UX · **Effort:** S
-
-`BLUR_MAX_EDGE = 16` (`lib/sync/diagramVariants.ts`) is the spec's bound (§3). A 16px downsample of a
-white stage plot with thin black lines averages to a near-uniform light field: it delivers the full
-brightness hit while carrying almost no content signal. At thumbnail scale the upscale is ~3x and it
-reads as a placeholder; on a full-viewport lightbox slide it is ~25x, and against the `bg-bg/95` scrim
-in dark mode a dark-adapted viewer reads it as a flash.
-
-**Reachability:** INFERRED, NOT PROBED. The probe: render a real stage-plot blur at both scales in
-both themes and compare against an emitting-nothing skeleton.
-
-Candidate: raise the bound to 32 (32x32 q40 still lands far under the 2048-char belt) and/or drop the
-placeholder on the lightbox tiers only. Both change spec §3, so neither landed in-branch.
-
-## BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE — a failed thumbnail drops focus and says nothing
-
-**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** A11Y · **Effort:** S
-
-When a thumbnail's runtime load fails, the gallery cell swaps from `<button>` to a non-interactive
-`<div>` (`components/diagrams/Gallery.tsx`). If that thumbnail held focus, focus falls to `<body>`.
-The lightbox already handles the identical transition deliberately — it relocates focus to its close
-button before the unmount cascade — so the pattern exists and is simply not applied here. Separately,
-the swap is silent to assistive tech: the replacement carries `sr-only` text discoverable only by
-re-browsing, not a live-region announcement.
-
-Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image migration that surfaced
-them; they are filed rather than fixed in that branch because the repair is a focus-management and
-announcement decision on a surface the branch does not otherwise change.
-
 ## BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT — enrol the tap-target-floor spec in the source-mutation registry
 
 **Status:** WATCH · **Filed:** 2026-08-09 (`fix/step3-a11y-cluster`, diff-review round economy). **Class:** review-round economy (a convergence criterion that is machine-computed rather than argued). **Effort:** M-L (resized from S 2026-08-09 by the probe below — the cost is a harness mode, not a registry row). **Un-defer trigger:** the source-mutation harness gains a Playwright/component-mutant mode (or an equivalent runner exists). **Reachability: PROBED.**
@@ -637,18 +588,6 @@ alert-audience-split (spec §6.7) makes health-alert resolution developer-gated 
 **Why deferred rather than swept in-branch** (AGENTS.md class-sweep disposition, exception (c)): the repair is a redesign of a shared component this branch does not otherwise touch, and item 3 is not a local edit at all but a question about whether the copy-links belong in the tab order. Two consecutive branches have now incremented the count without being the right place to answer it. **This entry is the named owner: a later branch adding a help-family row cites it instead of re-deriving the findings.**
 
 **Reachability:** PROBED. `pnpm exec vitest run tests/help` (642 tests, green) asserts none of the three, so the suite passing is not evidence against them. Findings 1 and 3 were measured on branch 2 (closeout §12); finding 2 by reading `RefAnchor.tsx:65-72` against the project's own `aria-live` pattern.
-
-### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
-
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
-
-A spurious leading empty column shifts every cell in a section's row grid one position right, and the parse absorbs it — the East Coast column-shifted outlier, i.e. a shape observed in a LIVE show, not a synthetic one. Layout-shift class: every field in the section reads its neighbour's value, which is the most damaging silent outcome in this set because each individual value still looks well-formed.
-
-**Ledgered blast radius: 211 holes** (193 `wrong` / 18 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["column-shift"] = "BL-MUTATION-COLUMN-SHIFT"` (`tests/parser/mutation/knownHoles.ts:84`), pinned by `knownHoles.test.ts`.
-
-**Shape (M):** the discriminator is a section whose header-to-column alignment breaks while cell count holds, calibrated against the corpus so a legitimately indented section does not warn. Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
-
-**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
 
 ### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
 
@@ -1165,3 +1104,79 @@ override on the shared harness would do it), or a decision about obstacle 2. Unt
 docblock states the gap rather than papering over it.
 
 ---
+
+## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown
+
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
+
+The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
+back to the clamped tier rather than showing "Image unavailable"
+(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
+The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
+nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
+again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
+backwards from the usual one.
+
+**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
+`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
+keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
+entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
+shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
+the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
+(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
+up first — one decision covers both.
+
+## BL-DIAGRAMS-ANNOUNCE-CHANNEL-TTL — two crew announce channels ship without the pruning their own module prescribes
+
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, audit half) · **Severity:** low · **Class:** A11Y · **Effort:** XS
+
+`components/diagrams/Gallery.tsx` calls `useAnnounceLog()` twice with no `ttlMs`. The gallery
+channel's region lives for the whole page session, so N thumbnail failures leave N permanent
+`sr-only` sentences that a top-down screen-reader read recites before reaching the grid — the exact
+accumulation `components/admin/announceLog.tsx:31-51` documents and measures for the admin channel
+(12 undos = 12 sibling nodes / 686 chars). The dialog channel is bounded by
+`resetDialogChannel()` on `onExitComplete`, but a close CANCELLED by a re-open inside the 220 ms
+window retains the dialog instance and its log, so that session opens pre-populated.
+
+**Reachability:** PROBED by reading — `ANNOUNCE_LOG_TTL_MS` exists and is exported for exactly this
+case, and neither call site passes it. Not repaired in-branch because the module's own doc weighs a
+strand hazard against accumulation and settles it per channel, and settling it for two NEW channels
+belongs with a look at whether the crew page should share the admin provider at all rather than
+carry two of its own.
+
+## BL-LIGHTBOX-INACTIVE-SLIDES-IN-A11Y-TREE — every carousel slide is exposed, with no current marker
+
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, audit half) · **Severity:** low · **Class:** A11Y · **Effort:** XS
+
+Embla keeps all slides mounted, and `components/diagrams/GalleryLightbox.tsx` marks none of them
+`aria-hidden`. A gallery of twelve diagrams therefore presents twelve images and twelve `sr-only`
+figcaptions to assistive technology with nothing saying which one is on screen; the visible
+"N of M" indicator is the only current-slide signal and it is not associated with the slides.
+The same shape is why arriving on a slide that failed while inactive is silent: nothing announces
+the active-slide transition.
+
+**Reachability:** PROBED by reading the rendered tree in
+`tests/components/diagrams/GalleryLightbox.test.tsx`, which queries inactive slides by DOM rather
+than by role precisely because they are all present. `aria-hidden={!isActive}` is a one-attribute
+change, deferred only because it moves several existing role-based queries and belongs with the
+current-slide announcement decision rather than ahead of it.
+
+### BL-PREMISESCAN-NESTED-HELPER-SCOPE — a helper declared inside `describe` hides its environment reach from the recognizer
+
+**Severity:** MEDIUM (the recognizer reports a clean corpus it no longer understands — a false NEGATIVE, which is the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-14 (`feat/diagram-viewing-polish`, found because the count it produced for a suite this arc enrolled was a false `0`) · **Effort:** S-M
+
+**Probed, not theorized.** Two sources differing ONLY in where the helper is declared — same `spawnSync`, same import, same call site:
+
+```
+$ # classifyTests(root, "tests/probe.test.ts") on each variant
+helper at MODULE scope   -> ["environment-touching"]
+helper at DESCRIBE scope -> ["environment-free"]
+```
+
+**Mechanism.** `premiseScan` registers declaration extents at MODULE SCOPE ONLY (`tests/mutation/source/premiseScan.ts:146-161`). `isModuleScope` (`:187-200`) walks parents and returns `false` at the first enclosing function — and a `describe("...", () => { ... })` body IS an arrow function. So a helper nested in a `describe` has no registered extent, its `node:child_process` reach is invisible, and every test calling it classifies `environment-free`.
+
+**This is a deliberate trade-off, not an oversight** — and that is the hard part of fixing it. The module-scope restriction exists to prevent OVER-classification (spec AC-10b): a flat name map collided `reportEnvelope`'s parameter `res` with an unrelated `const res` inside `main()`, and every test importing `reportEnvelope` went environment-touching. The comment at `:140-145` records that probe. A naive fix that registers all scopes re-opens exactly that. The repair therefore has to be scope-AWARE resolution (extents keyed by declaring scope, resolved innermost-out), not scope-blind registration.
+
+**Live cost already paid.** `tests/ci/phantomGapExecuted.test.ts` declared its spawning `runCli` inside the `describe` body; all three shipped-CLI cases classified environment-free and `EXPECTED_ENV_TOUCHING` recorded a truthful-looking `0`. Hoisting the helper to module scope moved it to `3`. Nothing failed in between — the corpus simply under-reported, silently, which is the failure mode the premise contract exists to prevent.
+
+**Fix:** scope-aware extent resolution in `premiseScan`, with the AC-10b `reportEnvelope`/`res` collision kept as a regression case so the repair cannot trade a false negative for the false positive it replaced. Until then the recognizer's contract is "module-scope helpers only", which no current caller states.

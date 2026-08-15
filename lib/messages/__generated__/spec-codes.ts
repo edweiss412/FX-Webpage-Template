@@ -482,6 +482,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → add another admin first",
     "helpfulContext": "Self-revoke of the only active administrator is refused at the Server Action layer to prevent admin lockout. Other-revoke (rogue admin revoking peers) is by-design allowed; see the spec amendment §5.5 + §11 anti-goal.",
   },
+  "LEADING_COLUMN_AUTOCORRECTED": {
+    "crewFacing": null,
+    "dougFacing": "Every row of a section in this sheet started with an empty column, so we read the section one column to the left and it parses correctly. If the empty column was intentional, update the sheet.",
+    "followUp": "Doug → optional fix",
+    "helpfulContext": "Every row in a section started with an empty column, so we read it one column to the left instead. Update the sheet if the empty column was intentional.",
+  },
   "LINK_CROSS_SHOW_REUSE": {
     "crewFacing": null,
     "dougFacing": null,

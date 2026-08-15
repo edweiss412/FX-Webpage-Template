@@ -56,6 +56,7 @@ const WAVE_CODES: Array<{
 }> = [
   { code: "REF_ERROR_LITERAL", expected: EXPECTED_REF },
   { code: "ROW_CELLS_FUSED", expected: {}, zeroEverywhere: true },
+  { code: "LEADING_COLUMN_AUTOCORRECTED", expected: {}, zeroEverywhere: true },
 ];
 
 /** Parse once per fixture; each code's arm reads the same warning list. */
