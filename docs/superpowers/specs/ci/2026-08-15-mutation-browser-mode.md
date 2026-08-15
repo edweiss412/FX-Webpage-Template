@@ -318,9 +318,12 @@ One `BrowserGuardSurface` row:
   MEDIUM-confidence rows (#8, #18) get an implementation-task step that runs each mutant
   locally and observes its named failure line before enrolment.
 - `scoreFloor: 1`.
-- `control`: strip `min-h-tap-min` from one repaired control (chosen at implementation from
-  a mutant-adjacent site NOT already in the mutant list, so control and mutants stay
-  disjoint).
+- `control`: strip the repaired control's tap-floor sizing class (`min-h-tap-min` or
+  `size-tap-min`, whichever the chosen site carries) from one repaired control disjoint
+  from every mutant site; the plan fixes the site (HelpSheet close-button target,
+  `size-tap-min` — the close button carries the size form, probed 2026-08-15). Amended
+  from the R3-approved "strip `min-h-tap-min`" wording, which named a token the chosen
+  site does not carry (plan R1 finding 6).
 - `accepted: []` at authoring. **Expected outcome: 19/19 killed** — every mutant was
   observed killing locally during the step3 arc (`BACKLOG.md`, WATCH row: "each ... run
   locally and reverted"). Any survivor is NEW information: triage in-arc to a repaired

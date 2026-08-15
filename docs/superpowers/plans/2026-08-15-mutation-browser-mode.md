@@ -78,8 +78,9 @@ red/green pairing).
 Test cases (anti-tautology: each constructs the failing fixture and asserts the SPECIFIC
 problem string, plus one fully-green fixture; premise lines assert fixture files exist
 before the case that reads them):
-- edit `from` absent from file; `from` twice in file; `from === to`
-- duplicate mutant `key`; empty `edits`; empty `reason`
+- edit `from` absent from file; `from` twice in file; `from === to`; edit `file` nonexistent
+- duplicate mutant `key`; empty `edits`; empty or whitespace-only `reason`
+- duplicate `siteId`s across `accepted` rows (mirror of `tests/mutation/_metaGuardSurfaceRegistry.test.ts`'s duplicate/whitespace/missing-path cases — plan R1 finding 2)
 - empty `mutants`; scoreFloor 0 / NaN / >1
 - playwright suite config missing; filter matching no spec file; vitest suite path missing
 - accepted-gap row without `BL-*`/`DEF-*` ref (reuse of ledger checks)
@@ -101,7 +102,14 @@ text; `classifyChild({sentinelPresent, exitStatus, reportEvidence, kind})` imple
 
 Tests enumerate the FULL §3.4 table — all four playwright rows, the vitest rows, and signal
 death (`exitStatus: null`) — plus multi-edit atomicity (second edit's anchor missing ⇒
-whole mutant refused). Derive expectations from the table in the spec, not from the
+whole mutant refused), and the POSITIVE paths (plan R1 finding 3): a two-edit mutant's
+output equals the hand-substituted expectation for BOTH files; `buildManifest` round-trips
+non-empty entries (parse(output).entries deep-equals input — an always-empty emitter
+fails); `accountOutcomes` totals reconcile against a mixed KILLED/SURVIVED fixture (an
+always-empty accounting fails); and a stale-report scenario — report present BEFORE spawn,
+child writes none — classifies as `{infra}`, never `DID_NOT_KILL` (report evidence is
+freshness-checked via the extracted `reportEvidence({path, spawnedAt})` helper, which
+Task 4's runner MUST route through; plan R1 finding 5). Derive expectations from the table in the spec, not from the
 implementation. Four string-guard mutants (writing-plans) run pre-dispatch on the problem-
 string assertions.
 
@@ -121,17 +129,29 @@ Implement spec §3.1 (eager validate → sentinel → per-entry onLoad, register
 tests/mutation/browser/vitestOverlay.config.ts (§3.3 step 3: manifest-driven
 `createMutantLoadHook` per entry + same eager-validate-then-sentinel).
 
+The bundle script factors its plugin-list construction into an EXPORTED function
+(`buildPlugins(env)`), and the wiring suite asserts the overlay plugin is ABSENT from the
+returned list when the env var is unset — pinning spec §3.1's "not registered at all"
+against the register-but-no-op mutant (plan R1 finding 4). The suite also EXECUTES the
+vitest overlay config (plan R1 finding 3): spawn one scoped vitest child running a tiny
+fixture suite under `--config tests/mutation/browser/vitestOverlay.config.ts` with a
+manifest overlaying a fixture module, and assert the child observed the MUTANT text and
+the sentinel exists; red until the config lands.
+
 Wiring suite also pins the OFF state (env unset ⇒ bundle output byte-identical for the
 probe entry, no sentinel, and the tap-target spec source contains the `@source` append
-only inside the env-guarded branch) and the sibling fence: a case asserting
-`git diff --quiet -- tests/e2e/_step3ReviewModalBundle.mjs` equivalent — implemented as a
-content-hash pin of the sibling at its current tree state is NOT durable; instead assert
-the sibling file contains no `MUTATION_OVERLAY_MANIFEST` reference (the honest structural
-claim: the overlay lives only in the tap-target bundle).
+only inside the env-guarded branch) plus the structural claim that the sibling
+`_step3ReviewModalBundle.mjs` contains no `MUTATION_OVERLAY_MANIFEST` reference. The
+sibling's BYTE-untouched guarantee (spec AC-3) is enforced at closeout, not by that
+structural test (plan R1 finding 4): Task 9 runs
+`git diff --quiet origin/main...HEAD -- tests/e2e/_step3ReviewModalBundle.mjs` — probed
+against a constructed failing input (touch the file, observe exit 1, revert) when the
+closeout step first runs.
 
 After the tap-target spec edit, run the e2e meta-suites that walk spec text:
 `pnpm vitest run tests/e2e/_metaFontFidelityWiring.test.ts tests/e2e/_metaFontWaitCoverage.test.ts`
-plus `pnpm vitest run tests/mutation` (scoped; the `_meta*` suites there discover files).
+(explicit file list — unwrapped) plus `pnpm heavy pnpm vitest run tests/mutation`
+(directory-scoped, so wrapped per the heavy-phase letter; plan R1 finding 7).
 
 ## Task 4 — runner: spawn wrapper + brackets
 
@@ -149,7 +169,7 @@ runner.ts exports that do not exist until this task.
 
 ## Task 5 — gate suite, project wiring, command, heavy membership
 
-<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm vitest run --project mutation tests/mutation/browser/browserSurfaces.gate.test.ts` ac=AC-1,AC-6 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm vitest run --project mutation tests/mutation/browser/browserSurfaces.gate.test.ts` ac=AC-1,AC-6 -->
 
 RED: the command exits non-zero on the live tree — the gate file does not exist and the
 `mutation` project's include list does not name it. What is red and why: file + wiring
@@ -188,12 +208,14 @@ sites, administrators inverted), and the multi-site table. Implementation steps:
 2. MEDIUM-confidence rows (#8, #18): before enrolment, apply each mutant by hand, run the
    deciding suite scoped, observe the payload's named failure line, revert (this is the
    spec §4 verification step; record command + one output line per row in the commit).
-3. Control: strip `size-tap-min` from the HelpSheet CLOSE button's target
-   (`components/admin/HelpSheet.tsx:169` area, the `className="group -m-2 inline-flex
-   size-tap-min shrink-0 …"` string — probed 2026-08-15: that file contains `size-tap-min`,
-   not `min-h-tap-min`, and the close button is NOT among the nineteen mutants' sites; the
-   payload's HelpSheet rows touch only lines 84 and 88). The 44px floor assertions cover
-   the close button, so every suite-kill expectation is obvious.
+3. Control: strip the tap-floor sizing class from the HelpSheet CLOSE button's target —
+   concretely `size-tap-min` at `components/admin/HelpSheet.tsx:169` (probed 2026-08-15:
+   that site carries `size-tap-min`, not `min-h-tap-min`, and the close button is NOT
+   among the nineteen mutants' sites; the payload's HelpSheet rows touch only lines 84
+   and 88). Spec §4's control clause was amended in this arc (same commit as this plan
+   revision) to name the tap-floor class generically with the site fixed here — the
+   ratification is the amendment itself, closing plan R1 finding 6. The 44px floor
+   assertions cover the close button, so every suite-kill expectation is obvious.
 4. suites order: vitest first, playwright second (spec §4).
 5. Full run under `pnpm heavy`; paste the gate summary (score, killed, survivors) into the
    commit message and the PR body.
@@ -206,13 +228,18 @@ justifies otherwise in the same commit).
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-4 -->
 
-RED: adding the two rows (registry module → registry.test.ts; mutate module →
-mutate.test.ts) to `GUARD_SURFACES` makes this command exercise them; the first run's
-unaccepted survivors (if any) fail the gate — that is the red this task exists to burn
-down. What is red and why: new-surface survivors are unledgered by definition until
-triaged. GREEN: score ≥ floor with empty unaccepted-survivor set for both rows; controls
-chosen per `tests/mutation/source/registry.ts:36` rules. Record both scores — they go in
-every implementation-review brief (spec §6 / AC-4).
+RED (deterministic; plan R1 finding 1): `GUARD_SURFACES` has THREE parallel parity
+registries — the gate suite's expectation map and `tests/mutation/_metaPremiseContract.test.ts`'s
+suite list both `.toEqual` the registry — so adding the two rows (registry module →
+registry.test.ts; mutate module → mutate.test.ts) WITHOUT the matching entries in
+`EXPECTED_LEDGER_KINDS` and `EXPECTED_ENV_TOUCHING` fails this command on registry parity,
+observably, on the first run. What is red and why: parity maps lag the registry by
+construction mid-task. GREEN: parity restored (+2 entries in EACH map, pasted in the
+commit), score ≥ floor for both rows, and the unaccepted-survivor set EMPTY — noting a
+clean 100% first enrolment is a real possibility (`pgCronSmokes` enrolled at 14/14), in
+which case the survivor-triage half is vacuously green, not skipped. Controls chosen per
+`tests/mutation/source/registry.ts:36` rules. Record both scores — they go in every
+implementation-review brief (spec §6 / AC-4).
 
 ## Task 8 — CI workflow + wiring pin
 
@@ -228,16 +255,18 @@ package.json, and every registry mutant/control target file. Wiring suite pins: 
 `17 8 * * *`; `workflow_dispatch` present; every §5 static path listed; the DERIVED cover —
 every distinct `edits[].file` (mutants + control) across `BROWSER_SURFACES` appears in the
 workflow's `paths:` — imported from the registry, not re-enumerated; the run step invokes
-`pnpm mutation:browser`; permissions block holds no write scopes. Real-Actions proof: the path-filtered `pull_request` fires on this PR
+`pnpm mutation:browser`; `timeout-minutes: 60` exactly; the browser-install step names
+chromium and ONLY chromium; permissions block holds no write scopes (plan R1 finding 8). Real-Actions proof: the path-filtered `pull_request` fires on this PR
 (workflow file is on the PR head); AC-5 is checked at closeout by naming the green run URL
 in the PR body — gate command probed against a constructed failing input per writing-plans:
-`gh run list --workflow mutation-browser.yml --branch feat/mutation-playwright-component-mode --json conclusion -q '.[0].conclusion' | grep -qx success`
-(exits non-zero when the run is absent or red; verified by running it BEFORE the workflow
-exists and observing exit 1).
+`gh run list --workflow mutation-browser.yml --json headSha,conclusion -q ".[] | select(.headSha==\"$(git rev-parse HEAD)\") | .conclusion" | grep -qx success`
+— bound to the PR's CURRENT head SHA, never `.[0]` (a stale green run on an earlier commit
+must not satisfy it; plan R1 finding 9). Probed against a constructed failing input:
+run it at a SHA with no workflow run and observe non-zero exit.
 
 ## Task 9 — closeout
 
-<!-- task: red=`pnpm vitest run tests/docs` ac=AC-7,AC-8 -->
+<!-- task: red=`pnpm heavy pnpm vitest run tests/docs` ac=AC-7,AC-8 -->
 
 RED: the graduation edits below make `tests/docs` guards fail until every paired edit
 lands (archives reject in-progress entries; the reconciliation-log head must move; the
@@ -247,8 +276,14 @@ guards' cross-file consistency rules.
 
 1. specs/ci README index row for the spec (if not already landed with the spec commit).
 2. Graduate both rows to `BACKLOG-archive.md` (terminal states + evidence: gate summary,
-   scores); update the `Last reconciled:` head line in `BACKLOG.md`; remove both
-   IN PROGRESS markers in the PR's FINAL commit (invariant 12 — the graduation commit).
+   scores); update the `Last reconciled:` head line in `BACKLOG.md`. Final-commit protocol
+   (plan R1 finding 10, reconciling invariant 12 with "review covers what merges"): the
+   graduation edits land BEFORE the final whole-diff review dispatch, so the reviewed tree
+   is the merging tree; the PR's LAST commit — after APPROVE — contains EXACTLY two
+   mechanical files and nothing else: the final dispatch's own corpus `.jsonl` row and the
+   two IN PROGRESS marker removals (which invariant 12 mandates postdate review by
+   construction). Also verify the sibling fence here:
+   `git diff --quiet origin/main...HEAD -- tests/e2e/_step3ReviewModalBundle.mjs`.
 3. Closeout marker line in this plan: see §Closeout below.
 4. Full gates in the worktree: `pnpm heavy pnpm test:fast`, `pnpm typecheck`,
    `pnpm exec eslint .`, `pnpm format:check`.
