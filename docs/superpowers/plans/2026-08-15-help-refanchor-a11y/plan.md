@@ -1,6 +1,6 @@
 # Plan: /help/errors RefAnchor whole-surface a11y pass
 
-**Spec:** `docs/superpowers/specs/2026-08-15-help-refanchor-a11y.md` (spec-APPROVED codex-guard R6, 2026-08-15, 0 findings) · **Branch:** `fix/help-refanchor-a11y` · **Implementer:** Opus / Claude Code (UI hard rule) · **Entry:** `BL-HELP-REFANCHOR-A11Y-PASS`
+**Spec:** `docs/superpowers/specs/2026-08-15-help-refanchor-a11y.md` (spec-APPROVED codex-guard R6, 2026-08-15, 0 findings) · **Branch:** `fix/help-refanchor-a11y` · **Implementer:** Opus / Claude Code (UI hard rule) · **Entry:** `BL-HELP-REFANCHOR-A11Y-PASS` · **Status:** plan-APPROVED (codex-guard R5, 2026-08-15, 0 findings; R1-R4 findings repaired in-branch)
 
 **Meta-test inventory (declared):** CREATES no meta-test. EXTENDS by edit: `tests/help/ref-anchor.test.tsx` (new cases + the two label-pin updates) and `tests/help/page-errors.test.tsx` (skip-path cases). EXTENDS by staying green with no new row: `tests/components/_metaLiveRegionMounting.test.ts` (its `ROOTS = ["components", "app"]` walk covers the new region; the shipped shape must be lawful shape 1 — unconditional region, text toggles). Invariant-9/10 registries untouched (no Supabase call, no mutation surface — a client clipboard write is neither a mutating route nor a server action). Advisory locks untouched. Source-mutation registry: no enrollment (UI component, not a registry-expressible guard surface). §12.4 lockstep does not fire (spec §1.1 item 6).
 
