@@ -640,7 +640,7 @@ alert-audience-split (spec §6.7) makes health-alert resolution developer-gated 
 
 ### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
 
-**Status:** IN PROGRESS · **Branch:** feat/mutation-column-shift (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** IN PROGRESS (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Branch:** feat/mutation-column-shift · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
 
 A spurious leading empty column shifts every cell in a section's row grid one position right, and the parse absorbs it — the East Coast column-shifted outlier, i.e. a shape observed in a LIVE show, not a synthetic one. Layout-shift class: every field in the section reads its neighbour's value, which is the most damaging silent outcome in this set because each individual value still looks well-formed.
 
