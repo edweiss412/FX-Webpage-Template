@@ -239,3 +239,12 @@ DEFERRED.md: entries=20 dupIds=0
 | CASP-2 | 1807 (terminal) | 1818 (original) | keep first |
 
 Note: pair-table prints 'keep ??' for BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK because BOTH headings carry a terminal word (the demoted #### original's own historic '✅ FULLY CLOSED' heading is the very shape BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND was filed about). Convention decides: the ### record at 5481 is the archive-time terminal record and keeps the heading; the #### original at 5488 demotes. Ratified in spec §2.1.
+
+## Addendum (plan R3) — survivor-verifier authored and probed at plan time
+$ pnpm exec tsx docs/superpowers/plans/2026-08-15-archive-duplicate-ids/gen-survivor-expectations.mts
+wrote 43 rows
+$ pnpm exec tsx docs/superpowers/plans/2026-08-15-archive-duplicate-ids/verify-survivors.mts   # PRE-REPAIR: the A1 step-6 red
+CASP-2: demoted text still a heading (1) in DEFERRED-archive.md
+CASP-2: demoted text not found as a bold line in DEFERRED-archive.md
+FAIL: 86 survivor-verification failures
+# gate mutant: first row direction swapped in a scratch copy -> exit 1, failures named by id (BL-RATE-LIMIT-SNAPSHOT-DURABILITY x2); expectations restored byte-identical after the probe
