@@ -587,4 +587,49 @@ describe("upload-throw best-effort cleanup (spec §3, BL-SNAPSHOT-UPLOAD-THROW-O
     const storagePort: SnapshotAssetsStorage = { async upload() {} };
     await expect(snapshotAssets(throwingRunArgs(storagePort))).rejects.toThrow("drive 500 mid-run");
   });
+
+  test("a REJECTING delete-marker neither masks the original error nor skips the prefix removal", async () => {
+    // The two cleanups are independent. Before this was pinned, the marker ran
+    // outside the wrapped block: a marker rejection replaced the caller's real
+    // error AND jumped over removePrefix, so the orphan survived and the reason
+    // it survived was hidden behind the wrong exception.
+    const objects = new Map<string, Uint8Array>();
+    const uploaded: string[] = [];
+    const removedPrefixes: string[] = [];
+    const storagePort: SnapshotAssetsStorage = {
+      async upload(path, bytes) {
+        objects.set(path, bytes);
+        uploaded.push(path);
+      },
+      async removePrefix(prefix) {
+        removedPrefixes.push(prefix);
+        for (const key of [...objects.keys()]) {
+          if (key.startsWith(prefix)) objects.delete(key);
+        }
+      },
+    };
+    let markerRejections = 0;
+    const args = {
+      ...throwingRunArgs(storagePort),
+      tx: {
+        insertPendingSnapshotUpload: async () => undefined,
+        markPendingSnapshotDeleteStarted: async () => {
+          markerRejections += 1;
+          throw new Error("mark failed");
+        },
+      },
+    } satisfies SnapshotAssetsArgs;
+
+    await expect(snapshotAssets(args)).rejects.toThrow("drive 500 mid-run");
+    premise(
+      "an object was uploaded under _pending before the throw",
+      uploaded.filter((path) => path.includes("/_pending/")).length,
+      0,
+    );
+    // Without this the test would still pass against a build that never calls
+    // the marker at all, which is a different contract from the one under test.
+    premise("the marker was reached and rejected on this run", markerRejections, 0);
+    expect(removedPrefixes).toHaveLength(1);
+    expect([...objects.keys()].filter((key) => key.includes("/_pending/"))).toEqual([]);
+  });
 });
