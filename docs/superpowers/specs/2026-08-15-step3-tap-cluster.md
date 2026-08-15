@@ -80,15 +80,13 @@ Real-browser `getBoundingClientRect()` contracts, all in the arc's existing e2e 
 
 ## 4. Transition Inventory
 
-**No animations anywhere in this diff; every treatment below is explicitly instant.** The components' state machines (React state) are untouched (`showAll` toggle at `step3ReviewSections.tsx:2596` keeps its ratified instant treatment, comment at `step3ReviewSections.tsx:2593`). One PSEUDO-state is newly distinguishable: the §2.3 chip strings add a `focus-visible` ring to sites 6/7, which today have no focus treatment. Full pair inventory for the touched controls (states: rest, hover, focus-visible):
+**No animations anywhere in this diff; every treatment below is explicitly instant.** The components' state machines (React state) are untouched (`showAll` toggle at `step3ReviewSections.tsx:2596` keeps its ratified instant treatment, comment at `step3ReviewSections.tsx:2593`). Each touched control has the same three pseudo-states (rest, hover, focus-visible); every pair on every site — rest↔hover, rest↔focus-visible, hover↔focus-visible, and the hover+focus-visible compound (the union of that site's hover and focus treatments) — is a static class-only swap: **instant, no animation needed**, and no `transition-*` utility is added or removed by this diff. What this diff CHANGES per site, state by state:
 
-| pair | treatment |
+| site | render delta by state |
 | --- | --- |
-| rest ↔ hover (sites 4/6/7, pre-existing `hover:text-text`) | instant — no animation needed (unchanged) |
-| rest ↔ focus-visible (sites 6/7, NEW ring; site 5 pre-existing) | instant — no animation needed (the house ring is an instant outline everywhere, e.g. `step3ReviewSections.tsx:1946`) |
-| hover ↔ focus-visible, and the hover+focus-visible compound | instant — both are independent class-only pseudo-states; combined they render ring + text color with no transition property involved |
-
-At-rest treatments (chip container, site-4 underline) change the REST render only — no pair, nothing to animate. No `transition-*` utility is added or removed by this diff.
+| 5 (title link) | geometry only (`-mt-5 pt-5`): identical in all three states; its pre-existing `hover:underline` + focus-visible ring are untouched |
+| 6/7 (contact chips) | rest/hover/focus-visible ALL gain the chip container; focus-visible ADDITIONALLY gains the NEW house ring (today the links have no focus treatment); `hover:text-text` untouched |
+| 4 (pack toggle) | the underline becomes present in ALL states (today it renders only in the hover and hover+focus states via `hover:underline`); the pre-existing focus-visible ring and `hover:text-text` are untouched |
 
 ## 5. Meta-test / registry inventory
 
@@ -110,7 +108,7 @@ TDD in the existing e2e file; every assertion mounts the PRODUCTION route and dr
   4. Budget: cell height exceeds the 34+1 bound (shipped non-content space is 20px `py-2.5` + three 6px `gap-1.5` gaps = 38px).
   5. Site 4: at-rest `text-decoration-line: underline` fails (shipped string underlines on hover only).
 - **GREEN:** the §2 class edits + comment/pointer edits land (no production instrumentation is added anywhere in this arc); the full suite (existing + new assertions) passes at 390px and wide.
-- **Anti-tautology:** every expected value derives from a token read (`--spacing-tap-min`) or from the seeded fixture's own fields; every rect comes off the PRODUCTION DOM after real navigation, in ONE `evaluate` per comparison (the suite's single-snapshot rule) — located by a production testid where one exists (title link, client segment, section wrappers) and otherwise by a structural selector ROOTED at a production-testid or data-attribute scope (the warning `<p>` inside the `data-no-details` article; eyebrow/name/cell nodes inside the `-review-section-transport` wrapper), each behind an asserted render premise — never from a fixture copy of the JSX; the 34px budget and 9.5px clearance derive from the §2 class strings, stated here once and cited by the test.
+- **Anti-tautology:** every expected value derives from exactly one of three independent-of-the-render sources — a token read (`--spacing-tap-min`), the seeded fixture's own fields, or a SPEC-PINNED class-derived constant (the 34px budget and 9.5px clearance, stated once in §2 and cited by the test as named constants — never read back from computed styles, which is what keeps those assertions non-tautological: the render must match a number the render did not produce); every rect comes off the PRODUCTION DOM after real navigation, in ONE `evaluate` per comparison (the suite's single-snapshot rule) — located by a production testid where one exists (title link, client segment, section wrappers) and otherwise by a structural selector ROOTED at a production-testid or data-attribute scope (the warning `<p>` inside the `data-no-details` article; eyebrow/name/cell nodes inside the `-review-section-transport` wrapper), each behind an asserted render premise — never from a fixture copy of the JSX; the 34px budget and 9.5px clearance are that third source, stated once in §2 and cited by the test.
 - **Impeccable critique + audit** on the implementation diff (invariant 8), pre-code mechanical gate first.
 
 ## 7. Documented limits
