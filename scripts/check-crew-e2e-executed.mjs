@@ -51,7 +51,13 @@ export const REQUIRED = {
   // exact title in the wiring guard's EXPECTED_SKIPS.
   // 16 as of the crew-chrome branch: the 15 above plus the anchored-footer
   // short-page case (AC-U2), which asserts both width regimes in one test.
-  "crew-page.spec.ts": 16,
+  // 21 as of the wifi-password-legibility branch: the 16 above plus the five
+  // "wifi password transcription affordance (production route)" cases, which
+  // measure the shipped route rather than a harness mount (spec
+  // 2026-08-10-wifi-password-legibility §6(b) splits production-route topology
+  // here from the standalone geometry harness). Counted from the observed
+  // mobile-safari run (21 passed / 4 skipped), not from arithmetic.
+  "crew-page.spec.ts": 21,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8

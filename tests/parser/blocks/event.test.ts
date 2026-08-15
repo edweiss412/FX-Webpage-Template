@@ -30,8 +30,13 @@ describe("parseEventDetails — v4 waldorf (2026-04)", () => {
     expect(Object.keys(ed).length).toBeGreaterThan(0);
   });
 
-  it("internet is 'Wifi' (raw string preserved)", () => {
-    expect(ed["internet"] ?? ed["Internet"]).toBe("Wifi");
+  it("internet is the raw credential cell (raw string preserved)", () => {
+    // The Waldorf fixture's Internet cell carries a labeled credential pair so
+    // the seeded crew route renders a real password row for the e2e geometry
+    // suite. The parser's job here is unchanged: preserve the cell VERBATIM.
+    // Splitting it into SSID/password is display-time work
+    // (lib/crew/wifiDisplay.ts), not parse-time.
+    expect(ed["internet"] ?? ed["Internet"]).toBe("SSID: WaldorfMeeting Password: Astoria2026");
   });
 
   it("power contains 'DISTRO' (free-text preserved)", () => {
