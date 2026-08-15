@@ -130,10 +130,20 @@ type Owner = {
  * nowhere: the value is on screen, the clipboard already holds it, and nothing
  * is claimed.
  *
+ * NOT A DEFECT, and worth writing down because it looks like one: a different
+ * row that takes over an identity IN THE SAME COMMIT receives the confirmation
+ * when its value matches. Two ratified rules meet there. Identity is the
+ * CALLER'S declaration that this is the same row, so reusing it in the swap is
+ * the caller saying so; and resolution truth is VALUE-ONLY (spec §4.2), so what
+ * the entry claims — the clipboard holds the string this row is showing — is
+ * true of the row that now displays it. A row that takes the identity with a
+ * DIFFERENT value gets the corrective, which is the same rule from the other
+ * side. (Raised as round 12's finding, refuted on those two grounds.)
+ *
  * DOCUMENTED LIMIT, since the guard should not claim more than it proves: a
- * DIFFERENT row that reuses a just-vacated identity inside the same synchronous
- * task — a second commit, before the clearing microtask — is indistinguishable
- * from the replacement and would receive the confirmation. That needs an
+ * different row that reuses a just-vacated identity in a LATER commit inside
+ * the same synchronous task — before the clearing microtask — is
+ * indistinguishable from the replacement and would receive the confirmation. That needs an
  * identity to be duplicated AND reused within one task, which is the compound
  * authoring mistake the spec's one-opted-in-row precondition fences; the
  * ordinary cases above are what the mechanism is for.
