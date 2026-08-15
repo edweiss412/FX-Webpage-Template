@@ -133,6 +133,8 @@ describe("wizard restage fetches xlsx bytes (audit idx14/#77)", () => {
     };
     const args: ApplyStagedArgs = {
       driveFileId: DRIVE_FILE_ID,
+      // Wizard scope: applyStaged's live post-commit sync_log emit (spec 2026-08-14 §3.4) is
+      // unreachable here, so no sink injection is needed — stated, not skipped.
       sourceScope: "wizard",
       wizardSessionId: WIZARD_SESSION_ID,
       stagedId: "staged-wizard",
@@ -204,6 +206,8 @@ describe("wizard restage fetches xlsx bytes (audit idx14/#77)", () => {
 
     const args: ApplyStagedArgs = {
       driveFileId: DRIVE_FILE_ID,
+      // Wizard scope: applyStaged's live post-commit sync_log emit (spec 2026-08-14 §3.4) is
+      // unreachable here, so no sink injection is needed — stated, not skipped.
       sourceScope: "wizard",
       wizardSessionId: WIZARD_SESSION_ID,
       stagedId: "staged-wizard",

@@ -2281,7 +2281,10 @@ type SuccessfulPhase2TailDeps = SyncLogDeps &
     publishShowInvalidation?: ProcessOneFileDeps["publishShowInvalidation"];
   };
 
-async function logSync(
+// Exported (spec 2026-08-14 §3.2): the manual first-seen stage path and the staged-apply
+// post-commit region reuse this single duration/entry-shape implementation rather than
+// growing drifting copies of it.
+export async function logSync(
   deps: SyncLogDeps,
   driveFileId: string,
   result: ProcessOneFileResult,
@@ -2690,9 +2693,23 @@ async function handleFetchFailure_unlocked(
   // promises a previous live version that does not exist.
   const show = await tx.readShowForPhase1(driveFileId);
   if (existingPending) {
-    return code === "PARSE_ERROR_LAST_GOOD" && !show
-      ? { outcome: "parse_error", code: SYNC_FILE_FAILED }
-      : result;
+    // §3.5 repair: a fetch failure while a live pending review exists returned with NO row, while
+    // every sibling branch of this function writes one. Bind the terminal value FIRST and record
+    // THAT — recording `result` directly would log PARSE_ERROR_LAST_GOOD on the first-seen carve
+    // whose actual terminal code is SYNC_FILE_FAILED (the row must state what the branch returned,
+    // never its input). NULL duration: the recovery sink carries no attempt start.
+    const terminal =
+      code === "PARSE_ERROR_LAST_GOOD" && !show
+        ? { outcome: "parse_error" as const, code: SYNC_FILE_FAILED }
+        : result;
+    // Cast locally: `recoveryTx` is declared BELOW this early return.
+    await (tx as LockedShowTx<CronRecoveryTx>).insertSyncLog({
+      driveFileId,
+      outcome: terminal.outcome,
+      code: terminal.code,
+      payload: { driveFileId, message: errorMessage(error), existing_pending: true },
+    });
+    return terminal;
   }
   const recoveryTx = tx as LockedShowTx<CronRecoveryTx>;
   // BL-CRON-WORKBOOK-FAULT-CODE parse-family arm: a corrupt workbook on an EXISTING
@@ -2816,6 +2833,15 @@ async function handleFetchFailure_unlocked(
       lastWarnings: [],
       lastSeenModifiedTime: binding.modifiedTime,
     });
+    // §3.5 repair: this arm upserted a pending_ingestions (live-partition:n/a — doc reference, no
+    // statement) row and returned a terminal value with no sync_log row. Records the RETURNED code
+    // (SYNC_FILE_FAILED), not the input.
+    await recoveryTx.insertSyncLog({
+      driveFileId,
+      outcome: "parse_error",
+      code: SYNC_FILE_FAILED,
+      payload: { driveFileId, message: errorMessage(error) },
+    });
     return { outcome: "parse_error", code: SYNC_FILE_FAILED };
   }
   await tx.upsertLivePendingIngestion({
@@ -2826,6 +2852,13 @@ async function handleFetchFailure_unlocked(
     lastErrorMessage: errorMessage(error),
     lastWarnings: [],
     lastSeenModifiedTime: binding.modifiedTime,
+  });
+  // §3.5 repair: same dark shape as the carve above — a terminal outcome with no row.
+  await recoveryTx.insertSyncLog({
+    driveFileId,
+    outcome: result.outcome,
+    code: result.code,
+    payload: { driveFileId, message: errorMessage(error) },
   });
   return result;
 }
@@ -3514,7 +3547,14 @@ export async function processOneFile_unlocked(
   if (pipeline.pullSheetOverrideUsed !== undefined) {
     const lockedSnapshot = await readShowPullSheetOverride_unlocked(tx, driveFileId);
     if (!pullSheetOverrideSnapshotsEqual(pipeline.pullSheetOverrideUsed, lockedSnapshot)) {
-      return { outcome: "skipped", reason: "pull_sheet_override_changed_under_lock" };
+      // §3.5 repair: this skip returned with no row while every adjacent skip branch of this
+      // function emits. Same in-lock shape as its neighbors — duration via the threaded start.
+      const result = {
+        outcome: "skipped" as const,
+        reason: "pull_sheet_override_changed_under_lock",
+      };
+      await logSync(txDeps, driveFileId, result);
+      return result;
     }
   }
 

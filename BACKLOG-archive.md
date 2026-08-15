@@ -1,3 +1,35 @@
+## BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches — CLOSED 2026-08-15 (`fix/sync-observability-gaps`, SHIPPED)
+
+**Resolution: SHIPPED.** Spec `docs/superpowers/specs/observability/2026-08-14-sync-observability-gaps-design.md` (APPROVED at adversarial round 9), plan `docs/superpowers/plans/2026-08-14-sync-observability-gaps.md` (APPROVED at round 5).
+
+The row named three surfaces and all three now record: `runManualStageForFirstSeen` emits from ONE exhaustive site after `toResult` resolves, `runManualSyncForShow` (and the `_unlocked` runner the retry route calls directly) record escaped throws, and `applyStaged` writes the applied row itself at its post-commit chokepoint.
+
+**The row's own prescription was rejected in two places, and the spec says why.** It asked for an emit at each early-return branch — that is the shape that failed, since a future branch added without its emit is silent again; the single site switches exhaustively on the result outcome, so a new variant is a compile error until the mapping says what it records. It also asked both live apply routes to inject a sink into the tail: `firstPublishedTailDeps` REPLACES the tail's whole deps object, whose default is the tx-bound writer that exists to avoid an FK failure on the uncommitted show, and per-route wiring is the hand-enumerated cover that came up short five times in the parent arc. One default at the shared chokepoint covers both live routes and every future caller.
+
+**Two defects the sweep found that the row did not describe.** `toResult` ended in an implicit `return null` that the caller coalesced to `{ outcome: "parsed" }`, so an unhandled `Phase1Result` variant silently became a clean pass — defeating the outcome-layer guard from below; it is now exhaustive with its own terminating `never`. And the shared pipeline had four terminal branches with no row at all (three arms of `handleFetchFailure_unlocked` plus the pull-sheet-override TOCTOU skip), which benefit cron identically.
+
+**Where the emit sits was load-bearing twice.** Post-commit, because attribution resolves in the sink's subselect over `public.shows` — an in-tx emit would write a permanently NULL-attributed row for a first-seen apply, which the env-bound test observes against the DB column since `SyncLogEntry` carries no `show_id` field. And keyed on a TRACKED sink, because a throw can escape after an outcome row already landed; a naive catch-emit would file a factually wrong `parse_error` over a recorded outcome. The tracker deliberately observes the injected own-connection sink only: tx-bound recovery rows roll back with an aborted transaction, so counting them would suppress an emit for a row that no longer exists.
+
+**A hazard the census surfaced by probe, not by argument.** Adding the production sink default meant every existing test that reaches an applied path would open a real postgres connection: a suite run wrote 14 rows to the shared local DB before the injections landed. Rows deleted, zero after the re-run.
+
+**Not recorded, by decision:** non-applied live staged-apply outcomes (apply-request dispositions the operator sees synchronously, not sync attempts), the §1.1 ratified-silent refusal branches, and the wizard staged-apply path, which attempts no sync at all.
+
+**Effort:** M · **Closed:** 2026-08-15
+
+## BL-PENDING-RETRY-EXISTING-SHOW-THROWS — existing-show pending-ingestion retry throws before any sync work — CLOSED 2026-08-15 (`fix/sync-observability-gaps`, SHIPPED)
+
+**Resolution: SHIPPED.** Same spec and plan as `BL-MANUAL-SYNC-UNEMITTED` above (§3.1).
+
+The design question this row was filed to settle — prepare in-route, or switch to the locked entry point — is decided as **prepare in-route**. The route already holds the per-show advisory lock via `withRowTryLock`; `runManualSyncForShow` acquires the same key again on separate connections, which is precisely the nested-holder deadlock invariant 2's single-holder rule prohibits, and restructuring to release the row lock first would forfeit the `FOR UPDATE` pending-row guard for no observability gain. The route's own first-seen branch already runs its full preparation inside that same held lock, so the existing-show branch simply gains parity.
+
+`prepared` is a **required** sixth parameter on `runManualSyncForShow_unlocked` and on the injectable seams, not an optional one: optional would re-create the shipped defect for the next caller, required makes the omission a compile error (the precedent is `ProcessOneFileResult.applied.parseWarnings`).
+
+**The verification the row asked for is why this took a live test.** The shipped unit tests inject `processOneFile_unlocked`, which is exactly why the missing sixth argument never surfaced — mocked-only coverage observes what the test author thought the surface required. The env-bound probe runs the REAL handler, prepare, runner, and database with only Drive metadata stubbed, and it was verified to discriminate by re-injecting the defect: it fails with "prepared process data is required before acquiring the show lock".
+
+**Two prepare-failure paths gained recording along the way**, both through a new injectable route sink: the relocated `prepareProcessOneFile` (whose later work — XLSX anchor extraction, the discard-and-rerun reconcile — sits outside its internal catches and can throw, which would otherwise re-create the silence this arc closes) and the first-seen `prepareFirstSeenStage`, whose typed 502/409 responses are unchanged.
+
+**Effort:** M · **Closed:** 2026-08-15
+
 ## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking was raw Tailwind numerics — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
 
 **Resolution: SHIPPED.** Task U1 of the M-wave-2 plan
