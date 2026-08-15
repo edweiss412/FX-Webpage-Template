@@ -1,6 +1,6 @@
 # Diagram demote notice — the sighted half of the fallback signal
 
-**Date:** 2026-08-15 · **Authoring branch:** `docs/diagram-demote-notice-spec` · **Implementation branch:** `feat/diagram-demote-notice` · **Status:** DRAFT
+**Date:** 2026-08-15 · **Authoring branch:** `docs/diagram-demote-notice-spec` · **Implementation branch:** `feat/diagram-demote-notice` · **Status:** spec-APPROVED (codex-guard R5, 2026-08-15; R1 four + R2 one + R3 one + R4 one findings repaired in-branch; 4-round economy filing at docs/review-rounds/docs/diagram-demote-notice-spec/33c70ba1fdf2.md)
 **Entry:** `BL-DIAGRAM-DEMOTE-SIGHTED-PARITY` (BACKLOG.md, filed 2026-08-11) · **Effort:** S · **Parent contract:** `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1 · **Plan:** authored beside this spec in the plan directory docs/superpowers/plans/2026-08-15-diagram-demote-notice/ (same PR)
 
 ## §0 Why
