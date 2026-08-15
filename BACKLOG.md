@@ -699,6 +699,22 @@ The failing WIDTH BAND differs between runs, and locally the same spec failed at
 
 **Not a product bug as far as anything shows** — no user-facing report, and the surface passes every other run. The cost is coverage: the spec stays `UNSEEN` until it is stable enough to clear five consecutive green runs.
 
+## BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION — adopt the boundary-recovering wait helper across the other modal-waiting e2e specs
+
+**Status:** OPEN · **Severity:** LOW (flake exposure on already-wired workflows; no product impact) · **Class:** e2e flake hardening · **Effort:** M · **Filed:** 2026-08-15
+
+The `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` arc proved the class mechanism from two failing CI runs' own logs (spec `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md` §2): a transient gateway 502 on the foreground `get_admin_show_review_snapshot` RPC throws the loader to the `/admin` error boundary, and any spec waiting only for `published-show-review-modal` starves its full timeout. The repair shipped a shared helper (`tests/e2e/helpers/openShowReviewModal.ts` once that arc's implementation lands) that recovers once via the boundary's own Retry and surfaces the recovery as a test annotation. This entry is the peer-adoption sweep: two overlapping censuses (2026-08-15, not deduplicated against each other) share the starve-on-boundary shape — `rg -l 'published-show-review-modal' tests/e2e/*.spec.ts` names 7 other specs asserting the modal testid (`admin-lifecycle-layout`, `admin-lifecycle-transitions`, `admin-parse-panel`, `attention-modal-gallery`, `dev-capture`, `font-binding`, `picker-flow`), and `rg -c 'admin\?show=' tests/e2e/published-*.spec.ts` names 7 navigating the modal URL directly (`published-review-modal.{layout,crew-actions,deeplink,interactions,reopen,realtime}`, `published-show-attention`). Derive the member list by re-running both greps at pickup, not from this snapshot.
+
+**Deferral reason (c):** spans many sites and several workflows (`published-modal-e2e.yml`, `lifecycle-layout-e2e.yml`, …) — blowing the parent arc's review scope. **Reachability:** INFERRED, NOT PROBED per-spec — the class mechanism is CI-proven on the parent arc; the probe that settles each peer is its own workflow's failure history.
+
+## BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE — should the show-review snapshot read absorb one bounded retry before throwing to the boundary?
+
+**Status:** OPEN · **Severity:** LOW (rare, recoverable via the boundary's own Retry) · **Class:** product posture decision · **Effort:** S · **Filed:** 2026-08-15
+
+A transient gateway 502 on `get_admin_show_review_snapshot` currently throws `show_review_snapshot_failed` to the `/admin` error boundary (`app/admin/_showReviewModal.tsx`, `snapResult.kind === "infra_error"` branch) — a real admin sees the boundary flash and must click Retry. Evidence: two CI occurrences with exact-timestamp server-log correlation in spec `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md` §2.1, plus a same-class unmasked witness (`An invalid response was received from the upstream server`, the Kong 502 body). A single bounded server-side retry on this READ would spare that flash; the loader's other reads already fail open.
+
+**Deferral reason (a):** reverses the ratified fail-hard posture (`app/admin/_showReviewModal.tsx:25-30` — "infra faults still THROW to the error boundary") — a product decision the test-infra arc could not settle. The decision needs an owner ruling on whether a read-retry weakens the fail-loud contract or merely debounces it.
+
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
 **Effort:** S

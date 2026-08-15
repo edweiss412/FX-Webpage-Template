@@ -288,7 +288,7 @@ pgrstHint: error.hint,
 ### Task 3: Oracle annotation print + batch-1 re-wiring
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-<!-- task: red=`pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` ac=AC-4,AC-6 -->
+<!-- task: red=`pnpm heavy pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` ac=AC-4,AC-6 -->
 
 **Files:**
 
@@ -473,25 +473,26 @@ Informational only — never a gate (a recovered run is a green run by design).
 - Modify: `BACKLOG-archive.md` (receiving archive entry)
 - Modify: `docs/superpowers/plans/ci/README.md` (index row for this plan — the spec's row landed with the spec commit)
 
-Mid-PR steps (safe while work is in flight — the graduation itself is NOT here; it is Task 5's final commit, because the ledger marker must live for exactly as long as the work and the archive rejects in-flight entries):
+**Already executed at plan time (red observed live, then green — recorded here so the implementer does not redo it):** the spec and plan citing `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` and `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE` made `pnpm vitest run tests/docs/_metaLedgerReferentialIntegrity.test.ts` RED on this branch ("2 BL- id(s) are cited but defined in no ledger", the guard at `tests/docs/_metaLedgerReferentialIntegrity.test.ts:399-410`); filing both entries in `BACKLOG.md` (reason (c) with the derived-census instruction, and reason (a) with the spec §2.1 evidence, respectively) turned that same command GREEN — probed 2026-08-15 in the plan-review round-5 repair commit.
 
-- [ ] File `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` (deferral reason (c); member list derived by re-running the spec §8.1 greps at filing time; `**Reachability:** INFERRED, NOT PROBED` per-spec, with this arc's CI evidence as the class proof).
-- [ ] File `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE` (deferral reason (a): reverses the ratified fail-hard posture, `app/admin/_showReviewModal.tsx:25-30`; evidence = spec §2.1 log excerpts).
+Remaining mid-PR steps (the graduation itself is NOT here; it is Task 5's final commit, because the ledger marker must live for exactly as long as the work and the archive rejects in-flight entries):
+
 - [ ] Verify this plan's row in `docs/superpowers/plans/ci/README.md` (it landed with the plan commit at `docs/superpowers/plans/ci/README.md:15` — do NOT add a duplicate).
-- [ ] Run `pnpm vitest run tests/docs` — GREEN (the two new filings satisfy the ledger filing bar; nothing graduated yet).
-- [ ] Commit: `docs: file helper-adoption and read-posture peers`
+- [ ] Run `pnpm vitest run tests/docs` — GREEN (filings landed at plan time; nothing graduated yet).
 
 ### Task 5: Pre-push gates, PR, five-green loop (closeout)
 
 - [ ] Full gates under the semaphore: `pnpm heavy pnpm test:fast`; then `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check` (unwrapped — scoped/light).
 - [ ] Push; open the PR (merge-commit convention). Whole-diff codex cross-model review to APPROVE (split tight-scope per surface if the diff exceeds a handful of files).
 - [ ] **AC-5:** five consecutive green `pull_request` runs of `app-e2e.yml` with the spec wired in (`--retries=0` pinned by the run step; the executed-count oracle enforces the 8-case floor each run). Any red restarts the count; a red whose server log shows a non-`show_review_snapshot_failed` cause is triaged on its own merits.
-- [ ] **AC-6:** report every `infra-recovery` line from those five runs' job logs in the PR body (count may be zero — say so explicitly).
+- [ ] **AC-6 (draft):** collect every `infra-recovery` line from the runs' job logs as they land; the report is FINALIZED after the graduation commit's run (see the reconciliation step below).
 - [ ] **Final commit — graduation + marker removal (AFTER review APPROVE and the five-green loop; nothing lands after this commit except the merge):**
   - **RED first — enroll the graduation.** Add `{ id: "BL-CHANGES-FEED-MODAL-BATCH-FLAKE", provenance: "fix/changes-feed-batch-flake" }` to `BACKLOG_GRADUATED` (`tests/docs/_metaDeferralLedgerGraduation.test.ts:95`) BEFORE moving the entry; run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — RED: the id is still in `BACKLOG.md`, absent from the archive ("every graduated id is archive-only", `tests/docs/_metaDeferralLedgerGraduation.test.ts:595`). An unenrolled graduation would let a deleted-but-never-archived entry pass silently.
   - Graduate the entry to `BACKLOG-archive.md`, recording the measured mechanism and explicitly correcting the filed fixture-collision theory (spec §2.3). In the SAME commit: remove the `**Status:** IN PROGRESS · **Branch:**` marker (invariant 12 — the marker comes off in the PR's last commit; archives reject in-flight entries, so graduation and marker removal are inseparable); amend the umbrella AC-4-drop paragraph at `BACKLOG.md:665` (it would otherwise keep asserting the disproven cross-spec-interaction theory) to point at the archive entry; prepend the `Last reconciled:` segment (`BACKLOG.md:7`), demoting the current segment behind `Prior:`; and update that line's verbatim exemption row in `tests/docs/_retiredIdentifiers.ts:188-193` — editing one without the other leaves an unexempted hit AND a stale exemption (`tests/docs/retiredIdentifierReferences.test.ts:235` and `tests/docs/retiredIdentifierReferences.test.ts:244`).
   - Re-run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — GREEN on the same command; then `pnpm vitest run tests/docs` — GREEN (exemption parity, ledger shape, economy, closeout guards).
-  - Commit: `docs: graduate BL-CHANGES-FEED-MODAL-BATCH-FLAKE; drop the in-flight marker`. This docs-only commit triggers one more `pull_request` run — it must also be green, and the five-green count (AC-5) is measured on the runs BEFORE it plus this one; a red here restarts nothing product-side (docs-only) but blocks merge until green.
+  - Commit: `docs: graduate BL-CHANGES-FEED-MODAL-BATCH-FLAKE; drop the in-flight marker`.
+- [ ] **Delta review — review covers what merges.** The whole-diff review above predates the graduation commit, so dispatch one scoped cross-model review of the graduation commit's diff alone (`BACKLOG.md`, `BACKLOG-archive.md`, the graduation registry row, the exemption row) to APPROVE before merging — the archive narrative is a factual record and must not merge unreviewed. No product files may change in this commit; if the delta review forces a repair, the repair commit becomes the new final commit and this step repeats.
+- [ ] **AC-5/AC-6 reconciliation on the final run.** The graduation commit's own `pull_request` run counts toward the SAME consecutive-green window: if it is red — any red, including a `show_review_snapshot_failed` starve — the five-consecutive-green count restarts from zero (spec AC-5; no one-off rerun exemption). AC-6's PR-body report is finalized only AFTER this final run completes, covering every run in the accepted window including it (count may be zero — say so explicitly).
 - [ ] Merge (`gh pr merge --merge`), fast-forward local main, verify `git rev-list --left-right --count main...origin/main` → `0  0`.
 
 ## 12. Closeout
