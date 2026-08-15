@@ -238,7 +238,8 @@ describe("runner — a mutant that never terminates (fix/ui-interactive-token-po
       process.kill(-timedOut.pid!, "SIGKILL");
 
       const deadline = Date.now() + 10_000;
-      while (alive(grandchild) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+      while (alive(grandchild) && Date.now() < deadline)
+        await new Promise((r) => setTimeout(r, 50));
       expect(alive(grandchild)).toBe(false);
     } finally {
       rmSync(pidFile, { force: true });
