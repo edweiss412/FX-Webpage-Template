@@ -159,7 +159,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "app/help/errors/page.tsx",
-    line: 68,
+    line: 82,
     tag: "a",
     category: "inline-prose-link",
     reason:
