@@ -1,6 +1,6 @@
 # Scanner scope/totality fidelity — premiseScan scope-aware extents + timing-scan property totality
 
-**Date:** 2026-08-15 · **Arc branch:** `docs/scanner-scope-totality-spec` (authoring) → `fix/scanner-scope-totality` (implementation) · **Status:** DRAFT
+**Date:** 2026-08-15 · **Arc branch:** `docs/scanner-scope-totality-spec` (authoring) → `fix/scanner-scope-totality` (implementation) · **Status:** spec-APPROVED (codex-guard R3, 2026-08-15, FINDINGS: 0; R1's six and R2's one finding repaired in-branch)
 
 ## §0 Why
 
