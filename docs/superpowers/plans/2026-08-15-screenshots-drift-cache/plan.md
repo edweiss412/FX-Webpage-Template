@@ -65,7 +65,7 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
 1. **Write the pin** in `tests/cross-cutting/ci-workflow-speedup.test.ts`, new
    `describe("screenshots-drift nextcache: exact input-hash key, no fallback, always-save")`,
    asserting on EXTRACTED step blocks (split the yaml on `- name:`/`- uses:`
-   boundaries; never file-wide substrings), the spec §2.2 eight:
+   boundaries; never file-wide substrings), the spec §2.2 nine (behavioral assertion 9 included — plan R1 F1):
    1. exactly one `actions/cache/restore@v4` and one `actions/cache/save@v4` step; no
       combined `actions/cache@v4` block naming `.next-screenshots-help/cache` (the
       OTHER workflows' `~/.cache/ms-playwright` combined steps asserted at lines
@@ -86,7 +86,13 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
    7. the save block cites `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING`;
    8. key SHAPE (spec R2 F4): the restore key matches exactly
       `${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles(...) }}` — namespace
-      present, no further components.
+      present, no further components;
+   9. behavioral name emission (spec R3 F3, §2.2 assertion 9): extract the
+      drift-check step's `run:` script from the YAML and EXECUTE it (bash, cwd a
+      constructed throwaway git repo with `public/help/screenshots/` holding one
+      committed-then-modified WebP and one untracked WebP): exit non-zero AND BOTH
+      filenames in the captured output — a script that prints only the tracked name
+      fails here by name; clean-repo negative exits 0 with no names (plan R1 F1).
 2. **RED, observed:** `pnpm vitest run tests/cross-cutting/ci-workflow-speedup.test.ts`
    fails on the new describe against the unedited workflow — the production lines
    whose defect makes it fail are the combined `actions/cache@v4` step and the absent
@@ -128,9 +134,14 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
 
 1. Archive `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING` (archive RED)
    with: the shipped direction, the two rejected directions (spec §4.1-§4.2), and the
-   B2 run ids as resolution evidence. Marker strips inside the move.
-2. Terminal check, run and recorded: `grep -c 'Branch:\*\* fix/screenshots-drift-cache'
-   BACKLOG.md DEFERRED.md` → 0 matches in each.
+   B2 run ids as resolution evidence. Marker strips inside the move. Commit:
+   `docs(backlog): archive BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING
+   with dispatch-run evidence`; push (plan R1 F5 — the archive, run ids, and marker
+   release must reach the reviewed diff before the PR gate).
+2. Terminal check, run and recorded:
+   `! grep -q 'Branch:\*\* fix/screenshots-drift-cache' BACKLOG.md DEFERRED.md` —
+   exits 0 exactly when no marker survives (plan R1 F3: the earlier `grep -c` form
+   exits 1 on the desired zero-match state, failing the chain on success; probed).
 3. Pre-push gates: `pnpm heavy pnpm test:fast`, `pnpm typecheck`,
    `pnpm exec eslint .`, `pnpm format:check`. Merge `origin/main` (ledger conflicts
    resolve per-entry, both sides preserved).

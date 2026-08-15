@@ -16,17 +16,21 @@ the split/always-save).
 
 1. Run `date`. Shell clock is the ONLY source of truth; discard stale
    blocked/waiting framing.
-2. Read in full: `AGENTS.md`, the spec
+2. Verify the authoring PR is MERGED with an ANCHORED check (never bounded log
+   output — writing-plans lint shape ii): `git fetch origin && git cat-file -e
+   origin/main:docs/superpowers/plans/2026-08-15-screenshots-drift-cache/plan.md`
+   exits 0. If it does not, STOP — you were launched early.
+3. Read in full FROM THE MAIN CHECKOUT `/Users/ericweiss/FX-Webpage-Template`
+   (post-merge these files exist there; the impl worktree gains them at the merge
+   below): `AGENTS.md`, the spec
    (`docs/superpowers/specs/ci/2026-08-15-screenshots-drift-cache-refresh-design.md`),
    the plan (`docs/superpowers/plans/2026-08-15-screenshots-drift-cache/plan.md`),
    `docs/agents/writing-plans.md`, `docs/agents/spec-self-review.md`, and
-   `.github/workflows/screenshots-drift.yml` as it stands.
-3. The impl worktree ALREADY EXISTS with the claim marker pushed:
-   `../FX-worktrees/screenshots-drift-cache`, branch `fix/screenshots-drift-cache`.
-   Verify the authoring PR is MERGED (`git log --oneline origin/main | head -5`
-   shows the docs/screenshots-drift-cache-spec merge; if not, STOP). In the
-   worktree: `pnpm install && pnpm worktree:link-env && pnpm preflight`, then
-   `git merge origin/main`.
+   `.github/workflows/screenshots-drift.yml` as it stands. Then, in the impl
+   worktree `../FX-worktrees/screenshots-drift-cache` (branch
+   `fix/screenshots-drift-cache`, already existing with the claim marker pushed):
+   `git merge origin/main`, then `pnpm install && pnpm worktree:link-env && pnpm
+   preflight`.
 4. Verify claims from the MAIN checkout: `pnpm ledger:claims` —
    `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING` must show
    `fix/screenshots-drift-cache` and no other live branch. Otherwise STOP.
@@ -43,8 +47,9 @@ the split/always-save).
 
 ## Non-negotiables this arc exercises
 
-- TDD (invariant 1): Task B1's RED is the new §2.2 pin (seven assertions) observed
-  failing against the unedited workflow; Task B3's RED is the archive-RED pattern.
+- TDD (invariant 1): Task B1's RED is the new §2.2 pin (nine assertions, the
+  behavioral name-emission check included) observed failing against the unedited
+  workflow; Task B3's RED is the archive-RED pattern.
 - CI-bound arc: real CI green is a SEPARATE gate from local review; Task B2's three
   `workflow_dispatch` runs (cold-green, warm-green, constructed-failing) are
   mandatory, run ids recorded in the PR body and archive entry. The failing-run
