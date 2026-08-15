@@ -78,6 +78,34 @@ export function queuedUrlsFromSmokeOutput(raw: string): string[] {
   return payload === "" ? [] : payload.split("\u001f");
 }
 
+/**
+ * Appended to the smoke batch so the EXPECTED origin is read over the same psql
+ * invocation — and therefore the same database — that reported the queued URL. A second
+ * connection would reintroduce the gap the comparator exists to close: an expected value
+ * sourced from somewhere other than the database whose command just ran.
+ *
+ * `current_setting(..., true)` is the missing-ok form: an unset GUC comes back NULL
+ * rather than erroring, so the batch still reaches its probe line and the comparator gets
+ * to fail loudly with a named reason instead of the psql call throwing.
+ */
+export const GUC_PROBE_SQL =
+  "SELECT 'SMOKE_GUC:' || coalesce(current_setting('app.fxav_vercel_url', true), '');";
+
+/** The GUC as this batch saw it: "" when unset, THROWS when the batch never got here. */
+export function gucFromSmokeOutput(raw: string): string {
+  const probe = raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("SMOKE_GUC:"))
+    .at(-1);
+  if (probe === undefined) {
+    throw new Error(
+      "pgCronSmokes: the smoke output carries no SMOKE_GUC probe line — the batch did not run to its GUC statement",
+    );
+  }
+  return probe.slice("SMOKE_GUC:".length);
+}
+
 export type CronDispatchMode = "local" | "validation";
 
 /**

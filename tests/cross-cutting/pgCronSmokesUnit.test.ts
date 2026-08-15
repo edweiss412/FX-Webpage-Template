@@ -28,6 +28,8 @@ import { describe, expect, it } from "vitest";
 import {
   assertCronDispatchOrigin,
   firingSmokeSql,
+  GUC_PROBE_SQL,
+  gucFromSmokeOutput,
   NO_OP_MUTANT_COMMAND,
   queuedUrlsFromSmokeOutput,
 } from "@/tests/cross-cutting/pgCronSmokes";
@@ -163,6 +165,32 @@ describe("firingSmokeSql", () => {
 
 /** The literal separator firingSmokeSql joins on; spelled out so it is visible in source. */
 const SEP = "\u001f";
+
+describe("gucFromSmokeOutput", () => {
+  it("reads the value the batch itself saw", () => {
+    expect(gucFromSmokeOutput("SMOKE_URLS:x\nSMOKE_GUC:http://host.docker.internal:3000")).toBe(
+      "http://host.docker.internal:3000",
+    );
+  });
+
+  it("reports an unset GUC as empty, which the comparator then rejects loudly", () => {
+    // Not a null-vs-absent confusion: unset comes back as an EMPTY probe line, and the
+    // comparator turns that into a named failure rather than a vacuous pass.
+    expect(gucFromSmokeOutput("SMOKE_GUC:")).toBe("");
+    expect(assertCronDispatchOrigin(new URL("http://x.test/y"), "local", "").ok).toBe(false);
+  });
+
+  it("throws when the batch never reached its GUC statement", () => {
+    expect(() => gucFromSmokeOutput("SMOKE_URLS:x")).toThrow(/no SMOKE_GUC probe/);
+  });
+
+  it("is an appendable statement, so expected and actual share one invocation", () => {
+    // The premise of the local-mode leg: both sides come from the same psql call. If
+    // GUC_PROBE_SQL stopped being a standalone appendable statement, this notices first.
+    expect(GUC_PROBE_SQL.trim().endsWith(";")).toBe(true);
+    expect(GUC_PROBE_SQL).toContain("current_setting('app.fxav_vercel_url', true)");
+  });
+});
 
 describe("queuedUrlsFromSmokeOutput", () => {
   it("returns every queued url, unit-separator split, in queue order", () => {
