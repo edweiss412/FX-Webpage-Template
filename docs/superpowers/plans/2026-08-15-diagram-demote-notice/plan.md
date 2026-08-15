@@ -67,6 +67,8 @@ Harness note (plan R1 F1): the zoomGate suite mounts `GalleryLightbox` directly 
 7. Exit-window repopulation blocked (AC-2b, spec R3 F1): close → demote DURING the exit window (the retained slide failing per the `gallery.failedItem.test.tsx:850` shape) → re-open (real parent increments `openNonce`) → no chip; the sr announce entry still delivered per the parent contract.
 8. Second-failure clear (AC-2b, spec §2.1 clear 4): the two-stage failure (`galleryLightbox.zoomGate.test.tsx:697` scenario) → no chip once "Image unavailable" shows; timer count back to baseline.
 9. POSITIVE re-entry ordering (spec R4 F1 — the case the render-time reset exists for; plan R1 F1): close → re-entry commits → the retained slide's PENDING original failure fires after the re-entry commit → the chip RENDERS (a conforming implementation that used an effect-timed reset fails this case; it is the executable pin of "render-time, not effect").
+10. Swipe-return compound (C2 audit table row 3; plan R2 F1 — the case is RED here, in the pre-implementation batch, because after C1's GREEN no new test can honestly fail): demote, swipe away, swipe BACK inside the window → chip present with its REMAINING lifetime (advance to expiry proves the timer never reset on swipe).
+11. Simultaneous-Reset compound (C2 audit table row 6; plan R2 F1): demote while scale > 1 → BOTH chips present, disjoint slots (top-2 vs bottom-2) — assert both testids visible simultaneously.
 
 GREEN: `demotedNoticeId` state + `closingRef` set-gate + the `openNonce` prop (parent increments per closed-to-open transition at `components/diagrams/Gallery.tsx:358`; the lightbox resets `closingRef` and clears chip state DURING RENDER via the guarded `lastNonceRef` comparison — spec §2.1 clear 3's render-time seam, NOT an effect; plan R1 F1) + the timer with all four clear conditions + `relative` on the active-branch figure + chip markup per spec §2.2 (`inset-x-0 bottom-2`, Reset-chip class family minus interactivity). Enter-motion mechanism, full class contract (plan R1 F3 — duration/easing classes alone transition nothing): the chip carries `transition-opacity duration-fast ease-out-quart` plus a mount-time opacity ramp (starting-style/appear pattern per the implementer's choice), and AC-6's assertion names the FULL set: `transition-opacity` present, a duration TOKEN utility present, no literal ms anywhere in the className.
 
@@ -76,20 +78,28 @@ Commit: `feat(crew-page): transient demote chip on the affected lightbox slide (
 
 ### Task C2 — transition audit (writing-plans mandatory task; plan R1 F3)
 
-<!-- task: red=`pnpm vitest run tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ac=AC-6 -->
+<!-- task: red=`pnpm vitest run tests/components/diagrams/demoteChipTransitionAudit.test.ts` ac=AC-6 -->
 
 The spec's §2.3 Transition Inventory, carried as this task's audit table (every row gets an executable oracle or an explicit instant declaration; compound rows are exercised, not assumed):
 
 | Transition | Oracle |
 |---|---|
 | absent to visible (demote) | the AC-6 full class contract (C1 case 1 + the `transition-opacity` + token assertions; C1's GREEN carries the mount-time opacity ramp) |
-| visible to absent (timer) | instant unmount, declared deliberate — the audit lists every AnimatePresence/ternary/conditional in the diff and confirms the chip is inside no exit-presence wrapper |
-| visible while user swipes away and back (compound) | new case: demote, swipe away, swipe BACK inside the window → chip present with its REMAINING lifetime (advance to expiry proves the timer never reset on swipe) |
+| visible to absent (timer) | instant unmount, declared deliberate — pinned executably by this task's audit test, below |
+| visible while user swipes away and back (compound) | C1 case 10 (remaining-lifetime pin) |
 | dialog closes while visible (compound) | C1 case 6 (all three initiators) |
 | second demote while visible (compound) | C1 case 5 (restart pinned) |
-| Reset chip visible simultaneously (compound) | new case: demote while scale > 1 → BOTH chips present, disjoint slots (top-2 vs bottom-2) — assert both testids visible simultaneously |
+| Reset chip visible simultaneously (compound) | C1 case 11 (disjoint slots) |
 
-RED: the swipe-return and simultaneous-Reset cases are new cases in the same suite, failing for the same production-line reason as C1 (no chip markup exists). GREEN: C1's implementation; this task adds only tests plus the audit record (the AnimatePresence/ternary enumeration, in the task record).
+Behavioral compound cases carry no RED here (plan R2 F1): after a conforming C1 every chip behavior in the inventory already holds, so a behavioral test authored in this task would pass on arrival — a false RED. Those cases live in C1's pre-implementation RED batch (cases 10 and 11), where the chip render branch's absence genuinely fails them.
+
+This task's OWN RED is the audit made executable — a NEW structural test file (demoteChipTransitionAudit.test.ts under tests/components/diagrams/, the marker's command) that pins the enumeration instead of recording it as prose:
+
+1. It reads the source of `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` and collects every JSX `<AnimatePresence` usage site (per file). It asserts the collected set EQUALS a declared in-file disposition manifest (rows of file + one-line disposition). RED: the manifest ships EMPTY in the red step, so the run fails naming the live site the pre-draft pass verified — the session-level presence wrapper in `Gallery.tsx` (line 446 region, the M9 C6 open/close animation). GREEN: fill the manifest with that row's disposition ("session-level open/close presence; chip lifecycle is state-cleared, never exit-animated") — same command, red then green, inside this task.
+2. It asserts `GalleryLightbox.tsx` contains ZERO JSX `<AnimatePresence` usages — the executable form of the "visible to absent = instant, deliberate" declaration. An implementer (now or later) who wraps the chip in its own exit presence turns this red and must confront the inventory.
+3. The ternary/conditional-render enumeration over the diff (which conditional branches render the chip, the Reset chip, the placeholder) is recorded in the task record with each row's disposition; any transition the enumeration surfaces that the table above lacks is NEW work — it gets a real RED against a repair commit, not a seat in this audit commit.
+
+GREEN closes with a rerun of the C1 suite (`pnpm vitest run tests/components/diagrams/galleryLightbox.zoomGate.test.tsx`) confirming the audit changed no behavior.
 
 Commit: `test(crew-page): transition audit for the demote chip (compounds + instant-exit declaration)`
 
@@ -128,7 +138,7 @@ impeccable-gate: pending — filled at C3.1 (critique + audit on the implementat
 
 - [ ] Every named file/symbol re-grepped against the live tree.
 - [ ] Anti-tautology: AC-2 imports the constant; AC-1 derives the announce baseline from the existing case, not a hardcoded count; the no-chip rows exercise both non-demote paths.
-- [ ] `red=` validity: C1's cases are new cases in an existing suite (invariant-1 shape, production line named); C2's red is the inventory gate observed mid-task; C3's red is the archive-RED pattern.
+- [ ] `red=` validity: C1's cases are new cases in an existing suite (invariant-1 shape, production line named; the §5.5 inventory-gate red is ALSO observed inside C1); C2's red is its NEW audit test with an empty disposition manifest failing against the live `Gallery.tsx` presence site (plan R2 F1 — its behavioral compound cases moved into C1's RED batch as cases 10-11); C3's red is the archive-RED pattern.
 - [ ] Scanner-classification probe run and recorded BEFORE the constant is named in code.
 - [ ] Snippets typechecked against strict tsconfig before dispatch.
 - [ ] `pnpm spec:lint docs/superpowers/plans/2026-08-15-diagram-demote-notice/plan.md` 0 hard.
