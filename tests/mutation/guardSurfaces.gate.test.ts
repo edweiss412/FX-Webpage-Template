@@ -74,6 +74,20 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
   reviewRoundCorpus: { equivalent: 2 },
+  // M-wave 2 W-GUARDS (2026-08-10). popoverOverlayExtract: TWO equivalent rows
+  // (the template-separator connector flip, which can only inject the token
+  // `undefined` where no accept-set token contains it; and the null-key
+  // fall-through continue, which reaches only comparisons a null key cannot
+  // match). renderedTextHaystack: clean sweep, 17/17 killed after the
+  // hardening rows.
+  // chore/guard-completeness-wave (2026-08-15). destructiveFileAnalysis: SEVEN
+  // reachability arguments — the begin-callback receiver test Rule 1 already rejects
+  // ahead of, four fixpoint loop bounds the break-on-no-growth condition makes
+  // unreachable, the candidate-declaration count that cannot be zero by construction,
+  // Rule 3's tag test whose only other identifier position is a type argument, and the
+  // ordering comparison two distinct nodes cannot tie. Everything else the first run
+  // surfaced was killed by a fixture, or deleted as dead code.
+  destructiveFileAnalysis: { equivalent: 7 },
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
 };

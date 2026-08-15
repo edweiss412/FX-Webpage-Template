@@ -20,7 +20,7 @@
 // they execute that SQL as a string literal as well, so the exemption is the honest
 // resolution rather than a widened recognizer.
 import { describe, expect, it } from "vitest";
-import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
+import { analyseDestructiveFile, DESTRUCTIVE_STATEMENT_PATTERNS } from "./_destructiveFileAnalysis";
 
 const P = "tests/db/fixture.test.ts";
 const IMPORT = [
@@ -40,6 +40,7 @@ const REASON = {
   binding: /is not bound to a trusted guard call/,
   letVar: /is declared with let\/var/,
   provenance: /the guard name resolves to a local declaration/,
+  notImported: /the guard name is not imported from/,
   noGuard: /no loopback guard is called/,
   unguardedArg: /postgres\(\) receives an expression that is not a guarded binding/,
   notConst: /is declared as a \w+, not a guarded const/,
@@ -497,7 +498,14 @@ const req = Function("return require")();
 const pg = req("postgres");
 const sql = pg(process.env.TEST_DATABASE_URL);
 sql\`select 1\`;`;
-    expectRejected(src, REASON.uncheckedExecution);
+    const v = analyseDestructiveFile(P, src);
+    expect(v.ok).toBe(false);
+    // The exact explanation, not just its class: `sql` here comes from a call to
+    // something that is not a local factory at all, and a mutant reporting it as an
+    // unchecked FACTORY sends the author looking for a function that does not exist.
+    if (!v.ok) {
+      expect(v.reason).toBe("unchecked execution site at line 7: `sql` is not a checked client");
+    }
   });
 
   it("(ai) accepts a transaction callback parameter of a checked client", () => {
@@ -522,6 +530,286 @@ await target.begin(async (tx) => {
   await tx\`select public.prune_sync_log()\`;
 });`;
     expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  /**
+   * The mutation-enrolment family. Each of these was written to kill a specific
+   * surviving mutant the source-mutation gate reported on first enrolment
+   * (chore/guard-completeness-wave): a suite that passes while a mutant lives is a suite
+   * whose claim is wider than its coverage.
+   */
+  it("(ak) rejects a guard imported as a DEFAULT binding, not a named one", () => {
+    // Kills `named && ts.isNamedImports(named)` -> `||`: with `||`, an import clause
+    // carrying no named bindings reaches `named.elements` and throws.
+    const src = `import postgres from "postgres";
+import assertLocalDbUrl from "./_localDbUrl";
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(url, { max: 1 });
+${PRUNE}`;
+    // A default binding is not a named import, so the guard never enters `imported` and
+    // the file reads as "not imported" — which is the correct instruction here.
+    expectRejected(src, REASON.notImported);
+  });
+
+  it("(al) rejects a guard shadowed by a FUNCTION DECLARATION", () => {
+    // Kills the shadow walk's `(isFunctionDeclaration(n) || isClassDeclaration(n))` ->
+    // `&&` (no node is both, so function shadowing stops being seen) and the
+    // `out.add(...)` removal at the same site. Fixture (c) shadows with a `const`, which
+    // takes a different branch.
+    const src = `${IMPORT}
+function assertLocalDbUrl(u: string | undefined) {
+  return u!;
+}
+const url = assertLocalDbUrl(process.env.TEST_DATABASE_URL);
+const sql = postgres(url, { max: 1 });
+${PRUNE}`;
+    expectRejected(src, REASON.provenance);
+  });
+
+  it("(am) says NOT IMPORTED, not SHADOWED, when the guard is neither", () => {
+    // Kills `shadowed.size > 0` -> `>= 0`, which reports every unimported guard as a
+    // local shadow — a wrong instruction to the reader, and invisible to an `ok:false`
+    // assertion.
+    const src = `import postgres from "postgres";
+const url = assertLocalDbUrl(process.env.TEST_DATABASE_URL);
+const sql = postgres(url, { max: 1 });
+${PRUNE}`;
+    const v = analyseDestructiveFile(P, src);
+    expect(v.ok).toBe(false);
+    if (!v.ok)
+      expect(v.reason).toMatch(/the guard name is not imported from tests\/db\/_localDbUrl/);
+  });
+
+  it("(an) reports the LINE of the offending node, not an offset of it", () => {
+    // Kills the `line + 1` -> `line + 2` mutant. The reason's line is the only thing
+    // pointing an author at the site, and every other assertion in this file is blind
+    // to it.
+    const src = `${IMPORT}
+const safe = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const target = getDbClient(process.env.TEST_DATABASE_URL);
+const { unsafe } = target;
+await unsafe("select public.prune_sync_log()");`;
+    const v = analyseDestructiveFile(P, src);
+    expect(v.ok).toBe(false);
+    // IMPORT is two lines, so the destructive literal is on line 6.
+    if (!v.ok) expect(v.reason).toContain("at line 6");
+  });
+
+  it("(ao) accepts a BLOCK-BODY factory whose only return is a checked connection", () => {
+    // Kills the two return-collector mutants that make a block body yield no returns at
+    // all (`ts.forEachChild(body, walk)` removed) and the one that stops the walk at the
+    // first child (`n !== body &&` -> `||`).
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const make = () => {
+  return postgres(DB_URL, { max: 1 });
+};
+const sql = make();
+sql\`select 1\`;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(ap) accepts a factory whose return is nested inside a block", () => {
+    // Kills the inner `ts.forEachChild(n, walk)` removal: without it the collector sees
+    // only the block's direct children, so a return one level down vanishes and the
+    // factory is wrongly unchecked.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const make = () => {
+  if (process.env.CI) {
+    return postgres(DB_URL, { max: 1 });
+  }
+  throw new Error("unreachable in this fixture");
+};
+const sql = make();
+sql\`select 1\`;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(aq) does not read a NESTED function's returns as the factory's own", () => {
+    // Kills `n !== body` -> `===` and `(isFunctionLike(n) || isClassLike(n))` -> `&&`:
+    // both make the collector descend into nested functions, so this factory's summary
+    // would pick up the inner arrow's return and go unchecked.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const make = () => {
+  function describeIt() {
+    return process.env.TEST_DATABASE_URL;
+  }
+  void describeIt;
+  return postgres(DB_URL, { max: 1 });
+};
+const sql = make();
+sql\`select 1\`;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(ar) rejects a factory that returns NOTHING", () => {
+    // Kills `returns.length > 0` -> `>= 0`, under which a factory with no returns at all
+    // satisfies `every()` vacuously and becomes a checked connection source.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const make = () => {
+  postgres(DB_URL, { max: 1 });
+};
+const sql = make();
+sql\`select 1\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(as) tolerates an ordinary helper arrow that is not a transaction callback", () => {
+    // Kills the two beginParamReceiver guards (`!isCallExpression(call) ||` -> `&&`, and
+    // `!isPropertyAccessExpression(callee) ||` -> `&&`): each dereferences a shape it
+    // just proved absent, so an ordinary helper parameter throws during analysis.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+const label = (n: number) => String(n);
+void label;
+withRetries(async (attempt) => attempt + 1);
+sql\`select 1\`;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(at) rejects a client bound with let, even from a checked connection", () => {
+    // Kills `!d.isConst || !init` -> `&&`, under which a reassignable binding holding a
+    // checked connection becomes a checked client — the hole the connection leg's const
+    // invariant closes, one level up.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+let sql = postgres(DB_URL, { max: 1 });
+sql\`select 1\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(au) resolves a transaction client whose receiver is checked LATER in the file", () => {
+    // Kills the fixpoint's `grew = true` removal. Candidate order follows the AST, so
+    // `tx` is seen before the `sql` it depends on: a single-pass resolution leaves `tx`
+    // unchecked and rejects a legitimate file.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+function run() {
+  return sql.begin(async (tx) => {
+    await tx\`select public.prune_sync_log()\`;
+  });
+}
+const sql = postgres(DB_URL, { max: 1 });
+void run;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(av) explains an unchecked tag whose declaration has no initializer", () => {
+    // Kills `!isVariableDeclaration(d.node) || !d.node.initializer` -> `&&`, which
+    // dereferences the initializer it just proved absent.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+void DB_URL;
+let sql;
+sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(aw) anchors a destructive TEMPLATE literal, not only a string one", () => {
+    // Kills `isNoSubstitutionTemplateLiteral(n) ||` -> `&&`: a backticked statement is a
+    // different node kind, and the recognizer must range over all three.
+    const src = `${IMPORT}
+const safe = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const target = getDbClient(process.env.TEST_DATABASE_URL);
+const { unsafe } = target;
+await unsafe(\`select public.prune_sync_log()\`);`;
+    expectRejected(src, REASON.unanchoredStatement);
+  });
+
+  it("(ax) accepts a destructive statement ASSERTED ON rather than executed", () => {
+    // The documented limit, pinned as behavior: a literal whose nearest enclosing call is
+    // a non-execution method on a call RESULT is an assertion about a stored command, not
+    // an execution — live at tests/db/syncLogIndexesAndPrune.db.test.ts:219. Kills
+    // `anc !== undefined &&` -> `===`, which collapses the exemption and rejects it.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+const [job] = await sql\`select command from cron.job\`;
+expect(job.command).toBe("select public.prune_sync_log();");`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(ay) rejects a checked client used as a parameter DEFAULT", () => {
+    // Kills `(isParameter(p) && p.name === n)` -> `||`, under which any parameter-parented
+    // use counts as the client's own binding — laundering it into a callee's hands.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+function run(client = sql) {
+  return client;
+}
+void run;`;
+    expectRejected(src, REASON.containment);
+  });
+
+  it("(az) treats a CLASS declaration of the connected name as a declaration", () => {
+    // Kills `(isFunctionDeclaration(n) || isClassDeclaration(n))` -> `&&` in
+    // declarationsOf and the `out.push` removal beside it: without them the name looks
+    // undeclared, and "has no declaration" is a different, wrong instruction.
+    const src = `${IMPORT}
+const safe = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+void safe;
+class url {}
+const sql = postgres(url, { max: 1 });
+${PRUNE}`;
+    expectRejected(src, REASON.notConst);
+  });
+
+  it("(ba) tolerates a catch clause with no binding", () => {
+    // Kills `isCatchClause(n) && n.variableDeclaration` -> `||`: an optional-binding catch
+    // then dereferences the declaration it does not have.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+try {
+  sql\`select 1\`;
+} catch {
+  void 0;
+}`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(bb) treats a CATCH binding of the connected name as a declaration", () => {
+    // Kills the `fromBindingName(n.variableDeclaration...)` removal: a caught binding IS
+    // a declaration, and dropping it reports the name as undeclared instead of as
+    // reassignable by construction.
+    const src = `${IMPORT}
+const safe = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+void safe;
+try {
+  void 0;
+} catch (url) {
+  const sql = postgres(url, { max: 1 });
+  ${PRUNE}
+}`;
+    expectRejected(src, REASON.letVar);
+  });
+
+  it("(bc) tolerates a side-effect-only import", () => {
+    // Kills `isImportDeclaration(n) && n.importClause` -> `||`: a clause-less import then
+    // dereferences the clause it does not have.
+    const src = `import "./_setupHooks";
+${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+${PRUNE}`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(bd) pins the wipe-gate recognizer's 120-character window", () => {
+    // Kills `{0,120}` -> `{0,121}`. The window is the only thing separating "this file
+    // enables the destructive gate" from "these two tokens appear near each other", and
+    // it is shared with FILE DISCOVERY — so a silently widened bound changes which files
+    // are analyzed at all. the gap counts the spaces too, so 119 fillers is 121 characters — one
+    // past the boundary, unmatched by the shipped pattern and matched by the mutant.
+    const justPast = `destructive_reset_gate ${"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"} enabled = true`;
+    expect(DESTRUCTIVE_STATEMENT_PATTERNS.enablesWipeGate.test(justPast)).toBe(false);
+    const justInside = `destructive_reset_gate ${"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"} enabled = true`;
+    expect(DESTRUCTIVE_STATEMENT_PATTERNS.enablesWipeGate.test(justInside)).toBe(true);
   });
 
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {

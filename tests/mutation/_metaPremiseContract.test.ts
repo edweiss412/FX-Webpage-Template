@@ -42,6 +42,10 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // assert on `undefined`); the 3 fault cases carry `no-premise`, because their spawn
   // result is the fixture itself.
   "tests/scripts/ledgerGitSpawnSeam.test.ts": 16,
+  // The analyzer suite enrolled by this branch. It declares 0 honestly: the cases drive
+  // literal source strings through a pure AST function and reach no member of
+  // ENVIRONMENT_SOURCES.
+  "tests/db/destructiveFileAnalysis.test.ts": 0,
   "tests/scripts/ledgerClaims.test.ts": 0,
   // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
   // inventory suite reads DESIGN.md and walks the repo, but through the module

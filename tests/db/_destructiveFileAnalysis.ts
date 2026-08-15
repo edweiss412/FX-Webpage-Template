@@ -38,6 +38,15 @@
  *     method on a call RESULT: `expect(job.command).toBe("select public.prune_sync_log();")`
  *     is an assertion about a stored command (live at syncLogIndexesAndPrune.db.test.ts),
  *     not an execution. Execution methods on a call result ARE still rejected.
+ *   - Rule 1's tagged-template leg is UNIVERSAL: in a discovered file, ANY identifier used
+ *     as a tag must be a checked client. A discovered file that tags with something else
+ *     (`dedent`, `String.raw`) is rejected — loudly, repaired by not tagging or by making
+ *     the client checked. Deliberate: the tag leg is what catches a client whose
+ *     acquisition route nobody enumerated.
+ *   - A recognized destructive statement bound to a variable and executed later
+ *     (`const S = "select public.prune_…()"; sql.unsafe(S)`) is REJECTED: the literal does
+ *     not sit inside an execution. Conservative by ratified design (spec §2.2 Rule 2, "a
+ *     variable initializer later laundered").
  *   - Factory summaries are one level and non-recursive; an unsummarizable factory makes
  *     its call sites reject loudly.
  *   - The REST wipe channel is unmodeled: resetValidationDataPostgrest.test.ts wipes over
@@ -528,8 +537,11 @@ function declarationsOf(
       fromBindingName(n.name, n, false);
     } else if ((ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)) && n.name?.text === name) {
       out.push({ node: n, isConst: false });
-    } else if (ts.isCatchClause(n) && n.variableDeclaration) {
-      fromBindingName(n.variableDeclaration.name, n.variableDeclaration, false);
+      // A CATCH BINDING needs no branch of its own: `catch (url)` holds a real
+      // ts.VariableDeclaration, and forEachChild walks it, so the first branch above
+      // already collects it. The explicit branch that used to sit here was dead — proven
+      // by mutation, which killed nothing when it was removed — and fixture (bb) pins
+      // that a caught binding is still counted.
     } else if (ts.isImportDeclaration(n) && n.importClause) {
       // IMPORT bindings are declarations too, and omitting them broke the
       // closed-by-construction claim: an imported `targetUrl` connected directly,

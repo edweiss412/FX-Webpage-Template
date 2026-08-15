@@ -433,6 +433,80 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
   },
   /**
+   * The destructive-file analyzer (chore/guard-completeness-wave,
+   * BL-DESTRUCTIVE-GUARD-EXECUTION-SITE). Pure AST over a source string, DB-free, and
+   * its suite is a fixture corpus — exactly the shape the registry can express, and the
+   * shape the AGENTS.md enrolment contract asks for BEFORE the first diff-review round.
+   *
+   * The surface's own history is why it belongs here: every previous round of it was a
+   * recognizer argued in prose, and "the guard does not pin what it claims" is precisely
+   * the finding class a mutation score plus an empty survivor set settles mechanically.
+   */
+  {
+    id: "destructiveFileAnalysis",
+    sourcePath: "tests/db/_destructiveFileAnalysis.ts",
+    suitePaths: ["tests/db/destructiveFileAnalysis.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // Measured 1.00 (185/185 counted, 7 equivalent excluded) on first enrolment, so the
+    // floor is measured-minus-0.05 rather than the 0.8 placeholder the row was authored
+    // with: a floor below the shipped state cannot detect a regression toward it.
+    scoreFloor: 0.95,
+    // Inverting Rule 1's tagged-template leg accepts every unchecked tag, which is what
+    // fixtures (ah) and (af) exist to reject.
+    control: {
+      from: "if (ts.isTaggedTemplateExpression(n) && !checkedTag(n.tag)) {",
+      to: "if (ts.isTaggedTemplateExpression(n) && checkedTag(n.tag)) {",
+    },
+    // First run: 0.82 with 35 unaccepted survivors. Twenty-six were real gaps and are now
+    // killed by fixtures (ak)-(bd); one was DEAD CODE the gate proved dead (an explicit
+    // catch-clause branch in declarationsOf that forEachChild already covered) and was
+    // deleted rather than blessed. These seven are reachability arguments.
+    accepted: [
+      {
+        siteId: "logical-connector:302:32:&&>||",
+        kind: "equivalent",
+        reason:
+          "`receiver !== null && checked.has(receiver)` decides whether a `.begin` callback parameter is checked. Under `||` a callback of an UNCHECKED receiver would also be checked -- but Rule 1 rejects that `.begin(...)` call itself (`begin` is in EXECUTION_METHODS and the receiver is not a checked client), and the call is an ANCESTOR of the callback body, so the walk reaches it first. Both operators produce the same verdict and the same reason; fixture (aj) is the case",
+      },
+      {
+        siteId: "integer-literal:306:19:0>1",
+        kind: "equivalent",
+        reason:
+          "the checked-set fixpoint's start index. The loop breaks the first time a pass adds nothing, and each growing pass adds at least one name, so at most `candidates.size` passes can grow; starting at 1 still allows `size` iterations, which is enough to resolve any dependency chain over `size` names",
+      },
+      {
+        siteId: "relational-boundary:306:27:<><=",
+        kind: "equivalent",
+        reason:
+          "same loop: `<=` permits one further iteration that the `!grew` break has already made unreachable",
+      },
+      {
+        siteId: "integer-literal:306:47:1>2",
+        kind: "equivalent",
+        reason:
+          "same loop: the bound is `candidates.size + n` for any n >= 1, and the break-on-no-growth condition fires before either bound is reached",
+      },
+      {
+        siteId: "relational-boundary:311:24:>>>=",
+        kind: "equivalent",
+        reason:
+          "`decls.length > 0` guards `every()` returning true vacuously. A candidate name is only ever added from a VariableDeclaration or a Parameter, and declarationsOf collects both, so a candidate with zero declarations cannot occur -- the `>= 0` mutant admits a case the candidate set cannot contain",
+      },
+      {
+        siteId: "logical-connector:417:73:&&>||",
+        kind: "equivalent",
+        reason:
+          "Rule 3's tag test, `isTaggedTemplateExpression(p) && p.tag === n`. Under `||` the second disjunct alone would admit an identifier whose parent is a tagged template but which is NOT its tag -- and a TaggedTemplateExpression's identifier children are the tag and its type arguments only. A type argument is a type, not a value, so no checked CLIENT identifier can occupy that position",
+      },
+      {
+        siteId: "relational-boundary:508:29:>>>=",
+        kind: "equivalent",
+        reason:
+          "`d.node.getStart(sf) > connectPos` is the ordering leg: the guard declaration must precede the connection. `>=` additionally rejects a declaration starting at exactly the connection's offset, which two distinct AST nodes in one file cannot do",
+      },
+    ],
+  },
+  /**
    * The review-round economy gate's two sources, enrolled as TWO rows because
    * `sourcePath` is singular and the harness mutates exactly that file. A single
    * row naming count.ts would leave every structural decision in corpus.ts
