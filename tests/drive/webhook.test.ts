@@ -782,6 +782,95 @@ describe("/api/drive/webhook observability logging", () => {
   });
 });
 
+/**
+ * Both folder-fallback sync_log emits sit INSIDE catch blocks whose own throw escapes, so an
+ * unguarded sink fault failed the webhook dispatch outright — and at the per-file site it
+ * abandoned every remaining file in the folder.
+ *
+ * Spec: docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md §2.1/§2.2,
+ * AC-3.
+ */
+describe("/api/drive/webhook fallback sync_log emit guard (AC-3)", () => {
+  let calls: Array<{ record: LogRecord; persist: boolean }>;
+
+  beforeEach(() => {
+    syncLogMock.writeSyncLog.mockClear();
+    calls = [];
+    setLogSink((record, persist) => {
+      calls.push({ record, persist });
+    });
+  });
+
+  afterEach(() => {
+    resetLogSink();
+  });
+
+  const SINK_MESSAGE = "probe-webhook-sink-connection-reset";
+  const rejectingSink = async () => {
+    throw new Error(SINK_MESSAGE);
+  };
+  const escalations = (): LogRecord[] =>
+    calls.map((c) => c.record).filter((r) => r.code === "SYNC_LOG_EMIT_FAILED");
+
+  test("listFolder-failure branch: the dispatch still returns under a rejecting sink", async () => {
+    const { dispatchDriveWebhookFiles } = await import("@/app/api/drive/webhook/route");
+    const listError = new SyncInfraError(
+      "listFolder",
+      "thrown_error",
+      new Error("drive unavailable"),
+    );
+
+    const result = await dispatchDriveWebhookFiles(activeChannel(), {
+      listFolder: vi.fn(async () => {
+        throw listError;
+      }),
+      runPushSyncForShow: vi.fn(),
+      logSync: rejectingSink,
+    });
+
+    // The dispatch's own result, not the sink's failure.
+    expect(result).toEqual({
+      dispatched: [{ driveFileId: null, result: { outcome: "error", code: "SYNC_INFRA_ERROR" } }],
+    });
+    expect(escalations()).toHaveLength(1);
+    expect(escalations()[0].driveFileId).toBeNull();
+    // Raw-error contract (§2.2): buildRecord serializes exactly once, so the thrown message
+    // survives into the persisted diagnostic. Deleting the `error` field, or pre-serializing it,
+    // is the mutant this kills.
+    expect(escalations()[0].context.error).toMatchObject({ message: SINK_MESSAGE });
+  });
+
+  test("per-file branch: the LOOP CONTINUES to later files under a rejecting sink", async () => {
+    const { dispatchDriveWebhookFiles } = await import("@/app/api/drive/webhook/route");
+    const runPushSyncForShow = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new SyncInfraError("readShowGateRow", "returned_error", new Error("db offline")),
+      )
+      .mockResolvedValueOnce({
+        outcome: "applied" as const,
+        showId: "show-b",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+      });
+
+    const result = await dispatchDriveWebhookFiles(activeChannel(), {
+      listFolder: vi.fn(async () => [listedFile("file-a"), listedFile("file-b")]),
+      runPushSyncForShow,
+      logSync: rejectingSink,
+    });
+
+    // Loop abandonment is the mutant this two-file fixture kills: file-b is only reached if
+    // file-a's swallowed sink failure did not escape the loop body.
+    expect(runPushSyncForShow).toHaveBeenCalledTimes(2);
+    expect(result.dispatched.map((d) => d.driveFileId)).toEqual(["file-a", "file-b"]);
+    expect(result.dispatched[1].result).toMatchObject({ outcome: "applied", showId: "show-b" });
+    expect(escalations()).toHaveLength(1);
+    expect(escalations()[0].driveFileId).toBe("file-a");
+    expect(escalations()[0].context.error).toMatchObject({ message: SINK_MESSAGE });
+  });
+});
+
 describe("runPushSyncForShow", () => {
   test("dispatches the shared sync pipeline with mode='push'", async () => {
     const { runPushSyncForShow } = await import("@/lib/sync/runPushSyncForShow");
