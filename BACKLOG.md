@@ -335,7 +335,7 @@ Both buttons are `className="border px-3 py-1 bg-{blue,yellow}-600 text-white"` 
 
 ## BL-TAP-TITLE-LINK-META-LINE-BLEED — the sheet-title link's 44px hit box covers ~8px of the meta line beneath it
 
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** accessibility / mis-tap. **Effort:** S. **Class-sweep exception:** (b) — a ratified scope decision fences it. **Reachability:** PROBED — the geometry is arithmetic on the shipped class strings, and the arc's own e2e suite measures the 44.8px box in a real browser (`tests/e2e/tap-target-inline-controls.layout.spec.ts`). **Status:** IN PROGRESS · **Branch:** docs/step3-tap-cluster-spec
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** accessibility / mis-tap. **Effort:** S. **Class-sweep exception:** (b) — a ratified scope decision fences it. **Reachability:** PROBED — the geometry is arithmetic on the shipped class strings, and the arc's own e2e suite measures the 44.8px box in a real browser (`tests/e2e/tap-target-inline-controls.layout.spec.ts`).
 
 `SheetTitleLink`'s repaired class string (`components/admin/wizard/Step3SheetCard.tsx:167`) carries `-my-2.5 py-2.5`: the padding lifts the target to 44.8px and the negative margin cancels the growth in flow, so the row does not get taller. The consequence is that 10px of live hit box hangs below the text, and the meta line under it only clears 2px of that with its own `mt-0.5` — leaving the top ~8px of a 21.7px non-interactive text line inside a target that opens Google Sheets in a NEW TAB. Which element wins a tap varies with x-position. The same shape exists at `Step3SheetCard.tsx:452` (`mt-1`, so 6px) over "We couldn't read the details of this sheet".
 
@@ -345,7 +345,7 @@ Both buttons are `className="border px-3 py-1 bg-{blue,yellow}-600 text-white"` 
 
 ## BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR — contact cells grew ~54px and drag their grid row-mates to match
 
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** visual regression (layout). **Effort:** S. **Class-sweep exception:** (c) — a container redesign the filing PR does not otherwise touch. **Reachability:** PROBED — arithmetic on the shipped strings; the tap-floor heights are measured in a real browser by the arc's e2e suite. **Status:** IN PROGRESS · **Branch:** docs/step3-tap-cluster-spec
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** visual regression (layout). **Effort:** S. **Class-sweep exception:** (c) — a container redesign the filing PR does not otherwise touch. **Reachability:** PROBED — arithmetic on the shipped strings; the tap-floor heights are measured in a real browser by the arc's e2e suite.
 
 Lifting the `tel:` and `mailto:` links to the 44px floor (`components/admin/wizard/step3ReviewSections.tsx:1412`, `:1424`) takes the Driver cell from roughly 106px to roughly 160px. The cells sit in `grid grid-cols-2 gap-2 min-[560px]:grid-cols-3` (`:1461`) whose items stretch by default, so at ≥560px the Vehicle and Parking cells stretch to 160px around ~34px of content — a large `bg-surface-sunken` panel that reads as broken rather than spacious. Each contact cell also costs ~54px more scroll on a phone, which is where this surface is read.
 
@@ -353,7 +353,7 @@ Lifting the `tel:` and `mailto:` links to the 44px floor (`components/admin/wiza
 
 ## BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING — two 44px contact targets sit 6px apart, and the taller boxes invert the grouping
 
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2 + P3). **Class:** accessibility / mis-tap + visual grouping. **Effort:** S. **Class-sweep exception:** (a) — needs a design decision the filing branch cannot settle. **Reachability:** PROBED — the arc's e2e suite asserts the two rects are disjoint and measures both at 44px; the 6px separation is the cell's `gap-1.5`. **Status:** IN PROGRESS · **Branch:** docs/step3-tap-cluster-spec
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2 + P3). **Class:** accessibility / mis-tap + visual grouping. **Effort:** S. **Class-sweep exception:** (a) — needs a design decision the filing branch cannot settle. **Reachability:** PROBED — the arc's e2e suite asserts the two rects are disjoint and measures both at 44px; the 6px separation is the cell's `gap-1.5`.
 
 Two consequences of the floor repair at `components/admin/wizard/step3ReviewSections.tsx:1412`/`:1424`, neither a correctness defect:
 
