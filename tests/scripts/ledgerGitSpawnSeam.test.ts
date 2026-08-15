@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { spawnSync } from "node:child_process";
 
 import { realGitSurface } from "@/scripts/lib/ledger-git";
+import { premise } from "@/tests/_shared/premise";
 
 type SpawnArgs = { cmd: string; args: string[]; opts: Record<string, unknown> };
 
@@ -39,6 +40,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
   it("fetch passes FETCH_MS=30000 and MAX_GIT_STDOUT", () => {
     const { calls, fake } = recordingSpawn();
     realGitSurface({ spawn: fake }).fetch();
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -46,6 +48,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
   it("lsRemote passes LS_REMOTE_MS=30000 and MAX_GIT_STDOUT", () => {
     const { calls, fake } = recordingSpawn(`${OID}\trefs/heads/main`);
     expect(realGitSurface({ spawn: fake }).lsRemote().get("main")).toBe(OID);
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -53,6 +56,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
   it("localRefs passes LS_REMOTE_MS=30000 and now MAX_GIT_STDOUT", () => {
     const { calls, fake } = recordingSpawn(`${OID} refs/remotes/origin/feat/x`);
     expect(realGitSurface({ spawn: fake }).localRefs().get("feat/x")).toBe(OID);
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -60,6 +64,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
   it("prList passes GH_MS=10000 and now MAX_GIT_STDOUT", () => {
     const { calls, fake } = recordingSpawn("[]");
     expect(realGitSurface({ spawn: fake }).prList()).toEqual([]);
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(10_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -67,6 +72,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
   it("mergedIntoMain passes LS_REMOTE_MS=30000 and MAX_GIT_STDOUT", () => {
     const { calls, fake } = recordingSpawn(`origin/feat/x ${OID}`);
     expect(realGitSurface({ spawn: fake }).mergedIntoMain(OID).get("origin/feat/x")).toBe(OID);
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -76,6 +82,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
     const { calls, fake } = recordingSpawn(`100644 blob ${OID}\tBACKLOG.md`);
     const oids = realGitSurface({ spawn: fake }).fileOids("origin/main", ["BACKLOG.md"]);
     expect(oids.get("BACKLOG.md")).toBe(OID);
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -83,6 +90,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
   it("readBlob passes LS_REMOTE_MS=30000 and MAX_GIT_STDOUT", () => {
     const { calls, fake } = recordingSpawn("ledger text");
     expect(realGitSurface({ spawn: fake }).readBlob(OID)).toBe("ledger text");
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -92,6 +100,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
     expect(realGitSurface({ spawn: fake }).showFile("origin/main", "BACKLOG.md")).toBe(
       "ledger text",
     );
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -99,6 +108,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
   it("mergeBase passes LS_REMOTE_MS=30000 and MAX_GIT_STDOUT", () => {
     const { calls, fake } = recordingSpawn(`${OID}\n`);
     expect(realGitSurface({ spawn: fake }).mergeBase("origin/feat/x", OID)).toBe(OID);
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -108,6 +118,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
     expect(realGitSurface({ spawn: fake }).diffHunks(OID, "origin/feat/x", ["BACKLOG.md"])).toEqual(
       [{ file: "BACKLOG.md", start: 4, count: 2 }],
     );
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -117,6 +128,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
     // fixture would fail for a reason unrelated to the spawn options.
     const { calls, fake } = recordingSpawn("1755000000\n");
     expect(realGitSurface({ spawn: fake }).tipEpoch("origin/feat/x")).toBe(1_755_000_000);
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -125,6 +137,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
     // Parsed as the literal string git prints; anything else throws.
     const { calls, fake } = recordingSpawn("false\n");
     expect(realGitSurface({ spawn: fake }).isShallow()).toBe(false);
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -140,6 +153,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
     // value assertion pass off the real checkout rather than off the fake.
     const { calls, fake } = recordingSpawn("feat/seam-fixture-branch\n");
     expect(realGitSurface({ spawn: fake }).currentBranch()).toBe("feat/seam-fixture-branch");
+    premise("the reader routed a spawn through the injected seam", calls.length, 0);
     expect(calls[0]?.opts.timeout).toBe(30_000);
     expect(calls[0]?.opts.maxBuffer).toBe(MAX);
   });
@@ -166,18 +180,31 @@ function faultSpawn(result: Partial<ReturnType<typeof spawnSync>>) {
  * without its pair is visible in review as a hole in the matrix.
  */
 describe("prList fault + malformed-output contract (spec §3.4)", () => {
-  const cases: Array<[string, Partial<ReturnType<typeof spawnSync>>]> = [
+  // [label, spawn result, expected message]. The MESSAGE is asserted, not merely that
+  // something threw: a TypeError from dereferencing a shape the validator was supposed to
+  // reject also "throws", and three mutants survived this matrix while it said only
+  // `toThrow()` — the fallback that turns an empty stderr into `status <n>`, the
+  // null-row coercion, and the non-object owner branch.
+  const cases: Array<[string, Partial<ReturnType<typeof spawnSync>>, RegExp]> = [
     [
       "spawn error object",
       { error: Object.assign(new Error("ENOBUFS"), { code: "ENOBUFS" }), status: null },
+      /ENOBUFS/,
     ],
-    ["non-zero exit", { status: 1, stdout: "[]" }],
-    ["empty stdout", { status: 0, stdout: "" }],
-    ["invalid JSON", { status: 0, stdout: "not-json" }],
-    ["non-array JSON", { status: 0, stdout: "{}" }],
+    [
+      "non-zero exit with stderr",
+      { status: 1, stdout: "[]", stderr: "gh: not logged in" },
+      /gh pr list failed: gh: not logged in/,
+    ],
+    ["non-zero exit with NO stderr", { status: 1, stdout: "[]" }, /gh pr list failed: status 1/],
+    ["empty stdout", { status: 0, stdout: "" }, /empty stdout on exit 0/],
+    ["invalid JSON", { status: 0, stdout: "not-json" }, /invalid JSON on exit 0/],
+    ["non-array JSON", { status: 0, stdout: "{}" }, /non-array payload/],
+    ["a null row", { status: 0, stdout: "[null]" }, /row 0: number is not numeric/],
     [
       "row missing number",
       { status: 0, stdout: JSON.stringify([{ headRefName: "b", isCrossRepository: false }]) },
+      /row 0: number is not numeric/,
     ],
     [
       "row non-numeric number",
@@ -185,10 +212,12 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
         status: 0,
         stdout: JSON.stringify([{ number: "7", headRefName: "b", isCrossRepository: false }]),
       },
+      /row 0: number is not numeric/,
     ],
     [
       "row missing headRefName",
       { status: 0, stdout: JSON.stringify([{ number: 7, isCrossRepository: false }]) },
+      /headRefName is not a non-empty string/,
     ],
     [
       "row empty headRefName",
@@ -196,6 +225,7 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
         status: 0,
         stdout: JSON.stringify([{ number: 7, headRefName: "", isCrossRepository: false }]),
       },
+      /headRefName is not a non-empty string/,
     ],
     [
       "row non-string headRefName",
@@ -203,10 +233,12 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
         status: 0,
         stdout: JSON.stringify([{ number: 7, headRefName: 42, isCrossRepository: false }]),
       },
+      /headRefName is not a non-empty string/,
     ],
     [
       "row missing isCrossRepository",
       { status: 0, stdout: JSON.stringify([{ number: 7, headRefName: "b" }]) },
+      /isCrossRepository is not boolean/,
     ],
     [
       "row non-boolean isCrossRepository",
@@ -214,6 +246,7 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
         status: 0,
         stdout: JSON.stringify([{ number: 7, headRefName: "b", isCrossRepository: "no" }]),
       },
+      /isCrossRepository is not boolean/,
     ],
     [
       "owner with non-string login",
@@ -228,6 +261,7 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
           },
         ]),
       },
+      /headRepositoryOwner\.login is not a string/,
     ],
     [
       "owner as string",
@@ -237,6 +271,7 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
           { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: "owner" },
         ]),
       },
+      /headRepositoryOwner is not an object/,
     ],
     [
       "owner as number",
@@ -246,6 +281,7 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
           { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: 7 },
         ]),
       },
+      /headRepositoryOwner is not an object/,
     ],
     [
       "owner as boolean",
@@ -255,6 +291,7 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
           { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: true },
         ]),
       },
+      /headRepositoryOwner is not an object/,
     ],
     [
       "owner as array",
@@ -264,6 +301,7 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
           { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: [] },
         ]),
       },
+      /headRepositoryOwner is not an object/,
     ],
     [
       "owner as empty object (login absent)",
@@ -273,14 +311,17 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
           { number: 7, headRefName: "b", isCrossRepository: false, headRepositoryOwner: {} },
         ]),
       },
+      /headRepositoryOwner\.login is not a string/,
     ],
   ];
 
-  it.each(cases)("throws on %s", (_label, result) => {
-    expect(() => realGitSurface({ spawn: faultSpawn(result) }).prList()).toThrow();
+  it.each(cases)("throws on %s", (_label, result, message) => {
+    // no-premise: the spawn result is CONSTRUCTED by the case and injected through the seam, so no environment condition gates this assertion — the fault is the fixture.
+    expect(() => realGitSurface({ spawn: faultSpawn(result) }).prList()).toThrow(message);
   });
 
   it("returns rows for a clean well-formed payload, and [] for a clean empty one", () => {
+    // no-premise: the spawn result is CONSTRUCTED by the case and injected through the seam, so no environment condition gates this assertion — the fault is the fixture.
     const good = JSON.stringify([
       {
         number: 7,
@@ -296,6 +337,7 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
   });
 
   it("accepts an absent or null owner, which gh omits for a deleted account", () => {
+    // no-premise: the spawn result is CONSTRUCTED by the case and injected through the seam, so no environment condition gates this assertion — the fault is the fixture.
     const rows = (owner: unknown) =>
       realGitSurface({
         spawn: faultSpawn({

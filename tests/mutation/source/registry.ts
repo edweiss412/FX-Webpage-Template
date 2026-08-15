@@ -360,7 +360,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason: "same reachability argument for `tipOf.get(a)` in the same comparator",
       },
       {
-        siteId: "integer-literal:216:57:0>1",
+        siteId: "integer-literal:227:57:0>1",
         kind: "equivalent",
         reason:
           "the age loop at ledger-claims-core.ts:212 iterates the same `candidates` array `tipOf` was built from, so `tipOf.get(ref)` is always present and this `?? 0` is unreachable too",
@@ -370,7 +370,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
   {
     id: "ledgerGit",
     sourcePath: "scripts/lib/ledger-git.ts",
-    suitePaths: ["tests/scripts/ledgerClaimsCheck.test.ts"],
+    // The seam suite is registered because the runner executes ONLY registered
+    // suites (tests/mutation/source/runner.ts:129, :142) — without this row the
+    // spawn-seam assertions would kill nothing.
+    suitePaths: [
+      "tests/scripts/ledgerClaimsCheck.test.ts",
+      "tests/scripts/ledgerGitSpawnSeam.test.ts",
+    ],
     operators: [...OPERATOR_NAMES],
     // Measured 72/78 counted (84 mutants, 6 equivalent, 6 accepted-gap) on
     // fix/mutation-ledgergit-site-drift, after 229563b76 grew the file by 3
@@ -389,88 +395,40 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [
       // ---- equivalent: cannot change observable behavior (spec §2.4) -------
       {
-        siteId: "logical-connector:130:18:||>&&",
+        siteId: "logical-connector:142:18:||>&&",
         kind: "equivalent",
         reason:
           "localRefs reads `for-each-ref --format=%(objectname) %(refname)`, which always emits BOTH fields, and a git refname cannot contain whitespace -- so a one-field line, the only input separating `||` from `&&` here, cannot occur. An empty trailing line splits to a single empty string, making oid falsy, so both operators skip it identically. Its lsRemote twin at :105 IS killed, because ls-remote's output is not under the same format guarantee",
       },
       {
-        siteId: "logical-connector:83:12:||>&&",
+        siteId: "logical-connector:66:12:||>&&",
         kind: "equivalent",
         reason:
           "parseRefLine has exactly one caller, lsRemote (ledger-git.ts:104), which feeds it lines of `git ls-remote --heads`; that format is OID TAB REF, so a line either splits into two truthy fields or is the trailing blank one, where both operands are falsy and `||` and `&&` agree. A one-truthy-field line, the only input that separates them, is not producible",
       },
       {
-        siteId: "logical-connector:192:32:||>&&",
+        siteId: "logical-connector:232:32:||>&&",
         kind: "equivalent",
         reason:
           "the only line `git branch -r --format='%(refname:short) %(objectname)'` emits with a missing field is the trailing blank one, where name is `''` and oid is undefined; `&&` declines to skip it, and the very next guard (ledger-git.ts:193) skips it on `name.length === 0` instead. Same outcome, one line later",
       },
       {
-        siteId: "integer-literal:219:17:1>2",
+        siteId: "integer-literal:259:17:1>2",
         kind: "equivalent",
         reason:
           "`if (m?.[1] && m[2])` guards a regex whose two groups are `([0-9a-f]{40})` and `(.+)`; a match populates both non-empty and a non-match makes `m` null, so testing group 2 twice selects exactly the same lines as testing group 1 then group 2",
       },
       {
-        siteId: "statement-removal:280:11:continue;>(removed)",
+        siteId: "statement-removal:320:11:continue;>(removed)",
         kind: "equivalent",
         reason:
           "falling out of the `+++ b/` branch reaches the hunk regex, which is anchored at `^@@ ` and therefore cannot match a line the `^\\+\\+\\+ b/` regex just matched; the `!hm?.[1]` guard below then continues anyway",
       },
       {
-        siteId: "logical-connector:325:14:||>&&",
+        siteId: "logical-connector:365:14:||>&&",
         kind: "equivalent",
         reason:
           "headRepo's three inputs all end at the same answer under `&&`: an unset GITHUB_EVENT_PATH still returns null (existsSync(undefined) is false, not a throw), a set-but-missing path falls through to readFileSync, which throws into the function's own catch and returns null, and a readable path takes the identical branch either way",
-      },
-      // ---- accepted-gap: real, deliberately uncovered (spec §2.5) ----------
-      //
-      // One family, three sites. Separating a 30_000 ms bound from a 30_001 ms
-      // one means a child that runs for exactly that long, so the assertion is
-      // either a 30 s wait on a merge-gating suite or an injected spawn. Not
-      // `equivalent`: a timeout a test COULD reach would be observable, so an
-      // equivalence claim here would overclaim (spec limit L-7's posture).
-      {
-        siteId: "integer-literal:32:18:30000>30001",
-        kind: "accepted-gap",
-        reason: "FETCH_MS is passed straight to spawnSync's timeout; see the backlog entry",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
-      },
-      {
-        siteId: "integer-literal:33:22:30000>30001",
-        kind: "accepted-gap",
-        reason: "LS_REMOTE_MS, same family and same argument",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
-      },
-      {
-        siteId: "integer-literal:34:15:10000>10001",
-        kind: "accepted-gap",
-        reason: "GH_MS, same family and same argument",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
-      },
-      // MAX_GIT_STDOUT (ledger-git.ts:62) joined the family with 229563b76: it
-      // is handed straight to spawnSync's maxBuffer, so separating 64 MiB from
-      // one mutant step past it means a child that emits that much stdout on a
-      // merge-gating suite. Same injectable-spawn seam closes it (see the
-      // backlog entry, extended to cover this fourth constant).
-      {
-        siteId: "integer-literal:62:24:64>65",
-        kind: "accepted-gap",
-        reason: "MAX_GIT_STDOUT's MiB count, passed straight to spawnSync's maxBuffer",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
-      },
-      {
-        siteId: "integer-literal:62:29:1024>1025",
-        kind: "accepted-gap",
-        reason: "MAX_GIT_STDOUT, same family and same argument",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
-      },
-      {
-        siteId: "integer-literal:62:36:1024>1025",
-        kind: "accepted-gap",
-        reason: "MAX_GIT_STDOUT, same family and same argument",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
       },
     ],
   },
