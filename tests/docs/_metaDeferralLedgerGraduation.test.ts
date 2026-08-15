@@ -519,6 +519,47 @@ const BACKLOG_GRADUATED = [
     id: "BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES",
     provenance: "fix/promote-identity-validation",
   },
+  // feat/wifi-password-legibility (2026-08-15): two rows, closing by two
+  // different routes, which is why they are two entries rather than one arc row.
+  // The transcription row graduates as a BUILD — the affordance question it was
+  // filed to settle got its owner decision (disambiguated type AND tap-to-copy),
+  // and both halves shipped with the geometry measured in the production route
+  // and a standalone harness. The trailing-prose row graduates on PROBE EVIDENCE
+  // with NO parser change: it was filed INFERRED-NOT-PROBED, its own named
+  // corpus sweep was run, and it found zero instances plus a third genuine
+  // multi-token SSID — so every candidate rule is a recognizer calibrated on
+  // nothing, and the limit is documented in the spec rather than left open.
+  {
+    id: "BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY",
+    provenance: "feat/wifi-password-legibility",
+  },
+  {
+    id: "BL-WIFI-FLATTENED-TRAILING-PROSE",
+    provenance: "feat/wifi-password-legibility",
+  },
+  // chore/guard-completeness-wave (2026-08-14): owner-ratified documented limit
+  // (2026-08-10) demoted per the filing bar; the limits live in the guard's own
+  // JSDoc block (tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:215-245).
+  {
+    id: "BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES",
+    provenance: "chore/guard-completeness-wave",
+  },
+  // chore/guard-completeness-wave (2026-08-15): the wave's three BUILD entries,
+  // graduating together in the close-out commit. Each one's IN PROGRESS marker comes
+  // off in this same commit, because the in-progress guard rejects an archived entry
+  // that still declares itself in flight.
+  {
+    id: "BL-DESTRUCTIVE-GUARD-EXECUTION-SITE",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-PG-CRON-HOST-ASSERTION",
+    provenance: "chore/guard-completeness-wave",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

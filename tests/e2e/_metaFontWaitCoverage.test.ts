@@ -54,6 +54,7 @@ const CALLERS = [
   "step3-schedule-bookend-layout",
   "tap-target-floor.layout",
   "toggle-edge-layout",
+  "wifi-password-row.layout",
   "wizard-blocker-modal.layout",
 ] as const;
 

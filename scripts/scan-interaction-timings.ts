@@ -26,12 +26,23 @@
  *                         cannot see its own seed list; and
  *                         `submitTimeoutMs = 30_000` is a camelCase default
  *                         parameter, which a SNAKE-only form misses.
- *   3. `motion-duration`— a numeric `duration:` property (motion / transition
- *                         props).
+ *   3. `motion-duration`— a numeric PROPERTY whose key is `duration` (motion /
+ *                         transition props) or carries any other timing name by
+ *                         the same suffix rule as form 2. The widening past the
+ *                         literal `duration` key exists because an options
+ *                         object at a call site is the other place a person
+ *                         writes a timing: `useAnnounceLog({ ttlMs: 17000 })` is
+ *                         a real interaction timing, and hardcoding the option
+ *                         is easier than declaring a constant for it, which is
+ *                         exactly the accidental shape this guard targets. The
+ *                         row is labelled by the key as written.
  *
- * TOTALITY, which is what stops a silent residual: every `setTimeout` /
- * `setInterval` delay ARGUMENT is walked, not only the ones that happen to be
- * literals. A delay that is neither a numeric literal (form 1) nor an identifier
+ * TOTALITY IS PER-FORM, and the boundary is worth stating because the two
+ * halves differ. For TIMER DELAYS every `setTimeout` / `setInterval` delay
+ * ARGUMENT is walked, not only the ones that happen to be literals — with one
+ * hole: an identifier delay resolves by NAME, not by binding, so a LOCAL
+ * binding that happens to share a covered constant's spelling is treated as
+ * that constant and suppressed. `BL-TIMING-SCAN-NAME-VS-BINDING` carries it. A delay that is neither a numeric literal (form 1) nor an identifier
  * resolving to a covered binding (form 2) is emitted as `unclassified` and fails
  * the inventory test until it is dispositioned — renamed into the pattern, or
  * given a reasons-required row in `UNCLASSIFIED_DISPOSITIONS`. Every timer delay
@@ -39,9 +50,26 @@
  * passes silently.
  *
  * DOCUMENTED LIMIT (threat-model fence: accidental authoring mistakes by an
- * ordinary contributor, not adversarial obfuscation). A delay assembled at
+ * ordinary contributor, not adversarial obfuscation). A DELAY assembled at
  * runtime — read off a config object, returned by a call, computed from
- * arithmetic — is reported as `unclassified` rather than resolved. That is the
+ * arithmetic — is reported as `unclassified` rather than resolved.
+ *
+ * PROPERTIES ARE LITERAL-ONLY, unlike delays, and this is a REAL GAP rather
+ * than a principled fence: a timing-named property whose value is not a numeric
+ * literal is DROPPED, not reported. Five sites in the tree today are invisible
+ * for that reason — the reduced-motion ternaries at
+ * components/admin/telemetry/EventRow.tsx and components/crew/RightNowHero.tsx
+ * (`duration: reduce ? 0 : 0.22`), and the resolved-elsewhere values in
+ * components/diagrams/GalleryLightbox.tsx. The behavior predates the key
+ * widening (the original `duration:` form dropped non-literals the same way);
+ * closing it means reporting them `unclassified` and dispositioning five
+ * pre-existing sites on surfaces this arc does not otherwise touch, so it is
+ * filed as BL-TIMING-SCAN-PROPERTY-TOTALITY rather than done here. Surfaced by
+ * whole-diff review round 7, with the site list above as its probe. A COMPUTED
+ * key (`{ ["ttlMs"]: 17000 }`, `class C { ["ttlMs"] = 17000 }`) is likewise not
+ * a site: the key is an expression, and writing one to declare a fixed timing
+ * is not a spelling an ordinary contributor reaches for — unlike the quoted key
+ * and the JSX prop, which are, and which forms 2d / 3b cover. That is the
  * conservative direction: the worst case is a surfaced name someone must
  * disposition, never a silently unlisted timing.
  */
@@ -61,6 +89,10 @@ export type TimingSite = {
   readonly name: string | null;
   /** The numeric value where the source states one; null for `unclassified`. */
   readonly value: number | null;
+  /** For a timing-named PROPERTY, the key as written — so an inventory row reads
+   *  `ttlMs(17000)` rather than being filed under a key it does not have.
+   *  `duration` for the motion form, which keeps every existing row byte-identical. */
+  readonly propertyKey?: string;
 };
 
 /**
@@ -93,6 +125,16 @@ export const EXPLICIT_INCLUDES: readonly { readonly file: string; readonly reaso
       "ARM_REVERT_MS is the armed-window countdown a person watches and races; it lives in lib/ " +
       "only because the state machine does, and it is consumed by components/admin/BlockedRowResolver.tsx.",
   },
+  {
+    file: "lib/ui/copyFeedback.ts",
+    reason:
+      "COPY_FEEDBACK_RESET_MS is how long a copy confirmation stays on screen — interaction " +
+      "timing a person watches, not an infrastructure budget. It lives in lib/ precisely BECAUSE " +
+      "it is shared: its consumers are app/admin/show/[slug]/ShareLinkCopyButton.tsx and " +
+      "components/crew/primitives/CopyFactValue.tsx, in two different trees, so neither can own " +
+      "it. Without this include the delay resolves to nothing scanned and both call sites report " +
+      "`unclassified` — the constant would be less visible in §5.5 than the bare literal it replaced.",
+  },
 ];
 
 /**
@@ -109,10 +151,15 @@ export const UNCLASSIFIED_DISPOSITIONS: readonly {
     file: "components/admin/announceLog.tsx",
     name: "ttlMs",
     reason:
-      "The `useAnnounceLog({ ttlMs })` option, not a value of its own. Its ONLY supplied argument " +
-      "in the repo is the exported ANNOUNCE_LOG_TTL_MS (components/admin/AdminAnnounceProvider.tsx:51), " +
-      "which carries its own §5.5 row; the other consumer passes nothing, and undefined means " +
-      "never prune (a cap-only channel).",
+      "The `useAnnounceLog({ ttlMs })` option, not a value of its own. Every supplied argument in " +
+      "the repo is the exported ANNOUNCE_LOG_TTL_MS — components/admin/AdminAnnounceProvider.tsx " +
+      "and components/crew/primitives/CopyFactValue.tsx — which carries its own §5.5 row; " +
+      "ShowReviewSurface passes nothing, and undefined means never prune (a cap-only channel). " +
+      "This reason names the consumers rather than resting on there being one, because the first " +
+      "version said AdminAnnounceProvider was the ONLY one and a second consumer made it false " +
+      "within the arc that added it (whole-diff review, finding 3). What keeps the claim honest is " +
+      "not this prose: a hardcoded `ttlMs: 17000` at any call site is now a form-3 site with its " +
+      "own inventory row, so the mutant that motivated this fails the inventory test.",
   },
   {
     file: "components/admin/review/ReviewModalShell.tsx",
@@ -253,11 +300,69 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
       pushNamed(node.name, node.initializer);
     }
 
-    // Form 3: motion / transition `duration:` properties.
+    // Form 2d: a class property whose name is a STRING LITERAL. `pushNamed`
+    // takes a BindingName and so reads identifiers only; `class C { "ttlMs" =
+    // 17000 }` is the same declaration written with quotes.
+    if (
+      ts.isPropertyDeclaration(node) &&
+      ts.isStringLiteral(node.name) &&
+      TIMING_NAME.test(node.name.text)
+    ) {
+      const init = node.initializer;
+      const value = init === undefined ? null : numericValue(init);
+      if (value !== null) {
+        sites.push({
+          file: filePath,
+          line: lineOf(node),
+          kind: "named-constant",
+          name: node.name.text,
+          value,
+        });
+      }
+    }
+
+    // Form 3b: a JSX attribute with a numeric-literal timing value —
+    // `<Thing ttlMs={17000} />`. A prop is where a call-site option ends up
+    // when the consumer is a component, and it is at least as ordinary a
+    // spelling as the options object below.
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && TIMING_NAME.test(node.name.text)) {
+      const init = node.initializer;
+      const expr = init !== undefined && ts.isJsxExpression(init) ? init.expression : undefined;
+      const value = expr === undefined ? null : numericValue(expr);
+      if (value !== null) {
+        sites.push({
+          file: filePath,
+          line: lineOf(node),
+          kind: "motion-duration",
+          name: null,
+          value,
+          propertyKey: node.name.text,
+        });
+      }
+    }
+
+    // Form 3: motion / transition `duration:` properties, and any OTHER numeric
+    // property whose key carries a timing name.
+    //
+    // The widening past the literal `duration` key is the same rule form 2
+    // already applies to bindings, applied to the one other syntactic position
+    // a person writes a timing in: an options object at a call site. Without it
+    // `useAnnounceLog({ ttlMs: 17000 })` is a real interaction timing that no
+    // §5.5 row names, which a reviewer demonstrated with exactly that mutant —
+    // and it is the accidental shape this guard's threat model targets, since
+    // hardcoding the option is easier than declaring a constant for it.
+    // The key is read from an identifier OR a string literal: `{ "ttlMs": 17000 }`
+    // is ordinary formatting rather than obfuscation, and an identifier-only
+    // reading left it silently uninventoried while the identical unquoted key
+    // was caught (whole-diff review round 2).
+    const propertyKey =
+      ts.isPropertyAssignment(node) && (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))
+        ? node.name.text
+        : null;
     if (
       ts.isPropertyAssignment(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === "duration"
+      propertyKey !== null &&
+      (propertyKey === "duration" || TIMING_NAME.test(propertyKey))
     ) {
       const value = numericValue(node.initializer);
       if (value !== null) {
@@ -267,6 +372,7 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
           kind: "motion-duration",
           name: null,
           value,
+          propertyKey,
         });
       }
     }
@@ -361,7 +467,8 @@ export function inventoryRows(
   for (const site of result.sites) {
     if (site.kind === "unclassified" || site.value === null) continue;
     const label =
-      site.name ?? `${site.kind === "motion-duration" ? "duration" : "timer"}(${site.value})`;
+      site.name ??
+      `${site.propertyKey ?? (site.kind === "motion-duration" ? "duration" : "timer")}(${site.value})`;
     const key = `${site.file}::${label}::${site.value}`;
     if (seen.has(key)) continue;
     seen.add(key);

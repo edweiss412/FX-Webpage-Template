@@ -8,6 +8,78 @@ Last reconciled: 2026-08-15 — `fix/sync-observability-gaps` graduated `BL-MANU
 
 ---
 
+## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
+
+**Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today.
+
+`scripts/scan-interaction-timings.ts` resolves an identifier delay by NAME against the set of covered bindings, so any binding anywhere that carries the same spelling counts as coverage. A local one that shadows it is therefore suppressed:
+
+```ts
+// in some component, alongside the real lib/ui/copyFeedback.ts export
+const COPY_FEEDBACK_RESET_MS = readDelayFromRuntimeConfig();
+setTimeout(fn, COPY_FEEDBACK_RESET_MS);
+```
+
+Probed: before resolution the site is correctly `unclassified`; the global name filter then removes it, and neither §5.5 nor the unclassified list mentions it. That contradicts the delay-side totality claim — the one half of the scanner that IS complete — which is why this is a separate row from `BL-TIMING-SCAN-PROPERTY-TOTALITY` rather than folded into it.
+
+**Scope if promoted:** resolve identifiers against the binding in scope (the TypeScript checker already models this) instead of a name set, or narrow the name set per-file and report cross-file identifiers as `unclassified`. The consequence today is bounded — the value is a runtime one, so no fixed timing is being hidden, and the current tree contains no shadowing instance — but the claim the guard makes about delays should be true of delays.
+
+## BL-TIMING-SCAN-PROPERTY-TOTALITY — a timing-named property with a non-literal value is dropped, not reported
+
+**Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 7, finding 2). **Effort:** S. **Class-sweep exception:** (c) — the repair spans surfaces this arc does not otherwise touch. **Reachability: PROBED**, with the site list below as the probe.
+
+`scripts/scan-interaction-timings.ts` is complete for TIMER DELAYS — every `setTimeout` / `setInterval` delay argument is walked, and one that is neither a literal nor a resolvable identifier is reported `unclassified` so someone must disposition it. Its PROPERTY forms are not: a timing-named property whose value is not a numeric literal is dropped silently, so it appears in neither `DESIGN.md` §5.5 nor the unclassified list.
+
+Five sites in the tree are invisible for that reason today:
+
+| site                                           | value                                         |
+| ---------------------------------------------- | --------------------------------------------- |
+| `components/admin/telemetry/EventRow.tsx`      | `duration: reduce ? 0 : 0.22`                 |
+| `components/crew/RightNowHero.tsx`             | `duration: prefersReducedMotion ? 0 : 0.22`   |
+| `components/diagrams/GalleryLightbox.tsx` (x2) | `duration: emblaDuration(...)`, live value 22 |
+| `components/diagrams/GalleryLightbox.tsx`      | `duration: motionDuration`, live value 0.22   |
+
+**This predates the key widening** that surfaced it — the original `duration:` form dropped non-literals the same way — so it is a pre-existing gap rather than a regression, and every one of the five is a real interaction timing a person watches.
+
+**Scope if promoted:** report a non-literal property value as `unclassified`, exactly as a delay argument is, and disposition the five above (the reduced-motion ternaries resolve to two constants; the GalleryLightbox pair resolve elsewhere in the same file). The consequence today is bounded and conservative — §5.5 lists fewer timings than exist, so the document undersells rather than misstates — but the guard's whole purpose is that no timing passes silently, and five do.
+
+## BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES — derive the execution-method set from postgres.js's types instead of hand-typing it
+
+**Severity:** MEDIUM (a silent miss admits an unchecked wipe; the failure mode is acceptance, not rejection) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-15 (`chore/guard-completeness-wave`, diff review R6)
+
+`EXECUTION_METHODS` in `tests/db/_destructiveFileAnalysis.ts` is a hand-typed name list. Rule 1's property-call leg asks whether a method is in that set; a driver method the list omits is simply not an execution site, so a discovered file can run destructive SQL on an unchecked client and the analyzer returns `ok:true`.
+
+**Probe evidence — this is not hypothetical, it shipped and was caught in review.** The set omitted postgres.js's `.file()` for the entire life of the surface. Diff review R6 probed it and the repair landed in the same wave (`cdac23ae9`, fixture `(ca)`):
+
+```
+discovered true
+verdict {"ok":true}     // await remote.file("./destructive.sql") on an unchecked client
+```
+
+postgres.js's own types declare `file<T>(path, ...): PendingQuery<T>` (`postgres@3.4.9`, `types/index.d.ts:696`) — it reads the path and submits the contents as a query, executing caller-supplied SQL as directly as `unsafe` does.
+
+**Why the mutation gate cannot backstop this, which is the actual argument for the row.** The surface was at score **1.00 with zero unaccepted survivors** when R6 found the gap. Mutation testing perturbs code that EXISTS and asks whether a test notices; a missing member of a `Set` literal is not a mutation of existing code, and no operator in the registry adds one. The gate was faithfully measuring a program whose relevant line had never been written. A green gate here means "the suite pins what is there", never "the set is complete".
+
+**The terminating framing.** Derive the set from the driver's own type surface rather than from memory: every method the installed `postgres` types declare as returning `PendingQuery` / `PendingRequest` / `ListenRequest` is an execution site. Measured against the current pin, that derivation yields exactly the shipped set — `unsafe file begin end reserve savepoint listen notify subscribe cursor` — while `json` / `array` / `types` / `options` return `Parameter` or config and stay out. So the derivation is provably equivalent to the hand list TODAY; its value is that a postgres.js upgrade adding a query-submitting method cannot silently widen the gap, and the diff that adds it becomes visible.
+
+**Why M and not S.** The naive form (parse `node_modules` `.d.ts` at test time) coupled a guard to an install tree and is slow and brittle. Candidate shapes to weigh: a generator that writes a committed manifest from the pinned types with a drift test (same pattern as `pnpm gen:schema-manifest` + `validation-schema-parity`); or a narrower guard asserting only that no `PendingQuery`-returning method is absent from the set. The exclusion of `json` / `array` is deliberate and must survive whichever shape wins — they collide with `Response` and `Object` members that real destructive files call on non-clients, and fixture `(cb)` pins that.
+
+**Re-open trigger if deferred further:** any postgres.js version bump, or any second omission found by review rather than by a guard.
+
+## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
+
+**Severity:** MEDIUM · **Class:** structural guard · **Effort:** L · **Filed:** 2026-08-14 (`chore/guard-completeness-wave`, spec `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §2.5)
+
+Discovery in `tests/db/_metaDestructiveDbTargetGuard.test.ts` is spelling-sensitive, and its own header has recorded that as a documented limit since r16: the patterns require the schema-qualified, unquoted `public.<name>(` form, so an unqualified `select prune_sync_log()` or a quoted `select "public"."prune_sync_log"()` is never discovered and NO analysis runs on that file. The 2026-08-14 execution-site redesign closed the acquisition question inside a discovered file; it does not touch which files are discovered.
+
+The terminating framing is the same one that closed acquisition: stop asking how the statement is spelled and ask whether the file OPENS A DATABASE CONNECTION, then require the loopback guard of all of them.
+
+**Probe (2026-08-14), which is why this is an L and not a follow-up commit:** `rg -l 'from "postgres"|require\("postgres"\)' tests/` — about 150 test files import the driver, and roughly 60 of them never call `assertLocalDbUrl`. Many connect through shared helpers (`tests/db/_b2Helpers.ts`, `tests/sync/_holdAwareTestkit.ts`) rather than directly, and many legitimately target the validation project. Requiring the analyzer of all of them needs per-file dispositions, helper-module modeling, and a validation-target accept-set the loopback-only guard deliberately does not have.
+
+**Prereq:** its own spec. Do not attempt this as a widening of the existing guard — that is the recognizer ratchet the analyzer's own history documents.
+
+---
+
 ## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button is not perceivable as a box at the non-text floor
 
 **Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system
@@ -94,55 +166,6 @@ interactive element is covered by default and the remaining debt is declared and
 than rediscovered. Some members need a decision first, not a swap: a dismissable filter chip and a
 `<summary>` disclosure are arguably caption-like, and DESIGN.md should say so explicitly in the same
 pass rather than being read as absolute and then quietly excepted.
-
-## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects
-
-**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M
-
-`assetRecovery` gates under the show lock, RELEASES it, uploads to deterministic canonical paths,
-then re-takes the lock to commit. Two overlapping runs can both pass the gate. When one commits
-`snapshot_status: complete`, the other's locked read returns `no_op` (or `skipped` on contention) and
-its cleanup removes every path IT uploaded — which are byte-identical canonical paths to the ones the
-winner's committed manifest now references (`lib/sync/assetRecovery.ts`, the `uploadedPaths` cleanup
-in the skipped and drift/no_op branches). The crew page then renders a manifest pointing at objects
-that no longer exist.
-
-Reviewer's interleaving probe: after A commits, the manifest points at
-`.../rev/embedded-obj.png@256.webp`; after B's cleanup, `manifestTargetExists: false`.
-
-**Pre-existing, and widened by PR #761.** The race and the cleanup both predate that PR — it applied
-to ORIGINALS already. What the PR changed is blast radius: variant objects now ride the same
-`uploadedPaths` list, so a firing deletes the variants too. It is filed rather than fixed in-branch
-under class-sweep exception (a): the repair is a product decision the PR cannot settle — never
-deleting leaks orphans that GC only reclaims under a non-retained revision prefix, while deleting
-keeps risking live bytes, and picking between them is a spec question about recovery's concurrency
-model, not a patch.
-
-**Cheapest probe to schedule first:** confirm whether two `runAssetRecoveryCron` invocations can
-actually overlap in production (the cron route has no job-level lock that this review found) — that
-sets the severity for real.
-
-## BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS — an upload exception leaves objects nothing will reclaim
-
-**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** medium · **Class:** STORAGE HYGIENE · **Effort:** M
-
-Two instances of one shape:
-
-- `snapshotAssets` uploads to `_pending/<runUuid>/` and, on any throw, calls
-  `markPendingSnapshotDeleteStarted` through the transaction that is about to roll back. With the
-  ledger insert rolled back, GC cannot discover that prefix, and its object sweep skips `_pending`
-  anyway. The storage port has no removal operation at all.
-- `assetRecovery` tracks uploaded paths but only cleans up on `skipped`, `revision_drift`, and
-  `no_op`; an upload exception goes straight to the `finally` that removes the local temp dir, and
-  the already-uploaded canonical objects stay.
-
-Reviewer's probe against `snapshotAssets` with a real 800x600 PNG and an injected original-upload
-failure: three objects uploaded, `deleteMarkerCalls: ["rev-1"]`, `storageRemoveCapability: false`.
-
-**Pre-existing, and widened by PR #761** in the same way as the entry above: originals already
-orphaned this way; variants now orphan alongside them. Filed rather than fixed under exception (c) —
-the repair is a removal capability on the storage port plus a GC reach into `_pending`, which is a
-redesign of two surfaces the PR does not otherwise touch.
 
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
@@ -453,18 +476,6 @@ So "retain the live row" is not obviously right at `:337`: the fallback runs whe
 
 **Promotion prerequisite:** the ruling above. If it lands as "defect", the fix mirrors arc C's: thread the live row and prefer it, with no-match falling back to today's behaviour.
 
-## BL-PG-CRON-HOST-ASSERTION — the pg-cron suite asserts route paths only, never the host it dispatches to
-
-**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:295` files it by name, and §10.4 scopes it out, with no row anywhere). **Class:** CI guard completeness. **Effort:** M (needs a sound oracle first).
-
-The host embedded in `cron.job.command` is environment-supplied and varies by target: `http://host.docker.internal:3000` on a developer stack, `https://fxav-screenshots-ci.invalid` in CI (`scripts/ci/supabase-local-bootstrap.sh:38`), a real host on validation. The suite therefore keys every assertion on the route PATH, which is host-agnostic, and never checks the host at all.
-
-**Why it is still open, and why it should not be closed cheaply:** two review rounds could not produce a sound comparison. Keying off the target flag proves nothing about the database actually connected to, and comparing against the in-session GUC still admits a scheme mismatch, a trailing slash, and base paths. A host check that passes `http://` against an `https://` GUC would be worse than none, because it would read as coverage. Any attempt here needs an oracle that survives all four of those, demonstrated against a live mismatch, before the assertion lands.
-
-**Status:** OPEN.
-
----
-
 ## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
@@ -576,21 +587,6 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 **Heading caveat:** only the first two items (`BL-SCAN-SSE-BODY-NULL-CODE`, `BL-PICKER-TAMPER-ADMIN-ALERT`) actually came out of that batch. The rest accreted under this heading afterwards from unrelated 2026-07-04+ work (agenda visibility, quiet-link a11y, alert-link e2e, health-resolve lockdown, Step-3 impeccable) and are grouped here by filing date, not by subject. Read each item on its own; the heading is not a topic.
 
 **Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
-
-### BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES — two deliberate-authoring bypasses of the crew-e2e wiring guard
-
-**Severity:** LOW (both require deliberately writing a gate that looks like a declaration but is not; accidental cases are caught loudly) · **Class:** guard coverage · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 4, owner-ratified as a documented limit) · **Effort:** M
-
-**Both probed, with the mutants recorded so a future round starts from evidence:**
-
-1. `expectRegistryRowsAreLive` accepts any `test.skip(...)` as live without proving its condition can exclude the registered projects. `test.skip(false, "…")` binds a row while gating nothing.
-2. One `PROJECT_GATED` row relaxes the identifier ban for the entire FILE, and the body scans deliberately skip nested callbacks — so a gate inside a `test.step` in another test of the same file is unscanned.
-
-**Why it is a limit, not an open bug.** The guard's threat model is ordinary authoring mistakes by a contributor adding or gating a test; both bypasses require deliberately constructing a fake declaration. Four review rounds each produced a narrower bypass with no product-code change, which is the recognizer ratchet the round-economy rule names: "no bypass exists" ranges over an open class and does not terminate. Owner ratified shipping with the limit documented in the guard's own header.
-
-**Promotion trigger:** a real contributor hits one of these by accident, or the guard is extended to a surface where a fake declaration is plausible.
-
----
 
 ### BL-IDENTITY-CLEAR-FAILURE-IS-SILENT — a failed "switch person" reports success
 
@@ -729,22 +725,6 @@ Each is a value the system is confident about and wrong about, with no signal pr
 **Promotion prerequisite:** its own design session. The first question that session must settle is whether provenance is stored (a schema-carried per-field record) or derived (recomputed at read time from the parse), because that choice determines whether re-sync must preserve it — and the use-raw overlay (#388) is the worked precedent for a decision layer that survives a full-replace re-sync.
 
 **Source:** `docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md` §7 item 5, §10.5 (P0-2 row), §11 item 4.
-
-### BL-LEDGER-GIT-TIMEOUT-CONSTANTS — the git adapter's three spawn timeouts are unassertable through its own surface
-
-**Status:** OPEN (2026-08-04, `chore/guard-premise-reachability`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** M
-
-`FETCH_MS`, `LS_REMOTE_MS` (both 30 000 ms) and `GH_MS` (10 000 ms) at `scripts/lib/ledger-git.ts:32-34` are handed straight to `spawnSync`'s `timeout` option. Three source mutants of them — `30_000 -> 30_001` twice and `10_000 -> 10_001` — survive `tests/scripts/ledgerClaimsCheck.test.ts` and cannot be killed through the adapter's public surface. The only behaviour that separates a mutant from clean is whether a child running for between 30 000 and 30 001 ms is killed, so an assertion means either waiting the bound out — a 30 s test per constant, on a suite that runs on every merge — or reaching into the spawn.
-
-**Fourth family member (2026-08-09, from `BL-MUTATION-LEDGERGIT-SITE-DRIFT`):** `MAX_GIT_STDOUT` (64 MiB, `scripts/lib/ledger-git.ts:62`, added by `229563b76`) is handed straight to `spawnSync`'s `maxBuffer` the same way, so its three integer-literal mutants (`62:24:64>65`, `62:29:1024>1025`, `62:36:1024>1025`) are unassertable through the surface for the same reason — separating the cap from one mutant step past it means a child emitting that much stdout on a merge-gating suite. Ledgered `accepted-gap` against this entry; the injectable spawn seam described below closes all four constants at once.
-
-Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts`: a timeout a test could reach WOULD be observable, so an equivalence claim would overclaim. They therefore count as survivors and depress that surface's mutation score rather than being excluded from it.
-
-**Closing this** means giving the adapter an injectable spawn seam — a module-level `run = spawnSync` a test can replace, or an options object carrying the three bounds — and asserting the value each reader passes. That is a redesign of the one module in this repo permitted to spawn, and it widens the surface the "nothing outside this may spawn" structural guard has to police.
-
-**Deferred from `chore/guard-premise-reachability` under class-sweep exception (c) — the repair redesigns a surface this PR does not otherwise touch.** The sweep is complete: all three constants were found and dispositioned together, so this entry covers every instance of the class rather than one peer of several. The gap was named once before, in `5f1a98a66`'s commit message, and until now had no ledger row.
-
----
 
 ### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
 
@@ -987,22 +967,6 @@ A middle option exists (guard, but emit a `log.error` with a durable code so the
 
 **Related, same emit path (fold into whichever fix lands):** each emit opens and closes a dedicated postgres connection while the per-show advisory lock is held, lengthening lock hold on every manual sync. Cheap to fix by reusing the transaction's connection for the sink, but that changes the sink's isolation semantics — the row would then roll back with a failed sync rather than recording the failure, which is a behavior decision, not a refactor.
 
-### BL-DESTRUCTIVE-GUARD-EXECUTION-SITE — the destructive-target guard checks connections, when it should check execution sites
-
-**Status:** OPEN · **Severity:** MEDIUM (a guard that raises the cost of a mistake without proving absence) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-10
-
-**Probe evidence.** `tests/db/_destructiveFileAnalysis.ts` verifies that every `postgres(...)` call it can SEE connects to a guarded loopback URL. Whole-diff review of PR #767 found five distinct ways to obtain a driver the analyzer cannot see — `import()`, `require()`, `import { default as … }`, `import * as … `, `createRequire`, and `process.getBuiltinModule("node:module").createRequire` — each demonstrated returning `{"ok":true}` on a file that pruned `TEST_DATABASE_URL`. Every one is now rejected, and round 11 of that review claimed the set was closed at four; round 12 disproved it. **The acquisition enumeration does not terminate**, so the current module raises the cost of writing an unchecked connection by accident without proving none exists.
-
-**The sound framing, which does terminate.** Check the EXECUTION SITE rather than the connections: every destructive statement must run on a client bound to a connection the analyzer already checked. Acquisition then stops mattering — a client obtained by any route simply is not in the checked set.
-
-**Why it was not done in that PR (disposition reason (c) — a redesign of a surface the PR does not otherwise touch).** It was attempted and reverted. Real destructive files build clients through local factories: `tests/db/resetValidationDataConcurrency.test.ts:64` uses `const b = newConn()`. Propagating "checked" through a local factory needs interprocedural analysis, without which the invariant rejects correct code. That is a proper piece of work, not a follow-on tweak, and the PR it surfaced in was about sync-log attribution.
-
-**A SECOND open limit, same root cause (added 2026-08-10 after whole-diff r16).** Discovery is spelling-sensitive: the patterns require the schema-qualified, unquoted `public.<name>(` form, so `select prune_sync_log()` and `select "public"."prune_sync_log"()` are not discovered and no safety analysis runs on such a file. Nine other spellings were closed in that PR by keying on the function name instead of a statement shape, but quoting and qualification remain. Chasing SQL spellings has the same non-termination as the aliasing enumerations, so it is recorded rather than pursued.
-
-The terminating framing is the same one below, applied one layer up: **discover files by the fact that they OPEN A DATABASE CONNECTION**, and require the guard of all of them. That removes SQL spelling from the question entirely — a file cannot execute destructive SQL without a connection. It is a cross-cutting change over every DB test in the repo, which is why it is filed rather than done in a sync-log attribution PR.
-
-**Acceptance.** Every current fixture in `tests/db/destructiveFileAnalysis.test.ts` still rejects, all real destructive files still pass, AND a file acquiring a driver by a route not in the current rejection list is rejected because its client is not in the checked set. If that lands, the acquisition rules (dynamic import, require, createRequire, getBuiltinModule, non-default import form) can all be DELETED — the redesign should make the module smaller, not larger.
-
 ### BL-SPEC-LINT-CITATION-INTENT — spec:lint checks that a citation resolves, never that it resolves to the right file
 
 **Status:** OPEN · **Severity:** MEDIUM (silent wrong-anchor citations in specs and plans) · **Class:** tooling gate · **Effort:** M · **Filed:** 2026-08-09
@@ -1092,36 +1056,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 **Why this is a different problem from the entry it succeeds.** That entry asked for labels once a structured source existed; the source exists and the labels ship. This one is about segments that ARE structured — `structured: true`, date parsed — but carry no other displayable field, so the structured card has only a date to lay out and hands them to the raw branch. Layout work on the card's populated fields therefore never reaches them: the gap is what to render when every field except the date is empty. The candidate direction is a RENDERER one — give the date-only segment a labeled treatment of its own — not parser widening, which an earlier draft of this row wrongly implied and which would find nothing to fix.
 
 **Why backlog, not now:** the fallback is truthful today — it shows exactly what the sheet says, and the date still drives sort and emphasis. Nothing is silently wrong; what is missing is orientation in a case whose real-world frequency has not been measured. **Promotion prerequisite:** a corpus probe over live `flight_info` values counting how often a segment parses but carries no displayable field beyond its date. Because the segments ARE structured, the cheap direction is a renderer question — give the date-only segment a labeled treatment of its own — rather than the parser widening an earlier draft implied.
-
-### BL-WIFI-FLATTENED-TRAILING-PROSE — prose after a credential on one flattened line is absorbed into it
-
-**Effort:** S
-
-**Filed:** 2026-08-10, whole-diff review of `feat/crew-field-enrichment` (post-merge segment, F1), probe-demonstrated against the shipped `lib/crew/wifiDisplay.ts`.
-
-**Reachability: INFERRED, NOT PROBED against live data.** The behavior is proven — `"SSID: Guest Hardline from Encore"` yields the network name `Guest Hardline from Encore`, and `"SSID: Guest Password: secret Hardline from Encore"` yields the password `secret Hardline from Encore` — but NO corpus value has this shape. The full-corpus probe (10 fixture shows across both families, 4 live sheets) found prose only BEFORE the labels on flattened lines, or on its own line in the multi-line live cells, where it is correctly recovered as notes. **The probe that would settle it:** re-run the §4 corpus sweep looking specifically for a flattened `event_details.internet` value with text after the last credential.
-
-**Why it was not fixed in the originating branch.** The corpus contains `Network: Institutional Investor Passcode: Investor2025` — a genuine two-word SSID, structurally indistinguishable from `Guest Hardline`. Every candidate rule is a word-count or position cap calibrated on zero instances, which is the number-bounded recognizer this repo's writing-plans rule says the next reviewer defeats, and which spec §4 already rejected once on the same reasoning (the `/` rule that "would have been calibrated on nothing"). The consequence is also bounded: the text renders in full under the wrong row label, rather than vanishing or being silently rewritten.
-
-**And a multi-token network value followed by a password label** (`SSID: Guest Door Code: 2468` reading as network `Guest Door`) — spec §6.8. Folded here for the same reason: it is one structure with `Wifi for Polling Network: Institutional Investor Passcode: Investor2025`, a real corpus value whose SSID genuinely is two tokens, so no rule separates them and the probe that would settle it is the same corpus sweep this row already asks for.
-
-**The same row covers credential-ish prose with NO accepted syntax** — `SSID: Guest WPA is secret`, `WPA is secret\nSSID: Guest`, `Access key=secret\nSSID: Guest` — raised as a separate finding in a later review round and folded here because it is the identical undecidability: with no separator and no accepted label near the credential, nothing in the grammar marks it as one. Probed character by character, all six cited forms render every character of the cell to the crew member; what is imperfect is which row the text sits in.
-
-**Scope if promoted:** if the probe finds real instances, their shape supplies the discriminator (a trailing sentence-cased clause, a known prose lead-in like "Hardline"/"Encore", or a separator the corpus actually uses). If it finds none, this closes as a permanent documented limit — spec §6.7 already carries it.
-
-### BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row has no transcription affordance
-
-**Effort:** S
-
-**Filed:** 2026-08-10, impeccable critique P2 during `feat/crew-field-enrichment` close-out (the arc that introduced the row).
-
-**Reachable live surface, not a hypothetical.** The Wi-Fi split now renders `event_details.internet` passwords as their own `venue-wifi-password` fact row. Probed 2026-08-09 across the four live sheets: two carry a password that reaches this row today (Fixed Income Trading Summit 2025 `FITS2025`; FinTech Forum CTO Summit 2026 `ORDTG.`). It renders as `text-sm font-semibold` proportional body text, right-aligned, like every other fact value.
-
-**The problem.** A password is transcribed by hand into a phone's Wi-Fi dialog, often in a dim ballroom, by someone standing up mid-task. Proportional type does not disambiguate the characters that matter for exactly that task: `O`/`0`, `l`/`1`/`I`, `rn`/`m`. `DESIGN.md` already mandates tabular figures on "every time, date, count, and confirmation number" for the same glance-and-transcribe reason; a Wi-Fi password is the same kind of value and currently gets none of it. The trailing-punctuation limit compounds it — `ORDTG.` deliberately preserves a period the crew member cannot tell from a sentence end (spec §6.3, an accepted limit on the parse side, but the render could disambiguate what the parse cannot).
-
-**Why deferred rather than fixed in the originating branch** (per the class-sweep disposition rule, which defaults to fixing peers in-branch): (a) it needs a design decision this PR cannot settle — tabular figures, a monospace treatment, a tap-to-copy control, or a larger type step are four different answers with different costs on a 390px phone; and (c) every one of them widens the shared `FactRows` primitive past the single optional `testId` that arc declared, on a surface the PR does not otherwise restyle.
-
-**Scope if promoted:** decide the affordance, add the per-row hook to `components/crew/primitives/FactRows.tsx`, apply it at the `venue-wifi-password` push site in `components/crew/sections/VenueSection.tsx`, and pin it with a render assertion. If tap-to-copy wins, it also needs a 44x44 target and a copied-state announcement, which is a materially bigger change than the other three.
 
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 

@@ -41,7 +41,14 @@ const FIXTURE_CONSULTANTS =
 const FIXTURE_RIA = "SSID - Hyatt_Meeting Password: PHC2025";
 const PROSE_EAST_COAST = "The conference wifi has 20mb download speed.";
 const PROSE_RPAS = "Wifi from Encore";
-const PROSE_WALDORF = "Wifi";
+/**
+ * The Waldorf cell is a SPLIT value, not prose, as of
+ * `feat/wifi-password-legibility`. It is the one seeded show the crew-page e2e
+ * suite drives, and the password-row geometry cases there need a real parsed
+ * credential pair on the live route — so the fixture carries one. Every other
+ * corpus value is untouched: this is the seed's cell, not a corpus observation.
+ */
+const FIXTURE_WALDORF = "SSID: WaldorfMeeting Password: Astoria2026";
 const PROSE_REDEFINING_FI = "Wifi for Polling from Encore";
 
 /**
@@ -112,6 +119,7 @@ const EXPECTED_SPLITS: ReadonlyMap<
     { ssid: "Institutional Investor", password: "Investor2025", notes: "Wifi for Polling" },
   ],
   [FIXTURE_RIA, { ssid: "Hyatt_Meeting", password: "PHC2025", notes: null }],
+  [FIXTURE_WALDORF, { ssid: "WaldorfMeeting", password: "Astoria2026", notes: null }],
 ]);
 
 describe("corpus cover (filesystem-derived)", () => {
@@ -145,7 +153,10 @@ describe("corpus cover (filesystem-derived)", () => {
     }
 
     // The §4 accounting, asserted over the whole corpus rather than a sample.
-    expect({ split, prose, empty }).toEqual({ split: 6, prose: 6, empty: 5 });
+    // 7/5/5 as of `feat/wifi-password-legibility`: the Waldorf fixture's cell
+    // moved from prose to a labeled credential pair so the seeded crew route
+    // renders a real password row for the e2e geometry suite.
+    expect({ split, prose, empty }).toEqual({ split: 7, prose: 5, empty: 5 });
   });
 
   it("every pinned split value is actually present in the corpus", () => {
@@ -234,7 +245,6 @@ describe("parseWifiValue — raw fallback (AC-1 / AC-2)", () => {
   const PROSE_ONLY: ReadonlyArray<[string, string]> = [
     ["East Coast", PROSE_EAST_COAST],
     ["RPAS", PROSE_RPAS],
-    ["Waldorf", PROSE_WALDORF],
     ["Redefining FI", PROSE_REDEFINING_FI],
   ];
 
