@@ -20,10 +20,18 @@ name: phantom-gap-e2e
 # it does not adopt the rest of those files' flake surface; un-darkening the
 # remaining cases is still BL-E2E-APP-DEPENDENT-SPECS-CI-DARK's job.
 #
-# TWO PROJECTS, deliberately. The dashboard cases run under desktop-chromium; the
-# crew cases run under mobile-safari because that describe is single-writer (it
-# seeds run_of_show in beforeAll and restores it in afterAll, and every other
-# project early-returns from it).
+# TWO PROJECTS, deliberately, and the reason differs per step. The dashboard
+# cases run under desktop-chromium. The CREW PHANTOM-GAP cases run under
+# mobile-safari because that describe is single-writer (it seeds run_of_show in
+# beforeAll and restores it in afterAll, and every other project early-returns
+# from it). The DIAGRAM step runs BOTH projects: its describe has no beforeAll
+# writer, so it is not single-writer, and the zoom-gate arc split its coverage on
+# capability — the network-order gate needs Chromium's keyboard path, the tier
+# assertion needs none. Adding a project to a file whose cases early-return would
+# turn those cases into passing no-ops, so the same arc converted every gate in
+# that describe to a DECLARED skip, and the step also runs an executed-count
+# oracle keyed on (case title, project) so the shape cannot return unnoticed; see
+# its own comment below.
 on:
   pull_request:
     paths:
@@ -91,6 +99,13 @@ on:
       # taken in; the build config decides what the measured pages even compile
       # to. A required probe that skips on those is not a probe.
       - ".github/actions/setup/**"
+      # The diagram step's executed-count oracle. Its REQUIRED_PAIRS table names
+      # case titles that live in the spec above, so an edit to either side alone
+      # can retire a requirement — and a checker change that never re-runs this
+      # job is a guard nobody has watched work. Both halves are listed: the CLI
+      # wrapper and the module holding every decision it makes.
+      - "scripts/check-phantom-gap-executed.mjs"
+      - "scripts/lib/phantomGapExecuted.mjs"
       - "scripts/ci/supabase-local-bootstrap.sh"
       - "supabase/config.toml"
       - "supabase/migrations/**"
@@ -204,8 +219,32 @@ jobs:
       # they need the seeded `diagram-snapshots` bucket this job already provisions
       # via `pnpm db:seed`. Spec: docs/superpowers/specs/crew/
       # 2026-08-09-private-image-pipeline-design.md §6/§9, AC-2 / AC-3 / AC-12.
+      # BOTH projects since the zoom-gate arc (spec
+      # docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md §6): the
+      # network-order gate that proves the ORIGINAL is not fetched before zoom
+      # intent drives the component's keyboard zoom path and runs under
+      # desktop-chromium; the CDP-free tier assertion runs under mobile-safari.
+      # Neither project alone covers AC-1.
+      #
+      # Adding a project to this file is the move that manufactures false
+      # coverage, and this arc had to defuse it twice over. The three pre-existing
+      # cases CARRIED bare `if (testInfo.project.name !== "mobile-safari")
+      # return;` gates, which would have "passed" under desktop-chromium in
+      # milliseconds having asserted nothing; the same arc converted all three to
+      # DECLARED `test.skip`, so that shape no longer exists in the file and the
+      # run below reports 5 executed / 5 skipped rather than 8 green. The oracle
+      # is the standing defence against it coming back: it asserts per
+      # (case title, PROJECT) from this run's own json report, and requires only
+      # the pairs that genuinely execute — so a bare return reintroduced later
+      # cannot be credited, and a case that stops running cannot go dark.
       - name: Diagram gallery variant geometry + network gate (real route)
-        run: pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-DIAGRAM-VARIANTS"
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/phantom-gap-diagrams-report.json
+        run: pnpm exec playwright test --reporter=list,json --project=mobile-safari --project=desktop-chromium tests/e2e/crew-layout-dimensions.spec.ts -g "T-DIAGRAM-VARIANTS"
+      # Post-run, and reading the run's OWN report: a runtime skip is a runtime
+      # fact that no static wiring guard can see.
+      - name: Diagram gallery cases really executed, per project
+        run: node scripts/check-phantom-gap-executed.mjs
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

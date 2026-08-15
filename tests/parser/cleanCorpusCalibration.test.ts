@@ -38,8 +38,25 @@ const EXPECTED_REF: Record<string, number> = {
   "fixtures/shows/raw/2025-10-consultants-roundtable.md": 3,
 };
 
-const WAVE_CODES: Array<{ code: string; expected: Record<string, number> }> = [
+/**
+ * `zeroEverywhere` is a CLAIM, not a default.
+ *
+ * Branch 3's `ROW_CELLS_FUSED` is quiet on the whole clean corpus (probe §13.B: no data
+ * row sits at its section's modal width minus one), which is the calibrated outcome —
+ * every fixture is a real exported sheet with no merged cells. But "expected: {}" and
+ * "this detector is broken and returns nothing" produce identical per-fixture arms, so
+ * the flag makes the difference explicit and lets the premise below hold each code to
+ * the rule that fits it: a declared-zero code must total zero, and every other code must
+ * actually reach its pinned total somewhere.
+ */
+const WAVE_CODES: Array<{
+  code: string;
+  expected: Record<string, number>;
+  zeroEverywhere?: true;
+}> = [
   { code: "REF_ERROR_LITERAL", expected: EXPECTED_REF },
+  { code: "ROW_CELLS_FUSED", expected: {}, zeroEverywhere: true },
+  { code: "LEADING_COLUMN_AUTOCORRECTED", expected: {}, zeroEverywhere: true },
 ];
 
 /** Parse once per fixture; each code's arm reads the same warning list. */
@@ -54,13 +71,19 @@ describe("clean-corpus calibration (spec §10)", () => {
     // arm below vacuous; and a pin table whose codes never appear anywhere would make
     // the "exact count" arms assert only zeroes without anyone noticing.
     premise("corpus fixtures discovered", parsed.length, 16);
-    for (const { code, expected } of WAVE_CODES) {
+    for (const { code, expected, zeroEverywhere } of WAVE_CODES) {
       const pinnedTotal = Object.values(expected).reduce((a, b) => a + b, 0);
       const actualTotal = parsed.reduce(
         (n, p) => n + p.warnings.filter((w) => w.code === code).length,
         0,
       );
       expect(actualTotal, `${code} clean-corpus total`).toBe(pinnedTotal);
+      // The two claims are mutually exclusive by construction, so a row cannot sit in the
+      // gap between them: a declared-zero code that starts firing has broken its
+      // calibration, and a pinned code that totals zero is a detector that stopped
+      // detecting while every per-fixture arm below kept passing.
+      if (zeroEverywhere) expect(pinnedTotal, `${code} declares zeroEverywhere`).toBe(0);
+      else expect(pinnedTotal, `${code} pins a reachable total`).toBeGreaterThan(0);
     }
   });
 

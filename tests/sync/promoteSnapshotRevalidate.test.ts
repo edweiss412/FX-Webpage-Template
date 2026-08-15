@@ -63,11 +63,25 @@ const harness = vi.hoisted(() => {
     },
     showTx: {
       queryOne: vi.fn(async (sql: string) => {
-        if (/jsonb_array_elements/i.test(sql)) return { count: 2 };
         if (/with\s+target/i.test(sql)) return { updated: true };
         if (/promoted_at::text/i.test(sql)) return { promoted_at: null };
         return { ok: true };
       }),
+      // Required-name rows (kind/name shape) matching the a.png/b.png storage fixture.
+      queryRows: vi.fn(async (sql: string) =>
+        /jsonb_array_elements/i.test(sql)
+          ? [
+              {
+                kind: "original",
+                name: `diagram-snapshots/shows/${hoistedShowId}/${hoistedRev}/a.png`,
+              },
+              {
+                kind: "original",
+                name: `diagram-snapshots/shows/${hoistedShowId}/${hoistedRev}/b.png`,
+              },
+            ]
+          : [],
+      ),
     },
     postgres: vi.fn(() => {
       const tag = vi.fn(async () => [initialRow]);

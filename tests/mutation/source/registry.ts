@@ -526,4 +526,155 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  {
+    id: "phantomGapExecuted",
+    // A `.mjs` module, unlike every row above it: the phantom-gap job's diagram
+    // step needs a plain-node CLI, so the logic ships as ESM the wrapper can
+    // import without a transpile step.
+    //
+    // The DECISIONS live here and the CLI lives in
+    // scripts/check-phantom-gap-executed.mjs, which this row deliberately does
+    // NOT name. The repo's sibling oracle (scripts/check-crew-e2e-executed.mjs)
+    // is one file — exported table plus an `import.meta.url === argv[1]` main
+    // block — and that shape is un-enrollable, measured rather than argued:
+    // enrolled whole, this surface scored 0.27 with 18 of its 19 survivors
+    // inside the main block, because a referring suite imports the module and
+    // never runs that block, so those mutants are unreachable by construction.
+    sourcePath: "scripts/lib/phantomGapExecuted.mjs",
+    suitePaths: ["tests/ci/phantomGapExecuted.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // The executed-vs-skipped predicate: inverted, a skipped case counts as
+    // executed and the entire oracle reports green on a dark step.
+    control: { from: 'result.status === "passed"', to: 'result.status === "skipped"' },
+    accepted: [],
+  },
+  /**
+   * M-wave 2 W-GUARDS (2026-08-10): both guard extractors enrolled BEFORE
+   * their first review dispatch, per the AGENTS.md convergence rule — the
+   * defect class is exactly "reports OK while the output moved", and the
+   * round-1 brief states the score plus the unaccepted-survivor set as the
+   * convergence criterion.
+   */
+  {
+    id: "popoverOverlayExtract",
+    sourcePath: "tests/components/admin/showpage/_popoverOverlayExtract.ts",
+    suitePaths: ["tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Demands edge-anchoring even of self-scrolling overlays, so HoverHelp's
+    // runtime-anchored popover (and the whole match table's self-scroller rows)
+    // stops being detected.
+    control: {
+      from: "signals.selfScrolls || (signals.edgeAnchored",
+      to: "signals.selfScrolls && (signals.edgeAnchored",
+    },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior -------------------
+      {
+        siteId: "logical-connector:109:42:&&>||",
+        kind: "equivalent",
+        reason:
+          "the flipped guard admits interpolations that are not const-resolving identifiers, where `consts.get` misses and the template text gains the literal token `undefined` instead of a bare separator; no accept-set token contains `undefined`, so no classification signal can flip in either direction",
+      },
+      {
+        siteId: "statement-removal:185:11:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "the null-key unreadable mark on the line above has already happened; falling through reaches only the key === comparisons (position/top/bottom/overflowY/overflow), none of which can match a null key, so no signal changes",
+      },
+    ],
+  },
+  {
+    id: "renderedTextHaystack",
+    sourcePath: "tests/help/_renderedTextHaystack.ts",
+    suitePaths: ["tests/help/_metaUiLabelCrosswalk.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Silences the user-visible attribute channel, so aria-label/placeholder
+    // copy stops reaching the haystack and the positive premise fixture fails.
+    control: {
+      from: "if (USER_VISIBLE_ATTRS.has(name)) attrText(attr, out);",
+      to: "if (!USER_VISIBLE_ATTRS.has(name)) attrText(attr, out);",
+    },
+    accepted: [],
+  },
+  {
+    id: "interactionTimingScan",
+    sourcePath: "scripts/scan-interaction-timings.ts",
+    suitePaths: [
+      "tests/docs/_metaInteractionTimingInventory.test.ts",
+      "tests/docs/interactionTimingScan.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    // Enrolled at authoring time rather than after review, because this is a
+    // guard whose defect class is exactly "reports OK while the output moved":
+    // a recognizer that quietly stops matching a form leaves DESIGN.md §5.5
+    // agreeing with a scan that sees less than it used to, and every other
+    // check stays green. The module is importable with a referring suite for
+    // that reason — a terminal CLI script cannot be overlaid at all.
+    scoreFloor: 0.95,
+    // Dropping `duration` from the timing-name pattern makes PageTransition's
+    // `duration: 0.22` and every *Duration binding vanish from the population,
+    // which the §5.5 parity assertion notices in BOTH directions.
+    control: {
+      from: "(?:ms|delay|duration|timeout|seconds)$",
+      to: "(?:ms|delay|timeout|seconds)$",
+    },
+    accepted: [
+      // ---- equivalent: comparator sign-not-magnitude (spec §2.4) ----------
+      //
+      // Array.sort consumes the SIGN of a comparator's result and never its
+      // magnitude, so -1 -> -2 and 1 -> 2 sort identically. The `<` -> `<=`
+      // flips are unreachable for a related reason: each sits in the ELSE
+      // branch of an equality test, so the operands are already known to
+      // differ and `<=` cannot decide anything `<` did not. Same class
+      // taskContract carries four of.
+      {
+        siteId: "relational-boundary:161:14:<><=",
+        kind: "equivalent",
+        reason:
+          "universeFiles' comparator reaches this `<` only when the two entry names differ, so `<=` cannot change the ordering",
+      },
+      {
+        siteId: "integer-literal:161:26:1>2",
+        kind: "equivalent",
+        reason: "comparator magnitude is unread — Array.sort consumes the sign only",
+      },
+      {
+        siteId: "integer-literal:161:30:1>2",
+        kind: "equivalent",
+        reason: "same comparator, positive branch; the sign is unchanged",
+      },
+      {
+        siteId: "relational-boundary:347:50:<><=",
+        kind: "equivalent",
+        reason:
+          "the site comparator reaches this `<` only when the files differ, because `a.file === b.file` is tested first",
+      },
+      {
+        siteId: "integer-literal:347:62:1>2",
+        kind: "equivalent",
+        reason: "comparator magnitude is unread — sign only",
+      },
+      {
+        siteId: "integer-literal:347:66:1>2",
+        kind: "equivalent",
+        reason: "same comparator, positive branch; the sign is unchanged",
+      },
+      // ---- equivalent: the flip cannot change which branch is taken -------
+      {
+        siteId: "logical-connector:287:43:&&>||",
+        kind: "equivalent",
+        reason:
+          "both arms yield the SAME name for every input that reaches them: for an identifier `delay.text` equals `delay.getText(sf)` (no whitespace, far under the 60-char slice), and for a non-identifier `delay.text` is undefined so the `||` arm is false anyway",
+      },
+      {
+        siteId: "logical-connector:362:38:||>&&",
+        kind: "equivalent",
+        reason:
+          "the operands are never independently true: a site is `unclassified` if and only if its value is null, because the push sites guarantee it — so `||` and `&&` select the same rows",
+      },
+    ],
+  },
 ];

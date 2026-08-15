@@ -700,6 +700,27 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       "which is the property that makes an unset-vs-wrong-value confusion impossible to mistake " +
       "for a pass.",
   },
+  DATABASE_URL: {
+    values: [
+      {
+        text: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        // The tap-target step's wizard renders reach
+        // lib/onboarding/sessionLifecycle.ts's postgres.js path, which resolves
+        // `TEST_DATABASE_URL ?? DATABASE_URL` and THROWS under NODE_ENV=production
+        // when neither is set. So this pair governs that spec: without it the
+        // spec runs and fails, which is a loud outcome rather than a silent one,
+        // but it is still the difference between the step proving something and
+        // proving nothing.
+        governs: ["tests/e2e/tap-target-inline-controls.layout.spec.ts"],
+      },
+    ],
+    reason:
+      "The LOCAL Supabase stack's Postgres DSN for the lifecycle-layout-e2e job's tap-target " +
+      "step. Deliberately DATABASE_URL rather than TEST_DATABASE_URL: this repo uses the latter " +
+      "for the REMOTE validation project (x-audits.yml feeds it a secret), so naming it here " +
+      "would read as pointing CI at validation. A wrong value fails loud — the app throws on " +
+      "connect — rather than selecting or skipping anything.",
+  },
   PLAYWRIGHT_JSON_OUTPUT_NAME: {
     values: [
       {
@@ -725,6 +746,7 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
         governs: [
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
@@ -732,11 +754,34 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/sample.spec.ts",
         ],
       },
+      {
+        text: "test-results/lifecycle-layout-tap-target-report.json",
+        // lifecycle-layout-e2e.yml is UNfiltered pull_request too, so this derives
+        // real governance for the one spec its step names. A THIRD distinct path,
+        // for the same reason the app value is distinct from the crew one: this job
+        // runs four playwright steps, and a report path shared with another step
+        // would let one step's output stand in for another's oracle.
+        governs: ["tests/e2e/tap-target-inline-controls.layout.spec.ts"],
+      },
+      {
+        text: "test-results/phantom-gap-diagrams-report.json",
+        // Empty by live derivation, for the crew value's reason and not the app
+        // value's: phantom-gap-e2e.yml filters with `pull_request.paths`, so the
+        // census classifies its specs as path-gated and attributes none of them
+        // to this step. A FOURTH distinct path, by the same design rule as the
+        // three above — two jobs writing one report path is the artifact
+        // confusion the "oracle reads the run's OWN report" rule exists to
+        // prevent — and this report is read by a checker whose requirements are
+        // per (case, PROJECT) rather than per file.
+        governs: [],
+      },
     ],
     reason:
       "Destination for a Playwright run's own json report, which that job's post-run " +
       "executed-count oracle (scripts/check-crew-e2e-executed.mjs, " +
-      "scripts/check-app-e2e-executed.mjs) reads. Inert with respect to what runs: it " +
+      "scripts/check-app-e2e-executed.mjs, scripts/check-lifecycle-layout-executed.mjs, " +
+      "scripts/check-phantom-gap-executed.mjs) reads. " +
+      "Inert with respect to what runs: it " +
       "names a Playwright OUTPUT path only — it cannot select, skip or redirect a test, and a " +
       "wrong value makes the oracle fail closed on a missing report rather than pass.",
   },
@@ -750,11 +795,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -769,11 +816,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -789,11 +838,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -808,11 +859,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -827,11 +880,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -846,11 +901,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -865,11 +922,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -884,11 +943,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -903,11 +964,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -942,11 +1005,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -961,11 +1026,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -980,11 +1047,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
       { text: "test-secret-fixture", governs: [] },
@@ -1000,11 +1069,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -1019,11 +1090,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -1038,11 +1111,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],
@@ -1057,11 +1132,13 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/canonical-class-dimensions.spec.ts",
+          "tests/e2e/help-pages.spec.ts",
           "tests/e2e/me-page.spec.ts",
           "tests/e2e/notify-toggles.spec.ts",
           "tests/e2e/report-modal.spec.ts",
           "tests/e2e/root-landing.spec.ts",
           "tests/e2e/sample.spec.ts",
+          "tests/e2e/tap-target-inline-controls.layout.spec.ts",
         ],
       },
     ],

@@ -270,6 +270,7 @@ export function RoleRecognizeControl({
           </span>
           <span className="text-xs text-text-subtle">
             {savedSummaryLine(saved.state, token, saved.grants)}{" "}
+            {/* tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10 */}
             <button
               type="button"
               data-testid={tid("role-recognize-change")}

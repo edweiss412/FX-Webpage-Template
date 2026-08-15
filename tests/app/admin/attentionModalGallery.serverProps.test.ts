@@ -104,6 +104,16 @@ const EXPECTED_GLOBAL_IDS = [
 // (docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md §4). A new
 // warn-severity ParseWarning code renders a gallery scenario, so the baseline grows by
 // exactly one — that is the reviewed diff naming its spec this list asks for.
+// And one more from wave branch 3: warn-row-cells-fused (same spec, §5 — a data row one
+// cell short of its section's modal width is how a merged cell exports). Same reasoning,
+// same +1; the guard caught this addition rather than the branch remembering it, which is
+// the fail-by-default working as designed.
+// And one more from wave branch 4: warn-leading-column-autocorrected (same spec, §6 — every
+// row a section owns leading with an empty cell is how a drag-shifted section exports).
+// Same +1, and the guard caught this one too — on CI rather than locally, which is the
+// note worth leaving: this file is the ONE consumer of a new warn code that lives outside
+// `tests/parser`, `tests/messages`, and `tests/help`, so a branch that verifies only those
+// three sees green and learns about the baseline from `unit-suite-nodb`.
 const RENDERED_IDS_BEFORE: string[] = [
   "alert-ambiguous-email-binding",
   "alert-asset-recovery-bytes-exceeded",
@@ -224,6 +234,7 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-hotel-guest-split-ambiguous",
   "warn-hotel-inline-group-hotel-suspected",
   "warn-hotel-inline-group-own-hotel",
+  "warn-leading-column-autocorrected",
   "warn-linked-folder-overflow-truncated",
   "warn-opening-reel-not-video",
   "warn-opening-reel-permission-denied",
@@ -237,6 +248,7 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-ref-error-literal",
   "warn-role-token-autocorrected",
   "warn-room-header-split-ambiguous",
+  "warn-row-cells-fused",
   "warn-schedule-strike-date-off-schedule",
   "warn-schedule-time-unparsed",
   "warn-section-header-autocorrected",
