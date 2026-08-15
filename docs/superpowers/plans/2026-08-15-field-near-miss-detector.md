@@ -65,6 +65,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { newAggregator } from "@/lib/parser/warnings";
 import { parseEventDetails } from "@/lib/parser/blocks/event";
+import { parseTransportation } from "@/lib/parser/blocks/transport";
 import { premiseHolds } from "@/tests/_shared/premise";
 
 const hasEntry = (keys: string[], opener: string, c0: string) =>
@@ -90,10 +91,22 @@ describe("consumption ledger (spec §3.3)", () => {
     // (plan-r1 finding 1 occurrence identity).
     expect(hasEntry(consumedKeys, "DETAILS", "Room Diagram")).toBe(true);
   });
+
+  it("transport driver-regex resolution marks consumed (plan-r2 finding 1)", () => {
+    // fintech's Load In: row resolves via the v4 driver regex (transport.ts:217), the
+    // path Part C proved consumes it (CONSUMED_OTHER_KEY, changed=[transportation.driver_name]).
+    // Failure mode caught: a transport file left unmarked lets Load In: warn -> baseline 66.
+    const tmd = readFileSync("fixtures/shows/exporter-xlsx/fintech.md", "utf8");
+    premiseHolds("fixture has the Load In: driver row", /\|\s*Load In:\s*\|\s*Carlos Pineda\s*\|/.test(tmd));
+    const agg = newAggregator();
+    parseTransportation(tmd, "v4", undefined, agg); // agg is the 4th param (transport.ts:134-140)
+    const keys = [...agg.consumed.keys()];
+    expect(hasEntry(keys, "TRANSPORTATION", "Load In:")).toBe(true);
+  });
 });
 ```
 
-- [ ] **Step 2: FAIL:** `pnpm exec vitest run tests/parser/consumptionLedger.test.ts` — `TypeError` on the missing `agg.consumed` Map.
+- [ ] **Step 2: FAIL:** `pnpm exec vitest run tests/parser/consumptionLedger.test.ts` — both cases fail on the missing `agg.consumed` Map (`TypeError`), and after the aggregator field exists the transport case stays RED until BOTH transport marks land (plan-r2 finding 1: the case invokes `parseTransportation` directly, so the marker command cannot go green with the transport paths unmarked).
 - [ ] **Step 3: Implement.** In `lib/parser/warnings.ts`: add `consumed: new Map<string, number>()` to `newAggregator()`, extend the `ParseAggregator` type, export `markConsumed` (increments the count; no-op on undefined agg). Mark AT THE RESOLUTION SITE, BEFORE any presence()/sentinel write filter (spec 3.3 resolution-site semantics, r4 recalibration): in `event.ts` both the curated exact-match branch AND the gated fuzzy correction (`gatedVocabCorrect`, lib/parser/blocks/event.ts:200-212 and event.ts:292-298) mark the moment the label RESOLVES to a curated key — a resolved row whose value is then empty/filtered still marks (that is exactly the r4 false-positive class the semantics exist to exclude). In `contacts.ts`: mark where the regex resolves a row. In `transport.ts`: mark at BOTH resolution paths (`V2_SCHEDULE_LABELS` membership and the transport.ts:217 driver regex - the corpus `Load In:` row resolves via the regex). Every mark passes the section opener text the parser matched for the enclosing block. Do NOT touch the `toCanonicalKey` fallback. The 11-file resolver walk was RUN AT PLAN TIME (plan-r1 finding 8): per-file dispositions with evidence are in `docs/superpowers/specs/parser/probes/2026-08-15-plan-r1-sweeps.md` section 1 (MARK: event x2 sites, transport x2 sites, contacts x1; NO-MARK: the other eight, each justified). Re-verify the table against the tree in-task and cite it in the commit body; the committed baseline remains the executable arbiter for drift.
 - [ ] **Step 4: PASS** the new test; also `pnpm exec vitest run tests/parser/blocks/event.test.ts tests/parser/blocks/venue.test.ts` (payload untouched).
 - [ ] **Step 5: Commit** `feat(parser): consumption ledger on ParseAggregator (curated resolutions only)`
