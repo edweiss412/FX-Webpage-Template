@@ -67,7 +67,7 @@ Two probed local-only false-failure classes, each with its ledger entry as the s
 
 ## §6 Acceptance criteria
 
-- **AC-1:** With representative `.next-*` build outputs present locally, `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` passes 745/745 (executable RED first: a synthesized deep-AST bundle file inside a gitignored `.next-*` dir reds the unfixed suite with the entry's `RangeError`; green after).
+- **AC-1:** With representative `.next-*` build outputs present locally, `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` passes fully — all 745 pre-arc cases plus this arc's new rows, none removed (executable RED first: a synthesized deep-AST bundle file inside a gitignored `.next-*` dir reds the unfixed suite with the entry's `RangeError`; green after). [Wording amended post-approval per plan review R1 F1: the fixed "745/745" total was unsatisfiable once the arc's own cases land; the census claim — every pre-arc case still passes — is unchanged.]
 - **AC-2:** A scan error inside a walked file fails naming that file's repo-relative path (unit-proven with an injected thrower).
 - **AC-3:** The derived skip set for this repo's `.gitignore` contains every current `IGNORED_AT_ROOT` literal except `docs`, contains all seven `.next*` variants, and contains no tracked source root — pinned by test rows, not prose.
 - **AC-4:** Both pgCron mechanism-sabotage probes pass with NO file ever created under a path matched by any default-project glob (the mutant text lives outside the tree; the tracked suite file is never written).

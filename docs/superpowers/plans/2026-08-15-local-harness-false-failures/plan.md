@@ -30,7 +30,7 @@
 
 - **CREATES:** accept-set parser unit rows + constructed-tree walk fixtures + stays-quiet derived-set pin (all inside `tests/cross-cutting/psqlStartupFileSuppression.test.ts`, the deciding suite); registry row `psqlStartupFileScan` in `tests/mutation/source/registry.ts`.
 - **EXTENDS:** `tests/cross-cutting/pgCronCiVacuity.test.ts` (probe mechanics relocate; assertion messages byte-identical).
-- **Registries:** invariant-9/10 untouched; source-mutation registry gains the Task 3 row.
+- **Registries:** invariant-9/10 untouched; source-mutation registry gains the Task 3 row PLUS its `EXPECTED_LEDGER_KINDS` companion entry in `tests/mutation/guardSurfaces.gate.test.ts` (the gate's parity assertion reds without it — that red is Task 3's executable RED).
 
 <!-- tasks: depth=3 -->
 
@@ -43,7 +43,8 @@ RED is the ordinary new-case shape: the task writes new cases into the existing 
 1. New cases (write first, observe red):
    - **Accept-set parser rows.** Export a pure function from scan.ts (suggested name `rootSkipNamesFromGitignore(text: string): Set<string>`). Positive rows: `.next-dev/`, `/screenshots/`, `out`, `.vercel`. Negative rows (each rejected, contributing nothing): `*.log`, `.env.*.local`, `!keep/`, `a/b/`, `.codex-companion*/`, `# comment`, empty line. Derive expectations from the literal strings in the test, not from the implementation (anti-tautology).
    - **Walk fixture, fires half.** `mkdtemp` tree: `.gitignore` containing `genout/`; a bundle file inside `genout` holding a deep-AST expression (`"x=" + "1+".repeat(60000) + "1"` — nested binary depth far past the recursion limit); a sibling `run.ts` with a real psql call site. `collectPsqlUsage(root)` returns the psql site, `filesScanned` excludes the `genout` bundle, and does not throw.
-   - **Walk fixture, premise half.** Same tree WITHOUT the `.gitignore` row: the deep file is walked and the call throws — with a message containing the bundle's tree-relative path (the Task 1 rethrow contract). This is simultaneously the premise that the fixture can fail and the loud-name unit proof (AC-2). Use `premise`/`premiseHolds` where an assertion rests on the constructed tree's shape.
+   - **Walk fixture, premise half.** Same tree WITHOUT the `.gitignore` row: the deep file is walked and the call throws — with a message containing the bundle's tree-relative path. This is the premise that the fixture can fail, exercised end-to-end. Use `premise`/`premiseHolds` where an assertion rests on the constructed tree's shape.
+   - **Injected-thrower unit row (AC-2's ratified proof shape).** The rethrow wrapper is an EXPORTED helper (suggested `analyzeNaming(relPath, fn)`) applied to EVERY per-file analyzer call in `collectPsqlUsage` (scan, indirection, workflow passes — not only the path the deep fixture happens to exercise); its unit row calls it with an injected thrower and asserts the rethrown message carries the given repo-relative path. A structural row asserts every per-file call site in `collectPsqlUsage` goes through the wrapper (regex over the function body, or the wrapper is the only call surface) so a future analyzer cannot bypass it.
    - **Stays-quiet derived-set pin (AC-3).** `rootSkipNamesFromGitignore(readFileSync(join(REPO_ROOT, ".gitignore")))` ⊇ the nine current non-`docs` literals ∪ the seven `.next*` names, and ∩ `{app, components, lib, scripts, tests, supabase}` = ∅.
 2. GREEN implementation:
    - `collectPsqlUsage(repoRoot)` computes the skip set per call: `{"docs"}` ∪ `rootSkipNamesFromGitignore(...)` over `join(repoRoot, ".gitignore")`; an ABSENT `.gitignore` yields the empty derived set (fixture roots and nested-root calls keep working — the suite calls `collectPsqlUsage(join(REPO_ROOT, "tests", "docs"))` and constructed tmp roots today); a present-but-unreadable one propagates its error loudly. Never a silent fallback to literals.
@@ -60,10 +61,20 @@ RED is a staged-wrongness observation on the same command: step 1 relocates the 
 
 1. `writeMutant` writes the mutated suite text to `mkdtemp()`-scoped scratch with a non-test extension (e.g. `mutant.txt`); delete `MUTANT_REL`/`MUTANT_ABS` and the `unlinkSync` finallys (temp dir cleanup replaces them); keep the anchor-occurs-exactly-once validation verbatim.
 2. Mutant child invocation: `pnpm exec vitest run --config tests/mutation/source/mutantOverlay.config.ts` with env `MUTATION_ROOT` (repo root), `MUTATION_TARGET` (absolute path of `tests/cross-cutting/pg-cron-coverage.test.ts`), `MUTATION_MUTANT` (the scratch file), `MUTATION_SUITE` (`tests/cross-cutting/pg-cron-coverage.test.ts`), plus the probe's existing `CI`/`PG_CRON_COVERAGE_TARGET` env. The three non-mutant `runSuite` callers keep `--project=serial` unchanged. Both parity halves are already probed (pre-draft pass) — this is wiring, not exploration.
-3. Echo repair (spec §2.2, same shape-sweep): `runSuite`'s `execFileSync` gains `stdio: ["ignore", "pipe", "pipe"]` so intentionally failing children stop echoing `FAIL` lines onto the outer run's streams; `err.stderr` stays populated (echo probe above), so every assertion reads what it reads today. Proof: capture a scoped run's combined output and assert no child `FAIL tests/` line appears on it (spec AC-5) — recorded in the task record, not shipped as a recursive self-test.
+3. Echo repair (spec §2.2, same shape-sweep): `runSuite`'s `execFileSync` gains `stdio: ["ignore", "pipe", "pipe"]`; `err.stderr` stays populated (echo probe above). EXECUTABLE before/after, recorded in the task record: `pnpm exec vitest run --project=serial tests/cross-cutting/pgCronCiVacuity.test.ts 2><scratch>/vacuity-stderr.log` then `grep -c "FAIL" <scratch>/vacuity-stderr.log` — NONZERO on the pre-repair tree (the intentionally failing children echo on every run, no staging needed) and ZERO after, same command pair. Assertion byte-identity is mechanical, not directed: `git diff origin/main -- tests/cross-cutting/pgCronCiVacuity.test.ts | grep '^[-+]' | grep -c 'expect('` returns 0 (the diff touches `writeMutant`/`runSuite` mechanics, never an assertion line).
 4. Assertion messages stay byte-identical (spec AC-5); no new assertion weakening; the probes' own `expect(status).not.toBe(0)` remains the premise that the mutant executed.
 5. Run the file's suite green (local stack up via preflight), then `pnpm heavy pnpm test:fast` once at branch close (Task 5) as the overlap-mode proof.
 6. Commit: `fix(infra): serve pgCron mechanism-probe mutants from memory via the mutant overlay; stop echoing child FAIL lines`.
+
+### Task 3 — enrol scan.ts in the source-mutation registry
+
+<!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-6 -->
+
+RED is executable on the same command: step 1 adds the `GUARD_SURFACES` row ALONE — `tests/mutation/guardSurfaces.gate.test.ts` then reds deterministically at its registry-parity assertion (`Object.keys(EXPECTED_LEDGER_KINDS)` must equal every surface id — verified live at the gate's parity `expect`), observed and recorded. Steps 2-3 complete the enrolment; the SAME command goes green.
+
+1. Registry row `psqlStartupFileScan`: `sourcePath: "tests/cross-cutting/psqlStartupFiles/scan.ts"`, `suitePaths: ["tests/cross-cutting/psqlStartupFileSuppression.test.ts"]`, `operators: ["relational-boundary", "regex-quantifier-bound"]` (48 pre-edit sites ≈ 32 min worst case at the measured 39.84 s/run — inside the spec's ~45-minute ceiling; the four excluded operators recorded on the row with the spec §2.3 probe numbers as the reason). Control mutant, exact and verified-unique (1 occurrence, `grep -c 'token.slice(1).includes("X")'` = 1): `from: 'return token.slice(1).includes("X");'` → `to: 'return true;'` — every flagless cluster then certifies suppression, which the suite's negative certification cases kill deterministically in any environment. Run the gate now: observed RED (parity assertion names the missing `EXPECTED_LEDGER_KINDS` entry).
+2. Add the `EXPECTED_LEDGER_KINDS` companion entry in `tests/mutation/guardSurfaces.gate.test.ts` for `psqlStartupFileScan` (the gate's independent expectation row — its ledger-kind counts come from the first `pnpm heavy pnpm mutation:guards` run), disposition every survivor (killed-by-suite-extension, `equivalent`, or `accepted-gap` with a `BL-`/`DEF-` ref per the ledger contract), set `scoreFloor` at-or-below the achieved score.
+3. GREEN on the same command; STATE score + unaccepted-survivor set in the round-1 diff-review brief (AGENTS.md convergence bullet 4). Commit: `test(infra): enrol psqlStartupFiles/scan in the source-mutation registry (scoped subset)`.
 
 ### Task 4 — graduate the three entries
 
@@ -78,22 +89,16 @@ Archive-RED per entry, three commits or one (implementer's call, but each move o
 
 <!-- tasks: end -->
 
-### Task 3 — enrol scan.ts in the source-mutation registry (outside the marker region: enrolment has no honest pre-existing red — the gate passes both before the row exists and after survivors are dispositioned)
-
-1. Registry row `psqlStartupFileScan`: `sourcePath: "tests/cross-cutting/psqlStartupFiles/scan.ts"`, `suitePaths: ["tests/cross-cutting/psqlStartupFileSuppression.test.ts"]`, `operators: ["relational-boundary", "regex-quantifier-bound"]` (48 sites ≈ 32 min worst case at the measured 39.84 s/run — inside the spec's ~45-minute ceiling; the four excluded operators are recorded on the row with the spec §2.3 probe numbers as the reason). Control mutant: a unique-occurrence, behavior-changing literal — verify uniqueness with `grep -c` before choosing; candidates: the `-[A-Za-z]+$` cluster regex in `tokenSuppressesStartupFiles`, or an `IGNORED_ANYWHERE` member. `validateSurface` enforces the exactly-once contract at authoring time.
-2. `pnpm heavy pnpm mutation:guards` — record score, disposition every survivor (killed-by-suite-extension, `equivalent`, or `accepted-gap` with a `BL-`/`DEF-` ref per the ledger contract), set `scoreFloor` at-or-below the achieved score, and STATE score + unaccepted-survivor set in the round-1 diff-review brief (AGENTS.md convergence bullet 4).
-3. Commit: `test(infra): enrol psqlStartupFiles/scan in the source-mutation registry (scoped subset)`.
-
 ### Task 5 — close the branch
 
 1. `git merge origin/main` (BACKLOG/archive conflicts resolve per-entry, both sides preserved — the batch's sibling arcs are id-disjoint).
 2. Gates: `pnpm heavy pnpm test:fast` (the relocated probes run inside it — the arc's own race-free proof), `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
-3. Cross-model diff review to APPROVE: codex-guard `--stage diff --round <n>`, round cap 4; brief carries REVIEWER ONLY, the numbered CONSEQUENCE BOUND / PROBE DOMAIN / THREAT MODEL FENCE block with the literal phrase "never silently wrong", VERDICT + FINDINGS instructions, the spec §1.1 do-not-relitigate list, and the Task 3 mutation score + unaccepted-survivor set.
-4. Strip all three claim markers in the PR's last pre-merge commit (the archive moves in Task 4 already carried them out of the open ledger — verify `grep -c 'Branch:\*\* fix/local-harness-false-failures' BACKLOG.md DEFERRED.md` returns no matches); PR (preflight ran — not docs-only); real CI green; `gh pr merge --merge`; ff main; `git rev-list --left-right --count main...origin/main` → `0 0`.
+3. Cross-model diff review to APPROVE — dispatched only after Tasks 1-4 are fully committed, and no content commit lands after the final approving round (review covers what merges): codex-guard `--stage diff --round <n>`, round cap 4; brief carries REVIEWER ONLY, the numbered CONSEQUENCE BOUND / PROBE DOMAIN / THREAT MODEL FENCE block with the literal phrase "never silently wrong", VERDICT + FINDINGS instructions, the spec §1.1 do-not-relitigate list, and the Task 3 mutation score + unaccepted-survivor set.
+4. Markers: Task 4's archive moves stripped all three inside the graduating commits — the ratified invariant-12 rule ("a graduating entry's marker comes off in the same commit that archives it", AGENTS.md invariant 12); no separate strip commit exists, so the diff the final review round examines IS the diff that merges (no post-review commit). Task 5 verifies the terminal state: `grep -c 'Branch:\*\* fix/local-harness-false-failures' BACKLOG.md DEFERRED.md` returns 0 matches. Then PR (preflight ran — not docs-only); real CI green; `gh pr merge --merge`; ff main; `git rev-list --left-right --count main...origin/main` → `0 0`.
 
 ## Acceptance criteria (spec §6, restated for the task markers)
 
-- **AC-1** representative build outputs present → deciding suite green 745/745 (red first: synthesized deep-AST bundle in a gitignored dir reds the unfixed walk).
+- **AC-1** representative build outputs present → deciding suite fully green: all 745 pre-arc cases plus this task's new rows pass, none removed (red first: synthesized deep-AST bundle in a gitignored dir reds the unfixed walk).
 - **AC-2** a scan error names the file (injected-thrower unit row).
 - **AC-3** derived-set pins: ⊇ nine literals ∪ seven `.next*`, ∩ tracked source roots = ∅.
 - **AC-4** probes pass with no tree path ever created (in-memory overlay; temp-dir mutant text).
