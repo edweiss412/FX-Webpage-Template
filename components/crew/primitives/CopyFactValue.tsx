@@ -74,11 +74,19 @@ const CORRECTIVE_MESSAGE = "Copy again - the clipboard may be out of date.";
 
 type Owner = {
   currentValue: () => string;
-  setCopied: (next: boolean) => void;
+  /** Enters the copied state. Never clears it — `clearCopied` is the only exit,
+   *  because an exit must also kill the window's timer. */
+  setCopied: () => void;
+  /** Leaves the copied state AND kills its timer together. A timer left running
+   *  with nothing standing behind it is an ORPHAN CLOCK: the next success sees
+   *  a non-null timer, declines to arm, and inherits whatever is left of it —
+   *  so a confirmation promised for the full window can vanish in a fraction of
+   *  it (whole-diff review round 3). */
+  clearCopied: () => void;
   announce: (message: string) => void;
   armReset: () => void;
-  /** Arms the window ONLY if none is running, so handing the window back never
-   *  extends one that is already counting down. */
+  /** Arms the window ONLY if none is running, so a non-latest success never
+   *  extends the window the newest write owns. */
   ensureResetArmed: () => void;
 };
 
@@ -102,7 +110,7 @@ function deliverWrite(seq: number, value: string): void {
 
   if (value === owner.currentValue()) {
     owner.announce(COPIED_MESSAGE);
-    owner.setCopied(true);
+    owner.setCopied();
     // Only the newest write OWNS the window — an older resolution arriving
     // mid-window must not stretch the confirmation past the newest write's
     // clock. But every success still needs SOME window: an older one landing
@@ -120,22 +128,8 @@ function deliverWrite(seq: number, value: string): void {
   // copied — so two resolutions batched together announced the corrective and
   // left the check glyph lit. A redundant `setCopied(false)` costs nothing; a
   // skipped one leaves the log and the painted state disagreeing.
-  owner.setCopied(false);
+  owner.clearCopied();
   owner.announce(CORRECTIVE_MESSAGE);
-}
-
-/**
- * The dispatched write at `seq` failed. Nothing is announced (spec §4.2 — the
- * value is still on screen and nothing changed), but the WINDOW may need
- * rescuing: only the newest write arms the reset, so an older same-value
- * success can set copied with no timer behind it. If the newest write then
- * fails, no one is left to end the confirmation and the check glyph stays lit
- * for as long as the page is open. Handing the window back here is the
- * completion of the seq rule, not an exception to it.
- */
-function failWrite(seq: number): void {
-  if (seq !== writeLedger.seq) return; // an older failure never owned the window
-  activeOwner?.ensureResetArmed();
 }
 
 export function CopyFactValue({ value, label }: { value: string; label: string }) {
@@ -189,8 +183,14 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
   }
   useEffect(() => {
     if (correctiveSeq === 0) return; // nothing has exited yet (mount)
+    // The timer dies with the confirmation it was counting down. The state was
+    // cleared in the render phase above (an effect would paint one frame of the
+    // stale confirmation first), but clearing a timeout is a side effect and
+    // belongs here — leaving it running would orphan the clock and shorten the
+    // NEXT confirmation to whatever remained of this one.
+    clearReset();
     announce(CORRECTIVE_MESSAGE);
-  }, [correctiveSeq, announce]);
+  }, [correctiveSeq, announce, clearReset]);
 
   // Ownership registration. Empty deps so exactly one owner object exists per
   // island instance; the closures read the refs above, which every render
@@ -207,7 +207,11 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
     };
     const owner: Owner = {
       currentValue: () => valueRef.current,
-      setCopied: (next) => setCopied(next),
+      setCopied: () => setCopied(true),
+      clearCopied: () => {
+        clearReset();
+        setCopied(false);
+      },
       announce: (message) => announceRef.current(message),
       armReset: () => {
         clearReset();
@@ -240,9 +244,9 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
       // Clipboard unavailable (no HTTPS in dev, locked-down browser). The
       // password is still on screen in `.code-value` type for manual
       // transcription, which is the documented fallback (spec §7). Silent by
-      // spec §4.2 — but a standing confirmation this write was going to end
-      // still has to end.
-      failWrite(seq);
+      // spec §4.2. Nothing to hand back either: a success ALWAYS arms a
+      // window now (see deliverWrite), so no confirmation is ever left
+      // depending on a write that failed.
       return;
     }
     deliverWrite(seq, requested);

@@ -544,6 +544,78 @@ describe("overlapping writes resolve by VALUE alone (§4.2)", () => {
     expect(isCopied(container), "a re-lit confirmation must expire too").toBe(false);
   });
 
+  test("a confirmation gets its FULL window after a failed write, not an inherited clock", async () => {
+    // The general form of the two cases above: a reset timer must never run
+    // without a confirmation behind it. A timer armed while nothing is standing
+    // is an ORPHAN CLOCK — the next success sees a non-null timer, declines to
+    // arm, and inherits whatever fraction of the window is left, so a
+    // confirmation the component promised for 2s can vanish in 600ms.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container);
+    await clickCopy(container);
+    premise("two writes are genuinely in flight", writes.length, 1);
+
+    await act(async () => {
+      writes[1]!.reject(new Error("clipboard unavailable")); // newest fails, nothing standing
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS - 600);
+    });
+
+    await settle(0); // the older write succeeds well into what would be the orphan's clock
+    premiseHolds("the older success set copied", isCopied(container));
+
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS - 1);
+    });
+    expect(isCopied(container), "the confirmation must last its own full window").toBe(true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(isCopied(container)).toBe(false);
+  });
+
+  test("a confirmation gets its FULL window after a corrective cleared the previous one", async () => {
+    // Same invariant, reached through the prop-change corrective: clearing
+    // `copied` without clearing its timer leaves the same orphan clock.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container);
+    await settle(0);
+    premiseHolds("the first confirmation is standing", isCopied(container));
+
+    await act(async () => {
+      rerender(<FactRows rows={[passwordRow({ v: "FITS2025" })]} />);
+    });
+    premiseHolds("the value change cleared it", !isCopied(container));
+    await act(async () => {
+      rerender(<FactRows rows={[passwordRow()]} />); // value comes back
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS - 600);
+    });
+
+    await clickCopy(container);
+    await clickCopy(container);
+    await settle(1); // a NON-latest success, which arms only if nothing is running
+    premiseHolds("the new confirmation is standing", isCopied(container));
+
+    await act(async () => {
+      vi.advanceTimersByTime(COPY_FEEDBACK_RESET_MS - 1);
+    });
+    expect(isCopied(container), "an orphaned clock must not shorten this window").toBe(true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(isCopied(container)).toBe(false);
+  });
+
   test("a value change while copied resets AND appends the corrective", async () => {
     const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
 
