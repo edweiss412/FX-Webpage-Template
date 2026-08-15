@@ -17,6 +17,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/ui/cn";
+import { COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
 
 /**
  * Style axis (modal-header-reconciliation §6.4). Replaces the former boolean
@@ -106,7 +107,10 @@ export function ShareLinkCopyButton({
       if (requested !== urlRef.current) return;
       setCopied(true);
       clearReset();
-      resetRef.current = setTimeout(() => setCopied(false), 2_000);
+      // Shared with the crew page's CopyFactValue: two clipboard controls in
+      // one product should confirm for the same length of time, and a literal
+      // in each is how they drift (lib/ui/copyFeedback.ts).
+      resetRef.current = setTimeout(() => setCopied(false), COPY_FEEDBACK_RESET_MS);
     } catch {
       // Clipboard unavailable — URL is still visible for manual selection.
     }

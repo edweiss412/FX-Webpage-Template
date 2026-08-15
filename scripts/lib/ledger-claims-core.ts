@@ -198,7 +198,18 @@ export function resolveClaims(
   candidates.sort((a, b) => (tipOf.get(b) ?? 0) - (tipOf.get(a) ?? 0));
 
   const prByBranch = new Map<string, PrRow>();
-  for (const row of declaredOnly ? [] : git.prList()) {
+  // A PR-universe fault narrows the answer, so it degrades the resolution rather
+  // than reading as "no open PRs" — `runCheck` promotes this marker to untrusted
+  // (exit 2), because a shrunk universe cannot support "no collision".
+  let prRows: PrRow[] = [];
+  if (!declaredOnly) {
+    try {
+      prRows = git.prList();
+    } catch (e) {
+      degraded.push(`pr-universe-unavailable: ${(e as Error).message}`);
+    }
+  }
+  for (const row of prRows) {
     // Base-repo PRs only: a fork PR sharing a head name must not attach its
     // number to the base branch's claim.
     if (!row.isCrossRepository) prByBranch.set(row.headRefName, row);

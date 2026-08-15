@@ -166,9 +166,12 @@ jobs:
       # phase repeatedly inside this job's timeout. Passing both projects and the
       # file list lets each project's testMatch claim its own specs. The split is a
       # RESOLUTION — re-derive it with `--list` rather than trusting a hand-kept
-      # figure here; measured 2026-08-09 it is 148 tests in 8 files (it was
-      # "27 tests in 5 files" on 2026-08-03, before this job grew crew-page and
-      # theme-toggle). font-rendering-census and theme-toggle resolve under BOTH
+      # figure here; measured 2026-08-15 it is 159 tests in 9 files (it was
+      # "148 tests in 8 files" on 2026-08-09 and "27 tests in 5 files" on
+      # 2026-08-03, before this job grew crew-page and theme-toggle; the ninth
+      # file is right-now-transitions, and five of the 2026-08-15 case growth
+      # are the crew-page wifi password-row cases — the rest arrived on other
+      # arcs). font-rendering-census and theme-toggle resolve under BOTH
       # projects; crew-page resolves under mobile-safari alone.
       #
       # picker-flow is on desktop-chromium deliberately. Measured 2026-07-25: over
