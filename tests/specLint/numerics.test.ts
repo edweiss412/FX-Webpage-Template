@@ -288,6 +288,31 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
       ["return [] / 2;"],
     ],
     [
+      // Review R19, probed: `+` is regex-preceding, but `++` leaves a VALUE, so the slash
+      // after it divides. Reading it as a regex desynchronised the scan and exposed a
+      // template's declaration-shaped text as live.
+      "a slash after a postfix increment divides",
+      "const ratio = i++ / 2; const e = 5 / 3;",
+      ["const ratio = i++ / 2; const e = 5 / 3;"],
+    ],
+    [
+      // The other side of that rule: a SINGLE `+` is an operator, so the slash after it
+      // still opens a regex.
+      "a slash after a binary plus is a regex",
+      "const x = 1 + /'/.test(s); const e = 5;",
+      [`const x = 1 + ${gap("/'/")}.test(s); const e = 5;`],
+    ],
+    [
+      "a slash after a doubled EQUALS is a regex",
+      "const x = (a == /'/.test(s)); const e = 5;",
+      [`const x = (a == ${gap("/'/")}.test(s)); const e = 5;`],
+    ],
+    [
+      "a slash after a postfix decrement divides",
+      "const ratio = i-- / 2; const e = 5 / 3;",
+      ["const ratio = i-- / 2; const e = 5 / 3;"],
+    ],
+    [
       // A CALL's closing paren is not a control head's, so the slash after it divides.
       "a call result divided is division",
       "const v = compute(a) / 2; const e = 5;",
@@ -527,6 +552,22 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     ["a block comment", "/* a stray ` in prose */"],
   ])("a backtick inside %s does not open a template", (_label, decoy) => {
     const body = [decoy, "const sample = `", siteConst(37), "`;", siteConst(38)].join("\n");
+    const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("R19's postfix-increment script cannot invert the scan", () => {
+    // The end-to-end shape of the same finding: `i++ / 2` misread as a regex swallows the
+    // apostrophes and exposes the template's declaration, in a script whose only
+    // declaration-shaped line is that template text — so the duplicate net cannot help.
+    const body = [
+      "let i = 0;",
+      "const ratio = i++ / 2; // it's a ratio",
+      "const generated = `author's generated module",
+      siteConst(37),
+      "`;",
+      "const hasBacktick = /[`]/.test(generated);",
+    ].join("\n");
     const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
     expect(only(findings, A)).toEqual([]);
   });

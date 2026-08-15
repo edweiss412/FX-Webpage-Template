@@ -301,9 +301,18 @@ const IDENT_CHAR = /[A-Za-z0-9_$]/;
  * whether the window had cut a longer identifier down to something keyword-shaped
  * (`myreturn` seen as `return`); tracking the identifier itself removes the question.
  */
-function regexCanFollow(lastChar: string, lastWord: string, afterControlParen: boolean): boolean {
+function regexCanFollow(
+  lastChar: string,
+  prevChar: string,
+  lastWord: string,
+  afterControlParen: boolean,
+): boolean {
   if (lastChar === "") return true;
   if (lastChar === ")") return afterControlParen;
+  // `++` and `--` are the operators that leave a VALUE behind them, so a slash after one
+  // divides. Their character is otherwise regex-preceding, and `i++ / 2` read as a regex
+  // desynchronised the scan (review R19, probed).
+  if ((lastChar === "+" || lastChar === "-") && prevChar === lastChar) return false;
   if (REGEX_PRECEDING.has(lastChar)) return true;
   return REGEX_KEYWORDS.has(lastWord);
 }
@@ -429,6 +438,7 @@ export function readableScriptLines(text: string): string[] | null {
   // The preceding significant code character, and the identifier it belongs to, for the
   // regex-or-division decision.
   let lastChar = "";
+  let prevChar = "";
   let lastWord = "";
   // Whitespace ENDS the trailing identifier without erasing it — `return /re/` needs the
   // word across the space, while `export default` must not fuse into one token.
@@ -459,6 +469,7 @@ export function readableScriptLines(text: string): string[] | null {
       lastWord = "";
       inWord = false;
     }
+    prevChar = lastChar;
     lastChar = c;
   };
   let inClass = false;
@@ -488,7 +499,7 @@ export function readableScriptLines(text: string): string[] | null {
         line += " ";
         continue;
       }
-      if (c === "/" && regexCanFollow(lastChar, lastWord, afterControlParen)) {
+      if (c === "/" && regexCanFollow(lastChar, prevChar, lastWord, afterControlParen)) {
         state = "regex";
         inClass = false;
         line += " ";
