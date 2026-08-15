@@ -2310,7 +2310,33 @@ export async function logSync(
     const elapsed = (deps.now?.() ?? new Date()).getTime() - deps.attemptStartedAtMs;
     entry.durationMs = Number.isFinite(elapsed) ? Math.max(0, elapsed) : null;
   }
-  await deps.logSync?.(entry);
+  // Guard the SINK write only (spec 2026-08-15 §2.2): entry construction above stays outside,
+  // so a construction bug stays loud. `sync_log` emits ride their own postgres connection
+  // (writeSyncLog, lib/sync/syncLog.ts), and several callers run inside the per-show advisory
+  // lock — unguarded, a transient sink fault throws out of the lock callback and rolls back the
+  // sync it exists to observe. Swallow + escalate; never rethrow, never alter the outcome.
+  try {
+    await deps.logSync?.(entry);
+  } catch (sinkError) {
+    // Assigned to a local (NOT chained) so prettier keeps `log.error(` on ONE line —
+    // stripLogEmissionCalls cannot match a `log` / `.error` split across lines, which would
+    // leak this app_events-only forensic code into the §12.4 producer scans.
+    const escalation = log.error("sync_log emit failed", {
+      source: "sync",
+      code: "SYNC_LOG_EMIT_FAILED",
+      driveFileId,
+      // RAW value, never serializeError(...): buildRecord (lib/log/logger.ts) serializes exactly
+      // once. Pre-serializing feeds a plain object back through serializeError's non-Error branch
+      // (String(value)) and the persisted diagnostic collapses to "[object Object]".
+      error: sinkError,
+    });
+    // Invariant 10: this runs INSIDE the caller's held advisory lock at the processOneFile_unlocked
+    // call sites, and an app_events emit must never extend that window. Fire-and-forget rather than
+    // awaited — the same shape as the PARSE_SHEET_THREW forensic emit above.
+    void escalation.catch(() => {
+      /* best-effort: a recording failure must never displace the failure it was recording */
+    });
+  }
 }
 
 /**
