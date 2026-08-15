@@ -1,0 +1,158 @@
+# Manual-sync emission gaps and the broken existing-show retry
+
+**Status:** DRAFT
+**Arc:** `fix/sync-observability-gaps`
+**Closes:** `BL-MANUAL-SYNC-UNEMITTED`, `BL-PENDING-RETRY-EXISTING-SHOW-THROWS` (BACKLOG.md)
+**Parent design:** `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` — its §6.1/§6.2 filed both defects and fenced them out of the attribution arc. This spec is the filed follow-up.
+
+## 1. Problem
+
+Two defects, both probed, both filed 2026-08-09:
+
+1. **The existing-show pending-ingestion retry cannot work.** `app/api/admin/pending-ingestions/[id]/retry/route.ts:435-444` calls `runManualSyncForShow_unlocked`, which invokes `processOneFile_unlocked` with five arguments (`lib/sync/runManualSyncForShow.ts:286-293`) — never the sixth `prepared` parameter — and `processOneFile_unlocked` throws `SyncInfraError` unconditionally when `prepared` is absent (`lib/sync/runScheduledCronSync.ts:3452-3458`). For any non-archived show the retry throws before any sync work; only the archived silent-skip at `lib/sync/runScheduledCronSync.ts:3448-3450` avoids it. A shipped admin action appears to work and cannot.
+
+2. **Manual sync is largely unemitted.** The attribution arc wired a `logSync` sink into every manual entry point, but a sink is necessary, not sufficient:
+   - `runManualStageForFirstSeen` reaches its sole emission — `emitSuccessfulPhase2Tail` at `lib/sync/runManualStageForFirstSeen.ts:161` — only on the `auto_publish_ready` path. The `stage` (`lib/sync/runManualStageForFirstSeen.ts:92-94`), `hard_fail` (`lib/sync/runManualStageForFirstSeen.ts:95-97`), `pass` (`lib/sync/runManualStageForFirstSeen.ts:98`), phase-2 `stale` (`lib/sync/runManualStageForFirstSeen.ts:144-146`), and `defer` (`lib/sync/runManualStageForFirstSeen.ts:201-203`) branches return without emitting; the filing probe supplied `logSync`, exercised four of the five, and measured `logSyncCalls: 0` on every one exercised. Thrown phase-1/phase-2 failures escape through the unguarded awaits at `lib/sync/runManualStageForFirstSeen.ts:228` (`runPhase1`) and `lib/sync/runManualStageForFirstSeen.ts:128` (`runPhase2`).
+   - `runManualSyncForShow` awaits `runOne` with no catch (`lib/sync/runManualSyncForShow.ts:430`); a probe with `processDeps.logSync` installed and `runOne` throwing produced `{"thrown":"probe-prepare-failure","logSyncCalls":0}`.
+   - The live staged-apply path writes no attempt row on ANY outcome. `applyStaged_unlocked` invokes the tail with only a tx-bound `upsertAdminAlert` (`lib/sync/applyStaged.ts:1492-1500`) — no sink, no start — and neither live caller supplies tail deps (`app/api/admin/staged/[fileId]/apply/route.ts:158`, `app/api/admin/show/staged/[stagedId]/apply/route.ts:170`; both carry the `sync-log-emission-gap` marker). An existing-show staged apply never even reaches the tail — the invocation at `lib/sync/applyStaged.ts:1474` is gated on `autoPublishFirstSeen`.
+
+Consequence: Doug's most deliberate actions — approving a staged parse, retrying a pending ingestion, manually re-syncing a show — are invisible to `observe synclog`, while cron's routine passes are fully recorded.
+
+### 1.1 Resolved scope — do not relitigate
+
+- **The retry-route mechanism choice (prepare-in-route vs locked entry point) is an internal design call delegated to this spec** by `BL-PENDING-RETRY-EXISTING-SHOW-THROWS` ("decide whether the route should call `prepareProcessOneFile` itself, or use the locked `runManualSyncForShow` entry point"). §3.1 decides it. It is not user-visible and needs no product escalation.
+- **In-lock `sync_log` emission is the ratified pattern, not an invariant-10 violation.** `processOneFile_unlocked` emits every non-applied outcome inside the held show-lock tx (`logSync` calls at `lib/sync/runScheduledCronSync.ts:3469`, `lib/sync/runScheduledCronSync.ts:3476`, `lib/sync/runScheduledCronSync.ts:3481`, `lib/sync/runScheduledCronSync.ts:3485`, `lib/sync/runScheduledCronSync.ts:3489`, `lib/sync/runScheduledCronSync.ts:3494`, `lib/sync/runScheduledCronSync.ts:3561`), and the attribution design explicitly kept the sink write inside the cron transaction (parent spec §7, "Moving the sink write outside the cron transaction" is out of scope; §6 first bullet accepts the NULL-attribution cost). Invariant 10's POST-COMMIT rule governs admin-alert / `app_events` / `logAdminOutcome` emits; the `sync_log` channel writes through its own connection (`lib/sync/syncLog.ts:65-72`, `makePostgresSyncLogSink`) and participates in no advisory-lock tx. New in-lock emissions in §3.2 follow the existing topology.
+- **The archived and finalize-owned refusals stay silent.** DEF-3/DEF-4/DEF-5 ratified "no mutation, no fetch, no log" for archived-show refusals (`lib/sync/runManualSyncForShow.ts:311-313`, `lib/sync/runScheduledCronSync.ts:3446-3450`, `app/api/admin/pending-ingestions/[id]/retry/route.ts:408-411`). This spec adds no emission to any blocked/refusal branch.
+- **The wizard staged-apply path attempts no sync and gets no emission.** Ratified in the parent spec §6.2 (R11 F1 / R12 F1): `sourceScope: "wizard"` stages approval and manifest metadata only; a gap marker or an emission there would falsely record a sync attempt.
+- **`duration_ms` measures the runner boundary, not the operator's click.** Parent spec §3.3 documents that route-level preparation is excluded from the measured window. §3.4's staged-apply start (captured at `applyStaged` entry) has the same shape and the same documented limit.
+- **Sink mechanics are settled.** Show attribution resolves at the sink via subselect (`lib/sync/syncLog.ts:43-50`); `status` is free text (`supabase/migrations/20260501001000_internal_and_admin.sql:225` — `status text not null`, no CHECK), so new outcome/reason strings need no migration. Duration derives in the `logSync` helper (`lib/sync/runScheduledCronSync.ts:2303-2309`) with the absent-start → NULL and non-monotonic → clamp-0 guards already ratified.
+- **Escaped-throw rows carry NULL duration by design** (parent spec §3.3.1: "The attempt aborted; a partial elapsed time would misreport as a completed duration"). §3.2/§3.3's thrown-attempt emissions follow it.
+
+## 2. Goal and acceptance posture
+
+Every manual sync attempt that reaches a terminal outcome writes exactly one `sync_log` row, or the failure to write it is surfaced — never silently absent. The pending-ingestion retry of an existing show executes real sync work.
+
+**Consequence bound (for review):** every attempt is recorded correctly or its recording failure is signaled; a conservative non-emission on a ratified silent branch (§1.1 refusals, wizard path) is a DOCUMENTED LIMIT, not a finding. **Threat model:** accidental emission gaps introduced by ordinary code evolution (a new outcome branch, a new caller). Adversarial DB manipulation and operator misuse are out of scope.
+
+### Acceptance criteria
+
+- **AC-1 (retry works).** A pending-ingestion retry against an existing, non-archived, non-finalize-owned show reaches `processOneFile_unlocked` with a `prepared` value and completes with a real `ProcessOneFileResult` — no `SyncInfraError("processOneFile_unlocked", ...)`. Verified with a live retry against a seeded existing show (the existing tests inject `processOneFile_unlocked`, which is why the defect never surfaced).
+- **AC-2 (first-seen stage emits).** Every terminal `RunManualStageForFirstSeenResult` outcome writes exactly one `sync_log` row: `applied` via the existing tail, every other outcome via the §3.2 single-site emit. Rows written through the helper carry non-NULL `duration_ms`.
+- **AC-3 (throws emit).** A thrown phase-1/phase-2 failure inside `runManualStageForFirstSeen` and a thrown `runOne` inside `runManualSyncForShow` each write one row with `outcome: "parse_error"`, `code: classifySyncFailure(error)`, `payload: errorPayload(error)`, NULL duration — and then rethrow. The caller-visible throw behavior is byte-preserved.
+- **AC-4 (staged apply emits).** A committed live staged apply — first-seen AND existing-show — writes exactly one `sync_log` row with `outcome: "applied"`, non-NULL `duration_ms`, the apply's `parseWarnings`, and (being post-commit) a resolved `show_id`.
+- **AC-5 (no double emission).** No path writes two rows for one attempt: the §3.2 single-site emit skips `applied` (the tail owns it); the staged-apply tail invocation stays sinkless (§3.4 owns the applied row at its post-commit site).
+- **AC-6 (scoped).** AC-2 through AC-4 govern the surfaces this spec touches. The §1.1 ratified-silent branches and the §6 limits are excluded by name, not by omission.
+
+## 3. Design
+
+### 3.1 Retry route: prepare in-route, thread `prepared` through
+
+**Decision: the route calls `prepareProcessOneFile` itself, inside its held row lock, and `runManualSyncForShow_unlocked` gains a required `prepared` parameter that it forwards.**
+
+Mechanism:
+
+- `runManualSyncForShow_unlocked(tx, driveFileId, mode, fileMeta, deps, prepared)` — new **sixth, required** parameter of type `PreparedProcessOneFile` (`lib/sync/runScheduledCronSync.ts:2944-2999`), forwarded as the sixth argument at `lib/sync/runManualSyncForShow.ts:286-293`. Required, not optional: an optional parameter re-creates the shipped defect for the next caller; required makes the omission a compile error (the precedent is `ProcessOneFileResult.applied.parseWarnings`, made required exactly so a future caller "cannot silently drop the channel", `lib/sync/runScheduledCronSync.ts:427-431`). The route's injectable signature at `app/api/admin/pending-ingestions/[id]/retry/route.ts:59-65` widens to match.
+- In the route's existing-show branch, after the watched-folder check (`app/api/admin/pending-ingestions/[id]/retry/route.ts:431-434`): `const prepared = await prepareProcessOneFile(row.drive_file_id, "manual", metadata, processDeps)` with the same `processDeps` object the sync call receives (`{ logSync: writeSyncLog }`), then pass `prepared` to `runManualSyncForShowUnlocked`.
+- `prepared.kind` dispatch needs no new handling: `processOneFile_unlocked` already handles every kind — `skip`, `asset_recovery`, `revision_race_cooldown`, `revision_race`, `fetch_failure`, `ready` — with in-lock `logSync` emission per kind (`lib/sync/runScheduledCronSync.ts:3480-3506`). Threading `prepared` therefore buys the retry path the full cron emission surface for free.
+
+Why in-lock preparation is correct here:
+
+- The route's own first-seen branch already runs its full preparation — sheet export, parse, Drive enrichment — inside the same held lock (`prepareFirstSeenStage` at `app/api/admin/pending-ingestions/[id]/retry/route.ts:497`). The existing-show branch simply gains parity.
+- Manual mode takes no watermark skip and no revision-race cooldown inside `prepareProcessOneFile`: the watermark gate is automatic-mode-only (`isAutomaticMode`, `lib/sync/perFileProcessor.ts:58-60`) and cooldown checks are gated on `shouldUseRevisionRaceCooldown(mode)` = cron/push only (`lib/sync/runScheduledCronSync.ts:2488-2490`, checked at `lib/sync/runScheduledCronSync.ts:3031` and `lib/sync/runScheduledCronSync.ts:3062`). A manual retry cannot be spuriously skipped by preparation.
+- A `captureBinding`/fetch failure does not throw out of `prepareProcessOneFile` — it returns `kind: "fetch_failure"` (`lib/sync/runScheduledCronSync.ts:3054-3061`), which `processOneFile_unlocked` routes to `handleFetchFailure_unlocked` (`lib/sync/runScheduledCronSync.ts:3497-3506`), the same recovery cron uses.
+
+**Rejected: switching the route to the locked `runManualSyncForShow` entry point.** The route already holds the per-show advisory lock for `driveFileId` via `withRowTryLock` (`app/api/admin/pending-ingestions/[id]/retry/route.ts:400`, wrapping `withPostgresSyncPipelineLock` at `app/api/admin/pending-ingestions/[id]/retry/route.ts:121-126`). `runManualSyncForShow` acquires the same key again on separate connections (`lib/sync/runManualSyncForShow.ts:301-302`, blocking `tryOnly: false`) — a second holder on one hashkey, which is precisely the nested-holder deadlock invariant 2's single-holder rule prohibits. Restructuring to release the row lock first would forfeit the `FOR UPDATE` pending-ingestions row guard (`readLockedPendingIngestion`, `app/api/admin/pending-ingestions/[id]/retry/route.ts:237-250`) and the in-tx response reads, for no observability gain. The lock topology stays: the route is the single holder; callees assert (`assertShowLockHeld` at `lib/sync/runManualSyncForShow.ts:277`, `lib/sync/runScheduledCronSync.ts:3445`).
+
+### 3.2 `runManualStageForFirstSeen`: one exhaustive emit site
+
+**Decision: emit once, at the function's return boundary, from an exhaustive switch on the result outcome — not per early-return branch.**
+
+The per-branch shape (an emit before each `return` in `toResult`) is the shape that failed: a future branch added without its emit is silent again. A single site after `toResult` resolves, switching exhaustively on `RunManualStageForFirstSeenResult["outcome"]` (`lib/sync/runManualStageForFirstSeen.ts:40-59`), makes a new outcome variant a compile error until the mapping says what it records (tsc exhaustiveness via `never`-check). This is the derived-cover lesson from the parent arc — five hand-enumerated covers came up short there (parent spec §3.5.1).
+
+`logSync` (the module-private helper at `lib/sync/runScheduledCronSync.ts:2284-2311`) is exported so this module reuses the single duration/entry-shape implementation instead of a drifting copy. The emit passes `depsWithStart` (`lib/sync/runManualStageForFirstSeen.ts:216-219`, already captured), so every helper-written row carries duration.
+
+Outcome mapping (cron-parity where a cron twin exists):
+
+| Result outcome | Emitted entry | Cron twin |
+| --- | --- | --- |
+| `applied` | **no emit** — `emitSuccessfulPhase2Tail` already wrote it (`lib/sync/runManualStageForFirstSeen.ts:161` → `lib/sync/runScheduledCronSync.ts:2485`) | `lib/sync/runScheduledCronSync.ts:3807` |
+| `parsed_pending_review` | `{ outcome: "stage", stagedId }` | `lib/sync/runScheduledCronSync.ts:3620-3624` |
+| `hard_failed` | `{ outcome: "hard_fail", code: errorCode, showId: null }` (first-seen: no show row exists) | `lib/sync/runScheduledCronSync.ts:3552-3561` |
+| `deferred` | `{ outcome: "skipped", reason }` + payload `{ kind: "mi8_debounce_skip", reason }` | `lib/sync/runScheduledCronSync.ts:3625-3631` |
+| `parsed` | `{ outcome: "skipped", reason: "first_seen_phase1_pass" }`, payload carries `stagedId` when present | none — see below |
+
+The `parsed` row is the one mapping without a cron twin: phase-1 `pass` means "existing show, clean parse" (`lib/sync/phase1.ts:591`, reachable only when a `shows` row exists, `lib/sync/phase1.ts:587-589`), which on the first-seen stage path is a degenerate no-op — the function stages nothing and applies nothing. Recording it as a skip with a distinct reason keeps the row truthful; `status` is free text, so the new reason string is sink-legal as-is. This mapping also covers the `?? { outcome: "parsed" }` fallback at `lib/sync/runManualStageForFirstSeen.ts:252-254`.
+
+The `hard_failed` mapping deliberately absorbs the phase-2 `stale` branch (`lib/sync/runManualStageForFirstSeen.ts:144-146`, which returns `hard_failed` carrying `phase2.code`): the sink's `status` column records the code either way (`statusFor`, `lib/sync/syncLog.ts:17-19`), so only the `message` prefix differs from cron's `stale:` row. Fidelity of the returned API is unchanged; one emit site outweighs a cosmetic message-prefix parity.
+
+**Thrown attempts:** the body from the `runPhase1` await through `toResult` (`lib/sync/runManualStageForFirstSeen.ts:228-255`) is wrapped; on catch, emit `{ outcome: "parse_error", code: classifySyncFailure(error), payload: errorPayload(error) }` (`classifySyncFailure` at `lib/sync/runScheduledCronSync.ts:2578`, `errorPayload` at `lib/sync/runScheduledCronSync.ts:2339`) **without** the helper's start (direct sink call → NULL duration, §1.1 escaped-throw rule), then rethrow. Cron parity: the file-loop escaped-throw catch at `lib/sync/runScheduledCronSync.ts:4104-4114`. The rethrow preserves the route's existing `PENDING_INGESTION_RETRY_FAILED` → 500 behavior.
+
+**Emission failure posture:** these emits run in-lock through the injected sink, exactly like the existing tail emission on this path; a sink throw propagates and aborts the attempt (unchanged posture — the tail's `logSync` at `lib/sync/runScheduledCronSync.ts:2485` already behaves this way). No new swallow.
+
+### 3.3 `runManualSyncForShow`: catch the escaped throw
+
+Wrap the `runOne` await (`lib/sync/runManualSyncForShow.ts:430-468`). On catch: emit via `deps.processDeps?.logSync` directly — `{ driveFileId, outcome: "parse_error", code: classifySyncFailure(error), payload: errorPayload(error) }`, NULL duration — then rethrow. This is the manual twin of the cron file-loop catch (`lib/sync/runScheduledCronSync.ts:4104-4114`), minus the escalation alert: cron has no operator watching, so it raises a durable per-show alert (`emitEscapedSyncFailureAlert`, `lib/sync/runScheduledCronSync.ts:4119-4126`); the manual paths rethrow into a route/action that returns the failure to the operator who just clicked, and duplicating that signal as an alert was considered and rejected.
+
+The emit happens after the lock callback has unwound (the throw already tore it down), on the sink's own connection — no lock is held. The DEF-3 blocked branches and the preflight `ConcurrentSyncSkipped` sentinel (`lib/sync/runManualSyncForShow.ts:309-323`) stay silent per §1.1; in-attempt lock contention already emits `CONCURRENT_SYNC_SKIPPED` inside `processOneFile` (`lib/sync/runScheduledCronSync.ts:2891-2894`).
+
+### 3.4 Staged apply: one post-commit applied row at the shared chokepoint
+
+**Decision: `applyStaged` itself emits the applied row, post-commit, in the existing live tail region — routes change nothing. The ledger's literal suggestion (routes inject tail deps) is rejected.**
+
+Why not tail-deps injection from the routes:
+
+- `firstPublishedTailDeps` **replaces** the tail's whole deps object (`lib/sync/applyStaged.ts:1492`), whose default is the tx-bound `upsertAdminAlert` that writes `SHOW_FIRST_PUBLISHED` through the apply transaction — the R3 fix for the FK-on-uncommitted-show rollback (`lib/sync/applyStaged.ts:1487-1500`; "intentionally NOT defaulted here (no tx in scope)", `lib/sync/applyStaged.ts:990-991`). A route cannot construct that tx-bound writer, so route injection either clobbers the R3 fix or demands a second seam. The field stays test-injectable only.
+- Per-route injection is a hand-enumerated cover — the exact shape that failed five times in the parent arc. A default at the shared chokepoint covers both live routes today and every future caller by construction.
+- The tail runs **inside** the apply tx; emitting there writes the attempt row before commit and — for first-seen — permanently NULL-attributed (parent spec §6, first limit). The post-commit region emits after the show row is visible, so the staged path's applied row attributes even at show birth. The existing-show staged apply never reaches the tail at all (`autoPublishFirstSeen` gate, `lib/sync/applyStaged.ts:1474`), so the tail was never a single point for this surface; the post-commit region is.
+
+Mechanism:
+
+- New optional `ApplyStagedDeps.logSync?: ProcessOneFileDeps["logSync"]`, defaulted to `writeSyncLog` (`lib/sync/syncLog.ts:65`) in `depsWithDefaults` (`lib/sync/applyStaged.ts:957-998`) like its sibling defaults. Tests inject a spy; production needs no route changes.
+- `applyStaged`'s live branch (`lib/sync/applyStaged.ts:1947-1952`) captures `attemptStartedAtMs` from `deps.now` before `applyLiveWithDriveReverify`, mirroring `processOneFile` (`lib/sync/runScheduledCronSync.ts:2843-2844`).
+- In the live post-commit region, ahead of the existing steps (the same drop-prevention argument that placed the variant emit first, `lib/sync/applyStaged.ts:1969-1975`): on `result.outcome === "applied"`, call the exported `logSync` helper with `{ logSync: sink, attemptStartedAtMs, now }`, `driveFileId`, and a `ProcessOneFileResult`-shaped applied value `{ outcome: "applied", showId, parseWarnings, appliedRoleMappings }`. The emit is wrapped in its own try/catch with a `log.error` escalation (fail-open: a sink failure must not turn a committed apply into an error response — the region's ratified per-step isolation contract, `lib/sync/applyStaged.ts:1969-1989`). This is the "recorded or signaled" half of the consequence bound.
+- `parseWarnings` is carried out on the applied `ApplyStagedResult` variant (`lib/sync/applyStaged.ts:261-280`) as a **required** field sourced from `coreResult.parseWarnings` at the applied-result build (`lib/sync/applyStaged.ts:1450-1459`) — the same tsc-forced pattern that protects the tail (`lib/sync/applyStaged.ts:1478-1484`). `appliedRoleMappings` already rides the type (`lib/sync/applyStaged.ts:279`).
+- The tail invocation keeps its sinkless deps; its site comment and both routes' `sync-log-emission-gap` markers are rewritten to point here (the gap is closed; the tail's no-op `logSync` on this path becomes a documented non-site, not a filed defect).
+
+**Non-applied live outcomes stay unemitted — a documented limit, not an oversight (§6).** They are apply-request dispositions, not sync attempts: reviewer rejections (`discarded`), staleness refusals (`superseded`, `outdated`, `revision_race`), and preflight failures (`source_gone`, `source_out_of_scope`) each return a typed code the operator sees synchronously, `restoreShowStatus` reinstates the prior sync status, contention already has a durable record (`STAGED_APPLY_CONCURRENT_SKIPPED`, `lib/sync/applyStaged.ts:1961-1967`), the committed applies land in `sync_audit`, and a persistently broken source re-surfaces through cron's own emitting passes. Emitting them would push reviewer-workflow dispositions into a table whose question is "has this show been failing?" (the parent spec's operator question, its §3.3.1).
+
+## 4. Completeness and invariant conformance
+
+- **Invariant 2 (advisory lock):** no lock acquisition moves. §3.1 keeps the route as single holder; §3.2 emits on the already-held path; §3.4 emits strictly after `withPipelineLock` resolves. The structural guard at `tests/auth/advisoryLockRpcDeadlock.test.ts` is unaffected (no new holder layer).
+- **Invariant 9 (call-boundary):** no new Supabase client calls; `writeSyncLog` is postgres.js. New catch blocks either rethrow (§3.2, §3.3) or escalate via coded `log.error` (§3.4) — nothing is swallowed.
+- **Invariant 10 (mutation-surface observability):** no new mutation surface unit is created. All three touched routes already carry their registry membership and success-branch emits (`PENDING_INGESTION_RETRIED` at `app/api/admin/pending-ingestions/[id]/retry/route.ts:577`, `SHOW_APPLIED` at `app/api/admin/staged/[fileId]/apply/route.ts:180-186` and `app/api/admin/show/staged/[stagedId]/apply/route.ts:182-188`). The additions here are extra emission, never removal, so `tests/log/_metaMutationSurfaceObservability.test.ts` and `tests/log/adminOutcomeBehavior.test.ts` stay green by construction; the plan verifies rather than edits the registries.
+- **DB tier × layer matrix:** N/A — no DDL, no CHECK, no RPC, no trigger change. `sync_log.status` is uncontracted text (`supabase/migrations/20260501001000_internal_and_admin.sql:225`); new status strings (`first_seen_phase1_pass`) and reuse of existing ones require no migration, no `gen:schema-manifest` regen, no validation-project apply.
+- **§12.4 catalog:** untouched. `sync_log` statuses render in the developer-facing `observe` CLI, not in admin/crew UI; no error-code row changes.
+- **Flag lifecycle:** no new boolean flag. The new deps (`prepared`, `logSync`) are value/function parameters with write path (caller), read path (callee), and effect (emission) all specified above.
+- **UI surface:** none. `impeccable-gate: N/A — no UI surface` (plan carries the closeout marker).
+
+## 5. Testing posture
+
+The class this arc exists to kill is **tests that inject at the level that bypasses the defect** — the shipped tests injected `logSync` at the helper level (never exercising the early returns) and injected `processOneFile_unlocked` (never exercising the missing sixth argument). Every new test asserts through the seam the defect lived in:
+
+- **§3.1:** a test drives the real `runManualSyncForShow_unlocked` with an injected `processOneFile_unlocked` **spy that asserts six arguments** and a `prepared` of each kind; a second, env-bound live-DB test runs the real route handler against a seeded existing show and asserts a `sync_log` row lands and the response is not 500 (AC-1's live-probe requirement; mocked-only APPROVE is the documented tautology trap for exactly this surface).
+- **§3.2:** tests drive the real `runManualStageForFirstSeen` with injected `runPhase1`/`runPhase2` returning each outcome (`stage`, `hard_fail`, `pass`, `defer`, phase-2 `stale`) and a sink spy, asserting one row per outcome with the §3.2 mapping — expected values derived from the injected fixtures, not hardcoded. A throwing `runPhase1` and a throwing `runPhase2` each assert the `parse_error` row + rethrow. An exhaustiveness guard (the `never`-check in the emit switch) is the compile-time cover for future outcomes.
+- **§3.3:** the probe from the ledger, inverted into a test: injected `runOne` throwing with `processDeps.logSync` installed asserts exactly one `parse_error` row and the rethrow.
+- **§3.4:** tests drive real `applyStaged` (live scope) with an injected sink and clock, asserting the applied row's `parseWarnings` equal the staged fixture's warnings (source-derived, anti-tautology), `duration_ms` equals the injected clock delta, and — in the env-bound variant — `show_id` resolves post-commit for a first-seen apply. A sink-throw test asserts the response is still success and the escalation fired (fail-open pin).
+- **Premise rule:** each guard test states its premise executably (`tests/_shared/premise.ts`) — e.g., the §3.2 mapping test first asserts the branch under test actually returns before the tail, so the test cannot pass vacuously if the control flow moves.
+
+Existing pins that must stay green, unchanged: `tests/sync/runOfShowSyncLogChannel.test.ts` (tail emission), `tests/api/admin/pendingIngestionRetryPostCommitIsolation.test.ts` (post-commit tail isolation), `tests/sync/manualSyncInstallsSink.test.ts` (parent-arc sink-installation pins), `tests/sync/runManualStageForFirstSeen.test.ts` (existing first-seen stage behavior).
+
+## 6. Documented limits
+
+Deliberate, and not findings:
+
+- **Non-applied live staged-apply outcomes write no `sync_log` row** (§3.4 rationale). If operational need emerges, that is a new scope decision, not a regression of this one.
+- **Wizard staged applies and all §1.1 ratified-silent refusal branches stay silent.**
+- **In-lock emissions on the first-seen stage path can record an attempt whose enclosing route tx later rolls back** (the sink's connection commits independently). This is the established exposure of every in-lock `sync_log` write, cron included; the row over-reports at worst one aborted attempt, never under-reports a completed one.
+- **`duration_ms` on the staged-apply row measures from `applyStaged` entry** — route-level auth/body parsing excluded; the parent §3.3 runner-boundary limit, on a third surface.
+- **Thrown-attempt rows carry NULL duration** (§1.1, parent §3.3.1).
+- **The retry route's outer catch (`PENDING_INGESTION_RETRY_FAILED`) does not additionally write `sync_log`.** Throws that escape §3.2/§3.3's emits (e.g., inside the route body before any runner starts) remain `app_events`-only, as today.
+- **`observe synclog` output layout is unchanged** — new rows ride existing columns; no CLI change.
+
+## 7. Out of scope
+
+- Emitting sync outcomes into `app_events` (store consolidation, tracked by `BL-OPS-LOG-DASHBOARD-BANNER`).
+- `writeSyncLog` per-write connection churn (parent §7).
+- Duration for the parent §3.3.1 NULL-by-design writers.
+- The descoped attribution meta-test / writer-reachability guard (parent §3.6, filed separately as the signature-keyed accept-set entry in BACKLOG.md).
+- Any admin-facing UI.
