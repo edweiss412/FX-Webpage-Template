@@ -125,7 +125,7 @@ test("helper surfaces enriched diagnostics when a show never mounts (dead slug)"
 
 The regex pins all three substrings (modal testid, boundary testid, server signature) in the order every helper failure message emits them, so an incidental REAL 502 during this navigation (boundary path → retry → still no modal) still passes.
 
-- [ ] **Step 5: Diagnostic case — RED.** `pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --grep "dead slug" --project=desktop-chromium` — fails: the stub's bare modal-only timeout message contains NONE of the three pinned substrings, so the regex cannot match. (The three band cases also still pass against the stub — its happy path is the pre-fix behavior.)
+- [ ] **Step 5: Diagnostic case — RED.** `pnpm heavy pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --grep "dead slug" --project=desktop-chromium` (non-interactive playwright: always under the semaphore) — fails: the stub's bare modal-only timeout message contains NONE of the three pinned substrings, so the regex cannot match. (The three band cases also still pass against the stub — its happy path is the pre-fix behavior.)
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
 - [ ] **Step 6: Implement the full helper** — replace the stub body of `tests/e2e/helpers/openShowReviewModal.ts` with the spec §4.1 contract, steps 1-7:
@@ -223,7 +223,7 @@ Every failure message carries BOTH the modal selector and the server signature �
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
 - [ ] **Step 7: Run the unit test — GREEN.** `pnpm vitest run tests/e2e/helpers/openShowReviewModal.unit.test.ts` (the enrolled command: observed red in Step 3, green now, same command).
 
-- [ ] **Step 8: Diagnostic case — GREEN.** Re-run Step 5's exact scoped command — passes now that the helper emits the three-substring enriched error.
+- [ ] **Step 8: Diagnostic case — GREEN.** Re-run Step 5's exact scoped command (under `pnpm heavy`) — passes now that the helper emits the three-substring enriched error.
 
 - [ ] **Step 9: Local e2e run — 8/8.** `pnpm heavy pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium` against a freshly seeded local DB (`pnpm db:seed` first; confirm no sibling arc is mid-e2e on the shared stack). Expected: 8 passed — (3 bands + 1 diagnostic) × 2 projects.
 
@@ -405,7 +405,7 @@ describe("check-app-e2e-executed annotation print seam", () => {
 (Adjust the identity fields to whatever the oracle's `walk` actually reads — `spec.file`, `spec.line`, `spec.title`, `test.projectId`, one `results[0].status === "passed"` — so every floor is met on first attempt. `execFileSync` throws on non-zero exit, which doubles as the exit-0 assertion.)
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 2: Run the ENROLLED command — RED a.** `pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` — the annotation test fails (the oracle prints no `infra-recovery` lines; its only stdout path today is the floor summary, `scripts/check-app-e2e-executed.mjs:152-157`) while the wiring test is still green. Always this exact two-file command — the task marker's red-then-green is observed on the SAME command.
+- [ ] **Step 2: Run the ENROLLED command — RED a.** `pnpm heavy pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` (wrapped by the TRANSITIVE-shape rule: the wiring test spawns non-interactive `playwright test --list`, `tests/cross-cutting/app-e2e-ci-wiring.test.ts:72`; the wrapper execvps into the command, so the marker's red-then-green is still observed on the same command) — the annotation test fails (the oracle prints no `infra-recovery` lines; its only stdout path today is the floor summary, `scripts/check-app-e2e-executed.mjs:152-157`) while the wiring test is still green. Always this exact two-file command — the task marker's red-then-green is observed on the SAME command.
 
 - [ ] **Step 3: Implement the print duty.** In `scripts/check-app-e2e-executed.mjs`: add the exported collector next to `REQUIRED`:
 
@@ -450,16 +450,16 @@ console.log(`infra-recovery total: ${recoveries.length}`);
 Informational only — never a gate (a recovered run is a green run by design).
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 4: Run the enrolled command — annotation half GREEN.** `pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` — both green (the wiring edits have not started yet).
+- [ ] **Step 4: Run the enrolled command — annotation half GREEN.** `pnpm heavy pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts` — both green (the wiring edits have not started yet).
 
-- [ ] **Step 5: Re-wire, observing RED b on the same command.** Edit `.github/workflows/app-e2e.yml:144`: add `tests/e2e/admin-changes-feed-layout.spec.ts` to the run-step file list. Run the ENROLLED two-file command again (`pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts`) — RED b: the wiring test fails because `REQUIRED` lacks the row the workflow now runs at live resolution. Then:
+- [ ] **Step 5: Re-wire, observing RED b on the same command.** Edit `.github/workflows/app-e2e.yml:144`: add `tests/e2e/admin-changes-feed-layout.spec.ts` to the run-step file list. Run the ENROLLED two-file command again (`pnpm heavy pnpm vitest run tests/ci/appE2eAnnotationPrint.test.ts tests/cross-cutting/app-e2e-ci-wiring.test.ts`) — RED b: the wiring test fails because `REQUIRED` lacks the row the workflow now runs at live resolution. Then:
   - `scripts/check-app-e2e-executed.mjs` `REQUIRED`: add `"admin-changes-feed-layout.spec.ts": 8` — (3 bands + 1 diagnostic) × 2 projects (`playwright.config.ts` testMatch resolves the spec in BOTH mobile-safari and desktop-chromium). Registry reconciliation, run at plan time: `grep -c '\.spec\.ts":' scripts/check-app-e2e-executed.mjs` → 8 rows today; 9 after; delta exactly this row.
   - Reconcile EVERY count-bearing comment. Sweep authored AND run at plan time (2026-08-15): `grep -n "eight\|nine\|69\|77" .github/workflows/app-e2e.yml scripts/check-app-e2e-executed.mjs` hits exactly these sites — `.github/workflows/app-e2e.yml:2` ("eight specs" → nine), `.github/workflows/app-e2e.yml:11` ("taking the count to eight" — inside the paragraph rewritten below), `scripts/check-app-e2e-executed.mjs:23-27` header ("EIGHT wired specs, 69 executions" → NINE wired specs, 77 executions = 69 + this spec's 8; the AC-4-drop sentence at line 25 is superseded by the re-entry). Re-run the sweep after editing; zero stale hits.
   - Delete the allowlist row `tests/ci/_metaE2eWorkflowCoverage.test.ts:119` (`"tests/e2e/admin-changes-feed-layout.spec.ts": UNSEEN,`).
   - Rewrite the `.github/workflows/app-e2e.yml:5-14` header paragraph: the spec re-enters with the wait-helper repair; cite `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md`.
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 6: Run — GREEN b.** The enrolled two-file command passes; then also `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` (allowlist-row removal verified).
+- [ ] **Step 6: Run — GREEN b.** The enrolled two-file command (under `pnpm heavy`, as in Step 2) passes; then also `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` (static file walk, unwrapped).
 
 - [ ] **Step 7: Commit.** `infra: re-admit admin-changes-feed-layout to app-e2e batch 1; oracle prints infra recoveries`
 
@@ -473,17 +473,13 @@ Informational only — never a gate (a recovered run is a green run by design).
 - Modify: `BACKLOG-archive.md` (receiving archive entry)
 - Modify: `docs/superpowers/plans/ci/README.md` (index row for this plan — the spec's row landed with the spec commit)
 
-Steps:
+Mid-PR steps (safe while work is in flight — the graduation itself is NOT here; it is Task 5's final commit, because the ledger marker must live for exactly as long as the work and the archive rejects in-flight entries):
 
-- [ ] **RED first — enroll the graduation.** Add `{ id: "BL-CHANGES-FEED-MODAL-BATCH-FLAKE", provenance: "fix/changes-feed-batch-flake" }` to the `BACKLOG_GRADUATED` registry (`tests/docs/_metaDeferralLedgerGraduation.test.ts:95`) BEFORE moving the entry. Run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — RED: the id is still in `BACKLOG.md` and absent from the archive ("every graduated id is archive-only", the test at `tests/docs/_metaDeferralLedgerGraduation.test.ts:595`). This is the TDD seam R2 named: an unenrolled graduation lets a deleted-but-never-archived entry pass silently.
-- [ ] Graduate `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` to `BACKLOG-archive.md`, recording the measured mechanism and explicitly correcting the filed fixture-collision theory (spec §2.3) so no future reader re-derives it. In the SAME commit, amend the umbrella AC-4-drop paragraph at `BACKLOG.md:665` (the batch-1 narrative asserting "a cross-spec interaction") — it survives graduation and would keep asserting the disproven theory; point it at the archive entry and the measured mechanism. The `**Status:** IN PROGRESS · **Branch:**` marker comes OFF in the PR's LAST commit (invariant 12; archives categorically reject in-flight entries — the graduation and the marker removal land together in that final commit).
 - [ ] File `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` (deferral reason (c); member list derived by re-running the spec §8.1 greps at filing time; `**Reachability:** INFERRED, NOT PROBED` per-spec, with this arc's CI evidence as the class proof).
 - [ ] File `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE` (deferral reason (a): reverses the ratified fail-hard posture, `app/admin/_showReviewModal.tsx:25-30`; evidence = spec §2.1 log excerpts).
 - [ ] Verify this plan's row in `docs/superpowers/plans/ci/README.md` (it landed with the plan commit at `docs/superpowers/plans/ci/README.md:15` — do NOT add a duplicate).
-- [ ] Prepend a new segment to the `Last reconciled:` line (`BACKLOG.md:7`), demoting the current segment behind `Prior:` per the line's own convention — the graduation and the two filings are the reconciliation event. **In the same commit**, update the exact-text exemption row for that line in `tests/docs/_retiredIdentifiers.ts:188-193` (the whole `Last reconciled:` line is pinned verbatim there): replace the row's `text` with the NEW full line. Editing one without the other leaves both an unexempted hit and a stale exemption (`tests/docs/retiredIdentifierReferences.test.ts:235` and `tests/docs/retiredIdentifierReferences.test.ts:244`).
-- [ ] Run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — GREEN on the SAME command that was red (archive-only + provenance-in-section now hold).
-- [ ] Run `pnpm vitest run tests/docs` — GREEN: retired-identifier exemption parity, ledger shape, review-round economy, invariant-8 closeout guards.
-- [ ] Commit: `docs: graduate BL-CHANGES-FEED-MODAL-BATCH-FLAKE; file helper-adoption and read-posture peers`
+- [ ] Run `pnpm vitest run tests/docs` — GREEN (the two new filings satisfy the ledger filing bar; nothing graduated yet).
+- [ ] Commit: `docs: file helper-adoption and read-posture peers`
 
 ### Task 5: Pre-push gates, PR, five-green loop (closeout)
 
@@ -491,7 +487,11 @@ Steps:
 - [ ] Push; open the PR (merge-commit convention). Whole-diff codex cross-model review to APPROVE (split tight-scope per surface if the diff exceeds a handful of files).
 - [ ] **AC-5:** five consecutive green `pull_request` runs of `app-e2e.yml` with the spec wired in (`--retries=0` pinned by the run step; the executed-count oracle enforces the 8-case floor each run). Any red restarts the count; a red whose server log shows a non-`show_review_snapshot_failed` cause is triaged on its own merits.
 - [ ] **AC-6:** report every `infra-recovery` line from those five runs' job logs in the PR body (count may be zero — say so explicitly).
-- [ ] Invariant-12 marker removal + Task 4's archive graduation land in the PR's last commit, before merge.
+- [ ] **Final commit — graduation + marker removal (AFTER review APPROVE and the five-green loop; nothing lands after this commit except the merge):**
+  - **RED first — enroll the graduation.** Add `{ id: "BL-CHANGES-FEED-MODAL-BATCH-FLAKE", provenance: "fix/changes-feed-batch-flake" }` to `BACKLOG_GRADUATED` (`tests/docs/_metaDeferralLedgerGraduation.test.ts:95`) BEFORE moving the entry; run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — RED: the id is still in `BACKLOG.md`, absent from the archive ("every graduated id is archive-only", `tests/docs/_metaDeferralLedgerGraduation.test.ts:595`). An unenrolled graduation would let a deleted-but-never-archived entry pass silently.
+  - Graduate the entry to `BACKLOG-archive.md`, recording the measured mechanism and explicitly correcting the filed fixture-collision theory (spec §2.3). In the SAME commit: remove the `**Status:** IN PROGRESS · **Branch:**` marker (invariant 12 — the marker comes off in the PR's last commit; archives reject in-flight entries, so graduation and marker removal are inseparable); amend the umbrella AC-4-drop paragraph at `BACKLOG.md:665` (it would otherwise keep asserting the disproven cross-spec-interaction theory) to point at the archive entry; prepend the `Last reconciled:` segment (`BACKLOG.md:7`), demoting the current segment behind `Prior:`; and update that line's verbatim exemption row in `tests/docs/_retiredIdentifiers.ts:188-193` — editing one without the other leaves an unexempted hit AND a stale exemption (`tests/docs/retiredIdentifierReferences.test.ts:235` and `tests/docs/retiredIdentifierReferences.test.ts:244`).
+  - Re-run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — GREEN on the same command; then `pnpm vitest run tests/docs` — GREEN (exemption parity, ledger shape, economy, closeout guards).
+  - Commit: `docs: graduate BL-CHANGES-FEED-MODAL-BATCH-FLAKE; drop the in-flight marker`. This docs-only commit triggers one more `pull_request` run — it must also be green, and the five-green count (AC-5) is measured on the runs BEFORE it plus this one; a red here restarts nothing product-side (docs-only) but blocks merge until green.
 - [ ] Merge (`gh pr merge --merge`), fast-forward local main, verify `git rev-list --left-right --count main...origin/main` → `0  0`.
 
 ## 12. Closeout
