@@ -100,29 +100,14 @@ export function runSuite(
   suite: string,
   context: string,
 ): number {
-  // `spawnSync`, not `execFileSync`, for ONE reason: it returns the child's PID
-  // even on a timeout, and that pid is the root of the tree this has to reap.
-  // The chain here is pnpm -> vitest -> a forked pool worker, and it is the
-  // WORKER that runs the mutant; Node's timeout signals only the pnpm launcher,
-  // leaving the worker spinning on the infinite loop while the run scores the
-  // mutant and moves on (whole-diff R2 F1).
-  const result = spawnSync("pnpm", ["exec", "vitest", "run", "--config", CONFIG], {
-    cwd: root,
-    stdio: "pipe",
-    encoding: "utf8",
-    timeout: MUTANT_TIMEOUT_MS,
-    // SIGTERM is what vitest's own watchdogs and this machine's idle-process
-    // reaper use, and a vitest child can trap it; SIGKILL cannot be trapped,
-    // so the ceiling is a ceiling.
-    killSignal: "SIGKILL",
-    env: {
-      ...process.env,
-      MUTATION_ROOT: root,
-      MUTATION_TARGET: target,
-      MUTATION_MUTANT: mutantFile,
-      MUTATION_SUITE: suite,
-    },
-  });
+  const env = {
+    ...process.env,
+    MUTATION_ROOT: root,
+    MUTATION_TARGET: target,
+    MUTATION_MUTANT: mutantFile,
+    MUTATION_SUITE: suite,
+  };
+  const { result, ownGroup } = spawnChild(root, env);
 
   // A timeout kill and this machine's idle-process reaper arrive in the SAME
   // shape — no exit status, a signal — so the code is the only thing that tells
@@ -130,14 +115,14 @@ export function runSuite(
   // would have finished, and folding it into KILLED would score a kill the suite
   // never earned; a timeout is the mutant's own doing (see MUTANT_TIMEOUT_EXIT).
   if (result.error && (result.error as { code?: string }).code === "ETIMEDOUT") {
-    killTree(result.pid);
+    killProcessGroup(result.pid, ownGroup);
     return MUTANT_TIMEOUT_EXIT;
   }
   if (typeof result.status === "number") return result.status;
-  // Every remaining shape is a child that produced no exit status. The tree
-  // reap runs here too: a signalled or failed-to-spawn child can still have left
+  // Every remaining shape is a child that produced no exit status. The group
+  // kill runs here too: a signalled or failed-to-spawn child can still have left
   // descendants, and this run is about to abort rather than reap them later.
-  killTree(result.pid);
+  killProcessGroup(result.pid, ownGroup);
   throw new MutantRunInfraError(
     `${context} [${suite}]`,
     result.signal ?? null,
@@ -146,27 +131,65 @@ export function runSuite(
 }
 
 /**
- * SIGKILL a spawned child AND every descendant it left behind.
+ * The argv that makes the child a process-GROUP LEADER before it becomes the
+ * command.
  *
- * A process GROUP kill is not available here: `spawnSync` runs the child in this
- * process's own group and does not accept `detached`, so the negative-pid form
- * would signal the harness itself. The tree is walked instead, from a pid this
- * function's caller spawned — never a pattern, never a name — so it can only
- * ever reach descendants of that one child.
- *
- * Children are killed BEFORE their parent: reaping the parent first reparents
- * the survivors to init, where this walk can no longer find them. Already-exited
- * pids raise ESRCH, which is the common case and not an error.
+ * `setpgrp` puts the process in a new group whose id is its own pid; `exec`
+ * then replaces it with the real command, keeping that group. Node cannot do
+ * this itself — `spawnSync` accepts no `detached` and there is no `setpgid`
+ * binding — and it is the only way the reap below can work AT ALL: `spawnSync`
+ * returns only after killing the process it spawned, so by then every
+ * descendant has been reparented to init and no parent-based walk can find
+ * them (whole-diff R3 F1). A process group outlives its leader; a parent link
+ * does not.
  */
-export function killTree(pid: number | undefined): void {
-  if (pid === undefined) return;
-  const children = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" });
-  for (const line of (children.stdout ?? "").split("\n")) {
-    const child = Number(line.trim());
-    if (Number.isInteger(child) && child > 0) killTree(child);
+export const GROUP_LEADER_ARGV = ["-e", "setpgrp; exec @ARGV", "--"] as const;
+
+const CHILD_ARGS = ["exec", "vitest", "run", "--config", CONFIG] as const;
+
+/**
+ * Spawn the suite child, in its own process group where the platform allows it.
+ *
+ * `perl` ships with macOS and every CI image this runs on. If it is missing the
+ * child is spawned directly and `ownGroup` is false: the run still works and the
+ * timeout still scores, but a hung grandchild survives — degraded, and reported
+ * as such rather than silently assumed.
+ */
+function spawnChild(
+  root: string,
+  env: NodeJS.ProcessEnv,
+): { result: ReturnType<typeof spawnSync>; ownGroup: boolean } {
+  const options = {
+    cwd: root,
+    stdio: "pipe" as const,
+    encoding: "utf8" as const,
+    timeout: MUTANT_TIMEOUT_MS,
+    // SIGTERM is what vitest's own watchdogs and this machine's idle-process
+    // reaper use, and a vitest child can trap it; SIGKILL cannot be trapped,
+    // so the ceiling is a ceiling.
+    killSignal: "SIGKILL" as const,
+    env,
+  };
+  const grouped = spawnSync("perl", [...GROUP_LEADER_ARGV, "pnpm", ...CHILD_ARGS], options);
+  if ((grouped.error as { code?: string } | undefined)?.code !== "ENOENT") {
+    return { result: grouped, ownGroup: true };
   }
+  return { result: spawnSync("pnpm", [...CHILD_ARGS], options), ownGroup: false };
+}
+
+/**
+ * SIGKILL the child's whole process group, tolerating one that is already gone.
+ *
+ * The group id IS the leader's pid, and the group stays valid while any member
+ * lives — which is why this reaches a grandchild that has already outlived its
+ * parent. Without `ownGroup` the negative-pid form would signal THIS process's
+ * group, so it is not attempted: the child is already dead and there is nothing
+ * safe left to do.
+ */
+function killProcessGroup(pid: number | undefined, ownGroup: boolean): void {
+  if (pid === undefined || !ownGroup) return;
   try {
-    process.kill(pid, "SIGKILL");
+    process.kill(-pid, "SIGKILL");
   } catch {
     // already gone
   }

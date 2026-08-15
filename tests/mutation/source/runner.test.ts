@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -15,6 +15,8 @@ const calls: {
   isBaseline: boolean;
   timeout: number | undefined;
   killSignal: string | undefined;
+  cmd: string;
+  args: string[];
 }[] = [];
 let behaviour: Behaviour = {};
 
@@ -22,9 +24,6 @@ vi.mock("node:child_process", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:child_process")>();
   return {
     ...real,
-    // `pgrep` is delegated to the REAL implementation: `killTree` walks a live
-    // process tree, and the descendant-reap case below is only meaningful if
-    // that walk is real. Everything else is the fixture.
     spawnSync: (
       cmd: string,
       args: readonly string[],
@@ -35,14 +34,24 @@ vi.mock("node:child_process", async (importOriginal) => {
         encoding?: string;
       },
     ) => {
-      if (cmd === "pgrep") return real.spawnSync(cmd, args, opts as never);
+      // `ps` is delegated to the REAL implementation: `reapOrphans` reads a live
+      // process table, and the orphan case below is only meaningful if that read
+      // is real.
+      if (cmd === "ps") return real.spawnSync(cmd, args, opts as never);
       const suite = opts.env!.MUTATION_SUITE!;
       // The baseline run overlays the PRISTINE source; every other call overlays
       // a mutant. Reading the overlay file is how the mock tells them apart,
       // which lets a fixture make a suite reject mutants while still passing
       // baseline.
       const isBaseline = readFileSync(opts.env!.MUTATION_MUTANT!, "utf8") === PRISTINE;
-      calls.push({ suite, isBaseline, timeout: opts.timeout, killSignal: opts.killSignal });
+      calls.push({
+        suite,
+        isBaseline,
+        timeout: opts.timeout,
+        killSignal: opts.killSignal,
+        cmd,
+        args: [...args],
+      });
       const entry = behaviour[suite] ?? 0;
       const b = typeof entry === "function" ? entry(isBaseline) : entry;
       if (typeof b === "number") {
@@ -70,9 +79,9 @@ vi.mock("node:child_process", async (importOriginal) => {
  */
 const FIXTURE_PID = 2_147_483_646;
 
-const { MUTANT_TIMEOUT_EXIT, MutantRunInfraError, killTree, runSuite, runSurface } = await import(
-  "./runner"
-);
+const { GROUP_LEADER_ARGV, MUTANT_TIMEOUT_EXIT, MutantRunInfraError, runSuite, runSurface } =
+  await import("./runner");
+
 const { premiseHolds } = await import("../../_shared/premise");
 
 /** Is this pid still alive? Signal 0 tests for existence without delivering one. */
@@ -160,41 +169,53 @@ describe("runner — a mutant that never terminates (fix/ui-interactive-token-po
     runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site");
     expect(calls[0]!.timeout).toBeGreaterThan(0);
     expect(calls[0]!.killSignal).toBe("SIGKILL");
+    // And the child is launched as a process-GROUP LEADER, which is what makes
+    // the reap possible at all: `spawnSync` returns only after killing the
+    // process it spawned, so a parent link is already broken by then.
+    expect(calls[0]!.cmd).toBe("perl");
+    expect(calls[0]!.args.slice(0, GROUP_LEADER_ARGV.length)).toEqual([...GROUP_LEADER_ARGV]);
   });
 
-  it("kills the DESCENDANTS of a timed-out child, not just the child (live, unmocked)", async () => {
-    // The topology this exists for: pnpm -> vitest -> a forked pool worker, with
-    // the infinite mutant running in the worker. Node's timeout signals only the
-    // process it spawned, so before the tree reap a scored-KILLED timeout could
-    // leave the real spinner alive (whole-diff R2 F1). Modelled here with a
-    // parent that spawns a long-lived grandchild and then never exits.
+  it("reaps a grandchild that OUTLIVED its parent (live, unmocked, production order)", async () => {
+    // Production order is the whole point (whole-diff R3 F1): `spawnSync`
+    // returns only AFTER killing the process it spawned, so the survivor has
+    // already been reparented to init and no parent-based walk can find it.
+    // This runs the real sequence — group-leader launch, real timeout, then the
+    // group kill — rather than reaping while the parent is still alive.
     const real = await vi.importActual<typeof import("node:child_process")>("node:child_process");
-    const marker = join(tmpdir(), `runner-tree-${process.pid}.pid`);
+    const pidFile = join(tmpdir(), `runner-orphan-${process.pid}.pid`);
     const script = [
       "const { spawn } = require('node:child_process');",
       "const fs = require('node:fs');",
-      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
-      `fs.writeFileSync(${JSON.stringify(marker)}, String(child.pid));`,
+      "const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+      `fs.writeFileSync(${JSON.stringify(pidFile)}, String(c.pid));`,
       "setInterval(() => {}, 1000);",
     ].join("\n");
-    const parent = real.spawn(process.execPath, ["-e", script], { stdio: "ignore" });
+
+    const timedOut = real.spawnSync(
+      "perl",
+      [...GROUP_LEADER_ARGV, process.execPath, "-e", script],
+      { encoding: "utf8", timeout: 2_000, killSignal: "SIGKILL", stdio: "ignore" },
+    );
+    let grandchild = 0;
     try {
-      // Wait for the grandchild's pid to land, then time the parent out.
+      premiseHolds(
+        "the parent really timed out",
+        (timedOut.error as { code?: string } | undefined)?.code === "ETIMEDOUT",
+      );
+      grandchild = Number(readFileSync(pidFile, "utf8"));
+      premiseHolds("the grandchild started", Number.isInteger(grandchild) && grandchild > 0);
+      premiseHolds("it OUTLIVED its parent, which is the case under test", alive(grandchild));
+      premiseHolds("the parent is gone, so no tree walk can reach it", !alive(timedOut.pid));
+
+      process.kill(-timedOut.pid!, "SIGKILL");
+
       const deadline = Date.now() + 10_000;
-      while (!existsSync(marker) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
-      const grandchild = Number(readFileSync(marker, "utf8"));
-      premiseHolds("the grandchild really started", Number.isInteger(grandchild) && grandchild > 0);
-      premiseHolds("the grandchild is alive before the reap", alive(grandchild));
-
-      killTree(parent.pid);
-
-      const gone = Date.now() + 10_000;
-      while (alive(grandchild) && Date.now() < gone) await new Promise((r) => setTimeout(r, 50));
+      while (alive(grandchild) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
       expect(alive(grandchild)).toBe(false);
-      expect(alive(parent.pid)).toBe(false);
     } finally {
-      rmSync(marker, { force: true });
-      parent.kill("SIGKILL");
+      rmSync(pidFile, { force: true });
+      if (grandchild > 0 && alive(grandchild)) process.kill(grandchild, "SIGKILL");
     }
   }, 30_000);
 

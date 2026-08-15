@@ -2,6 +2,16 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { premiseHolds } from "../_shared/premise";
 import { TAP_TARGET_CENSUS } from "./tapTargetCensus";
+
+/** The declared category set, so a header tally for a name that is not one fails loudly. */
+const CATEGORIES = new Set([
+  "inline-prose-link",
+  "parent-label-target",
+  "full-bleed",
+  "padding-arithmetic",
+  "under-floor-filed",
+  "unresolvable-dynamic",
+]);
 import { scanTapTargets } from "./tapTargetScan";
 
 /** Every entry id the live ledger defines, open or archived. */
@@ -67,5 +77,42 @@ describe("repo-wide tap-height floor (spec §5)", () => {
         ).toContain(r.backlogRef);
       }
     }
+  });
+});
+
+describe("census self-accounting (whole-diff R2 F2 / R3 F2)", () => {
+  // Two review rounds found the same shape: a count written in prose that the
+  // rows no longer support. The counts are DERIVED from the data here, so the
+  // header cannot drift from the registry again — and a category whose tally is
+  // missing from the header fails too, rather than passing by omission.
+  const source = readFileSync("tests/styles/tapTargetCensus.ts", "utf8");
+
+  it("the header's per-category tallies match the rows", () => {
+    // Comment markers and line wraps are stripped first: prettier rewraps this
+    // header on unrelated edits, and a guard that only reads unwrapped lines
+    // would go quiet exactly when the header changed.
+    const header = source
+      .slice(0, source.indexOf("export type TapCensusCategory"))
+      .replace(/^\s*\*/gm, " ")
+      .replace(/\s+/g, " ");
+    const declared = new Map<string, number>();
+    for (const m of header.matchAll(/(\d+) ([a-z-]+)/g)) {
+      const category = m[2]!;
+      if (CATEGORIES.has(category)) declared.set(category, Number(m[1]));
+    }
+    const actual = new Map<string, number>();
+    for (const row of TAP_TARGET_CENSUS) {
+      actual.set(row.category, (actual.get(row.category) ?? 0) + 1);
+    }
+    premiseHolds("the header states a tally for every category in use", declared.size > 0);
+    expect(Object.fromEntries([...declared].sort())).toEqual(
+      Object.fromEntries([...actual].sort()),
+    );
+  });
+
+  it("the header's row total matches the registry length", () => {
+    const total = source.match(/(\d+) rows out of \d+ in-scope elements/);
+    premiseHolds("the header states a row total", total !== null);
+    expect(Number(total![1])).toBe(TAP_TARGET_CENSUS.length);
   });
 });

@@ -448,14 +448,18 @@ commits only then (plan R1 F4).
   those where any of `allStrings(el)` matches `/(^|\s)text-text-subtle(\s|$)/`, emitting
   `token: "text-text-subtle"` and mapping `unresolved` to `partial`.
 - [ ] **Step 2b: Seed the registry with EXACTLY the exempt rows** from spec §4.3 (7
-  summary-disclosure, 2 dismissable-chip, 6 state-dim). The 6 state-dim rows carry `siblingCue`
+  summary-disclosure, 1 dismissable-chip, 6 state-dim — 2 chips at plan time, corrected to 1
+  on 2026-08-15 when the whole-diff review found the second was the "Clear filters" action
+  and never met Family C's definition). The 6 state-dim rows carry `siblingCue`
   per spec §4.1 Family D (AdminNav desktop: `{ file: "components/admin/nav/AdminNav.tsx",
-  token: "bg-surface-raised" }`; bottom tabs: token `aria-current`; crew sub-nav:
-  `{ file: "components/crew/CrewSubNav.tsx", token: "border-accent" }`; picker:
+  token: "bg-surface-raised" }`; bottom tabs and crew sub-nav both pin the `aria-current`
+  expression as shipped — `border-accent` and `text-accent-on-bg` were the plan-time pins and
+  the whole-diff review showed each covered only one branch or the colour delta itself; picker:
   `{ file: "app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx", token: "picker-row-lock" }`;
   both dashboard segments: `{ file: "components/admin/DashboardBucketSegmentedControl.tsx",
   token: "shadow-tile" }`). Registry-count reconciliation (authored AND run at plan time): spec
-  table EXEMPT rows = 15 = 7 + 2 + 6; the suite asserts the array length.
+  table EXEMPT rows = 14 = 7 + 1 + 6 as shipped (15 = 7 + 2 + 6 at plan time); the suite asserts
+  the array length, which is the single place that number lives.
 - [ ] **Step 3: The suite (written at Step 1)**:
 
 ```ts

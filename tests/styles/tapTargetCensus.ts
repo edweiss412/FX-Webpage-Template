@@ -223,7 +223,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
   },
 
-  // ---- full-bleed (14) ----------------------------------------------------
+  // ---- full-bleed (13) ----------------------------------------------------
   // Scrims, click-away layers, and controls whose box IS a region far taller
   // than 44px. Every one is `inset-0`/`size-full` or fills a sized parent.
   {
@@ -261,14 +261,6 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     category: "full-bleed",
     reason:
       "Click-away layer behind the row-actions menu: `fixed inset-0 z-banner cursor-default`.",
-  },
-  {
-    file: "components/admin/nav/AdminNav.tsx",
-    line: 232,
-    tag: "Link",
-    category: "padding-arithmetic",
-    reason:
-      "Bottom-tab link: `flex flex-col items-center justify-center gap-1 self-stretch py-2 text-xs` around a `size-5` icon and one text-xs line = 8 + 20 + 4 + 16 + 8 = 56px. `self-stretch` then matches every tab to the tallest. The bar itself (`fixed inset-x-0 bottom-0 flex border-t`, AdminNav.tsx:219) declares NO height, so it is the CONTENT that clears the floor here — the row said `full-bleed` and named a fixed-height bar that does not exist (whole-diff R2 F2).",
   },
   {
     file: "components/admin/nav/UserMenu.tsx",
@@ -329,7 +321,18 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     reason: "Report-modal scrim: `absolute inset-0 bg-text-strong/40`.",
   },
 
-  // ---- padding-arithmetic (8) --------------------------------------------
+  // Recategorised 2026-08-15 (whole-diff R3 F2): it sat in the full-bleed
+  // section while its category had already moved, so the section headers and
+  // the row disagreed.
+  {
+    file: "components/admin/nav/AdminNav.tsx",
+    line: 232,
+    tag: "Link",
+    category: "padding-arithmetic",
+    reason:
+      "Bottom-tab link: `flex flex-col items-center justify-center gap-1 self-stretch py-2 text-xs` around a `size-5` icon and one text-xs line = 8 + 20 + 4 + 16 + 8 = 56px. `self-stretch` then matches every tab to the tallest. The bar itself (`fixed inset-x-0 bottom-0 flex border-t`, AdminNav.tsx:219) declares NO height, so it is the CONTENT that clears the floor here — the row said `full-bleed` and named a fixed-height bar that does not exist (whole-diff R2 F2).",
+  },
+  // ---- padding-arithmetic (9) --------------------------------------------
   // The floor is reached by computed geometry the token grammar does not read.
   // Each reason shows the arithmetic.
   {
