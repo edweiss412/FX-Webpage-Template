@@ -613,7 +613,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason: "same exhaustion argument, in cardinalsOn",
       },
       {
-        siteId: "statement-removal:981:5:DIGIT_RUN_RE.lastIndex = 0;>(removed)",
+        siteId: "statement-removal:981:5:DIGIT_SEQ_RE.lastIndex = 0;>(removed)",
         kind: "equivalent",
         reason: "same exhaustion argument, in templateCandidates",
       },

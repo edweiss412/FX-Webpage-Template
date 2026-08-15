@@ -951,7 +951,7 @@ const TEMPLATE_SIMILARITY = 0.85;
  * regex engine, which has no order to get wrong and no loop to bound.
  */
 const MARKER_PREFIX = /^(?:(?:>\s*)+|[-*+]\s+|\d+[.)]\s+)+/;
-const DIGIT_RUN_RE = /\d+/g;
+const DIGIT_SEQ_RE = /\d+/g;
 const NON_TOKEN_RE = /[^a-z0-9]+/g;
 
 interface TemplateCandidate {
@@ -978,8 +978,8 @@ function templateCandidates(model: DocModel): TemplateCandidate[] {
     // probed). An exclusion must produce SILENCE, never a finding of its own making.
     const bound = qualifierBoundStarts(text);
     const grouped = rangesOn(text, GROUPED_NUMERAL);
-    DIGIT_RUN_RE.lastIndex = 0;
-    const runs = [...text.matchAll(DIGIT_RUN_RE)];
+    DIGIT_SEQ_RE.lastIndex = 0;
+    const runs = [...text.matchAll(DIGIT_SEQ_RE)];
     if (runs.some((r) => bound.has(r.index) || inRange(r.index, grouped))) continue;
     const quantities = runs.map((r) => r[0]);
     const tokens = new Set(
