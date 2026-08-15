@@ -219,12 +219,18 @@ function singularNoun(word: string): string {
 // ---- shape (a): script-constant parity (spec §3.1) ----
 
 /**
- * Where a `/` starts a REGEX rather than dividing: after an operator, an opening bracket,
- * a separator, or one of the keywords a regex can follow. After a VALUE — an identifier, a
- * number, `)`, `]` — it divides. This is the rule every syntax highlighter uses, and it is
- * a heuristic: its error is bounded by which way it errs (see `readableScriptLines`).
+ * Where a `/` starts a REGEX rather than dividing: after an operator, a bracket, a
+ * separator, or one of the keywords a regex can follow. After a VALUE — an identifier, a
+ * number, `]` — it divides.
+ *
+ * `)` and `}` are genuinely ambiguous (`if (x) /re/.test(y)` against `(a + b) / 2`) and are
+ * resolved TOWARDS the regex, because the two errors are not symmetric. Reading a regex as
+ * division exposes its body, where a quote opens a span the scan closes somewhere else
+ * entirely — the R10 inversion. Reading a division as a regex blanks code to the next
+ * slash, which can only cost a finding, and an unterminated span bails outright. Both
+ * directions are pinned as fixtures.
  */
-const REGEX_PRECEDING = new Set("([{,;:=!&|?+-*%~^<>".split(""));
+const REGEX_PRECEDING = new Set("([{,;:=!&|?+-*%~^<>)}".split(""));
 const REGEX_KEYWORDS = new Set([
   "return",
   "typeof",
@@ -456,8 +462,12 @@ export function readableScriptLines(text: string): string[] | null {
 }
 
 /**
- * Identifiers declared more than once at column 0 in the RAW text — counted before any
- * blanking, so the count does not depend on the scan being right.
+ * NOUNS declared more than once at column 0 in the RAW text — counted before any blanking,
+ * so the count does not depend on the scan being right.
+ *
+ * Keyed on the noun rather than the identifier because the noun is what the arm COMPARES:
+ * `EXPECTED_SITE_COUNT` and `EXPECTED_SITE_TOTAL` are two answers to "how many sites", and
+ * an identifier-keyed net let that pair through (review R10, probed).
  *
  * This is the net under the lexer. Every refuted version of that scan (R5, R6, R8, R9) was
  * fooled into reading the WRONG one of two declaration-shaped lines, and each repair closed
@@ -473,9 +483,9 @@ function duplicateDeclarations(text: string): Set<string> {
     if (/^\s/.test(raw)) continue;
     const m = CONST_DECL_RE.exec(raw);
     if (m === null) continue;
-    const ident = m[1]!;
-    if (seen.has(ident)) dupes.add(ident);
-    seen.add(ident);
+    const noun = constantNoun(m[1]!);
+    if (seen.has(noun)) dupes.add(noun);
+    seen.add(noun);
   }
   return dupes;
 }
@@ -490,7 +500,7 @@ function scriptConstants(text: string): ScriptConstant[] {
     const ident = m[1]!;
     const init = m[2]!;
     if (!EXPECTED_IDENT_RE.test(ident) || !INT_LITERAL_RE.test(init)) continue;
-    if (declaredTwice.has(ident)) continue;
+    if (declaredTwice.has(constantNoun(ident))) continue;
     out.push({ ident, value: Number(init), noun: constantNoun(ident) });
   }
   return out;
@@ -546,6 +556,26 @@ export function scriptMentionMatcher(path: string, allowBasename = true): RegExp
   return new RegExp(`(?<!${MENTION_LEFT_CLASS})(?:${alternation})(?!${MENTION_RIGHT_PATTERN})`);
 }
 
+/**
+ * Decimal tails ("4.2"), identifier-glued digits, section references ("§12.4") and
+ * milestone ids ("M9.5") are not cardinalities — spec §3.2's final ladder row.
+ *
+ * Shared with shape (a), which had NO lexical guard of its own and so read `§ 38 sites` as
+ * a claim of 38 (review R10, probed). The ladder row was written for shape (b) and simply
+ * never reached the other arm, exactly as the lowercase-only noun rule did at R4. Nothing
+ * in spec §3.1 admits a section label as a cardinality, and the guard only ever removes
+ * advisories.
+ */
+function lexicallyCardinal(before: string): boolean {
+  const prevChar = before.slice(-1);
+  return (
+    prevChar !== "." &&
+    !/[A-Za-z0-9]$/.test(prevChar) &&
+    !/§\s*[\d.]*$/.test(before) &&
+    !/\b[Mm]\d*\.?$/.test(before)
+  );
+}
+
 // ---- shape (b): sibling-list cardinality (spec §3.2) ----
 
 const BULLET_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
@@ -598,17 +628,8 @@ function cardinalsOn(line: string, spanRanges: Range[], markerEnd: number): Card
         break;
       }
     }
-    // Lexical guards: decimal tails ("4.2"), identifier-glued digits, section
-    // references ("§12.4"), milestone ids ("M9.5"), and the ordered-list marker
-    // itself are not cardinalities (spec §3.2's final ladder row).
-    const before = line.slice(0, m.index);
-    const prevChar = before.slice(-1);
-    const lexOk =
-      prevChar !== "." &&
-      !/[A-Za-z0-9]$/.test(prevChar) &&
-      !/§\s*[\d.]*$/.test(before) &&
-      !/\b[Mm]\d*\.?$/.test(before) &&
-      !(m.index <= markerEnd);
+    // Lexical guards, plus the ordered-list marker, which is shape (b)'s alone.
+    const lexOk = lexicallyCardinal(line.slice(0, m.index)) && !(m.index <= markerEnd);
     out.push({ index: m.index, end: m.index + raw.length, raw, value, head, lexOk });
   }
   return out;
@@ -805,6 +826,7 @@ export function checkNumerics(
       const following = NOUN_AFTER_ANY_CASE.exec(line.slice(h.column - 1 + h.raw.length));
       if (following === null) continue;
       if (inRange(h.column - 1, rangesOn(line, GROUPED_NUMERAL))) continue;
+      if (!lexicallyCardinal(line.slice(0, h.column - 1))) continue;
       if (ISO_DATE_LINE.test(line)) continue; // exclusion (iii)
       let bound = boundCache.get(h.docLine);
       if (bound === undefined) {

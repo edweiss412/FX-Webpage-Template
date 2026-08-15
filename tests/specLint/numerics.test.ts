@@ -228,6 +228,14 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
       [`const re = ${gap("/a\\/'/")}; const c = 3;`],
     ],
     [
+      // A regex may follow a control-flow head, and reading THAT slash as division is the
+      // dangerous direction: it exposes the regex body, where a quote opens a span the scan
+      // closes somewhere else entirely (review R10, probed).
+      "a regex after a closing paren is a regex",
+      "if (enabled) /'/.test(input);",
+      [`if (enabled) ${gap("/'/")}.test(input);`],
+    ],
+    [
       // The other direction, and the one that costs coverage rather than correctness:
       // division is not a regex, so the rest of the line stays readable.
       "division is not a regex",
@@ -236,9 +244,12 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
     ],
     ["a regex after a KEYWORD is still a regex", "return /'/;", [`return ${gap("/'/")};`]],
     [
-      "a regex after a closing paren is read as division",
-      "const q = (a + b) / 2; const e = 5;",
-      ["const q = (a + b) / 2; const e = 5;"],
+      // The cost of that call, stated: a grouped DIVISION after a paren is read as a regex
+      // and blanked to the next slash. It hides code, which can only cost a finding, and
+      // an unterminated span then bails outright.
+      "grouped division after a paren is blanked, conservatively",
+      "const q = (a + b) / 2; const e = 5 / 3;",
+      [`const q = (a + b) ${gap("/ 2; const e = 5 /")} 3;`],
     ],
     [
       "`//` inside a string is not a comment",
@@ -466,6 +477,59 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
       "`;",
       siteConst(38),
       "const second = /`/;",
+    ].join("\n");
+    const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("a SECTION reference is not a cardinality", () => {
+    // Review R10, probed: `§ 38 sites` is a section label with a noun after it, and shape
+    // (a) had no lexical guard at all — spec §3.2's ladder row (decimal tails, glued
+    // digits, `§`, milestone ids) was written for shape (b) and never reached this arm,
+    // the same way the lowercase-only noun rule leaked in at R4.
+    const doc = `See \`${PARITY_SCRIPT}\` § 38 sites for details.\n`;
+    const { findings } = run(doc, { [PARITY_SCRIPT]: scriptSrc(siteConst(37)) });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("a SECTION reference at the LINE START is not a cardinality either", () => {
+    // Column 0 specifically: the guard reads the text BEFORE the number, and a scan that
+    // began one character in sees an empty prefix and admits the 38.
+    const doc = `§ 38 sites are covered by \`${PARITY_SCRIPT}\`.\n`;
+    const { findings } = run(doc, { [PARITY_SCRIPT]: scriptSrc(siteConst(37)) });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it.each([
+    ["mid-line", `See \`${PARITY_SCRIPT}\` in M38 sites work.\n`],
+    // At the LINE START specifically: the guard reads the text before the number, and a
+    // scan that began one character in would see an empty prefix and admit the 38.
+    ["at the line start", `M38 sites are covered by \`${PARITY_SCRIPT}\`.\n`],
+  ])("a MILESTONE id is not a cardinality (%s)", (_label, doc) => {
+    const { findings } = run(doc, { [PARITY_SCRIPT]: scriptSrc(siteConst(37)) });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("two identifiers deriving the SAME noun are both refused", () => {
+    // Review R10, probed: the net keyed on the identifier, but the arm compares by NOUN, so
+    // `EXPECTED_SITE_COUNT` and `EXPECTED_SITE_TOTAL` slipped past it while both claiming
+    // to answer "how many sites". Ambiguity is a property of the noun, so the net is too.
+    const body = ["const EXPECTED_SITE_COUNT = 37;", siteConst(38)].join("\n");
+    const { findings } = run(acLine(99) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("R10's control-flow regex script cannot invert the scan", () => {
+    // `if (enabled) /'/.test(input)` is ordinary JavaScript, and reading that `/` as
+    // division exposed the regex body: the apostrophe opened a string that closed on the
+    // one in the template below, and a second such line re-balanced it.
+    const body = [
+      "if (enabled) /'/.test(input);",
+      "const sample = `it's dead",
+      "const EXPECTED_SITE_COUNT = 37;",
+      "`;",
+      siteConst(38),
+      "if (enabled) /`/.test(input) / 2;",
     ].join("\n");
     const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
     expect(only(findings, A)).toEqual([]);
