@@ -108,19 +108,58 @@ type Owner = {
  * global, then a map keyed by the row's identity — and a name cannot answer it.
  * Identity is caller-supplied and only as unique as the caller makes it, so a
  * name lookup also matches a DIFFERENT row that happens to share the identity,
- * or a later row that reuses it. Whole-diff review rounds 7 through 10 each
+ * or a later row that reuses it. Whole-diff review rounds 7 through 11 each
  * found another ordering that delivered a confirmation to a row nobody tapped.
  *
- * So the link is established at the only moment it is PROVABLE. React runs an
- * outgoing island's cleanup and the incoming island's setup inside the same
- * commit, synchronously, one immediately after the other. `vacating` holds the
- * island that just cleaned up and is cleared on the next microtask, so a setup
- * that sees it — for the same identity — really is the replacement, and a mount
- * in any later turn is not. Anything else has NO successor and a late
- * resolution simply lands nowhere: the value is on screen, the clipboard
- * already holds it, and nothing is claimed.
+ * So a replacement is recognized only where it is PROVABLE, and the proof has
+ * three parts, each of which was a defect before it was a rule:
+ *
+ *   1. WITHIN THE COMMIT. React runs an outgoing island's cleanup and the
+ *      incoming island's setup inside the same commit, so a vacancy is offered
+ *      for that window and cleared on the next microtask.
+ *   2. PER IDENTITY, not one slot. React batches cleanups AHEAD of setups when
+ *      several islands remount together — `cleanup A, cleanup B, setup A, setup
+ *      B` — so a single slot holds B by the time A's setup runs. With distinct
+ *      identities a slot merely LOSES A's link; with a shared one it hands A
+ *      the wrong predecessor (round 11).
+ *   3. CONSUMED ONCE, and never when ambiguous. Two islands vacating under the
+ *      same identity in one window cannot be told apart, so neither is offered
+ *      at all, and a vacancy already claimed is not offered twice.
+ *
+ * Anything unlinked has NO successor and a late resolution simply lands
+ * nowhere: the value is on screen, the clipboard already holds it, and nothing
+ * is claimed.
+ *
+ * DOCUMENTED LIMIT, since the guard should not claim more than it proves: a
+ * DIFFERENT row that reuses a just-vacated identity inside the same synchronous
+ * task — a second commit, before the clearing microtask — is indistinguishable
+ * from the replacement and would receive the confirmation. That needs an
+ * identity to be duplicated AND reused within one task, which is the compound
+ * authoring mistake the spec's one-opted-in-row precondition fences; the
+ * ordinary cases above are what the mechanism is for.
  */
-let vacating: { identity: string; owner: Owner } | null = null;
+const AMBIGUOUS = Symbol("ambiguous vacancy");
+const vacancies = new Map<string, Owner | typeof AMBIGUOUS>();
+let vacancySweepScheduled = false;
+
+function offerVacancy(identity: string, owner: Owner): void {
+  vacancies.set(identity, vacancies.has(identity) ? AMBIGUOUS : owner);
+  if (vacancySweepScheduled) return;
+  vacancySweepScheduled = true;
+  queueMicrotask(() => {
+    vacancies.clear();
+    vacancySweepScheduled = false;
+  });
+}
+
+/** Claims the vacancy for `identity` if there is exactly one, and marks it used
+ *  so a second setup in the same window cannot claim it too. */
+function claimVacancy(identity: string, successor: Owner): void {
+  const vacated = vacancies.get(identity);
+  if (vacated === undefined || vacated === AMBIGUOUS) return;
+  vacated.successor = successor;
+  vacancies.set(identity, AMBIGUOUS);
+}
 
 /** Latest dispatched write PER IDENTITY. `value` is recorded for diagnosis;
  *  `seq` routes the reset arming (never truth — see the header). */
@@ -319,21 +358,11 @@ export function CopyFactValue({
         if (resetRef.current === null) arm();
       },
     };
-    // A setup that runs while an island is still `vacating` under the same
-    // identity is that island's replacement — React runs cleanup and setup
-    // back to back inside one commit, and nothing else can land between them.
-    if (vacating !== null && vacating.identity === identity) {
-      vacating.owner.successor = owner;
-      vacating = null;
-    }
+    claimVacancy(identity, owner);
     ownerRef.current = owner;
     return () => {
       owner.mounted = false;
-      // Offered as a predecessor for the remainder of this commit only.
-      vacating = { identity, owner };
-      queueMicrotask(() => {
-        if (vacating !== null && vacating.owner === owner) vacating = null;
-      });
+      offerVacancy(identity, owner);
       clearReset();
     };
   }, [clearReset, identity]);

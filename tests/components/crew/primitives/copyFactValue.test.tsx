@@ -825,6 +825,132 @@ describe("island lifecycle (§4.1)", () => {
     ).toEqual([]);
   });
 
+  test("two rows remounting together each keep their OWN replacement", async () => {
+    // React batches cleanups ahead of setups when several islands remount in
+    // one commit — `cleanup A, cleanup B, setup A, setup B` — so a single
+    // vacancy slot holds B by the time A's setup runs. With distinct identities
+    // that merely LOSES A's link (its confirmation vanishes); with a shared one
+    // it hands A the wrong predecessor. Per-identity vacancies are what make
+    // the pairing survive the batching.
+    const rowB = (): FactRow => ({
+      k: "Room code",
+      v: "4821",
+      testId: "venue-room-code",
+      copyLabel: "Copy the room code",
+    });
+    const lists = (key: string) => <FactRows key={key} rows={[passwordRow(), rowB()]} />;
+    const { container, rerender } = render(lists("v1"));
+
+    await clickCopy(container); // a write for the FIRST row
+    await act(async () => {
+      rerender(lists("v2")); // both islands remount in one commit
+    });
+    await settle(0);
+
+    expect(isCopied(container), "the first row's replacement must show it").toBe(true);
+    expect(
+      rowEl(container, "venue-room-code").querySelector("[data-slot='check-glyph']"),
+      "the second row was never tapped",
+    ).toBeNull();
+  });
+
+  test("two islands vacating under ONE identity offer no replacement at all", async () => {
+    // Indistinguishable by construction, so neither is offered — landing
+    // nowhere beats landing on the wrong row.
+    const both = (key: string) => (
+      <>
+        <FactRows key={`${key}-a`} rows={[passwordRow()]} />
+        <FactRows key={`${key}-b`} rows={[passwordRow()]} />
+      </>
+    );
+    const { container, rerender } = render(both("v1"));
+    const rows = () => container.querySelectorAll(`[data-testid="${TESTID}"]`);
+    premiseHolds("both lists rendered the same testid", rows().length === 2);
+
+    await act(async () => {
+      fireEvent.click(rows()[0]!.querySelector("button")!);
+    });
+    await act(async () => {
+      rerender(both("v2")); // BOTH vacate under the same identity in one commit
+    });
+    await settle(0);
+
+    for (const row of rows()) {
+      expect(
+        row.querySelector("[data-slot='check-glyph']"),
+        "an ambiguous vacancy must not confirm on either row",
+      ).toBeNull();
+    }
+  });
+
+  test("two vacancies collapsing to ONE survivor still confirm nothing", async () => {
+    // Both lists vacate under one identity and a single island survives. Which
+    // of the two it replaces is unknowable, so the survivor is not offered
+    // either link — otherwise the confirmation lands on a row chosen by
+    // whichever cleanup happened to run last.
+    const { container, rerender } = render(
+      <>
+        <FactRows key="a1" rows={[passwordRow()]} />
+        <FactRows key="b1" rows={[passwordRow()]} />
+      </>,
+    );
+    const rows = () => container.querySelectorAll(`[data-testid="${TESTID}"]`);
+    premiseHolds("both lists rendered the same testid", rows().length === 2);
+
+    await act(async () => {
+      fireEvent.click(rows()[1]!.querySelector("button")!); // tap the SECOND
+    });
+    await act(async () => {
+      // One commit: both islands vacate, one island mounts under that identity.
+      rerender(<FactRows key="c1" rows={[passwordRow()]} />);
+    });
+    premiseHolds("one row survives", rows().length === 1);
+
+    await settle(0);
+
+    expect(
+      rows()[0]!.querySelector("[data-slot='check-glyph']"),
+      "an unknowable replacement must confirm nothing",
+    ).toBeNull();
+  });
+
+  test("one vacancy is claimed once, so a second mount cannot inherit it too", async () => {
+    // The dispatching island vacates, its replacement claims the vacancy — and
+    // then a SECOND island mounts under the same identity in the same window.
+    // If the vacancy were still on offer, the predecessor would end up pointing
+    // at whichever island claimed last, and the confirmation would follow it
+    // onto a row that never asked. Claiming marks it used.
+    const { container, rerender } = render(<FactRows key="v1" rows={[passwordRow()]} />);
+
+    await clickCopy(container); // pending, dispatched by the first island
+    await act(async () => {
+      // One commit: the original list remounts (its island is replaced) AND a
+      // second list appears carrying the same identity.
+      rerender(
+        <>
+          <FactRows key="v2" rows={[passwordRow()]} />
+          <FactRows key="extra" rows={[passwordRow()]} />
+        </>,
+      );
+    });
+    const rows = container.querySelectorAll(`[data-testid="${TESTID}"]`);
+    premiseHolds("two islands now carry the identity", rows.length === 2);
+
+    await settle(0);
+
+    const confirmed = Array.from(rows).filter(
+      (r) => r.querySelector("[data-slot='check-glyph']") !== null,
+    );
+    expect(
+      confirmed.length,
+      "at most the one replacement may confirm — never two rows, and never the newcomer alone",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      confirmed[0] ?? rows[0],
+      "the confirmation belongs to the row that replaced the dispatcher",
+    ).toBe(rows[0]);
+  });
+
   test("a LATER row reusing the identity is not treated as a replacement", async () => {
     // Sequential reuse: the row that dispatched is gone, and a different row
     // takes its testid in a LATER commit. Same name, unrelated island — and the
