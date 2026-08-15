@@ -1991,11 +1991,17 @@ test.describe("wifi password transcription affordance (production route)", () =>
     // presses did not reach it.
     //
     // tests/e2e/wifi-password-row.layout.spec.ts DI-5 runs under chromium, tabs
-    // to the control, and asserts the computed `outline-style: none` plus a
-    // non-none `box-shadow` and the ring's 4px reach. What is asserted HERE is
-    // the half the live route can actually prove: the declarations are on the
-    // element the production call site renders, with the offset token matched
-    // to the card's backdrop.
+    // to the control, and measures what the focused element ACTUALLY paints. It
+    // is not what `focus-visible:outline-none` reads like: that utility is
+    // layered (`@layer utilities`) while app/globals.css:788 declares
+    // `:focus-visible { outline: 3px solid var(--color-focus-ring);
+    // outline-offset: 2px }` unlayered, and unlayered beats layered whatever
+    // the specificity — so the project's global orange outline is the indicator
+    // here, with the ring's box-shadow underneath it in the same color. That
+    // holds at all ~256 call sites using this idiom, so what is asserted HERE
+    // is the half the live route can prove: the declarations are on the element
+    // the production call site renders, with the offset token matched to the
+    // card's backdrop.
     const declared = await page.evaluate(() => {
       const button = document.querySelector('[data-testid="venue-wifi-password"] button');
       return button === null ? null : (button.getAttribute("class") ?? "");
