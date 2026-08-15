@@ -1088,6 +1088,37 @@ than by role precisely because they are all present. `aria-hidden={!isActive}` i
 change, deferred only because it moves several existing role-based queries and belongs with the
 current-slide announcement decision rather than ahead of it.
 
+### BL-PREMISESCAN-IMPORT-EDGE-FIDELITY — ordinary import forms and helper-body unclassifiable constructs silently lose environment reach
+
+**Status:** OPEN · **Severity:** MEDIUM (both halves are false NEGATIVES — the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-15 (`docs/scanner-scope-totality-spec`, spec review R1 findings 2 and 3 — reviewer-probed, transcripts below) · **Effort:** M
+
+Two probed reachability gaps in `tests/mutation/source/premiseScan.ts`, distinct from the scope-resolution axis `BL-PREMISESCAN-NESTED-HELPER-SCOPE`'s arc repairs (that arc also fixes the ALIAS row below, the one case inside the lookup it already rewrites; the rest is this row).
+
+**Half 1 — import forms.** Cross-module extent lookup resolves by the LOCAL name against the target module, and import facts keep only local-name → specifier, so ordinary repository-local refactors lose a reachable spawning helper. Reviewer probe (same helper, same call site, only the import form varied):
+
+```
+direct          -> environment-touching
+named_alias     -> environment-free      (fixed by the scope arc: propertyName-aware lookup)
+namespace       -> environment-free
+default_renamed -> environment-free
+reexport        -> environment-free
+```
+
+Namespace imports, renamed defaults, and re-export chains need tracking structures the scanner does not have (namespace member edges; re-export following — the canonical premise design additionally wants an unfollowable re-export to report `unclassifiable`, not pass clean).
+
+**Half 2 — unclassifiable constructs do not propagate through reachable helpers.** `moduleFacts` records non-literal dynamic `import()` and computed `process` access wherever they occur, but final classification consults them only lexically within the test's own extent (`unclassifiableWithin` filters the module-level list to "unparseable" entries). Reviewer probe:
+
+```
+module_dynamic    -> environment-free
+describe_dynamic  -> environment-free
+module_computed   -> environment-free
+describe_computed -> environment-free
+```
+
+A helper whose body holds a construct the recognizer explicitly refuses to resolve should surface `unclassifiable` to its callers; today it reads as free.
+
+**Scope if promoted:** thread importedName (`propertyName`) through every lookup (the scope arc lands this), add namespace-member and re-export edges with an unfollowable-edge → `unclassifiable` posture, and propagate helper-extent unclassifiable reasons into the caller's verdict. Regression cases: the five-form import table and the four-cell propagation table above, plus the AC-10b collision fixture (must stay quiet).
+
 ### BL-PREMISESCAN-NESTED-HELPER-SCOPE — a helper declared inside `describe` hides its environment reach from the recognizer
 
 **Severity:** MEDIUM (the recognizer reports a clean corpus it no longer understands — a false NEGATIVE, which is the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-14 (`feat/diagram-viewing-polish`, found because the count it produced for a suite this arc enrolled was a false `0`) · **Effort:** S-M
