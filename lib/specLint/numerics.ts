@@ -223,14 +223,17 @@ function singularNoun(word: string): string {
  * separator, or one of the keywords a regex can follow. After a VALUE — an identifier, a
  * number, `]` — it divides.
  *
- * `)` and `}` are genuinely ambiguous (`if (x) /re/.test(y)` against `(a + b) / 2`) and are
- * resolved TOWARDS the regex, because the two errors are not symmetric. Reading a regex as
- * division exposes its body, where a quote opens a span the scan closes somewhere else
- * entirely — the R10 inversion. Reading a division as a regex blanks code to the next
- * slash, which can only cost a finding, and an unterminated span bails outright. Both
- * directions are pinned as fixtures.
+ * `)` is the genuinely ambiguous one — `if (x) /re/.test(y)` against `(a + b) / 2` — and
+ * BOTH answers were refuted in turn: as division it exposed the regex body (R10), and as a
+ * regex it swallowed real code up to a later slash and re-synchronised there (R12). So it
+ * is not answered by a default at all. The scan remembers, per open paren, whether a
+ * control-flow head opened it, and a `)` allows a regex exactly when it closes one of
+ * those. `}` stays regex-allowed: a block can be followed by one, and an object literal
+ * divided by something is not code this corpus writes.
  */
-const REGEX_PRECEDING = new Set("([{,;:=!&|?+-*%~^<>)}".split(""));
+const REGEX_PRECEDING = new Set("([{,;:=!&|?+-*%~^<>}".split(""));
+/** A `(` opened by one of these heads closes into a position where a regex may appear. */
+const CONTROL_HEADS = new Set(["if", "for", "while", "switch", "catch", "with"]);
 /**
  * The RESERVED words a regex may follow — the closed set, minus the five that are values.
  *
@@ -298,8 +301,9 @@ const IDENT_CHAR = /[A-Za-z0-9_$]/;
  * whether the window had cut a longer identifier down to something keyword-shaped
  * (`myreturn` seen as `return`); tracking the identifier itself removes the question.
  */
-function regexCanFollow(lastChar: string, lastWord: string): boolean {
+function regexCanFollow(lastChar: string, lastWord: string, afterControlParen: boolean): boolean {
   if (lastChar === "") return true;
+  if (lastChar === ")") return afterControlParen;
   if (REGEX_PRECEDING.has(lastChar)) return true;
   return REGEX_KEYWORDS.has(lastWord);
 }
@@ -429,7 +433,15 @@ export function readableScriptLines(text: string): string[] | null {
   // Whitespace ENDS the trailing identifier without erasing it — `return /re/` needs the
   // word across the space, while `export default` must not fuse into one token.
   let inWord = false;
+  // Per OPEN paren, whether a control-flow head opened it; and, for the character just
+  // consumed, whether the `)` that closed it was one of those.
+  const controlParens: boolean[] = [];
+  let afterControlParen = false;
   const pushCode = (c: string): void => {
+    // `lastChar` still holds the character before this one, so an identifier character
+    // there means `lastWord` ends immediately before the paren — across a space or not.
+    if (c === "(") controlParens.push(IDENT_CHAR.test(lastChar) && CONTROL_HEADS.has(lastWord));
+    if (c === ")") afterControlParen = controlParens.pop() ?? false;
     if (c === " " || c === "\t") {
       inWord = false;
       return;
@@ -463,7 +475,7 @@ export function readableScriptLines(text: string): string[] | null {
         line += " ";
         continue;
       }
-      if (c === "/" && regexCanFollow(lastChar, lastWord)) {
+      if (c === "/" && regexCanFollow(lastChar, lastWord, afterControlParen)) {
         state = "regex";
         inClass = false;
         line += " ";
@@ -704,6 +716,14 @@ function countListItems(model: DocModel, start: number, stopAtChecklist: boolean
   let blanks = 0;
   for (let i = start; i < model.lines.length; i++) {
     const line = model.lines[i]!;
+    // A bullet-SHAPED line inside a fenced block is not a sibling item (review R12,
+    // probed: two real bullets with a `- ` line inside an indented `~~~` fence counted
+    // three). The fence belongs to the item it sits under, so it is skipped rather than
+    // treated as the list's end.
+    if (model.fencedInfo[i] !== undefined) {
+      blanks = 0;
+      continue;
+    }
     if (line.trim() === "") {
       blanks++;
       if (blanks >= 2) break;

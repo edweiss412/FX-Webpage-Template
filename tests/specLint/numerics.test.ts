@@ -260,12 +260,30 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
     ],
     ["a regex after a KEYWORD is still a regex", "return /'/;", [`return ${gap("/'/")};`]],
     [
-      // The cost of that call, stated: a grouped DIVISION after a paren is read as a regex
-      // and blanked to the next slash. It hides code, which can only cost a finding, and
-      // an unterminated span then bails outright.
-      "grouped division after a paren is blanked, conservatively",
+      // Review R12, probed: reading EVERY `)` as a regex head let `(a + b) / 2` swallow the
+      // rest of the line and re-synchronise on a later slash, which is the R10 inversion
+      // wearing the other hat. A `)` allows a regex exactly when it closes a control head.
+      "grouped division after a paren is division",
       "const q = (a + b) / 2; const e = 5 / 3;",
-      [`const q = (a + b) ${gap("/ 2; const e = 5 /")} 3;`],
+      ["const q = (a + b) / 2; const e = 5 / 3;"],
+    ],
+    [
+      "a nested call inside a control head still closes to a regex position",
+      "if (a(b) && c) /'/.test(d);",
+      [`if (a(b) && c) ${gap("/'/")}.test(d);`],
+    ],
+    [
+      // R12's other separating input: `]` after a reserved word, where a stale trailing
+      // identifier would misread the slash.
+      "an array literal returned then divided is division",
+      "return [] / 2;",
+      ["return [] / 2;"],
+    ],
+    [
+      // A CALL's closing paren is not a control head's, so the slash after it divides.
+      "a call result divided is division",
+      "const v = compute(a) / 2; const e = 5;",
+      ["const v = compute(a) / 2; const e = 5;"],
     ],
     [
       "`//` inside a string is not a comment",
@@ -1279,6 +1297,42 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
     // the grouped-numeral range this line emits exactly that advisory.
     const doc = ["the ledger carries 1,020 accepted rows:", "", "- one", "- two", "- three", ""];
     expect(only(run(doc.join("\n")).findings, B)).toEqual([]);
+  });
+
+  it("a fenced block BETWEEN items does not end the list", () => {
+    // The skip has to reset the blank-line counter as an item line would: a fence sitting
+    // between two blanks otherwise reads as the two consecutive blanks that end a list,
+    // and every item after it stops being counted.
+    const doc = [
+      "There are 3 cases:",
+      "",
+      "- first",
+      "",
+      "  ~~~text",
+      "  fenced",
+      "  ~~~",
+      "",
+      "- second",
+      "- third",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("a bullet-shaped line INSIDE a fence is not a sibling item", () => {
+    // Review R12, probed: the counter walked raw lines, so a `- ` inside an indented
+    // `~~~` fence under the second item made a correct "2 cases:" list report three.
+    const doc = [
+      "There are 2 cases:",
+      "",
+      "- first",
+      "- second",
+      "  ~~~text",
+      "- not an item",
+      "  ~~~",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
   });
 
   it.each(["sixty", "hundred", "dozen"])("`%s` is outside the word table", (word) => {
