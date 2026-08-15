@@ -17,6 +17,7 @@
 - **AC-B7** — a non-grandfathered section holding two canonical `**Mechanizable:**` markers reports `filing_malformed` in both orderings (spec §3.1, R6 finding).
 - **AC-B8** — a non-grandfathered filing whose only disposition or Examined lines live in non-rendered content (fence, indented block, HTML) reports `filing_malformed` naming the raw-scan-only field (spec §3.1, R9 finding 1); grandfathered filings keep shipped raw semantics.
 - **AC-B9** — every AST-derived `mechanizable.citedIds` value resolves against the resolvable set; a decoded-representation nonexistent id (backslash escape or character reference, either prefix) reports `unresolved_id` (spec §3.2, R10 finding).
+- **AC-B10** — a list-nested AST-visible `Mechanizable:` field on a non-grandfathered filing reports `filing_malformed`, all five CommonMark list-marker forms pinned (spec §3.1, R12 finding).
 - **AC-B5** — a filing whose path is in `MECHANIZABLE_GRANDFATHERED` is exempt; the live corpus check stays green.
 - **AC-B6** — `lib/reviewRounds/filing.ts` is enrolled in `tests/mutation/source/registry.ts` and `pnpm mutation:guards` is green with any accepted rows dispositioned.
 - **AC-C1** — the six §4 candidates are dispositioned: five `BL-` rows filed at the ledger bar, one decline recorded (candidate 2, covered by the spec-registration detector).
@@ -48,7 +49,7 @@ The closure set the review converges against, per the registry's declared operat
 
 ## Task 2: Half B corpus gate — `mechanizable_untracked` + grandfather set
 
-<!-- task: red=`pnpm exec vitest run tests/docs/_metaReviewRoundEconomy.test.ts` ac=AC-B2,AC-B3,AC-B4,AC-B5,AC-B7,AC-B8,AC-B9 -->
+<!-- task: red=`pnpm exec vitest run tests/docs/_metaReviewRoundEconomy.test.ts` ac=AC-B2,AC-B3,AC-B4,AC-B5,AC-B7,AC-B8,AC-B9,AC-B10 -->
 
 **What is red and why:** the new fixture case (non-none Mechanizable, no id, no decline, non-grandfathered path) asserts `problems` contains kind `mechanizable_untracked`; `checkCorpus` (`lib/reviewRounds/corpus.ts:171`) has no such kind, so the assertion fails.
 
