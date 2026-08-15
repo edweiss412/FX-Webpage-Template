@@ -54,7 +54,7 @@ ABSENT (no id anywhere in the wrong file; 5 cases):
   319:35  319:39-41  319:60-62   ids: EXECUTES_WIPE, ENABLES_WIPE_GATE
 SILENT (vocabulary-sharing sibling window-hit; premise-guarded; 2 cases):
   221:719  221:1001
-NEGATIVES (zero intent findings), modeled on merged-plan correct citations — plus TWO
+NEGATIVES (zero intent findings), modeled on merged-plan correct citations - plus TWO
 future-code rows (durationMs-style: id absent from the cited file because the plan
 introduces it) pinned as ABSENT-tier ADVISORY findings, proving severity never escalates.
 ```
@@ -62,13 +62,13 @@ introduces it) pinned as ABSENT-tier ADVISORY findings, proving severity never e
 ## File structure
 
 ```
-lib/specLint/citationIntent.ts      # Task 1 — matching, enclosing-name, tier classify, relocation (pure)
-lib/specLint/citations.ts           # Task 2 — deferred two-pass tier reporting; excludedSpans param
-lib/specLint/run.ts                 # Task 2 + Task 4 + Task 5 — plumb tiers, exclusion, exec bundle
-lib/specLint/taskContract.ts        # Task 3 — grammar widening + exported marker parse + topology
-lib/specLint/redContract.ts         # Task 4 — static checks, gates; Task 5 — exec plan/synthesis
-lib/specLint/types.ts               # Task 5 — ExecOutcome types
-scripts/spec-lint.ts                # Task 5 — --exec-red, env grammar, classifySpawnResult (exported)
+lib/specLint/citationIntent.ts      # Task 1 - matching, enclosing-name, tier classify, relocation (pure)
+lib/specLint/citations.ts           # Task 2 - deferred two-pass tier reporting; excludedSpans param
+lib/specLint/run.ts                 # Task 2 + Task 4 + Task 5 - plumb tiers, exclusion, exec bundle
+lib/specLint/taskContract.ts        # Task 3 - grammar widening + exported marker parse + topology
+lib/specLint/redContract.ts         # Task 4 - static checks, gates; Task 5 - exec plan/synthesis
+lib/specLint/types.ts               # Task 5 - ExecOutcome types
+scripts/spec-lint.ts                # Task 5 - --exec-red, env grammar, classifySpawnResult (exported)
 tests/specLint/citationIntent.test.ts        # Task 1
 tests/specLint/citationIntentWiring.test.ts  # Task 2 (runLint-only; real-CLI cases live in cli.test.ts)
 tests/specLint/citationIntentCorpus.test.ts  # Task 2 (+ fixtures/citationIntent/)
