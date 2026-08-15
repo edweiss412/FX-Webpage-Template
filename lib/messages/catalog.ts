@@ -1681,9 +1681,9 @@ export const MESSAGE_CATALOG = {
       "Every row in a section started with an empty column, so we read it one column to the left instead. Update the sheet if the empty column was intentional.",
     triggerContext:
       "Appears when every row of a sheet section, including its header, starts with an empty column.",
-    title: "Auto-corrected a shifted section",
+    title: "Auto-corrected a section that started with an empty column",
     longExplanation:
-      "When every row in a sheet section, including its header, starts with an empty column, that usually means the section was dragged one column to the right during export. We read the section one column to the left instead, so it lines up and reads correctly again. If the empty column was intentional, update the sheet.",
+      "Every row in a sheet section, including its header, started with an empty column, so we read the section one column to the left instead. Nothing was dropped; the section lines up and reads correctly again. If the empty column was intentional, update the sheet.",
     helpHref: "/help/errors#LEADING_COLUMN_AUTOCORRECTED",
   },
   PULL_SHEET_PARSE_PARTIAL: {

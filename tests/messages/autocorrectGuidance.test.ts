@@ -42,14 +42,14 @@ describe("autocorrectGuidance — per-code sentences", () => {
       "We read 'Venue Adress' as 'Venue Address'. Fix the label in the sheet if that guess is wrong.",
     );
   });
-  it("LEADING_COLUMN: fixed sentence, ignores the canned pair, keeps the fix instruction", () => {
+  it("LEADING_COLUMN: fixed sentence, ignores the canned pair, keeps diagnostic + fix instruction", () => {
     expect(
       autocorrectGuidance(
         "LEADING_COLUMN_AUTOCORRECTED",
         ac(null, ["empty leading column", "shifted left"]),
       ),
     ).toBe(
-      "We read this section one column to the left. Update the sheet if the empty column was intentional.",
+      "Every row in this section started with an empty column, so we read the section one column to the left. Update the sheet if the empty column was intentional.",
     );
   });
 });

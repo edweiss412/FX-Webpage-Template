@@ -31,16 +31,19 @@ const SENTENCE: Record<string, (phrase: string, subj: string) => string | null> 
   // ("We read 'empty leading column' as 'shifted left'.") reads as nonsense rather
   // than a correction. The fixed sentence states the correction directly instead.
   //
-  // Keeps the fix-instruction clause (task-3 review round 1, Important 2): unlike
-  // STAGE_WORD/ROLE_TOKEN/SECTION_HEADER, there is no instance-specific word to name
-  // here, so the composed line has nothing over the catalog copy UNLESS it also keeps
-  // the actionable instruction — `resolveGuidance` (PerShowActionableWarnings.tsx)
-  // uses this string in place of catalog.helpfulContext whenever a SENTENCE row
-  // exists, never alongside it, so dropping the instruction here would make the
-  // rendered card strictly worse than omitting the row. Matches the COLUMN_HEADER /
-  // FIELD_LABEL statement-plus-instruction shape instead of SECTION_HEADER's bare one.
+  // Carries BOTH the diagnostic and the fix instruction, because the fallback it
+  // displaces carries both. `resolveGuidance` (PerShowActionableWarnings.tsx) uses
+  // this string IN PLACE OF catalog.helpfulContext whenever a SENTENCE row exists,
+  // never alongside it, and an absent row returns null rather than composing
+  // anything — so the bar this row must clear is helpfulContext itself, not silence.
+  // An earlier draft kept only the instruction ("We read this section one column to
+  // the left. Update the sheet if …") and thereby shipped a card strictly thinner
+  // than the one it replaced: helpfulContext opens by naming the condition Doug can
+  // actually look for, and this code has no instance token to make up the loss
+  // (impeccable critique, branch 4). Matches the COLUMN_HEADER / FIELD_LABEL
+  // statement-plus-instruction shape instead of SECTION_HEADER's bare one.
   LEADING_COLUMN_AUTOCORRECTED: () =>
-    "We read this section one column to the left. Update the sheet if the empty column was intentional.",
+    "Every row in this section started with an empty column, so we read the section one column to the left. Update the sheet if the empty column was intentional.",
 };
 
 const normalize = (s: string): string => s.trim().replace(/\s+/g, " ");
