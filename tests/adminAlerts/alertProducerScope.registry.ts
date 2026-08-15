@@ -369,7 +369,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId fn param",
   },
   {
-    site: "lib/sync/assetRecovery.ts:625",
+    site: "lib/sync/assetRecovery.ts:633",
     contextKeys: ["currentSnapshotRevisionId", "snapshotRevisionId"],
     code: "ASSET_RECOVERY_REVISION_DRIFT",
     scope: "per-show",
@@ -377,7 +377,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId fn param",
   },
   {
-    site: "lib/sync/assetRecovery.ts:648",
+    site: "lib/sync/assetRecovery.ts:656",
     contextKeys: ["snapshotRevisionId"],
     code: "ASSET_RECOVERY_REVISION_DRIFT",
     scope: "per-show",
@@ -385,7 +385,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId fn param",
   },
   {
-    site: "lib/sync/assetRecovery.ts:659",
+    site: "lib/sync/assetRecovery.ts:667",
     contextKeys: ["snapshotRevisionId"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",

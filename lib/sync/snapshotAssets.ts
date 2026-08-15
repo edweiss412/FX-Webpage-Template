@@ -30,6 +30,7 @@ export type SnapshotAssetsTx = {
 
 export type SnapshotAssetsStorage = {
   upload(path: string, bytes: Uint8Array, options: { contentType: string }): Promise<void>;
+  removePrefix?(prefix: string): Promise<void>;
 };
 
 export type SnapshotAssetBytes = Uint8Array | BoundedByteResult;
@@ -285,7 +286,23 @@ export async function snapshotAssets(args: SnapshotAssetsArgs): Promise<Snapshot
       variantFailures,
     };
   } catch (error) {
-    await args.tx.markPendingSnapshotDeleteStarted?.(snapshotRevisionId);
+    // Both cleanups are best-effort and INDEPENDENT: each is wrapped, so a
+    // failing marker cannot skip the prefix removal, and neither can replace the
+    // error the caller needs to see. Marking first preserves the existing
+    // ordering for the shapes where the enclosing tx commits despite the throw.
+    try {
+      await args.tx.markPendingSnapshotDeleteStarted?.(snapshotRevisionId);
+    } catch {
+      /* never mask the original error */
+    }
+    try {
+      // The run-private _pending prefix is referenced by nobody (fresh runUuid).
+      // Failure here is silent by contract (spec §1.1 R7) and the diagram-gc
+      // _pending stage reclaims whatever survives (spec §4).
+      await args.storage.removePrefix?.(temp);
+    } catch {
+      /* never mask the original error */
+    }
     throw error;
   }
 }

@@ -11,6 +11,7 @@ import {
   type PendingSnapshotUploadRow,
   type SnapshotAssetBytes,
   type SnapshotAssetsResult,
+  type SnapshotAssetsStorage,
 } from "@/lib/sync/snapshotAssets";
 
 const DIAGRAM_BUCKET = "diagram-snapshots";
@@ -120,6 +121,55 @@ export async function snapshotFetchLinkedRevisionBytesTimed(
   }
 }
 
+/**
+ * The apply-path snapshot storage adapter, exported so its transport behavior
+ * (bucket-prefix strip, pagination, folder exclusion) is directly testable --
+ * the mocked-only blind spot documented in promoteSnapshotDefaultStorage.test.ts.
+ */
+export function applySnapshotStorage(
+  supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
+): SnapshotAssetsStorage {
+  const bucket = supabase.storage.from(DIAGRAM_BUCKET);
+  return {
+    // no-variant-stage: storage adapter impl -- forwards the bytes snapshotAssets()
+    // already ran the stage on. Generating here would make variants of variants.
+    async upload(path, bytes, options) {
+      const objectPath = path.startsWith(`${DIAGRAM_BUCKET}/`)
+        ? path.slice(DIAGRAM_BUCKET.length + 1)
+        : path;
+      // not-subject-to-meta: sync storage adapter -- throws on destructured error; consumed by phase2's typed Phase2InfraError wrap
+      const { error } = await bucket.upload(objectPath, bytes, {
+        contentType: options.contentType,
+        upsert: true,
+      });
+      if (error) throw error;
+    },
+    async removePrefix(prefix) {
+      const objectPrefix = prefix.startsWith(`${DIAGRAM_BUCKET}/`)
+        ? prefix.slice(DIAGRAM_BUCKET.length + 1)
+        : prefix;
+      const pageSize = 100;
+      const names: string[] = [];
+      let offset = 0;
+      while (true) {
+        // not-subject-to-meta: sync storage adapter -- throws on destructured error; consumed by snapshotAssets' best-effort catch
+        const { data, error } = await bucket.list(objectPrefix, { limit: pageSize, offset });
+        if (error) throw error;
+        const page = data ?? [];
+        for (const entry of page) {
+          if ("id" in entry && entry.id) names.push(`${objectPrefix}${entry.name}`);
+        }
+        if (page.length < pageSize) break;
+        offset += page.length;
+      }
+      if (names.length === 0) return;
+      // not-subject-to-meta: sync storage adapter -- throws on destructured error; consumed by snapshotAssets' best-effort catch
+      const { error: removeError } = await bucket.remove(names);
+      if (removeError) throw removeError;
+    },
+  };
+}
+
 export function makeSnapshotAssetsForApply(
   showId: string,
   tx: SnapshotAssetsApplyTx,
@@ -141,20 +191,7 @@ export function makeSnapshotAssetsForApply(
       driveFileId: args.driveFileId,
       diagrams: args.diagrams,
       tx,
-      storage: {
-        // no-variant-stage: storage adapter impl — forwards the bytes snapshotAssets()
-        // already ran the stage on. Generating here would make variants of variants.
-        async upload(path, bytes, options) {
-          const objectPath = path.startsWith(`${DIAGRAM_BUCKET}/`)
-            ? path.slice(DIAGRAM_BUCKET.length + 1)
-            : path;
-          const { error } = await supabase.storage.from(DIAGRAM_BUCKET).upload(objectPath, bytes, {
-            contentType: options.contentType,
-            upsert: true,
-          });
-          if (error) throw error;
-        },
-      },
+      storage: applySnapshotStorage(supabase),
       drive: {
         fetchEmbeddedImageBytes: (entry) =>
           snapshotFetchEmbeddedImageBytesTimed(entry, { fetchXlsxBytes }),

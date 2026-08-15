@@ -155,7 +155,7 @@ export type AssetRecoveryResult =
   | { outcome: "drift_cooldown"; code: typeof ASSET_RECOVERY_DRIFT_COOLDOWN }
   | { outcome: "bytes_exceeded"; code: typeof ASSET_RECOVERY_BYTES_EXCEEDED }
   | { outcome: "infra_error"; code: "SYNC_INFRA_ERROR" }
-  | { outcome: "no_op" };
+  | { outcome: "no_op"; lockedSnapshotRevisionId?: string };
 
 export type AssetRecoveryCronResult = {
   processed: Array<{ showId: string; result: AssetRecoveryResult }>;
@@ -617,7 +617,15 @@ export async function assetRecovery(
         const lockedShow = await tx.readLockedShow(showId);
         const lockedDiagrams = lockedShow ? unwrapDiagrams(lockedShow.diagrams) : null;
         if (!lockedDiagrams || lockedDiagrams.snapshot_status !== "partial_failure") {
-          return { outcome: "no_op" } satisfies AssetRecoveryResult;
+          // Deletion authority (spec §2.1): carry the revision observed under the
+          // lock so the post-lock cleanup can tell "the winner committed OUR
+          // revision" (keep) from "the revision drifted away" (delete).
+          return {
+            outcome: "no_op",
+            ...(lockedDiagrams
+              ? { lockedSnapshotRevisionId: lockedDiagrams.snapshot_revision_id }
+              : {}),
+          } satisfies AssetRecoveryResult;
         }
 
         if (lockedDiagrams.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
@@ -691,11 +699,18 @@ export async function assetRecovery(
     );
 
     if (isConcurrentSyncSkipped(locked)) {
-      await Promise.all(uploadedPaths.map((path) => deps.storage.remove?.(path)));
+      // No lock was held at the commit attempt -- no proof, no deletion (spec §2.2).
       return { outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED };
     }
 
-    if (locked.outcome === "revision_drift" || locked.outcome === "no_op") {
+    // Deletion authority (spec §2.1): only an in-lock observation that the current
+    // revision moved off the uploaded one permits removing the uploads.
+    const proofOfDrift =
+      locked.outcome === "revision_drift" ||
+      (locked.outcome === "no_op" &&
+        locked.lockedSnapshotRevisionId !== undefined &&
+        locked.lockedSnapshotRevisionId !== previewDiagrams.snapshot_revision_id);
+    if (proofOfDrift) {
       await Promise.all(uploadedPaths.map((path) => deps.storage.remove?.(path)));
     }
 
