@@ -803,7 +803,7 @@ what shipped AND which of its own premises this work refuted.
 `BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION` is the one new open row, filed with its census probe
 (~150 test files import the driver; ~60 never call `assertLocalDbUrl`).
 
-**Cross-model review.** Diff stage: R1 BLOCKING (2 findings), R2 BLOCKING (2), R3 BLOCKING (3), R4 in flight against this tree. Spec and plan stages
+**Cross-model review.** Diff stage: R1 BLOCKING (2 findings), R2 BLOCKING (2 findings), R3 BLOCKING (3 findings), R4 BLOCKING (1 finding), R5 BLOCKING (1 finding), R6 BLOCKING (2 findings), R7 APPROVE (0 findings). Spec and plan stages
 each converged at round 6 and are filed in `docs/review-rounds/chore/guard-completeness-wave/`.
 
 The arc's rows are split across THREE corpus files, and the round numbers restart in each one after
@@ -813,9 +813,19 @@ to `1e503d714b6e` and then to `ecbddfa1aac4` across the two merges, and that key
 belong to a new arc whose own numbering starts at 1 (precedent:
 `docs/review-rounds/test/resurrect-mobile-safari-e2e`, whose second file restarts the same way).
 
-Read end to end, the DIFF stage burned FIVE rounds on this branch, across three keys: `04f601134519` r1, `1e503d714b6e` r1/r2, `ecbddfa1aac4` r1/r2. This count is DERIVED from the corpus on disk at close-out rather than retyped, because three successive drafts of this section got it wrong by hand and two review rounds were spent saying so; `pnpm review:economy` reports the same rows. The second `origin/main` merge was sequenced BEFORE the last rounds on purpose: `mutation-harness` is path-filtered with `cancel-in-progress`, so merging afterwards would have restarted its ~2.5h whole-gate run and left the reviewed tree different from the tree that merges.
+Read end to end, the DIFF stage burned SEVEN rounds on this branch, across three keys:
+`04f601134519` r1, `1e503d714b6e` r1/r2, `ecbddfa1aac4` r1/r2/r3/r4. This count is DERIVED from
+the corpus on disk at close-out rather than retyped, because three successive drafts of this
+section got it wrong by hand and two review rounds were spent saying so; `pnpm review:economy`
+reports the same rows. The second `origin/main` merge was sequenced BEFORE the last rounds on
+purpose: `mutation-harness` is path-filtered with `cancel-in-progress`, so merging afterwards
+would have restarted its ~2.5h whole-gate run and left the reviewed tree different from the tree
+that merges.
 
-Every diff round found something real, and all of it was one class plus its consequences.
+Every diff round found something real, but not all of it was one class. Rounds 1-3 and 6 were
+the analyzer; 4 and 5 were this close-out's own accounting. The analyzer findings split further:
+1-3 were all one class -- which binding does a name resolve to -- while 6 was a different class
+entirely, a set and a syntax family nobody had enumerated.
 
 **The escape class: which binding does a name resolve to.** R1 probed a discovered file into
 `ok:true` on a whole-database wipe — `factoryChecked` was the one place in the analyzer answering
@@ -832,16 +842,17 @@ so each repair taught one walker a form the others still missed. R2's fix replac
 predicate, `isNamedFunctionLike`, that all three consult. Fifteen cases across thirteen labelled
 fixtures — (be) through (bq) — now pin the class, and each was verified RED against the analyzer it
 was written for; the two that are regression pins rather than kills say so in their own comments.
-Nine more, (br) through (bz), came out of the CI gate failure described below and pin the census and
-factory-declaration legs those repairs introduced. The suite is 82 cases in total.
+Nine more, (br) through (bz), came out of the CI gate failure described below and pin the census
+and factory-declaration legs those repairs introduced, and six more, (ca) through (cf), close diff
+review R6's two escapes. Twenty-five `(b*)` fixtures and six `(c*)`; the analyzer suite is 88 cases.
 
 R1 finding 2 was AC-4's line-count criterion, escalated with the measurement and amended by owner
 ratification 2026-08-15: the criterion is the deleted rules and the zeroed enumeration surface, with
 the growth recorded as a documented cost rather than reinterpreted.
 
 Final measurement, taken at the branch tip rather than at the moment of the escalation, because it
-grew further with the R2 and R3 repairs: `tests/db/_destructiveFileAnalysis.ts` is 645 lines of
-which 438 are CODE, against 420/262 on `origin/main`. A 35-line sibling,
+grew further with the R2, R3 and R6 repairs: `tests/db/_destructiveFileAnalysis.ts` is 664 lines of
+which 442 are CODE, against 420/262 on `origin/main`. A 35-line sibling,
 `tests/db/_destructiveStatements.ts`, holds the recognizer both the analyzer and discovery import.
 So the module is 1.7x its former size in code — the honest number, and larger than the 412 quoted
 when the amendment was ratified.
@@ -851,10 +862,10 @@ row named, because they do not all come from the same run:
 
 | surface | mutants | no-ops | counted | killed | score | ledger | measured by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `destructiveFileAnalysis` (enrolled here) | 233 | 0 | 225 | 225 | 1.00 | 8 equivalent | re-run after the repair |
-| `pgCronSmokes` (enrolled here) | 14 | 0 | 14 | 14 | 1.00 | none | CI whole gate, `f9905fddf` |
-| `ledgerGit` | 99 | 0 | 93 | 93 | 1.00 | 6 equivalent, accepted-gap 6 → 0 | CI whole gate, `f9905fddf` |
-| `ledgerClaimsCore` | 63 | 0 | 60 | 60 | 1.00 | 3 equivalent | CI whole gate, `f9905fddf` |
+| `destructiveFileAnalysis` (enrolled here) | 237 | 0 | 229 | 229 | 1.00 | 8 equivalent | scoped re-run after the R6 repair, confirmed by CI whole gate `cdac23ae9` |
+| `pgCronSmokes` (enrolled here) | 14 | 0 | 14 | 14 | 1.00 | none | CI whole gate, `cdac23ae9` |
+| `ledgerGit` | 99 | 0 | 93 | 93 | 1.00 | 6 equivalent, accepted-gap 6 → 0 | CI whole gate, `cdac23ae9` |
+| `ledgerClaimsCore` | 63 | 0 | 60 | 60 | 1.00 | 3 equivalent | CI whole gate, `cdac23ae9` |
 
 **The whole gate ran in CI, it went RED, and that is the most useful thing in this section.**
 
@@ -893,8 +904,8 @@ about 100 minutes locally, of which `ledgerGit` alone is ~33 because each of its
 real-git claims suite.
 
 The `destructiveFileAnalysis` row is TRANSCRIBED from the post-repair run, not derived — its
-verbatim output is `score={"killed":225,"countedSurvivors":0,"excluded":8,"denominator":225,
-"value":1} passed=true`, over 233 mutants in 447s with `baselineGreen=true`, and the eight
+verbatim output is `score={"killed":229,"countedSurvivors":0,"excluded":8,"denominator":229,
+"value":1} passed=true`, over 237 mutants in 393s with `baselineGreen=true`, and the eight
 reported survivors are exactly the eight ledgered `equivalent` rows. The other THREE rows are
 derived, from their pass in the CI whole-gate run, and the derivation is exact: zero unaccepted
 survivors is a gate CONDITION and none of them carries an accepted-gap row, so every surviving
@@ -938,8 +949,15 @@ before the merge.
 **AC-6 is satisfied by a whole-gate run, deliberately, and not by the scoped one.** `mutation-harness`
 is not one of the twelve required contexts, so it cannot block a merge — but the acceptance criterion
 asks for `pnpm mutation:guards` GREEN, and the difference between that and a scoped stand-in is the
-twelve survivors above. It is therefore treated as a merge gate for this arc by choice: the final head
-carries a fresh whole-gate run, and the merge waits on it.
+twelve survivors above. It was therefore treated as a merge gate for this arc by choice, and the
+merge waited on it: the whole-gate run over all eleven enrolled surfaces at `cdac23ae9` reports
+**success**.
+
+That SHA is named rather than "the tip" for a reason worth stating. `cdac23ae9` is the last commit
+on this branch that changes any SOURCE — it is the R6 repair itself — and everything after it edits
+this plan, the spec, the ledger and the review-round corpus only. The mutation gate reads source, so its verdict at `cdac23ae9` is the verdict for the
+merged tree, and re-running it on a documentation commit would have restarted a ~2.5h job to
+re-measure bytes that did not move.
 
 The validation-mode pg-cron leg was additionally exercised locally against the live validation
 project: all nine canonical jobs are baked with the stable production alias, https, no explicit
