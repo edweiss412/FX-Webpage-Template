@@ -354,7 +354,9 @@ Expected: FAIL initially — position-encoded siteIds on remaining `equivalent` 
 - [ ] **Step 4: Commit.**
 
 ```bash
-git add tests/mutation/
+git add tests/mutation/ tests/scripts/ledgerGitSpawnSeam.test.ts
+# tests/scripts/ is staged because survivor triage may have added killing cases there;
+# stage any other file this task's triage touched before committing.
 git commit -m "test(infra): ledgerGit mutation gaps closed — accepted-gap 6->0, siteIds reconciled (hand-verified GH_MS and MAX_GIT_STDOUT mutants red)"
 ```
 
@@ -510,6 +512,8 @@ Then: `wc -l tests/db/_destructiveFileAnalysis.ts` — assert < 420 (AC-4), and 
 
 ```bash
 git add tests/db/_destructiveFileAnalysis.ts tests/db/destructiveFileAnalysis.test.ts
+# If Step 4's containment contingency forced a file-local refactor of a real
+# discovered file, stage that file too (it is part of this task's change).
 git commit -m "test(db): destructive-file analyzer checks execution sites; acquisition enumeration deleted (<N> lines, was 420)"
 ```
 
@@ -530,7 +534,8 @@ git commit -m "test(db): destructive-file analyzer checks execution sites; acqui
 - [ ] **Step 4: Commit.**
 
 ```bash
-git add tests/mutation/
+git add tests/mutation/ tests/db/destructiveFileAnalysis.test.ts
+# The fixture suite is staged because survivor triage may add killing fixtures.
 git commit -m "test(db): enroll destructive-file analyzer in source-mutation registry (score <measured>)"
 ```
 
@@ -660,7 +665,19 @@ function assertJobDispatchOrigin(
 }
 ```
 
-- [ ] **Step 2: Add the sabotage case — this is the observed RED.** Local-mode only (`describe.skipIf` on validation): in a rolled-back transaction, `update cron.job set command = replace(command, current_setting('app.fxav_vercel_url', true), 'http://evil.invalid')` for one job, re-run the firing smoke on the mutated command, and assert `assertJobDispatchOrigin(jobname, urls, guc, resolved.mode)` THROWS with the job's name and the origin mismatch in the message. Run: `pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` — Expected: FAIL (the stub never throws; the missing origin-check body is the absent production code). This is also the live-mismatch demonstration spec §5.3 requires.
+- [ ] **Step 2: Add the sabotage case — this is the observed RED.** Registration shape (plan review R4 F2 probed both naive forms unsound: `liveCase` inside a validation-skipped `describe` still inflates `expectedQueries` at collection — Vitest executes skipped-suite factories — and a plain `test` bypasses the suite's local-unreachable skip): gate at REGISTRATION time, mirroring the suite's own `liveDbTest` construction at `tests/cross-cutting/pg-cron-coverage.test.ts:184-185`:
+
+```ts
+const sabotageCase =
+  coverageTarget !== "validation" && livePsqlReachable === "reachable" ? liveCase : undefined;
+sabotageCase?.(
+  "census origin assertion goes red by name on a re-baked http:// host",
+  async () => { /* body below */ },
+  { queries: 2 }, // declare the case's actual floor once written
+);
+```
+
+On validation the case is never registered (no floor inflation); on an unreachable local stack it is never registered (no skip bypass); on a reachable local stack it runs with full live-case accounting. Body: in a rolled-back transaction, `update cron.job set command = replace(command, current_setting('app.fxav_vercel_url', true), 'http://evil.invalid')` for one job, re-run the firing smoke on the mutated command, and assert `assertJobDispatchOrigin(jobname, urls, guc, resolved.mode)` THROWS with the job's name and the origin mismatch in the message. Run: `pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` — Expected: FAIL (the stub never throws; the missing origin-check body is the absent production code). This is also the live-mismatch demonstration spec §5.3 requires.
 
 - [ ] **Step 2b: Implement the check** inside `assertJobDispatchOrigin`:
 
@@ -693,7 +710,9 @@ git commit -m "test(infra): pg-cron census asserts dispatch origin per job; sabo
 - [ ] **Step 3: Commit.**
 
 ```bash
-git add tests/mutation/
+git add tests/mutation/ tests/cross-cutting/pgCronSmokesUnit.test.ts
+# The unit suite is staged because Step 1 may add direct firingSmokeSql /
+# queuedUrlsFromSmokeOutput cases and survivor triage may add killers.
 git commit -m "test(infra): enroll pgCronSmokes in source-mutation registry (score <measured>)"
 ```
 
