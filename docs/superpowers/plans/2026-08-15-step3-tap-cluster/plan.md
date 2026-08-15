@@ -4,7 +4,7 @@
 
 **Goal:** land the three ratified step-3 layout changes (title-link upward bleed; transport grid `items-start` + contact-cell compaction; contact chips + site-4 at-rest underline) on ONE branch, `fix/step3-tap-cluster`, TDD per task, dual-gated, CI-green merged; graduate the three BACKLOG entries.
 
-**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/2026-08-15-step3-tap-cluster.md` · **Status:** DRAFT
+**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/2026-08-15-step3-tap-cluster.md` · **Status:** plan-APPROVED (codex-guard plan R3 APPROVE/0, 2026-08-15; R1/R2 findings repaired in commits `2d1922a68`, `4a928cb7d`, `50c29163e`. Spec APPROVED codex-guard R5 same day.)
 
 ## Global constraints
 
