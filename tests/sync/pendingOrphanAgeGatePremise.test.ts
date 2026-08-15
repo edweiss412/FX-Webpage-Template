@@ -10,16 +10,31 @@
 // is an IDLE timer (`reset()` per chunk, lib/drive/stallGuard.ts) so it bounds
 // the gap between chunks, never the total: a 50 MiB asset trickling 16 KiB every
 // 29s stays inside the idle limit for ~25.8h, and an asset is uploaded only
-// after its download completes. The bound that actually holds is the execution
-// context's -- every entry point that reaches snapshotAssets is a serverless
-// function measured in minutes.
+// after its download completes. The bound that actually holds belongs to the
+// EXECUTION CONTEXT: every entry point that reaches snapshotAssets today runs
+// inside the Next.js app server -- a route handler, or a server action invoked
+// from one -- and the platform bounds those in minutes.
 //
-// Because that is a property of the DEPLOYMENT rather than of the module, it is
-// pinned here rather than argued in prose. Raising a reaching route's
-// maxDuration toward the gate, or moving snapshot uploads into a long-running
-// worker, reds this test -- which is the signal to revisit the gate.
+// So this guard pins two things, and needs both, because either alone is a
+// half-truth:
+//
+//   1. CONTAINMENT -- nothing outside the app tree WIRES the real, Supabase-backed
+//      upload adapter. This is the half that makes the "a long-running worker reds
+//      this test" promise TRUE. Rooting only at app/api/**/route.ts (this file's
+//      first version) did not: server actions already reach snapshotAssets through
+//      runManualSyncForShow, and a future scripts/ worker would have left the
+//      route-root set unchanged and the guard green. Containment is on the WIRING
+//      rather than on the import, because importing is not executing -- the
+//      committed probe and the screenshot scripts both reach the module without
+//      ever handing it real storage.
+//   2. HEADROOM -- no app-tree module declares a maxDuration large enough to
+//      approach the gate.
+//
+// Raising a declared maxDuration toward the gate, or introducing a caller
+// outside the app tree, reds this test -- which is the signal to revisit the
+// gate, not to raise the constant.
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { PENDING_ORPHAN_MIN_AGE_MS } from "@/lib/sync/diagramGc";
@@ -30,6 +45,14 @@ const TARGET = join(root, "lib/sync/snapshotAssets.ts");
 
 /** How much slack the gate keeps over the longest run the platform permits. */
 const SAFETY_FACTOR = 24;
+
+/**
+ * Trees whose modules only ever execute inside the Next.js app server (`app/`)
+ * or as libraries reached from it (`lib/`). A reaching file anywhere else is a
+ * standalone process with no platform duration bound -- exactly the shape the
+ * age gate cannot survive.
+ */
+const PLATFORM_BOUNDED_TREES = ["app", "lib"];
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -52,12 +75,20 @@ function resolveSpecifier(specifier: string, fromFile: string): string | null {
   return null;
 }
 
-/** file -> in-repo files it imports, resolved. Built once from disk, so a new route is covered by default. */
+/**
+ * file -> in-repo files it imports. Static `from "…"` plus dynamic `import("…")`,
+ * so a lazily-imported caller cannot slip the containment check. Built by
+ * walking the filesystem, so a new file is covered by default rather than
+ * silently exempt.
+ */
 function importGraph(): Map<string, string[]> {
   const graph = new Map<string, string[]>();
   for (const file of sourceFiles(root)) {
     const source = readFileSync(file, "utf8");
-    const specifiers = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1]!);
+    const specifiers = [
+      ...[...source.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1]!),
+      ...[...source.matchAll(/import\s*\(\s*["']([^"']+)["']\s*\)/g)].map((match) => match[1]!),
+    ];
     graph.set(
       file,
       specifiers
@@ -83,20 +114,48 @@ function reachesTarget(file: string, graph: Map<string, string[]>): boolean {
 
 describe("row-less _pending age gate: the premise it rests on (spec §4, §7 L8)", () => {
   const graph = importGraph();
-  const routes = [...graph.keys()].filter((file) => /app\/api\/.*\/route\.ts$/.test(file));
-  const reaching = routes.filter((route) => reachesTarget(route, graph));
+  const allFiles = [...graph.keys()];
+  // Tests describe callers without being them; excluding them keeps the
+  // containment assertion about production reachability.
+  const productionFiles = allFiles.filter(
+    (file) => !relative(root, file).startsWith("tests/") && file !== TARGET,
+  );
+  const reaching = productionFiles.filter((file) => reachesTarget(file, graph));
+  const reachingRel = reaching.map((file) => relative(root, file));
   const declared = reaching
-    .map((route) => {
-      const match = readFileSync(route, "utf8").match(/export const maxDuration\s*=\s*(\d+)/);
-      return match ? { route: route.replace(`${root}/`, ""), seconds: Number(match[1]) } : null;
+    .map((file) => {
+      const match = readFileSync(file, "utf8").match(/export const maxDuration\s*=\s*(\d+)/);
+      return match ? { file: relative(root, file), seconds: Number(match[1]) } : null;
     })
-    .filter((entry): entry is { route: string; seconds: number } => entry !== null);
+    .filter((entry): entry is { file: string; seconds: number } => entry !== null);
 
-  test("some route actually reaches snapshotAssets and declares a duration cap", () => {
-    // Without both, every assertion below ranges over an empty set and would
+  test("the graph actually reaches snapshotAssets from production code", () => {
+    // Without this, every assertion below ranges over an empty set and would
     // pass forever -- including after a refactor that renames the target module.
-    premise("routes under app/api reach lib/sync/snapshotAssets.ts", reaching.length, 0);
-    premise("at least one reaching route declares maxDuration", declared.length, 0);
+    premise("production files reach lib/sync/snapshotAssets.ts", reaching.length, 0);
+    premise("at least one of them declares maxDuration", declared.length, 0);
+  });
+
+  test("every production upload wiring lives in a platform-bounded tree (no standalone worker owns an upload)", () => {
+    premise("there are reaching files to classify", reachingRel.length, 0);
+    // The containment half -- scoped to WIRING, not to importing. Merely
+    // importing the module is not executing an upload: the committed probe and
+    // the screenshot capture scripts pull it in transitively (through in-memory
+    // ports and through page imports respectively) and never touch storage.
+    // What actually opens a live `_pending` prefix is constructing the real
+    // Supabase-backed adapter, so that is what must stay inside the app server.
+    // A queue consumer, cron worker, or one-off script that wired it would have
+    // no maxDuration and could hold a run open past the gate.
+    const wiringSites = productionFiles.filter((file) => {
+      if (file === join(root, "lib/sync/defaultSnapshotAssetsForApply.ts")) return false; // the definitions themselves
+      const source = readFileSync(file, "utf8");
+      return /\b(makeSnapshotAssetsForApply|applySnapshotStorage)\s*\(/.test(source);
+    });
+    premise("production code wires the real adapter somewhere", wiringSites.length, 0);
+    const outsideBoundedTrees = wiringSites
+      .map((file) => relative(root, file))
+      .filter((file) => !PLATFORM_BOUNDED_TREES.some((tree) => file.startsWith(`${tree}/`)));
+    expect(outsideBoundedTrees).toEqual([]);
   });
 
   test("every declared cap leaves the age gate at least 24x the longest permitted run", () => {
