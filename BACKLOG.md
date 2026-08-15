@@ -672,7 +672,7 @@ Five of the nine specced members were RED when first run — the spec had verifi
 
 ## BL-CHANGES-FEED-MODAL-BATCH-FLAKE — admin-changes-feed-layout's review modal intermittently never mounts inside a batch run
 
-**Status:** OPEN · **Severity:** MEDIUM (blocks wiring the spec into CI; no known product impact) · **Class:** e2e flake · **Effort:** M · **Filed:** 2026-08-09
+**Status:** IN PROGRESS · **Branch:** fix/changes-feed-batch-flake · **Severity:** MEDIUM (blocks wiring the spec into CI; no known product impact) · **Class:** e2e flake · **Effort:** M · **Filed:** 2026-08-09
 
 `tests/e2e/admin-changes-feed-layout.spec.ts` fails intermittently when run as part of a multi-spec batch: after `page.goto('/admin?show=<slug>')` the locator
 
