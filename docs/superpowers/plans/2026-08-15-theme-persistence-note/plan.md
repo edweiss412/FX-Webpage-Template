@@ -6,7 +6,7 @@
 
 **Architecture:** one branch `feat/theme-persistence-note` off `origin/main`, TDD per task, impeccable dual gate (UI surface, Opus-owned), cross-model diff review, CI-green merge.
 
-**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` (spec-APPROVED, codex-guard R4 2026-08-15) · **Status:** DRAFT
+**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` (spec-APPROVED, codex-guard R4 2026-08-15) · **Status:** plan-APPROVED (codex-guard R3, 2026-08-15, FINDINGS: 0)
 
 ## Global constraints
 
