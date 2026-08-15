@@ -48,7 +48,7 @@ spec.
 - AC-4: §6 self-enrolments land before the first implementation review dispatch, scores stated (spec §9 AC-4).
 - AC-5: the new workflow fires on this PR via path filter, green on real Actions (spec §9 AC-5).
 - AC-6: AGENTS.md heavy-phase member list names `pnpm mutation:browser` (spec §9 AC-6).
-- AC-7: both ledger rows graduate; markers off in the final commit; specs/ci README row (spec §9 AC-7).
+- AC-7: both ledger rows graduate with markers off in the SAME graduation commit, which precedes the final review; the PR's last commit is solely the final corpus row; specs/ci README row (spec §9 AC-7).
 - AC-8: impeccable-gate N/A — no UI surface (spec §9 AC-8).
 
 ## Mutation-family closure (declared per writing-plans)

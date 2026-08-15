@@ -451,9 +451,11 @@ bullet requires.
 - AC-5: the new mutation-browser.yml workflow fires on this PR via its path filter and the
   run is green on real Actions before merge.
 - AC-6: AGENTS.md heavy-phase member list names `pnpm mutation:browser`.
-- AC-7: both ledger rows graduate to `BACKLOG-archive.md` with terminal states; the
-  IN PROGRESS markers come off in the PR's final commit (invariant 12); the specs/ci README
-  gains this spec's index row.
+- AC-7: both ledger rows graduate to `BACKLOG-archive.md` with terminal states, their
+  IN PROGRESS markers removed in that same graduation commit (invariant 12's same-commit
+  rule for graduating entries); the graduation commit precedes the final whole-diff
+  review, and the PR's last commit is solely the final review dispatch's corpus row; the
+  specs/ci README gains this spec's index row.
 - AC-8: `impeccable-gate: N/A — no UI surface` (no file under `app/` or `components/` is
   touched; the two e2e-harness files are test infrastructure).
 
