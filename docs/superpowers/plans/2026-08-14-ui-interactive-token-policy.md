@@ -884,6 +884,50 @@ gates file's 519 (+40%), so `timeout-minutes` moves 180 -> 300 with the numbers 
 That is headroom, not a fix: the real repair is bounding the gates file's wall clock as
 surfaces enrol, filed as `BL-MUTATION-HARNESS-WALLCLOCK-CEILING`.
 
+### Whole-diff cross-model review (Task 8)
+
+Dispatched as TWO tight-scope reviews rather than one whole-diff pass (AGENTS.md: split
+reviews are the default beyond a handful of files; this diff is 96). Round 1 returned
+**BLOCKING on both halves** — 7 findings on the guard/harness half, 2 on the product half.
+Seven were real, and every one of them was in the SILENT direction: a control the guard
+PASSED whose class string does not actually prove 44px at rest. Each was probed against the
+shipped scanner before repair, and the probe output is what settled it, not the argument.
+
+**What the grammar was accepting.** `max-h-96` (a ceiling read as a floor), `hover:min-h-tap-min`
+and `sm:h-11` (a floor in a state, which is not the at-rest claim), `[&:hover]:h-4` (the element
+itself, read as a descendant's box), and `before:-inset-x-2` (a HORIZONTAL bleed accepted as
+proof of height — the shape two live sites actually wear). Both expansion recipes are now one
+arithmetic over the element's declared height, or `ASSUMED_TEXT_ROW_PX` when it declares none:
+the assumption spec §5.3 already ratified for `p-3`, named once instead of implied twice in two
+drifting versions. That also priced `p-3 py-1` honestly (4px, not 12) and a small bleed honestly
+(`-inset-y-1` over a text row is 28px, not 44).
+
+**What the resolver was claiming.** A `let` reassigned to an under-floor class was read from its
+initializer; a helper with a bare `return;` or a fall-off-the-end path contributed only its
+floored returns; and the floor-component allowlist matched on TAG SPELLING, so a locally defined
+`AccentButton` inherited the canonical component's guarantee. The `let` repair has a sharp edge
+worth recording: returning "not found" for an unreadable binding sends the lookup to the import
+table, where another module's export of that name resolves and clears — so it returns a distinct
+"found but unreadable" answer, and a fixture pins exactly that.
+
+**Two census rows and one registry row were true about the pattern and false about the site.**
+Three `parent-label-target` rows: two FINANCIALS checkboxes sit in a `div` with a SIBLING label
+(a div does not toggle a checkbox) and one radio is wrapped by a label with no height and no
+padding. All three are `under-floor-filed` now against `BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR`. One
+`dismissable-chip` row was the "Clear filters" action — no caption, no dismiss glyph — so it
+never met Family C's definition; it was swapped, the registry is 14 rows, and spec §4.3 carries
+the correction with the family set explicitly untouched.
+
+**The census grew from 51 to 53 rows, and that is the system working.** BellPanel's chevron and
+AdminPageHeader's back link lost a clear they had been getting for the wrong reason.
+
+**One product finding is a recorded position rather than a repair.** The outline's ratios were
+pinned on three neutral grounds while DESIGN claimed four, and ten shipped controls stand on a
+TINTED plate where the outer edge measures 2.79-2.88:1. `surface-raised` is asserted now and the
+tinted numbers are pinned so they cannot drift in either direction; whether tinted plates deserve
+their own treatment is a design decision, filed as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` under
+the same R5 frame that governs the whole change.
+
 ### Invariant-8 dual gate (Task 7)
 
 Both halves ran on the implementing diff with the canonical v3 setup (`context.mjs` load of

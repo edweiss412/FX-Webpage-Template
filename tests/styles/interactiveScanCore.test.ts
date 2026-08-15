@@ -9,6 +9,7 @@ import {
   defeaterPresent,
   heightFloorSatisfied,
   scanInteractiveElements,
+  themeBlocks,
   type ScanElement,
 } from "./interactiveScanCore";
 
@@ -623,6 +624,27 @@ describe("resolver end-to-end fixtures (plan R2 F3, executable, not comments)", 
     expect(local && heightFloorSatisfied(local)).toBe(false);
   });
 
+  it("an IMPORTED AccentButton from the wrong module is not the allowlisted one", () => {
+    // The local-definition case above never reaches the path comparison — there
+    // is no import to resolve. This one imports a real module that resolves,
+    // and only the resolved PATH separates it from the canonical component.
+    const b = scanFixtureFiles({
+      "components/Fx.tsx": [
+        'import { AccentButton } from "./Other";',
+        "export function C() {",
+        "  return <AccentButton>x</AccentButton>;",
+        "}",
+      ].join("\n"),
+      "components/Other.tsx": [
+        "export function AccentButton({ children }: { children?: unknown }) {",
+        '  return <button className="min-h-0">{children as never}</button>;',
+        "}",
+      ].join("\n"),
+    }).find((e) => e.tag === "AccentButton");
+    expect(b?.allowlisted).toBe(false);
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
+
   it("nested conditional keeps ancestry: inner both-branch floor under a floorless outer arm never clears", () => {
     const els = scanFixture(
       [
@@ -851,6 +873,46 @@ describe("height floor (spec §5.1/§5.2 rules 1-4, 7) and defeaters (rule 8)", 
     expect(heightFloorSatisfied(el({ paths: [["min-h-not-a-real-token"]] }))).toBe(false);
   });
 
+  // ---- recipe arithmetic, term by term (2026-08-15 mutation round 2) ----
+  //
+  // Both recipes add to `ASSUMED_TEXT_ROW_PX` (20) and compare against 44, so
+  // every case below is chosen to straddle that boundary: a fixture landing on
+  // the same side under both the original and the mutation proves nothing.
+  it.each([
+    // A conditional padding utility must not feed the recipe: `hover:p-3` is
+    // 24px of padding in a state, and 20 + 24 = 44 would clear on it.
+    ["-my-2 hover:p-3", false],
+    // The 4px scale itself: p-2.5 is 10px a side, 20 + 20 = 40.
+    ["-my-2 p-2.5", false],
+    // The axis map: `p-3` sets BOTH sides (20 + 24 = 44); a lone `pt-3` leaves
+    // the bottom at zero and the recipe reads the smaller side.
+    ["-my-2 p-3", true],
+    ["-my-2 pt-3", false],
+    ["-my-2 pt-3 pb-3", true],
+    // `py-3` is the only shape that reaches the axis map's `y` arm: `p-3` short-
+    // circuits on the empty-axis test before it.
+    ["-my-2 py-3", true],
+  ])("negative-margin recipe: %s -> %s", (tok, want) => {
+    expect(heightFloorSatisfied(el({ paths: [[tok as string]] }))).toBe(want);
+  });
+
+  it.each([
+    // Horizontal bleed proves no height, at any magnitude.
+    ["relative before:absolute before:-inset-x-3", false],
+    // The 4px scale on the bleed: 2.5 steps is 10px a side, 20 + 20 = 40.
+    ["relative before:absolute before:-inset-y-2.5", false],
+    // A pseudo floor token behind a SECOND variant is conditional again. The
+    // token has to lead with `before:` — that is the filter the recipe applies
+    // before it consults the token at all.
+    ["relative before:absolute before:hover:h-tap-min", false],
+    // The assumed row height itself. Whole 4px steps cannot see it (20+8N and
+    // 21+8N first reach 44 at the same N), so the only fixture that can is one
+    // whose bleed lands the sum exactly ON 43: 20 + 2*11.5 = 43, 21 + 23 = 44.
+    ["relative before:absolute before:-inset-y-2.875", false],
+  ])("pseudo recipe: %s -> %s", (tok, want) => {
+    expect(heightFloorSatisfied(el({ paths: [[tok as string]] }))).toBe(want);
+  });
+
   it("the pseudo-element expansion recipes DO floor (spec §5.1)", () => {
     // Explicit-height form: a 44px absolutely-positioned pseudo IS the hit area.
     expect(
@@ -866,6 +928,74 @@ describe("height floor (spec §5.1/§5.2 rules 1-4, 7) and defeaters (rule 8)", 
     expect(heightFloorSatisfied(el({ paths: [["relative before:absolute before:inset-0"]] }))).toBe(
       false,
     );
+  });
+});
+
+describe("@theme block extraction (whole-diff R1 F6)", () => {
+  // Reached in production only through `spacingTokens()`, which reads the real
+  // `app/globals.css` — so the brace scanner's own cases are unreachable from
+  // the public predicates, and eight of its mutants survived on that. It is
+  // exported for exactly these.
+  it("returns EXACTLY the @theme block, nested braces and all", () => {
+    // Asserted as an exact string rather than by `toContain`. A brace walk that
+    // is off by one, or that stops at the wrong `}`, still contains the tokens
+    // a containment check looks for — five mutants survived a containment
+    // version of this case by breaking at the nested block's closing brace.
+    // The expectation is DERIVED from the input, so it cannot drift.
+    const css = [
+      ":root { --spacing-outside: 99px; }",
+      "@theme { --spacing-inside: 48px;",
+      "  @media (min-width: 40rem) { --spacing-nested: 60px; }",
+      "}",
+      ".after { --spacing-trailing: 12px; }",
+    ].join("\n");
+    const open = css.indexOf("{", css.indexOf("@theme"));
+    const close = css.indexOf("}", css.indexOf("--spacing-nested")) + 2;
+    expect(themeBlocks(css)).toBe(css.slice(open, close));
+    // and the derivation above really did exclude both neighbours:
+    expect(themeBlocks(css)).not.toContain("--spacing-outside");
+    expect(themeBlocks(css)).not.toContain("--spacing-trailing");
+    expect(themeBlocks(css)).toContain("--spacing-nested");
+  });
+
+  it("finds a closing brace at an ODD offset from the opening one", () => {
+    // A walk that steps by two visits only even offsets from `{`, so it sails
+    // past the matching `}` whenever the block's content has even length — and
+    // reads the rest of the stylesheet as theme. Every other case here happens
+    // to have even spacing, which is exactly how that mutant survived.
+    const css = "@theme {--x:1px;}\n:root{--y:2px;}";
+    expect(themeBlocks(css)).toBe("{--x:1px;");
+  });
+
+  it("ignores a commented-out @theme, and finds a second real one", () => {
+    const css = [
+      "/* @theme { --spacing-ghost: 48px; } */",
+      "@theme { --spacing-first: 48px; }",
+      "@theme { --spacing-second: 52px; }",
+    ].join("\n");
+    const blocks = themeBlocks(css);
+    expect(blocks).not.toContain("--spacing-ghost");
+    expect(blocks).toContain("--spacing-first");
+    expect(blocks).toContain("--spacing-second");
+  });
+
+  it("an unterminated @theme yields the rest of the file, not an empty string", () => {
+    // The scanner walks to the matching `}`; with none, `end` runs off the end.
+    // Returning nothing there would silently drop every token in a malformed
+    // stylesheet, which is a false CLEAR the moment a floor token lives in one.
+    expect(themeBlocks("@theme { --spacing-open: 48px;")).toContain("--spacing-open");
+  });
+
+  it("a file with no @theme yields nothing", () => {
+    expect(themeBlocks(":root { --spacing-x: 48px; }")).toBe("");
+  });
+
+  it("a bare `@theme` with no block at all yields nothing", () => {
+    // The `indexOf` guard: without it the scan starts at -1 and slices from
+    // before the string, and with a real block ahead of it the search re-finds
+    // the same `@theme` forever.
+    expect(themeBlocks("@theme")).toBe("");
+    expect(themeBlocks("@theme { --spacing-real: 48px; }\n@theme")).toContain("--spacing-real");
   });
 });
 

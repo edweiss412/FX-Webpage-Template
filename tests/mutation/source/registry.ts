@@ -702,34 +702,70 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // coverage gaps and were repaid with tests, not with rows.
     accepted: [
       {
-        siteId: "relational-boundary:127:50:>>>=",
+        siteId: "relational-boundary:141:50:>>>=",
         kind: "equivalent",
         reason:
-          'tokenize\'s filter becomes a no-op, so the only extra member is the empty string. Its four consumers are all existential (interactiveScanCore.ts:277, :286-290, :299-303, :320) and both predicates reject "": baseToken("") is not sr-only and utilityPx("") is null (:248), and neither defeater regex matches (:255, :261). tokenize is module-private, so no length or .every consumer exists',
+          'tokenize\'s filter becomes a no-op, so the only extra member is the empty string. Its four consumers are all existential (the floor scan and two recipe checks inside `pathHasFloor`, plus `defeaterPresent`) and both predicates reject "": baseToken("") is not sr-only and utilityPx("") is null in `tokenIsFloor`, and neither regex in `tokenIsDefeater` matches. tokenize is module-private, so no length or .every consumer exists',
       },
       {
-        siteId: "integer-literal:127:52:0>1",
+        siteId: "integer-literal:141:52:0>1",
         kind: "equivalent",
         reason:
-          'the same filter in the other direction: it now also drops 1-character tokens. The shortest string any predicate in this module can match is 3 characters ("p-3" at :301, "h-4" via the utility regex at :231, "-m-1" at :299), so a 1-character token evaluates false whether it is kept or dropped',
+          'the same filter in the other direction: it now also drops 1-character tokens. The shortest string any predicate in this module can match is 3 characters ("p-3" in `verticalPaddingPx`, "h-4" via the utility regex in `utilityPx`, "-m-1" in the negative-margin test inside `pathHasFloor`), so a 1-character token evaluates false whether it is kept or dropped',
       },
       {
-        siteId: "relational-boundary:139:21:<><=",
+        siteId: "relational-boundary:153:21:<><=",
         kind: "equivalent",
         reason:
-          "one extra iteration of baseToken's scan reads raw[raw.length], which is undefined in JS rather than a throw, so all three comparisons at :141-143 are false and neither `depth` nor `lastSep` changes. The return at :145 reads only those two",
+          "one extra iteration of baseToken's scan reads raw[raw.length], which is undefined in JS rather than a throw, so all three comparisons in the loop body are false and neither `depth` nor `lastSep` changes; the return reads only those two",
       },
       {
-        siteId: "relational-boundary:166:21:<><=",
+        siteId: "relational-boundary:180:21:<><=",
         kind: "equivalent",
         reason:
-          "the same off-the-end iteration in variantPrefixes: no branch at :167-173 fires on undefined, and the function returns exactly what the loop accumulated (:175) with no post-loop push, so a trailing prefix cannot be appended",
+          "the same off-the-end iteration in variantPrefixes: no branch in the loop body fires on undefined, and the function returns exactly what the loop accumulated with no post-loop push, so a trailing prefix cannot be appended",
       },
       {
-        siteId: "integer-literal:220:34:0>1",
+        siteId: "relational-boundary:236:16:<><=",
         kind: "equivalent",
         reason:
-          "lengthPx's zero-length return value is only ever null-checked or compared against FLOOR_PX=44 (interactiveScanCore.ts:203, :248, :259, :264). 0 and 1 are both non-null and both under 44, and no consumer does arithmetic on it",
+          'themeBlocks\' brace walk: the loop bound only decides where an UNBALANCED block stops, and both consumers erase the difference. `String.slice` clamps an end past the length, and `indexOf("@theme", end)` is -1 for every end at or past the length, so the extra iteration (which reads `undefined` and matches neither brace) cannot change the returned string',
+      },
+      {
+        siteId: "logical-connector:312:50:&&>||",
+        kind: "equivalent",
+        reason:
+          'only two operand combinations reach this line. With allowPseudo=false the scope is necessarily "element" (pseudo and descendant returned already), so both `false && X` and `false || (scope === "pseudo")` are false; the single allowPseudo=true call site filters on `t.startsWith("before:")`, and any such token has "before" among its variant prefixes, so both operators are true. The combination the operators disagree on is unreachable',
+      },
+      {
+        siteId: "equality-flip:380:21:===>!==",
+        kind: "equivalent",
+        reason:
+          'a consistent relabelling of the two padding accumulators: "t" writes bottom and "b" writes top, while "" and "y" still write both, so after any token sequence the pair is exactly the original pair transposed. Its only consumer is `Math.min(top ?? 0, bottom ?? 0) * 2`, which is symmetric in the two',
+      },
+      {
+        siteId: "integer-literal:383:26:0>1",
+        kind: "equivalent",
+        reason:
+          "the missing-side fallback can only ever be 0 or 1, so it moves the returned padding by at most 2px. The sole consumer compares `ASSUMED_TEXT_ROW_PX + padding` against FLOOR_PX with a 24px gap (20 -> 22 against 44), and the base is pinned at 20 because any readable declared height is already a floor token or a rule-8 defeater. No input can cross the floor",
+      },
+      {
+        siteId: "integer-literal:383:39:0>1",
+        kind: "equivalent",
+        reason:
+          "the mirror of the row above, on the other accumulator, with the same 2px-against-24px argument",
+      },
+      {
+        siteId: "integer-literal:394:15:0>1",
+        kind: "equivalent",
+        reason:
+          "the bleed initializer survives only when NO `before:-inset*` token matches or every match is horizontal — any real vertical bleed overwrites it last-wins. In that case the recipe computes 20 + 2*1 = 22 against a floor of 44, so the changed initial value cannot reach a verdict",
+      },
+      {
+        siteId: "integer-literal:285:34:0>1",
+        kind: "equivalent",
+        reason:
+          "lengthPx's zero-length return value is only ever null-checked or compared against FLOOR_PX=44 (the `spacingTokens` map build, `tokenIsFloor`, and both arms of `tokenIsDefeater`). 0 and 1 are both non-null and both under 44, and no consumer does arithmetic on it",
       },
     ],
   },

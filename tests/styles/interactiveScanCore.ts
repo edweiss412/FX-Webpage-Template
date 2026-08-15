@@ -31,10 +31,9 @@
  *
  * Recipe-scoped defeaters (spec §5.2 rule 8, families 3 and 4) are enforced
  * structurally rather than as separate defeater tokens: both recipes are
- * ARITHMETIC over the element's declared height (or `ASSUMED_TEXT_ROW_PX` when
- * it declares none), so a token that shrinks one — `py-1` after `p-3`, a bleed
- * too small, a horizontal-only bleed — removes the floor it was scoped to
- * rather than needing its own defeater rule.
+ * ARITHMETIC over `ASSUMED_TEXT_ROW_PX`, so a token that shrinks one — `py-1`
+ * after `p-3`, a bleed too small, a horizontal-only bleed — removes the floor it
+ * was scoped to rather than needing its own defeater rule.
  *
  * WHAT "PROVES" MEANS HERE, made explicit after a whole-diff review found four
  * shapes that cleared without proving anything (R1 F2/F3): the claim is at-rest
@@ -46,6 +45,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve as resolvePath } from "node:path";
 import ts from "typescript";
+import { stripCommentsForFile } from "../_shared/stripComments";
 
 export type ScanElement = {
   file: string; // repo-relative
@@ -214,9 +214,18 @@ function tokenScope(raw: string): TokenScope {
  * so a declaration in prose, in a commented-out block, or under an ordinary
  * selector is a name the browser never sees. Reading the whole file let such a
  * name make a non-existent `min-h-*` utility clear (whole-diff R1 F6).
+ *
+ * EXPORTED for its own tests. Its only caller reads the real `app/globals.css`
+ * from `process.cwd()`, so every case that matters — a nested block, an
+ * unterminated one, a `@theme` inside a comment — is unreachable through the
+ * public predicates, and eight of its mutants survived on exactly that.
  */
-function themeBlocks(css: string): string {
-  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+export function themeBlocks(css: string): string {
+  // The shared stripper, not a local regex: comment handling has ONE
+  // implementation in this repo by structural rule
+  // (`tests/cross-cutting/_metaStripCommentsSingleSource.test.ts`), and it
+  // blanks comments in place so every offset below still lines up.
+  const withoutComments = stripCommentsForFile(css, "globals.css");
   let out = "";
   let index = withoutComments.indexOf("@theme");
   while (index !== -1) {
@@ -339,21 +348,17 @@ function tokenIsDefeater(raw: string): boolean {
  * round showed the two had drifted into different, unstated versions of it
  * (whole-diff R1 F3: a 4px bleed cleared while the same arithmetic in the
  * padding recipe would not have).
+ *
+ * It is the recipes' ONLY base, and that is a consequence rather than a
+ * simplification. Rule 8 runs first, so an element that declares a height under
+ * 44px is already demoted as a defeater and one that declares 44px or more has
+ * already cleared as a floor token — a recipe is only ever consulted for an
+ * element whose height is its CONTENT's. A `declaredHeightPx` helper that read
+ * the declared height here was therefore unreachable through the exported
+ * predicates, which is how the mutation gate found it: six of its mutants
+ * survived because nothing they changed could reach a verdict.
  */
 const ASSUMED_TEXT_ROW_PX = 20;
-
-/** The element's own declared height, LAST-WINS, or null when it declares none. */
-function declaredHeightPx(tokens: readonly string[]): number | null {
-  let px: number | null = null;
-  for (const raw of tokens) {
-    if (tokenScope(raw) !== "element" || variantPrefixes(raw).length > 0) continue;
-    const t = baseToken(raw);
-    if (!/^(?:min-h|h|size)-/.test(t)) continue;
-    const value = utilityPx(t);
-    if (value !== null) px = value;
-  }
-  return px;
-}
 
 /**
  * Vertical padding on EVERY side, last-wins per axis.
@@ -408,7 +413,7 @@ function pathHasFloor(path: readonly string[]): boolean {
   const tokens = path.flatMap(tokenize);
   if (tokens.some((t) => tokenIsFloor(t))) return true;
 
-  const base = declaredHeightPx(tokens) ?? ASSUMED_TEXT_ROW_PX;
+  const base = ASSUMED_TEXT_ROW_PX;
 
   // The pseudo-element expansion recipe. It needs `before:absolute` — an
   // absolutely-positioned pseudo inside the control IS part of its hit area —

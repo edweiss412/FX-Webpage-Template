@@ -94,12 +94,14 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   tapTargetScan: {},
   // The shared core is this arc's mutation-relevant surface: the in-scope
   // predicate, the resolver and both token grammars live here, and three suites
-  // decide its verdicts. Its five blessed survivors are ONE shape — a mutation
-  // whose only effect is on a value no consumer can distinguish (an empty string
-  // added to a token list nothing counts; a loop's off-the-end read of
-  // `undefined`). The first run's other 56 survivors were repaid with fixtures,
-  // not rows, so a SIXTH row here is a gap to repay rather than a number to bump.
-  interactiveScanCore: { equivalent: 5 },
+  // decide its verdicts. Its eleven blessed survivors are all ONE shape — a
+  // mutation whose only effect is on a value no consumer can distinguish: an
+  // empty string added to a token list nothing counts, a loop's off-the-end read
+  // of `undefined`, a 2px shift against a 24px gap, a consistent relabelling
+  // under a symmetric `min`. Across two rounds SIXTY-SEVEN other survivors were
+  // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
+  // repay rather than a number to bump.
+  interactiveScanCore: { equivalent: 11 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
