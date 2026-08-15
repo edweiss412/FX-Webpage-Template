@@ -9,7 +9,12 @@
 // deployments (project-name prefix + this account's scope suffix — a
 // foreign-scope host with the same project prefix is rejected).
 
-const PRODUCTION_HOST = "fxav-crew-pages-validation.vercel.app";
+// Exported so the pg-cron dispatch-origin comparator pins the SAME host this file
+// already pins, instead of re-typing it. The ASSERT below is deliberately not reused
+// there: it accepts this project's own preview deployments, which is right for a smoke
+// and wrong for cron — a cron command baked against a per-deployment preview host is a
+// failure, per the manual pivot checklist (stable alias, never <project>-<hash>-<team>).
+export const PRODUCTION_HOST = "fxav-crew-pages-validation.vercel.app";
 const PREVIEW_HOST_RE = /^fxav-crew-pages-validation-[a-z0-9]+-eric-weiss-projects\.vercel\.app$/;
 
 export function assertValidationSmokeBaseUrl(raw: string): void {
