@@ -32,6 +32,205 @@ The consequence was bounded before and is bounded now: every character of the ce
 
 **Effort:** S · **Closed:** 2026-08-15
 
+## BL-DESTRUCTIVE-GUARD-EXECUTION-SITE — the destructive-target guard checks connections, when it should check execution sites — CLOSED 2026-08-15 (chore/guard-completeness-wave, SHIPPED)
+
+**Severity:** MEDIUM (a guard that raises the cost of a mistake without proving absence) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-10
+
+**Probe evidence.** `tests/db/_destructiveFileAnalysis.ts` verifies that every `postgres(...)` call it can SEE connects to a guarded loopback URL. Whole-diff review of PR #767 found five distinct ways to obtain a driver the analyzer cannot see — `import()`, `require()`, `import { default as … }`, `import * as … `, `createRequire`, and `process.getBuiltinModule("node:module").createRequire` — each demonstrated returning `{"ok":true}` on a file that pruned `TEST_DATABASE_URL`. Every one is now rejected, and round 11 of that review claimed the set was closed at four; round 12 disproved it. **The acquisition enumeration does not terminate**, so the current module raises the cost of writing an unchecked connection by accident without proving none exists.
+
+**The sound framing, which does terminate.** Check the EXECUTION SITE rather than the connections: every destructive statement must run on a client bound to a connection the analyzer already checked. Acquisition then stops mattering — a client obtained by any route simply is not in the checked set.
+
+**Why it was not done in that PR (disposition reason (c) — a redesign of a surface the PR does not otherwise touch).** It was attempted and reverted. Real destructive files build clients through local factories: `tests/db/resetValidationDataConcurrency.test.ts:64` uses `const b = newConn()`. Propagating "checked" through a local factory needs interprocedural analysis, without which the invariant rejects correct code. That is a proper piece of work, not a follow-on tweak, and the PR it surfaced in was about sync-log attribution.
+
+**A SECOND open limit, same root cause (added 2026-08-10 after whole-diff r16).** Discovery is spelling-sensitive: the patterns require the schema-qualified, unquoted `public.<name>(` form, so `select prune_sync_log()` and `select "public"."prune_sync_log"()` are not discovered and no safety analysis runs on such a file. Nine other spellings were closed in that PR by keying on the function name instead of a statement shape, but quoting and qualification remain. Chasing SQL spellings has the same non-termination as the aliasing enumerations, so it is recorded rather than pursued.
+
+The terminating framing is the same one below, applied one layer up: **discover files by the fact that they OPEN A DATABASE CONNECTION**, and require the guard of all of them. That removes SQL spelling from the question entirely — a file cannot execute destructive SQL without a connection. It is a cross-cutting change over every DB test in the repo, which is why it is filed rather than done in a sync-log attribution PR.
+
+**Acceptance.** Every current fixture in `tests/db/destructiveFileAnalysis.test.ts` still rejects, all real destructive files still pass, AND a file acquiring a driver by a route not in the current rejection list is rejected because its client is not in the checked set. If that lands, the acquisition rules (dynamic import, require, createRequire, getBuiltinModule, non-default import form) can all be DELETED — the redesign should make the module smaller, not larger.
+
+**Archive disposition (2026-08-15, `chore/guard-completeness-wave`, SHIPPED).** `tests/db/_destructiveFileAnalysis.ts`
+now checks EXECUTION SITES and the acquisition leg is deleted. Three joint rules: every
+client-shaped execution (a tagged template, or a property call whose method is in a closed
+postgres.js set) must run on a checked client; every recognized destructive statement must sit
+inside one of those executions; and a checked client may appear only as a declaration target, a
+template tag, or a method receiver. A one-level factory summary admits the live `newConn()` shape
+that reverted the first attempt at this framing.
+
+Four rejection rules and six enumerated acquisition routes are gone — `import()`, `require()`,
+`import { default as … }`, `import * as …`, `createRequire`, `process.getBuiltinModule` — because
+a client acquired by a route nobody listed is simply not in the checked set. The spec review's own
+detached-method probe (`const { unsafe } = target; await unsafe("select public.prune_sync_log()")`),
+which the shipped analyzer returned `ok:true` on, is now fixture (aa).
+
+**Premises this work corrected.** The discovered population is 9, not 7: seven real destructive
+files plus the guard's own two, which were exempt only because one of them quoted the
+inline-exemption comment form inside a failure MESSAGE. That accident is replaced by
+`GUARD_OWN_FILES`. `GUARD_NAMES` carried `assertSafeDestructiveTarget`, which exists repo-wide only
+as a local non-exported function and could therefore satisfy the meta-test's message regex but never
+`trusted()` — a guard premise that was false where it ran. A stale comment claimed
+`resetValidationDataPostgrest.test.ts` opens no postgres connection; it does.
+
+**The entry's "smaller, not larger" was a prediction, and it is refuted.** Measured at the branch
+tip: the module is 645 lines of which 438 are CODE, against 420/262 before. (It was 597/412 when the
+amendment below was ratified; the R2 and R3 repairs grew it further, which moves the measurement
+away from the retired target rather than toward it.) The execution-site machinery —
+factory summaries, the checked-set fixpoint, three rules — is simply more code than the enumeration
+it retires. AC-4's line-count half was ESCALATED to the owner during diff review R1 and amended by
+ratification on 2026-08-15 (spec §2.4-4): the criterion is the deleted rules and the zeroed
+enumeration surface, both measured, and the line growth is recorded as a documented cost rather
+than reinterpreted. The shared recognizer and `GUARD_OWN_FILES` live in
+`tests/db/_destructiveStatements.ts`, which has two consumers and no analyzer logic.
+
+**Diff review R1 found a real escape, by probe, on a DISCOVERED file.** `factoryChecked` was the one
+place in the module that answered the binding question with "last declaration wins", so an outer
+checked `make` blessed an inner unchecked one, and a `let`/`var`/`function` factory reassigned after
+declaration passed too — a whole-database wipe returning `ok:true`. Summaries now AND across every
+declaration, and an assignment-target census rejects any name the file can be seen writing to,
+which also closes the `.begin` callback PARAMETER that no `const` ever covered. Seven fixtures pin
+the class, six verified red against the pre-repair analyzer.
+
+All 26 pre-existing rejection fixtures now pin their reason CLASS rather than `ok:false` alone (two
+deliberate mis-pins verified red), all 7 real files pass unchanged, and the analyzer is enrolled in
+`tests/mutation/source/registry.ts`.
+
+That reason-class discipline turned out to be load-bearing rather than tidy. The whole mutation gate,
+run in CI at `f9905fddf`, found twelve unaccepted survivors on this surface — all of them in the
+repair code above. NINE never flip the verdict: with a census leg broken the written-to name becomes
+a CHECKED client, so the containment rule refuses the write instead of Rule 1 refusing the execution,
+and an `ok:false` fixture would have passed against mutant and original alike. Only the reason class
+separates them. Fixtures (br)-(bz) kill eleven of the twelve, each disposition settled by running
+both analyzers over thirteen probe inputs and comparing verdict AND reason; the twelfth is ledgered
+`equivalent` because widening the CANDIDATE set cannot widen the CHECKED set. Discovery stays spelling-sensitive; that half is refiled with
+its census as `BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION`. Spec: `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §2.
+
+## BL-LEDGER-GIT-TIMEOUT-CONSTANTS — the git adapter's three spawn timeouts are unassertable through its own surface — CLOSED 2026-08-15 (chore/guard-completeness-wave, SHIPPED)
+
+**Severity:** low · **Class:** TEST COVERAGE · **Effort:** M
+
+`FETCH_MS`, `LS_REMOTE_MS` (both 30 000 ms) and `GH_MS` (10 000 ms) at `scripts/lib/ledger-git.ts:32-34` are handed straight to `spawnSync`'s `timeout` option. Three source mutants of them — `30_000 -> 30_001` twice and `10_000 -> 10_001` — survive `tests/scripts/ledgerClaimsCheck.test.ts` and cannot be killed through the adapter's public surface. The only behaviour that separates a mutant from clean is whether a child running for between 30 000 and 30 001 ms is killed, so an assertion means either waiting the bound out — a 30 s test per constant, on a suite that runs on every merge — or reaching into the spawn.
+
+**Fourth family member (2026-08-09, from `BL-MUTATION-LEDGERGIT-SITE-DRIFT`):** `MAX_GIT_STDOUT` (64 MiB, `scripts/lib/ledger-git.ts:62`, added by `229563b76`) is handed straight to `spawnSync`'s `maxBuffer` the same way, so its three integer-literal mutants (`62:24:64>65`, `62:29:1024>1025`, `62:36:1024>1025`) are unassertable through the surface for the same reason — separating the cap from one mutant step past it means a child emitting that much stdout on a merge-gating suite. Ledgered `accepted-gap` against this entry; the injectable spawn seam described below closes all four constants at once.
+
+Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts`: a timeout a test could reach WOULD be observable, so an equivalence claim would overclaim. They therefore count as survivors and depress that surface's mutation score rather than being excluded from it.
+
+**Closing this** means giving the adapter an injectable spawn seam — a module-level `run = spawnSync` a test can replace, or an options object carrying the three bounds — and asserting the value each reader passes. That is a redesign of the one module in this repo permitted to spawn, and it widens the surface the "nothing outside this may spawn" structural guard has to police.
+
+**Deferred from `chore/guard-premise-reachability` under class-sweep exception (c) — the repair redesigns a surface this PR does not otherwise touch.** The sweep is complete: all three constants were found and dispositioned together, so this entry covers every instance of the class rather than one peer of several. The gap was named once before, in `5f1a98a66`'s commit message, and until now had no ledger row.
+
+**Archive disposition (2026-08-15, `chore/guard-completeness-wave`, SHIPPED).** `realGitSurface` takes an optional
+`{ spawn }` parameter defaulting to the module's own `spawnSync`, so the one production caller —
+`scripts/ledger-claims.ts:65`, arity 0 — is unchanged, and the spawn-ban guard's anti-vacuity twin
+still sees the literal `node:child_process` import. (An earlier draft said "three production call
+sites"; `git grep realGitSurface -- ':!tests'` finds exactly one. Three was the reader count and
+six is the internal spawn-site count, neither of which is a caller of this function.) All six
+internal spawn sites route through the seam, and
+`tests/scripts/ledgerGitSpawnSeam.test.ts` records `(cmd, args, options)` per reader: the four
+constants are now observable, and their six mutation-ledger `accepted-gap` rows are deleted (gate
+row `ledgerGit: { equivalent: 6 }`). `localRefs` and `prList` gained the `maxBuffer` every other
+site already passed.
+
+**A refuted belief, and the repair it forced.** The ledger reasoned that a `maxBuffer` overflow is
+"loud". Probed FALSE: `prList` returned `[]` for `r.status !== 0 || !r.stdout` and never read
+`r.error` at all, so ENOBUFS, a gh timeout, or a missing gh binary read as an EMPTY open-PR universe
+— and `resolveClaims` consumed that with no degraded marker. A fault that silently shrinks the claim
+universe is a false "no collision", which is the exact defect invariant 12 exists to prevent. So
+`prList` now throws on a spawn error, on a non-zero exit, and on every status-zero malformed class
+(empty stdout, invalid JSON, non-array JSON, and per-field validation of every consumed `PrRow`
+field — including `isCrossRepository`, whose old `=== true` read a MISSING flag as a base-repository
+PR); `resolveClaims` records `pr-universe-unavailable`; and `runCheck` promotes that to exit 2, with
+the acceptance asserting the EXIT CODE, because a degraded marker that still returns `{"code":0}`
+is the false all-clear itself. Spec: `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §3.
+
+## BL-PG-CRON-HOST-ASSERTION — the pg-cron suite asserts route paths only, never the host it dispatches to — CLOSED 2026-08-15 (chore/guard-completeness-wave, SHIPPED)
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:295` files it by name, and §10.4 scopes it out, with no row anywhere). **Class:** CI guard completeness. **Effort:** M (needs a sound oracle first).
+
+The host embedded in `cron.job.command` is environment-supplied and varies by target: `http://host.docker.internal:3000` on a developer stack, `https://fxav-screenshots-ci.invalid` in CI (`scripts/ci/supabase-local-bootstrap.sh:38`), a real host on validation. The suite therefore keys every assertion on the route PATH, which is host-agnostic, and never checks the host at all.
+
+**Why it is still open, and why it should not be closed cheaply:** two review rounds could not produce a sound comparison. Keying off the target flag proves nothing about the database actually connected to, and comparing against the in-session GUC still admits a scheme mismatch, a trailing slash, and base paths. A host check that passes `http://` against an `https://` GUC would be worse than none, because it would read as coverage. Any attempt here needs an oracle that survives all four of those, demonstrated against a live mismatch, before the assertion lands.
+
+**Archive disposition (2026-08-15, `chore/guard-completeness-wave`, SHIPPED).** The census already HAD the answer and
+threw it away: the firing smoke reads `net.http_request_queue.url` under its own xid, the census
+parsed it with `new URL(...)`, and asserted `pathname + search` only. It now also asserts the
+ORIGIN, through `assertCronDispatchOrigin` in `tests/cross-cutting/pgCronSmokes.ts`, per target mode.
+
+**The entry's four objections, each answered by construction.** `URL.origin` carries the protocol,
+so `http://` cannot pass against `https://`; it has no path component, so neither a trailing slash
+nor a base path can reach the comparison (path stays the route assertion's job); and no leg keys off
+the target FLAG — the flag only selects which contract applies, while the local mode's expected
+value is read from the same psql invocation that read the queue.
+
+**A probe changed the design.** `app.fxav_vercel_url` is UNREADABLE on validation: managed Postgres
+denies `ALTER DATABASE … SET app.*` to `postgres`, so that migration's session-scoped `set_config`
+evaporated with its session
+(`docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/handoffs/Phase-0.A-block-1-closeout.md:39-49`).
+A GUC comparison would have been vacuous exactly where a stale baked host is reachable, so validation
+mode pins the deployment contract instead — https, no explicit port, and the production host
+imported from `scripts/lib/validation-smoke-target.ts` rather than re-typed. The smoke's assert
+function is deliberately NOT reused: it accepts this project's own preview deployments, which is
+right for a smoke and wrong for cron. Verified live: all nine validation jobs are baked with
+`https://fxav-crew-pages-validation.vercel.app`.
+
+**Live-mismatch demonstration, as the entry required before any assertion could land:** a sabotage
+case derives a foreign-origin command from the live command text and the live GUC inside the
+database and asserts the census assertion throws by job name. Two probes shaped it — `UPDATE
+cron.job` is denied to `postgres` locally and would be unobservable to a census that executes
+command TEXT, and a cron command is multi-line, so a line-oriented read of the re-bake returns "".
+`pgCronSmokes.ts` is enrolled in the source-mutation registry with a DB-free unit suite. The
+ci-dark spec's `§10.4` cross-ref for this entry was a mis-pointer (§10.4 is
+`BL-CI-VITEST-EXCLUSION-COVERAGE`) and is corrected. Spec: `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §5.
+
+## BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES — two deliberate-authoring bypasses of the crew-e2e wiring guard — DEMOTED TO A DOCUMENTED LIMIT 2026-08-14 (chore/guard-completeness-wave)
+
+**Severity:** LOW (both require deliberately writing a gate that looks like a declaration but is not; accidental cases are caught loudly) · **Class:** guard coverage · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 4, owner-ratified as a documented limit) · **Effort:** M
+
+**Both probed, with the mutants recorded so a future round starts from evidence:**
+
+1. `expectRegistryRowsAreLive` accepts any `test.skip(...)` as live without proving its condition can exclude the registered projects. `test.skip(false, "…")` binds a row while gating nothing.
+2. One `PROJECT_GATED` row relaxes the identifier ban for the entire FILE, and the body scans deliberately skip nested callbacks — so a gate inside a `test.step` in another test of the same file is unscanned.
+
+**Why it is a limit, not an open bug.** The guard's threat model is ordinary authoring mistakes by a contributor adding or gating a test; both bypasses require deliberately constructing a fake declaration. Four review rounds each produced a narrower bypass with no product-code change, which is the recognizer ratchet the round-economy rule names: "no bypass exists" ranges over an open class and does not terminate. Owner ratified shipping with the limit documented in the guard's own header.
+
+**Promotion trigger:** a real contributor hits one of these by accident, or the guard is extended to a surface where a fake declaration is plausible.
+
+**Archive disposition (2026-08-14, chore/guard-completeness-wave):** demoted per the ledger filing bar — the limit is recorded in the owning surface's JSDoc block (`tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:215-245`, ratified 2026-08-10), grepable by this id. Locator correction: the guard lives in `tests/cross-cutting/`, not `tests/ci/` as the entry's filing said. Re-open condition is the promotion trigger above, verbatim and unchanged. Spec: `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §4.
+
+## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects — CLOSED 2026-08-15 (`fix/storage-asset-integrity`, SHIPPED)
+
+**Resolution: SHIPPED.** Spec `docs/superpowers/specs/2026-08-15-storage-asset-integrity-design.md` (APPROVED at adversarial round 3), plan `docs/superpowers/plans/2026-08-15-storage-asset-integrity.md` (APPROVED at round 5).
+
+**The row asked for the severity probe first, and the probe answered it.** `runAssetRecoveryCron` has no job-level lock at any layer — the route body calls it directly, `runCronRoute` adds summary plumbing only, and the pg_cron dispatch every 15 minutes is fire-and-forget, so a run whose Drive downloads outlast the interval overlaps the next firing. The race window is the entire unlocked download+upload phase (minutes), not an instruction-level window. The committed probe `docs/superpowers/specs/probes/2026-08-15-storage-asset-integrity-probe.ts` then drove the real `assetRecovery` through the filed interleaving and printed `manifestTargetExists: false` against `origin/main`, and `true` on this branch.
+
+**The product decision the filing deferred is now ratified: deletion requires proof.** Recovery is concurrent-idempotent — any number of overlapping runs MAY upload, since paths are deterministic per `(showId, snapshot_revision_id, asset id)`, content is fingerprint-verified before upload, and uploads are `upsert: true`, so concurrent writers converge on identical bytes at identical paths. What is now gated is DELETION: a run may remove a canonical-path object only with an observation, made inside the locked transaction, that the current `snapshot_revision_id` moved off the revision it uploaded under. Both forms of that observation qualify and both are pinned by test — a direct locked read returning a different revision, and a CAS UPDATE matching zero rows (its `WHERE` evaluates the same coalesce against the expected revision, on the same row, in the same transaction, under the same `FOR UPDATE` row lock). Because revision ids are fresh UUIDs per snapshot run and every commit path CAS-gates on its expected revision, observed drift is permanent, so deletion under drift is safe forever.
+
+**Two branches changed from delete to keep, and both were the bug.** A `skipped` outcome held no lock at the commit attempt and therefore no proof — the contending holder may be committing that very revision. A same-revision `no_op` means the winner committed the manifest that references exactly those paths; that is the reported defect. A locked-show-null `no_op` also keeps, since it carries no revision proof at all — show-deletion cleanup is GC's domain. Drift keeps its deletion authority, and the suite pins both directions: a repair that simply stopped deleting would pass a keep-only suite, so the drift and CAS-false delete-cases are asserted too.
+
+**Both alternatives the row weighed were considered and rejected in spec §1.1.** Holding one lock across the whole run (R1) would block every sync of the show for the multi-minute Drive phase. Never deleting and leaving all reclamation to GC (R6) would retain drift orphans indefinitely for a show stuck in `partial_failure`, because the object sweep is suppressed for exactly those states.
+
+**What is deliberately NOT deleted is enumerated with its bound** in spec §7 L1-L4 — a `skipped` loser's uploads, and canonical objects left by a mid-loop upload throw (R3: that path holds no lock, hence no proof) — each byte-identical upserts at canonical paths, bounded per attempt by 60 entries / 3 GiB of source bytes plus their bounded-width variants, with attempt cadence bounded by the exponential drift cooldown.
+
+**Effort:** M · **Closed:** 2026-08-15
+
+## BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS — an upload exception leaves objects nothing will reclaim — CLOSED 2026-08-15 (`fix/storage-asset-integrity`, SHIPPED)
+
+**Resolution: SHIPPED.** Same spec and plan as `BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES` above (§3, §4) — the two rows were settled together because they share one question, deletion authority: the entry above removes deletions that lack proof, this one adds reclamation where proof is structural.
+
+**The row named two instances of the shape; they are settled differently, and deliberately.** The `snapshotAssets` `_pending` instance is repaired. The `assetRecovery` canonical-throw instance is a ratified documented limit (spec §1.1 R3, reclamation route in §7 L2): that path holds no lock and therefore no proof, so deleting there would re-create the live-byte-deletion hazard the sibling entry exists to remove. Its objects are byte-identical upserts at canonical paths, re-upserted rather than multiplied on every retry, and reclaimed by the existing stale-revision sweep once the show leaves a partial-failure state; the run surfaces as the cron's `infra_error` outcome meanwhile.
+
+**Why the ledger row could not be the discovery mechanism.** The row's `markPendingSnapshotDeleteStarted` call rides the transaction that is about to roll back, so after a first-seen apply crash there is no row AND no show — the probe shows both tx calls discarded together. The repair therefore has two layers. The fast path is a `removePrefix` capability on the snapshot storage port: the run-private `_pending/<runUuid>/` prefix is referenced by nobody, so removing it is race-free by construction, and the catch attempts it before rethrowing, wrapped so a cleanup failure can never mask the original error. The guarantee is a GC stage, because the fast path cannot run when the process dies mid-upload or when its own storage call fails.
+
+**Candidate discovery is storage-driven, not DB-driven, and that is load-bearing.** `runPhase2` inserts the show and runs `snapshotAssets` inside the SAME transaction and show lock, so a crash mid-upload rolls back the show row itself while the uploads persist under a showId that never existed in the database. A `select id from shows` cannot see that ghost, nor a show deleted after its orphans formed; a shallow storage listing sees both.
+
+**Three conditions gate the reclaim, and the age gate is the one that is easy to get wrong.** A group is reclaimed only when its prefix is absent from an UNFILTERED listing of `pending_snapshot_uploads` (any visible row, whatever its lifecycle state, keeps its prefix off-limits), every object carries a parseable `createdAt`, and the NEWEST object is STRICTLY older than 24 hours. The age gate exists because an in-flight run's ledger insert is uncommitted and therefore invisible under read-committed — "no visible row" alone would hand a live upload to a deleter. The claim path's shorter grace window is deliberately not reused, since its clock starts at a COMMITTED `uploaded_at`. A flipped-comparison mutant on the strict boundary was run and kills exactly the at-cutoff case.
+
+**What the age gate rests on was wrong in the first draft, and diff review round 1 caught it.** The spec argued that guards inside the run bound its duration — chiefly the drive stall guard. That guard is an IDLE timer, resetting on every chunk, so it bounds the gap between chunks and never the total: a 50 MiB asset trickling 16 KiB every 29s stays inside it for ~25.8 hours, and an asset is uploaded only after its download completes, so a live run could hold one aged object while its row is still uncommitted. The gate is nonetheless safe, for a reason the spec had never named — every production path that hands `snapshotAssets` a real adapter runs inside the Next.js app server, which the platform bounds in minutes. Because that is a property of the DEPLOYMENT rather than of the module, it is now pinned by `tests/sync/pendingOrphanAgeGatePremise.test.ts` (§7 L8) rather than argued: containment, so nothing outside the app trees can reach the modules that construct the real adapter, and headroom, so no declared `maxDuration × 24` approaches the gate. Two further review rounds were spent making that guard's reach match its own claim — first it rooted only at API routes and missed server actions, then it scanned for adapter symbols and missed a worker calling an existing `lib/` wrapper — and both escapes now have killing mutants.
+
+**The conservative-keep class is signaled, not silent — for one of the two retention reasons, deliberately.** A group retained because an object lacked a usable `createdAt` increments `pendingOrphanPrefixesRetainedNoCreatedAt`, surfaced beside `pendingOrphanPrefixesDeleted` in the diagram-gc run summary on every cycle (spec §7 L6): Supabase supplies `created_at` for objects, so the expected steady state is zero and any persistent nonzero value is an operator signal. A group retained for AGE is not counted, because its steady-state value is "however many uploads are running right now", and a counter that is routinely nonzero in healthy operation trains its reader to ignore it. The accepted consequence — a summary cannot distinguish "no candidates existed" from "every candidate was too young" — is recorded in spec §4 as a ratified decision rather than left implicit, after diff review round 3 measured the silence against a consequence bound the review brief had stated more strongly than the spec did.
+
+**One more defect the arc surfaced that the row did not describe.** `markPendingSnapshotDeleteStarted` ran outside the best-effort cleanup block, so a rejecting marker both replaced the caller's real error and skipped the prefix removal — leaving the orphan AND hiding the reason. Both cleanups are now independently wrapped, pinned by a test whose mutant reproduces the failure exactly.
+
+**Effort:** M · **Closed:** 2026-08-15
+
 ## BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches — CLOSED 2026-08-15 (`fix/sync-observability-gaps`, SHIPPED)
 
 **Resolution: SHIPPED.** Spec `docs/superpowers/specs/observability/2026-08-14-sync-observability-gaps-design.md` (APPROVED at adversarial round 9), plan `docs/superpowers/plans/2026-08-14-sync-observability-gaps.md` (APPROVED at round 5).

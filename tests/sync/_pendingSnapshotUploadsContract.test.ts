@@ -77,6 +77,19 @@ describe("M7 pending_snapshot_uploads state-transition contract", () => {
     expect(source).toMatch(/await promoteSnapshotUpload\(snapshotRevisionId\)/);
   });
 
+  test("the row-less _pending stage's ledger listing is the exact unfiltered query", () => {
+    // Spec §4 step 2: ANY visible row keeps its prefix off-limits to the
+    // storage-driven stage, whatever its lifecycle state -- a WHERE clause or a
+    // table swap here would hand in-flight prefixes to a deleter. The closing
+    // quote is anchored so a suffixed table name (`..._archive`) or ANY trailing
+    // clause breaks the match, and the leading method-name tether keeps the
+    // guard pointed at the live listPendingTempPrefixes body.
+    const source = readFileSync(join(root, "lib/sync/diagramGc.ts"), "utf8");
+    expect(source).toMatch(
+      /listPendingTempPrefixes\(\)[\s\S]{0,400}?"select temp_prefix from public\.pending_snapshot_uploads"/,
+    );
+  });
+
   test("GC production storage listing recurses into revision directories", () => {
     const source = readFileSync(join(root, "lib/sync/diagramGc.ts"), "utf8");
 

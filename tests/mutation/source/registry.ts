@@ -331,7 +331,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     sourcePath: "scripts/lib/ledger-claims-core.ts",
     suitePaths: ["tests/scripts/ledgerClaimsCheck.test.ts", "tests/scripts/ledgerClaims.test.ts"],
     operators: [...OPERATOR_NAMES],
-    // Measured 58/58 counted (61 mutants, 3 equivalent) on this branch. The
+    // Measured 60/60 counted (63 mutants, 3 equivalent) on this branch. The
     // floor is a FLOOR, not a snapshot: pinning it at the measured value turns
     // every future line of this module into a gate failure before it has a
     // test, which is how a ratchet becomes a wall.
@@ -360,7 +360,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason: "same reachability argument for `tipOf.get(a)` in the same comparator",
       },
       {
-        siteId: "integer-literal:216:57:0>1",
+        siteId: "integer-literal:227:57:0>1",
         kind: "equivalent",
         reason:
           "the age loop at ledger-claims-core.ts:212 iterates the same `candidates` array `tipOf` was built from, so `tipOf.get(ref)` is always present and this `?? 0` is unreachable too",
@@ -370,7 +370,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
   {
     id: "ledgerGit",
     sourcePath: "scripts/lib/ledger-git.ts",
-    suitePaths: ["tests/scripts/ledgerClaimsCheck.test.ts"],
+    // The seam suite is registered because the runner executes ONLY registered
+    // suites (tests/mutation/source/runner.ts:129, :142) — without this row the
+    // spawn-seam assertions would kill nothing.
+    suitePaths: [
+      "tests/scripts/ledgerClaimsCheck.test.ts",
+      "tests/scripts/ledgerGitSpawnSeam.test.ts",
+    ],
     operators: [...OPERATOR_NAMES],
     // Measured 72/78 counted (84 mutants, 6 equivalent, 6 accepted-gap) on
     // fix/mutation-ledgergit-site-drift, after 229563b76 grew the file by 3
@@ -389,90 +395,144 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [
       // ---- equivalent: cannot change observable behavior (spec §2.4) -------
       {
-        siteId: "logical-connector:130:18:||>&&",
+        siteId: "logical-connector:142:18:||>&&",
         kind: "equivalent",
         reason:
           "localRefs reads `for-each-ref --format=%(objectname) %(refname)`, which always emits BOTH fields, and a git refname cannot contain whitespace -- so a one-field line, the only input separating `||` from `&&` here, cannot occur. An empty trailing line splits to a single empty string, making oid falsy, so both operators skip it identically. Its lsRemote twin at :105 IS killed, because ls-remote's output is not under the same format guarantee",
       },
       {
-        siteId: "logical-connector:83:12:||>&&",
+        siteId: "logical-connector:66:12:||>&&",
         kind: "equivalent",
         reason:
           "parseRefLine has exactly one caller, lsRemote (ledger-git.ts:104), which feeds it lines of `git ls-remote --heads`; that format is OID TAB REF, so a line either splits into two truthy fields or is the trailing blank one, where both operands are falsy and `||` and `&&` agree. A one-truthy-field line, the only input that separates them, is not producible",
       },
       {
-        siteId: "logical-connector:192:32:||>&&",
+        siteId: "logical-connector:232:32:||>&&",
         kind: "equivalent",
         reason:
           "the only line `git branch -r --format='%(refname:short) %(objectname)'` emits with a missing field is the trailing blank one, where name is `''` and oid is undefined; `&&` declines to skip it, and the very next guard (ledger-git.ts:193) skips it on `name.length === 0` instead. Same outcome, one line later",
       },
       {
-        siteId: "integer-literal:219:17:1>2",
+        siteId: "integer-literal:259:17:1>2",
         kind: "equivalent",
         reason:
           "`if (m?.[1] && m[2])` guards a regex whose two groups are `([0-9a-f]{40})` and `(.+)`; a match populates both non-empty and a non-match makes `m` null, so testing group 2 twice selects exactly the same lines as testing group 1 then group 2",
       },
       {
-        siteId: "statement-removal:280:11:continue;>(removed)",
+        siteId: "statement-removal:320:11:continue;>(removed)",
         kind: "equivalent",
         reason:
           "falling out of the `+++ b/` branch reaches the hunk regex, which is anchored at `^@@ ` and therefore cannot match a line the `^\\+\\+\\+ b/` regex just matched; the `!hm?.[1]` guard below then continues anyway",
       },
       {
-        siteId: "logical-connector:325:14:||>&&",
+        siteId: "logical-connector:365:14:||>&&",
         kind: "equivalent",
         reason:
           "headRepo's three inputs all end at the same answer under `&&`: an unset GITHUB_EVENT_PATH still returns null (existsSync(undefined) is false, not a throw), a set-but-missing path falls through to readFileSync, which throws into the function's own catch and returns null, and a readable path takes the identical branch either way",
       },
-      // ---- accepted-gap: real, deliberately uncovered (spec §2.5) ----------
-      //
-      // One family, three sites. Separating a 30_000 ms bound from a 30_001 ms
-      // one means a child that runs for exactly that long, so the assertion is
-      // either a 30 s wait on a merge-gating suite or an injected spawn. Not
-      // `equivalent`: a timeout a test COULD reach would be observable, so an
-      // equivalence claim here would overclaim (spec limit L-7's posture).
+    ],
+  },
+  /**
+   * The destructive-file analyzer (chore/guard-completeness-wave,
+   * BL-DESTRUCTIVE-GUARD-EXECUTION-SITE). Pure AST over a source string, DB-free, and
+   * its suite is a fixture corpus — exactly the shape the registry can express, and the
+   * shape the AGENTS.md enrolment contract asks for BEFORE the first diff-review round.
+   *
+   * The surface's own history is why it belongs here: every previous round of it was a
+   * recognizer argued in prose, and "the guard does not pin what it claims" is precisely
+   * the finding class a mutation score plus an empty survivor set settles mechanically.
+   */
+  {
+    id: "destructiveFileAnalysis",
+    sourcePath: "tests/db/_destructiveFileAnalysis.ts",
+    suitePaths: ["tests/db/destructiveFileAnalysis.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // Measured 1.00 (185/185 counted, 7 equivalent excluded) on first enrolment, so the
+    // floor is measured-minus-0.05 rather than the 0.8 placeholder the row was authored
+    // with: a floor below the shipped state cannot detect a regression toward it.
+    scoreFloor: 0.95,
+    // Inverting Rule 1's tagged-template leg accepts every unchecked tag, which is what
+    // fixtures (ah) and (af) exist to reject.
+    control: {
+      from: "if (ts.isTaggedTemplateExpression(n) && !checkedTag(n.tag)) {",
+      to: "if (ts.isTaggedTemplateExpression(n) && checkedTag(n.tag)) {",
+    },
+    // First run: 0.82 with 35 unaccepted survivors. Twenty-six were real gaps and are now
+    // killed by fixtures (ak)-(bd); one was DEAD CODE the gate proved dead (an explicit
+    // catch-clause branch in declarationsOf that forEachChild already covered) and was
+    // deleted rather than blessed. These seven are reachability arguments.
+    accepted: [
       {
-        siteId: "integer-literal:32:18:30000>30001",
-        kind: "accepted-gap",
-        reason: "FETCH_MS is passed straight to spawnSync's timeout; see the backlog entry",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+        siteId: "logical-connector:387:32:&&>||",
+        kind: "equivalent",
+        reason:
+          "`receiver !== null && checked.has(receiver)` decides whether a `.begin` callback parameter is checked. Under `||` a callback of an UNCHECKED receiver would also be checked -- but Rule 1 rejects that `.begin(...)` call itself (`begin` is in EXECUTION_METHODS and the receiver is not a checked client), and the call is an ANCESTOR of the callback body, so the walk reaches it first. Both operators produce the same verdict and the same reason; fixture (aj) is the case",
       },
       {
-        siteId: "integer-literal:33:22:30000>30001",
-        kind: "accepted-gap",
-        reason: "LS_REMOTE_MS, same family and same argument",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+        siteId: "integer-literal:391:19:0>1",
+        kind: "equivalent",
+        reason:
+          "the checked-set fixpoint's start index. The loop breaks the first time a pass adds nothing, and each growing pass adds at least one name, so at most `candidates.size` passes can grow; starting at 1 still allows `size` iterations, which is enough to resolve any dependency chain over `size` names",
       },
       {
-        siteId: "integer-literal:34:15:10000>10001",
-        kind: "accepted-gap",
-        reason: "GH_MS, same family and same argument",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
-      },
-      // MAX_GIT_STDOUT (ledger-git.ts:62) joined the family with 229563b76: it
-      // is handed straight to spawnSync's maxBuffer, so separating 64 MiB from
-      // one mutant step past it means a child that emits that much stdout on a
-      // merge-gating suite. Same injectable-spawn seam closes it (see the
-      // backlog entry, extended to cover this fourth constant).
-      {
-        siteId: "integer-literal:62:24:64>65",
-        kind: "accepted-gap",
-        reason: "MAX_GIT_STDOUT's MiB count, passed straight to spawnSync's maxBuffer",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+        siteId: "relational-boundary:391:27:<><=",
+        kind: "equivalent",
+        reason:
+          "same loop: `<=` permits one further iteration that the `!grew` break has already made unreachable",
       },
       {
-        siteId: "integer-literal:62:29:1024>1025",
-        kind: "accepted-gap",
-        reason: "MAX_GIT_STDOUT, same family and same argument",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+        siteId: "integer-literal:391:47:1>2",
+        kind: "equivalent",
+        reason:
+          "same loop: the bound is `candidates.size + n` for any n >= 1, and the break-on-no-growth condition fires before either bound is reached",
       },
       {
-        siteId: "integer-literal:62:36:1024>1025",
-        kind: "accepted-gap",
-        reason: "MAX_GIT_STDOUT, same family and same argument",
-        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+        siteId: "relational-boundary:396:24:>>>=",
+        kind: "equivalent",
+        reason:
+          "`decls.length > 0` guards `every()` returning true vacuously. A candidate name is only ever added from a VariableDeclaration or a Parameter, and declarationsOf collects both, so a candidate with zero declarations cannot occur -- the `>= 0` mutant admits a case the candidate set cannot contain",
+      },
+      {
+        siteId: "logical-connector:502:73:&&>||",
+        kind: "equivalent",
+        reason:
+          "Rule 3's tag test, `isTaggedTemplateExpression(p) && p.tag === n`. Under `||` the second disjunct alone would admit an identifier whose parent is a tagged template but which is NOT its tag -- and a TaggedTemplateExpression's identifier children are the tag and its type arguments only. A type argument is a type, not a value, so no checked CLIENT identifier can occupy that position",
+      },
+      {
+        siteId: "relational-boundary:602:29:>>>=",
+        kind: "equivalent",
+        reason:
+          "`d.node.getStart(sf) > connectPos` is the ordering leg: the guard declaration must precede the connection. `>=` additionally rejects a declaration starting at exactly the connection's offset, which two distinct AST nodes in one file cannot do",
+      },
+      {
+        siteId: "logical-connector:370:61:&&>||",
+        kind: "equivalent",
+        reason:
+          "`walkCandidates`'s parameter leg. `&&` binds tighter, so the mutant reads `(isParameter && isIdentifier) || beginParamReceiver(n) !== null` and every identifier-named parameter joins `candidates`. Candidacy confers nothing on its own: `declQualifies` re-derives `.begin`-ness for a parameter independently (`beginParamReceiver(d.node) !== null && checked.has(receiver)`), so a wider CANDIDATE set cannot widen the CHECKED set, and only the checked set gates execution. The second disjunct admits no node either -- `beginParamReceiver` requires its argument to BE `fn.parameters[0]` of an arrow or function expression, which a non-parameter node never is. Probed against 13 inputs spanning both legs, including a plain parameter used as a client: neither the verdict nor the reason differs. This was the ONLY equivalent one of the twelve unaccepted survivors CI's whole-gate run found; the other eleven were real and are killed by fixtures (br)-(bz)",
       },
     ],
+  },
+  /**
+   * The pg-cron smoke helpers (chore/guard-completeness-wave,
+   * BL-PG-CRON-HOST-ASSERTION). Exported pure functions with a DB-free referring suite:
+   * the dispatch-origin comparator, the firing-smoke SQL builder, and the two probe
+   * parsers. The census that consumes them needs a live database; these do not, which is
+   * what makes them expressible here at all.
+   */
+  {
+    id: "pgCronSmokes",
+    sourcePath: "tests/cross-cutting/pgCronSmokes.ts",
+    suitePaths: ["tests/cross-cutting/pgCronSmokesUnit.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // Measured 1.00 (14/14) on first enrolment; floor is measured-minus-0.05.
+    scoreFloor: 0.95,
+    // Flipping the scheme check accepts http:// in validation mode — the entry's own
+    // "worse than none, because it would read as coverage" case.
+    control: {
+      from: 'if (url.protocol !== "https:") {',
+      to: 'if (url.protocol === "https:") {',
+    },
+    accepted: [],
   },
   /**
    * The review-round economy gate's two sources, enrolled as TWO rows because

@@ -537,6 +537,29 @@ const BACKLOG_GRADUATED = [
     id: "BL-WIFI-FLATTENED-TRAILING-PROSE",
     provenance: "feat/wifi-password-legibility",
   },
+  // chore/guard-completeness-wave (2026-08-14): owner-ratified documented limit
+  // (2026-08-10) demoted per the filing bar; the limits live in the guard's own
+  // JSDoc block (tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:215-245).
+  {
+    id: "BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES",
+    provenance: "chore/guard-completeness-wave",
+  },
+  // chore/guard-completeness-wave (2026-08-15): the wave's three BUILD entries,
+  // graduating together in the close-out commit. Each one's IN PROGRESS marker comes
+  // off in this same commit, because the in-progress guard rejects an archived entry
+  // that still declares itself in flight.
+  {
+    id: "BL-DESTRUCTIVE-GUARD-EXECUTION-SITE",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-PG-CRON-HOST-ASSERTION",
+    provenance: "chore/guard-completeness-wave",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
