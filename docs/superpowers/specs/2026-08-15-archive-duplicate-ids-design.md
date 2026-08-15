@@ -20,20 +20,23 @@ Three passes, all committed with the script beside the transcript:
    full entry — not two copies of anything.
 3. A walker-grounded census (`extractEntries` from `tests/docs/_ledgerMdast.ts`, the
    ratified ledger grammar, run over every file `ledgerFiles()` discovers —
-   `scripts/lib/ledger-fields.ts:96`) → 35 duplicate ids in `BACKLOG-archive.md`, 2 in
-   `DEFERRED-archive.md` at the family's own levels, **4 more** in `DEFERRED-archive.md`
-   visible only when the scan spans levels 2 AND 3, and **0** in `BACKLOG.md` /
-   `DEFERRED.md`.
+   `scripts/lib/ledger-fields.ts:96`) → 35 duplicate ids in `BACKLOG-archive.md` at
+   the family's levels, 2 in `DEFERRED-archive.md` at the family's own levels, **4
+   more** in `DEFERRED-archive.md` visible only when the scan spans levels 2 AND 3,
+   **2 more** in `BACKLOG-archive.md` visible only at the all-depth scan (`###`
+   terminal record + `####` preserved original — surfaced by the R5 F1 probe after
+   R4 widened the scan; live proof the depth-typo shape exists in the corpus), and
+   **0** in `BACKLOG.md` / `DEFERRED.md`. Repair set: **43 pairs** (37 + 6).
 
 **The real mechanism is the archive's own resolution convention, not union merges.**
 Each duplicated id is one entry written in two parts: a terminal record heading
 (`## BL-X — RESOLVED (2026-08-03, fix/branch)`, or a `DEMOTED …` / `GRADUATED …`
 preamble) followed by the preserved original entry carrying its own id-bearing heading
 (`### BL-X — original title`). Both headings mint the same id, so every
-heading-extraction pipeline counts the entry twice. 40 of the 41 pairs put the terminal
+heading-extraction pipeline counts the entry twice. 42 of the 43 pairs put the terminal
 record first; `USE-RAW-FULL-LIST-1` puts it second (two dated sections, the later one
 `✅ RESOLVED`). The union-merge RISK the entry describes is real — a union resolution
-CAN duplicate a whole entry — but zero of the current 41 pairs is one, and the shipped
+CAN duplicate a whole entry — but zero of the current 43 pairs is one, and the shipped
 guard catches that class too by construction (two identical headings collide the same
 way two convention headings do).
 
@@ -98,14 +101,15 @@ construction to `tests/docs/_metaDeferralLedgerGraduation.test.ts`'s cross-file 
 
 ## §2 Contract
 
-### §2.1 The repair (41 pairs, one mechanical rule)
+### §2.1 The repair (43 pairs, one mechanical rule)
 
 For each pair below, the NON-SURVIVING heading line is rewritten in place from
 `#{2,3} <text>` to `**<text>**` (exact text preserved). No other body change, except the
 §1.1.6 "follows verbatim" preamble annotations. Line numbers are drafting-time locators
 at base `fafa354ac`; the impl re-derives them from the guard's own RED output.
 
-`BACKLOG-archive.md` — 35 pairs, all keep-FIRST (terminal record first):
+`BACKLOG-archive.md` — 37 pairs, all keep-FIRST (terminal record first; the last
+two rows are the `###`/`####` shape the all-depth scan surfaced, R5 F1):
 
 | Id | Terminal heading (kept) | Original heading (demoted) |
 |---|---|---|
@@ -144,12 +148,16 @@ at base `fafa354ac`; the impl re-derives them from the guard's own RED output.
 | BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE | 5617 | 5625 |
 | BL-KNOWN-SECTIONS-WALKER | 5639 | 5654 |
 | BL-NEEDS-ATTENTION-HOLDS-ROLLUP | 5973 | 5975 |
+| BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK | 5481 | 5488 |
+| BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND | 5664 | 5688 |
 
 Pair notes, verified by reading both bodies: `BL-INVARIANT8-CLOSEOUT-ENFORCEMENT`'s
 terminal verdict sits in its first record's BODY (`**Graduated:** 2026-08-01 …`) rather
 than its heading, and the record itself labels the second copy "Original entry
-(provenance):" — keep-first is the record's own stated structure. All other 34 first
-headings carry the terminal word in the heading line itself.
+(provenance):" — keep-first is the record's own stated structure. The two
+`###`/`####` pairs (R5 F1) both carry the terminal word in the first heading
+(`RESOLVED before the 2026-08-02 merge…`; `RESOLVED (2026-08-03, …)`). Every other
+first heading carries it in the heading line itself.
 
 `DEFERRED-archive.md` — 6 pairs:
 
@@ -206,8 +214,8 @@ reminder).
 ### §2.4 Entry disposition
 
 The impl branch archives `BL-ARCHIVE-DUPLICATE-ENTRY-IDS` (archive-RED pattern) with:
-the corrected mechanism diagnosis (§0), the census transcript pointer, the 41-pair
-count (35 + 6, superseding the filed 35), and this spec as the record. The archived
+the corrected mechanism diagnosis (§0), the census transcript pointer, the 43-pair
+count (37 + 6, superseding the filed 35), and this spec as the record. The archived
 entry itself follows the §2.3 convention.
 
 ### Dimensional Invariants
@@ -237,7 +245,7 @@ None — prose and test changes only; no visual states.
    (invariant 12's Stage-0 stop rule governs NEW claims, and the L-wave protocol is
    the ratified exception shape for planned handoffs — its spec §3 and the merged
    L-wave `HANDOFF.md` step 0.3 are the precedent).
-3. A fresh Opus pane implements from `HANDOFF.md`: guard RED (observed naming all 41)
+3. A fresh Opus pane implements from `HANDOFF.md`: guard RED (observed naming all 43)
    → repair → GREEN → archive the entry → PR → real CI green → merge → `0 0`.
 
 ## §4 Documented limits
@@ -272,12 +280,12 @@ None — prose and test changes only; no visual states.
 
 ## §6 Acceptance criteria
 
-- **AC-1:** the uniqueness lane lands and is OBSERVED red naming all 41 pairs (35
+- **AC-1:** the uniqueness lane lands and is OBSERVED red naming all 43 pairs (37
   `BACKLOG-archive.md`, 6 `DEFERRED-archive.md`) before any repair commit; after the
   repairs it is green; all plant rows pass.
 - **AC-2:** every pair repaired per the §2.1 tables — survivor heading intact, demoted
   line bold with identical text; the REPAIR COMMIT's diff over the two archive files
-  touches only the 41 demoted heading lines plus the §1.1.6 preamble annotations. The
+  touches only the 43 demoted heading lines plus the §1.1.6 preamble annotations. The
   §2.4 archive move is its own later commit and adds its own section — outside AC-2's
   discipline by construction (spec R1 F2).
 - **AC-3:** `pnpm vitest run tests/docs/` green on every commit; the graduation suite's

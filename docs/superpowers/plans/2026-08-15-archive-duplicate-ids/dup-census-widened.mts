@@ -7,7 +7,7 @@ const ROOT = process.cwd();
 for (const f of ledgerFiles(ROOT)) {
   const opts: ExtractOpts = {
     requirePrefix: f.startsWith("BACKLOG") ? "BL-" : null,
-    levels: [2, 3],
+    levels: [1, 2, 3, 4, 5, 6],
   };
   const entries = extractEntries(readFileSync(join(ROOT, f), "utf8"), opts);
   const byId = new Map<string, number[]>();
