@@ -115,22 +115,30 @@ Replace the combined step (`.github/workflows/screenshots-drift.yml:87-94`) with
   (`.github/workflows/screenshots-drift.yml:108-110`, which stays `if: always()` and ordered before the save — the save
   reads files the Docker build left root-owned) and after the "Check screenshot
   drift" step (`.github/workflows/screenshots-drift.yml:111-114`). With the exact-input key, the save's job is warmth, not
-  convergence: the FIRST run at a given input set — pass or FAIL — saves, so a
-  UI-change commit whose drift run fails (stale baselines) still leaves the next
-  same-input run warm. A later run at an already-saved key restores that entry and
+  convergence: the first run at a given input set whose build CREATED the cache
+  path — pass or fail at the byte gate — saves, so a UI-change commit whose drift
+  run fails (stale baselines) still leaves the next same-input run warm; a run
+  that dies before the build creates the path saves nothing and is already loudly
+  red at the step that killed it (R3 F1; §4.6). A later run at an already-saved key restores that entry and
   its own save is skipped by the cache service (immutable entries, already-exists) —
   harmless, because a same-key restore is input-identical by construction (R1 F1:
   no "fresh generation per run" claim survives; none is needed).
   - Comment on the step cites `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING`
     with the one-line why (first run at any input set must save even when the byte
     gate fails).
-- **Drift-check step edit (R2 F3):** the untracked-capture branch currently hides
-  filenames (`test -z "$(git ls-files --others --exclude-standard
-  public/help/screenshots/)"`, `.github/workflows/screenshots-drift.yml:114` — a
-  probe reproduced `status=1 output_bytes=0`). It becomes: capture the list into a
-  variable, and when non-empty PRINT the names before exiting 1, so an untracked new
-  capture is reported by name exactly as tracked drift is (the `git diff
-  --exit-code` half already names files).
+- **Drift-check step edit (R2 F3, aggregated per R3 F2):** the untracked-capture
+  branch currently hides filenames (`test -z "$(git ls-files --others
+  --exclude-standard public/help/screenshots/)"`,
+  `.github/workflows/screenshots-drift.yml:114` — a probe reproduced
+  `status=1 output_bytes=0`), and the step's fail-fast shell means `git diff
+  --exit-code` exits the script before any later untracked branch runs (R3 F2
+  probe: with both kinds of drift present, only the tracked name printed). The step
+  becomes ONE aggregated check: compute `tracked=$(git diff --name-only
+  public/help/screenshots/)` and `untracked=$(git ls-files --others
+  --exclude-standard public/help/screenshots/)` FIRST (name-listing commands, no
+  early exit), print every name from BOTH non-empty lists (plus `git --no-pager
+  diff --stat` for the tracked half), then exit 1 once if either list is non-empty
+  — no ordering can suppress a name.
 - **Comment corrections in the same edit:** the restore block drops the refuted
   byte-safety paragraph and the post-save/`restore-keys` prose (`.github/workflows/screenshots-drift.yml:80-86`) in favor
   of the key-construction argument above; the chown comment (`.github/workflows/screenshots-drift.yml:104-107`)
@@ -168,7 +176,15 @@ substrings (R1 F3):
    `${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles(...) }}` — the `-v2-`
    namespace is present and the expression contains NO further components (no
    `github.sha` suffix, no second interpolation), so a namespace regression or a
-   smuggled per-run component fails by name.
+   smuggled per-run component fails by name;
+9. **drift-check names every divergence (R3 F3 — behavioral, not shape):** extract
+   the drift-check step's `run:` script from the YAML and EXECUTE it (bash, cwd set
+   to a constructed throwaway git repository containing `public/help/screenshots/`
+   with one committed-then-modified WebP and one untracked WebP): assert exit
+   status non-zero AND both filenames present in the captured output; negative
+   case — a clean constructed repo exits 0 with no names. This is the executable
+   RED for the R2 F3/R3 F2 behavior change; the YAML-shape assertions cannot see
+   filename emission.
 
 This is the impl branch's executable RED: it fails against the current tree by name
 (combined step live at `.github/workflows/screenshots-drift.yml:87-94`), goes green with the §2.1 edit, and closes the class
@@ -245,7 +261,13 @@ None — CI workflow YAML, one test file, ledger prose; no visual states.
    is recorded here as a documented limit rather than engineered around (a
    path-sensitive key would go cold on every rename to buy safety the gate already
    provides).
-6. **Cross-workflow scope:** `help-affordances.yml`'s `nextcache-help` namespace
+6. **A run that fails before the build creates the cache path saves nothing (R3
+   F1).** The `if: always()` save can only archive what exists; a capture-step
+   death before `next build` runs leaves no path and no save. Such a run is
+   already red at the killing step, and the NEXT run at those inputs simply
+   misses and builds cold — no staleness is introduced, one warm opportunity is
+   lost. Documented, not engineered around.
+7. **Cross-workflow scope:** `help-affordances.yml`'s `nextcache-help` namespace
    keeps the combined pattern; it gates NO byte comparison, so staleness there
    cannot self-perpetuate a red main — out of scope per the entry and the brief. If
    it ever grows a byte gate, this spec is the template.
@@ -260,9 +282,10 @@ None — CI workflow YAML, one test file, ledger prose; no visual states.
 ## §6 Acceptance criteria
 
 - **AC-1:** the §2.2 pin observed RED against the unedited workflow, GREEN after
-  §2.1; all eight assertions land (split, always-save, single-evaluation key parity,
+  §2.1; all nine assertions land (split, always-save, single-evaluation key parity,
   no restore-keys, step order, key/filter glob parity with the baselines exclusion,
-  entry-id comment, exact key shape).
+  entry-id comment, exact key shape, behavioral name-emission check with its
+  clean-repo negative).
 - **AC-2:** the workflow edit matches §2.1 — v2-namespaced exact input-hash key
   (baselines excluded), no fallback, split restore/save with the save keyed on the
   restore output, untracked captures named by the drift check, save ordered after
@@ -277,12 +300,14 @@ None — CI workflow YAML, one test file, ledger prose; no visual states.
 
 - **CONSEQUENCE BOUND:** after this change, no drift run can restore a cache whose
   named render-input CONTENTS differ from its own (exact content-hash key, no
-  fallback, fresh v2 namespace), and the first run at any input set — pass or fail —
-  saves under the key it restored with (computed once, at restore time); any render
+  fallback, fresh v2 namespace), and the first run at any input set whose build
+  created the cache path — pass or fail at the byte gate — saves under the key it
+  restored with (computed once, at restore time; the pre-build-death corner is
+  §4.6); any render
   divergence — tracked drift or untracked new captures — is reported by name by the
-  byte gate — never silently wrong. The residuals in §4.3-§4.5 (an input outside the
-  named census; same-input immutability; byte-preserving path renames) are
-  DOCUMENTED LIMITS, not findings.
+  byte gate — never silently wrong. The residuals in §4.3-§4.6 (an input outside the
+  named census; same-input immutability; byte-preserving path renames; the
+  pre-build-death save corner) are DOCUMENTED LIMITS, not findings.
 - **PROBE DOMAIN:** `.github/workflows/screenshots-drift.yml` and
   `tests/cross-cutting/ci-workflow-speedup.test.ts` on this branch, plus real
   `workflow_dispatch` runs of that workflow (the §2.3 run ids). A hypothetical about
