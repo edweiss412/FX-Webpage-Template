@@ -996,9 +996,9 @@ Four P3s, all addressed rather than deferred:
   deleting the entry would currently change nothing. The comment says so, and names the
   compiled-CSS guard as the actual defence.
 - Six of the changed controls have a non-near-ground fill, which §1.2a's wording did not cover.
-  §1.2a now records exactly why those six moved — five to avoid a split pair inside one
-  rendered view, and the sixth because it inherits the fifth's file-local constant — and
-  restates that the general predicate is the ledger entry's to settle.
+  §1.2a now records exactly why those six moved — two direct pairs, two connected through a
+  shared row, one by constant inheritance, all six to avoid a split treatment inside one
+  rendered view — and restates that the general predicate is the ledger entry's to settle.
 - The tailwindcss shell-out discarded stderr, so a compile failure would have surfaced as a
   bare "Command failed"; it now rethrows with the captured output.
 - `--color-surface-raised` was an unpinned fourth ground for the outline; §1.2 now carries its

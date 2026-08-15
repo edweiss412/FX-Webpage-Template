@@ -1,8 +1,10 @@
 diff --git a/BACKLOG-archive.md b/BACKLOG-archive.md
-index 5fb8699e8..5706d5e18 100644
+index 52e63045e..8f964d91d 100644
 --- a/BACKLOG-archive.md
 +++ b/BACKLOG-archive.md
-@@ -1,3 +1,53 @@
+@@ -1,5 +1,55 @@
+ ## BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY — the Wi-Fi password row had no transcription affordance — CLOSED 2026-08-15 (`feat/wifi-password-legibility`, SHIPPED)
+ 
 +## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button now carries its own boundary — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
 +
 +**Status:** SHIPPED 2026-08-14 · PR #787 · **Effort (as shipped):** S at the constant, M across the class
@@ -15,7 +17,7 @@ index 5fb8699e8..5706d5e18 100644
 +
 +**The swap was a dead class for its first hour, and that is the finding worth keeping.** `app/globals.css:18` excludes `lib/` from Tailwind's source detection, and `lib/ui/actionClass.ts` is the one runtime class string that lives there. Every other class in the constant is also worn by markup under `app/`/`components/`, so the exclusion had never bitten — until the outline moved to a class no scanned file wore. Tailwind emitted no rule, `border-color` fell back to `currentColor`, and the button drew a near-black outline while every token-contrast assertion stayed green. A live browser probe caught it before the gate. The repair is `@source inline("border-text-faint")`; the DURABLE defence is `tests/styles/secondary-action-contrast.test.ts`, which compiles `app/globals.css` with the real `tailwindcss` CLI and asserts every token of the constant emits a rule — derived from the constant, so tomorrow's added class is checked today. Proven by mutation: with the inline entry stripped the suite reds naming the class.
 +
-+**Scope, as shipped.** The constant plus 25 sites that carry the same recipe inline over a `bg-bg` fill, plus six further controls: five that sit in a rendered row beside one of those (leaving them would have shipped a split pair inside one view), and one that inherits the same file-local constant as the fifth. Twenty-three in-scope controls whose fill is a SURFACE rather than the page ground are deliberately NOT swept: extending §1.2a's predicate from "the fill is the page ground" to "the fill equals its container" is a DESIGN decision, and the wider predicate captures switch tracks whose OFF-state boundary §1.2 pins separately against `--color-accent-edge`. Filed as `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with a derived cover.
++**Scope, as shipped.** The constant plus 25 sites that carry the same recipe inline over a `bg-bg` fill, plus six further controls, none of them a wider ruling: two sit directly beside one of those, two are connected through a row they share rather than by adjacency, and one inherits another's file-local constant — in every case leaving it would have shipped a split treatment inside one view. Twenty-three in-scope controls whose fill is a SURFACE rather than the page ground are deliberately NOT swept: extending §1.2a's predicate from "the fill is the page ground" to "the fill equals its container" is a DESIGN decision, and the wider predicate captures switch tracks whose OFF-state boundary §1.2 pins separately against `--color-accent-edge`. Filed as `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with a derived cover.
 +
 +## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on action targets is a policy with three ratified carve-outs — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
 +
@@ -53,14 +55,14 @@ index 5fb8699e8..5706d5e18 100644
 +
 +**Shared core.** The in-scope predicate, the className resolver and the corpus walk live in ONE module that both this guard and the subtle-policy guard import, so the two cannot drift apart on scope or resolution. Its path-set model keeps branch ancestry: `outer ? (inner ? floor : floor) : ""` has a floorless outer path and never clears.
 +
- ## BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches — CLOSED 2026-08-15 (`fix/sync-observability-gaps`, SHIPPED)
+ **Resolution: SHIPPED.** Spec `docs/superpowers/specs/2026-08-10-wifi-password-legibility.md` (APPROVED at adversarial round 17), plan `docs/superpowers/plans/2026-08-10-wifi-password-legibility.md` (APPROVED at round 4).
  
- **Resolution: SHIPPED.** Spec `docs/superpowers/specs/observability/2026-08-14-sync-observability-gaps-design.md` (APPROVED at adversarial round 9), plan `docs/superpowers/plans/2026-08-14-sync-observability-gaps.md` (APPROVED at round 5).
+ The entry was filed as a DESIGN QUESTION with four candidate answers — tabular figures, a monospace treatment, tap-to-copy, or a larger type step — and said explicitly that it could not be settled inside the arc that filed it. The owner settled it on 2026-08-10 by taking BOTH halves of the larger option: the value renders in `.code-value` (the product's own transcription treatment: slashed zero, tabular figures, bound family) AND the row carries a tap-to-copy control. The reasoning is in spec §1.1 — a font feature disambiguates `O`/`0` and `l`/`1`, but nothing typographic fixes `rn`/`m`, and nothing at all fixes a trailing period that IS part of the password (`ORDTG.`, a live value). Copy removes the transcription entirely; the type treatment serves the crew member who transcribes anyway because their phone refuses the clipboard.
 diff --git a/BACKLOG.md b/BACKLOG.md
-index 93fe14cef..e65fd2053 100644
+index 799df676b..cdd8bf824 100644
 --- a/BACKLOG.md
 +++ b/BACKLOG.md
-@@ -8,93 +8,6 @@ Last reconciled: 2026-08-15 — `fix/sync-observability-gaps` graduated `BL-MANU
+@@ -80,93 +80,6 @@ The terminating framing is the same one that closed acquisition: stop asking how
  
  ---
  
@@ -151,10 +153,10 @@ index 93fe14cef..e65fd2053 100644
 -`<summary>` disclosure are arguably caption-like, and DESIGN.md should say so explicitly in the same
 -pass rather than being read as absolute and then quietly excepted.
 -
- ## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects
+ ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
  
- **Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M
-@@ -277,15 +190,6 @@ RangeError: Maximum call stack size exceeded
+ **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
+@@ -300,15 +213,6 @@ RangeError: Maximum call stack size exceeded
  
  **First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
  

@@ -236,10 +236,15 @@ are the open question — 23 of them still carry the border token, tracked as
 `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with the predicate decision
 that has to come first.
 
-Six such controls DID move on 2026-08-14, and for one of two reasons: five sat in a
-rendered row beside a near-ground control that moved, so leaving them would have
-shipped a split pair inside one view, and the sixth inherits the same shared
-constant as one of those five rather than standing beside it (`Step2Verify`'s re-scan button beside its
+Six such controls DID move on 2026-08-14, and for one reason, applied at three
+distances: leaving a control at the old outline while a sibling it renders WITH
+moved would have shipped a split treatment inside one view. Two are direct pairs
+(`Step2Verify`'s re-scan beside its folder input, `DriveConnectionPanel`'s two
+actions); two are connected through the row they share rather than standing
+side by side (`RecentAutoAppliedStrip`, whose near-ground control sits in its
+confirmation row, and the `AcceptChangeButton`/`UndoChangeButton` pair that
+`ChangeFeedEntry.tsx:135` renders); and one inherits `Step2Verify`'s file-local
+constant from the first of those (`Step2Verify`'s re-scan button beside its
 folder input — and, by that file's own `SECONDARY_BUTTON` constant, its portaled
 footer advance, which is the inheritance case rather than a co-visible pair — `DriveConnectionPanel`'s two actions, and the
 `RecentAutoAppliedStrip` row, and the `AcceptChangeButton`/`UndoChangeButton`
