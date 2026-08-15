@@ -4,7 +4,11 @@ import type { ParseResult } from "@/lib/parser/types";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
 import sharp from "sharp";
 import type { PersistedDiagrams } from "@/lib/parser/types";
-import { snapshotAssets, type SnapshotAssetsStorage } from "@/lib/sync/snapshotAssets";
+import {
+  snapshotAssets,
+  type SnapshotAssetsArgs,
+  type SnapshotAssetsStorage,
+} from "@/lib/sync/snapshotAssets";
 import { DIAGRAM_VARIANT_WIDTHS } from "@/lib/sync/diagramVariants";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
@@ -491,5 +495,96 @@ describe("snapshotAssets — variant stage", () => {
     const roundTripped = JSON.parse(JSON.stringify(legacy)) as PersistedDiagrams;
     expect(roundTripped).toEqual(legacy);
     expect("variants" in roundTripped.embeddedImages[0]!).toBe(false);
+  });
+});
+
+describe("upload-throw best-effort cleanup (spec §3, BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS)", () => {
+  const okBytes = new TextEncoder().encode("embedded-bytes");
+
+  function throwingRunArgs(storagePort: SnapshotAssetsStorage) {
+    return {
+      showId,
+      driveFileId,
+      diagrams: {
+        linkedFolder: null,
+        embeddedImages: [
+          {
+            sheetTab: "DIAGRAMS",
+            objectId: "ok",
+            mimeType: "image/png",
+            sheetsRevisionId: "sheet-rev-1",
+            embeddedFingerprint: sha256Base64Url(okBytes),
+            recovery_disposition: "normal",
+          },
+          {
+            sheetTab: "DIAGRAMS",
+            objectId: "boom",
+            mimeType: "image/png",
+            sheetsRevisionId: "sheet-rev-1",
+            embeddedFingerprint: "does-not-matter",
+            recovery_disposition: "normal",
+          },
+        ],
+        linkedFolderItems: [],
+      } as unknown as SnapshotAssetsArgs["diagrams"],
+      tx: { insertPendingSnapshotUpload: async () => undefined },
+      storage: storagePort,
+      drive: {
+        fetchEmbeddedImageBytes: async (entry: { objectId: string }) => {
+          if (entry.objectId === "boom") throw new Error("drive 500 mid-run");
+          return okBytes;
+        },
+        fetchLinkedRevisionBytes: async () => null,
+      },
+    } satisfies SnapshotAssetsArgs;
+  }
+
+  test("a mid-run throw removes the run's _pending prefix and rethrows the ORIGINAL error", async () => {
+    const objects = new Map<string, Uint8Array>();
+    const uploaded: string[] = [];
+    const removedPrefixes: string[] = [];
+    const storagePort: SnapshotAssetsStorage = {
+      async upload(path, bytes) {
+        objects.set(path, bytes);
+        uploaded.push(path);
+      },
+      async removePrefix(prefix) {
+        removedPrefixes.push(prefix);
+        for (const key of [...objects.keys()]) {
+          if (key.startsWith(prefix)) objects.delete(key);
+        }
+      },
+    };
+    await expect(snapshotAssets(throwingRunArgs(storagePort))).rejects.toThrow("drive 500 mid-run");
+    // Own-input premises: an object really was uploaded under _pending before the
+    // throw, and the catch really attempted the removal -- without both, the
+    // empty-survivors assertion below proves nothing.
+    premise(
+      "an object was uploaded under _pending before the throw",
+      uploaded.filter((path) => path.includes("/_pending/")).length,
+      0,
+    );
+    premise("the catch attempted the prefix removal", removedPrefixes.length, 0);
+    const pendingSurvivors = [...objects.keys()].filter((key) => key.includes("/_pending/"));
+    expect(pendingSurvivors).toEqual([]);
+    expect(removedPrefixes).toHaveLength(1);
+    expect(removedPrefixes[0]).toMatch(
+      new RegExp(`^diagram-snapshots/shows/${showId}/_pending/[0-9a-f-]+/$`),
+    );
+  });
+
+  test("a rejecting removePrefix never masks the original error", async () => {
+    const storagePort: SnapshotAssetsStorage = {
+      async upload() {},
+      async removePrefix() {
+        throw new Error("storage cleanup also failed");
+      },
+    };
+    await expect(snapshotAssets(throwingRunArgs(storagePort))).rejects.toThrow("drive 500 mid-run");
+  });
+
+  test("a port WITHOUT removePrefix still rethrows cleanly (optional capability)", async () => {
+    const storagePort: SnapshotAssetsStorage = { async upload() {} };
+    await expect(snapshotAssets(throwingRunArgs(storagePort))).rejects.toThrow("drive 500 mid-run");
   });
 });
