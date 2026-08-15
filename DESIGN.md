@@ -236,10 +236,12 @@ are the open question — 23 of them still carry the border token, tracked as
 `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with the predicate decision
 that has to come first.
 
-Six such controls DID move on 2026-08-14, and only for one reason: each sat in a
+Six such controls DID move on 2026-08-14, and for one of two reasons: five sat in a
 rendered row beside a near-ground control that moved, so leaving them would have
-shipped a split pair inside one view (`Step2Verify`'s re-scan button beside its
-folder input, `DriveConnectionPanel`'s two actions, and the
+shipped a split pair inside one view, and the sixth inherits the same shared
+constant as one of those five rather than standing beside it (`Step2Verify`'s re-scan button beside its
+folder input — and, by that file's own `SECONDARY_BUTTON` constant, its portaled
+footer advance, which is the inheritance case rather than a co-visible pair — `DriveConnectionPanel`'s two actions, and the
 `RecentAutoAppliedStrip` row, and the `AcceptChangeButton`/`UndoChangeButton`
 pair that `ChangeFeedEntry.tsx:135` renders side by side). That is a consistency
 repair within a view, not a ruling on the general predicate — which is still the

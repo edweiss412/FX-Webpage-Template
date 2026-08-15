@@ -282,7 +282,7 @@ EXEMPT-S / EXEMPT-C / EXEMPT-D = registry row in the named family (§4.1); SWAP 
 | `components/admin/showpage/ShareHub.tsx:777` | button | SWAP | per-site check |
 | `components/admin/showpage/sectionWarningExtras.tsx:272` | summary | EXEMPT-S | — |
 | `components/admin/telemetry/ActiveFilterChips.tsx:90` | button | EXEMPT-C | — |
-| `components/admin/telemetry/ActiveFilterChips.tsx:101` | button | ~~EXEMPT-C~~ **SWAP** | corrected 2026-08-15, see the tally note below |
+| `components/admin/telemetry/ActiveFilterChips.tsx:101` | button | ~~EXEMPT-C~~ **SWAP** | →strong (corrected 2026-08-15, see the tally note below) |
 | `components/admin/telemetry/AutoRefreshControl.tsx:119` | button | SWAP | →strong |
 | `components/admin/telemetry/EventFilters.tsx:85` | button | SWAP (unselected branch) | n/a (selected branch inverts) |
 | `components/admin/telemetry/EventRow.tsx:100` | Link | SWAP | same (pill `bg-surface-sunken` affordance) |

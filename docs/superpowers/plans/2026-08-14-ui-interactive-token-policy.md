@@ -533,7 +533,8 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
   all — what it pins is the registry's rows plus the absence of any other bare
   `text-text-subtle`, not a site's replacement token — so
   hover retargets are verified once, executably, at this step: for each of the 14 spec-§4.3
-  rows whose Hover cell is `→strong`, run
+  rows whose Hover cell is `→strong` — 15 as shipped, once `ActiveFilterChips.tsx:101` joined
+  them in the 2026-08-15 correction — run
   `rg -n "hover:text-text-strong" <file>` and confirm a hit on the edited element's class
   string; for each `per-site check` row, confirm the recorded choice (commit body) leaves a
   hover that strengthens or a non-color hover affordance. Paste the 14-site command outputs
@@ -995,7 +996,8 @@ Four P3s, all addressed rather than deferred:
   deleting the entry would currently change nothing. The comment says so, and names the
   compiled-CSS guard as the actual defence.
 - Six of the changed controls have a non-near-ground fill, which §1.2a's wording did not cover.
-  §1.2a now records exactly why those six moved (a split pair inside one rendered view) and
+  §1.2a now records exactly why those six moved — five to avoid a split pair inside one
+  rendered view, and the sixth because it inherits the fifth's file-local constant — and
   restates that the general predicate is the ledger entry's to settle.
 - The tailwindcss shell-out discarded stderr, so a compile failure would have surfaced as a
   bare "Command failed"; it now rethrows with the captured output.
