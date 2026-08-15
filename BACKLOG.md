@@ -1046,7 +1046,7 @@ docblock states the gap rather than papering over it.
 
 ## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown
 
-**Status:** IN PROGRESS · **Branch:** docs/diagram-demote-notice-spec · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
+**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
 
 The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
 back to the clamped tier rather than showing "Image unavailable"
