@@ -66,7 +66,7 @@
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` ac=AC-12 -->
 
-- [ ] **Step 1: Add the graduation registry row FIRST (this is the red).** In `tests/docs/_metaDeferralLedgerGraduation.test.ts`, append to `BACKLOG_GRADUATED` (after the last existing row, ~line 147):
+- [ ] **Step 1: Add the graduation registry row FIRST (this is the red).** In `tests/docs/_metaDeferralLedgerGraduation.test.ts`, append to `BACKLOG_GRADUATED` (after the LAST existing row — the array spans roughly lines 95-499; locate its closing `];` with `nl` at implementation time rather than trusting a line number):
 
 ```ts
   // chore/guard-completeness-wave (2026-08-14): owner-ratified documented limit
@@ -78,7 +78,7 @@
   },
 ```
 
-- [ ] **Step 2: Run to verify it fails** — the row demands an archived section that does not exist yet.
+- [ ] **Step 2: Run the DECLARED marker command to verify it fails** — the row demands an archived section that does not exist yet.
 Run: `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts`
 Expected: FAIL — graduation row with no matching archive section containing the provenance string.
 
@@ -92,9 +92,9 @@ Expected: FAIL — graduation row with no matching archive section containing th
 **Archive disposition (2026-08-14, chore/guard-completeness-wave):** demoted per the ledger filing bar <SEP> the limit is recorded in the owning surface's JSDoc block (`tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:215-245`, ratified 2026-08-10), grepable by this id. Locator correction: the guard lives in `tests/cross-cutting/`, not `tests/ci/` as the entry's filing said. Re-open condition is the promotion trigger above, verbatim and unchanged. Spec: `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §4.
 ```
 
-- [ ] **Step 4: Run both ledger guards to verify green.**
-Run: `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts`
-Expected: PASS (marker removed in the same edit, so the archive holds no in-flight entry).
+- [ ] **Step 4: Re-run the SAME declared command to verify green** (the marker contract is red-then-green on one unchanged command).
+Run: `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts`
+Expected: PASS. Then, additional coverage (not the marker command): `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` — PASS (marker removed in the same edit, so the archive holds no in-flight entry).
 
 - [ ] **Step 5: Commit.**
 
@@ -158,7 +158,7 @@ describe("ledger-git spawn seam pins the timeout and maxBuffer constants", () =>
 });
 ```
 
-Add one `it` per remaining reader (`lsRemote`, `mergedIntoMain`, `readBlob`, `diffHunks`, `tipEpoch`, `isShallow`, `currentBranch`, `mergeBase`, `fileOids`, `showFile`) asserting `timeout: 30_000` + `maxBuffer: MAX` — derive each canned `stdout` from what the reader parses (empty string is fine for readers that tolerate empty output; give `mergeBase` a 40-hex line, `fileOids` `"<40-hex> <path>"`). **`currentBranch` needs an environment premise:** it returns `GITHUB_HEAD_REF` WITHOUT spawning when GitHub Actions variables are set (`scripts/lib/ledger-git.ts:313-316`; existing proof `tests/scripts/ledgerClaimsCheck.test.ts:1113-1118`), and the PR unit workflow sets them (`.github/workflows/unit-suite.yml:90-92`) — so its case must `vi.stubEnv("GITHUB_ACTIONS", "")` and `vi.stubEnv("GITHUB_HEAD_REF", "")` (restore via `vi.unstubAllEnvs()` in `afterEach`) before asserting the recorded spawn call, else `calls[0]` is empty in CI while green locally. Premise note per anti-tautology rule: each case's failure mode is "constant changed at source"; the expected literal lives in the test, so a 30001 mutant diverges.
+Add one `it` per remaining reader (`lsRemote`, `mergedIntoMain`, `readBlob`, `diffHunks`, `tipEpoch`, `isShallow`, `currentBranch`, `mergeBase`, `fileOids`, `showFile`) asserting `timeout: 30_000` + `maxBuffer: MAX` — derive each canned `stdout` from what the reader parses (empty string is fine for readers that tolerate empty output; give `mergeBase` a 40-hex line, and `fileOids` the ls-tree row shape its parser actually splits — `"100644 blob <40-hex>\t<path>"` (probed: `scripts/lib/ledger-git.ts:217-219` ignores a bare `<oid> <path>` line, so that fixture would leave the reader unparsed while the spawn-option assertion stayed green — derive every canned stdout from the reader's own parse, plan review R5 F2). **`currentBranch` needs an environment premise:** it returns `GITHUB_HEAD_REF` WITHOUT spawning when GitHub Actions variables are set (`scripts/lib/ledger-git.ts:313-316`; existing proof `tests/scripts/ledgerClaimsCheck.test.ts:1113-1118`), and the PR unit workflow sets them (`.github/workflows/unit-suite.yml:90-92`) — so its case must `vi.stubEnv("GITHUB_ACTIONS", "")` and `vi.stubEnv("GITHUB_HEAD_REF", "")` (restore via `vi.unstubAllEnvs()` in `afterEach`) before asserting the recorded spawn call, else `calls[0]` is empty in CI while green locally. Premise note per anti-tautology rule: each case's failure mode is "constant changed at source"; the expected literal lives in the test, so a 30001 mutant diverges.
 
 - [ ] **Step 2: Run to verify it fails.**
 Run: `pnpm vitest run tests/scripts/ledgerGitSpawnSeam.test.ts`
@@ -190,9 +190,9 @@ export function realGitSurface(opts?: { spawn?: typeof spawnSync }): GitSurface 
 
 Keep the literal `import { spawnSync } from "node:child_process"` (anti-vacuity guard `tests/scripts/ledgerFields.test.ts:166` requires it). Add `maxBuffer: MAX_GIT_STDOUT` to the `localRefs` and `prList` spawn options.
 
-- [ ] **Step 4: Run seam test + existing suites.**
-Run: `pnpm vitest run tests/scripts/ledgerGitSpawnSeam.test.ts tests/scripts/ledgerClaimsCheck.test.ts tests/scripts/ledgerFields.test.ts`
-Expected: PASS (real-git suites unaffected — default path unchanged).
+- [ ] **Step 4: Re-run the SAME declared command to verify green.**
+Run: `pnpm vitest run tests/scripts/ledgerGitSpawnSeam.test.ts`
+Expected: PASS. Then, additional coverage (not the marker command): `pnpm vitest run tests/scripts/ledgerClaimsCheck.test.ts tests/scripts/ledgerFields.test.ts` — PASS (real-git suites unaffected; default path unchanged).
 
 - [ ] **Step 5: Commit.**
 
@@ -257,9 +257,9 @@ describe("prList fault + malformed-output contract (spec §3.4)", () => {
 
 (Derivation, not enumeration: the case list is one missing + one wrong-type row per consumed `PrRow` field — `number`, `headRefName`, `isCrossRepository`, `headRepositoryOwner` — so a field added to `PrRow` without matrix rows is visible in review as a missing pair.)
 
-- [ ] **Step 2: Run to verify the new cases fail.**
-Run: `pnpm vitest run tests/scripts/ledgerGitSpawnSeam.test.ts`
-Expected: FAIL — every `toThrow` case returns `[]` or a coerced row instead.
+- [ ] **Step 2: Run the DECLARED marker command to verify it fails.**
+Run: `pnpm vitest run tests/scripts/ledgerGitSpawnSeam.test.ts tests/scripts/ledgerClaimsCheck.test.ts`
+Expected: FAIL — every `toThrow` case returns `[]` or a coerced row instead (the seam suite's failures make the two-suite command exit non-zero).
 
 - [ ] **Step 3: Implement prList validation** (replace the body from the `spawnSync` call's result handling down):
 
@@ -324,9 +324,9 @@ In `scripts/lib/ledger-check.ts` degraded loop (~line 256):
 
 - [ ] **Step 5: Update the ONE existing gh-fault case** in `tests/scripts/ledgerClaimsCheck.test.ts` — line ~1170, "discards a failed gh's output even when it printed well-formed JSON" — to assert `toThrow` instead of `[]` (its intent, a failed gh's payload never becomes a PR universe, is preserved; only the signal changes). The line-1150 case ("parses gh's rows, keeping the fork flag") is a SUCCESS-path case and stays as-is. Add a `runCheck`-level case injecting a `GitSurface` whose `prList` throws and asserting the JSON envelope's `code` is `2` and `reasons` contains a `pr-universe-unavailable` entry (mirror the existing degraded-universe describe at line 272 for envelope access).
 
-- [ ] **Step 6: Run the suites.**
-Run: `pnpm vitest run tests/scripts/ledgerGitSpawnSeam.test.ts tests/scripts/ledgerClaimsCheck.test.ts tests/scripts/ledgerFields.test.ts tests/docs/_metaLedgerClaimCollision.test.ts`
-Expected: PASS.
+- [ ] **Step 6: Re-run the SAME declared command to verify green.**
+Run: `pnpm vitest run tests/scripts/ledgerGitSpawnSeam.test.ts tests/scripts/ledgerClaimsCheck.test.ts`
+Expected: PASS. Then, additional coverage (not the marker command): `pnpm vitest run tests/scripts/ledgerFields.test.ts tests/docs/_metaLedgerClaimCollision.test.ts` — PASS.
 
 - [ ] **Step 7: Commit.**
 
@@ -374,11 +374,13 @@ git commit -m "test(infra): ledgerGit mutation gaps closed — accepted-gap 6->0
 
 - [ ] **Step 2: Write the failing assertion.** Add to `_metaDestructiveDbTargetGuard.test.ts` a case importing both exports and asserting the meta-test's OWN pattern bindings are identity-equal (`toBe`, not `toEqual`) to the imported ones, and that the exemption decision for the two self-files is `GUARD_OWN_FILES` membership. RED validity: the imports RESOLVE (Step 1), and the assertion fails because the meta-test still declares its own regex copies at lines 58/63/71 and still exempts via the `EXEMPTION` message-text accident at line 187 — those live declarations are the production lines whose defect makes it red.
 
-- [ ] **Step 3: Run to verify it fails.** Expected: FAIL — `toBe` identity mismatch (two distinct RegExp objects).
+- [ ] **Step 3: Run the DECLARED marker command to verify it fails.**
+Run: `pnpm vitest run tests/db/_metaDestructiveDbTargetGuard.test.ts`
+Expected: FAIL — `toBe` identity mismatch (two distinct RegExp objects).
 
 - [ ] **Step 4: Implement.** Replace the meta-test's local regex declarations with the imported constant; replace the accidental exemption with explicit `GUARD_OWN_FILES` membership BEFORE the analyzer call, commented (fixture SQL strings, not live executions). Delete the `EXEMPTION` regex if the self-files were its only match (`rg` first; prefer deletion — smaller surface).
 
-- [ ] **Step 4: Run.** `pnpm vitest run tests/db/_metaDestructiveDbTargetGuard.test.ts tests/db/destructiveFileAnalysis.test.ts` Expected: PASS.
+- [ ] **Step 5: Re-run the SAME declared command to verify green.** `pnpm vitest run tests/db/_metaDestructiveDbTargetGuard.test.ts` — Expected: PASS. Then, additional coverage (not the marker command): `pnpm vitest run tests/db/destructiveFileAnalysis.test.ts` — PASS.
 
 - [ ] **Step 5: Commit.**
 
@@ -475,7 +477,9 @@ b\`select 1\`;`;
 
 Then rewrite every existing rejection fixture's assertion to pin its NEW reason class (spec AC-1): fixtures (s),(t),(u),(v),(w),(x),(y) — the acquisition/alias family — now reject via Rule 1/Rule 2 reasons (unchecked execution / destructive string outside checked execution) instead of acquisition-rule text (probed for (s): its current reason is the driver-call-position rule this task DELETES, and its `target.unsafe(...)` execution lands in Rule 1 — plan review R3 F3); binding/shadowing fixtures (a)-(r),(z),(g) keep connection/provenance reasons. Work fixture-by-fixture: run, read the actual reason, confirm it is the intended CLASS (not an incidental one — anti-tautology), pin it.
 
-- [ ] **Step 2: Run to verify the new fixtures fail.** Expected: (aa)-(af) FAIL (current analyzer returns ok:true for (aa),(ab)-(ae) shapes; (af) currently passes the connection check); (ag) may PASS today — keep it as the regression pin for the factory summary.
+- [ ] **Step 2: Run the DECLARED marker command to verify the new fixtures fail.**
+Run: `pnpm vitest run tests/db/destructiveFileAnalysis.test.ts`
+Expected: (aa)-(af) FAIL (current analyzer returns ok:true for (aa),(ab)-(ae) shapes; (af) currently passes the connection check); (ag) may PASS today — keep it as the regression pin for the factory summary.
 
 - [ ] **Step 3: Implement the redesign** in `_destructiveFileAnalysis.ts`, structured as:
 
@@ -503,9 +507,9 @@ Then rewrite every existing rejection fixture's assertion to pin its NEW reason 
 
 Implementation detail for Rule 1's property-call allowance: the allowed method set is UNRESTRICTED on a checked client (any `checked.method(...)` is fine — the client is loopback-guarded); Rule 1 only rejects when the receiver/tag is NOT checked. Rule 2's "inside" test: walk up from the literal to the nearest CallExpression/TaggedTemplateExpression ancestor and test that node against Rule 1's accepted set.
 
-- [ ] **Step 4: Run the corpus + meta-guard + line-count check.**
-Run: `pnpm vitest run tests/db/destructiveFileAnalysis.test.ts tests/db/_metaDestructiveDbTargetGuard.test.ts`
-Expected: PASS — all rewritten reasons, new fixtures, and the 7 real files (the meta-guard's per-file `test.each` IS the 7-file validation; if any real file trips Rule 3, apply the spec's containment contingency: file-local refactor of that test file, NOT a Rule-3 widening).
+- [ ] **Step 4: Re-run the SAME declared command to verify green, then the meta-guard and line-count check.**
+Run: `pnpm vitest run tests/db/destructiveFileAnalysis.test.ts`
+Expected: PASS. Then, additional coverage (not the marker command): `pnpm vitest run tests/db/_metaDestructiveDbTargetGuard.test.ts` — PASS — all rewritten reasons, new fixtures, and the 7 real files (the meta-guard's per-file `test.each` IS the 7-file validation; if any real file trips Rule 3, apply the spec's containment contingency: file-local refactor of that test file, NOT a Rule-3 widening).
 Then: `wc -l tests/db/_destructiveFileAnalysis.ts` — assert < 420 (AC-4), and note the number in the commit message.
 
 - [ ] **Step 5: Commit.**
@@ -603,7 +607,9 @@ describe("assertCronDispatchOrigin (spec §5.2-§5.3)", () => {
 });
 ```
 
-- [ ] **Step 3: Run to verify it fails.** Expected: FAIL — all six reject cases return `ok: true` from the stub.
+- [ ] **Step 3: Run the DECLARED marker command to verify it fails.**
+Run: `pnpm vitest run tests/cross-cutting/pgCronSmokesUnit.test.ts`
+Expected: FAIL — all six reject cases return `ok: true` from the stub.
 
 - [ ] **Step 4: Implement the real comparator** (replacing the stub body; `PRODUCTION_HOST` is already imported from Step 1):
 
@@ -633,7 +639,9 @@ export function assertCronDispatchOrigin(
 }
 ```
 
-- [ ] **Step 5: Run.** Expected: PASS. Also `pnpm vitest run tests/scripts/validation-smoke-base-url.test.ts` (export change is behavior-neutral).
+- [ ] **Step 5: Re-run the SAME declared command to verify green.**
+Run: `pnpm vitest run tests/cross-cutting/pgCronSmokesUnit.test.ts`
+Expected: PASS. Then, additional coverage (not the marker command): `pnpm vitest run tests/scripts/validation-smoke-base-url.test.ts` — PASS (export change is behavior-neutral).
 
 - [ ] **Step 6: Commit.**
 
@@ -687,7 +695,9 @@ On validation the case is never registered (no floor inflation); on an unreachab
   if (!verdict.ok) throw new Error(`${jobname}: ${verdict.reason}`);
 ```
 
-- [ ] **Step 3: Run local mode.** `pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` Expected: PASS (10 existing + new cases).
+- [ ] **Step 3: Re-run the SAME declared command to verify green.**
+Run: `pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts`
+Expected: PASS (10 existing + new cases).
 
 - [ ] **Step 4: Commit.**
 
@@ -758,7 +768,7 @@ git commit -m "docs: fix ci-dark host-assertion cross-ref; file discovery-by-con
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts tests/docs/_metaLedgerInProgress.test.ts` ac=AC-18 -->
 
-- [ ] **Step 1:** ONE commit graduates all three of A, B, D — this satisfies every commit contract at once: invariant 6's one-commit-per-task (this is Task 12's commit), and invariant 12's graduating-entry rule, because each entry's marker comes off in the SAME commit that archives that entry (they all archive in this one). For each entry: move it to `BACKLOG-archive.md` under `## <id> <SEP> <title> <SEP> CLOSED 2026-08-<dd> (chore/guard-completeness-wave, SHIPPED)`, append a disposition block recording what shipped and the premise corrections spec §7.1 names (A: 7+2 partition, three-rule redesign; B: refuted "ENOBUFS is loud"; D: dead validation GUC probe, queue-origin oracle), and add its `BACKLOG_GRADUATED` row with provenance `chore/guard-completeness-wave`. RED first: add the three graduation rows, run the graduation suite, observe FAIL (no archive sections yet), then move the entries and observe green — same shape as Task 1.
+- [ ] **Step 1:** ONE commit graduates all three of A, B, D — this satisfies every commit contract at once: invariant 6's one-commit-per-task (this is Task 12's commit), and invariant 12's graduating-entry rule, because each entry's marker comes off in the SAME commit that archives that entry (they all archive in this one). For each entry: move it to `BACKLOG-archive.md` under `## <id> <SEP> <title> <SEP> CLOSED 2026-08-<dd> (chore/guard-completeness-wave, SHIPPED)`, append a disposition block recording what shipped and the premise corrections spec §7.1 names (A: 7+2 partition, three-rule redesign; B: refuted "ENOBUFS is loud"; D: dead validation GUC probe, queue-origin oracle), and add its `BACKLOG_GRADUATED` row with provenance `chore/guard-completeness-wave`. RED first: add the three graduation rows and run the DECLARED marker command — `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts tests/docs/_metaLedgerInProgress.test.ts` — observing FAIL (graduation rows without archive sections), then move the entries and re-run the SAME command to green (the in-progress guard rides in the same command at both points; it is green before and after, and the graduation half supplies the red).
 
 - [ ] **Step 2: Full gates.**
 Run: `pnpm heavy pnpm test` · `pnpm typecheck` · `pnpm exec eslint .` · `pnpm format:check` · `pnpm heavy pnpm mutation:guards`
