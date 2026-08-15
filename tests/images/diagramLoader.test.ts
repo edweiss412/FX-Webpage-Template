@@ -10,7 +10,7 @@
 // instead of passing manifest data through.
 
 import { describe, expect, test } from "vitest";
-import { diagramAssetUrl, makeDiagramLoader } from "@/lib/images/diagramLoader";
+import { diagramAssetUrl, hasVariantTier, makeDiagramLoader } from "@/lib/images/diagramLoader";
 import { diagramAssetKeyFromPath } from "@/lib/data/diagrams";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
@@ -77,6 +77,50 @@ describe("makeDiagramLoader — original tier", () => {
 
   test("a variants array whose every row is malformed falls back to the original", () => {
     expect(load(512, { variants: [null, "nope", { width: 0, key: "a" }] })).toBe(ORIGINAL_URL);
+  });
+});
+
+describe("makeDiagramLoader — a ladder row that names the ORIGINAL", () => {
+  // A well-formed row can name the original key itself. It survives every §4
+  // guard, so it lands in the served ladder and becomes selectable at whatever
+  // widths clamp to it — and then the loader serves the very original the zoom
+  // gate exists to withhold, while `hasVariantTier` has already promised a
+  // caller there was something smaller to retreat to.
+  const MIXED = [
+    { width: 256, key: `${key}@256.webp` },
+    { width: 1024, key },
+  ];
+
+  test("the original-naming row is never selected, at any width the loader can be asked", () => {
+    premiseHolds(
+      "the fixture really does name the original in a row the §4 guards accept",
+      MIXED.some((row) => row.key === key) && MIXED.some((row) => row.key !== key),
+    );
+    // 512 and 1024 clamp UP to the 1024 row; 3840 is above the ladder and takes
+    // the largest. All three selected the original before this rule existed.
+    for (const width of [64, 256, 300, 512, 1024, 3840]) {
+      expect(load(width, { variants: MIXED }), `width ${width}`).not.toBe(ORIGINAL_URL);
+    }
+  });
+
+  test("every width falls to the one genuinely smaller tier", () => {
+    for (const width of [64, 512, 3840]) {
+      expect(load(width, { variants: MIXED })).toBe(urlFor(256));
+    }
+  });
+
+  test("hasVariantTier agrees with what the loader will actually serve", () => {
+    // The predicate and the selection are one derivation, so they cannot drift:
+    // whenever it answers true, no width resolves to the original.
+    expect(hasVariantTier(MIXED, key)).toBe(true);
+    // …and a ladder whose ONLY row names the original leaves nothing to serve.
+    expect(hasVariantTier([{ width: 256, key }], key)).toBe(false);
+    expect(load(512, { variants: [{ width: 256, key }] })).toBe(ORIGINAL_URL);
+  });
+
+  test("a row naming the original does not prop up an otherwise-empty ladder", () => {
+    // Rejecting the row must not leave a zero-row ladder claiming a tier.
+    expect(hasVariantTier([{ width: 256, key }, null, { width: 0, key: "x" }], key)).toBe(false);
   });
 });
 

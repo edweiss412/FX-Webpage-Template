@@ -23,7 +23,7 @@
  * module some suite imports.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -55,6 +55,23 @@ type Report = { suites?: ReportSuite[] };
 
 const FIXTURE_PATH = "tests/ci/fixtures/phantom-gap-diagrams-report.json";
 const SPEC_PATH = "tests/e2e/crew-layout-dimensions.spec.ts";
+const CLI = "scripts/check-phantom-gap-executed.mjs";
+
+/**
+ * Spawned, because an exit code is the one thing an import cannot observe.
+ *
+ * Declared at MODULE SCOPE deliberately. `premiseScan` registers declaration
+ * extents module-scope only (premiseScan.ts:146-161), and `isModuleScope`
+ * (:187-200) returns false at the first enclosing function -- which a `describe`
+ * body is. A helper nested there has no registered extent, so every test calling
+ * it classifies as environment-free: silently, and forever. This helper reaches
+ * `node:child_process`, so hiding it from the recognizer would make the premise
+ * contract report a clean corpus it no longer understands. The recognizer's
+ * blindness is the wider class, filed as BL-PREMISESCAN-NESTED-HELPER-SCOPE.
+ */
+function runCli(args: string[]) {
+  return spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+}
 
 function loadReport(): Report {
   return JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as Report;
@@ -353,28 +370,33 @@ describe("check-phantom-gap-executed — the CLI decision layer", () => {
 });
 
 describe("check-phantom-gap-executed — the shipped CLI", () => {
-  const CLI = "scripts/check-phantom-gap-executed.mjs";
-
-  /** Spawned, because an exit code is the one thing an import cannot observe. */
-  function runCli(args: string[]) {
-    return spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
-  }
-
   test("exits 0 and prints the summary on a report where every pair ran", () => {
+    premiseHolds("the CLI this suite spawns is present to be spawned", existsSync(CLI));
     const result = runCli(["--report", FIXTURE_PATH]);
+    premiseHolds(`node actually ran the CLI (${result.error?.message ?? "ran"})`, !result.error);
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("check-phantom-gap-executed: ok");
   });
 
   test("exits 1 and names the missing pair on a doctored report", () => {
+    premiseHolds("the CLI this suite spawns is present to be spawned", existsSync(CLI));
     const target = REQUIRED_PAIRS.find((pair) => pair.project === "desktop-chromium")!;
     const report = loadReport();
-    findArm(report, target.title, target.project)!.test.results = [{ status: "skipped" }];
+    const arm = findArm(report, target.title, target.project);
+    premiseHolds(`the fixture carries the arm to doctor (${target.title})`, arm !== undefined);
+    // Without this, a fixture whose arm was ALREADY skipped would make the exit
+    // code below prove nothing about the doctoring.
+    premiseHolds(
+      "the arm ran before doctoring, so the skip is this test's doing",
+      (arm!.test.results ?? []).some((r) => r.status === "passed"),
+    );
+    arm!.test.results = [{ status: "skipped" }];
     const doctored = join(tmpdir(), `phantom-gap-doctored-${process.pid}.json`);
     writeFileSync(doctored, JSON.stringify(report));
 
     try {
       const result = runCli(["--report", doctored]);
+      premiseHolds(`node actually ran the CLI (${result.error?.message ?? "ran"})`, !result.error);
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(target.title);
     } finally {
@@ -383,9 +405,13 @@ describe("check-phantom-gap-executed — the shipped CLI", () => {
   });
 
   test("exits 1 when the run produced no report at all", () => {
+    premiseHolds("the CLI this suite spawns is present to be spawned", existsSync(CLI));
     // Fail CLOSED. A missing report is the shape of a Playwright invocation that
     // died before writing one, which is precisely when a green step would lie.
-    const result = runCli(["--report", join(tmpdir(), "phantom-gap-absent.json")]);
+    const absent = join(tmpdir(), "phantom-gap-absent.json");
+    premiseHolds("the report this test calls absent is genuinely absent", !existsSync(absent));
+    const result = runCli(["--report", absent]);
+    premiseHolds(`node actually ran the CLI (${result.error?.message ?? "ran"})`, !result.error);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("no report at");
   });

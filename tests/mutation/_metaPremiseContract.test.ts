@@ -55,6 +55,20 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // child_process, ledger-git, or process.env.
   "tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts": 0,
   "tests/help/_metaUiLabelCrosswalk.test.ts": 0,
+  // Enrolled by feat/diagram-viewing-polish (2026-08-11) alongside the
+  // phantom-gap executed-count oracle. 3: the three shipped-CLI cases spawn the
+  // checker through node:child_process, because an exit code is the one thing
+  // an import cannot observe. The other 22 drive report fixtures this suite
+  // owns and read no environment — node:fs is deliberately not provenance, by
+  // the same rule the corpus suite is declared 0 under.
+  //
+  // This count started as a FALSE 0. The spawning helper was declared inside
+  // the describe body, and premiseScan registers declaration extents at module
+  // scope only (premiseScan.ts:146-161), so all three classified
+  // environment-free. The helper is now at module scope. The recognizer's
+  // blindness to nested helpers is the wider class, probed and filed as
+  // BL-PREMISESCAN-NESTED-HELPER-SCOPE.
+  "tests/ci/phantomGapExecuted.test.ts": 3,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

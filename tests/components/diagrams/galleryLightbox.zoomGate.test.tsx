@@ -245,16 +245,30 @@ function topTierUrlOf(it: GalleryItem): string {
   return assetUrl(ladder[ladder.length - 1]!.key);
 }
 
+/**
+ * Renders the lightbox and CAPTURES its outbound announcements.
+ *
+ * `spoken` is the only end of the failure channel this suite can observe. The
+ * rendered `lightbox-announce-log` region is fed by the `announceEntries` prop
+ * (GalleryLightbox.tsx:588-592), which the Gallery owns and this helper does
+ * not pass — so that region is structurally EMPTY here no matter what happens,
+ * and any assertion scoped to it passes for the wrong reason. The lightbox's
+ * half of the contract is the outbound `onAnnounce` call; `gallery.failedItem.
+ * test.tsx` asserts the rendered end.
+ */
 function open(items: GalleryItem[], startIndex = 0) {
-  return render(
+  const spoken: string[] = [];
+  const view = render(
     <GalleryLightbox
       showId={SHOW_ID}
       snapshotRevisionId={REV}
       items={items}
       startIndex={startIndex}
       onClose={() => {}}
+      onAnnounce={(message) => spoken.push(message)}
     />,
   );
+  return { ...view, spoken };
 }
 
 function pathOf(url: string | null): string {
@@ -582,8 +596,7 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
     // would announce a fallback that cannot happen and then leave the broken
     // image on screen instead of the unavailable placeholder.
     const fixture = item(1, { variants });
-    const { container } = open([fixture, item(2)]);
-    const region = container.querySelector('[data-testid="lightbox-announce-log"]')!;
+    const { container, spoken } = open([fixture, item(2)]);
     premiseHolds(
       "both states resolve to the original, which is what makes the demote a no-op here",
       activeLoaderUrls(container).size === 1 &&
@@ -597,7 +610,15 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
 
     expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
     expect(container.textContent).toContain("Image unavailable");
-    expect([...region.querySelectorAll("[data-announce-id]")]).toHaveLength(0);
+    // WHICH announcement fires is the point. The placeholder speaks — silence
+    // would strand a screen-reader user watching a slide that simply stopped —
+    // but it must speak the FAILURE, not the demote: there was no fallback, so
+    // promising "a less detailed view" would describe something not on screen.
+    // Asserted on the outbound channel, the only end that can speak here (see
+    // `open`); the earlier form scanned the always-empty rendered region and so
+    // could not tell these two messages apart, or notice either.
+    expect(spoken).toEqual([`${fixture.alt} could not be loaded.`]);
+    expect(spoken[0]).not.toContain("less detailed view");
   });
 
   test("a ladder whose only row IS the original cannot demote either", () => {
@@ -607,8 +628,7 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
     // fall back to. The question is whether a LOWER tier exists, which cannot be
     // answered without the original key.
     const fixture = item(1, { variants: [{ width: 256, key: "embedded-obj-1.png" }] });
-    const { container } = open([fixture, item(2)]);
-    const region = container.querySelector('[data-testid="lightbox-announce-log"]')!;
+    const { container, spoken } = open([fixture, item(2)]);
     premiseHolds(
       "the row is well-formed enough to survive the loader's own guards",
       fixture.variants.length === 1 && fixture.variants[0]!.key === fixture.key,
@@ -626,7 +646,52 @@ describe("GalleryLightbox — a failed ORIGINAL demotes instead of destroying th
 
     expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
     expect(container.textContent).toContain("Image unavailable");
-    expect([...region.querySelectorAll("[data-announce-id]")]).toHaveLength(0);
+    // Same discrimination as the ladder cases above: it speaks the FAILURE, and
+    // must not promise a fallback that this ladder cannot supply.
+    expect(spoken).toEqual([`${fixture.alt} could not be loaded.`]);
+    expect(spoken[0]).not.toContain("less detailed view");
+  });
+
+  test("a MIXED ladder — one real variant, one row naming the original — still gates and still demotes", () => {
+    // The dangerous shape sits between the two rows above: a ladder that is
+    // neither originals-only nor wholly distinct. `hasVariantTier` used to ask
+    // whether SOME row differed from the original, which this satisfies, while
+    // clamping still SELECTED the 1024 row — the original — for every candidate
+    // width at or above 512. The unzoomed slide therefore fetched the original
+    // the gate exists to withhold, and a failure demoted, announced, and then
+    // resolved straight back to the same broken URL.
+    const key = "embedded-obj-1.png";
+    const fixture = item(1, {
+      variants: [
+        { width: 256, key: `${key}@256.webp` },
+        { width: 1024, key },
+      ],
+    });
+    const { container, spoken } = open([fixture, item(2)]);
+    premiseHolds(
+      "the fixture is genuinely mixed: one row names the original, one does not",
+      fixture.variants.some((v) => v.key === fixture.key) &&
+        fixture.variants.some((v) => v.key !== fixture.key),
+    );
+
+    // The gate: no candidate the unzoomed slide offers is the original.
+    expect(activeLoaderUrls(container)).toEqual(new Set([assetUrl(`${key}@256.webp`)]));
+    expect(activeLoaderUrls(container).has(originalUrlOf(fixture))).toBe(false);
+
+    // The demote: it retreats to a URL that is genuinely different from the one
+    // that just failed, so the announcement describes something that happened.
+    emitScale(2.4);
+    expect(activeLoaderUrls(container)).toEqual(new Set([originalUrlOf(fixture)]));
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    expect(container.querySelector('[data-testid="rzpp-component"]')).not.toBeNull();
+    expect(activeLoaderUrls(container)).toEqual(new Set([assetUrl(`${key}@256.webp`)]));
+    expect(container.textContent).not.toContain("Image unavailable");
+    expect(spoken).toEqual([
+      `${fixture.alt}: full detail could not be loaded. Showing a less detailed view.`,
+    ]);
   });
 
   test("a SECOND failure after the demote does reach the placeholder", () => {
