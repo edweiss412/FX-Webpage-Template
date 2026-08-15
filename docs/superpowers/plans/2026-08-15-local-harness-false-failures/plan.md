@@ -6,7 +6,7 @@
 
 **Architecture:** one implementation branch, `fix/local-harness-false-failures`, off `origin/main` (worktree + claims created by the authoring session per spec §3). Tasks in order; TDD per task; conventional commits; cross-model diff review; real CI green; merge; `0 0`.
 
-**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` · **Status:** DRAFT
+**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` · **Status:** plan-APPROVED (codex-guard R3, 2026-08-15, FINDINGS: 0; R1's eight and R2's one finding repaired in-branch; spec APPROVED codex-guard R2 same day)
 
 ## Global constraints
 
