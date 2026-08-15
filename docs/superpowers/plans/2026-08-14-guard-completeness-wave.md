@@ -794,11 +794,16 @@ impeccable-gate: N/A — no UI surface
 
 ### Close-out evidence (implementation, 2026-08-15)
 
-**Ledger.** Entry C archived at implementation start as a documented limit; entries A, B and D
-graduate in the close-out commit, each marker coming off in the same commit that archives it.
-`BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION` is the one new open row, filed with its census.
+**Ledger.** All four entries have left the open queue. Entry C was archived at implementation start
+as a documented limit (`221a52833`); entries A, B and D graduated at close-out (`004df22b7`), each
+one's IN PROGRESS marker coming off in the same commit that archives it, because the in-progress
+guard rejects an archived entry still declaring itself in flight. Neither ledger file contains an
+`IN PROGRESS` string, so no marker reaches main. Each archived entry carries a disposition recording
+what shipped AND which of its own premises this work refuted.
+`BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION` is the one new open row, filed with its census probe
+(~150 test files import the driver; ~60 never call `assertLocalDbUrl`).
 
-**Cross-model review.** Diff stage: R1 BLOCKING (2 findings), R2 BLOCKING (2), R3 <VERDICT>. Spec and plan stages
+**Cross-model review.** Diff stage: R1 BLOCKING (2 findings), R2 BLOCKING (2), R3 BLOCKING (3), R4 in flight against this tree. Spec and plan stages
 each converged at round 6 and are filed in `docs/review-rounds/chore/guard-completeness-wave/`.
 
 The arc's rows are split across TWO corpus files, and the round numbers restart in the second
@@ -808,38 +813,134 @@ to `1e503d714b6e` at the merge, and that key IS the arc identity — so the rows
 belong to a new arc whose own numbering starts at 1 (precedent:
 `docs/review-rounds/test/resurrect-mobile-safari-e2e`, whose second file restarts the same way).
 
-Read end to end, the DIFF stage burned three rounds on this branch: R1 and R2 under the first key
-(recorded there as diff r1, and as diff r1 of the second key after the merge landed between them),
-then R3 on the complete tree. The economy gate counts per arc, so no stage reaches the four-round
-filing threshold in either file, and the spec and plan filings in `04f601134519.md` are unaffected.
+Read end to end, the DIFF stage burned FOUR rounds on this branch — r1 under the first key, then
+r1/r2/r3 of the second key after the merge landed. The economy gate counts per arc, so neither file
+reaches the four-round filing threshold on the diff stage, and the spec and plan filings in
+`04f601134519.md` are unaffected. Recording it here is the point: the per-arc count is the gate's
+unit, and it would otherwise understate what this branch actually cost.
 
-R1 finding 1 was a real escape: the reviewer built a file that discovery DOES pick up, ran it
-through the analyzer, and got `ok:true` on a whole-database wipe. Root cause — `factoryChecked` was the one place in the analyzer that answered
-the binding question with "last declaration wins". The class sweep (every `.set(`/`.add(` in the
-five changed source files) turned up three instances in total, the third found here rather than by
-the reviewer: shadowed factory names, reassignable factory bindings (`let`/`var`/`function`, plus
-the `.begin` callback parameter no `const` ever covered), and a factory name that is also a
-parameter. Nine fixtures pin the class; eight verified red against the pre-repair analyzer.
+Every diff round found something real, and all of it was one class plus its consequences.
 
-R1 finding 2 was AC-4's line-count criterion. Escalated with the measurement — the analyzer's code
-alone is 412 lines against 262 — and amended by owner ratification 2026-08-15: the criterion is the
-deleted rules and the zeroed enumeration surface, with the growth recorded as a documented cost.
+**The escape class: which binding does a name resolve to.** R1 probed a discovered file into
+`ok:true` on a whole-database wipe — `factoryChecked` was the one place in the analyzer answering
+that question with "last declaration wins". Sweeping the class rather than the instance turned up
+three shapes (shadowed factory names, reassignable `let`/`var`/`function` factory bindings, and the
+`.begin` callback parameter no `const` covered), and a fourth found here rather than by the
+reviewer (a factory name that is also a parameter). R2 then found a fifth the sweep had missed —
+named function and class EXPRESSIONS bind their own name inside their own body — and R3 a sixth,
+that only a `.begin` callback's FIRST parameter is the transaction client.
 
-**Mutation gate** (`pnpm heavy pnpm mutation:guards`, all surfaces):
+The reason the class kept yielding instances is worth recording, because it is the actual defect:
+the binding rule lived in THREE copies (the shadow census, `declarationsOf`, the factory summary),
+so each repair taught one walker a form the others still missed. R2's fix replaced them with one
+predicate, `isNamedFunctionLike`, that all three consult. Fifteen cases across thirteen labelled
+fixtures — (be) through (bq) — now pin the class, and each was verified RED against the analyzer it
+was written for; the two that are regression pins rather than kills say so in their own comments.
+Nine more, (br) through (bz), came out of the CI gate failure described below and pin the census and
+factory-declaration legs those repairs introduced. The suite is 82 cases in total.
 
-| surface | mutants | killed | score | ledger |
-| --- | --- | --- | --- | --- |
-| `destructiveFileAnalysis` (new) | <N> | <K> | <S> | <L> |
-| `pgCronSmokes` (new) | <N> | <K> | <S> | none |
-| `ledgerGit` | <N> | <K> | <S> | equivalent 6, accepted-gap 0 |
+R1 finding 2 was AC-4's line-count criterion, escalated with the measurement and amended by owner
+ratification 2026-08-15: the criterion is the deleted rules and the zeroed enumeration surface, with
+the growth recorded as a documented cost rather than reinterpreted.
 
-The analyzer's first enrolment run scored 0.82 with 35 unaccepted survivors on a fully green suite:
-26 were real gaps now killed by fixtures, one was dead code the gate proved dead and which was
-deleted rather than blessed, and seven are reachability arguments recorded in the registry.
+Final measurement, taken at the branch tip rather than at the moment of the escalation, because it
+grew further with the R2 and R3 repairs: `tests/db/_destructiveFileAnalysis.ts` is 645 lines of
+which 438 are CODE, against 420/262 on `origin/main`. A 35-line sibling,
+`tests/db/_destructiveStatements.ts`, holds the recognizer both the analyzer and discovery import.
+So the module is 1.7x its former size in code — the honest number, and larger than the 412 quoted
+when the amendment was ratified.
 
-**Gates.** Full suite, `typecheck`, `eslint`, `format:check` green before push; real CI green on
-PR #786 including the validation-mode pg-cron leg in `x-audits`, which was additionally exercised
-locally against the live validation project (all nine jobs baked with the stable production alias).
+**Mutation gate** — the three surfaces this branch changes, with the provenance of each row named,
+because they do not all come from the same run:
+
+| surface | mutants | no-ops | counted | killed | score | ledger | measured by |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `destructiveFileAnalysis` (enrolled here) | 233 | 0 | 225 | 225 | 1.00 | 8 equivalent | re-run after the repair |
+| `pgCronSmokes` (enrolled here) | 14 | 0 | 14 | 14 | 1.00 | none | CI whole gate, `f9905fddf` |
+| `ledgerGit` | 99 | 0 | 93 | 93 | 1.00 | 6 equivalent, accepted-gap 6 → 0 | CI whole gate, `f9905fddf` |
+
+**The whole gate ran in CI, it went RED, and that is the most useful thing in this section.**
+
+Three consecutive local `pnpm heavy pnpm mutation:guards` runs were SIGTERMed by this machine's
+harness background-task cleanup, the last at 107 minutes on its final surface (exit 143; not the
+codex reaper, whose kill log ends 2026-08-04, and not memory pressure — no jetsam events). The tree
+was verified clean after each, so no overlay ever reached a commit. What broke the deadlock was
+noticing the whole gate already runs somewhere a local reaper cannot touch: PR #786's
+`mutation-harness` job. It ran all eleven enrolled surfaces at `f9905fddf` (job 94994195632, 8761s)
+and **failed** — `destructiveFileAnalysis` at score 0.9469 (214/226) with **twelve unaccepted
+survivors**. `ledgerGit` and `pgCronSmokes` passed in the same run.
+
+Every one of the twelve sat in code THIS BRANCH added — the assignment-target census from diff
+review R1's class sweep (nine), `isFactoryDeclaration` (two), and the candidate walker (one). That is
+why the earlier local runs, which enrolled the surface before those repairs existed, had reported a
+clean sweep: new code, new mutants. The close-out had been about to claim 1.00 on a derivation whose
+stated precondition — a GREEN gate — was false.
+
+**Nine of the twelve are the interesting ones, and they are the argument for this suite's central
+discipline.** They do not flip `ok`. With a census leg broken the written-to name simply becomes a
+CHECKED client, and the containment rule rejects the write instead of Rule 1 rejecting the execution
+— so the file is refused either way and an `ok:false` fixture would pass against mutant and original
+alike, proving nothing. They differ only in the REASON. Because every rejection fixture here pins a
+reason CLASS rather than `ok:false` (the rule this file's own header sets out), all nine are
+killable. Fixtures (br)-(bz) kill eleven of the twelve; the twelfth is genuinely equivalent and is
+ledgered with its argument.
+
+Dispositions were decided by probe, not by reading the AST: `generateMutants` produced each mutant
+from the gate's own operator set, and both analyzers were run over thirteen candidate inputs with
+verdict AND reason compared. The probe carried its own baseline — the same `.begin` shape with no
+write, which must ACCEPT — because without it every census candidate would have been rejected for a
+reason unrelated to the census and the whole exercise would have measured nothing.
+
+Cost of the whole gate here, for whoever schedules the next one: 783 mutants across 11 surfaces,
+about 100 minutes locally, of which `ledgerGit` alone is ~33 because each of its mutants runs the
+real-git claims suite.
+
+The `destructiveFileAnalysis` row is TRANSCRIBED from the post-repair run, not derived — its
+verbatim output is `score={"killed":225,"countedSurvivors":0,"excluded":8,"denominator":225,
+"value":1} passed=true`, over 233 mutants in 447s with `baselineGreen=true`, and the eight
+reported survivors are exactly the eight ledgered `equivalent` rows. The other two rows ARE
+derived, from their pass in the CI whole-gate run, and the derivation is exact: zero unaccepted
+survivors is a gate CONDITION and neither carries an accepted-gap row, so every surviving mutant
+is a ledgered `equivalent` and killed = mutants − equivalent. Mutant and no-op counts come from
+the gate's own `generateMutants`. Zero no-ops matters on its own — it rules out the vacuity mode
+where a run generates nothing and reports a perfect score over an empty set. `baselineGreen`
+matters for the same reason from the other direction: a red baseline would kill every mutant and
+report a perfect score having tested nothing.
+
+The distinction is not pedantry. A derivation is only as good as its precondition, and this
+close-out spent a day carrying a derived 1.00 for this very surface whose precondition — a green
+gate — turned out to be false. Where a real run exists, its numbers are quoted.
+
+Separately, and more directly than a score: all 16 ledger rows across the three touched
+surfaces were verified INDIVIDUALLY as still-surviving, by driving the gate's own
+`generateMutants` + `runSuite` path over only the ledgered sites with a clean-baseline
+check first. A row that had become killable would report as stale; none did.
+
+The analyzer's first enrolment run scored 0.82 with 35 unaccepted survivors on a fully
+green suite: 26 were real gaps now killed by fixtures, one was dead code the gate proved
+dead and which was deleted rather than blessed, and seven were reachability arguments
+recorded with their reasons in the registry. The eighth such argument arrived at the end, from
+the CI failure above.
+
+**Gates**, with provenance stated because the two are not interchangeable. Run LOCALLY at the tip:
+`typecheck`, `eslint` (0 errors), `format:check`, and the scoped suites for every touched surface.
+The FULL suite was verified in CI, not locally — the local run was deliberately cancelled to free a
+heavy-semaphore slot for the mutation gate, and re-running it would have duplicated what CI already
+executes. All twelve required contexts were green at `f9905fddf`, including `unit-suite` and all
+eight `unit-suite-db` shards, plus `pg-cron-validation-parity`, and are re-verified on the final head
+before the merge.
+
+**AC-6 is satisfied by a whole-gate run, deliberately, and not by the scoped one.** `mutation-harness`
+is not one of the twelve required contexts, so it cannot block a merge — but the acceptance criterion
+asks for `pnpm mutation:guards` GREEN, and the difference between that and a scoped stand-in is the
+twelve survivors above. It is therefore treated as a merge gate for this arc by choice: the final head
+carries a fresh whole-gate run, and the merge waits on it.
+
+The validation-mode pg-cron leg was additionally exercised locally against the live validation
+project: all nine canonical jobs are baked with the stable production alias, https, no explicit
+port. `app-e2e` failed once on a single mobile-safari `/admin` assertion and passed on re-run — the
+commit under it changed only markdown and one docs test, and desktop-chromium passed the same spec
+in the same run, so it was flake and is recorded as such rather than waved through.
 
 ## Review-round economy note
 

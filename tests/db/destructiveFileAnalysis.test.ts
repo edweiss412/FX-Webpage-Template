@@ -1006,6 +1006,148 @@ await sql.begin(async (tx = getDbClient(process.env.TEST_DATABASE_URL)) => {
     expectRejected(src, REASON.uncheckedExecution);
   });
 
+  /**
+   * (br)-(bz) pin the assignment-target census and the factory-declaration sweep, both added
+   * by diff review R1's class sweep. CI's whole-gate mutation run found TWELVE unaccepted
+   * survivors across them — every one in code this branch introduced.
+   *
+   * The census cases share a shape worth stating once. Breaking a census leg does NOT make
+   * the file pass: the name simply becomes a checked client instead, and the containment
+   * rule rejects the write rather than Rule 1 rejecting the execution. So `ok:false` is true
+   * either way and proves nothing; the REASON is the discriminator, which is precisely the
+   * discipline this file's header sets out. Each case below therefore pins
+   * `REASON.uncheckedExecution` and would see `REASON.containment` under its mutant.
+   */
+  it("(br) rejects a POSTFIX-incremented .begin parameter", () => {
+    // `tx++` is a write, so `tx` can never be a checked client. Kills the postfix leg of
+    // the unary test, the `++` half of the operator test, and the census's noteTarget call.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql.begin(async (tx) => {
+  tx++;
+  await tx\`select public.prune_sync_log()\`;
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bs) rejects a PREFIX-incremented .begin parameter", () => {
+    // The prefix leg, pinned separately so deleting either disjunct is caught on its own.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql.begin(async (tx) => {
+  ++tx;
+  await tx\`select public.prune_sync_log()\`;
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bt) rejects a DECREMENTED .begin parameter", () => {
+    // The `--` half of the operator test: `++` alone leaves it unpinned.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql.begin(async (tx) => {
+  tx--;
+  await tx\`select public.prune_sync_log()\`;
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bu) rejects a .begin parameter written with the LAST assignment operator", () => {
+    // The census accepts the whole FirstAssignment..LastAssignment range rather than `=`
+    // alone. `^=` IS LastAssignment, so it is the only operator that pins the upper bound —
+    // `<=` and `<` agree on every other operator in the range. Nobody writes `tx ^= 1` at a
+    // client; the fixture exists to pin the RANGE, and the range is what makes the census
+    // cover the compound assignments (`+=`, `||=`, `??=`) an author really would write.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql.begin(async (tx) => {
+  tx ^= 1;
+  await tx\`select public.prune_sync_log()\`;
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bv) rejects a .begin parameter rebound by a for-OF loop", () => {
+    // A for-of whose initializer is a bare identifier rebinds it on every iteration. This
+    // one is not a contrived shape: it is how an author would sweep several clients.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql.begin(async (tx) => {
+  for (tx of [getDbClient(process.env.TEST_DATABASE_URL)]) {
+    await tx\`select public.prune_sync_log()\`;
+  }
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bw) rejects a .begin parameter rebound by a for-IN loop", () => {
+    // The for-in leg, pinned separately from for-of for the same reason (br)/(bs) are split.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql.begin(async (tx) => {
+  for (tx in { a: 1 }) {
+    await tx\`select public.prune_sync_log()\`;
+  }
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bx) rejects a checked client used under a unary operator, by CONTAINMENT", () => {
+    // The census must notice `++`/`--` and nothing else about unary expressions. Were it to
+    // fire for every unary, `!sql` would mark `sql` written-to and the rejection would come
+    // from Rule 1 instead of containment.
+    //
+    // A DOCUMENTED LIMIT rides along here, stated rather than hidden: `if (!sql) throw` is
+    // ordinary defensive code and this analyzer rejects it. That is a loud false rejection an
+    // author repairs by dropping the check or restructuring, never a silent acceptance of a
+    // wipe, so it is a limit and not a defect — the consequence bound this surface is
+    // reviewed against.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+if (!sql) throw new Error("no client");
+await sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.containment);
+  });
+
+  it("(by) ACCEPTS a factory written as a function DECLARATION", () => {
+    // `isFactoryDeclaration` admits three forms; a function declaration is the one an author
+    // reaches for first. Under the mutant that conjoins its two function tests, no node is
+    // both a declaration and an expression, so every function-declaration factory would stop
+    // counting as a factory and this ordinary file would be rejected.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+function make() {
+  return postgres(DB_URL, { max: 1 });
+}
+const sql = make();
+await sql\`select public.prune_sync_log()\`;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
+  it("(bz) rejects a factory NAME that is also declared as a plain variable", () => {
+    // Every declaration of a factory name must itself be a factory. The mutant that loosens
+    // the variable-declaration leg to a disjunction lets ANY variable declaration count, so
+    // an inner `const make = getDbClient(TEST_DATABASE_URL)` would leave the outer factory
+    // trusted and this file would pass.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const make = () => postgres(DB_URL, { max: 1 });
+function other() {
+  const make = getDbClient(process.env.TEST_DATABASE_URL);
+  return make;
+}
+const sql = make();
+await sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.uncheckedFactory);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.

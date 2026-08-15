@@ -87,14 +87,22 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // fall-through continue, which reaches only comparisons a null key cannot
   // match). renderedTextHaystack: clean sweep, 17/17 killed after the
   // hardening rows.
-  // chore/guard-completeness-wave (2026-08-15). destructiveFileAnalysis: SEVEN
+  // chore/guard-completeness-wave (2026-08-15). destructiveFileAnalysis: EIGHT
   // reachability arguments — the begin-callback receiver test Rule 1 already rejects
   // ahead of, four fixpoint loop bounds the break-on-no-growth condition makes
   // unreachable, the candidate-declaration count that cannot be zero by construction,
-  // Rule 3's tag test whose only other identifier position is a type argument, and the
-  // ordering comparison two distinct nodes cannot tie. Everything else the first run
-  // surfaced was killed by a fixture, or deleted as dead code.
-  destructiveFileAnalysis: { equivalent: 7 },
+  // Rule 3's tag test whose only other identifier position is a type argument, the
+  // ordering comparison two distinct nodes cannot tie, and the candidate-walker
+  // parameter leg where widening CANDIDATES cannot widen CHECKED because declQualifies
+  // re-derives `.begin`-ness independently. Everything else the runs surfaced was killed
+  // by a fixture, or deleted as dead code.
+  //
+  // The eighth row arrived late and is worth the sentence: CI's whole-gate run found
+  // TWELVE unaccepted survivors that three SIGTERM-killed local runs never reached, all
+  // in code this branch added. Eleven were real. Nine of those never flip `ok` — they
+  // move the rejection from Rule 1 to the containment rule — so only this suite's
+  // reason-CLASS pinning could kill them, which is the argument for that discipline.
+  destructiveFileAnalysis: { equivalent: 8 },
   // pgCronSmokes: a clean sweep, 14/14 killed on first enrolment. Empty is the honest
   // declaration and a row appearing here later is a regression to explain.
   pgCronSmokes: {},

@@ -36,8 +36,10 @@ as a local non-exported function and could therefore satisfy the meta-test's mes
 `trusted()` — a guard premise that was false where it ran. A stale comment claimed
 `resetValidationDataPostgrest.test.ts` opens no postgres connection; it does.
 
-**The entry's "smaller, not larger" was a prediction, and it is refuted.** Measured: the module is
-597 lines of which 412 are CODE, against 262 code lines before. The execution-site machinery —
+**The entry's "smaller, not larger" was a prediction, and it is refuted.** Measured at the branch
+tip: the module is 645 lines of which 438 are CODE, against 420/262 before. (It was 597/412 when the
+amendment below was ratified; the R2 and R3 repairs grew it further, which moves the measurement
+away from the retired target rather than toward it.) The execution-site machinery —
 factory summaries, the checked-set fixpoint, three rules — is simply more code than the enumeration
 it retires. AC-4's line-count half was ESCALATED to the owner during diff review R1 and amended by
 ratification on 2026-08-15 (spec §2.4-4): the criterion is the deleted rules and the zeroed
@@ -55,7 +57,16 @@ the class, six verified red against the pre-repair analyzer.
 
 All 26 pre-existing rejection fixtures now pin their reason CLASS rather than `ok:false` alone (two
 deliberate mis-pins verified red), all 7 real files pass unchanged, and the analyzer is enrolled in
-`tests/mutation/source/registry.ts`. Discovery stays spelling-sensitive; that half is refiled with
+`tests/mutation/source/registry.ts`.
+
+That reason-class discipline turned out to be load-bearing rather than tidy. The whole mutation gate,
+run in CI at `f9905fddf`, found twelve unaccepted survivors on this surface — all of them in the
+repair code above. NINE never flip the verdict: with a census leg broken the written-to name becomes
+a CHECKED client, so the containment rule refuses the write instead of Rule 1 refusing the execution,
+and an `ok:false` fixture would have passed against mutant and original alike. Only the reason class
+separates them. Fixtures (br)-(bz) kill eleven of the twelve, each disposition settled by running
+both analyzers over thirteen probe inputs and comparing verdict AND reason; the twelfth is ledgered
+`equivalent` because widening the CANDIDATE set cannot widen the CHECKED set. Discovery stays spelling-sensitive; that half is refiled with
 its census as `BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION`. Spec: `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §2.
 
 ## BL-LEDGER-GIT-TIMEOUT-CONSTANTS — the git adapter's three spawn timeouts are unassertable through its own surface — CLOSED 2026-08-15 (chore/guard-completeness-wave, SHIPPED)
