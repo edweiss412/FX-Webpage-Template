@@ -356,8 +356,7 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
     // reading left it silently uninventoried while the identical unquoted key
     // was caught (whole-diff review round 2).
     const propertyKey =
-      ts.isPropertyAssignment(node) &&
-      (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))
+      ts.isPropertyAssignment(node) && (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))
         ? node.name.text
         : null;
     if (

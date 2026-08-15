@@ -714,30 +714,30 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       {
-        siteId: "relational-boundary:454:50:<><=",
+        siteId: "relational-boundary:453:50:<><=",
         kind: "equivalent",
         reason:
           "the site comparator reaches this `<` only when the files differ, because `a.file === b.file` is tested first",
       },
       {
-        siteId: "integer-literal:454:62:1>2",
+        siteId: "integer-literal:453:62:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — sign only",
       },
       {
-        siteId: "integer-literal:454:66:1>2",
+        siteId: "integer-literal:453:66:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       // ---- equivalent: the flip cannot change which branch is taken -------
       {
-        siteId: "logical-connector:394:43:&&>||",
+        siteId: "logical-connector:393:43:&&>||",
         kind: "equivalent",
         reason:
           "both arms yield the SAME name for every input that reaches them: for an identifier `delay.text` equals `delay.getText(sf)` (no whitespace, far under the 60-char slice), and for a non-identifier `delay.text` is undefined so the `||` arm is false anyway",
       },
       {
-        siteId: "logical-connector:469:38:||>&&",
+        siteId: "logical-connector:468:38:||>&&",
         kind: "equivalent",
         reason:
           "the operands are never independently true: a site is `unclassified` if and only if its value is null, because the push sites guarantee it — so `||` and `&&` select the same rows",

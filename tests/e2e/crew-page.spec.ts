@@ -1861,9 +1861,8 @@ test.describe("wifi password transcription affordance (production route)", () =>
     // The SSID row is deliberately untouched (spec §1.1).
     const ssidClass = await page.evaluate(
       () =>
-        document
-          .querySelector('[data-testid="venue-wifi-ssid"] dd span')
-          ?.getAttribute("class") ?? "",
+        document.querySelector('[data-testid="venue-wifi-ssid"] dd span')?.getAttribute("class") ??
+        "",
     );
     expect(ssidClass).not.toContain("code-value");
     expect(
@@ -1913,10 +1912,9 @@ test.describe("wifi password transcription affordance (production route)", () =>
       "the page must render sibling fact rows, or this proves nothing",
     ).toBeGreaterThan(0);
     for (const other of otherRows) {
-      expect(
-        overlaps(button, other.rect),
-        `copy target overlaps the "${other.label}" row`,
-      ).toBe(false);
+      expect(overlaps(button, other.rect), `copy target overlaps the "${other.label}" row`).toBe(
+        false,
+      );
     }
 
     // Not merely other fact rows: anything the finger can hit. A target that

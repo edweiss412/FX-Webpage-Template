@@ -56,7 +56,14 @@ const EPS = 0.5;
 /** The mobile-first width every case is measured at. */
 const WIDTH = 390;
 
-type Box = { top: number; left: number; right: number; bottom: number; width: number; height: number };
+type Box = {
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+};
 
 let workDir = "";
 let server: Server;
@@ -270,7 +277,10 @@ async function readMount(page: Page, mount: string, passwordTestId: string) {
 }
 
 const overlaps = (a: Box, b: Box): boolean =>
-  a.left < b.right - EPS && b.left < a.right - EPS && a.top < b.bottom - EPS && b.top < a.bottom - EPS;
+  a.left < b.right - EPS &&
+  b.left < a.right - EPS &&
+  a.top < b.bottom - EPS &&
+  b.top < a.bottom - EPS;
 
 // ---------------------------------------------------------------------------
 // Counterfactual heights — the oracle that cannot exist on the production route
@@ -396,7 +406,11 @@ test("DI-3b: the last-row topology really is the shortened one, or DI-3 proves n
   // last row's box is SHORTER than the 44px target it holds. If this stopped
   // being true, DI-3's card-scoped claim would be measuring nothing that a
   // row-scoped claim could not.
-  premise("the last row's box is shorter than the mid-list row's", mid!.rowRect.height, last!.rowRect.height);
+  premise(
+    "the last row's box is shorter than the mid-list row's",
+    mid!.rowRect.height,
+    last!.rowRect.height,
+  );
   expect(last!.rowRect.height).toBeLessThan(TAP_MIN - EPS);
   expect(last!.buttonRect!.bottom).toBeGreaterThan(last!.rowRect.bottom + EPS);
 });
@@ -430,9 +444,7 @@ test("DI-5: the FOCUSED indicator paints and its measured reach clears the value
   premiseHolds(`the copy control is reachable by Tab within ${TAB_BUDGET} presses`, reached);
 
   const focused = await page.evaluate(() => {
-    const button = document.querySelector<HTMLButtonElement>(
-      '[data-testid="mid-password"] button',
-    );
+    const button = document.querySelector<HTMLButtonElement>('[data-testid="mid-password"] button');
     if (button === null) return null;
     const style = getComputedStyle(button);
     const box = (el: Element) => {
