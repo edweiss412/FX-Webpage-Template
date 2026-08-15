@@ -757,6 +757,10 @@ function countListItems(model: DocModel, start: number, stopAtChecklist: boolean
   const first = BULLET_RE.exec(model.lines[start]!);
   if (first === null) return 0;
   const indent = first[1]!.length;
+  // Where this list's item CONTENT starts: a block must reach this column to belong to an
+  // item. CommonMark lets a fence sit up to three spaces in and still be a top-level block,
+  // so "deeper than the marker" was not the test (review R17, probed).
+  const contentIndent = indent + first[2]!.length + 1;
   let count = 0;
   let blanks = 0;
   /** Indent of the OPEN fence's delimiter, or null outside a fence. */
@@ -773,7 +777,7 @@ function countListItems(model: DocModel, start: number, stopAtChecklist: boolean
         // item's content and is skipped; one at the list's own indent ends the list, and
         // skipping it would swallow whatever follows into this list (review R13, probed).
         fenceIndent = /^(\s*)/.exec(line)![1]!.length;
-        if (fenceIndent <= indent) break;
+        if (fenceIndent < contentIndent) break;
       } else if (model.fencedInfo[i] === null) {
         fenceIndent = null;
       }
@@ -975,8 +979,15 @@ export function checkNumerics(
       if (bound.has(h.column - 1)) continue; // exclusion (ii)
       const noun = singularNoun(following[1]!);
       const claimed = Number(h.raw);
-      for (const { path, mentions, constants } of constantsByPath) {
-        if (!mentions.test(line)) continue;
+      // A line naming TWO scripts that each declare this noun associates the count with
+      // neither: comparing against both reported two advisories for a line whose claims
+      // were both correct (review R17, probed). Same rule as the ambiguous basename — a
+      // reference that identifies more than one script identifies none.
+      const named = constantsByPath.filter(
+        (e) => e.mentions.test(line) && e.constants.some((c) => c.noun === noun),
+      );
+      if (named.length > 1) continue;
+      for (const { path, constants } of named) {
         for (const c of constants) {
           if (c.noun !== noun || c.value === claimed) continue;
           findings.push({

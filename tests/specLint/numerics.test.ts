@@ -615,6 +615,20 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     expect(only(findings, A)).toEqual([]);
   });
 
+  it("a line naming TWO scripts with the same noun associates with neither", () => {
+    // Review R17, probed: every count was compared against every same-noun constant on the
+    // line, so a line whose two claims were BOTH correct drew two advisories — 4 against
+    // b's 5 and 5 against a's 4. An ambiguous reference identifies no script.
+    const texts = {
+      "scripts/a.mjs": scriptSrc(siteConst(4)),
+      "scripts/b.mjs": scriptSrc(siteConst(5)),
+    };
+    const doc = "`scripts/a.mjs` covers 4 sites; `scripts/b.mjs` covers 5 sites.\n";
+    expect(only(run(doc, texts).findings, A)).toEqual([]);
+    // One script named on its own still associates, so the rule narrows nothing else.
+    expect(only(run("`scripts/a.mjs` covers 9 sites\n", texts).findings, A)).toHaveLength(1);
+  });
+
   it("an identifier declared TWICE at column 0 is not read at all", () => {
     // The net under the lexer, and it does not depend on the lexer being right. Every
     // refuted version of this scan (R5, R6, R8, R9) was fooled into choosing the WRONG one
@@ -638,13 +652,16 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
   it("an AMBIGUOUS basename identifies no script, so only the full path associates", () => {
     // Review R6, probed: `check.mjs` in two directories matched both, and the doc drew an
     // advisory against a file it never mentioned.
+    // The two declare DIFFERENT nouns on purpose: with the same noun the R17 rule would
+    // silence the line by itself, and this case has to fail when the BASENAME rule is the
+    // thing that breaks.
     const texts = {
       "scripts/a/check.mjs": scriptSrc("const EXPECTED_SITE_TOTAL = 3;"),
-      "scripts/b/check.mjs": scriptSrc("const EXPECTED_SITE_TOTAL = 4;"),
+      "scripts/b/check.mjs": scriptSrc("const EXPECTED_ROW_TOTAL = 4;"),
     };
-    expect(only(run("`check.mjs` covers 3 sites\n", texts).findings, A)).toEqual([]);
+    expect(only(run("`check.mjs` covers 9 sites\n", texts).findings, A)).toEqual([]);
     // The full path still names one script, so it still associates.
-    expect(only(run("`scripts/b/check.mjs` covers 3 sites\n", texts).findings, A)).toHaveLength(1);
+    expect(only(run("`scripts/b/check.mjs` covers 9 rows\n", texts).findings, A)).toHaveLength(1);
   });
 
   it("basename uniqueness is compared on the WHOLE basename", () => {
@@ -1396,6 +1413,23 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
       "",
     ].join("\n");
     expect(only(run(twoFences).findings, B)).toEqual([]);
+  });
+
+  it("a fence indented LESS than the item content is a separate block", () => {
+    // Review R17, probed: CommonMark lets a fence sit up to three spaces in and still be a
+    // top-level block, so "deeper than the marker" admitted a one-space fence as item
+    // content and the list below it was counted as a third sibling.
+    const doc = [
+      "There are 2 cases:",
+      "- first",
+      "- second",
+      " ```text",
+      "- not an item",
+      " ```",
+      "- a separate list",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
   });
 
   it("a fence at the list's own indent ENDS the list", () => {
