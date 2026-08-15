@@ -228,6 +228,22 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
       [`const re = ${gap("/a\\/'/")}; const c = 3;`],
     ],
     [
+      // Review R11, probed: `export default /\'/;` is valid JavaScript and `default` was
+      // missing from a hand-listed keyword set, so the slash read as division and exposed
+      // the regex body. The set is now the RESERVED words minus the five that are values.
+      "a regex after `export default` is a regex",
+      "export default /'/;",
+      [`export default ${gap("/'/")};`],
+    ],
+    ["a regex after `throw` is a regex", "throw /'/;", [`throw ${gap("/'/")};`]],
+    [
+      // ...and the five value-words are the reason the set is not simply "every reserved
+      // word": `this` IS a value, so the slash after it divides.
+      "a slash after `this` divides",
+      "const r = this / 2; const e = 5;",
+      ["const r = this / 2; const e = 5;"],
+    ],
+    [
       // A regex may follow a control-flow head, and reading THAT slash as division is the
       // dangerous direction: it exposes the regex body, where a quote opens a span the scan
       // closes somewhere else entirely (review R10, probed).

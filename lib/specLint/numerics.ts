@@ -231,21 +231,64 @@ function singularNoun(word: string): string {
  * directions are pinned as fixtures.
  */
 const REGEX_PRECEDING = new Set("([{,;:=!&|?+-*%~^<>)}".split(""));
-const REGEX_KEYWORDS = new Set([
-  "return",
-  "typeof",
-  "instanceof",
-  "in",
-  "of",
-  "new",
-  "delete",
-  "void",
-  "case",
-  "do",
-  "else",
-  "yield",
-  "await",
-]);
+/**
+ * The RESERVED words a regex may follow — the closed set, minus the five that are values.
+ *
+ * Enumerating "the keywords I could think of" is what R11 refuted: `export default /'/;`
+ * is valid JavaScript, `default` was not on the list, and the slash read as division
+ * exposed the regex body. A reserved word is never a value, so it can never be a left
+ * operand of division; the five that ARE values are excluded by name. That is the class,
+ * not the instance.
+ */
+const REGEX_VALUE_WORDS = ["this", "super", "true", "false", "null"];
+const REGEX_KEYWORDS = new Set(
+  [
+    "await",
+    "async",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "debugger",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "enum",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "function",
+    "get",
+    "if",
+    "import",
+    "in",
+    "instanceof",
+    "let",
+    "new",
+    "null",
+    "of",
+    "return",
+    "set",
+    "static",
+    "super",
+    "switch",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typeof",
+    "var",
+    "void",
+    "while",
+    "with",
+    "yield",
+  ].filter((word) => !REGEX_VALUE_WORDS.includes(word)),
+);
 const IDENT_CHAR = /[A-Za-z0-9_$]/;
 
 /**
@@ -383,9 +426,21 @@ export function readableScriptLines(text: string): string[] | null {
   // regex-or-division decision.
   let lastChar = "";
   let lastWord = "";
+  // Whitespace ENDS the trailing identifier without erasing it — `return /re/` needs the
+  // word across the space, while `export default` must not fuse into one token.
+  let inWord = false;
   const pushCode = (c: string): void => {
-    if (c === " " || c === "\t") return;
-    lastWord = IDENT_CHAR.test(c) ? lastWord + c : "";
+    if (c === " " || c === "\t") {
+      inWord = false;
+      return;
+    }
+    if (IDENT_CHAR.test(c)) {
+      lastWord = inWord ? lastWord + c : c;
+      inWord = true;
+    } else {
+      lastWord = "";
+      inWord = false;
+    }
     lastChar = c;
   };
   let inClass = false;
