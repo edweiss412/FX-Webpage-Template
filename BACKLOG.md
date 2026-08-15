@@ -95,7 +95,7 @@ pass rather than being read as absolute and then quietly excepted.
 
 ## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects
 
-**Status:** IN PROGRESS · **Branch:** fix/storage-asset-integrity — filed from cross-model review of PR #761 · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** fix/storage-asset-integrity · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M · **Filed:** cross-model review of PR #761
 
 `assetRecovery` gates under the show lock, RELEASES it, uploads to deterministic canonical paths,
 then re-takes the lock to commit. Two overlapping runs can both pass the gate. When one commits
@@ -122,7 +122,7 @@ sets the severity for real.
 
 ## BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS — an upload exception leaves objects nothing will reclaim
 
-**Status:** IN PROGRESS · **Branch:** fix/storage-asset-integrity — filed from cross-model review of PR #761 · **Severity:** medium · **Class:** STORAGE HYGIENE · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** fix/storage-asset-integrity · **Severity:** medium · **Class:** STORAGE HYGIENE · **Effort:** M · **Filed:** cross-model review of PR #761
 
 Two instances of one shape:
 
