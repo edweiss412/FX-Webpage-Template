@@ -496,6 +496,13 @@ const BACKLOG_GRADUATED = [
     id: "BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES",
     provenance: "fix/promote-identity-validation",
   },
+  // chore/guard-completeness-wave (2026-08-14): owner-ratified documented limit
+  // (2026-08-10) demoted per the filing bar; the limits live in the guard's own
+  // JSDoc block (tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:215-245).
+  {
+    id: "BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES",
+    provenance: "chore/guard-completeness-wave",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */

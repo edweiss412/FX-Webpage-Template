@@ -1,3 +1,18 @@
+## BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES — two deliberate-authoring bypasses of the crew-e2e wiring guard — DEMOTED TO A DOCUMENTED LIMIT 2026-08-14 (chore/guard-completeness-wave)
+
+**Severity:** LOW (both require deliberately writing a gate that looks like a declaration but is not; accidental cases are caught loudly) · **Class:** guard coverage · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 4, owner-ratified as a documented limit) · **Effort:** M
+
+**Both probed, with the mutants recorded so a future round starts from evidence:**
+
+1. `expectRegistryRowsAreLive` accepts any `test.skip(...)` as live without proving its condition can exclude the registered projects. `test.skip(false, "…")` binds a row while gating nothing.
+2. One `PROJECT_GATED` row relaxes the identifier ban for the entire FILE, and the body scans deliberately skip nested callbacks — so a gate inside a `test.step` in another test of the same file is unscanned.
+
+**Why it is a limit, not an open bug.** The guard's threat model is ordinary authoring mistakes by a contributor adding or gating a test; both bypasses require deliberately constructing a fake declaration. Four review rounds each produced a narrower bypass with no product-code change, which is the recognizer ratchet the round-economy rule names: "no bypass exists" ranges over an open class and does not terminate. Owner ratified shipping with the limit documented in the guard's own header.
+
+**Promotion trigger:** a real contributor hits one of these by accident, or the guard is extended to a surface where a fake declaration is plausible.
+
+**Archive disposition (2026-08-14, chore/guard-completeness-wave):** demoted per the ledger filing bar — the limit is recorded in the owning surface's JSDoc block (`tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:215-245`, ratified 2026-08-10), grepable by this id. Locator correction: the guard lives in `tests/cross-cutting/`, not `tests/ci/` as the entry's filing said. Re-open condition is the promotion trigger above, verbatim and unchanged. Spec: `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §4.
+
 ## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking was raw Tailwind numerics — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
 
 **Resolution: SHIPPED.** Task U1 of the M-wave-2 plan
