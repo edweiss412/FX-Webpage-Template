@@ -34,7 +34,7 @@
 | AC-8 | §3.2 | Seam test asserts per-site `timeout`/`maxBuffer` literals (four constants, six sites) |
 | AC-9 | §3.4 | prList throws on `r.error`, non-zero status, and every status-zero malformed class; `[]` only from a well-formed row array |
 | AC-10 | §3.4 | `pr-universe-unavailable` degraded marker; `runCheck` returns `code: 2` with a throwing prList |
-| AC-11 | §3.4 | `ledgerGit` at `{equivalent: 6, "accepted-gap": 0}`; siteIds reconciled; one timeout + one maxBuffer hand-mutant spot-check |
+| AC-11 | §3.4 | `ledgerGit` gate row at `{ equivalent: 6 }` (accepted-gap rows all deleted; zero-count kinds are omitted per the gate reducer); siteIds reconciled; one timeout + one maxBuffer hand-mutant spot-check |
 | AC-12 | §4.2 | Entry C archived (full body, trigger verbatim, corrected locator), marker off same commit, `BACKLOG_GRADUATED` row |
 | AC-13 | §5.2 | `PRODUCTION_HOST` exported; comparator in `pgCronSmokes.ts`; six unit cases |
 | AC-14 | §5.2 | Census asserts origin per job in both modes; local expected read from same connection's GUC |
@@ -343,7 +343,7 @@ git commit -m "fix(infra): prList faults throw and degrade the claim universe to
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-11 -->
 
-- [ ] **Step 1: Register the seam suite and delete the gaps.** Add "tests/scripts/ledgerGitSpawnSeam.test.ts" to the `ledgerGit` surface's `suitePaths` (the runner executes ONLY registered suites — `tests/mutation/source/runner.ts:129` and its line 142 — so without this row the seam test kills nothing). Delete the six accepted-gap rows (siteIds `integer-literal:32:18:30000>30001`, `integer-literal:33:22:30000>30001`, `integer-literal:34:15:10000>10001`, `integer-literal:62:24:64>65`, `integer-literal:62:29:1024>1025`, `integer-literal:62:36:1024>1025`) and change the gate expectation to `ledgerGit: { equivalent: 6, "accepted-gap": 0 }`. Registry reconciliation (authored AND run at plan time): current rows for `ledgerGit` = 6 equivalent + 6 accepted-gap (`rg -c 'kind: "accepted-gap"' tests/mutation/source/registry.ts` scoped to the ledgerGit block = 6); this task removes exactly the 6 accepted-gap rows and adds none.
+- [ ] **Step 1: Register the seam suite and delete the gaps.** Add "tests/scripts/ledgerGitSpawnSeam.test.ts" to the `ledgerGit` surface's `suitePaths` (the runner executes ONLY registered suites — `tests/mutation/source/runner.ts:129` and its line 142 — so without this row the seam test kills nothing). Delete the six accepted-gap rows (siteIds `integer-literal:32:18:30000>30001`, `integer-literal:33:22:30000>30001`, `integer-literal:34:15:10000>10001`, `integer-literal:62:24:64>65`, `integer-literal:62:29:1024>1025`, `integer-literal:62:36:1024>1025`) and change the gate expectation to `ledgerGit: { equivalent: 6 }` — the reducer at `tests/mutation/guardSurfaces.gate.test.ts:124-128` OMITS absent kinds, so a zero-count key in the expected object can never match (plan review R3 F1); expectations list only the kinds whose count is non-zero. Registry reconciliation (authored AND run at plan time): current rows for `ledgerGit` = 6 equivalent + 6 accepted-gap (`rg -c 'kind: "accepted-gap"' tests/mutation/source/registry.ts` scoped to the ledgerGit block = 6); this task removes exactly the 6 accepted-gap rows and adds none.
 
 - [ ] **Step 2: Run the harness — expect the RED first.**
 Run: `pnpm heavy pnpm mutation:guards`
@@ -378,7 +378,12 @@ git commit -m "test(infra): ledgerGit mutation gaps closed — accepted-gap 6->0
 
 - [ ] **Step 4: Run.** `pnpm vitest run tests/db/_metaDestructiveDbTargetGuard.test.ts tests/db/destructiveFileAnalysis.test.ts` Expected: PASS.
 
-- [ ] **Step 5: Commit.** `git commit -m "test(db): shared destructive-statement recognizer; guard self-exemption explicit"`
+- [ ] **Step 5: Commit.**
+
+```bash
+git add tests/db/_destructiveFileAnalysis.ts tests/db/_metaDestructiveDbTargetGuard.test.ts
+git commit -m "test(db): shared destructive-statement recognizer; guard self-exemption explicit"
+```
 
 ### Task 6: Entry A — analyzer redesign (three rules, factory summary, acquisition rules deleted)
 
@@ -466,7 +471,7 @@ b\`select 1\`;`;
 });
 ```
 
-Then rewrite every existing rejection fixture's assertion to pin its NEW reason class (spec AC-1): fixtures (t),(u),(v),(w),(x),(y) — the acquisition family — now reject via Rule 1/Rule 2 reasons (unchecked execution / destructive string outside checked execution) instead of acquisition-rule text; binding/shadowing fixtures (a)-(s),(z),(g) keep connection/provenance reasons. Work fixture-by-fixture: run, read the actual reason, confirm it is the intended CLASS (not an incidental one — anti-tautology), pin it.
+Then rewrite every existing rejection fixture's assertion to pin its NEW reason class (spec AC-1): fixtures (s),(t),(u),(v),(w),(x),(y) — the acquisition/alias family — now reject via Rule 1/Rule 2 reasons (unchecked execution / destructive string outside checked execution) instead of acquisition-rule text (probed for (s): its current reason is the driver-call-position rule this task DELETES, and its `target.unsafe(...)` execution lands in Rule 1 — plan review R3 F3); binding/shadowing fixtures (a)-(r),(z),(g) keep connection/provenance reasons. Work fixture-by-fixture: run, read the actual reason, confirm it is the intended CLASS (not an incidental one — anti-tautology), pin it.
 
 - [ ] **Step 2: Run to verify the new fixtures fail.** Expected: (aa)-(af) FAIL (current analyzer returns ok:true for (aa),(ab)-(ae) shapes; (af) currently passes the connection check); (ag) may PASS today — keep it as the regression pin for the factory summary.
 
@@ -501,7 +506,12 @@ Run: `pnpm vitest run tests/db/destructiveFileAnalysis.test.ts tests/db/_metaDes
 Expected: PASS — all rewritten reasons, new fixtures, and the 7 real files (the meta-guard's per-file `test.each` IS the 7-file validation; if any real file trips Rule 3, apply the spec's containment contingency: file-local refactor of that test file, NOT a Rule-3 widening).
 Then: `wc -l tests/db/_destructiveFileAnalysis.ts` — assert < 420 (AC-4), and note the number in the commit message.
 
-- [ ] **Step 5: Commit.** `git commit -m "test(db): destructive-file analyzer checks execution sites; acquisition enumeration deleted (<N> lines, was 420)"`
+- [ ] **Step 5: Commit.**
+
+```bash
+git add tests/db/_destructiveFileAnalysis.ts tests/db/destructiveFileAnalysis.test.ts
+git commit -m "test(db): destructive-file analyzer checks execution sites; acquisition enumeration deleted (<N> lines, was 420)"
+```
 
 ### Task 7: Entry A — mutation enrolment of the analyzer
 
@@ -515,9 +525,14 @@ Then: `wc -l tests/db/_destructiveFileAnalysis.ts` — assert < 420 (AC-4), and 
 
 - [ ] **Step 2: Observe the RED.** Run: `pnpm heavy pnpm mutation:guards` — Expected: FAIL on `EXPECTED_LEDGER_KINDS` key-set inequality (`tests/mutation/guardSurfaces.gate.test.ts:85-89`): the enrolled surface has no expectations row. This is the task's declared red, unconditional.
 
-- [ ] **Step 3: Add the gate row** `destructiveFileAnalysis: { equivalent: 0, "accepted-gap": 0 }`, rerun, and triage survivors. Triage every survivor: kill with a fixture, or ledger `equivalent`/`accepted-gap` with an argument and (for gaps) a `ref:` to a filed backlog row; update the gate row to the FINAL triaged counts. Record the final score + survivor set — these numbers go verbatim in the diff-review round-1 brief (AGENTS.md enrolment contract).
+- [ ] **Step 3: Add the gate row** `destructiveFileAnalysis: {}` (kinds appear only when a triaged row of that kind exists — the reducer omits absent kinds), rerun, and triage survivors, updating the row to the final non-zero kinds only. Triage every survivor: kill with a fixture, or ledger `equivalent`/`accepted-gap` with an argument and (for gaps) a `ref:` to a filed backlog row; update the gate row to the FINAL triaged counts. Record the final score + survivor set — these numbers go verbatim in the diff-review round-1 brief (AGENTS.md enrolment contract).
 
-- [ ] **Step 3: Commit.** `git commit -m "test(db): enroll destructive-file analyzer in source-mutation registry (score <measured>)"`
+- [ ] **Step 4: Commit.**
+
+```bash
+git add tests/mutation/
+git commit -m "test(db): enroll destructive-file analyzer in source-mutation registry (score <measured>)"
+```
 
 ### Task 8: Entry D — origin comparator + PRODUCTION_HOST export + unit suite
 
@@ -615,7 +630,12 @@ export function assertCronDispatchOrigin(
 
 - [ ] **Step 5: Run.** Expected: PASS. Also `pnpm vitest run tests/scripts/validation-smoke-base-url.test.ts` (export change is behavior-neutral).
 
-- [ ] **Step 6: Commit.** `git commit -m "test(infra): cron dispatch-origin comparator; PRODUCTION_HOST exported"`
+- [ ] **Step 6: Commit.**
+
+```bash
+git add scripts/lib/validation-smoke-target.ts tests/cross-cutting/pgCronSmokes.ts tests/cross-cutting/pgCronSmokesUnit.test.ts
+git commit -m "test(infra): cron dispatch-origin comparator; PRODUCTION_HOST exported"
+```
 
 ### Task 9: Entry D — census wiring + sabotage case
 
@@ -652,7 +672,12 @@ function assertJobDispatchOrigin(
 
 - [ ] **Step 3: Run local mode.** `pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` Expected: PASS (10 existing + new cases).
 
-- [ ] **Step 4: Commit.** `git commit -m "test(infra): pg-cron census asserts dispatch origin per job; sabotage case proves the oracle"`
+- [ ] **Step 4: Commit.**
+
+```bash
+git add tests/cross-cutting/pg-cron-coverage.test.ts
+git commit -m "test(infra): pg-cron census asserts dispatch origin per job; sabotage case proves the oracle"
+```
 
 ### Task 10: Entry D — pgCronSmokes mutation enrolment
 
@@ -661,19 +686,26 @@ function assertJobDispatchOrigin(
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-16 -->
 
-- [ ] **Step 1: Add the registry row (gate row comes in Step 2 after the observed red):** id `pgCronSmokes`, sourcePath `tests/cross-cutting/pgCronSmokes.ts`, suitePaths ["tests/cross-cutting/pgCronSmokesUnit.test.ts"] (DB-free — the unit suite from Task 8 must import and exercise `firingSmokeSql` and `queuedUrlsFromSmokeOutput` too; add 2-3 direct cases for each if Task 8 did not), operators `[...OPERATOR_NAMES]`, `scoreFloor: 0.8` concrete (raise post-measurement as in Task 7), The gate row `pgCronSmokes: { equivalent: 0, "accepted-gap": 0 }` (updated to final triaged counts) is added only AFTER Step 2's observed red.
+- [ ] **Step 1: Add the registry row (gate row comes in Step 2 after the observed red):** id `pgCronSmokes`, sourcePath `tests/cross-cutting/pgCronSmokes.ts`, suitePaths ["tests/cross-cutting/pgCronSmokesUnit.test.ts"] (DB-free — the unit suite from Task 8 must import and exercise `firingSmokeSql` and `queuedUrlsFromSmokeOutput` too; add 2-3 direct cases for each if Task 8 did not), operators `[...OPERATOR_NAMES]`, `scoreFloor: 0.8` concrete (raise post-measurement as in Task 7), The gate row `pgCronSmokes: {}` (kinds listed only when non-zero after triage — the reducer omits absent kinds) is added only AFTER Step 2's observed red.
 
 - [ ] **Step 2: Observe the RED, then complete.** Run `pnpm heavy pnpm mutation:guards` after adding ONLY the registry row — Expected: FAIL on the missing `pgCronSmokes` gate key (same mechanism as Task 7 Step 2). Then add the gate row, rerun, triage survivors, record the score for the diff-review brief.
 
-- [ ] **Step 3: Commit.** `git commit -m "test(infra): enroll pgCronSmokes in source-mutation registry (score <measured>)"`
+- [ ] **Step 3: Commit.**
+
+```bash
+git add tests/mutation/
+git commit -m "test(infra): enroll pgCronSmokes in source-mutation registry (score <measured>)"
+```
+
+<!-- tasks: end -->
 
 ### Task 11: Docs sweep — cross-ref fix + discovery-by-connection filing
+
+(Deliberately OUTSIDE the task-marker regions: a docs pointer edit has no executable red-to-green cycle of its own — the spec:lint command greens on Step 0's pre-existing-failure repairs regardless of the AC-17 edits, so declaring it as this task's red would be a vacuous marker (plan review R3 F2). AC-17's verification is Step 3's suite run plus diff review.)
 
 **Files:**
 - Modify: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:295`
 - Modify: `BACKLOG.md` (new entry)
-
-<!-- task: red=`pnpm spec:lint docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` ac=AC-17 -->
 
 - [ ] **Step 0: Clear the pre-existing hard failures in the same file** — the red= command already exits 1 on `main` for two `CITATION_AMBIGUOUS` findings at `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:99` and its line 141 (probed at plan time; without repairing them the red can never turn green on this command). Disambiguate each citation per the linter's message (qualify the path), verifying each against the live tree first.
 
@@ -691,7 +723,14 @@ Discovery in `tests/db/_metaDestructiveDbTargetGuard.test.ts` is spelling-sensit
 
 - [ ] **Step 3: Run** `pnpm spec:lint` on the edited ci-dark spec + `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts`. Expected: PASS (new entry carries no in-progress marker).
 
-- [ ] **Step 4: Commit.** `git commit -m "docs: fix ci-dark host-assertion cross-ref; file discovery-by-connection with census"`
+- [ ] **Step 4: Commit.**
+
+```bash
+git add docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md BACKLOG.md
+git commit -m "docs: fix ci-dark host-assertion cross-ref; file discovery-by-connection with census"
+```
+
+<!-- tasks: depth=3 -->
 
 ### Task 12: Close-out — graduate A/B/D, full gates
 
@@ -706,7 +745,13 @@ Discovery in `tests/db/_metaDestructiveDbTargetGuard.test.ts` is spelling-sensit
 Run: `pnpm heavy pnpm test` · `pnpm typecheck` · `pnpm exec eslint .` · `pnpm format:check` · `pnpm heavy pnpm mutation:guards`
 Expected: all green. For the validation-mode census leg: `PG_CRON_COVERAGE_TARGET=validation pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` locally (reads `TEST_DATABASE_URL`), then real CI green on the PR including `x-audits` (AGENTS.md: real CI is a separate gate from local green).
 
-- [ ] **Step 3:** The Step 1 commit is this task's ONLY commit (`git commit -m "docs: graduate guard-completeness entries A/B/D to archive"`). Step 2's gates produce no commit of their own; any repair a gate forces belongs to the task that owns the touched surface and rides a dedicated commit there.
+- [ ] **Step 3:** The Step 1 commit is this task's ONLY commit:
+
+```bash
+git add BACKLOG.md BACKLOG-archive.md tests/docs/_metaDeferralLedgerGraduation.test.ts
+git commit -m "docs: graduate guard-completeness entries A/B/D to archive"
+```
+ Step 2's gates produce no commit of their own; any repair a gate forces belongs to the task that owns the touched surface and rides a dedicated commit there.
 
 <!-- tasks: end -->
 
