@@ -1,6 +1,6 @@
 # Guard-completeness wave — four ledger entries, one spec
 
-**Date:** 2026-08-14 · **Branch:** `chore/guard-completeness-wave` · **Status:** DRAFT — pending adversarial review
+**Date:** 2026-08-14 · **Branch:** `chore/guard-completeness-wave` · **Status:** APPROVED — cross-model adversarial review converged APPROVE/0 at round 6 (2026-08-14; corpus `docs/review-rounds/chore/guard-completeness-wave/04f601134519.jsonl`)
 
 Covers four `BACKLOG.md` entries whose shared class is guard completeness — a guard, suite, or adapter that claims coverage it cannot prove:
 
