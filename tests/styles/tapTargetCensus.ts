@@ -21,7 +21,7 @@
  * Seeded 2026-08-14 by running the shipped scanner (spec §1.1 R7: the branch
  * derives its own numbers), and re-derived 2026-08-15 after the whole-diff
  * review tightened the grammar. 53 rows out of 354 in-scope elements — 301
- * clear statically. Per category: 16 full-bleed, 13 unresolvable-dynamic, 8
+ * clear statically. Per category: 15 full-bleed, 13 unresolvable-dynamic, 9
  * padding-arithmetic, 7 inline-prose-link, 5 under-floor-filed, 4
  * parent-label-target.
  *
@@ -266,9 +266,9 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     file: "components/admin/nav/AdminNav.tsx",
     line: 232,
     tag: "Link",
-    category: "full-bleed",
+    category: "padding-arithmetic",
     reason:
-      "Bottom-tab link: `flex flex-1 self-stretch` inside the fixed-height mobile tab bar, so the bar sets its height and the tab fills it.",
+      "Bottom-tab link: `flex flex-col items-center justify-center gap-1 self-stretch py-2 text-xs` around a `size-5` icon and one text-xs line = 8 + 20 + 4 + 16 + 8 = 56px. `self-stretch` then matches every tab to the tallest. The bar itself (`fixed inset-x-0 bottom-0 flex border-t`, AdminNav.tsx:219) declares NO height, so it is the CONTENT that clears the floor here — the row said `full-bleed` and named a fixed-height bar that does not exist (whole-diff R2 F2).",
   },
   {
     file: "components/admin/nav/UserMenu.tsx",

@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const SOURCE = "lib/specLint/taskContract.ts";
@@ -16,29 +18,73 @@ const calls: {
 }[] = [];
 let behaviour: Behaviour = {};
 
-vi.mock("node:child_process", () => ({
-  execFileSync: (
-    _cmd: string,
-    _args: string[],
-    opts: { env: Record<string, string>; timeout?: number; killSignal?: string },
-  ) => {
-    const suite = opts.env.MUTATION_SUITE!;
-    // The baseline run overlays the PRISTINE source; every other call overlays a
-    // mutant. Reading the overlay file is how the mock tells them apart, which
-    // lets a fixture make a suite reject mutants while still passing baseline.
-    const isBaseline = readFileSync(opts.env.MUTATION_MUTANT!, "utf8") === PRISTINE;
-    calls.push({ suite, isBaseline, timeout: opts.timeout, killSignal: opts.killSignal });
-    const entry = behaviour[suite] ?? 0;
-    const b = typeof entry === "function" ? entry(isBaseline) : entry;
-    if (typeof b === "number") {
-      if (b === 0) return "";
-      throw Object.assign(new Error("suite failed"), { status: b });
-    }
-    throw Object.assign(new Error("child died"), b);
-  },
-}));
+vi.mock("node:child_process", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...real,
+    // `pgrep` is delegated to the REAL implementation: `killTree` walks a live
+    // process tree, and the descendant-reap case below is only meaningful if
+    // that walk is real. Everything else is the fixture.
+    spawnSync: (
+      cmd: string,
+      args: readonly string[],
+      opts: {
+        env?: Record<string, string>;
+        timeout?: number;
+        killSignal?: string;
+        encoding?: string;
+      },
+    ) => {
+      if (cmd === "pgrep") return real.spawnSync(cmd, args, opts as never);
+      const suite = opts.env!.MUTATION_SUITE!;
+      // The baseline run overlays the PRISTINE source; every other call overlays
+      // a mutant. Reading the overlay file is how the mock tells them apart,
+      // which lets a fixture make a suite reject mutants while still passing
+      // baseline.
+      const isBaseline = readFileSync(opts.env!.MUTATION_MUTANT!, "utf8") === PRISTINE;
+      calls.push({ suite, isBaseline, timeout: opts.timeout, killSignal: opts.killSignal });
+      const entry = behaviour[suite] ?? 0;
+      const b = typeof entry === "function" ? entry(isBaseline) : entry;
+      if (typeof b === "number") {
+        return { pid: FIXTURE_PID, status: b, signal: null, stdout: "", stderr: "", output: [] };
+      }
+      return {
+        pid: FIXTURE_PID,
+        status: null,
+        signal: b.signal ?? null,
+        error: Object.assign(new Error("child died"), b.code ? { code: b.code } : {}),
+        stdout: "",
+        stderr: "",
+        output: [],
+      };
+    },
+  };
+});
 
-const { MUTANT_TIMEOUT_EXIT, MutantRunInfraError, runSuite, runSurface } = await import("./runner");
+/**
+ * The pid every mocked child reports.
+ *
+ * It has to be a pid that does NOT exist, because the no-status paths reap the
+ * tree: a real pid here would make the fixture kill some unrelated process. 2^31
+ * is above every pid_max on the platforms this runs on.
+ */
+const FIXTURE_PID = 2_147_483_646;
+
+const { MUTANT_TIMEOUT_EXIT, MutantRunInfraError, killTree, runSuite, runSurface } = await import(
+  "./runner"
+);
+const { premiseHolds } = await import("../../_shared/premise");
+
+/** Is this pid still alive? Signal 0 tests for existence without delivering one. */
+const alive = (pid: number | undefined): boolean => {
+  if (pid === undefined) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 const { OPERATOR_NAMES } = await import("./operators");
 const { classify } = await import("./oracle");
 
@@ -115,6 +161,42 @@ describe("runner — a mutant that never terminates (fix/ui-interactive-token-po
     expect(calls[0]!.timeout).toBeGreaterThan(0);
     expect(calls[0]!.killSignal).toBe("SIGKILL");
   });
+
+  it("kills the DESCENDANTS of a timed-out child, not just the child (live, unmocked)", async () => {
+    // The topology this exists for: pnpm -> vitest -> a forked pool worker, with
+    // the infinite mutant running in the worker. Node's timeout signals only the
+    // process it spawned, so before the tree reap a scored-KILLED timeout could
+    // leave the real spinner alive (whole-diff R2 F1). Modelled here with a
+    // parent that spawns a long-lived grandchild and then never exits.
+    const real = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    const marker = join(tmpdir(), `runner-tree-${process.pid}.pid`);
+    const script = [
+      "const { spawn } = require('node:child_process');",
+      "const fs = require('node:fs');",
+      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+      `fs.writeFileSync(${JSON.stringify(marker)}, String(child.pid));`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+    const parent = real.spawn(process.execPath, ["-e", script], { stdio: "ignore" });
+    try {
+      // Wait for the grandchild's pid to land, then time the parent out.
+      const deadline = Date.now() + 10_000;
+      while (!existsSync(marker) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+      const grandchild = Number(readFileSync(marker, "utf8"));
+      premiseHolds("the grandchild really started", Number.isInteger(grandchild) && grandchild > 0);
+      premiseHolds("the grandchild is alive before the reap", alive(grandchild));
+
+      killTree(parent.pid);
+
+      const gone = Date.now() + 10_000;
+      while (alive(grandchild) && Date.now() < gone) await new Promise((r) => setTimeout(r, 50));
+      expect(alive(grandchild)).toBe(false);
+      expect(alive(parent.pid)).toBe(false);
+    } finally {
+      rmSync(marker, { force: true });
+      parent.kill("SIGKILL");
+    }
+  }, 30_000);
 
   it("Node really reports ETIMEDOUT on a timed-out child (live, unmocked)", async () => {
     // The two cases above agree with a MOCK. This one agrees with Node: if the

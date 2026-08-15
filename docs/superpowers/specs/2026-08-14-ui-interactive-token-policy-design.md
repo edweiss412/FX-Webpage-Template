@@ -30,7 +30,8 @@ Three user-ratified decisions (2026-08-14, decision mockup artifact + batched as
 
 ## 1. Scope
 
-In scope: `lib/ui/actionClass.ts`; the 40 swap sites and 15 carve-out sites in §4.3; DESIGN.md
+In scope: `lib/ui/actionClass.ts`; the swap sites and carve-out sites in §4.3 (41/14 as
+shipped, corrected from 40/15 on 2026-08-15 — see the tally note there); DESIGN.md
 §1.1/§1.2/§1.2a amendments; one contrast meta-test; two structural guard surfaces (scan modules +
 suites + registries) and their mutation-registry enrolment; screenshot-baseline regeneration for
 affected committed baselines (§8).
@@ -349,7 +350,9 @@ reason).
   sites exist by design), so an AST regression that finds nothing cannot pass silently; and it
   asserts registry rows resolve to live files/lines that actually carry the token (a stale row
   fails — the stale-marker failure mode, applied to exemptions).
-- Steady state after the swap: registry = exactly the 15 EXEMPT rows.
+- Steady state after the swap: registry = exactly the EXEMPT rows of §4.3 (14 as shipped).
+  The count lives in §4.3 and in `_metaSubtleOnInteractive`, never in prose here as well —
+  two copies of a number is how the 15 outlived its own correction (whole-diff R2 F1).
 - Mutation-registry enrolment (R9): row in `tests/mutation/source/registry.ts` targeting
   `tests/styles/subtleInteractiveScan.ts (new)` with the referring suite; operator set and minimum
   score fixed at plan time from the registry's existing operator vocabulary; unaccepted-survivor
@@ -535,7 +538,7 @@ enumerates the affected manifest entries; heavy phases run under `pnpm heavy`.
   (token reverted) or ratio (token value drifts below 3:1) mutation.
 - **AC-3** DESIGN.md carries the §3.2 amendments; `pnpm spec:lint` and the DESIGN-figure parity
   suite (`tests/styles/design-figure-parity.test.ts`) stay green.
-- **AC-4** All 40 SWAP sites rest at `text-text`; the 15 EXEMPT sites are registry rows with
+- **AC-4** Every SWAP site of §4.3 rests at `text-text`; every EXEMPT site is a registry row with
   family + reason (Family D rows with `siblingCue`); `_metaSubtleOnInteractive` walks the filesystem and fails by name on an
   unregistered hit.
 - **AC-5** `_metaTapTargetFloor` ships unblocked: recogniser implements §5.2 rules 1–8 (rule 8's full defeater grammar included); census

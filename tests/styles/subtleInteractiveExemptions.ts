@@ -102,10 +102,10 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     token: "text-text-subtle",
     family: "summary-disclosure",
     reason:
-      "Run-of-show synthetic-row disclosure header; both caption-like as a fold label and deliberately dim as a synthetic row (DESIGN §1.1a Family S)",
+      "Run-of-show synthetic-row disclosure header; both caption-like as a fold label and deliberately dim as a synthetic row (DESIGN §1.1a Family S). CAVEAT, recorded rather than papered over: this is the ONE Family S site that suppresses the native marker (`list-none [&::-webkit-details-marker]:hidden`) without rendering a replacement chevron, so the only visible fold cue is the title's trailing ellipsis. Family S names the marker as the affordance, so restoring a cue here — or moving the site out of the family — is a crew-surface design decision, filed as BL-RUNOFSHOW-SUMMARY-NO-MARKER (whole-diff R2 F3)",
   },
 
-  // ---- Family C: dismissable filter chips (2) -----------------------------
+  // ---- Family C: dismissable filter chips (1) -----------------------------
   // The chip's text names an APPLIED FILTER (a caption); the dismiss glyph is
   // the control.
   {

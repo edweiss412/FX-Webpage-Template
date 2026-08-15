@@ -241,9 +241,15 @@ Six such controls DID move on 2026-08-14, and only for one reason: each sat in a
 rendered row beside a near-ground control that moved, so leaving them would have
 shipped a split pair inside one view (`Step2Verify`'s re-scan button beside its
 folder input, `DriveConnectionPanel`'s two actions, and the
-`RecentAutoAppliedStrip` row together with the `AcceptChangeButton` and
-`UndoChangeButton` it renders). That is a consistency repair within a view, not
-a ruling on the general predicate — which is still the ledger entry's to make.
+`RecentAutoAppliedStrip` row, and the `AcceptChangeButton`/`UndoChangeButton`
+pair that `ChangeFeedEntry.tsx:135` renders side by side). That is a consistency
+repair within a view, not a ruling on the general predicate — which is still the
+ledger entry's to make.
+
+The pair's render path was cited as `RecentAutoAppliedStrip` until the whole-diff
+review read it (R2 F2): that strip passes `quiet` to `UndoChangeButton`, whose
+quiet branch is borderless, and its bulk row uses a local Undo-all button. The
+STYLING shipped was right; the sentence naming where it renders was not.
 
 ### 1.3 Status-signal hues (M12.2 Phase A amendment — the one scoped exception to "orange stays alone")
 

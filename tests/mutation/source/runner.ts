@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -100,36 +100,75 @@ export function runSuite(
   suite: string,
   context: string,
 ): number {
+  // `spawnSync`, not `execFileSync`, for ONE reason: it returns the child's PID
+  // even on a timeout, and that pid is the root of the tree this has to reap.
+  // The chain here is pnpm -> vitest -> a forked pool worker, and it is the
+  // WORKER that runs the mutant; Node's timeout signals only the pnpm launcher,
+  // leaving the worker spinning on the infinite loop while the run scores the
+  // mutant and moves on (whole-diff R2 F1).
+  const result = spawnSync("pnpm", ["exec", "vitest", "run", "--config", CONFIG], {
+    cwd: root,
+    stdio: "pipe",
+    encoding: "utf8",
+    timeout: MUTANT_TIMEOUT_MS,
+    // SIGTERM is what vitest's own watchdogs and this machine's idle-process
+    // reaper use, and a vitest child can trap it; SIGKILL cannot be trapped,
+    // so the ceiling is a ceiling.
+    killSignal: "SIGKILL",
+    env: {
+      ...process.env,
+      MUTATION_ROOT: root,
+      MUTATION_TARGET: target,
+      MUTATION_MUTANT: mutantFile,
+      MUTATION_SUITE: suite,
+    },
+  });
+
+  // A timeout kill and this machine's idle-process reaper arrive in the SAME
+  // shape — no exit status, a signal — so the code is the only thing that tells
+  // them apart, and they must not share a verdict. The reaper steals a run that
+  // would have finished, and folding it into KILLED would score a kill the suite
+  // never earned; a timeout is the mutant's own doing (see MUTANT_TIMEOUT_EXIT).
+  if (result.error && (result.error as { code?: string }).code === "ETIMEDOUT") {
+    killTree(result.pid);
+    return MUTANT_TIMEOUT_EXIT;
+  }
+  if (typeof result.status === "number") return result.status;
+  // Every remaining shape is a child that produced no exit status. The tree
+  // reap runs here too: a signalled or failed-to-spawn child can still have left
+  // descendants, and this run is about to abort rather than reap them later.
+  killTree(result.pid);
+  throw new MutantRunInfraError(
+    `${context} [${suite}]`,
+    result.signal ?? null,
+    (result.error as { code?: string } | undefined)?.code,
+  );
+}
+
+/**
+ * SIGKILL a spawned child AND every descendant it left behind.
+ *
+ * A process GROUP kill is not available here: `spawnSync` runs the child in this
+ * process's own group and does not accept `detached`, so the negative-pid form
+ * would signal the harness itself. The tree is walked instead, from a pid this
+ * function's caller spawned — never a pattern, never a name — so it can only
+ * ever reach descendants of that one child.
+ *
+ * Children are killed BEFORE their parent: reaping the parent first reparents
+ * the survivors to init, where this walk can no longer find them. Already-exited
+ * pids raise ESRCH, which is the common case and not an error.
+ */
+export function killTree(pid: number | undefined): void {
+  if (pid === undefined) return;
+  const children = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" });
+  for (const line of (children.stdout ?? "").split("\n")) {
+    const child = Number(line.trim());
+    if (Number.isInteger(child) && child > 0) killTree(child);
+  }
   try {
-    execFileSync("pnpm", ["exec", "vitest", "run", "--config", CONFIG], {
-      cwd: root,
-      stdio: "pipe",
-      encoding: "utf8",
-      timeout: MUTANT_TIMEOUT_MS,
-      // SIGTERM is what vitest's own watchdogs and this machine's idle-process
-      // reaper use, and a vitest child can trap it; SIGKILL cannot be trapped,
-      // so the ceiling is a ceiling.
-      killSignal: "SIGKILL",
-      env: {
-        ...process.env,
-        MUTATION_ROOT: root,
-        MUTATION_TARGET: target,
-        MUTATION_MUTANT: mutantFile,
-        MUTATION_SUITE: suite,
-      },
-    });
-    return 0;
-  } catch (e) {
-    const err = e as { status?: number | null; signal?: NodeJS.Signals | null; code?: string };
-    if (typeof err.status === "number") return err.status;
-    // A timeout kill and the reaper's SIGTERM arrive in the SAME shape — no exit
-    // status, a signal — so the code is the only thing that tells them apart, and
-    // they must not share a verdict. The reaper stole a run that would have
-    // finished, and folding it into KILLED would score a kill the suite never
-    // earned. A timeout is the mutant's own doing, and is detection (see
-    // MUTANT_TIMEOUT_EXIT).
-    if (err.code === "ETIMEDOUT") return MUTANT_TIMEOUT_EXIT;
-    throw new MutantRunInfraError(`${context} [${suite}]`, err.signal ?? null, err.code);
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // already gone
   }
 }
 

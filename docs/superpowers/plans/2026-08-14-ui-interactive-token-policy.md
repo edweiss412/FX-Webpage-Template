@@ -83,7 +83,8 @@ value, re-run green. Record each mutant's red in the Task 2 commit message.
 - AC-1 constant wears `border-text-faint`, 8 call sites inherit (Task 2).
 - AC-2 contrast meta-test passes and its premise/ratio mutants red (Task 2).
 - AC-3 DESIGN.md §1.2/§1.2a amendments land; `pnpm spec:lint` on the spec and figure-parity green (Task 2).
-- AC-4 40 SWAP sites at `text-text`; 15 registry rows; guard fails naming site AND token on an unregistered hit (Task 3).
+- AC-4 every §4.3 SWAP site at `text-text`; one registry row per EXEMPT site (41/14 as
+  shipped, corrected from 40/15 on 2026-08-15); guard fails naming site AND token on an unregistered hit (Task 3).
 - AC-5 tap-height guard ships: rules 1-8 resolver, seeded census, fail-by-name (Tasks 1, 4).
 - AC-6 three mutation-registry rows + ledger-kind entries; zero unaccepted survivors (Task 5).
 - AC-7 impeccable dual-gate run; marker line written (Task 7).
@@ -399,13 +400,13 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
   ratio mutant); record each red in the commit body.
 - [ ] **Step 6: Commit** — `feat(admin): secondary action outline to text-faint (spec §3)`.
 
-### Task 3: D2 guard + the 40 swaps (one task: RED observed, GREEN committed)
+### Task 3: D2 guard + the swaps (one task: RED observed, GREEN committed)
 
 **Files:**
 - Create: `tests/styles/subtleInteractiveScan.ts (new)`
 - Create: `tests/styles/subtleInteractiveExemptions.ts (new)`
 - Test: `tests/styles/_metaSubtleOnInteractive.test.ts (new)`
-- Modify: the 40 SWAP sites of spec §4.3. Shared-const sites are edited AT THE CONST
+- Modify: the SWAP sites of spec §4.3. Shared-const sites are edited AT THE CONST
   (`ghostBtn` in `RoleMappingRow.tsx`, `TAP_TARGET` in `AppHealthIndicator.tsx`, `HELP_LINK` in
   `BellPanel.tsx`, `ACTION_CLASS` in `PersonRow.tsx` — one edit each covers their consumers).
 - Modify: `DESIGN.md` §1.1 (subtle row usage note) + new §1.1a (the three families, verbatim
@@ -434,8 +435,8 @@ future second policed token cannot alias rows — plan R1 F5, spec §4.4's zInde
 
 <!-- task: red=`pnpm vitest run tests/styles/_metaSubtleOnInteractive.test.ts` ac=AC-4 -->
 
-What is red and why: with the registry seeded ONLY with the 15 exempt rows (Step 2) and the
-suite written (Step 3), the run at Step 4 fails naming each of the 40 SWAP sites (spec §4.3),
+What is red and why: with the registry seeded ONLY with the exempt rows (Step 2) and the
+suite written (Step 3), the run at Step 4 fails naming each SWAP site (spec §4.3),
 whose class strings still carry `text-text-subtle` on the live tree — the RED derives from live
 production class strings; the SAME command goes green at Step 6 after the swaps, and the task
 commits only then (plan R1 F4).
@@ -446,7 +447,7 @@ commits only then (plan R1 F4).
 - [ ] **Step 2a: Write the scan module** — `scanSubtleInteractive` filters Task 1's elements to
   those where any of `allStrings(el)` matches `/(^|\s)text-text-subtle(\s|$)/`, emitting
   `token: "text-text-subtle"` and mapping `unresolved` to `partial`.
-- [ ] **Step 2b: Seed the registry with EXACTLY the 15 exempt rows** from spec §4.3 (7
+- [ ] **Step 2b: Seed the registry with EXACTLY the exempt rows** from spec §4.3 (7
   summary-disclosure, 2 dismissable-chip, 6 state-dim). The 6 state-dim rows carry `siblingCue`
   per spec §4.1 Family D (AdminNav desktop: `{ file: "components/admin/nav/AdminNav.tsx",
   token: "bg-surface-raised" }`; bottom tabs: token `aria-current`; crew sub-nav:
@@ -508,15 +509,15 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
     }
   });
   it("registry cardinality matches the spec §4.3 tallies", () => {
-    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(15);
+    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(14); // 15 at plan time; see §4.3
   });
 });
 ```
 
-- [ ] **Step 4: Run, verify FAIL** — the unregistered-hits assertion lists the 40 SWAP sites
+- [ ] **Step 4: Run, verify FAIL** — the unregistered-hits assertion lists the SWAP sites
   with their tokens. Capture the list; it must equal spec §4.3's SWAP rows (site drift since
   spec approval = stop, re-derive, and reconcile against §4.3 before continuing).
-- [ ] **Step 5: Apply the 40 swaps.** Per spec §4.3: rest `text-text-subtle` → `text-text`;
+- [ ] **Step 5: Apply the swaps.** Per spec §4.3: rest `text-text-subtle` → `text-text`;
   hover column governs each site (`→strong` sites get `hover:text-text-strong`; `same` sites
   keep their hover; `per-site check` sites: keep the existing hover if it still strengthens
   against the new rest color, else step it to `text-text-strong` — record each choice in the

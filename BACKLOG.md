@@ -292,7 +292,7 @@ The mandated pre-draft detector pass ran a TypeScript-AST walk over every `.tsx`
 
 The alert pill has two branches. Monitoring-only ("clearing on their own, no action needed") is `border border-border bg-surface-sunken` and, since the subtle-on-interactive swap, rests at `text-text` — roughly 15:1 on its own fill. The needs-you branch is `text-warning-text` on `bg-warning-bg`, 9.5:1. The QUIET state now carries more contrast than the URGENT one.
 
-**Why it was not repaired on this branch.** The site is dispositioned SWAP in the ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §4.3), and the tallies (15 exempt / 40 swap) are pinned executably by `tests/styles/_metaSubtleOnInteractive.test.ts`. Moving it to a Family D carve-out would edit a user-ratified table, which is the user's call, not the implementer's. The pair is NOT indistinguishable meanwhile: the fills differ (`bg-surface-sunken` vs `bg-warning-bg`) and the dot differs in shape (hollow positive-tone vs filled review-tone), so the §1 colour-blind floor holds either way.
+**Why it was not repaired on this branch.** The site is dispositioned SWAP in the ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §4.3), and the tallies (14 exempt / 41 swap as shipped) are pinned executably by `tests/styles/_metaSubtleOnInteractive.test.ts`. Moving it to a Family D carve-out would edit a user-ratified table, which is the user's call, not the implementer's. The pair is NOT indistinguishable meanwhile: the fills differ (`bg-surface-sunken` vs `bg-warning-bg`) and the dot differs in shape (hollow positive-tone vs filled review-tone), so the §1 colour-blind floor holds either way.
 
 **First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
 
@@ -310,7 +310,7 @@ scanInteractiveElements(process.cwd()).filter((e) =>
 );
 ```
 
-from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 elements; six co-visible ones were repaired on the filing branch because THIS diff created their inconsistency — a swapped sibling sat beside them in one rendered row: `Step2Verify.tsx:126`, `settings/DriveConnectionPanel.tsx:284`, `RecentAutoAppliedStrip.tsx:516`, and then the two controls that strip RENDERS (`AcceptChangeButton.tsx:54`, `UndoChangeButton.tsx:49`), which the round-3 critique caught as the transitive case. That leaves 23, none of them co-visible with a swapped peer.
+from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 elements; six co-visible ones were repaired on the filing branch because THIS diff created their inconsistency — a swapped sibling sat beside them in one rendered row: `Step2Verify.tsx:126`, `settings/DriveConnectionPanel.tsx:284`, `RecentAutoAppliedStrip.tsx:516`, and then the co-visible pair rendered by `ChangeFeedEntry.tsx:135` (`AcceptChangeButton.tsx:54`, `UndoChangeButton.tsx:49`), which the round-3 critique caught as the transitive case. That leaves 23, none of them co-visible with a swapped peer.
 
 **Why the sweep stopped there, and what has to be decided first.** DESIGN.md §1.2a's predicate is a control "whose fill is the near-ground". A `bg-surface` button ON a `bg-surface` card measures 1.00:1 against its container, so extending the rule to it is defensible — but that extension REWRITES the predicate from "the fill is the page ground" to "the fill equals its container", and the wider predicate then also captures the three switch TRACKS in the set (`PublishedToggle.tsx:292`, `settings/AutoPublishToggle.tsx:123`, `settings/NotifyToggle.tsx:131`), whose OFF-state boundary is pinned separately in §1.2 against `--color-accent-edge` as the load-bearing 1.4.11 pair. A blanket swap would silently retune that pinned pair. The text-level cover is also NOT safe to apply mechanically: of the 74 lines carrying `border border-border-strong`, most are cards, chips, tiles and popover surfaces that must keep the border token.
 
@@ -327,9 +327,19 @@ DESIGN §1.1a now says `--color-text-subtle` is never the resting colour of an a
 - `components/admin/BellPanel.tsx` — bell-row affordance.
 - `components/admin/HoverHelp.tsx` — help trigger glyph.
 
-**Why it was not repaired here.** The ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §2.3/§4.3) defines a hit as the BARE token `text-text-subtle`, and its tallies (15 exempt / 40 swap) are pinned executably. Policing a second token is a guard-contract change plus a new census, and the sites are deliberately recessive by their own documented design — two of them are crew surfaces whose quietness was an explicit choice. That is a decision to make, not an omission to patch. The `token` field already exists on `SubtleHit` and on the exemption registry rows precisely so a second policed token cannot alias the first's rows.
+**Why it was not repaired here.** The ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §2.3/§4.3) defines a hit as the BARE token `text-text-subtle`, and its tallies (14 exempt / 41 swap as shipped) are pinned executably. Policing a second token is a guard-contract change plus a new census, and the sites are deliberately recessive by their own documented design — two of them are crew surfaces whose quietness was an explicit choice. That is a decision to make, not an omission to patch. The `token` field already exists on `SubtleHit` and on the exemption registry rows precisely so a second policed token cannot alias the first's rows.
 
 **First scheduled step:** decide whether `text-faint` is admissible as a resting colour for a deliberately recessive control (and if so, name the condition in §1.1a — e.g. only where a non-colour affordance carries the control), or add it to the policed set and re-census.
+
+## BL-RUNOFSHOW-SUMMARY-NO-MARKER — the one Family S site with no visible fold affordance
+
+**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R2 F3). **Class:** design-system policy / crew UX. **Effort:** S. **Class-sweep exception:** (a) — restoring a cue or reclassifying the site is a crew-surface design decision the policy arc did not make. **Reachability:** PROBED — the class string is read out below and the site is one of the seven Family S rows in `tests/styles/subtleInteractiveExemptions.ts`.
+
+DESIGN §1.1a's Family S sanctions a resting `text-text-subtle` on a `<summary>` because "the fold affordance is carried by the marker/chevron and the interaction, not by label weight". `components/crew/primitives/RunOfShowList.tsx:82` carries `list-none [&::-webkit-details-marker]:hidden` and renders no replacement, so on the mobile-first crew surface the only hint that the truncated title expands is its trailing ellipsis. It is the only one of the seven Family S sites in that position.
+
+**Why it was not repaired here.** Two defensible answers and no ratification for either: render a chevron (a visual change to a crew row whose density was designed deliberately), or move the site out of Family S and rest it at `text-text` (which changes the row's tone, the thing the dimness was chosen for). The registry row carries the caveat so the exemption's claim is not silently false while the question is open.
+
+**First scheduled step:** decide between a rendered fold cue and a reclassification, and if Family S keeps the site, amend §1.1a to say what counts as the affordance when the marker is suppressed.
 
 ## BL-CONTROL-OUTLINE-ON-TINTED-PLATES — the secondary outline dips under 3:1 against warning, info and danger cards
 
