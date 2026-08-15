@@ -27,7 +27,7 @@
 
 ## Meta-test inventory (declared)
 
-None created or extended. No Supabase call, no mutation surface, no advisory lock, no timing constant (no setTimeout — the note has no auto-hide), no new token (no contrast meta-test). The `tests/docs/` ledger meta-suites cover the archive by default. Declared explicitly per the writing-plans rule: no registry applies because the change is client-render-only.
+CREATES nothing; EXTENDS the e2e wiring surfaces for the ONE new Playwright spec (plan R1 F3): the `desktop-chromium` `testMatch` list (`playwright.config.ts:82` region) and whatever row `tests/ci/_metaE2eWorkflowCoverage.test.ts:179` requires for it (including the `.github/workflows/crew-e2e.yml:182` run-command list if that registry names it) — wired in Task N2's RED so the spec is collected before it is observed red. Otherwise: no Supabase call, no mutation surface, no advisory lock, no timing constant (no setTimeout — the note has no auto-hide), no new token. The `tests/docs/` ledger meta-suites cover the archive by default.
 
 ## Layout-dimensions posture — declared
 
@@ -75,19 +75,11 @@ RED: new file (or extend the existing ThemeToggle suite per the locate-grep; new
 
 Cases: pre-click status container present and empty (AC-4, the ReSyncButton trap as a test); blocked write → note text equals the exported const (import it — single-source, AC-5); second blocked write keeps the note (AC-1 repeated-failure); fail-recover-fail re-empties then re-fills (the announceable transition); working storage → container stays empty through toggles (AC-2); copy const has no em dash and none of "localStorage"/"browser storage"/"cookies" (AC-5); the status node's class list names `absolute` and the wrapper is `relative inline-flex` — the out-of-flow class contract (AC-10); the empty container carries positioning classes only (no border/bg — chrome lives on the inner span rendered with text).
 
-GREEN: `relative inline-flex` wrapper + always-mounted anchored status node (`absolute right-0 top-full mt-1 w-max max-w-56 z-dropdown`) + chrome-bearing inner span conditional on `persistFailed`, per spec §2.2. Fix-round regression check (AC-10's real-browser half): `tests/e2e/appHealthIndicator.layout.spec.ts` passes UNMODIFIED in the pre-push gates.
+RED, second half (AC-10b, plan R1 F1 — the e2e case is observed failing BEFORE this task's GREEN, in the same task, so the same command goes red then green): author the new Playwright spec tests/e2e/theme-persistence-note.spec.ts AND its wiring IN THE SAME EDIT — add `theme-persistence-note` to the `desktop-chromium` project's `testMatch` list (`playwright.config.ts:82` region) and satisfy the e2e workflow-coverage registry (`tests/ci/_metaE2eWorkflowCoverage.test.ts:179` region — add the spec's row to whichever workflow enumeration the registry requires; the crew-e2e run-command list at `.github/workflows/crew-e2e.yml:182` gains the file if that registry names it; run the registry suite to confirm, and correct the meta-test inventory expectation below accordingly). Then run `pnpm heavy pnpm exec playwright test tests/e2e/theme-persistence-note.spec.ts` and OBSERVE the visible-note locator fail (no markup yet). Cases (spec AC-10b): help header at a 320px viewport with `localStorage.setItem` throwing (`context.addInitScript` patching `Storage.prototype` BEFORE load) — click the toggle, assert the note is visible and `getBoundingClientRect()` sits fully inside the viewport (`left >= 0`, `right <= 320`); same on the admin nav consumer; wrapper box equals button box within 0.5px in both. Harness readiness (plan R1 F4): boot per the live config — local `pnpm dev`, CI `pnpm build && pnpm start` on the baseline port (`playwright.config.ts:263` webServer block); readiness gate is the HYDRATION MARKER pattern the existing theme-toggle suite uses for exactly this control (`tests/e2e/theme-toggle.spec.ts:227` — a visible SSR button is clickable before React attaches onClick, so visibility alone is insufficient); detach-safety: no locator outlives its page, no navigation between create and assert.
+
+GREEN: `relative inline-flex` wrapper + always-mounted anchored status node (`absolute right-0 top-full mt-1 w-max max-w-36 break-words z-dropdown`) + chrome-bearing inner span conditional on `persistFailed`, per spec §2.2 — BOTH the unit file and the e2e spec now pass on their same commands. Fix-round regression check: `tests/e2e/appHealthIndicator.layout.spec.ts` passes UNMODIFIED in the pre-push gates.
 
 Commit: `feat(crew-page): persist-failure note bubble on the standalone theme toggle`
-
-### Task N2b — real-browser containment proof (AC-10b)
-
-<!-- task: red=`pnpm heavy pnpm exec playwright test tests/e2e/theme-persistence-note.spec.ts` ac=AC-10 -->
-
-RED: new Playwright spec (file name final: tests/e2e/theme-persistence-note.spec.ts; wire its workflow path-filter if the e2e workflow enumerates specs — verify at execution against the e2e workflow's include list). What is red and why: the note markup does not exist, so the visible-note locator times out. Cases (spec AC-10b): help header at a 320px viewport with `localStorage.setItem` throwing (context.addInitScript patching Storage.prototype BEFORE load) — click the toggle, assert the note is visible and `getBoundingClientRect()` sits fully inside the viewport (`left >= 0`, `right <= 320`); same on the admin nav consumer; wrapper box equals button box within 0.5px in both. Run wrapped (`pnpm heavy` — non-interactive playwright per the machine-wide slot rule).
-
-GREEN: N2's markup satisfies it; no additional production code expected — if the 320px assertion fails, the fix is the spec-derived width, not a test change.
-
-Commit: `test(crew-page): real-browser containment proof for the persist-failure bubble`
 
 ### Task N3 — avatar-menu note
 
@@ -99,17 +91,17 @@ GREEN: sibling status region after the menu element per spec §2.2. Commit: `fea
 
 ### Task N4 — dual gate + ledger + close
 
-<!-- task: red=`pnpm vitest run tests/docs/` ac=AC-7,AC-8 -->
+<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-7,AC-8 -->
 
-ORDER IS BINDING (the marker-stripping archive commit must be the PR's LAST pre-merge commit):
+ORDER IS BINDING — two rules hold simultaneously (plan R1 F5): the marker-stripping archive commit is the PR's LAST pre-merge commit, AND the final review round examines the diff that merges (archive included):
 
 1. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates: context.mjs PRODUCT.md + DESIGN.md load → register read). P0/P1 fixed or DEFERRED-entried; findings + dispositions recorded in `closeout.md` in this plan directory with the marker line `impeccable-gate: critique+audit <date> — <disposition summary>` (AC-7).
 2. Merge `origin/main`; full gates: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
-3. Whole-diff codex-guard `--stage diff` review to APPROVE (REVIEWER ONLY; spec §1.1 do-not-relitigate list; the spec R4 brief's convergence criteria). Any repair commits land here, before step 4.
-4. LAST pre-merge commit: archive `BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` (archive RED pattern: move WITH marker → `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` fails by name → strip → green), recording §4 limits (AC-8). If any later commit becomes necessary, re-do the archive commit on top so it is again last.
-5. PR; real CI green → `gh pr merge --merge` same turn → ff main → `0 0`.
+3. Archive `BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` as the intended-last commit (archive RED pattern: move WITH marker → `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` fails by name → strip → green), recording §4 limits (AC-8).
+4. Whole-diff codex-guard `--stage diff` review to APPROVE — the reviewed diff INCLUDES the archive commit, so the review covers exactly what merges. If a round returns findings: repair, RE-DO the archive commit on top (so it is last again), and dispatch the next round against the full diff. Merge only from a round that examined the final tree.
+5. PR; real CI green → `gh pr merge --merge` same turn (no commits after the APPROVE-reviewed tree) → ff main → `0 0`.
 
-Commit (step 4): `docs(backlog): archive BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — note shipped on both controls`
+Commit (step 3): `docs(backlog): archive BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — note shipped on both controls`
 
 <!-- tasks: end -->
 
@@ -120,7 +112,7 @@ Commit (step 4): `docs(backlog): archive BL-THEME-PERSISTENCE-FAILURE-IS-SILENT 
 
 ## Execution handoff
 
-Authoring PR merges (spec + plan + HANDOFF + claim handoff per invariant 12: impl branch `feat/theme-persistence-note` created off `origin/main`, claims the entry, pushes, THEN the authoring branch strips its marker in its last pre-merge commit). A fresh Opus pane executes from `HANDOFF.md` — UI work is Opus-owned per the AGENTS.md hard rule.
+Handoff-by-overlap, the L-wave §3 order-binding protocol (plan R1 F6 — the transient dual-declaration is the DESIGNED handoff state, and the check's exit codes are read accordingly): FIRST the implementation branch `feat/theme-persistence-note` is created off `origin/main`; from the MAIN checkout, `pnpm ledger:claims --check BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` is run EXPECTING exit 1 naming `docs/theme-persistence-note-spec` and ONLY it (the planned-handoff signature; any OTHER branch named = real collision, stop and reconcile); the implementation branch then marks the entry `**Status:** IN PROGRESS · **Branch:** feat/theme-persistence-note`, commits, pushes, and gets its ship-state marker file (stage "awaiting-implementer", `blockedOn: "awaiting Opus implementer pane"`, `next: "execute HANDOFF.md"`, NO sessionId). THEN the authoring branch strips its own marker in its last pre-merge commit and its PR merges — at no instant is the entry undeclared on origin. A fresh Opus pane executes from `HANDOFF.md` — UI work is Opus-owned per the AGENTS.md hard rule; its Step-0 claims check expects to see ONLY `feat/theme-persistence-note` (the authoring branch is merged and gone by then).
 
 ## Impeccable gate (closeout marker)
 
