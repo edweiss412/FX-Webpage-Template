@@ -44,7 +44,11 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { AnnounceLogRegion, useAnnounceLog } from "@/components/admin/announceLog";
+import {
+  ANNOUNCE_LOG_TTL_MS,
+  AnnounceLogRegion,
+  useAnnounceLog,
+} from "@/components/admin/announceLog";
 import { cn } from "@/lib/ui/cn";
 import { COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
 
@@ -110,10 +114,16 @@ function deliverWrite(seq: number, value: string): void {
 
 export function CopyFactValue({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
-  // The announce channel is cap-only (no TTL): this island unmounts with its
-  // page rather than accumulating across an admin session, which is the case
-  // the TTL exists for (components/admin/announceLog.tsx).
-  const { announce, entries } = useAnnounceLog();
+  // TTL-pruned, not cap-only. The distinction the shared channel documents is
+  // whether a channel outlives its announcements: the warnings channel unmounts
+  // with its panel, so it never accumulates; the admin layout channel lives a
+  // whole session, and unpruned it made a top-down screen-reader read recite
+  // every undo before reaching the nav (impeccable audit P2, 12 undos = 12
+  // sibling nodes / 686 chars). A crew page is the second shape — it is opened
+  // once and left open for the show, so every "Copied." from every tap would
+  // still be sitting in the accessibility tree hours later. 30s is far past any
+  // plausible delivery-queue residence, so nothing unspoken is stranded.
+  const { announce, entries } = useAnnounceLog({ ttlMs: ANNOUNCE_LOG_TTL_MS });
 
   const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearReset = useCallback(() => {

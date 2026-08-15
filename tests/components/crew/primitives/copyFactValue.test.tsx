@@ -35,6 +35,7 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
 import { FactRows, type FactRow } from "@/components/crew/primitives/FactRows";
+import { ANNOUNCE_LOG_TTL_MS } from "@/components/admin/announceLog";
 import { COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
@@ -550,6 +551,35 @@ describe("copied window (§4.2, fake timers)", () => {
     expect(isCopied(container)).toBe(false);
     // The natural timeout is the ONE exit that appends no corrective.
     expect(logTexts(container)).toEqual([COPIED_TEXT]);
+  });
+
+  test("an announcement is pruned from the log at the shared TTL, not before", async () => {
+    // The channel is TTL-pruned rather than cap-only because a crew page is
+    // opened once and left open for the show: an unpruned log leaves every
+    // "Copied." sitting in the accessibility tree hours later, so a top-down
+    // screen-reader read recites them all (the audit finding that put the TTL
+    // on the admin layout channel). Both halves are asserted — pruning EARLY
+    // would strand an announcement assistive technology has not spoken yet,
+    // which is the opposite defect and the reason the delay is 30s.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container);
+    await settle(0);
+    expect(logTexts(container)).toEqual([COPIED_TEXT]);
+
+    await act(async () => {
+      vi.advanceTimersByTime(ANNOUNCE_LOG_TTL_MS - 1);
+    });
+    expect(
+      logTexts(container),
+      "an entry pruned before the TTL could be one the screen reader has not spoken",
+    ).toEqual([COPIED_TEXT]);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(logTexts(container), "the entry must not outlive its TTL").toEqual([]);
   });
 
   test("a re-tap inside the window restarts it rather than inheriting the old timer", async () => {
