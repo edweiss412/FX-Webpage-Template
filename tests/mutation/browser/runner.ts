@@ -207,7 +207,10 @@ function runMutant(
         kind: suite.kind,
         sentinelPresent: existsSync(sentinelPath(manifestPath)),
         exitStatus,
-        report,
+        // Spread rather than pass `undefined`: under exactOptionalPropertyTypes
+        // an absent property and a present-but-undefined one are different
+        // types, and the vitest kind genuinely has no report.
+        ...(report ? { report } : {}),
       });
       if (typeof verdict === "object") {
         // The imported class, never subclassed: it is the type the harness

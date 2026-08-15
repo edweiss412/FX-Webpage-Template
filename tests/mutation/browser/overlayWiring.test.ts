@@ -43,7 +43,7 @@ afterAll(() => {
 });
 
 /** Run the shipped bundle script; returns the bundle text it wrote. */
-function bundle(env: NodeJS.ProcessEnv, outName: string): string {
+function bundle(env: Record<string, string>, outName: string): string {
   const outfile = join(dir, outName);
   execFileSync(process.execPath, [BUNDLE, entryFile, outfile, join(ROOT, "tsconfig.json")], {
     cwd: ROOT,
@@ -147,7 +147,7 @@ describe("bundle overlay — env UNSET means OFF (AC-3)", () => {
 });
 
 describe("browser-mode vitest overlay config (spec §3.3 step 3)", () => {
-  const runFixture = (env: NodeJS.ProcessEnv): number => {
+  const runFixture = (env: Record<string, string>): number => {
     try {
       execFileSync("pnpm", ["exec", "vitest", "run", "--config", OVERLAY_CONFIG, PROBE_FIXTURE], {
         cwd: ROOT,
