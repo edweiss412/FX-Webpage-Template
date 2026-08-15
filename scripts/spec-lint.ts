@@ -1,12 +1,20 @@
 // spec:lint CLI adapter (spec docs/superpowers/specs/2026-07-19-spec-lint.md §2/§7).
 // All I/O lives here; the core under lib/specLint/** is pure and injected.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { splitLines } from "../lib/specLint/parse";
+import { planExecutionsForText } from "../lib/specLint/redContract";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
-import type { FileResolver, LintResult } from "../lib/specLint/types";
+import type { ExecOutcome, ExecResults, FileResolver, LintResult } from "../lib/specLint/types";
+
+export interface SpawnResult {
+  status: number | null;
+  signal: NodeJS.Signals | string | null;
+  error?: { code?: string; message?: string };
+  stderr: string;
+}
 
 export interface CliDeps {
   cwd(): string;
@@ -15,6 +23,40 @@ export interface CliDeps {
   lstatKind(p: string): "file" | "dir" | "symlink" | "missing";
   readFileBytes(p: string): Buffer;
   realpath(p: string): string;
+  /**
+   * Runs one `red=` command (arms spec §4.4). Takes the cwd EXPLICITLY because
+   * the contract is "repo root", which `runCli` discovers as a local — never
+   * the caller's cwd.
+   */
+  spawn(command: string, cwd: string, timeoutMs: number): SpawnResult;
+}
+
+/** Env seam for the per-command ceiling; a 600-second case is untestable. */
+const TIMEOUT_ENV = "SPEC_LINT_EXEC_TIMEOUT_SECS";
+const DEFAULT_TIMEOUT_SECS = 600;
+const STDERR_TAIL = 200;
+
+/**
+ * `spawnSync`'s result fields are NOT mutually exclusive: a SIGTERM-ignoring
+ * child overruns the ceiling and returns `status: 0` WITH `error: ETIMEDOUT`
+ * (probed in review round 4). Classification is therefore ERROR-FIRST — a
+ * command that exceeded the ceiling was not observed under the contract,
+ * whatever it eventually exited with.
+ */
+export function classifySpawnResult(r: {
+  status: number | null;
+  signal: NodeJS.Signals | string | null;
+  error?: { code?: string; message?: string };
+}): ExecOutcome {
+  if (r.error) {
+    if (r.error.code === "ETIMEDOUT") return { kind: "timeout" };
+    return { kind: "spawn-error", message: r.error.message ?? r.error.code ?? "spawn failed" };
+  }
+  if (r.signal) return { kind: "signal", signal: String(r.signal) };
+  // No status, no signal, no error: nothing was observed, so this must never
+  // read as a non-zero exit (which would mean "red observed").
+  if (r.status === null) return { kind: "spawn-error", message: "no exit status" };
+  return { kind: "exit", code: r.status };
 }
 
 interface CliOutput {
@@ -72,6 +114,7 @@ function renderText(result: LintResult): string {
 export function runCli(argv: string[], deps: CliDeps): CliOutput {
   // ---- flag parse (full pass: --json registers as a flag even when a --kind value is missing) ----
   let json = false;
+  let execRed = false;
   let kindFlag: string | null = null;
   const positionals: string[] = [];
   const errors: string[] = [];
@@ -80,6 +123,9 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
     if (tok === "--json") {
       if (json) errors.push("duplicate --json");
       json = true;
+    } else if (tok === "--exec-red") {
+      if (execRed) errors.push("duplicate --exec-red");
+      execRed = true;
     } else if (tok === "--kind") {
       const next = argv[i + 1];
       if (next === undefined || next.startsWith("--")) {
@@ -102,6 +148,17 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
     errors.push(`expected exactly one document path, got ${positionals.length}`);
   }
   if (errors.length > 0) return usage(json, errors.join("; "));
+
+  // The ceiling is validated BEFORE anything is linted or executed: a malformed
+  // value must never silently disable or zero the timeout (spec §4.4).
+  const rawTimeout = process.env[TIMEOUT_ENV];
+  if (rawTimeout !== undefined && !/^[1-9][0-9]*$/.test(rawTimeout)) {
+    return usage(
+      json,
+      `${TIMEOUT_ENV} must be a positive integer number of seconds; got ${JSON.stringify(rawTimeout)}`,
+    );
+  }
+  const timeoutMs = (rawTimeout === undefined ? DEFAULT_TIMEOUT_SECS : Number(rawTimeout)) * 1000;
 
   try {
     const docArg = positionals[0]!;
@@ -151,6 +208,10 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       return usage(json, `cannot read document: ${docArg}`);
     }
 
+    if (execRed && docKind !== "plan") {
+      return usage(json, "--exec-red requires a plan document");
+    }
+
     const tracked = deps.listTrackedFiles();
     const resolver: FileResolver = {
       listTrackedFiles: () => tracked,
@@ -176,7 +237,24 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       },
     };
 
-    const result = runLint({ text, repoRelPath, kind: docKind, kindSource }, resolver);
+    // Execution: sequential, doc order, repo-root cwd, stdout discarded and
+    // the stderr tail trimmed here so the core never sees raw output.
+    let execResults: ExecResults | null = null;
+    if (execRed) {
+      const outcomes = new Map<number, ExecOutcome>();
+      const stderrTails = new Map<number, string>();
+      for (const { line, command } of planExecutionsForText(text)) {
+        const r = deps.spawn(command, root, timeoutMs);
+        outcomes.set(line, classifySpawnResult(r));
+        // Trailing whitespace off first: a command's final newline would
+        // otherwise be the last character of every tail and break the
+        // one-line detail rendering.
+        stderrTails.set(line, (r.stderr ?? "").trimEnd().slice(-STDERR_TAIL));
+      }
+      execResults = { outcomes, stderrTails };
+    }
+
+    const result = runLint({ text, repoRelPath, kind: docKind, kindSource }, resolver, execResults);
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
       stderr: "",
@@ -229,6 +307,18 @@ if (isEntry) {
     },
     readFileBytes: (p) => readFileSync(p),
     realpath: (p) => realpathSync(p),
+    spawn: (command, cwd, timeoutMs) => {
+      const r = spawnSync("sh", ["-c", command], { cwd, timeout: timeoutMs, encoding: "utf8" });
+      const e = r.error as (Error & { code?: string }) | undefined;
+      return {
+        status: r.status,
+        signal: r.signal,
+        ...(e
+          ? { error: { ...(e.code === undefined ? {} : { code: e.code }), message: e.message } }
+          : {}),
+        stderr: r.stderr ?? "",
+      };
+    },
   };
   const r = runCli(process.argv.slice(2), deps);
   if (r.stdout) process.stdout.write(r.stdout);
