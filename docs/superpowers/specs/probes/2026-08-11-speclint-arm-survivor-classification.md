@@ -20,9 +20,9 @@ misdescribes its own measurements is worse than no record.
 populations is classified MECHANICALLY, by the structural signature the record already
 carries (claim value, counted value, their delta, and the quantity lists). Within each
 stratum a subset was HAND-READ against the source document to name the mechanism:
-**18 of 179** shape-(b) rows and **8 of 85** shape-(c) rows. The per-stratum mechanisms
+**18 of 179** shape-(b) rows and **8 of 84** shape-(c) rows. The per-stratum mechanisms
 below are therefore named from hand-reading and counted mechanically; they are not a
-per-row verdict on all 264. No row is dropped or summarised away.
+per-row verdict on all 263. No row is dropped or summarised away.
 
 ---
 
@@ -158,9 +158,12 @@ in the above argues for promotion, and the two documented limits argue against i
 
 ---
 
-## Shape (c) — `TEMPLATE_QUANTITY_DRIFT`, 85 advisories
+## Shape (c) — `TEMPLATE_QUANTITY_DRIFT`, 84 advisories
 
-51 in plans, 33 in specs, 1 in `BACKLOG.md`. Three documents contribute clusters
+50 in plans, 33 in specs, 1 in `BACKLOG.md`. (The population was 85 until whole-diff review
+R7 excluded comma-joined digit runs from all three arms: one row compared the citation list
+`recoveryResolution.ts:4,58` against `:4-8, 58-62`, and `4,58` is no longer a readable
+quantity. The row is dropped from this record with the count, not re-classified.) Three documents contribute clusters
 (15 / 14 / 10 pairs) — expected, and the direct consequence of the ratified ALL-PAIRS
 pairing: a family of N near-identical lines contributes N*(N-1)/2 rows, where the
 instrument's greedy anchor would have reported one group. That is the divergence spec §3
@@ -215,7 +218,7 @@ resolve to M-c1 once the source is read:
 - `.../11-cross-cutting.md:2005` vs `:2020` (`[6, 8, 6, 8]` vs `[6, 8]`) differs only
   because one line spells `section-6-8` AND `§6.8` while the other spells it once.
 
-**8 of 85 hand-read; 0 genuine drift among them, and the record says so rather than
+**8 of 84 hand-read; 0 genuine drift among them, and the record says so rather than
 inventing a win.** Shape (c)'s ratified population is the one the committed record shows it
 CAN serve, and on this corpus snapshot that population is dominated by c-L1. That is a
 measurement, not a verdict on the shape: the arm is advisory, its cost is a glance, and a
@@ -238,8 +241,8 @@ detail line, so c-L1 and c-L2 are dismissible at a glance.
 | --- | --- | --- |
 | `SCRIPT_CONSTANT_PARITY` | 0 | 0 |
 | `SIBLING_LIST_CARDINALITY` | 179 | 179 |
-| `TEMPLATE_QUANTITY_DRIFT` | 85 | 85 |
-| total | 264 | 264 |
+| `TEMPLATE_QUANTITY_DRIFT` | 84 | 84 |
+| total | 263 | 263 |
 
 Emitted equals classified in every row of that table, diffed mechanically from the record
 rather than asserted. Shape (a)'s zero is the expected result and not a dud: both live

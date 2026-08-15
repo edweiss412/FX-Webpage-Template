@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkCitations } from "../../lib/specLint/citations";
-import { checkNumerics } from "../../lib/specLint/numerics";
+import { checkNumerics, readableScriptLines } from "../../lib/specLint/numerics";
 import { parseDoc, splitLines } from "../../lib/specLint/parse";
 import { runLint } from "../../lib/specLint/run";
 import type { Finding, FileResolver } from "../../lib/specLint/types";
@@ -176,6 +176,85 @@ const siteConst = (n: number): string => `const EXPECTED_SITE_TOTAL = ${n};`;
 const acLine = (count: number, noun = "sites"): string =>
   `| AC-3 | \`${PARITY_SCRIPT}\` reports parity for all ${count} ${noun} |`;
 
+describe("readableScriptLines — the lexical scan shape (a) reads declarations from", () => {
+  // Exact output, not a "contains" check: every non-code character becomes a SPACE and the
+  // line keeps its length, because the declaration is matched at column 0 and every column
+  // after it has to survive. An assertion that only looked for the declaration would pass
+  // while the scan quietly shifted or dropped the rest of the line.
+  // Blanked spans are written as `gap("<the exact source text>")`, so the expected string is
+  // DERIVED from the substring under test rather than hand-counted.
+  const gap = (source: string): string => " ".repeat(source.length);
+  it.each([
+    ["plain code is untouched", "const a = 1;", ["const a = 1;"]],
+    [
+      "a line comment is blanked to end of line",
+      "const a = 1; // x",
+      [`const a = 1; ${gap("// x")}`],
+    ],
+    ["a line comment ENDS at the newline", "// x\nconst b = 2;", [gap("// x"), "const b = 2;"]],
+    ["a block comment is blanked inline", "a /* c */ b", [`a ${gap("/* c */")} b`]],
+    [
+      "code AFTER a block comment's close is live",
+      "/* x\ny */ const c = 3;",
+      [gap("/* x"), `${gap("y */")} const c = 3;`],
+    ],
+    [
+      // A block comment has no escapes, so the backslash before `*/` does NOT defer the
+      // close. Treating it as one swallows the `*`, the comment never closes, and the whole
+      // file reads as unfinished — the scan loses a script it could have read.
+      "a backslash inside a block comment is not an escape",
+      "/* a\\*/ const c = 3;",
+      [`${gap("/* a\\*/")} const c = 3;`],
+    ],
+    ["a double-quoted string is blanked", 'const m = "`";', [`const m = ${gap('"`"')};`]],
+    ["a single-quoted string is blanked", "const m = '`';", [`const m = ${gap("'`'")};`]],
+    [
+      "`//` inside a string is not a comment",
+      'const u = "// x"; const d = 4;',
+      [`const u = ${gap('"// x"')}; const d = 4;`],
+    ],
+    [
+      "a template interior is blanked across lines",
+      "const t = `\nconst EXPECTED_X = 1;\n`;",
+      [`const t = ${gap("`")}`, gap("const EXPECTED_X = 1;"), `${gap("`")};`],
+    ],
+    [
+      "an escaped quote does not close its string",
+      'const s = "a\\"b"; const e = 5;',
+      [`const s = ${gap('"a\\"b"')}; const e = 5;`],
+    ],
+    [
+      "an escaped NEWLINE inside a string still breaks the line",
+      'const s = "a\\\nb"; const f = 6;',
+      [`const s = ${gap('"a\\')}`, `${gap('b"')}; const f = 6;`],
+    ],
+  ])("%s", (_label, src, expected) => {
+    const lines = readableScriptLines(src);
+    expect(lines).toEqual(expected);
+    // Length parity is the property the column-0 match depends on, asserted separately so
+    // a wrong expected string cannot hide a wrong length.
+    expect(lines!.map((l) => l.length)).toEqual(src.split("\n").map((l) => l.length));
+  });
+
+  it.each([
+    ["an unterminated string", 'const s = "a'],
+    ["an unterminated template", "const t = `a"],
+    ["an unterminated block comment", "/* a"],
+  ])("%s makes the whole scan unusable", (_label, src) => {
+    expect(readableScriptLines(src)).toBeNull();
+  });
+
+  it("a line comment running to end of input is NOT an unfinished scan", () => {
+    // The bail is for constructs a newline cannot close. A line comment is closed BY the
+    // end of input, so treating it as unfinished would blank every script whose last line
+    // is a comment — a silent loss of the whole arm on ordinary files.
+    expect(readableScriptLines("const a = 1;\n// trailing")).toEqual([
+      "const a = 1;",
+      " ".repeat("// trailing".length),
+    ]);
+  });
+});
+
 describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
   it("drifted present-tense count against the named script's constant → ONE advisory", () => {
     const { findings } = run(acLine(SITE_TOTAL + 1) + "\n", {
@@ -312,6 +391,31 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     expect(only(findings, A)).toEqual([]);
   });
 
+  it.each([
+    // Review R8, probed, and it REFUTES the earlier claim that a mis-tracked backtick can
+    // only suppress findings: a backtick inside an ordinary STRING inverts the state, the
+    // real template opener then restores it, and the arm reads the template's dead 37
+    // while the live 38 below is blanked. Prose that agrees with the script drew an
+    // advisory. A backtick is a delimiter only where the language says it is.
+    ["a double-quoted string", 'const marker = "`";'],
+    ["a single-quoted string", "const marker = '`';"],
+    ["a line comment", "// a stray ` in prose"],
+    ["a block comment", "/* a stray ` in prose */"],
+  ])("a backtick inside %s does not open a template", (_label, decoy) => {
+    const body = [decoy, "const sample = `", siteConst(37), "`;", siteConst(38)].join("\n");
+    const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("a script the scan cannot finish reading contributes NOTHING", () => {
+    // The soundness net. An unterminated string, template, or block comment means the
+    // scan lost track of where code is, and a scan that is lost must not hand over a
+    // declaration it believes in: this file's `38` is real, and the arm still declines.
+    const body = ['const marker = "unterminated', siteConst(38)].join("\n");
+    const { findings } = run(acLine(99) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
   it("an AMBIGUOUS basename identifies no script, so only the full path associates", () => {
     // Review R6, probed: `check.mjs` in two directories matched both, and the doc drew an
     // advisory against a file it never mentioned.
@@ -350,9 +454,12 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     ["four leading digits", "1234,567"],
     ["a four-digit group", "1,0200"],
   ])("a comma-joined digit run is not read as one of its groups (%s)", (_label, num) => {
-    const { findings } = run(`| AC | \`${PARITY_SCRIPT}\` reports parity for all ${num} sites |\n`, {
-      [PARITY_SCRIPT]: scriptSrc(siteConst(1000)),
-    });
+    const { findings } = run(
+      `| AC | \`${PARITY_SCRIPT}\` reports parity for all ${num} sites |\n`,
+      {
+        [PARITY_SCRIPT]: scriptSrc(siteConst(1000)),
+      },
+    );
     expect(only(findings, A)).toEqual([]);
   });
 

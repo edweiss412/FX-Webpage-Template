@@ -289,37 +289,85 @@ function constantNoun(ident: string): string {
  * properly means parsing, which is a later arc's call with its own evidence.
  */
 /**
- * Script lines a declaration may be read from: block comments blanked, template-literal
- * interiors blanked, line count preserved.
+ * Script lines a declaration may be read from: every character the JavaScript lexer would
+ * NOT treat as code — comment bodies, string literals, template interiors — replaced by a
+ * space, so both the line count and every column survive. `null` means the scan could not
+ * finish (see below).
  *
  * Declaration-SHAPED text is not a declaration. A commented-out
  * `const EXPECTED_SITE_TOTAL = 37;` sitting at column 0 above the live value drew a
  * FALSE advisory — the wrong direction, and the one the consequence bound cares about
  * (whole-diff review R5, probed).
  *
- * This is a TEXTUAL scan, not a lexer, and the accept-set is bounded accordingly. An
- * ESCAPED backtick is not a delimiter and no longer flips the state (review R6, probed:
- * it exposed template text as live and hid the real declaration). DOCUMENTED LIMIT: a
- * backtick inside an ordinary string, a regex or a line comment still flips it, which
- * BLANKS the rest of the file and hides later declarations — a tripwire that does not
- * fire rather than a wrong flag, which is the direction this arm accepts. Reading scope
- * exactly means parsing, and the originating spec's boundary is that this arm never
- * imports or parses the script.
+ * Two earlier versions counted backticks instead of tracking state, and each was refuted
+ * by an input that INVERTED the tracking rather than merely losing it: an escaped backtick
+ * (R6), then a backtick inside an ordinary string (R8). Inverted state is the dangerous
+ * failure — it exposes a template's dead declaration while blanking the live one below,
+ * which is a false advisory, not a missed one. So a delimiter is now a delimiter only where
+ * the language says it is.
+ *
+ * The residual limit, and why it is safe: a REGEX literal is not distinguished from
+ * division, so a regex whose body carries a quote or a backtick opens a literal that the
+ * scan then fails to close. That is exactly why an unterminated string, template, or block
+ * comment at end of input returns `null` and the script contributes NO constants — a scan
+ * that has lost track of where code is must not hand over a declaration it believes in. A
+ * pair of such regexes could re-balance, so this is a documented limit and not a proof;
+ * everything the arm reads is at column 0 in a file that scanned cleanly end to end.
  */
-function readableScriptLines(text: string): string[] {
-  const blanked = text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+export function readableScriptLines(text: string): string[] | null {
+  type ScanState = "code" | "line-comment" | "block-comment" | "single" | "double" | "template";
+  const closers: Record<string, ScanState> = { "'": "single", '"': "double", "`": "template" };
   const out: string[] = [];
-  let inTemplate = false;
-  for (const line of blanked.split("\n")) {
-    out.push(inTemplate ? "" : line);
-    if ((line.match(/(?<!\\)`/g) ?? []).length % 2 === 1) inTemplate = !inTemplate;
+  let state: ScanState = "code";
+  let line = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    const next = text[i + 1];
+    if (c === "\n") {
+      out.push(line);
+      line = "";
+      if (state === "line-comment") state = "code";
+      continue;
+    }
+    if (state === "code") {
+      if (c === "/" && (next === "/" || next === "*")) {
+        state = next === "/" ? "line-comment" : "block-comment";
+        line += " ";
+        continue;
+      }
+      const opened = closers[c];
+      if (opened !== undefined) state = opened;
+      line += opened === undefined ? c : " ";
+      continue;
+    }
+    line += " ";
+    if (state === "line-comment") continue;
+    if (state === "block-comment") {
+      if (c === "*" && next === "/") {
+        state = "code";
+        line += " ";
+        i++;
+      }
+      continue;
+    }
+    // Inside a string or a template: an escape consumes the next character, unless that
+    // character is the newline, which must stay a line break for the line accounting.
+    if (c === "\\") {
+      if (next !== undefined && next !== "\n") {
+        line += " ";
+        i++;
+      }
+      continue;
+    }
+    if (closers[c] === state) state = "code";
   }
-  return out;
+  out.push(line);
+  return state === "code" || state === "line-comment" ? out : null;
 }
 
 function scriptConstants(text: string): ScriptConstant[] {
   const out: ScriptConstant[] = [];
-  for (const raw of readableScriptLines(text)) {
+  for (const raw of readableScriptLines(text) ?? []) {
     if (/^\s/.test(raw)) continue;
     const m = CONST_DECL_RE.exec(raw);
     if (m === null) continue;
