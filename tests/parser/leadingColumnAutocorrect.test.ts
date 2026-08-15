@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { parseSheet } from "@/lib/parser";
 import { normalizeLeadingColumn } from "@/lib/parser/leadingColumnNormalize";
 import { payloadOf } from "@/tests/parser/mutation/oracle";
-import { premiseHolds } from "@/tests/_shared/premise";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { canonicalSectionKind } from "@/lib/parser/sectionKind"; // branch-2 helper (r6: openerCell needs it)
 
 const shifts = (md: string, name: string) =>
@@ -61,7 +61,45 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
     });
   });
 
-  it("partial leading-empty runs never fire (East Coast lines 99+ sit at 19-of-23, probe §13.C)", () => {
+  it("partial leading-empty runs never fire (East Coast's widest run is 19 empty-leading rows in a 24-row block, probe §13.C)", () => {
+    // Whole-diff review r1, Finding 2 (BL-GUARD-PREMISE-REACHABILITY): the discriminating
+    // condition used to live only in this test's TITLE, so a fixture regenerated without a
+    // partial run would leave the case green while it asserted nothing about partial runs.
+    // Measured here instead. The premise is on the RATIO, not the row count: what makes this
+    // fixture a real adversary is a block that leads empty on 19 of 24 rows, i.e. 79% - past
+    // any plausible majority/ratio threshold, yet correctly silent because the trigger is
+    // uniformity, not proportion. A larger but low-ratio run elsewhere in the file (35 of 127)
+    // would not exercise that, so counting rows alone would let the fixture stop adversarial
+    // while the premise still read green. Measured across blocks rather than at a pinned index
+    // so an edit that MOVES the run still passes and only one that REMOVES it fails.
+    const lines = md.split("\n");
+    let sharpestPartialPct = 0;
+    for (let i = 0; i < lines.length; ) {
+      if (!lines[i]!.startsWith("|")) {
+        i++;
+        continue;
+      }
+      let j = i;
+      let emptyLeading = 0;
+      while (j < lines.length && lines[j]!.startsWith("|")) {
+        if ((lines[j]!.split("|")[1] ?? "").trim() === "") emptyLeading++;
+        j++;
+      }
+      // Partial means SOME rows lead empty but not all - a uniformly-empty block is the
+      // trigger shape, not the partial shape, and would belong to a different case.
+      if (emptyLeading > 0 && emptyLeading < j - i) {
+        sharpestPartialPct = Math.max(
+          sharpestPartialPct,
+          Math.floor((emptyLeading * 100) / (j - i)),
+        );
+      }
+      i = j;
+    }
+    premise(
+      "east-coast still carries a HIGH-ratio partial leading-empty run",
+      sharpestPartialPct,
+      75,
+    );
     expect(shifts(md, path)).toEqual([]); // the clean fixture IS the partial-run carrier
   });
 
