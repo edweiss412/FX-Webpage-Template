@@ -95,12 +95,40 @@ describe("openShowReviewModal (unit-testable surface)", () => {
 ```
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 2: Create the guard-less stub so the RED names a production line, not a missing import** (an unresolved-import RED is invalid by construction — `docs/agents/writing-plans.md` RED-validity rule). Stub `tests/e2e/helpers/openShowReviewModal.ts`: export `LOADED_REVIEW_MODAL` (the exact selector) and an `openShowReviewModal` whose body goes STRAIGHT to `await page.goto(...)` then waits for the modal only — no slug guard, no boundary handling, no enriched errors. This is the pre-fix behavior transplanted; it is also Step 6's staged red.
+- [ ] **Step 2: Create the guard-less stub so the RED names a production line, not a missing import** (an unresolved-import RED is invalid by construction — `docs/agents/writing-plans.md` RED-validity rule). Stub `tests/e2e/helpers/openShowReviewModal.ts`: export `LOADED_REVIEW_MODAL` (the exact selector) and an `openShowReviewModal` whose body goes STRAIGHT to `await page.goto(...)` then waits for the modal only — no slug guard, no boundary handling, no enriched errors. This is the pre-fix behavior transplanted; it is also Step 5's staged red.
 
 - [ ] **Step 3: Run it — RED.** `pnpm vitest run tests/e2e/helpers/openShowReviewModal.unit.test.ts` — the two guard cases fail for the stated production reason: the slug guard is ABSENT, so the stub calls `page.goto` on the `{}` stub page and rejects with a TypeError instead of the db:seed guard message. (The selector case passes already — the RED is the guard pair.)
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 4: Implement the full helper** — replace the stub body of `tests/e2e/helpers/openShowReviewModal.ts` with the spec §4.1 contract, steps 1-7:
+- [ ] **Step 4: Adopt in the layout spec (against the STUB — this is deliberate; the diagnostic case must be observed red).** In `tests/e2e/admin-changes-feed-layout.spec.ts`: delete the local `LOADED_REVIEW_MODAL` constant (lines 37-38) and its comment block (lines 33-36) — the helper carries both now; add `import { openShowReviewModal } from "./helpers/openShowReviewModal";`; replace lines 133-135 (`page.goto` + `const modal = page.locator(...)` + `toBeVisible`) with:
+
+```ts
+const modal = await openShowReviewModal(page, slug);
+```
+
+(keep the `emulateMedia`/`setViewportSize` lines above). Downstream — `getByRole("list")`, the atomic measure poll — unchanged. Then ADD the step-7 diagnostic case inside the same describe (after the band loop; it reuses the signed-in `beforeEach`):
+
+```ts
+test("helper surfaces enriched diagnostics when a show never mounts (dead slug)", async ({
+  page,
+}) => {
+  // Deterministic neither-locator starve: a slug with no shows row makes the
+  // loader redirect("/admin") (app/admin/_showReviewModal.tsx missing-show
+  // gate), so neither the modal nor the error boundary ever appears.
+  await expect(
+    openShowReviewModal(page, "zz-e2e-no-such-show", { timeoutMs: 3_000 }),
+  ).rejects.toThrow(
+    /published-show-review-modal[\s\S]*admin-route-error-boundary[\s\S]*show_review_snapshot_failed/,
+  );
+});
+```
+
+The regex pins all three substrings (modal testid, boundary testid, server signature) in the order every helper failure message emits them, so an incidental REAL 502 during this navigation (boundary path → retry → still no modal) still passes.
+
+- [ ] **Step 5: Diagnostic case — RED.** `pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --grep "dead slug" --project=desktop-chromium` — fails: the stub's bare modal-only timeout message contains NONE of the three pinned substrings, so the regex cannot match. (The three band cases also still pass against the stub — its happy path is the pre-fix behavior.)
+
+<!-- spec-lint: ignore — file is created by this plan's tasks -->
+- [ ] **Step 6: Implement the full helper** — replace the stub body of `tests/e2e/helpers/openShowReviewModal.ts` with the spec §4.1 contract, steps 1-7:
 
 ```ts
 /**
@@ -193,38 +221,13 @@ export async function openShowReviewModal(
 Every failure message carries BOTH the modal selector and the server signature — the diagnostic case in Step 5 asserts on substrings common to all three exits.
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 5: Run the unit test — GREEN.** `pnpm vitest run tests/e2e/helpers/openShowReviewModal.unit.test.ts` (the enrolled command: observed red in Step 3, green now, same command).
+- [ ] **Step 7: Run the unit test — GREEN.** `pnpm vitest run tests/e2e/helpers/openShowReviewModal.unit.test.ts` (the enrolled command: observed red in Step 3, green now, same command).
 
-> **Staged-red note for the diagnostic case (R2 F1):** if strict red-first observation of the diagnostic case is wanted, run Step 6's adoption + diagnostic edit BEFORE Step 4's full implementation (i.e. against the Step 2 stub, whose bare modal-only timeout message fails the three-substring regex), observe the scoped red with `pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --grep "dead slug" --project=desktop-chromium`, then implement Step 4 and watch the same command pass. The stub's message deliberately contains NONE of the three pinned substrings, so the regex cannot pass by accident.
+- [ ] **Step 8: Diagnostic case — GREEN.** Re-run Step 5's exact scoped command — passes now that the helper emits the three-substring enriched error.
 
-- [ ] **Step 6: Adopt in the layout spec.** In `tests/e2e/admin-changes-feed-layout.spec.ts`: delete the local `LOADED_REVIEW_MODAL` constant (lines 37-38) and its comment block (lines 33-36) — the helper carries both now; add `import { openShowReviewModal } from "./helpers/openShowReviewModal";`; replace lines 133-135 (`page.goto` + `const modal = page.locator(...)` + `toBeVisible`) with:
+- [ ] **Step 9: Local e2e run — 8/8.** `pnpm heavy pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium` against a freshly seeded local DB (`pnpm db:seed` first; confirm no sibling arc is mid-e2e on the shared stack). Expected: 8 passed — (3 bands + 1 diagnostic) × 2 projects.
 
-```ts
-const modal = await openShowReviewModal(page, slug);
-```
-
-(keep the `emulateMedia`/`setViewportSize` lines above). Downstream — `getByRole("list")`, the atomic measure poll — unchanged. Then ADD the step-7 diagnostic case inside the same describe (after the band loop; it reuses the signed-in `beforeEach`):
-
-```ts
-test("helper surfaces enriched diagnostics when a show never mounts (dead slug)", async ({
-  page,
-}) => {
-  // Deterministic neither-locator starve: a slug with no shows row makes the
-  // loader redirect("/admin") (app/admin/_showReviewModal.tsx missing-show
-  // gate), so neither the modal nor the error boundary ever appears.
-  await expect(
-    openShowReviewModal(page, "zz-e2e-no-such-show", { timeoutMs: 3_000 }),
-  ).rejects.toThrow(
-    /published-show-review-modal[\s\S]*admin-route-error-boundary[\s\S]*show_review_snapshot_failed/,
-  );
-});
-```
-
-The regex pins all three substrings (modal testid, boundary testid, server signature) in the order every helper failure message emits them, so an incidental REAL 502 during this navigation (boundary path → retry → still no modal) still passes.
-
-- [ ] **Step 7: Local e2e run — 8/8.** `pnpm heavy pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium` against a freshly seeded local DB (`pnpm db:seed` first; confirm no sibling arc is mid-e2e on the shared stack). Expected: 8 passed — (3 bands + 1 diagnostic) × 2 projects.
-
-- [ ] **Step 8: Commit.** `test(infra): shared review-modal wait helper with one surfaced boundary recovery`
+- [ ] **Step 10: Commit.** `test(infra): shared review-modal wait helper with one surfaced boundary recovery`
 
 ### Task 2: Snapshot log carries the PostgREST fields
 
@@ -477,8 +480,9 @@ Steps:
 - [ ] File `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` (deferral reason (c); member list derived by re-running the spec §8.1 greps at filing time; `**Reachability:** INFERRED, NOT PROBED` per-spec, with this arc's CI evidence as the class proof).
 - [ ] File `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE` (deferral reason (a): reverses the ratified fail-hard posture, `app/admin/_showReviewModal.tsx:25-30`; evidence = spec §2.1 log excerpts).
 - [ ] Verify this plan's row in `docs/superpowers/plans/ci/README.md` (it landed with the plan commit at `docs/superpowers/plans/ci/README.md:15` — do NOT add a duplicate).
-- [ ] Prepend a new segment to the `Last reconciled:` line (`BACKLOG.md:7`), demoting the current segment behind `Prior:` per the line's own convention — the graduation and the two filings are the reconciliation event.
-- [ ] Run `pnpm vitest run tests/docs` — GREEN: graduation registry (archive-only + provenance-in-section), ledger shape, review-round economy, invariant-8 closeout guards.
+- [ ] Prepend a new segment to the `Last reconciled:` line (`BACKLOG.md:7`), demoting the current segment behind `Prior:` per the line's own convention — the graduation and the two filings are the reconciliation event. **In the same commit**, update the exact-text exemption row for that line in `tests/docs/_retiredIdentifiers.ts:188-193` (the whole `Last reconciled:` line is pinned verbatim there): replace the row's `text` with the NEW full line. Editing one without the other leaves both an unexempted hit and a stale exemption (`tests/docs/retiredIdentifierReferences.test.ts:235` and `tests/docs/retiredIdentifierReferences.test.ts:244`).
+- [ ] Run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — GREEN on the SAME command that was red (archive-only + provenance-in-section now hold).
+- [ ] Run `pnpm vitest run tests/docs` — GREEN: retired-identifier exemption parity, ledger shape, review-round economy, invariant-8 closeout guards.
 - [ ] Commit: `docs: graduate BL-CHANGES-FEED-MODAL-BATCH-FLAKE; file helper-adoption and read-posture peers`
 
 ### Task 5: Pre-push gates, PR, five-green loop (closeout)
