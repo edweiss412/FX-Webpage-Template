@@ -176,6 +176,33 @@ describe("runner — a mutant that never terminates (fix/ui-interactive-token-po
     expect(calls[0]!.args.slice(0, GROUP_LEADER_ARGV.length)).toEqual([...GROUP_LEADER_ARGV]);
   });
 
+  it.each([
+    ["a timeout", { status: null, signal: "SIGKILL", code: "ETIMEDOUT" }],
+    ["a signal death", { status: null, signal: "SIGTERM" }],
+  ])("runSuite itself reaps the group after %s", (_label, outcome) => {
+    // The live case below proves the MECHANISM; this proves the WIRING. Without
+    // it, deleting either call site in `runSuite` leaves every test green and
+    // the reap never runs in production (whole-diff R4 F1). Asserted on
+    // `process.kill` with the NEGATIVE pid, which is the group form — a plain
+    // `kill(pid)` would satisfy a laxer assertion while reaping nothing.
+    const killed: [number, string | number | undefined][] = [];
+    const spy = vi.spyOn(process, "kill").mockImplementation(((pid: number, sig?: string) => {
+      killed.push([pid, sig]);
+      return true;
+    }) as typeof process.kill);
+    try {
+      reset({ "a.test.ts": outcome as Outcome });
+      try {
+        runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site");
+      } catch {
+        // the signal-death arm throws by design; the reap must have run first
+      }
+      expect(killed).toContainEqual([-FIXTURE_PID, "SIGKILL"]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("reaps a grandchild that OUTLIVED its parent (live, unmocked, production order)", async () => {
     // Production order is the whole point (whole-diff R3 F1): `spawnSync`
     // returns only AFTER killing the process it spawned, so the survivor has

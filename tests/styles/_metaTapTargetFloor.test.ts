@@ -110,6 +110,47 @@ describe("census self-accounting (whole-diff R2 F2 / R3 F2)", () => {
     );
   });
 
+  it("every SECTION marker's tally matches the rows filed under it", () => {
+    // The file header is only half the accounting: the rows are grouped by
+    // `// ---- <category> (<n>) ----` markers, and round 4 found a marker that
+    // had gone stale AND a row sitting under the wrong one. Both are derived
+    // here — the count AND the membership — so a row moved between sections
+    // without its marker reds, and a marker whose number is edited by hand reds.
+    const sections: { category: string; declared: number; rows: string[] }[] = [];
+    for (const line of source.split("\n")) {
+      const marker = line.match(/^\s*\/\/ ---- ([a-z-]+)[^(]*\((\d+)\)/);
+      if (marker && CATEGORIES.has(marker[1]!)) {
+        sections.push({ category: marker[1]!, declared: Number(marker[2]), rows: [] });
+        continue;
+      }
+      const category = line.match(/^\s*category: "([a-z-]+)",/);
+      if (category && sections.length > 0) sections.at(-1)!.rows.push(category[1]!);
+    }
+    premiseHolds("the file is organised into marked sections", sections.length >= 6);
+    // Every row that follows a marker belongs to that marker's category...
+    expect(
+      sections.flatMap((s) =>
+        s.rows.filter((r) => r !== s.category).map((r) => `${s.category}<-${r}`),
+      ),
+    ).toEqual([]);
+    // ...and the counts add up per category, across sections that repeat one.
+    const declaredByCategory = new Map<string, number>();
+    const actualByCategory = new Map<string, number>();
+    for (const section of sections) {
+      declaredByCategory.set(
+        section.category,
+        (declaredByCategory.get(section.category) ?? 0) + section.declared,
+      );
+      actualByCategory.set(
+        section.category,
+        (actualByCategory.get(section.category) ?? 0) + section.rows.length,
+      );
+    }
+    expect(Object.fromEntries([...declaredByCategory].sort())).toEqual(
+      Object.fromEntries([...actualByCategory].sort()),
+    );
+  });
+
   it("the header's row total matches the registry length", () => {
     const total = source.match(/(\d+) rows out of \d+ in-scope elements/);
     premiseHolds("the header states a row total", total !== null);
