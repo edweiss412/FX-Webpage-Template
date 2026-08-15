@@ -73,7 +73,10 @@ one-line change, lowering it is a debt decision (plan R1 F3: the live registry c
 For `secondary-action-contrast.test.ts (new)` (the premise pin is a string-presence guard): (a) empty
 the constant; (b) append `" border-border-strong"` after `border-text-faint`; (c) comment the
 token out inside the constant string (present in file, not in the export); (d) vary the file
-path read. Record each mutant's red in the Task 2 commit message.
+path read; (e) **ratio mutant (plan R7 F1, AC-2's executable ratio-drift proof)**: temporarily
+set `--color-text-faint-runtime` in `app/globals.css`'s light block to `#cfcdc7` (1.59:1 vs
+surface, below the 3:1 floor), run the suite, observe the ratio assertion RED, restore the
+value, re-run green. Record each mutant's red in the Task 2 commit message.
 
 ## Acceptance criteria (spec §9, restated so task markers resolve)
 
@@ -385,8 +388,8 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
   tests/components/admin/wizard/step3JudgmentChrome.test.tsx` AND
   `pnpm spec:lint docs/superpowers/specs/2026-08-14-ui-interactive-token-policy-design.md` —
   all green (AC-3; plan R1 F7).
-- [ ] **Step 5: Run the four string-presence mutants** (header section above); record each red in
-  the commit body.
+- [ ] **Step 5: Run the five mutants** (header section above — four string-presence plus the
+  ratio mutant); record each red in the commit body.
 - [ ] **Step 6: Commit** — `feat(admin): secondary action outline to text-faint (spec §3)`.
 
 ### Task 3: D2 guard + the 40 swaps (one task: RED observed, GREEN committed)
@@ -770,7 +773,9 @@ the invariant-12 contract (markers gone, archives reject in-flight work).
   (`git rev-list --left-right --count main...origin/main` → `0  0`).
   **Last-commit restoration loop (plan R4 F2):** if Step 4 or real CI forces ANY further
   change, first `git revert` the graduation commit (markers return, ledger meta-test stays
-  lawful), land the fix through the Step 2 fix-loop discipline — including a FULL whole-diff review
+  lawful) and **PUSH the revert immediately** (plan R7 F2 — invariant 12 reads claims from
+  origin's branches; a locally-restored marker is invisible to every other session for the
+  whole repair window, which can be long when real CI forced the loop), land the fix through the Step 2 fix-loop discipline — including a FULL whole-diff review
   rerun on the new tree, never a delta-scoped review (plan R5 F3; the fresh-eyes whole-diff
   contract admits no narrower scope) — regenerate the patch if ledger text moved, then repeat
   Steps 3-5 so the graduation commit is again the branch's last commit at merge time (each
