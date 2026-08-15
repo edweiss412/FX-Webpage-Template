@@ -64,8 +64,12 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
 
 1. **Write the pin** in `tests/cross-cutting/ci-workflow-speedup.test.ts`, new
    `describe("screenshots-drift nextcache: exact input-hash key, no fallback, always-save")`,
-   asserting on EXTRACTED step blocks (split the yaml on `- name:`/`- uses:`
-   boundaries; never file-wide substrings), the spec §2.2 nine (behavioral assertion 9 included — plan R1 F1):
+   asserting on PARSED step objects — `import { parse } from "yaml"` and walk
+   `jobs.screenshots-drift.steps`, the same pattern the wiring guards already use
+   (`tests/cross-cutting/app-e2e-ci-wiring.test.ts:27`); never file-wide substrings
+   and never raw text-block slicing, so a commented-out `# uses:` line can satisfy
+   nothing (plan R2 F1) — the spec §2.2 nine (behavioral assertion 9 included — plan
+   R1 F1):
    1. exactly one `actions/cache/restore@v4` and one `actions/cache/save@v4` step; no
       combined `actions/cache@v4` block naming `.next-screenshots-help/cache` (the
       OTHER workflows' `~/.cache/ms-playwright` combined steps asserted at lines
@@ -97,6 +101,15 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
    fails on the new describe against the unedited workflow — the production lines
    whose defect makes it fail are the combined `actions/cache@v4` step and the absent
    save step. Record the failure output.
+   **Four pre-dispatch mutants (writing-plans string-presence rule, plan R2 F1),
+   each run against the FINISHED pin + edited workflow and recorded in the commit:**
+   (a) empty the save step's `key:` value → pin red; (b) append `-${{ github.sha }}`
+   to the restore key → pin red (shape assertion 8); (c) present-but-not-live —
+   comment out the save step's `uses:` line → pin red (a parsed-YAML walk sees no
+   save step; this is the exact escape a text-block extractor would miss); (d) vary
+   each discriminating parameter in turn — `path` on the save step, `if:` condition
+   dropped, one hashFiles glob removed → pin red each time. Restore the workflow
+   after each mutant; all four results pasted into the task record.
 3. **Edit the workflow** per spec §2.1: restore step (`actions/cache/restore@v4`,
    `id: nextcache-restore`, same path, NEW key
    `${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles(...) }}` over the 24
@@ -114,7 +127,7 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
 5. Commit: `fix(ci): split screenshots-drift nextcache into restore/save with
    always-save so failing runs refresh their cache`.
 
-## Task B2 — dispatch proofs (no repo commit; run ids recorded)
+## Task B2 — dispatch proofs (commit = the recorded transcript; plan R2 F2)
 
 1. Push the branch. `gh workflow run screenshots-drift.yml --ref
    fix/screenshots-drift-cache`; the first run MISSES (empty v2 namespace), builds
@@ -128,24 +141,40 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
    impossible, live), the run FAILS at "Check screenshot drift", and the save still
    executes and saves under `if: always()`. Record the run id; delete the throwaway
    branch. The edit never reaches the impl branch.
-3. All three run ids land in the PR body and in the archive resolution (task B3).
+3. All three run ids, with per-run step-level observations, land in a committed
+   transcript — a new file `dispatch-proofs.md` in this plan directory (created by
+   the task; a citation-shaped path is deliberately avoided here since the file does
+   not exist until B2 runs) — commit `docs(plan): record screenshots-drift dispatch-proof run ids` (plan R2
+   F2: the task's executable red analog is the CONSTRUCTED failing dispatch observed
+   failing at the drift check; the commit puts the evidence in the reviewed diff).
+   The PR body and the B3 archive resolution cite the same ids.
 
 ## Task B3 — archive + close
 
-1. Archive `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING` (archive RED)
+1. Merge `origin/main` FIRST (ledger conflicts resolve per-entry, both sides
+   preserved), so gates and the final review examine the tree that merges (the
+   "review covers what merges" lint shape, class-swept from the sibling arc's plan
+   R1 F3).
+2. Archive `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING` (archive RED)
    with: the shipped direction, the two rejected directions (spec §4.1-§4.2), and the
-   B2 run ids as resolution evidence. Marker strips inside the move. Commit:
+   B2 run ids as resolution evidence. Marker strips inside the move — this archive
+   commit is the branch's LAST CONTENT commit (plan R2 F3): after it, only
+   mechanical `origin/main` merge commits and review-forced repairs may land, and a
+   review-forced repair re-runs the gates and re-dispatches the review. Commit:
    `docs(backlog): archive BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING
    with dispatch-run evidence`; push (plan R1 F5 — the archive, run ids, and marker
    release must reach the reviewed diff before the PR gate).
-2. Terminal check, run and recorded:
-   `! grep -q 'Branch:\*\* fix/screenshots-drift-cache' BACKLOG.md DEFERRED.md` —
-   exits 0 exactly when no marker survives (plan R1 F3: the earlier `grep -c` form
-   exits 1 on the desired zero-match state, failing the chain on success; probed).
-3. Pre-push gates: `pnpm heavy pnpm test:fast`, `pnpm typecheck`,
-   `pnpm exec eslint .`, `pnpm format:check`. Merge `origin/main` (ledger conflicts
-   resolve per-entry, both sides preserved).
-4. PR (body: preflight ran; dispatch run ids; RED transcript) → real CI green →
+3. Terminal check, run and recorded, over ALL FOUR ledger files:
+   `! grep -q 'Branch:\*\* fix/screenshots-drift-cache' BACKLOG.md
+   BACKLOG-archive.md DEFERRED.md DEFERRED-archive.md` — exits 0 exactly when no
+   marker spelling survives anywhere (plan R1 F3 exit-safety; four-file scope
+   class-swept from the sibling arc's plan R1 F4), PLUS
+   `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` green (walks every
+   ledger file from disk; archives categorically reject in-flight entries).
+4. Pre-push gates: `pnpm heavy pnpm test:fast`, `pnpm typecheck`,
+   `pnpm exec eslint .`, `pnpm format:check`. Whole-diff codex-guard review
+   (`--stage diff`) to APPROVE runs after the merge and gates, on the final tree.
+5. PR (body: preflight ran; dispatch run ids; RED transcript) → real CI green →
    `gh pr merge --merge` same turn → ff main, verify `0 0`. Note: the PR itself
    fires the drift workflow (the paths filter lists the workflow file), so the PR run
    is a third live verification.
