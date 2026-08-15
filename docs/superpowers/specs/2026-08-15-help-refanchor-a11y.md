@@ -1,6 +1,6 @@
 # /help/errors RefAnchor whole-surface a11y pass
 
-**Date:** 2026-08-15 · **Authoring branch:** `docs/help-refanchor-a11y-spec` · **Implementation branch:** `fix/help-refanchor-a11y` · **Entry:** `BL-HELP-REFANCHOR-A11Y-PASS` (BACKLOG.md) · **Status:** DRAFT
+**Date:** 2026-08-15 · **Authoring branch:** `docs/help-refanchor-a11y-spec` · **Implementation branch:** `fix/help-refanchor-a11y` · **Entry:** `BL-HELP-REFANCHOR-A11Y-PASS` (BACKLOG.md) · **Status:** spec-APPROVED (codex-guard R6, 2026-08-15, 0 findings; R1-R5 findings repaired in-branch)
 
 ## §0 Why this arc exists, and its baseline
 
