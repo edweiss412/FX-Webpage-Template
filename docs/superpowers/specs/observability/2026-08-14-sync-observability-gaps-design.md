@@ -1,6 +1,6 @@
 # Manual-sync emission gaps and the broken existing-show retry
 
-**Status:** DRAFT
+**Status:** APPROVED — cross-model adversarial review converged APPROVE / 0 findings at round 9 (2026-08-14; rounds and dispositions in `docs/review-rounds/fix/sync-observability-gaps/04f601134519.md`)
 **Arc:** `fix/sync-observability-gaps`
 **Closes:** `BL-MANUAL-SYNC-UNEMITTED`, `BL-PENDING-RETRY-EXISTING-SHOW-THROWS` (BACKLOG.md)
 **Parent design:** `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` — its §6.1/§6.2 filed both defects and fenced them out of the attribution arc. This spec is the filed follow-up.
