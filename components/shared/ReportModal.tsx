@@ -523,7 +523,7 @@ export function ReportModal(props: ReportModalProps) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="report-modal-heading"
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      className="fixed inset-0 z-overlay flex items-end justify-center sm:items-center"
     >
       {/* THE MODAL'S ONE LIVE REGION (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
           Mounted for the modal's whole life so a status change is a MUTATION a
@@ -595,6 +595,7 @@ export function ReportModal(props: ReportModalProps) {
             className="mx-4 mt-2 rounded-sm border border-border bg-surface-sunken px-3 py-2 text-sm text-text-subtle sm:mx-6"
           >
             <span>Your previous report attempt didn&apos;t complete. </span>
+            {/* tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10 */}
             <button
               type="button"
               data-testid="report-modal-start-fresh"

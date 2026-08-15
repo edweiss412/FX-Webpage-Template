@@ -321,17 +321,68 @@ Don't animate `width`, `height`, `padding`, `margin`, `top`, `left`, etc. — th
 
 ### 5.5 Interaction constants
 
-Named JS module constants (single source of truth), each in its OWN owning module — named per entry below, not all in one file.
+**The timing population below is DERIVED, not hand-listed.** `scripts/scan-interaction-timings.ts`
+reads `app/**` + `components/**` (minus `app/api/**`, which is server budgets rather than
+interaction timing) and reports every numeric-literal `setTimeout`/`setInterval` delay, every
+numeric binding whose name ends in ms / delay / duration / timeout / seconds, and every numeric
+motion `duration:`. `tests/docs/_metaInteractionTimingInventory.test.ts` compares that output to
+this table in BOTH directions, so a timing added without a row here fails, and a row here that no
+longer exists in the source fails too. Regenerate with `pnpm exec tsx scripts/scan-interaction-timings.cli.ts`.
 
-They fall into two kinds, and the distinction matters for §10's hardcoding ban:
+A hand-written list was the previous shape and it could not work: a sweep and a test generated from
+that sweep share the same omissions, so the two agree about a world neither checked.
 
-**Behavioral thresholds** — gesture and scroll values that never produce a painted px, so the ban genuinely does not apply. All in `components/admin/wizard/Step3ReviewModal.tsx`:
+Every timer delay in the universe is literal, resolved to one of these constants, or named in the
+scanner's `UNCLASSIFIED_DISPOSITIONS` with a reason. None passes silently. The four current
+dispositions are a hook option, a sum of two rows below, a server-dictated `Retry-After`, and the
+realtime reconnect backoff.
 
-- `SCROLL_SPY_OFFSET_PX = 90` — the review modal's scroll-spy anchor line: a section becomes "active" once its top passes this many px below the content pane's top.
-- `DRAG_DISMISS_THRESHOLD_PX = 110` — sheet-mode drag distance past which release dismisses the modal.
-- `DRAG_SLOP_PX = 6` — max pointer travel still treated as a tap (click) rather than a drag.
-- `NAV_SCROLL_SETTLE_TIMEOUT_MS = 700` — review-modal nav click / warning jump: fallback release of the scroll-spy suppression when a programmatic glide never settles.
-- `NAV_SCROLL_SETTLE_EPSILON_PX = 2` — settle tolerance (px) that releases the nav-click scroll-spy suppression.
+| constant | value | owning file |
+| --- | --- | --- |
+| `WATCHDOG_MS` | 12000 | `app/admin/settings/admins/RevokeRowButton.tsx` |
+| `SUCCESS_DISMISS_MS` | 5000 | `app/admin/show/[slug]/PickerResetControl.tsx` |
+| `SUCCESS_DISMISS_MS` | 5000 | `app/admin/show/[slug]/ResetPickerEpochButton.tsx` |
+| `timer(2000)` | 2000 | `app/admin/show/[slug]/ShareLinkCopyButton.tsx` |
+| `PENDING_TIMEOUT_MS` | 8000 | `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx` |
+| `CLOSE_DELAY_MS` | 120 | `components/admin/HoverHelp.tsx` |
+| `ANNOUNCE_LOG_TTL_MS` | 30000 | `components/admin/announceLog.tsx` |
+| `ERROR_AUTO_CLEAR_MS` | 6000 | `components/admin/dev/DevCaptureControl.tsx` |
+| `DURATION_NORMAL_FALLBACK_MS` | 220 | `components/admin/review/ReviewModalShell.tsx` |
+| `DURATION_FAST_FALLBACK_MS` | 120 | `components/admin/review/ReviewModalShell.tsx` |
+| `EXIT_FALLBACK_BUFFER_MS` | 80 | `components/admin/review/ReviewModalShell.tsx` |
+| `timer(0)` | 0 | `components/admin/review/ReviewModalShell.tsx` |
+| `NAV_SCROLL_SETTLE_TIMEOUT_MS` | 700 | `components/admin/review/ShowReviewSurface.tsx` |
+| `SECTION_FRESHNESS_FLASH_MS` | 1600 | `components/admin/review/sectionFreshness.ts` |
+| `BUSY_GATE_MAX_MS` | 15000 | `components/admin/showpage/ShareHub.tsx` |
+| `SHARE_LINK_FLASH_MS` | 1600 | `components/admin/showpage/ShareHub.tsx` |
+| `AUTO_REFRESH_MS` | 20000 | `components/admin/telemetry/AutoRefreshControl.tsx` |
+| `timer(1000)` | 1000 | `components/admin/telemetry/AutoRefreshControl.tsx` |
+| `COPY_FEEDBACK_RESET_MS` | 2200 | `components/admin/wizard/Step1Share.tsx` |
+| `WARNING_HIGHLIGHT_MS` | 1600 | `components/admin/wizard/Step3ReviewModal.tsx` |
+| `timer(5000)` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
+| `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
+| `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
+| `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
+| `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |
+| `duration(0.22)` | 0.22 | `components/layout/PageTransition.tsx` |
+| `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |
+| `submitTimeoutMs` | 30000 | `components/shared/ReportModal.tsx` |
+| `ARM_REVERT_MS` | 4000 | `lib/admin/destructiveConfirm.ts` |
+
+Rows written `timer(N)` / `duration(N)` are inline literals rather than named constants; the file
+column is where they live.
+
+The rest of this section is the RATIONALE for the values that need one, plus the px thresholds that
+are not timings at all. They fall into two kinds, and the distinction matters for section 10's
+hardcoding ban:
+
+**Behavioral thresholds** — gesture and scroll values that never produce a painted px, so the ban genuinely does not apply, and which for the same reason carry no row in the derived table above (they are distances and tolerances, not timings; only `NAV_SCROLL_SETTLE_TIMEOUT_MS` is both). The Phase-1 extraction moved these out of `Step3ReviewModal.tsx`, which this section went on claiming until the derived inventory contradicted it; each owning file is now named per entry:
+
+- `SCROLL_SPY_OFFSET_PX = 90` (`components/admin/review/ShowReviewSurface.tsx`) — the review modal's scroll-spy anchor line: a section becomes "active" once its top passes this many px below the content pane's top.
+- `DRAG_DISMISS_THRESHOLD_PX = 110` (`components/admin/review/ReviewModalShell.tsx`) — sheet-mode drag distance past which release dismisses the modal.
+- `DRAG_SLOP_PX = 6` (`components/admin/review/ReviewModalShell.tsx`) — max pointer travel still treated as a tap (click) rather than a drag.
+- `NAV_SCROLL_SETTLE_TIMEOUT_MS = 700` (`components/admin/review/ShowReviewSurface.tsx`) — review-modal nav click / warning jump: fallback release of the scroll-spy suppression when a programmatic glide never settles.
+- `NAV_SCROLL_SETTLE_EPSILON_PX = 2` (`components/admin/review/ShowReviewSurface.tsx`) — settle tolerance (px) that releases the nav-click scroll-spy suppression.
 
 **Animation durations** — these DO paint. They are exempt from the `--duration-*` token scale only because they exceed its longest step (`--duration-slow`, 360ms), which is why each carries an explicit `prefers-reduced-motion` override rather than inheriting the global collapse (§5.3). Both are paired with a keyframe in `app/globals.css` and pinned against it by a drift test:
 

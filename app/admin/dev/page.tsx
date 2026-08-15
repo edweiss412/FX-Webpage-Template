@@ -331,10 +331,14 @@ function ReportSnippetButton({ snippet }: { snippet: string }) {
           above is a placeholder destination. The DOM and pre-fill MUST stay
           for the §15 demo flow + Playwright test that asserts the button
           renders with [data-testid=report-snippet-button]. */}
+      {/* Class A tap-floor recipe (spec 2026-08-10-tap-target-inline-controls §2, site 8);
+          `w-fit` keeps it from becoming a full-width band across the list row. The off-token
+          text-blue-700 goes with it — the class string was being edited anyway, and
+          text-accent-on-bg is the canonical link colour. */}
       <button
         type="submit"
         data-testid="report-snippet-button"
-        className="text-xs underline text-blue-700"
+        className="inline-flex w-fit min-h-tap-min items-center text-xs underline text-accent-on-bg"
       >
         Report this
       </button>

@@ -259,7 +259,7 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
             // containing block does NOT clamp, so a long name plus a long role
             // (roles like "A1 / V1 / BO / GAV" are real) runs off the left edge at
             // 390px with no scroll recovery (impeccable P2).
-            "absolute right-0 top-[calc(100%+8px)] z-20 w-max min-w-56 max-w-[calc(100vw-2rem)] origin-top-right",
+            "absolute right-0 top-[calc(100%+8px)] z-dropdown w-max min-w-56 max-w-[calc(100vw-2rem)] origin-top-right",
             "rounded-md border border-border bg-surface-raised p-1.5 shadow-popover",
             // Enter treatment per DESIGN §5; `motion-reduce` renders it instant
             // rather than removing it, so the reduced-motion path is a real

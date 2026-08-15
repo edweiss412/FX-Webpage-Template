@@ -1,14 +1,17 @@
 name: App e2e batch 1 (mobile-safari + desktop-chromium)
-# Un-darkens batch 1 of BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — seven specs that
+# Un-darkens batch 1 of BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — eight specs that
 # existed, matched a Playwright testMatch, and proved nothing on any PR (spec
 # docs/superpowers/specs/ci/2026-08-09-app-e2e-batch1-design.md).
 #
-# The spec scoped NINE. Two came out under AC-4 and neither may be re-added
-# without its blocker closing first: help-pages.spec.ts (below) and
-# admin-changes-feed-layout.spec.ts, whose review modal intermittently never
-# mounts inside a batch run — green on two consecutive CI runs, then red on two
-# of the next three, a different width band each time
-# (BL-CHANGES-FEED-MODAL-BATCH-FLAKE).
+# The spec scoped NINE and wired SEVEN: two came out under AC-4, and neither
+# may be re-added without its blocker closing first. help-pages.spec.ts's
+# blocker has since closed — /help/tour's hydration mismatch was an MDX
+# nesting defect, fixed 2026-08-10 (BL-HELP-TOUR-HYDRATION-MISMATCH, spec
+# docs/superpowers/specs/2026-08-10-help-tour-hydration-fix.md) — so it is
+# wired here, taking the count to eight. admin-changes-feed-layout.spec.ts
+# stays out: its review modal intermittently never mounts inside a batch run —
+# green on two consecutive CI runs, then red on two of the next three, a
+# different width band each time (BL-CHANGES-FEED-MODAL-BATCH-FLAKE).
 #
 # Deliberately NO pull_request filter of any kind — no paths, paths-ignore,
 # types, or branches. Any configuration under `pull_request:` voids coverage
@@ -31,10 +34,8 @@ name: App e2e batch 1 (mobile-safari + desktop-chromium)
 # BASELINE_SERVER_ONLY boots ONLY the :3000 webServer (playwright.config.ts
 # filter; the CREW_E2E_ONLY alias).
 #
-# help-pages.spec.ts is deliberately NOT here either: /help/tour throws a React
-# hydration mismatch (13 page errors) in dev and production builds alike. That
-# is an app defect on a UI surface (BL-HELP-TOUR-HYDRATION-MISMATCH), and the
-# spec keeps its LOCAL_ONLY_ALLOWLIST row until it is fixed.
+# help-pages.spec.ts resolves under mobile-safari only (playwright.config.ts
+# testMatch), so the two-project invocation runs it once, not twice.
 on:
   pull_request:
   workflow_dispatch:
@@ -140,7 +141,7 @@ jobs:
       - name: Run app-e2e batch 1 (both projects; each project's testMatch claims its own subset)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/app-e2e-report.json
-        run: pnpm exec playwright test tests/e2e/sample.spec.ts tests/e2e/root-landing.spec.ts tests/e2e/admin-layout.spec.ts tests/e2e/admin-phase2-surfaces.spec.ts tests/e2e/notify-toggles.spec.ts tests/e2e/me-page.spec.ts tests/e2e/report-modal.spec.ts --project=mobile-safari --project=desktop-chromium --retries=0 --reporter=list,json
+        run: pnpm exec playwright test tests/e2e/sample.spec.ts tests/e2e/root-landing.spec.ts tests/e2e/admin-layout.spec.ts tests/e2e/admin-phase2-surfaces.spec.ts tests/e2e/notify-toggles.spec.ts tests/e2e/me-page.spec.ts tests/e2e/report-modal.spec.ts tests/e2e/help-pages.spec.ts --project=mobile-safari --project=desktop-chromium --retries=0 --reporter=list,json
       # No `if:` — this must run on the success path, which is the only path
       # where a vacuously-green run is dangerous. A runtime `test.skip()` skips
       # every case while --list still reports them, so the run exits 0 having

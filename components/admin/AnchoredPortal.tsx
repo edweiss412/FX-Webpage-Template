@@ -279,7 +279,7 @@ export function AnchoredPortal({
       // children paint straight through it — a 13-item submenu on a short or
       // zoomed viewport spills exactly as far as it would have uncapped.
       // `auto`, never `clip`: clip reports a scrollHeight it will not scroll.
-      className={`z-50 overflow-y-auto overscroll-contain ${className}`}
+      className={`z-overlay overflow-y-auto overscroll-contain ${className}`}
     >
       {children}
     </div>,
