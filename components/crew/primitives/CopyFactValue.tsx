@@ -320,6 +320,11 @@ export function CopyFactValue({
     // already armed a NEWER window. Cancelling that one leaves the control
     // copied with nothing counting down at all.
     //
+    // The same is true of round 13's ordering — an older success that KEEPS a
+    // running window, so nothing re-arms, with a corrective already queued
+    // against that generation. Entering `copied` now advances the generation
+    // for exactly that reason, and the ordering shares the limit below.
+    //
     // NOT COVERED BY A JSDOM TEST, stated rather than implied. The interleaving
     // needs the value change COMMITTED while its passive effect is still
     // pending, and `act` flushes passive effects at the end of its scope, which
@@ -351,7 +356,16 @@ export function CopyFactValue({
       mounted: true,
       successor: null,
       currentValue: () => valueRef.current,
-      setCopied: () => setCopied(true),
+      setCopied: () => {
+        // ENTERING copied advances the generation, not merely arming a timer.
+        // A non-latest success can keep the window already running — no new arm
+        // — and a corrective queued before it would then still match the old
+        // generation and cancel the window now backing a NEW confirmation,
+        // leaving the glyph lit with nothing counting down (round 13). The
+        // generation names the confirmation, so it moves whenever one begins.
+        armGenRef.current += 1;
+        setCopied(true);
+      },
       clearCopied: () => {
         clearReset();
         setCopied(false);
