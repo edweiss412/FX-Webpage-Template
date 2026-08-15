@@ -31,7 +31,11 @@ describe("venue signal parity (spec §7.2a)", () => {
   }
   if (process.env["UPDATE_VENUE_PARITY_BASELINE"]) {
     mkdirSync(dirname(BASELINE), { recursive: true }); // retro F5: tests/parser/__fixtures__/ does not exist yet
-    writeFileSync(BASELINE, JSON.stringify(actual, null, 2));
+    // Trailing newline so the committed artifact is prettier-clean: this path is NOT in
+    // .prettierignore, so without it `prettier --check .` (the `pnpm format:check` gate)
+    // fails on the generated file. Written by the generator rather than added by hand, or
+    // the next regen would silently dirty the tree again.
+    writeFileSync(BASELINE, `${JSON.stringify(actual, null, 2)}\n`);
   }
 
   it("covers every fixture in the harness corpus", () => {

@@ -20,7 +20,7 @@
  * typos (§1.1.4 — zero corpus instances; an extension needs a live one).
  */
 import { FIELD_ALIASES, resolveAlias } from "./aliases";
-import { clean, decodeEntities, splitRow } from "./blocks/_helpers";
+import { clean, decodeEntities, scanRowsWithOpener } from "./blocks/_helpers";
 import { matchesSectionHeader } from "./blocks/_sectionHeaderMatch";
 import { isKnownSectionHeader } from "./knownSections";
 import { LABEL_TO_KIND_KEYS, canonicalSectionKind } from "./sectionKind";
@@ -61,8 +61,12 @@ export type NearMissMatch = {
   norm: string;
 };
 
-/** One scanned table row plus the first-cell text of the row that opened its table. */
-export type ScannedRow = { cells: string[]; opener: string };
+/**
+ * Re-exported so the detector's public surface is unchanged: the row scan lives in
+ * `blocks/_helpers` because `blocks/venue.ts` reads block openers too and importing this
+ * module from a block file would close a cycle through `sectionHeaderTokens`.
+ */
+export { scanRowsWithOpener, type ScannedRow } from "./blocks/_helpers";
 
 /** §3.1 minimum normalized length. `NAME`/`LED` fall below it. */
 export const MIN_LEN = 5;
@@ -117,37 +121,6 @@ export function tokenDocFrequency(vocab: Map<string, VocabEntry>): Map<string, n
     for (const t of entry.tokens) freq.set(t, (freq.get(t) ?? 0) + 1);
   }
   return freq;
-}
-
-/**
- * Every table row in the document, each tagged with its physical block's opening
- * first-cell text.
- *
- * The opener rule — first `|`-leading line of a run, reset at any non-pipe line — is
- * the rule `parseContacts` (contacts.ts:96-107) and `harvestFormLayout`
- * (event.ts:413-424) use to build their consumption-ledger keys, so a detector probe
- * key and a writer key for the same row are identical by construction. The rows
- * themselves are exactly `parseTableRows`' rows, in order (pinned in the suite).
- */
-export function scanRowsWithOpener(markdown: string): ScannedRow[] {
-  const rows: ScannedRow[] = [];
-  let inTable = false;
-  let opener = "";
-  for (const line of markdown.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) {
-      inTable = false;
-      continue;
-    }
-    const cells = splitRow(trimmed);
-    if (!inTable) {
-      inTable = true;
-      opener = clean(cells[0] ?? "");
-    }
-    if (cells.every((seg) => /^[\s:|*-]*$/.test(seg))) continue; // alignment row
-    if (cells.length > 0) rows.push({ cells, opener });
-  }
-  return rows;
 }
 
 /**
@@ -225,8 +198,17 @@ function isCandidateLabel(col0: string): boolean {
  * returns its own normalized opener, which resolves no anchor — the documented-safe
  * outcome ("the correct cell or null"), and correct: those blocks never had anchors.
  *
- * A table opening on a blank first cell yields the generic `"section"`, matching the
- * substitution every `canonicalSectionKind` caller makes for an unrecognized label.
+ * The DETAILS family here is event.ts's FIVE header spellings, deliberately WIDER than
+ * the anchor scanner's three exact ones. Narrowing it to match would map the corpus's
+ * `DETAILS/Room Diagram` and `GS DETAILS (FOR BOTH)` blocks to their own opener labels,
+ * and the Stage/Storage rows AC-N9 requires to stay anchored would resolve null. Wider
+ * costs nothing: a kind the scanner never emits simply matches no anchor.
+ *
+ * `"section"` is the fallback when the opener normalizes to nothing — a table opening on
+ * a blank first cell, or one whose first `|` line is an alignment row (`| :--- | :--- |`
+ * normalizes to empty, since `scanRowsWithOpener` takes the opener before the
+ * alignment-row skip). Chosen to match the substitution every `canonicalSectionKind`
+ * caller makes for an unrecognized label. No corpus fixture reaches it.
  */
 function anchorNamespace(opener: string): string {
   if (matchesSectionHeader(opener, VENUE_SECTION_HEADER_TOKENS)) return "venue";

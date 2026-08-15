@@ -31,12 +31,7 @@
  */
 
 import { clean, presence, splitRow } from "./_helpers";
-import {
-  type ParseAggregator,
-  emitEmptySection,
-  emitUnknownField,
-  markConsumed,
-} from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection, markConsumed } from "@/lib/parser/warnings";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
@@ -240,19 +235,16 @@ export function parseEventDetails(
           // Genuinely-unknown label (no fuzzy hit, tie-aborted, or below-minLen): preserve the
           // existing normalize-and-keep fallback. Defense-in-depth (§3.4): never let an
           // unknown label normalize into a financial/internal key (PO#/Budget/Invoice/…).
-          // A kept fallback key is rendered by nothing, so ALSO surface it to the operator via
-          // UNKNOWN_FIELD (kept + visible). Sensitive-looking labels stay silently dropped and
-          // are NOT flagged — flagging would leak the value through the warning rawSnippet.
-          // (unknown-label coverage)
+          //
+          // STORAGE ONLY — no UNKNOWN_FIELD here. Surfacing the row to the operator is
+          // `detectFieldNearMisses`' job at the document seam (field-near-miss spec §2.1),
+          // and it reports only rows whose LABEL nearly matches a field we know, so a
+          // vocabulary-less label is now deliberately silent. This fallback deliberately
+          // does NOT mark the consumption ledger either: a self-slug write resolves no real
+          // field, which is why `Stage`/`Storage` stay near-miss candidates (§3.3).
           const key = toCanonicalKey(col0);
           if (key && val && !isSensitiveCanonicalKey(key)) {
             writeField(result, key, val);
-            emitUnknownField(agg, {
-              block: "event_details",
-              kind: "details",
-              key: col0,
-              value: val,
-            });
           }
         }
       }

@@ -63,7 +63,8 @@ describe("venue swap sweep — every adjacent pair in the corpus (spec §7.2b)",
           blocks[i]!,
           ...blocks.slice(i + 2),
         ].join("\n\n");
-        if (mkeys(signalKeys(parseSheet(swapped, f.path))) !== base) broken.push(`B${i}<->B${i + 1}`);
+        if (mkeys(signalKeys(parseSheet(swapped, f.path))) !== base)
+          broken.push(`B${i}<->B${i + 1}`);
       }
       expect(broken, `swaps that changed the signal multiset in ${f.path}`).toEqual([]);
     });

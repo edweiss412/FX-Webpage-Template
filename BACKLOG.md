@@ -1215,3 +1215,30 @@ helper at DESCRIBE scope -> ["environment-free"]
 **Live cost already paid.** `tests/ci/phantomGapExecuted.test.ts` declared its spawning `runCli` inside the `describe` body; all three shipped-CLI cases classified environment-free and `EXPECTED_ENV_TOUCHING` recorded a truthful-looking `0`. Hoisting the helper to module scope moved it to `3`. Nothing failed in between — the corpus simply under-reported, silently, which is the failure mode the premise contract exists to prevent.
 
 **Fix:** scope-aware extent resolution in `premiseScan`, with the AC-10b `reportEnvelope`/`res` collision kept as a regression case so the repair cannot trade a false negative for the false positive it replaced. Until then the recognizer's contract is "module-scope helpers only", which no current caller states.
+
+### BL-TYPO-NORMALIZED-V4-VENUE-SHAPE — the re-keyed venue gate is unreachable on the current template, and the miss is silent
+
+**Severity:** MEDIUM (a SILENT miss, not a conservative demote — nothing at all is emitted, so the operator gets no signal to act on) · **Class:** parser signal reachability · **Filed:** 2026-08-15 (`feat/mutation-section-order`, found by the implementer during the field-near-miss detector task and confirmed by its reviewer) · **Effort:** S (the code is one predicate; the DECISION is the work)
+
+**Probed, not theorized.** Same typo-alias row, same parser, differing only in the shape of the table that holds it:
+
+```
+$ pnpm exec tsx --tsconfig tsconfig.json <probe>          # row: | Hotal Contact Info | Ashley M |
+v2 (| VENUE | opener)        opener="VENUE"        gate=true   warnings=[…, TYPO_NORMALIZED]
+v4 (| VENUE NAME | opener)   opener="VENUE NAME"   gate=false  warnings=[…]            <- no TYPO_NORMALIZED
+```
+
+(The other codes in both rows are unrelated document-shape noise from the two-row probe document; the discriminating difference is `TYPO_NORMALIZED` alone.)
+
+**Mechanism.** The field-near-miss detector work re-keyed `TYPO_NORMALIZED` from the retired positional scope window to venue-BLOCK MEMBERSHIP (`lib/parser/blocks/venue.ts:103`), per that spec's §2.1 "the §2.2 mapping's `venue` block". The predicate is `matchesSectionHeader` (`lib/parser/blocks/_sectionHeaderMatch.ts:44`), which is whole-cell equality after `normalizeHeader` — so `"VENUE NAME" !== "VENUE"`. A v2 three-column block opens on a standalone `VENUE` cell (`fixtures/shows/raw/2025-10-consultants-roundtable.md:96`) and passes the gate. A v4 two-column block opens on `VENUE NAME` (`fixtures/shows/raw/2026-03-rpas-central-four-seasons.md:40`) and does not.
+
+**Why this is a filing and not a documented limit.** On the v4 shape a registered typo alias inside the venue table now produces NOTHING: no `TYPO_NORMALIZED` (gate false), no `FIELD_LABEL_AUTOCORRECTED` (the alias resolves EXACTLY through `resolveAliasFull`, so the scoped fuzzy path never sees a `corrected` hit), and no `UNKNOWN_FIELD` (the label resolved, so it is not a near-miss candidate). The ledger filing bar sends a hypothetical to a limits record when its worst case is conservative behavior PLUS a surfaced signal; here there is no surfaced signal, so the screen does not cover it.
+
+**Reachable live surface.** The v4 template plus a registered typo alias placed in the venue table — e.g. `Hotal Contact Info` (`lib/parser/aliases.ts:27`) in the `VENUE NAME`-opened block of any 2026 sheet. v4 is the CURRENT template: the three most recent corpus fixtures (2026-03, 2026-04, 2026-05) all carry it. **Nothing regresses on today's fixtures** — the corpus `TYPO_NORMALIZED` census is 0 both before and after the re-key, because every corpus `Hotal Contact Info` row sits in a hotel block, not a venue one. The loss is on a shape that exists and is current but carries no typo instance yet.
+
+**Class-sweep exception (a) — needs a product/design decision this PR cannot settle.** Two candidate repairs, and choosing between them is the work:
+
+1. **A second predicate at the gate only** — also treat a table whose opener resolves to a `venue.*` canonical as the venue block. Contained to `venue.ts`, changes no emitted `kind`, but makes venue-block membership mean two different things in two places, which is the drift the single-predicate design deliberately removed.
+2. **Widen `anchorNamespace`'s venue arm** (`lib/parser/fieldNearMiss.ts:213`) so the v4 shape maps to `"venue"` for everyone. One definition of the venue block, but it changes `kind` on REAL `UNKNOWN_FIELD` emissions — `kind` is a routing key with three consumers (anchor resolution, the swap oracle, the persisted `block` column), so this moves the committed 65-row baseline and is a design call, not a refactor.
+
+**Fix:** pick an option, then pin the v4 direction in `tests/parser/fieldNearMissBaseline.test.ts` alongside the existing both-directions v2 cases, so the shape that is currently silent becomes an asserted one.

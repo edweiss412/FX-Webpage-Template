@@ -11,6 +11,7 @@
 // emitters are removed. This suite is the per-class contract.
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 import {
   DISTINCTIVENESS_MAX,
@@ -503,6 +504,130 @@ describe("calibrated residual classes fire exactly as baselined", () => {
     expect(emissionFor(fixtureTable(EAST_COAST_RAW, "Diagrams?"), "Diagrams?").candidate).toBe(
       "DIagrams",
     );
+  });
+});
+
+// ── Emission topology (spec §2.1: the detector is the SOLE emitter) ──────────────────
+
+/**
+ * Every `emitUnknownField` INVOCATION in `src`, as 1-based line numbers.
+ *
+ * Counting mentions instead of call sites makes this pin wrong-but-green: `rawSnippet.ts`
+ * names the emitter in a header comment, and every caller names it again on an import
+ * line. `rg -c emitUnknownField lib/parser --glob '!warnings.ts'` sums to 8 lines before
+ * the removals and 4 after, and neither number is the thing being pinned.
+ *
+ * So this reads the PARSE, not the text: a call site is a `CallExpression` whose callee is
+ * the identifier. Comments are not in the AST and an import specifier is not a call, so
+ * both are excluded by construction rather than by a stripping pass that could be fooled.
+ * (Hand-rolled comment handling in a guard is also forbidden — single source is
+ * `tests/_shared/stripComments`, enforced by
+ * `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts`.)
+ */
+function emitCallSiteLines(src: string): number[] {
+  const sf = ts.createSourceFile("__scan.ts", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const out: number[] = [];
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === "emitUnknownField"
+    ) {
+      out.push(sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/**
+ * Trees the walk does NOT descend into, each with the one clause that justifies it.
+ *
+ * This is a DENY-list on purpose. An allow-list of source roots re-opens the moment someone
+ * adds a top-level directory, and that is not hypothetical: a four-root allow-list
+ * (`app`/`components`/`lib`/`scripts`) shipped in this file's first version and already
+ * missed `supabase/seed.ts`, an authored non-test file that imports `lib/parser` and sat
+ * outside every listed root. Walking from the repo root and subtracting a justified set
+ * makes a new directory covered by DEFAULT, which is what the class-sweep rule means by a
+ * derived cover rather than an enumeration.
+ */
+const EXCLUDED_DIRS = new Map<string, string>([
+  ["node_modules", "vendored dependencies: no authored call sites, and descending costs seconds"],
+  [
+    "tests",
+    "a test may legitimately call the emitter directly — tests/parser/warnings.test.ts does, to pin the emitter's own contract",
+  ],
+  [
+    "docs",
+    "probe and evidence scripts; they DO import lib/parser, but they are review artifacts, not shipped call sites",
+  ],
+  ["test-results", "Playwright run output (gitignored)"],
+  ["coverage", "coverage report output (gitignored when present)"],
+]);
+
+/**
+ * Every `.ts`/`.tsx` file under `dir`, recursively, as repo-relative paths.
+ *
+ * Dot-prefixed entries are skipped wholesale: VCS (`.git`), CI config (`.github`), agent and
+ * editor state (`.claude`, `.serena`, `.superpowers`, `.impeccable`), and build output
+ * (`.next`) all live there and none holds an authored call site.
+ */
+function walkTs(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir === "" ? "." : dir, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    const p = dir === "" ? entry.name : `${dir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      if (EXCLUDED_DIRS.has(p)) continue;
+      out.push(...walkTs(p));
+    } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) out.push(p);
+  }
+  return out;
+}
+
+/** The four roots the superseded allow-list named — kept ONLY to prove the walk exceeds them. */
+const SUPERSEDED_ALLOW_LIST = ["app/", "components/", "lib/", "scripts/"];
+
+describe("emitUnknownField call-site topology", () => {
+  it("has exactly one call site in the whole repository, and it is the detector", () => {
+    // Repo-root walk minus a justified deny-list, so a NEW top-level directory is covered by
+    // default and a would-be gap fails here instead of sitting silently outside the set.
+    const files = walkTs("").filter((f) => f !== "lib/parser/warnings.ts");
+    premise("the repository was actually walked", files.length, 500);
+    premiseHolds(
+      "the definition file is excluded, so its own declaration cannot be miscounted",
+      !files.includes("lib/parser/warnings.ts"),
+    );
+
+    // Non-vacuity for the deny-list itself: `supabase/seed.ts` is the live file the old
+    // allow-list missed — an authored, non-test module that imports `lib/parser`. Both halves
+    // are asserted, so the witness cannot rot into one the old list would have covered anyway.
+    expect(files, "supabase/seed.ts must be in the walk").toContain("supabase/seed.ts");
+    expect(
+      SUPERSEDED_ALLOW_LIST.some((r) => "supabase/seed.ts".startsWith(r)),
+      "the witness must sit OUTSIDE the superseded allow-list, or it proves nothing",
+    ).toBe(false);
+
+    const sites = files.flatMap((f) =>
+      emitCallSiteLines(readFileSync(f, "utf8")).map((line) => `${f}:${line}`),
+    );
+    expect(sites.map((s) => s.split(":")[0])).toEqual(["lib/parser/fieldNearMiss.ts"]);
+  });
+
+  it("counts invocations, not mentions — comments and imports never register", () => {
+    // The discriminating cases, stated on inputs of this test's own making: the shapes
+    // that actually occur in the tree (a header-comment mention, an import naming the
+    // symbol) must not count, while a real call must.
+    expect(emitCallSiteLines(`// emitUnknownField(agg, opts) writes rawSnippet\n`)).toEqual([]);
+    expect(emitCallSiteLines(`import { emitUnknownField } from "./warnings";\n`)).toEqual([]);
+    expect(emitCallSiteLines(`import {\n  emitUnknownField,\n} from "./warnings";\n`)).toEqual([]);
+    expect(emitCallSiteLines(`/**\n * emitUnknownField(agg, o);\n */\n`)).toEqual([]);
+    expect(emitCallSiteLines(`const s = "emitUnknownField(agg, o)";\n`)).toEqual([]);
+    expect(emitCallSiteLines(`x();\nemitUnknownField(agg, o);\n`)).toEqual([2]);
+    // Two calls in ONE file are two sites, so the topology assertion above cannot be
+    // satisfied by a file that emits twice.
+    expect(emitCallSiteLines(`emitUnknownField(a, b);\nemitUnknownField(c, d);\n`)).toEqual([1, 2]);
   });
 });
 

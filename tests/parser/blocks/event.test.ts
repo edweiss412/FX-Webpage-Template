@@ -390,51 +390,47 @@ describe("parseEventDetails — gate corrects unseen typos (PR-D1)", () => {
   }, 30000);
 });
 
-// ── unknown-label coverage (surface genuinely-unknown DETAILS labels) ──────────
-// Failure mode caught: a genuinely-unknown EVENT-DETAILS label is kept under a
-// non-whitelisted fallback key (rendered by nothing → invisible to the operator).
-// These tests pin that such a label is now FLAGGED via UNKNOWN_FIELD (kept + visible),
-// that known labels are NOT flagged, and that sensitive-looking labels stay silently
-// dropped and unflagged so their value never leaks into the warning rawSnippet.
+// ── unknown-label coverage (self-slug STORAGE for genuinely-unknown DETAILS labels) ──
+// The fallback's storage behaviour is unchanged and is what these tests pin: a
+// genuinely-unknown label is KEPT under its self-slug key, a sensitive-looking one is
+// dropped, and its value never reaches a warning or a raw_unrecognized entry.
+//
+// The fallback's WARNING is gone. `parseEventDetails` no longer emits UNKNOWN_FIELD —
+// the content-keyed near-miss detector at the `parseSheet` document seam is the sole
+// emitter (field-near-miss spec §2.1), and it reports only labels that nearly match a
+// field we know, so a vocabulary-less label like `Rigging` is now deliberately silent
+// (spec §1.1.1: flagging every unrecognized row is the rejected coverage-audit product).
+// A DIRECT `parseEventDetails` call gets no replacement emission at all; the positive
+// coverage for labels that DO have a target lives in tests/parser/fieldNearMiss.test.ts
+// and the corpus baseline, where `Stage`/`Storage` — this same fallback branch — fire.
 describe("parseEventDetails — unknown-label coverage", () => {
   const ufWarns = (agg: ReturnType<typeof newAggregator>) =>
     agg.warnings.filter((w) => w.code === "UNKNOWN_FIELD");
 
-  it("keeps AND flags a genuinely-unknown non-sensitive label; the known sibling is not flagged", () => {
+  it("keeps a genuinely-unknown non-sensitive label under its self-slug, and stays silent", () => {
     const agg = newAggregator();
     const ed = parseEventDetails(
       evBlock(["| Stage Size | 8' x 24' |", "| Rigging | 2 motors |"]),
       "v4",
       agg,
     );
-    // Known label routes unchanged (control row) and is NOT flagged.
+    // Known label routes unchanged (control row).
     expect(ed.stage_size).toBe("8' x 24'");
-    // Genuinely-unknown label is KEPT under its fallback key...
+    // Genuinely-unknown label is KEPT under its fallback key — the storage half is intact,
+    // which is what makes the silence below a deliberate warning change and not a dropped row.
     expect(ed.rigging).toBe("2 motors");
-    // ...AND surfaced exactly once via UNKNOWN_FIELD with deep-link region 'details'.
-    const uf = ufWarns(agg);
-    expect(uf).toHaveLength(1);
-    expect(uf[0]!.severity).toBe("warn");
-    expect(uf[0]!.blockRef).toEqual({ kind: "details", name: "Rigging" });
-    expect(uf[0]!.rawSnippet).toContain("Rigging");
-    expect(agg.rawUnrecognized).toContainEqual({
-      block: "event_details",
-      key: "Rigging",
-      value: "2 motors",
-    });
-    // No UNKNOWN_FIELD for the known "Stage Size" row.
-    expect(uf.some((w) => (w.rawSnippet ?? "").includes("Stage Size"))).toBe(false);
-    // Not a fuzzy autocorrect — "Rigging" is genuinely unknown, not a typo.
+    expect(ufWarns(agg)).toHaveLength(0);
+    expect(agg.rawUnrecognized).toEqual([]);
+    // Not a fuzzy autocorrect either — "Rigging" is genuinely unknown, not a typo.
     expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
   });
 
-  it("drops a sensitive-looking unknown label silently — NOT flagged, value never leaks", () => {
+  it("drops a sensitive-looking unknown label silently — value never leaks", () => {
     const SECRET = "$50,000";
     const agg = newAggregator();
     const ed = parseEventDetails(evBlock([`| Budget | ${SECRET} |`]), "v4", agg);
     // sensitive guard (gearClassification.isSensitiveCanonicalKey "budget"): dropped, no key.
     expect(ed.budget).toBeUndefined();
-    // No UNKNOWN_FIELD for it — flagging would leak the value via rawSnippet.
     expect(ufWarns(agg)).toHaveLength(0);
     // Hard leak check: the value appears in NO warning snippet and NO raw_unrecognized entry.
     expect(agg.warnings.every((w) => !(w.rawSnippet ?? "").includes(SECRET))).toBe(true);
