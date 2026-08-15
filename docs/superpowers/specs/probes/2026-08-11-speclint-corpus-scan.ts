@@ -51,6 +51,12 @@ const deps: CliDeps = {
   },
   readFileBytes: (p) => readFileSync(p),
   realpath: (p) => realpathSync(p),
+  // The red-contract arm's executor, which this scan never enables: it lints without
+  // `--exec`, so nothing reaches this seam. Refusing loudly is the honest stub — a
+  // silent success would let a future `--exec` corpus run report green on no execution.
+  spawn: () => {
+    throw new Error("corpus scan does not execute declared commands");
+  },
 };
 
 /** The corpus enumeration (plan R4 F2: top-level ledgers included). */

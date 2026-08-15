@@ -342,7 +342,6 @@ realtime reconnect backoff.
 | `WATCHDOG_MS` | 12000 | `app/admin/settings/admins/RevokeRowButton.tsx` |
 | `SUCCESS_DISMISS_MS` | 5000 | `app/admin/show/[slug]/PickerResetControl.tsx` |
 | `SUCCESS_DISMISS_MS` | 5000 | `app/admin/show/[slug]/ResetPickerEpochButton.tsx` |
-| `timer(2000)` | 2000 | `app/admin/show/[slug]/ShareLinkCopyButton.tsx` |
 | `PENDING_TIMEOUT_MS` | 8000 | `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx` |
 | `CLOSE_DELAY_MS` | 120 | `components/admin/HoverHelp.tsx` |
 | `ANNOUNCE_LOG_TTL_MS` | 30000 | `components/admin/announceLog.tsx` |
@@ -357,7 +356,7 @@ realtime reconnect backoff.
 | `SHARE_LINK_FLASH_MS` | 1600 | `components/admin/showpage/ShareHub.tsx` |
 | `AUTO_REFRESH_MS` | 20000 | `components/admin/telemetry/AutoRefreshControl.tsx` |
 | `timer(1000)` | 1000 | `components/admin/telemetry/AutoRefreshControl.tsx` |
-| `COPY_FEEDBACK_RESET_MS` | 2200 | `components/admin/wizard/Step1Share.tsx` |
+| `WIZARD_COPY_FEEDBACK_RESET_MS` | 2200 | `components/admin/wizard/Step1Share.tsx` |
 | `WARNING_HIGHLIGHT_MS` | 1600 | `components/admin/wizard/Step3ReviewModal.tsx` |
 | `timer(5000)` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
@@ -368,6 +367,7 @@ realtime reconnect backoff.
 | `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |
 | `submitTimeoutMs` | 30000 | `components/shared/ReportModal.tsx` |
 | `ARM_REVERT_MS` | 4000 | `lib/admin/destructiveConfirm.ts` |
+| `COPY_FEEDBACK_RESET_MS` | 2000 | `lib/ui/copyFeedback.ts` |
 
 Rows written `timer(N)` / `duration(N)` are inline literals rather than named constants; the file
 column is where they live.

@@ -1669,3 +1669,366 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
     await expect(crewTrigger).toHaveAttribute("data-surface", "crew");
   });
 });
+
+/**
+ * Wi-Fi password transcription affordance, on the PRODUCTION crew route.
+ *
+ * Spec: docs/superpowers/specs/2026-08-10-wifi-password-legibility.md §6 (a)
+ * Plan: docs/superpowers/plans/2026-08-10-wifi-password-legibility.md Task 2
+ *
+ * These are the oracles that need the REAL route: the live seeded value, the
+ * real compiled stylesheet, and the rest of the page's chrome around the
+ * control. The counterfactual oracles — the same row rendered twice, once with
+ * a control and once with an icon, and the mid-list vs last-row topologies —
+ * cannot live here, because the production route renders the password row
+ * exactly once (spec §6 (b)); they are the standalone harness's job.
+ *
+ * Every rect comparison is collected in ONE `page.evaluate`. Two Locator reads
+ * are two layout snapshots taken at different moments, and Playwright's
+ * actionability checks scroll between them, which manufactures overlaps that
+ * were never on screen together.
+ */
+test.describe("wifi password transcription affordance (production route)", () => {
+  test.setTimeout(180_000);
+
+  const TOL = 0.5;
+  /** 44x44, `--spacing-tap-min` (app/globals.css). */
+  const TAP_MIN = 44;
+
+  let slug = "";
+  let shareToken = "";
+
+  test.beforeEach(async ({ page }) => {
+    const seeded = await lookupSeededShow();
+    slug = seeded.slug;
+    shareToken = await lookupShareToken(seeded.showId);
+    await page.clock.install({ time: new Date(SHOW_DAY_N_INSTANT) });
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  async function gotoVenue(page: import("@playwright/test").Page): Promise<void> {
+    const res = await page.goto(`/show/${slug}/${shareToken}?s=venue`, {
+      waitUntil: "domcontentloaded",
+    });
+    expect(res?.status(), `crew venue route must render`).toBe(200);
+    await expect(page.getByTestId("crew-shell")).toBeVisible();
+    await expect(page.getByTestId("section-venue")).toBeVisible();
+    // Settle the section-enter crossfade before any layout read — under a frozen
+    // clock framer's enter animation does not auto-advance, and a read taken at
+    // the pre-commit frame reports height 0 for the whole subtree.
+    await page.clock.runFor(400);
+    await expect(page.getByTestId("venue-wifi-password")).toBeVisible();
+    // The island must be HYDRATED before geometry: an un-hydrated button is
+    // still laid out, but a measurement that passes before hydration would pass
+    // just as well if the island never mounted.
+    await expect(
+      page.getByTestId("venue-wifi-password").getByRole("button", {
+        name: "Copy the Wi-Fi password",
+      }),
+    ).toBeEnabled();
+
+    // Centre the row in the viewport before any measurement. Rects are
+    // VIEWPORT-relative, and this page carries a FIXED bottom tab-bar: at the
+    // page's initial scroll the password row can sit underneath it, so a hit
+    // test at the target's centre truthfully reports the tab-bar — a fact about
+    // where the page happened to be scrolled, not about the control. Centring
+    // makes every case below scroll-independent, and the relative comparisons
+    // (target vs row, vs card, vs sibling rows) are unaffected because
+    // everything moves together.
+    await page.evaluate(() => {
+      document
+        .querySelector('[data-testid="venue-wifi-password"]')
+        ?.scrollIntoView({ block: "center" });
+    });
+    await page.waitForTimeout(100);
+  }
+
+  /** Everything the geometry cases read, in one layout snapshot. */
+  async function readVenueGeometry(page: import("@playwright/test").Page) {
+    return page.evaluate(() => {
+      const box = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return {
+          top: r.top,
+          left: r.left,
+          right: r.right,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+        };
+      };
+      const row = document.querySelector('[data-testid="venue-wifi-password"]');
+      if (row === null) return null;
+      const card = row.closest('[data-testid="section-card"]');
+      const button = row.querySelector("button");
+      // First span inside the dd in document order is the value span (the
+      // wrapper div's first child); the announce region is a later sibling.
+      const valueSpan = row.querySelector("dd span");
+      return {
+        valueClass: valueSpan?.getAttribute("class") ?? "",
+        valueText: valueSpan?.textContent ?? "",
+        ariaLabel: button?.getAttribute("aria-label") ?? null,
+        // getClientRects() returns one rect PER LINE BOX, so its length is the
+        // rendered line count of the wrapped value.
+        valueLineCount: valueSpan === null ? 0 : valueSpan.getClientRects().length,
+        rowRect: box(row),
+        buttonRect: button === null ? null : box(button),
+        cardRect: card === null ? null : box(card),
+        valueRect: valueSpan === null ? null : box(valueSpan),
+        rows: Array.from(document.querySelectorAll('[data-testid="fact-rows"] > div')).map(
+          (el) => ({
+            label: el.querySelector("dt")?.textContent ?? "",
+            hasIcon: el.querySelector('[data-slot="fact-row-icon"]') !== null,
+            hasControl: el.querySelector("button") !== null,
+            isTarget: el === row,
+            rect: box(el),
+          }),
+        ),
+        interactives: Array.from(document.querySelectorAll("a, button")).map((el) => ({
+          isTarget: el === button,
+          // A fixed-position element's rect is in VIEWPORT space and moves with
+          // the scroll, so comparing it to an in-flow rect measures where the
+          // two happened to be at one scroll offset, not whether they can ever
+          // collide. The bottom tab-bar is exactly that, and it produced a false
+          // overlap here. Fixed/sticky chrome is covered by the hit test below
+          // instead, which asks the real question: does a tap at the target land
+          // on the target?
+          //
+          // The ANCESTOR chain, not the element's own `position`: the tab-bar's
+          // container is what is fixed, while each tab button inside it computes
+          // to `static` and inherits the container's viewport-space coordinates.
+          // Reading the element alone let every one of those buttons back into
+          // the comparison.
+          inFixedChrome: (() => {
+            for (let n: Element | null = el; n !== null; n = n.parentElement) {
+              const p = getComputedStyle(n).position;
+              if (p === "fixed" || p === "sticky") return true;
+            }
+            return false;
+          })(),
+          name:
+            el.getAttribute("aria-label") ??
+            (el.textContent ?? "").trim().slice(0, 40) ??
+            el.tagName,
+          rect: box(el),
+        })),
+        // What actually receives a tap at the target's centre and each edge
+        // midpoint, inset 1px so a midpoint on a shared boundary is not
+        // ambiguous. `elementFromPoint` answers for the WHOLE paint order,
+        // fixed chrome and overlays included.
+        hitTest:
+          button === null
+            ? null
+            : (() => {
+                const r = button.getBoundingClientRect();
+                const points: Array<[string, number, number]> = [
+                  ["centre", r.left + r.width / 2, r.top + r.height / 2],
+                  ["top", r.left + r.width / 2, r.top + 1],
+                  ["bottom", r.left + r.width / 2, r.bottom - 1],
+                  ["left", r.left + 1, r.top + r.height / 2],
+                  ["right", r.right - 1, r.top + r.height / 2],
+                ];
+                return points.map(([label, x, y]) => {
+                  const hit = document.elementFromPoint(x, y);
+                  return {
+                    label,
+                    reachesTarget: hit !== null && button.contains(hit),
+                    hitName: hit === null ? "null" : (hit.tagName ?? "").toLowerCase(),
+                  };
+                });
+              })(),
+      };
+    });
+  }
+
+  type Box = { top: number; left: number; right: number; bottom: number };
+  const overlaps = (a: Box, b: Box): boolean =>
+    a.left < b.right - TOL &&
+    b.left < a.right - TOL &&
+    a.top < b.bottom - TOL &&
+    b.top < a.bottom - TOL;
+
+  test("the live password row renders code-value and a hydrated copy control (AC-1)", async ({
+    page,
+  }) => {
+    await gotoVenue(page);
+    const g = await readVenueGeometry(page);
+    expect(g, "the seeded internet cell must parse into a password row").not.toBeNull();
+
+    expect(g!.valueClass).toContain("code-value");
+    expect(g!.ariaLabel).toBe("Copy the Wi-Fi password");
+    // The SSID row is deliberately untouched (spec §1.1).
+    const ssidClass = await page.evaluate(
+      () =>
+        document.querySelector('[data-testid="venue-wifi-ssid"] dd span')?.getAttribute("class") ??
+        "",
+    );
+    expect(ssidClass).not.toContain("code-value");
+    expect(
+      await page.getByTestId("venue-wifi-ssid").locator("button").count(),
+      "an SSID is picked from a network list, not transcribed",
+    ).toBe(0);
+  });
+
+  test("the copy target is 44x44, right-edge pinned, and inside the card box (AC-2)", async ({
+    page,
+  }) => {
+    await gotoVenue(page);
+    const g = await readVenueGeometry(page);
+    expect(g?.buttonRect, "the copy control must render").not.toBeNull();
+    const button = g!.buttonRect!;
+    const card = g!.cardRect!;
+    const row = g!.rowRect;
+
+    expect(Math.abs(button.width - TAP_MIN)).toBeLessThanOrEqual(TOL);
+    expect(Math.abs(button.height - TAP_MIN)).toBeLessThanOrEqual(TOL);
+
+    // Horizontal containment is EXACT: margin-right is 0, so the target's right
+    // edge sits on the row's right edge.
+    expect(Math.abs(button.right - row.right)).toBeLessThanOrEqual(TOL);
+    expect(button.left).toBeGreaterThanOrEqual(row.left - TOL);
+
+    // Vertical containment is CARD-scoped, not row-scoped: `last:pb-0` lets a
+    // last row be 40px tall, and the 44px target legitimately reaches into the
+    // card's own padding. The card's BORDER box is the true boundary — its CSS
+    // content box excludes exactly the padding the target reaches into.
+    expect(button.top).toBeGreaterThanOrEqual(card.top - TOL);
+    expect(button.bottom).toBeLessThanOrEqual(card.bottom + TOL);
+    expect(button.left).toBeGreaterThanOrEqual(card.left - TOL);
+    expect(button.right).toBeLessThanOrEqual(card.right + TOL);
+  });
+
+  test("the copy target is disjoint from every other row and every interactive element (AC-2)", async ({
+    page,
+  }) => {
+    await gotoVenue(page);
+    const g = await readVenueGeometry(page);
+    const button = g!.buttonRect!;
+
+    const otherRows = g!.rows.filter((r) => !r.isTarget);
+    expect(
+      otherRows.length,
+      "the page must render sibling fact rows, or this proves nothing",
+    ).toBeGreaterThan(0);
+    for (const other of otherRows) {
+      expect(overlaps(button, other.rect), `copy target overlaps the "${other.label}" row`).toBe(
+        false,
+      );
+    }
+
+    // Not merely other fact rows: anything the finger can hit. A target that
+    // overlaps the section nav or the report button steals taps from it.
+    // Fixed/sticky chrome is excluded from the RECT comparison and covered by
+    // the hit test instead — see the `position` note in readVenueGeometry.
+    const others = g!.interactives.filter((el) => !el.isTarget && !el.inFixedChrome);
+    expect(
+      others.length,
+      "the crew page must render other in-flow interactive elements, or this proves nothing",
+    ).toBeGreaterThan(0);
+    for (const el of others) {
+      expect(overlaps(button, el.rect), `copy target overlaps "${el.name}"`).toBe(false);
+    }
+
+    // The claim rect math cannot make: a tap at the target reaches the TARGET,
+    // not something painted over it. This is what covers the fixed bottom bar
+    // and any overlay, and it is the same oracle the step3 tap-target work
+    // settled on after a `before:-inset-*` recipe measured 44x44 while only two
+    // of its edges took the pointer.
+    expect(g!.hitTest, "the hit test must have run").not.toBeNull();
+    for (const point of g!.hitTest!) {
+      expect(
+        point.reachesTarget,
+        `a tap at the target's ${point.label} landed on <${point.hitName}>`,
+      ).toBe(true);
+    }
+  });
+
+  test("the control row is STRICTLY taller than a bare-text row on the live page (AC-2)", async ({
+    page,
+  }) => {
+    await gotoVenue(page);
+    const g = await readVenueGeometry(page);
+    const target = g!.rows.find((r) => r.isTarget)!;
+    const table = g!.rows
+      .map((r) => `${r.label || "(no label)"}=${r.rect.height.toFixed(2)}`)
+      .join(", ");
+
+    // The INEQUALITY is the live-route oracle: it proves the control changed the
+    // row's height at all, using rows this page really renders.
+    //
+    // The matching EQUALITY — the control row is exactly as tall as the same row
+    // carrying an icon — is deliberately NOT asserted here. It needs the SAME
+    // row rendered twice, which the production route cannot do (it renders the
+    // password row once, spec §6 (b)), and comparing against whichever other
+    // icon row this seed happens to carry measures that row's content as much as
+    // the control's box. tests/e2e/wifi-password-row.layout.spec.ts DI-1 renders
+    // the counterfactual and asserts the equality there.
+    const bareRow = g!.rows.find((r) => !r.hasIcon && !r.hasControl && !r.isTarget);
+    expect(
+      bareRow,
+      `the page must render a bare-text fact row for the inequality oracle (rows: ${table})`,
+    ).toBeDefined();
+    expect(
+      bareRow!.rect.height,
+      `bare row must be shorter than the control row (rows: ${table})`,
+    ).toBeLessThan(target.rect.height - TOL);
+  });
+
+  test("the copy control declares the container-matched focus ring (AC-2)", async ({ page }) => {
+    await gotoVenue(page);
+
+    // The ring's PAINT is measured in the standalone harness, not here, and the
+    // reason is a WebKit fact rather than a preference. `:focus-visible` is a
+    // MODALITY question: a programmatic `element.focus()` does not match it, so
+    // every `focus-visible:` declaration stays inert and the engine paints its
+    // own default outline instead (measured here: outline-style "solid", not
+    // "none"). The obvious repair — reach the control with Tab — does not work
+    // under this project either: WebKit follows macOS "Press Tab to highlight
+    // each item", which is OFF, so Tab never lands on a <button> and 120
+    // presses did not reach it.
+    //
+    // tests/e2e/wifi-password-row.layout.spec.ts DI-5 runs under chromium, tabs
+    // to the control, and measures what the focused element ACTUALLY paints. It
+    // is not what `focus-visible:outline-none` reads like: that utility is
+    // layered (`@layer utilities`) while app/globals.css:788 declares
+    // `:focus-visible { outline: 3px solid var(--color-focus-ring);
+    // outline-offset: 2px }` unlayered, and unlayered beats layered whatever
+    // the specificity — so the project's global orange outline is the indicator
+    // here, with the ring's box-shadow underneath it in the same color. That
+    // holds at all ~256 call sites using this idiom, so what is asserted HERE
+    // is the half the live route can prove: the declarations are on the element
+    // the production call site renders, with the offset token matched to the
+    // card's backdrop.
+    const declared = await page.evaluate(() => {
+      const button = document.querySelector('[data-testid="venue-wifi-password"] button');
+      return button === null ? null : (button.getAttribute("class") ?? "");
+    });
+    expect(declared, "the copy control must render").not.toBeNull();
+    for (const cls of [
+      "focus-visible:outline-none",
+      "focus-visible:ring-2",
+      "focus-visible:ring-focus-ring",
+      "focus-visible:ring-offset-2",
+      "focus-visible:ring-offset-surface",
+    ]) {
+      expect(declared!.split(/\s+/), `missing ${cls}`).toContain(cls);
+    }
+  });
+
+  // The 40-character WRAP case is deliberately NOT here, and the reason is a
+  // measurement rather than a preference. `getShowForViewer` is wrapped in
+  // `unstable_cache` keyed `show-<id>` with a 300s backstop
+  // (lib/data/getShowForViewer.ts), so a direct write to `shows.event_details`
+  // does not reach the rendered page: an override that set a 40-char password
+  // and reloaded still measured the seeded `Astoria2026`, and the case passed
+  // its containment assertions against a value that never wrapped. Invalidating
+  // the tag needs the app's own write path, which is not what this suite is
+  // about, and lengthening the SEED would make every other live oracle here
+  // measure a two-line row instead of the ordinary one.
+  //
+  // So the wrap case lives where a constructed value is free and honest:
+  // tests/e2e/wifi-password-row.layout.spec.ts DI-6 renders a real 40-char
+  // value at 390px and proves the wrap with a >1-line client-rects count before
+  // asserting containment. That is the same division spec §6 (b) already draws.
+});

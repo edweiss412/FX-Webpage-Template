@@ -2,7 +2,7 @@
 
 **Measured:** 2026-08-11 on `feat/speclint-prose-count-parity`, over the SHIPPED recognizers'
 own populations, and re-derived at merge time. Source record:
-`2026-08-11-speclint-corpus-scan.survivors.txt` (1082 of 1083 corpus documents; one tracked
+`2026-08-11-speclint-corpus-scan.survivors.txt` (1095 of 1096 corpus documents; one tracked
 symlink the CLI refuses by design, named there).
 
 **What this record is for, and what it is NOT.** Per spec §3.2/§3.3 ship posture and AC-3,
@@ -104,7 +104,7 @@ second hand-read instance this bullet used to cite,
 `docs/superpowers/plans/2026-07-20-warning-surface-trim/plan.md:168` ("Five states, six
 fixtures:"), is one of the five: it stopped at a lazy continuation and reported four items.
 No row entered the population, and every other mechanism's rows are untouched. Merging `main`
-before the PR then brought 30 more corpus documents, which added three shape-(b) rows and
+before the PR then brought 43 more corpus documents, which added three shape-(b) rows and
 carried the population to 177; the buckets and class counts above are re-derived from the
 survivors file as committed.
 

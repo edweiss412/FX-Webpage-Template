@@ -98,7 +98,12 @@ describe("readShowReviewSnapshot", () => {
     logError.mockClear();
     const { client } = clientReturning({
       data: null,
-      error: { message: "permission denied", code: "42501" },
+      error: {
+        message: "permission denied",
+        code: "42501",
+        details: "fixture details",
+        hint: "fixture hint",
+      },
     });
     const result = await readShowReviewSnapshot(client, SHOW_ID);
     expect(result.kind).toBe("infra_error");
@@ -109,7 +114,16 @@ describe("readShowReviewSnapshot", () => {
     if (!call) throw new Error("expected a log.error call");
     const fields = call[1] as Record<string, unknown>;
     expect(fields.source).toBe("admin.showReview.snapshot");
-    // Zero-new-codes constraint: this read path does not stamp a §12.4 code.
+    // The fatal path's own error must be READABLE: passing the raw PostgREST
+    // object here renders as '[object Object]' (lib/log/serializeError.ts's
+    // non-Error arm), which is exactly what made the CI 502 undiagnosable —
+    // spec docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md §2.4.
+    expect(fields.error).toBe("permission denied");
+    expect(fields.pgrstCode).toBe("42501");
+    expect(fields.pgrstDetails).toBe("fixture details");
+    expect(fields.pgrstHint).toBe("fixture hint");
+    // Zero-new-codes constraint: this read path does not stamp a §12.4 code
+    // (the SQLSTATE rides under pgrstCode, never the telemetry `code` slot).
     expect(fields).not.toHaveProperty("code");
   });
 

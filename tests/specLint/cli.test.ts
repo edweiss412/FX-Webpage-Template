@@ -1,8 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
-import { runCli, type CliDeps } from "../../scripts/spec-lint";
+import { classifySpawnResult, runCli, type CliDeps } from "../../scripts/spec-lint";
 
 const ROOT = process.cwd();
 const TSX = join(ROOT, "node_modules/tsx/dist/cli.mjs"); // .bin/tsx is a shell wrapper — not node-executable
@@ -325,10 +333,240 @@ describe("spec-lint CLI — report + encoding (spec §2/§8)", () => {
   );
 });
 
+describe("spec-lint CLI — citation intent through the real adapter (spec §6 wiring)", () => {
+  const INTENT_DOC =
+    "tests/specLint/fixtures/citationIntent/docs/superpowers/plans/intent-absent.md";
+
+  it(
+    "ABSENT advisory reaches the text report with its relocation detail, at the derived coordinates",
+    () => {
+      // Coordinates derived from the committed fixture's own bytes, never pasted
+      // from a run: the citation's line, and the column just past its opening
+      // backtick.
+      const text = readFileSync(join(ROOT, INTENT_DOC), "utf8");
+      const lines = text.split("\n");
+      const CITE = "`lib/specLint/emDash.ts:1`";
+      const docLine = lines.findIndex((l) => l.includes(CITE)) + 1;
+      const column = lines[docLine - 1]!.indexOf(CITE) + 2;
+      expect(docLine).toBeGreaterThan(0);
+
+      const r = cli([INTENT_DOC]);
+      expect(r.code).toBe(0); // advisory only
+      expect(r.stdout).toContain(
+        `ADVISORY CITATION_SYMBOL_ABSENT ${docLine}:${column} same-line identifiers absent from lib/specLint/emDash.ts`,
+      );
+      expect(r.stdout).toContain(
+        "detail: enclosing: (none) · identifiers: relocationHints · found in: lib/specLint/citationIntent.ts",
+      );
+    },
+    T,
+  );
+});
+
+describe("spec-lint CLI — red-contract statics through the real adapter (spec §6 wiring)", () => {
+  const RC_DOC =
+    "tests/specLint/fixtures/redContract/docs/superpowers/plans/red-contract-static.md";
+
+  it(
+    "a hard §4.3 code and a gate code both reach the text report, with the excluded span silent",
+    () => {
+      const text = readFileSync(join(ROOT, RC_DOC), "utf8");
+      const lines = text.split("\n");
+      const TARGET = "`zzz/gone.ts:1`";
+      const markerLine = lines.findIndex((l) => l.includes("red-target=")) + 1;
+      const column = lines[markerLine - 1]!.indexOf(TARGET) + 2;
+      const gateLine = lines.findIndex((l) => l.startsWith("<!-- gate:")) + 1;
+
+      const r = cli([RC_DOC]);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toContain(`FAIL RED_TARGET_INVALID ${markerLine}:${column}`);
+      expect(r.stdout).toContain(`ADVISORY GATE_UNPROBED ${gateLine}:1`);
+      // The exclusion at adapter level: the same span would otherwise be a
+      // missing-file citation, and its validation replaces that finding exactly.
+      expect(r.stdout).not.toContain("CITATION_FILE_MISSING");
+      expect(r.stdout).toContain("1 hard, 1 advisory");
+    },
+    T,
+  );
+});
+
+describe("spec-lint CLI — --exec-red execution mode (spec §4.4)", () => {
+  const EXEC = "tests/specLint/fixtures/redExec/docs/superpowers/plans";
+  const SCRATCH = join(ROOT, ".tmp-spec-lint-exec-scratch");
+
+  const execCli = (args: string[], env: Record<string, string> = {}, cwd: string = ROOT) => {
+    // Absolute script path: this helper deliberately launches from a
+    // SUBDIRECTORY in one case, where a relative script path would not resolve.
+    const r = spawnSync(process.execPath, [TSX, join(ROOT, "scripts/spec-lint.ts"), ...args], {
+      cwd,
+      encoding: "utf8",
+      env: { ...process.env, SPEC_LINT_TEST_SCRATCH: SCRATCH, ...env },
+    });
+    return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+  };
+
+  beforeAll(() => {
+    rmSync(SCRATCH, { recursive: true, force: true });
+    mkdirSync(SCRATCH, { recursive: true });
+  });
+  afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
+
+  it(
+    "--exec-red on a spec is a usage error; so is a duplicate flag",
+    () => {
+      expect(execCli([`${FIX}/clean.md`, "--exec-red"]).code).toBe(2);
+      expect(execCli([`${EXEC}/exit1.md`, "--exec-red", "--exec-red"]).code).toBe(2);
+    },
+    T,
+  );
+
+  it(
+    "a live `exit 0` marker is hard RED_ALREADY_GREEN; `exit 1` is red observed",
+    () => {
+      const green = execCli([`${EXEC}/exit0.md`, "--exec-red"]);
+      expect(green.code).toBe(1);
+      expect(green.stdout).toContain("RED_ALREADY_GREEN");
+
+      const red = execCli([`${EXEC}/exit1.md`, "--exec-red"]);
+      expect(red.code).toBe(0);
+      expect(red.stdout).toContain("0 hard, 0 advisory");
+    },
+    T,
+  );
+
+  it.each([126, 127])(
+    "exit %i is an advisory RED_EXEC_ERROR (unrunnable proves nothing about redness)",
+    (code) => {
+      const r = execCli([`${EXEC}/exit${code}.md`, "--exec-red"]);
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain(`RED_EXEC_ERROR`);
+      expect(r.stdout).toContain(`exit ${code}`);
+    },
+    T,
+  );
+
+  it(
+    "the command runs under `sh -c`: a shell arithmetic expansion resolves to 127",
+    () => {
+      // Without a shell, `exit $((125+2))` is not a runnable program at all.
+      const r = execCli([`${EXEC}/shell-arith.md`, "--exec-red"]);
+      expect(r.stdout).toContain("exit 127");
+    },
+    T,
+  );
+
+  it(
+    "a self-killed command is an advisory RED_EXEC_ERROR naming the signal",
+    () => {
+      const r = execCli([`${EXEC}/kill-term.md`, "--exec-red"]);
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("RED_EXEC_ERROR");
+      expect(r.stdout).toContain("SIGTERM");
+    },
+    T,
+  );
+
+  it(
+    "stderr is carried as a tail trimmed to 200 characters",
+    () => {
+      const r = execCli([`${EXEC}/long-stderr.md`, "--exec-red"]);
+      const detail = r.stdout.split("\n").find((l) => l.includes("stderr: "))!;
+      const tail = detail.slice(detail.indexOf("stderr: ") + "stderr: ".length);
+      expect(tail).toHaveLength(200);
+    },
+    T,
+  );
+
+  it(
+    "the ceiling is enforced through the env seam: a sleeping command times out",
+    () => {
+      const r = execCli([`${EXEC}/sleep.md`, "--exec-red"], { SPEC_LINT_EXEC_TIMEOUT_SECS: "1" });
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("RED_EXEC_TIMEOUT");
+    },
+    T,
+  );
+
+  it(
+    "commands run with cwd = repo ROOT, even when the CLI is launched from a subdirectory",
+    () => {
+      const out = join(SCRATCH, "cwd.txt");
+      rmSync(out, { force: true });
+      const r = execCli([join(ROOT, `${EXEC}/cwd.md`), "--exec-red"], {}, join(ROOT, "tests"));
+      expect(r.code).toBe(0); // exit 1 → red observed
+      expect(readFileSync(out, "utf8").trim()).toBe(ROOT);
+    },
+    T,
+  );
+
+  it.each(["0", "-1", "abc", ""])(
+    "SPEC_LINT_EXEC_TIMEOUT_SECS=%j is a usage error: nothing linted, nothing executed",
+    (value) => {
+      const sentinel = join(SCRATCH, "sentinel");
+      rmSync(sentinel, { force: true });
+      const r = execCli([`${EXEC}/sentinel.md`, "--exec-red"], {
+        SPEC_LINT_EXEC_TIMEOUT_SECS: value,
+      });
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain("SPEC_LINT_EXEC_TIMEOUT_SECS");
+      expect(r.stdout).toBe(""); // nothing linted
+      expect(existsSync(sentinel)).toBe(false); // nothing executed
+    },
+    T,
+  );
+
+  it(
+    "a plan whose only live markers sit outside a red-contract region executes nothing",
+    () => {
+      const never = join(SCRATCH, "never");
+      rmSync(never, { force: true });
+      const r = execCli([`${EXEC}/outside-region.md`, "--exec-red"]);
+      expect(r.code).toBe(0);
+      expect(existsSync(never)).toBe(false);
+    },
+    T,
+  );
+});
+
+describe("classifySpawnResult — error-first precedence (spec §4.4)", () => {
+  it("an ETIMEDOUT error wins over a zero status (the round-4 hybrid)", () => {
+    expect(classifySpawnResult({ status: 0, signal: null, error: { code: "ETIMEDOUT" } })).toEqual({
+      kind: "timeout",
+    });
+  });
+
+  it("any other error is a spawn failure, whatever the status says", () => {
+    expect(
+      classifySpawnResult({
+        status: null,
+        signal: null,
+        error: { code: "ENOENT", message: "spawn sh ENOENT" },
+      }),
+    ).toEqual({ kind: "spawn-error", message: "spawn sh ENOENT" });
+  });
+
+  it("a signal beats a status; a plain status is the exit code", () => {
+    expect(classifySpawnResult({ status: null, signal: "SIGTERM" })).toEqual({
+      kind: "signal",
+      signal: "SIGTERM",
+    });
+    expect(classifySpawnResult({ status: 0, signal: null })).toEqual({ kind: "exit", code: 0 });
+    expect(classifySpawnResult({ status: 3, signal: null })).toEqual({ kind: "exit", code: 3 });
+  });
+
+  it("no status, no signal and no error is a spawn failure — never a red observation", () => {
+    expect(classifySpawnResult({ status: null, signal: null })).toEqual({
+      kind: "spawn-error",
+      message: "no exit status",
+    });
+  });
+});
+
 // ---- seam-level (no subprocess): infra faults + containment via injected deps ----
 
 interface MemOpts {
   files?: Record<string, string>;
+  spawnResult?: { status: number | null; signal: string | null; stderr?: string };
   tracked?: string[];
   realpathOverride?: Record<string, string>;
   repoRootThrows?: boolean;
@@ -341,7 +579,11 @@ function memDeps(opts: MemOpts = {}) {
     "/repo/docs/superpowers/specs/x.md": "## Resolved scope\n\nCites `lib/a.ts:1` ok.\n",
     "/repo/lib/a.ts": "one\ntwo\n",
   };
-  const calls = { repoRoot: 0, reads: [] as string[] };
+  const calls = {
+    repoRoot: 0,
+    reads: [] as string[],
+    spawns: [] as { command: string; cwd: string; timeoutMs: number }[],
+  };
   const deps: CliDeps = {
     cwd: () => "/repo",
     repoRoot: () => {
@@ -371,6 +613,11 @@ function memDeps(opts: MemOpts = {}) {
       return Buffer.from(c, "utf8");
     },
     realpath: (p) => opts.realpathOverride?.[p] ?? p,
+    spawn: (command, cwd, timeoutMs) => {
+      calls.spawns.push({ command, cwd, timeoutMs });
+      const r = opts.spawnResult ?? { status: 1, signal: null };
+      return { status: r.status, signal: r.signal, stderr: r.stderr ?? "" };
+    },
   };
   return { deps, calls };
 }
@@ -420,6 +667,40 @@ describe("runCli — seam-level infra + containment (spec §2/§7, §1.1 item 11
     const parsed = JSON.parse(r.stdout) as { findings: { code: string }[] };
     expect(parsed.findings.map((f) => f.code)).toEqual(["CITATION_UNREADABLE"]);
     expect(calls.reads).not.toContain("/repo/lib/a.ts");
+  });
+
+  it("--exec-red spawns each planned command once, at the repo root", () => {
+    const PLAN_DOC = "/repo/docs/superpowers/plans/p.md";
+    const text = [
+      "# Plan",
+      "<!-- tasks: depth=2 red-contract -->",
+      "## A",
+      "<!-- task: red=`pnpm probe` red-state=live why=`w` ac=AC-1 -->",
+      "AC-1 here.",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n");
+    const { deps, calls } = memDeps({ files: { [PLAN_DOC]: text }, tracked: ["lib/a.ts"] });
+    const r = runCli(["docs/superpowers/plans/p.md", "--exec-red"], deps);
+    expect(r.exitCode).toBe(0); // spy default status 1 → red observed
+    expect(calls.spawns).toEqual([{ command: "pnpm probe", cwd: "/repo", timeoutMs: 600_000 }]);
+  });
+
+  it("--exec-red executes NOTHING when the only live marker sits outside a contract region", () => {
+    const PLAN_DOC = "/repo/docs/superpowers/plans/p.md";
+    const text = [
+      "# Plan",
+      "<!-- tasks: depth=2 -->",
+      "## A",
+      "<!-- task: red=`pnpm never` red-state=live why=`w` ac=AC-1 -->",
+      "AC-1 here.",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n");
+    const { deps, calls } = memDeps({ files: { [PLAN_DOC]: text }, tracked: ["lib/a.ts"] });
+    const r = runCli(["docs/superpowers/plans/p.md", "--exec-red"], deps);
+    expect(r.exitCode).toBe(0);
+    expect(calls.spawns).toEqual([]);
   });
 
   it("root discovery happens EXACTLY once per invocation", () => {

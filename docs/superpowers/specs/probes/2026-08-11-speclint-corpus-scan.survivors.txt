@@ -1,7 +1,7 @@
 spec:lint prose-count parity arms — corpus survivor records
-measured 2026-08-15T18:06:23.176Z on branch feat/speclint-prose-count-parity
-documents linted: 1082 of 1083 (kind forced on 74; 1 refused by the CLI by design)
-elapsed: 17.4s
+measured 2026-08-15T21:49:24.900Z on branch feat/speclint-prose-count-parity
+documents linted: 1095 of 1096 (kind forced on 78; 1 refused by the CLI by design)
+elapsed: 18.6s
 
 == refused by the CLI by design (NOT covered by this scan) ==
 docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md — {"error":"not a regular file (symlink): docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-do
@@ -9,12 +9,12 @@ docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-do
 == SCRIPT_CONSTANT_PARITY: 0 advisories ==
 
 == SIBLING_LIST_CARDINALITY: 177 advisories ==
-BACKLOG.md:319:107 claim of 2 sites over an adjacent list of 3 items
-    claim "two sites"; list starts at doc line 321 with 3 sibling items
-BACKLOG.md:838:80 claim of 6 rounds over an adjacent list of 8 items
-    claim "Six rounds"; list starts at doc line 840 with 8 sibling items
-BACKLOG.md:951:114 claim of 7 sheets over an adjacent list of 11 items
-    claim "7 sheets"; list starts at doc line 953 with 11 sibling items
+BACKLOG.md:370:107 claim of 2 sites over an adjacent list of 3 items
+    claim "two sites"; list starts at doc line 372 with 3 sibling items
+BACKLOG.md:866:80 claim of 6 rounds over an adjacent list of 8 items
+    claim "Six rounds"; list starts at doc line 868 with 8 sibling items
+BACKLOG.md:949:114 claim of 7 sheets over an adjacent list of 11 items
+    claim "7 sheets"; list starts at doc line 951 with 11 sibling items
 docs/review-rounds/feat/mutation-merged-cell/c95ad35edd43.md:35:18 claim of 6 was over an adjacent list of 3 items
     claim "6 was"; list starts at doc line 37 with 3 sibling items
 docs/review-rounds/feat/ops-log-code-emits/61281c23e8ce.md:13:268 claim of 3 times over an adjacent list of 7 items

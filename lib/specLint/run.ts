@@ -2,10 +2,16 @@ import { checkCitations } from "./citations";
 import { checkCopy } from "./copyRules";
 import { ambiguousBasenames, basenameOf, checkNumerics, scriptMentionMatcher } from "./numerics";
 import { parseDoc, type DocModel } from "./parse";
+import {
+  checkRedContract,
+  planExecutions,
+  redTargetSpans,
+  synthesizeExecFindings,
+} from "./redContract";
 import { fenceCoverage, waiverTarget } from "./waiverCoverage";
 import { checkTaskContract } from "./taskContract";
 import { checkSections } from "./sections";
-import type { Check, FileResolver, Finding, LintDoc, LintResult } from "./types";
+import type { Check, ExecResults, FileResolver, Finding, LintDoc, LintResult } from "./types";
 
 const CHECK_ORDER: Record<Check, number> = {
   document: 0,
@@ -59,14 +65,29 @@ function resolveScriptTexts(
   return { texts, ambiguous };
 }
 
-export function runLint(doc: LintDoc, resolver: FileResolver): LintResult {
+export function runLint(
+  doc: LintDoc,
+  resolver: FileResolver,
+  exec?: ExecResults | null,
+): LintResult {
   const model = parseDoc(doc.text);
-  const citations = checkCitations(model, resolver);
+  // Span-exact exclusion (arms spec §5): a `red-target=` capture IS a citation,
+  // and `redContract` validates it itself. Plan-kind only — in a spec the
+  // red-contract module never runs, so those spans keep today's behavior.
+  const excludedSpans = doc.kind === "plan" ? redTargetSpans(model) : new Set<string>();
+  const citations = checkCitations(model, resolver, excludedSpans);
   const scripts = resolveScriptTexts(model, resolver);
   const numerics = checkNumerics(model, citations.candidateSpans, scripts.texts, scripts.ambiguous);
   const copy = checkCopy(model);
   const sections = checkSections(model, doc.kind, citations.resolvedPaths);
   const taskContract = checkTaskContract(model, doc.kind);
+  const redContract = checkRedContract(model, doc.kind, resolver);
+  // Execution findings (arms spec §4.4). The adapter alone runs subprocesses;
+  // the core is handed their outcomes. Absent map = static invocation.
+  const execFindings =
+    doc.kind === "plan" && exec !== undefined && exec !== null
+      ? synthesizeExecFindings(planExecutions(model), exec)
+      : [];
 
   let findings: Finding[] = [
     ...model.documentFindings,
@@ -75,6 +96,8 @@ export function runLint(doc: LintDoc, resolver: FileResolver): LintResult {
     ...copy,
     ...sections,
     ...taskContract,
+    ...redContract,
+    ...execFindings,
   ];
 
   // ---- ignore-waiver application (spec §3) ----

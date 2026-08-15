@@ -93,6 +93,10 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/changes-feed-batch-flake (2026-08-15): the e2e flake row whose own filed theory was
+  // refuted rather than confirmed — the repair is a wait helper that recovers once from the
+  // admin error boundary, not the fixture isolation the entry proposed.
+  { id: "BL-CHANGES-FEED-MODAL-BATCH-FLAKE", provenance: "fix/changes-feed-batch-flake" },
   // feat/diagram-viewing-polish (2026-08-11): the three diagram-viewing rows the
   // 2026-08-10 decision round bundled, each closing by a DIFFERENT route, which
   // is why they are three rows and not one. The progress-affordance row
@@ -529,6 +533,24 @@ const BACKLOG_GRADUATED = [
   {
     id: "BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES",
     provenance: "fix/promote-identity-validation",
+  },
+  // feat/wifi-password-legibility (2026-08-15): two rows, closing by two
+  // different routes, which is why they are two entries rather than one arc row.
+  // The transcription row graduates as a BUILD — the affordance question it was
+  // filed to settle got its owner decision (disambiguated type AND tap-to-copy),
+  // and both halves shipped with the geometry measured in the production route
+  // and a standalone harness. The trailing-prose row graduates on PROBE EVIDENCE
+  // with NO parser change: it was filed INFERRED-NOT-PROBED, its own named
+  // corpus sweep was run, and it found zero instances plus a third genuine
+  // multi-token SSID — so every candidate rule is a recognizer calibrated on
+  // nothing, and the limit is documented in the spec rather than left open.
+  {
+    id: "BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY",
+    provenance: "feat/wifi-password-legibility",
+  },
+  {
+    id: "BL-WIFI-FLATTENED-TRAILING-PROSE",
+    provenance: "feat/wifi-password-legibility",
   },
   // chore/guard-completeness-wave (2026-08-14): owner-ratified documented limit
   // (2026-08-10) demoted per the filing bar; the limits live in the guard's own
