@@ -38,7 +38,36 @@ affected committed baselines (§8).
 
 Out of scope: §11.
 
-### 1.1 Resolved scope — do not relitigate
+## Amendments
+
+> **AMENDMENT 1 (2026-08-15) — AC-6 and R9 say "both scan modules"; the harness can express
+> only one of them, and refused the other by its own gate condition.**
+>
+> `tests/styles/subtleInteractiveScan.ts` was enrolled as the spec requires. The run generated
+> **ZERO mutants**, which trips the harness's `no-mutants` condition
+> (`tests/mutation/source/gate.ts`) — a surface that produces no mutant asserts nothing while
+> occupying a registry row that reads as coverage. The cause is structural rather than an
+> oversight: the module is a filter over `interactiveScanCore` plus two data declarations, and
+> the declared operator set is control-flow shaped (no relational, equality or logical operator;
+> no integer literal; no regex quantifier; no removable statement). Every decision it makes
+> belongs to the core, which IS enrolled, and is scored through the very suite that decides this
+> module's verdicts (`_metaSubtleOnInteractive` is one of the core's three `suitePaths`).
+>
+> The two ways to satisfy the text as written are both worse than the amendment. Restructuring
+> the module to grow mutation sites is gaming the operator set, which `AGENTS.md`'s
+> round-economy rule names explicitly. Keeping a zero-mutant row is a vacuous claim, which is the
+> exact failure the `no-mutants` condition exists to surface.
+>
+> **What is amended:** AC-6 and R9 read "the scan modules the harness can express" rather than
+> "both". What is NOT amended: the convergence criterion itself. `interactiveScanCore` and
+> `tapTargetScan` are enrolled, and the guard review's round-1 brief stated their score and an
+> empty unaccepted-survivor set, as R9 requires. The registry carries this reason at the row's
+> former position so the absence is legible where a reader looks for it.
+>
+> Raised by the whole-diff review (product half, BLOCKING) on the ground that a technical
+> rationale in a closeout is not a spec amendment. It was right: this is the amendment.
+
+## 1.1 Resolved scope — do not relitigate
 
 | # | Decision | Ratification |
 |---|---|---|
@@ -50,7 +79,7 @@ Out of scope: §11.
 | R6 | Census counts in the ledger rows are historical: the entry recorded 32 sites / 19 files (2026-08-10, restricted tag set); this arc's round-0 probe with the same restricted scope found 34 / 29; the round-1-corrected v2 probe (widened to the D3 in-scope set + identifier resolution) reported 53 / 43; the round-3-corrected v3 probe (§2.3, adding same-file helper-function resolution and allowlist-component call sites) reports 55 / 44 and is the census this spec disposes. The scan is the authority — the entry says so itself ("the scan is the authority, not this excerpt", `BACKLOG.md` § BL-SUBTLE-ON-INTERACTIVE-CLASS probe block). No reconciliation round is owed on the historical numbers. | Entry text + §2.3 probe |
 | R7 | The 2026-08-07 corpus baseline (340 in-scope / 139 uncleared / buckets A16 B5 C7 D4 E94 F13) is a dated record run at `origin/main` @ `61281c23e`. It is filing evidence, never re-corrected; the implementing branch re-derives current counts with the shipped scanner. | `docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md` §2.6 |
 | R8 | Bucket-A residue (8 inline text links/buttons) belongs to `BL-TAP-TARGET-INLINE-TEXT-CONTROLS`, not this arc: the guard records them as census rows referencing that entry; it does not repair them. | §2.6 disposition table (rows marked "Filed"); `BACKLOG-archive.md` graduation 2026-08-11 |
-| R9 | Both new guard surfaces are enrolled in the source-mutation registry (`tests/mutation/source/registry.ts`) BEFORE their first adversarial review round, authored as importable modules with referring suites from the start. Review convergence for the guards = mutation score + empty unaccepted-survivor set. | AGENTS.md "Convergence criterion" bullet 3 |
+| R9 | *(amended 2026-08-15, AMENDMENT 1)* The new guard surfaces the harness can express are enrolled in the source-mutation registry (`tests/mutation/source/registry.ts`) BEFORE their first adversarial review round, authored as importable modules with referring suites from the start. Review convergence for the guards = mutation score + empty unaccepted-survivor set. | AGENTS.md "Convergence criterion" bullet 3 |
 | R10 | Spec and plan user-review gates are waived; this arc runs hybrid-autonomous after the decision pause. | Arc brief (orchestrated batch), user authorization |
 | R11 | Inline prose links keep their WCAG 2.5.5 exemption; hover-only-affordance concerns on contact cells stay with `BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING`. | `PRODUCT.md:59`; `BACKLOG.md` § BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING |
 
@@ -543,8 +572,9 @@ enumerates the affected manifest entries; heavy phases run under `pnpm heavy`.
   unregistered hit.
 - **AC-5** `_metaTapTargetFloor` ships unblocked: recogniser implements §5.2 rules 1–8 (rule 8's full defeater grammar included); census
   registry seeds per §5.3; suite fails by name on an unregistered UNCLASSIFIED element.
-- **AC-6** Both scan modules enrolled in `tests/mutation/source/registry.ts`;
-  `pnpm mutation:guards` reports zero unaccepted survivors before the guard review dispatch.
+- **AC-6** *(amended 2026-08-15 — see AMENDMENT 1 below)* The scan modules that the harness can
+  express are enrolled in `tests/mutation/source/registry.ts`; `pnpm mutation:guards` reports
+  zero unaccepted survivors before the guard review dispatch.
 - **AC-7** Invariant-8 impeccable dual-gate run on the implementing diff; P0/P1 fixed or
   DEFERRED.md-entried; closeout carries the `impeccable-gate:` marker line.
 - **AC-8** Ledger: the three entries graduate to `BACKLOG-archive.md` with the IN PROGRESS

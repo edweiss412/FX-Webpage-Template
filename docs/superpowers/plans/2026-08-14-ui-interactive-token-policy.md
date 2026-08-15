@@ -744,6 +744,12 @@ the invariant-12 contract (markers gone, archives reject in-flight work).
   32/34/53/55, Family D ratification, the Task 4 census counts), the three BACKLOG.md entry
   removals including their `**Status:** IN PROGRESS` marker lines — as a git patch file
   committed to the branch at `docs/superpowers/plans/2026-08-14-ui-interactive-token-policy.graduation.patch (new)`.
+
+> The artifact is a real unified diff, so its blank CONTEXT lines are a single space and
+> `git diff --check` reads them as trailing whitespace (whole-diff R3 F3 under the new base).
+> Stripping them would break `git apply`. The check is advisory here; the applying command is
+> the authority, and it is run before the commit.
+
   Exact production mechanics (plan R5 F1 — no staging involved): apply the ledger edits in the
   WORKING TREE, run `git diff -- BACKLOG.md BACKLOG-archive.md > <patchfile>` (bare `git diff`
   reads the working tree, which is where the edits are), then restore with
@@ -839,8 +845,11 @@ browser never applies).
 
 ### Task 5 mutation enrolment — two surfaces, not three, and a harness repair
 
-**`subtleInteractiveScan` is NOT enrolled, and that is a deviation from the plan's own
-Task 5 (three rows).** The harness rejected it by its own no-mutants condition: the module
+**`subtleInteractiveScan` is NOT enrolled.** That is a deviation from AC-6, R9 and this
+plan's Task 5, and it is recorded where a deviation belongs: **AMENDMENT 1 in the spec**,
+added 2026-08-15 after the whole-diff review pointed out — correctly — that a technical
+rationale in a closeout is not a spec amendment (invariant 7). The reasoning below is the
+amendment's evidence, not its authority. The harness rejected it by its own no-mutants condition: the module
 produced ZERO mutants. The cause is structural rather than an oversight to patch — the module
 is a filter over `interactiveScanCore` plus two data declarations, and the declared operator
 set is control-flow shaped (no relational, equality or logical operator; no integer literal;
@@ -956,7 +965,7 @@ border-text-faint` probe computes #8b8c92 / #74736d, and `min-h-tap-min` measure
 Measured contrast for the new outline: 3.21 / 3.35 / 3.02 light and 4.00 / 3.76 / 4.11 dark
 against bg / surface / surface-sunken — every ground clears the 3:1 non-text floor; the token
 it replaced failed all six by roughly 2x. The new resting colour measures 16.47:1 light /
-15.23:1 dark on bg, against the AA-only ~6.5:1 the 40 controls rested at.
+15.23:1 dark on bg, against the AA-only ~6.5:1 the 41 controls rested at.
 
 **Findings and dispositions.**
 
