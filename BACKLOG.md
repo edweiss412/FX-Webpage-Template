@@ -595,7 +595,8 @@ alert-audience-split (spec §6.7) makes health-alert resolution developer-gated 
 
 ### BL-HELP-REFANCHOR-A11Y-PASS — the `/help/errors` copy-link needs one whole-surface a11y pass, not 200+ per-entry patches
 
-**Status:** OPEN (2026-08-09, filed from the invariant-8 dual gate on `feat/mutation-merged-cell`; the first two findings surfaced on `feat/mutation-ref-sub` and were recorded in the wave closeout §12 without a ledger row) · **Severity:** low · **Class:** A11Y / HELP SURFACE · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** docs/help-refanchor-a11y-spec · **Severity:** low · **Class:** A11Y / HELP SURFACE · **Effort:** S
+**Filed:** 2026-08-09 from the invariant-8 dual gate on `feat/mutation-merged-cell`; the first two findings surfaced on `feat/mutation-ref-sub` and were recorded in the wave closeout §12 without a ledger row.
 
 `RefAnchor` (`app/help/_components/RefAnchor.tsx`) renders the copy-link beside every catalog entry on `/help/errors`. It is ONE shared component rendered ~217 times, so each finding below is a single repair, applied once:
 
