@@ -159,6 +159,10 @@ export const GUARD_SURFACES: GuardSurface[] = [
     suitePaths: [
       "tests/specLint/taskContract.test.ts",
       "tests/specLint/taskContractFindingOrder.test.ts",
+      // The v2 grammar suite (2026-08-15 arms spec §4.1-§4.2): it is the only
+      // one that sees the widened region attribute, `parseMarker` and
+      // `taskTopology`, so without it every mutant inside those survives.
+      "tests/specLint/taskContractV2Grammar.test.ts",
     ],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.95,

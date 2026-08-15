@@ -45,6 +45,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
   // exercises compareFindings over literal fixtures and reads no environment.
   "tests/specLint/taskContractFindingOrder.test.ts": 0,
+  // The v2 grammar suite, enrolled 2026-08-15 as taskContract's third suite.
+  // Pure by the corpus-suite rule: it reads committed legacy fixtures through
+  // node:fs, which is deliberately NOT provenance, and touches neither
+  // child_process, ledger-git, nor process.env.
+  "tests/specLint/taskContractV2Grammar.test.ts": 0,
   // The review-round economy's two suites, enrolled by reviewRoundCount and
   // reviewRoundCorpus. Both declare 0, and the declaration is honest rather
   // than convenient: neither reaches any member of ENVIRONMENT_SOURCES.

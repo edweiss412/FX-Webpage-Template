@@ -22,10 +22,14 @@ import type { Finding } from "./types";
 
 // The matching convention (§3.2) — identical prefix and suffix on all three
 // forms. `model.lines` is already CRLF-normalised by `splitLines`.
-const OPEN = /^ {0,3}<!-- tasks: depth=([1-6]) -->[ \t]*$/;
+// The optional ` red-contract` attribute (2026-08-15 arms spec §4.1) is an
+// exact token in a fixed position: the accept-set is these two forms, and every
+// other `tasks:` line stays TASK_ENROLL_MALFORMED.
+const OPEN = /^ {0,3}<!-- tasks: depth=([1-6])( red-contract)? -->[ \t]*$/;
 const END = /^ {0,3}<!-- tasks: end -->[ \t]*$/;
 const TASKS_ANY = /^ {0,3}<!-- tasks:/;
-const MARKER_ANY = /^ {0,3}<!-- task:/;
+/** Exported so the redContract module recognises markers through THIS grammar. */
+export const MARKER_ANY = /^ {0,3}<!-- task:/;
 
 // An AC id must end alphanumeric; punctuation may never repeat or trail. The
 // tightening is what closes the aliasing — under a looser `AC-[A-Za-z0-9.-]+`
@@ -36,13 +40,73 @@ const ID = "AC-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*";
 // empty-command spellings different codes; `(.*)` is greedy across backticks and
 // silently re-opens every structure the "two fields, no other content" rule
 // forbids. A command needing a nested backtick belongs in a script.
-const MARKER = new RegExp(`^ {0,3}<!-- task: red=\`([^\`]*)\` ac=(${ID}(?:,${ID})*) -->[ \\t]*$`);
+//
+// The v2 fields (arms spec §4.2) widen this ONE grammar: fixed order, single
+// spaces, every backticked capture `[^`]*` so blankness stays SEMANTIC (an
+// empty `red=` is TASK_RED_EMPTY, not a grammar rejection — and each new field
+// takes the same split). A marker-shaped line matching neither this nor the
+// ac-absent variant below is TASK_MARKER_MALFORMED: there is no third form.
+const V2_FIELDS = "( red-state=(live|authored))?( red-target=`([^`]*)`)?( why=`([^`]*)`)?";
+const MARKER = new RegExp(
+  `^ {0,3}<!-- task: red=\`([^\`]*)\`${V2_FIELDS} ac=(${ID}(?:,${ID})*) -->[ \\t]*$`,
+);
 // "Matches everything EXCEPT that `ac=` is absent or its list is empty" — the
 // prerequisite is load-bearing. Both the omitted form and the explicit `ac=`
 // form qualify, and the `red` command must itself be valid: a line carrying two
 // defects at once is malformed, whatever else is also wrong with it, or the
 // catch-all is unreachable for anything overlapping.
-const MARKER_AC_ABSENT = new RegExp("^ {0,3}<!-- task: red=`([^`]*)`(?: ac=)? -->[ \\t]*$");
+const MARKER_AC_ABSENT = new RegExp(
+  `^ {0,3}<!-- task: red=\`([^\`]*)\`${V2_FIELDS}(?: ac=)? -->[ \\t]*$`,
+);
+/** The field prefix whose first occurrence locates the red-target capture. */
+const RED_TARGET_PREFIX = "red-target=`";
+
+export interface ParsedMarker {
+  line: number;
+  /** Raw `red=` capture; may be blank (semantic check, not a grammar one). */
+  red: string;
+  redState: "live" | "authored" | null;
+  /** `column` = 1-based UTF-16 offset of the capture's first character. */
+  redTarget: { raw: string; column: number } | null;
+  why: string | null;
+  /** null = `ac=` absent or explicitly empty. */
+  acRaw: string | null;
+}
+
+/**
+ * THE marker parse. `null` = not marker-shaped; `"malformed"` = marker-shaped
+ * but matching neither the with-ac nor the ac-absent form of the grammar.
+ *
+ * Exported because `redContract` owns v2 FIELD SEMANTICS while this module owns
+ * RECOGNITION (spec §5): two recognizers would drift.
+ */
+export function parseMarker(lineText: string, lineNo: number): ParsedMarker | "malformed" | null {
+  if (!MARKER_ANY.test(lineText)) return null;
+  const withAc = MARKER.exec(lineText);
+  const m = withAc ?? MARKER_AC_ABSENT.exec(lineText);
+  if (!m) return "malformed";
+  const rawTarget = m[5];
+  // The capture is delimited by backticks and `red=` cannot contain one, so the
+  // first occurrence of the field prefix is this field's (a `why=` further
+  // right can only follow it).
+  const targetColumn = lineText.indexOf(RED_TARGET_PREFIX) + RED_TARGET_PREFIX.length + 1;
+  return {
+    line: lineNo,
+    red: m[1]!,
+    redState: (m[3] as "live" | "authored" | undefined) ?? null,
+    redTarget: rawTarget === undefined ? null : { raw: rawTarget, column: targetColumn },
+    why: m[7] ?? null,
+    acRaw: withAc ? m[8]! : null,
+  };
+}
+
+export interface TaskTopology {
+  regions: { depth: number; start: number; end: number; redContract: boolean }[];
+  extents: { start: number; end: number; redContract: boolean }[];
+  /** extent start line -> owned marker lines, in doc order. */
+  owned: Map<number, number[]>;
+  orphaned: number[];
+}
 
 /**
  * §3.3 boundary rule. An id resolves only where it appears delimited, never as
@@ -70,19 +134,31 @@ const fail = (code: string, docLine: number, message: string): Finding => ({
   message,
 });
 
-export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Finding[] {
-  if (kind !== "plan") return [];
-
+/**
+ * Pass 1 + pass 2 STRUCTURE, shared by the checker and by `taskTopology`.
+ *
+ * Both consumers need the same regions, extents and ownership; deriving them
+ * twice is how a topology and a report start disagreeing about which extent
+ * owns which marker.
+ */
+function analyze(model: DocModel): {
+  findings: Finding[];
+  topology: TaskTopology;
+  sawTasksLine: boolean;
+  enrolled: boolean;
+  markerShaped: Set<number>;
+} {
   const findings: Finding[] = [];
   const nonFenced = (i: number) => model.fencedInfo[i] === undefined;
 
   // ---- pass 1 — line classification --------------------------------------
-  type Region = { depth: number; start: number; end: number };
+  type Region = { depth: number; start: number; end: number; redContract: boolean };
   const regions: Region[] = [];
   let open = false;
   let rejectedOpens = 0;
   let openDepth = 0;
   let openStart = 0;
+  let openRedContract = false;
   let sawTasksLine = false;
   const markerLines: number[] = [];
 
@@ -99,6 +175,7 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
         open = true;
         openDepth = Number(om[1]);
         openStart = n;
+        openRedContract = om[2] !== undefined;
       } else {
         findings.push(
           fail("TASK_ENROLL_DUPLICATE", n, "task-region opening inside an unclosed region"),
@@ -111,7 +188,7 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
     if (END.test(line)) {
       sawTasksLine = true;
       if (open) {
-        regions.push({ depth: openDepth, start: openStart, end: n });
+        regions.push({ depth: openDepth, start: openStart, end: n, redContract: openRedContract });
         open = false;
       } else if (rejectedOpens > 0) {
         // Belongs to an opening already rejected as a duplicate. Consuming it
@@ -150,17 +227,29 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
   }
   // End of document closes an unclosed region. Only the LAST region can be
   // unclosed, because an opening seen while open never starts one.
-  if (open) regions.push({ depth: openDepth, start: openStart, end: model.lines.length + 1 });
+  if (open) {
+    regions.push({
+      depth: openDepth,
+      start: openStart,
+      end: model.lines.length + 1,
+      redContract: openRedContract,
+    });
+  }
 
+  const empty: TaskTopology = { regions, extents: [], owned: new Map(), orphaned: [] };
   // ---- pass 2 — whole-document conclusion --------------------------------
-  if (!sawTasksLine) return [];
+  if (!sawTasksLine) {
+    return { findings: [], topology: empty, sawTasksLine, enrolled: false, markerShaped };
+  }
   // No well-formed region, so enrollment is not established: pass-1 findings
   // stand and every recorded marker is discarded unjudged.
-  if (regions.length === 0) return findings;
+  if (regions.length === 0) {
+    return { findings, topology: empty, sawTasksLine, enrolled: false, markerShaped };
+  }
 
   // Regions are disjoint and every extent is clipped to its own region, so the
   // combined list stays unambiguous for the marker ownership pass below.
-  const extents: { start: number; end: number }[] = [];
+  const extents: { start: number; end: number; redContract: boolean }[] = [];
   for (const region of regions) {
     const regionTasks = model.headings.filter(
       (h) => h.depth === region.depth && h.line > region.start && h.line < region.end,
@@ -191,21 +280,45 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
           break;
         }
       }
-      extents.push({ start: t.line, end });
+      extents.push({ start: t.line, end, redContract: region.redContract });
     }
   }
 
-  const markerSet = markerShaped;
-
   const owned = new Map<number, number[]>(extents.map((e) => [e.start, []]));
+  const orphaned: number[] = [];
   for (const line of markerLines) {
     const e = extents.find((x) => line > x.start && line < x.end);
     if (!e) {
+      orphaned.push(line);
       findings.push(fail("TASK_MARKER_ORPHANED", line, "task marker outside every task extent"));
       continue;
     }
     owned.get(e.start)!.push(line);
   }
+
+  return {
+    findings,
+    topology: { regions, extents, owned, orphaned },
+    sawTasksLine,
+    enrolled: true,
+    markerShaped,
+  };
+}
+
+/** The region / extent / ownership structure alone (spec §5: one owner). */
+export function taskTopology(model: DocModel): TaskTopology {
+  return analyze(model).topology;
+}
+
+export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Finding[] {
+  if (kind !== "plan") return [];
+
+  const { findings, topology, sawTasksLine, enrolled, markerShaped } = analyze(model);
+  if (!sawTasksLine) return [];
+  if (!enrolled) return findings;
+
+  const markerSet = markerShaped;
+  const { extents, owned } = topology;
 
   for (const e of extents) {
     const ms = owned.get(e.start)!;
@@ -226,19 +339,25 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
     // classification are separate groups, so a defective marker in a
     // two-marker extent draws BOTH its own code and the duplicate.
     for (const line of ms) {
-      const text = model.lines[line - 1]!;
-      const m = MARKER.exec(text);
+      const parsed = parseMarker(model.lines[line - 1]!, line);
 
-      // Precedence (§3.3): first match wins, exactly one code per line.
-      if (m && m[1]!.trim() === "") {
+      // Precedence (§3.3): first match wins, exactly one code per line. The
+      // parse is THE grammar (spec §5), so classification reads its fields
+      // rather than re-running a regex of its own.
+      if (parsed === null || parsed === "malformed") {
+        findings.push(
+          fail("TASK_MARKER_MALFORMED", line, "marker does not match ``red=`…` ac=AC-…`` exactly"),
+        );
+        continue;
+      }
+      if (parsed.acRaw !== null && parsed.red.trim() === "") {
         findings.push(fail("TASK_RED_EMPTY", line, "marker `red=` command is empty"));
         continue;
       }
-      if (!m) {
-        const noAc = MARKER_AC_ABSENT.exec(text);
+      if (parsed.acRaw === null) {
         // Precedence rule 2 requires an OTHERWISE well-formed marker, so a line
         // that ALSO has an empty `red` is malformed rather than AC_MISSING.
-        if (noAc && noAc[1]!.trim() !== "") {
+        if (parsed.red.trim() !== "") {
           findings.push(fail("TASK_AC_MISSING", line, "marker has no `ac=` list"));
         } else {
           findings.push(
@@ -251,7 +370,7 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
         }
         continue;
       }
-      for (const id of m[2]!.split(",")) {
+      for (const id of parsed.acRaw.split(",")) {
         if (!resolvesId(id, model.lines, markerSet)) {
           findings.push(
             fail("TASK_AC_UNRESOLVED", line, `\`${id}\` has no occurrence in this plan's own text`),
