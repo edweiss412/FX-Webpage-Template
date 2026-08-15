@@ -82,6 +82,7 @@ Transition audit (the writing-plans mandatory audit content, folded into THIS ta
 | visible to absent (timer) | instant unmount, DECLARED deliberate — the chip render branch gets no exit-presence wrapper; the enumeration step below records it |
 | visible while user swipes away and back (compound) | case 10 (remaining-lifetime pin) |
 | dialog closes while visible (compound) | case 6 (all three initiators) |
+| demoted slide's clamped tier fails while chip visible (compound) | case 8 (second-failure clear — plan R4 F1: the row was omitted while its test already existed; the table now mirrors spec §2.3's seven rows one-for-one) |
 | second demote while visible (compound) | case 5 (restart pinned) |
 | Reset chip visible simultaneously (compound) | case 11 (disjoint slots) |
 
