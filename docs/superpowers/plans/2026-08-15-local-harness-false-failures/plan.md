@@ -6,7 +6,7 @@
 
 **Architecture:** one implementation branch, `fix/local-harness-false-failures`, off `origin/main` (worktree + claims created by the authoring session per spec §3). Tasks in order; TDD per task; conventional commits; cross-model diff review; real CI green; merge; `0 0`.
 
-**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` · **Status:** plan-APPROVED (codex-guard R3, 2026-08-15, FINDINGS: 0; R1's eight and R2's one finding repaired in-branch; spec APPROVED codex-guard R2 same day)
+**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` · **Status:** plan-APPROVED (codex-guard R3, 2026-08-15, FINDINGS: 0; R1's eight and R2's one finding repaired in-branch; spec APPROVED codex-guard R2 same day). A post-approval class-sweep from the sibling arc was confirmed at R4 (cap): its single finding — the registry transcript's id count, stale after the origin/main merge brought #794's two new surfaces — was repaired by mechanical re-extraction at HEAD (13 ids; delta unchanged: +psqlStartupFileScan in both registries). Round cap reached; the parity assertion is the runtime oracle for the transcript's claim.
 
 ## Global constraints
 
