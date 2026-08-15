@@ -252,8 +252,11 @@ export function runCheck(
     // A degraded resolution is an untrusted one, whatever else is true. A failed
     // fetch means the claims came from cached refs that may predate the very push
     // being checked for.
+    // pr-universe-unavailable rides the same rule for the same reason: the open
+    // PR set is part of what a claim is resolved against, so a fault there
+    // leaves the answer unverified rather than empty.
     for (const d of resolution.degraded) {
-      if (d.startsWith("fetch-failed")) {
+      if (d.startsWith("fetch-failed") || d.startsWith("pr-universe-unavailable")) {
         reasons.push(d);
         untrusted = true;
       }

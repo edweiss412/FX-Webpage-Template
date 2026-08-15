@@ -61,23 +61,6 @@ const GH_MS = 10_000;
  */
 const MAX_GIT_STDOUT = 64 * 1024 * 1024;
 
-function git(args: string[], timeout: number): string {
-  const r = spawnSync("git", args, {
-    cwd: gitRoot(),
-    encoding: "utf8",
-    timeout,
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: MAX_GIT_STDOUT,
-  });
-  if (r.error) throw r.error;
-  if (r.status !== 0) {
-    throw new Error(
-      `git ${args.slice(0, 2).join(" ")} failed: ${(r.stderr ?? "").trim() || `status ${r.status}`}`,
-    );
-  }
-  return r.stdout ?? "";
-}
-
 const parseRefLine = (line: string): [string, string] | null => {
   const [oid, ref] = line.split(/\s+/);
   if (!oid || !ref) return null;
@@ -85,7 +68,35 @@ const parseRefLine = (line: string): [string, string] | null => {
   return [name, oid];
 };
 
-export function realGitSurface(): GitSurface {
+/**
+ * The spawn seam. `opts.spawn` defaults to this module's own `spawnSync`, so
+ * every production caller (all arity-0) is unchanged and the spawn-ban guard's
+ * anti-vacuity twin still sees the literal `node:child_process` import. The
+ * seam exists so a test can OBSERVE the four spawn-bound constants, which are
+ * otherwise separable only by a child that runs long enough or prints too much
+ * (BL-LEDGER-GIT-TIMEOUT-CONSTANTS). The bounds stay module-private: nothing
+ * needs them caller-configurable, and exposing them would change the contract.
+ */
+export function realGitSurface(opts?: { spawn?: typeof spawnSync }): GitSurface {
+  const spawn = opts?.spawn ?? spawnSync;
+
+  const git = (args: string[], timeout: number): string => {
+    const r = spawn("git", args, {
+      cwd: gitRoot(),
+      encoding: "utf8",
+      timeout,
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: MAX_GIT_STDOUT,
+    });
+    if (r.error) throw r.error;
+    if (r.status !== 0) {
+      throw new Error(
+        `git ${args.slice(0, 2).join(" ")} failed: ${(r.stderr ?? "").trim() || `status ${r.status}`}`,
+      );
+    }
+    return r.stdout ?? "";
+  };
+
   return {
     fetch() {
       // Explicit refspec, never the configured one: a clone with a narrow
@@ -111,13 +122,14 @@ export function realGitSurface(): GitSurface {
       // Throws rather than yielding an empty map: an enumeration failure is an
       // UNKNOWN universe, and returning {} makes it look like an empty one,
       // which reads as "nothing is in flight".
-      const raw = spawnSync(
+      const raw = spawn(
         "git",
         ["for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin"],
         {
           cwd: gitRoot(),
           encoding: "utf8",
           timeout: LS_REMOTE_MS,
+          maxBuffer: MAX_GIT_STDOUT,
         },
       );
       if (raw.error) throw raw.error;
@@ -137,7 +149,7 @@ export function realGitSurface(): GitSurface {
     },
 
     prList(): PrRow[] {
-      const r = spawnSync(
+      const r = spawn(
         "gh",
         [
           "pr",
@@ -149,25 +161,53 @@ export function realGitSurface(): GitSurface {
           "--limit",
           "100",
         ],
-        { cwd: gitRoot(), encoding: "utf8", timeout: GH_MS },
+        { cwd: gitRoot(), encoding: "utf8", timeout: GH_MS, maxBuffer: MAX_GIT_STDOUT },
       );
-      if (r.status !== 0 || !r.stdout) return [];
+      // A fault is NOT an empty PR universe. This reader used to answer `[]` for
+      // a spawn error, a non-zero exit, unparseable output, and every malformed
+      // row shape alike, and `resolveClaims` consumed that as "no open PRs" with
+      // no degraded marker — a silently shrunk claim universe reading as "no
+      // collision". `[]` now means exactly one thing: gh exited 0 and printed a
+      // well-formed, empty row array.
+      if (r.error) throw r.error;
+      if (r.status !== 0)
+        throw new Error(`gh pr list failed: ${(r.stderr ?? "").trim() || `status ${r.status}`}`);
+      if (!r.stdout) throw new Error("gh pr list: empty stdout on exit 0");
+      let parsed: unknown;
       try {
-        const rows = JSON.parse(r.stdout) as Array<{
-          number: number;
-          headRefName: string;
-          headRepositoryOwner?: { login?: string } | null;
-          isCrossRepository?: boolean;
-        }>;
-        return rows.map((x) => ({
-          number: x.number,
-          headRefName: x.headRefName,
-          headRepositoryOwner: x.headRepositoryOwner?.login ?? null,
-          isCrossRepository: x.isCrossRepository === true,
-        }));
+        parsed = JSON.parse(r.stdout);
       } catch {
-        return [];
+        throw new Error("gh pr list: invalid JSON on exit 0");
       }
+      if (!Array.isArray(parsed)) throw new Error("gh pr list: non-array payload");
+      return parsed.map((x, i): PrRow => {
+        const row = (typeof x === "object" && x !== null ? x : {}) as Record<string, unknown>;
+        const number = row.number;
+        const headRefName = row.headRefName;
+        const isCrossRepository = row.isCrossRepository;
+        const owner = row.headRepositoryOwner;
+        if (typeof number !== "number")
+          throw new Error(`gh pr list row ${i}: number is not numeric`);
+        if (typeof headRefName !== "string" || headRefName === "")
+          throw new Error(`gh pr list row ${i}: headRefName is not a non-empty string`);
+        // Validated, not coerced: `=== true` read a MISSING flag as a
+        // base-repository PR, which resolveClaims then attached to a claim.
+        if (typeof isCrossRepository !== "boolean")
+          throw new Error(`gh pr list row ${i}: isCrossRepository is not boolean`);
+        let login: string | null = null;
+        if (owner !== undefined && owner !== null) {
+          // Absent and null are gh's own shapes for a deleted account. Anything
+          // else must be an object whose login is a string; `?? null` used to
+          // coerce "owner", 7, true, [], and {} all to null.
+          if (typeof owner !== "object" || Array.isArray(owner))
+            throw new Error(`gh pr list row ${i}: headRepositoryOwner is not an object`);
+          const l = (owner as Record<string, unknown>).login;
+          if (typeof l !== "string")
+            throw new Error(`gh pr list row ${i}: headRepositoryOwner.login is not a string`);
+          login = l;
+        }
+        return { number, headRefName, headRepositoryOwner: login, isCrossRepository };
+      });
     },
 
     mergedIntoMain(mainOid) {
@@ -201,7 +241,7 @@ export function realGitSurface(): GitSurface {
     // was 60 `git show` spawns to read about four distinct blobs.
     fileOids(ref, files) {
       const out = new Map<string, string>();
-      const r = spawnSync("git", ["ls-tree", ref, "--", ...files], {
+      const r = spawn("git", ["ls-tree", ref, "--", ...files], {
         cwd: gitRoot(),
         encoding: "utf8",
         timeout: LS_REMOTE_MS,
@@ -229,7 +269,7 @@ export function realGitSurface(): GitSurface {
       // "Absent" and "failed" are different answers, and collapsing them loses
       // declared claims silently: an object-read failure or a timeout would read
       // as "this branch has no ledger" and drop every marker on it.
-      const r = spawnSync("git", ["show", `${ref}:${file}`], {
+      const r = spawn("git", ["show", `${ref}:${file}`], {
         cwd: gitRoot(),
         encoding: "utf8",
         timeout: LS_REMOTE_MS,
@@ -256,7 +296,7 @@ export function realGitSurface(): GitSurface {
       // The ONE reader where failure is a legitimate answer: a shallow clone has
       // no merge-base, and the caller degrades `inferred` for that ref rather
       // than failing. Distinguished from a fault by asking git first.
-      const r = spawnSync("git", ["merge-base", mainOid, ref], {
+      const r = spawn("git", ["merge-base", mainOid, ref], {
         cwd: gitRoot(),
         encoding: "utf8",
         timeout: LS_REMOTE_MS,

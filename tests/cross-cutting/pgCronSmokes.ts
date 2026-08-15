@@ -29,6 +29,7 @@
  * all nine canonical jobs run the SAME firing smoke, and the route-effect
  * half is covered by name here, uniformly.
  */
+import { PRODUCTION_HOST } from "@/scripts/lib/validation-smoke-target";
 
 /** One transaction: execute the stored command, read back ALL rows WE queued, roll back. */
 export function firingSmokeSql(command: string): string {
@@ -75,4 +76,88 @@ export function queuedUrlsFromSmokeOutput(raw: string): string[] {
   }
   const payload = probe.slice("SMOKE_URLS:".length);
   return payload === "" ? [] : payload.split("\u001f");
+}
+
+/**
+ * Appended to the smoke batch so the EXPECTED origin is read over the same psql
+ * invocation — and therefore the same database — that reported the queued URL. A second
+ * connection would reintroduce the gap the comparator exists to close: an expected value
+ * sourced from somewhere other than the database whose command just ran.
+ *
+ * `current_setting(..., true)` is the missing-ok form: an unset GUC comes back NULL
+ * rather than erroring, so the batch still reaches its probe line and the comparator gets
+ * to fail loudly with a named reason instead of the psql call throwing.
+ */
+export const GUC_PROBE_SQL =
+  "SELECT 'SMOKE_GUC:' || coalesce(current_setting('app.fxav_vercel_url', true), '');";
+
+/** The GUC as this batch saw it: "" when unset, THROWS when the batch never got here. */
+export function gucFromSmokeOutput(raw: string): string {
+  const probe = raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("SMOKE_GUC:"))
+    .at(-1);
+  if (probe === undefined) {
+    throw new Error(
+      "pgCronSmokes: the smoke output carries no SMOKE_GUC probe line — the batch did not run to its GUC statement",
+    );
+  }
+  return probe.slice("SMOKE_GUC:".length);
+}
+
+export type CronDispatchMode = "local" | "validation";
+
+/**
+ * Is the URL this job's stored command actually QUEUED pointed at the right origin?
+ *
+ * The suite has parsed that URL since the firing smoke landed and asserted only its path
+ * — protocol and host were in hand and discarded (BL-PG-CRON-HOST-ASSERTION). The host is
+ * baked into `cron.job.command` at MIGRATION time from `app.fxav_vercel_url`, so a stale
+ * bake is invisible to every text pin on the command.
+ *
+ * `URL.origin` does deliberate work against the entry's own objections: it carries the
+ * protocol (so `http://` cannot pass against `https://`) and no path component at all (so
+ * a trailing slash or a base path cannot reach the comparison — path stays the route
+ * assertions' job). Neither leg keys off the target FLAG: the flag only selects which
+ * contract applies, and both sides of the local comparison come from the database
+ * actually connected.
+ */
+export function assertCronDispatchOrigin(
+  url: URL,
+  mode: CronDispatchMode,
+  gucValue: string | null,
+): { ok: true } | { ok: false; reason: string } {
+  if (mode === "validation") {
+    // `app.fxav_vercel_url` is UNREADABLE here — managed Postgres denies
+    // `ALTER DATABASE … SET app.*`, so the migration's session-scoped set_config
+    // evaporated with its session. Comparing against it would be vacuous exactly where a
+    // stale baked host is reachable, so the expected value is the deployment contract.
+    if (url.protocol !== "https:") {
+      return { ok: false, reason: `scheme ${url.protocol} is not https:` };
+    }
+    if (url.port !== "") return { ok: false, reason: `explicit port ${url.port}` };
+    if (url.hostname !== PRODUCTION_HOST) {
+      return {
+        ok: false,
+        reason: `host ${url.hostname} is not the stable alias ${PRODUCTION_HOST}`,
+      };
+    }
+    return { ok: true };
+  }
+  // Empty is a FAILURE, never a pass: the local bootstrap sets this database-wide, so an
+  // empty value means that regressed. Absorbing it would make the check vacuous.
+  if (gucValue === null || gucValue === "") {
+    return { ok: false, reason: "app.fxav_vercel_url GUC is empty" };
+  }
+  let expected: URL;
+  try {
+    expected = new URL(gucValue);
+  } catch {
+    return { ok: false, reason: `GUC value ${gucValue} is not a URL` };
+  }
+  if (expected.origin !== url.origin) {
+    return { ok: false, reason: `dispatch origin ${url.origin} != GUC origin ${expected.origin}` };
+  }
+  return { ok: true };
 }
