@@ -92,7 +92,12 @@ const cases: Array<[string, Record<string, string>, boolean]> = [
   ["sfs none", { "sec-fetch-site": "none" }, true],
   ["sfs same-site", { "sec-fetch-site": "same-site" }, false],
   ["sfs cross-site", { "sec-fetch-site": "cross-site" }, false],
-  ["sfs cross-site + matching origin (sfs wins)", { "sec-fetch-site": "cross-site", origin: SITE }, false],
+  // PRECEDENCE both directions (R2-F8): sec-fetch-site wins over origin whenever present.
+  ["sfs cross-site + matching origin (sfs wins → reject)", { "sec-fetch-site": "cross-site", origin: SITE }, false],
+  ["sfs same-origin + MISMATCHING origin (sfs wins → allow)", { "sec-fetch-site": "same-origin", origin: "https://evil.example.com" }, true],
+  ["sfs none + MISMATCHING origin (sfs wins → allow)", { "sec-fetch-site": "none", origin: "https://evil.example.com" }, true],
+  ["sfs same-site + matching origin (sfs wins → reject)", { "sec-fetch-site": "same-site", origin: SITE }, false],
+  // origin fallback consulted ONLY when sec-fetch-site is absent:
   ["no sfs, origin === site", { origin: SITE }, true],
   ["no sfs, origin !== site", { origin: "https://evil.example.com" }, false],
   ["neither signal", {}, true],
@@ -106,7 +111,7 @@ describe("isSameOriginServerAction", () => {
 });
 ```
 
-RED premise: the file lib/auth/sameOriginServerAction.ts does not exist yet, so the import fails to resolve. The production line whose absence makes each row fail is the helper body itself. Anti-tautology: the `cross-site + matching origin` row proves `sec-fetch-site` is consulted BEFORE the origin fallback (a naive `origin===site` implementation would wrongly allow it).
+RED premise: the file lib/auth/sameOriginServerAction.ts does not exist yet, so the import fails to resolve. The production line whose absence makes each row fail is the helper body itself. Anti-tautology (R2-F8): the precedence rows pin BOTH directions of "sec-fetch-site wins over origin" — `cross-site`/`same-site` + matching origin must still REJECT (a naive `origin===site` fallback would wrongly allow), and `same-origin`/`none` + mismatching origin must still ALLOW (an implementation that lets a mismatching Origin override the Fetch-Metadata verdict would wrongly reject). An implementation that consults origin before, or instead of, sec-fetch-site fails at least one of these four rows.
 
 - [ ] **Step 2: Run test, verify it fails** — Run `pnpm vitest run tests/auth/sameOriginServerAction.test.ts`; expected FAIL (module not found).
 
@@ -166,6 +171,8 @@ setHeaders({ "sec-fetch-site": "same-origin" });
 vi.mocked(headers).mockResolvedValue({
   get: (k: string) => headerMap.get(k.toLowerCase()) ?? null,
 } as unknown as Awaited<ReturnType<typeof headers>>);
+logMock.warn.mockClear(); // R2-F4: the harness clears info+error but NOT warn (tests/auth/picker/clearIdentity.test.ts:19-20);
+                          // without this, one endpoint's emit satisfies the next endpoint's assertion, so per-endpoint AC-2 proof is not independent.
 ```
 
 - [ ] **Step 1b: Write failing tests** — a new `describe` block; a gate-reject case for EACH of the three exported actions (each asserting no mutation AND the forensic emit — AC-2 for all three, R2-F3/F2), plus the documented-bypass regression. Uses the existing `fd({...})` FormData helper (`tests/auth/picker/clearIdentity.test.ts:63-69`), `logMock`, `cookieSet`, and `supabaseMock.signOut` — all already exposed by the harness. The file imports `test` (not `it`), so use `test(`:
@@ -305,7 +312,9 @@ PICKER_SWITCH_FAILED: {
 import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 import { messageFor } from "@/lib/messages/lookup";
 
-const EXPECTED = messageFor("PICKER_SWITCH_FAILED").crewFacing; // derive, never hardcode
+// R2-F3: crewFacing is `string | null` (lib/messages/catalog.ts:50), so coalesce to "" for strict typecheck;
+// the non-empty assertion below then fails loudly if the catalog copy is ever null/empty.
+const EXPECTED = messageFor("PICKER_SWITCH_FAILED").crewFacing ?? ""; // derive, never hardcode
 
 // closing: clicking the trigger while open calls close() (AvatarMenu.tsx:232).
 function closeMenu(): void {
@@ -344,8 +353,14 @@ it("renders an in-menu alert on failure, as a sibling of role=menu, and keeps th
   act(() => { fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); });
   const alert = await screen.findByRole("alert");
   expect(alert.textContent?.trim()).toBe(EXPECTED); // EXACT match: a rendered suffix fails (not substring)
-  expect(screen.getByRole("menu").contains(alert)).toBe(false); // R1-F5: sibling of role=menu (avatar-menu-items), not child
-  expect(screen.getByTestId("avatar-menu-popover")).toBeInTheDocument(); // stayed open
+  const menuEl = screen.getByRole("menu");
+  const popover = screen.getByTestId("avatar-menu-popover");
+  // R2-F5: `contains === false` alone lets a before-menu or outside-popover mutant survive.
+  // Pin the full placement: inside the popover, NOT inside role=menu, and FOLLOWING the menu in DOM order.
+  expect(menuEl.contains(alert)).toBe(false);   // not a child of role=menu (avatar-menu-items)
+  expect(popover.contains(alert)).toBe(true);   // but inside the popover (an outside-popover mutant fails)
+  expect(menuEl.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // sibling AFTER the menu (a before-menu mutant fails)
+  expect(popover).toBeInTheDocument(); // stayed open
 });
 
 it("renders NO alert when the clear succeeds (awaits the transition before asserting absence, F5)", async () => {
@@ -405,13 +420,17 @@ it("keyboard reaches the pending switch item by all four commands (aria-disabled
   const menu = screen.getByTestId("avatar-menu-popover");
   expect(submit.getAttribute("aria-disabled")).toBe("true");
   expect((submit as HTMLButtonElement).disabled).toBe(false); // NOT native disabled (native disabled would strand focus)
+  // All FOUR R4-F1 commands (ArrowDown, in-menu ArrowUp-wrap, End, reopen-with-ArrowUp) must reach the pending item.
   // (a) ArrowDown from the theme item lands focus on the pending switch item…
   act(() => { screen.getByTestId("avatar-menu-theme").focus(); fireEvent.keyDown(menu, { key: "ArrowDown" }); });
   expect(document.activeElement).toBe(submit);
-  // (b) End also lands on it (last item)…
+  // (b) in-menu ArrowUp from the FIRST item wraps to the last (pending switch item); R2-F6 (was missing)…
+  act(() => { screen.getByTestId("avatar-menu-theme").focus(); fireEvent.keyDown(menu, { key: "ArrowUp" }); });
+  expect(document.activeElement).toBe(submit);
+  // (c) End also lands on it (last item)…
   act(() => { screen.getByTestId("avatar-menu-theme").focus(); fireEvent.keyDown(menu, { key: "End" }); });
   expect(document.activeElement).toBe(submit);
-  // (c) reopen-with-ArrowUp wraps to the last item…
+  // (d) reopen-with-ArrowUp opens the menu at the last item…
   closeMenu();
   act(() => { fireEvent.keyDown(screen.getByTestId("avatar-menu-trigger"), { key: "ArrowUp" }); });
   expect(document.activeElement).toBe(screen.getByTestId("avatar-menu-switch-person"));
@@ -490,52 +509,47 @@ The alert is NOT a `menuitem` (not focusable, not in arrow traversal), mirroring
   5. `mounted && isDark ? "visible" : "invisible"` on the theme check (`AvatarMenu.tsx:336`) — a className visibility TOGGLE (not a mount), `suppressHydrationWarning`; pre-existing, unchanged; instant. (Named per F7 — the mounted/dark-theme ternary.)
   6. **NEW** `aria-disabled={switchPending}` on the switch submit — an attribute toggle (not a mount), instant; keyboard-focusable throughout (R4-F1).
   7. **NEW** `{switchStatus === "error" ? (<alert/>) : null}` — the alert node, sibling of `role="menu"`, instant (`role="alert"`), reset to idle on open.
-  Confirm the compound "close mid-pending then reopen" shows no stale error (the R2-F2 / R3-F1 tests in Step 1 cover it). None of items 1-5 changes behavior; items 6-7 are the only new states, both instant, matching the "instant, no animation needed" entries in §4.6.
+  8. `{...menuNameProps}` naming ternary on the `role="menu"` element (`AvatarMenu.tsx:207` computed, spread at `AvatarMenu.tsx:299`) — an aria-name attribute selection; pre-existing, unchanged; non-visual. (Named per R2-F7.)
+  9. `tabIndex={activeIndex === 0 ? 0 : -1}` on the theme item (`AvatarMenu.tsx:315`) — roving-tabindex attribute toggle; pre-existing, unchanged; non-visual. (Named per R2-F7.)
+  10. `tabIndex={activeIndex === 1 ? 0 : -1}` on the switch item (`AvatarMenu.tsx:363`) — roving-tabindex attribute toggle; pre-existing, unchanged; non-visual. (Named per R2-F7.)
+  Confirm the compound "close mid-pending then reopen" shows no stale error (the R2-F2 / R3-F1 tests in Step 1 cover it). Items 1-5 and 8-10 are pre-existing and change no behavior; items 6-7 are the only new states, both instant, matching the "instant, no animation needed" entries in §4.6.
 
 - [ ] **Step 7: Commit** — `git add components/auth/IdentityChip.tsx components/auth/AvatarMenu.tsx tests/components/auth/avatarMenu.test.tsx tests/components/IdentityChip.test.tsx tests/components/identityChipSrSeparator.test.tsx && git commit -m "feat(crew-page): legible in-menu failure for switch person"`
 
-### Task 5: Backlog reconciliation
-
-**Files:**
-- Modify: `BACKLOG.md`, `BACKLOG-archive.md`
-
-**Interfaces:** none (docs).
-
-**Ordering (invariant 12 — critical).** The two entries stay `**Status:** IN PROGRESS · **Branch:** fix/auth-picker-hardening` for the ENTIRE implementation; their markers come OFF only in the PR's LAST commit, and archiving requires the markers already off (archives reject in-progress entries). So Step 1 (filing the two ADDITIVE follow-up entries) runs here as an ordinary task commit, but Step 2 (archive + marker removal) is deferred to the **Closeout** as the final pre-merge commit — AFTER the impeccable dual-gate and whole-diff review, so no later commit can follow it. Splitting the two halves is what keeps the archive commit last.
-
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts` ac=AC-7 -->
-
-- [ ] **Step 1: Verify the sweep + limit entries** — the two follow-up entries were FILED AT PLAN TIME in this spec+plan arc (they are additive, carry no IN PROGRESS marker, and the spec/plan cite them, so the ledger referential-integrity guard requires them to resolve): (a) `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP` — gate the remaining destructive Server Actions with `isSameOriginServerAction()`, class-sweep disposition exception (c), the helper reduces each peer to a one-line guard, admin actions behind require-gates get it additively; (b) `BL-SWITCH-PERSON-GOOGLE-LOOPBACK` — menu switch-person is ineffective for a Google-authed viewer (bootstrap re-mints, `lib/auth/picker/resolveShowPageAccess.ts:246`), needs a product decision (class-sweep exception (a)), reachability PROBED via the resolve order. At implementation time, confirm both are still present and accurate (update wording only if the implementation changed the helper's name or the resolve line); no new filing is required.
-
-- [ ] **Step 2: Run ledger meta-tests, verify PASS** — Run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts`; expected PASS (the two originals still IN PROGRESS with a live `origin` branch; the two new entries well-formed and referentially closed). RED premise for the referential-integrity guard: a follow-up entry that cross-references a non-existent `BL-` id, or an IN PROGRESS entry naming a branch not on `origin`, reds `_metaLedgerReferentialIntegrity` / `_metaLedgerInProgress`; observe by first citing a bogus id, then fixing it.
-
-- [ ] **Step 3: Commit** — `git add BACKLOG.md && git commit -m "docs: file origin-gate sweep + google-loopback backlog entries"`
-
-- [ ] **Step 4 (DEFERRED to Closeout — the PR's LAST commit):** archive `BL-SERVER-ACTION-ORIGIN-GATE` and `BL-IDENTITY-CLEAR-FAILURE-IS-SILENT` from `BACKLOG.md` to `BACKLOG-archive.md` with a resolution note citing this plan and spec, removing their IN PROGRESS markers **in the same commit** (archives reject in-progress entries; the marker must never reach `main` — invariant 12). This commit runs ONLY after the impeccable dual-gate (Closeout) and the whole-diff review have APPROVED, so it is provably the last commit before `gh pr merge`. Re-run the two ledger meta-tests after it. See Closeout.
-
 <!-- tasks: end -->
+
+## Backlog reconciliation (not a TDD task — split across plan-time and closeout)
+
+There is deliberately no "Task 5": backlog reconciliation has no production RED, so forcing it into the TDD task list produced an invalid manufactured-RED cycle and an empty commit (R2-F2). It splits into two commits at two different times:
+
+- **Filed at PLAN TIME (this spec+plan arc, already committed):** the two ADDITIVE follow-up entries `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP` and `BL-SWITCH-PERSON-GOOGLE-LOOPBACK` (`BACKLOG.md`). They carry no IN PROGRESS marker, and the spec/plan cite them, so the ledger referential-integrity guard requires them to exist — hence they are filed now, not deferred. At implementation time, confirm both are still present and accurate (update wording only if the helper name or the `resolveShowPageAccess.ts:246` line moved); no new filing.
+- **Archived at CLOSEOUT (implementation arc, the PR's LAST commit — see Closeout step 5):** `BL-SERVER-ACTION-ORIGIN-GATE` and `BL-IDENTITY-CLEAR-FAILURE-IS-SILENT` move to `BACKLOG-archive.md` with a resolution note, their IN PROGRESS markers removed in the SAME commit (archives reject in-progress entries; the marker must never reach `main`, invariant 12). This is the sole post-review commit and contains only invariant-12-mandated ledger-status changes (AC-7).
+
+The two entries stay `**Status:** IN PROGRESS · **Branch:** fix/auth-picker-hardening` for the entire implementation until that final commit.
 
 ## Closeout
 
-Ordered; each item gates the next. All of Closeout runs in the IMPLEMENTATION arc (this spec+plan arc stops at plan-APPROVE — see Execution handoff).
+Ordered; each item gates the next. All of Closeout runs in the IMPLEMENTATION arc (this spec+plan arc stops at plan-APPROVE — see Execution handoff). The ordering is set so the whole-diff review covers exactly what merges (R2-F1): the impeccable marker is filled BEFORE review, and the ONLY commit after review is the invariant-12-mandated ledger-status removal, which invariant 12 requires to be last and which carries no code.
 
 1. **Impeccable dual-gate.** `components/auth/IdentityChip.tsx` and `components/auth/AvatarMenu.tsx` are UI surfaces. Run the impeccable critique gate AND the impeccable audit gate on the diff (v3 setup gates: the context.mjs load of PRODUCT.md + DESIGN.md, then the register-reference read); P0/P1 fixed or `DEFERRED.md`'d; findings + dispositions recorded here.
-2. **Whole-diff cross-model review** to APPROVE (after the gate).
-3. **Fill the machine closeout marker.** ONLY after steps 1-2 have actually run does the implementer add the bare-anchored marker line to this plan. The grammar (quoted here mid-line inside backticks so this instruction is NOT itself a marker line, per the closeout guard's line-initial rule): the implementer writes a line reading `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` with the REAL counts (`RAN-DEGRADED` if a gate half degraded; `dispositions=recorded` iff `p0+p1>0`, else `none`). It is added as its own line in this section. **Not filled now, and never fabricated:** the invariant-8 closeout design's HONEST CEILING (`docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md` §7) states a fabricated marker is a deliberate lie; the gate has not run in this spec+plan arc, so no `RAN` claim is honest yet. Consequently `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design (a declaring plan with no completed marker is correctly gated out of `main`); it goes green when this step fills the marker in the implementation arc, before merge.
-4. **Full local gates before push:** `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
-5. **Backlog archive — the PR's LAST commit** (Task 5 Step 4): archive the two closed entries and remove their IN PROGRESS markers, in one commit, AFTER steps 1-4. Re-run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts`.
+2. **Fill the machine closeout marker (BEFORE review, so review covers it — R2-F1).** After step 1 has actually run, the implementer adds the bare-anchored marker line to this plan. The grammar (quoted here mid-line inside backticks so this instruction is NOT itself a marker line, per the closeout guard's line-initial rule): the implementer writes a line reading `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` with the REAL counts (`RAN-DEGRADED` if a gate half degraded; `dispositions=recorded` iff `p0+p1>0`, else `none`), as its own line in this section. **Not filled now, and never fabricated:** the invariant-8 closeout design's HONEST CEILING (`docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md` §7) states a fabricated marker is a deliberate lie; the gate has not run in this spec+plan arc, so no `RAN` claim is honest yet. Consequently `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design (a declaring plan with no completed marker is correctly gated out of `main`); it goes green when this step fills the marker in the implementation arc, before merge.
+3. **Full local gates before push:** `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
+4. **Whole-diff cross-model review to APPROVE.** Covers ALL code plus the filled invariant-8 marker (step 2) — i.e. everything that merges EXCEPT the mechanical ledger-status removal in step 5. Any repair from this review is re-reviewed here, so no code change escapes review.
+5. **Backlog archive — the PR's LAST commit.** Archive `BL-SERVER-ACTION-ORIGIN-GATE` and `BL-IDENTITY-CLEAR-FAILURE-IS-SILENT` to `BACKLOG-archive.md` with a resolution note, removing their IN PROGRESS markers in the SAME commit (archives reject in-progress entries). This is the SOLE post-review commit; it contains ONLY invariant-12-mandated ledger-status changes (an entry move + marker removal + a one-line resolution note — no code, no behavior). Invariant 12 REQUIRES the marker to come off in "the PR's last commit, before the merge", so a post-review commit here is not a "review covers what merges" violation but the narrow, invariant-mandated exception: the reviewed CODE equals the merged CODE. Re-run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts` after it.
 6. **Real CI green**, then `gh pr merge --merge`, then FF local `main` to `0  0`.
 
 ## Self-review checklist (author, pre-adversarial)
 
-- [ ] **Spec coverage:** every spec section maps to a task (§3 gate → Tasks 1-2; §4 UX → Tasks 3-4; §3.5 sweep + archive → Task 5). Documented limits §7 need no task.
+- [ ] **Spec coverage:** every spec section maps to a task (§3 gate → Tasks 1-2; §4 UX → Tasks 3-4; §3.5 sweep + archive → plan-time backlog filing + Closeout step 5). Documented limits §7 need no task.
 - [ ] **Placeholder scan:** no TBD/TODO; every code step has real content.
 - [ ] **Type consistency:** `ClearIdentityResult`, `isSameOriginServerAction`, `rejectCrossOrigin`, `clearIdentityFormAction` (name preserved), `PICKER_ORIGIN_REJECTED` (log-borne), `PICKER_INVALID_INPUT` (returned), `PICKER_SWITCH_FAILED` spelled identically across tasks.
 - [ ] **Anti-tautology:** Task 2 asserts no-mutation-on-reject AND the forensic emit, independently per all three endpoints (F2); Task 4 derives copy from `messageFor`, asserts the alert by EXACT `textContent` equality (not substring) scoped to `role="alert"`, proves the FormData route inputs reach the action (F3), awaits the transition before asserting success-has-no-alert (F5), and drives the pending re-entry guard by real form activation (F6); the four string-presence mutants are mapped to the layer that observes each (empty/suffix → `x1-catalog-parity`; placement → scoped `role="alert"` + sibling; rendered-suffix → exact match; ok true/false → success vs failure case) (F4).
-- [ ] **RED validity:** every `red=` names the production line whose absence makes it fail (Tasks 1-5); Task 2/4 test scaffolding (helpers, imports, mocks) is all supplied in-step so each RED is a production-behavior red, not a scaffolding red (F1).
-- [ ] **Transition inventory:** Task 4 Step 6 enumerates ALL seven `AvatarMenu` conditional renders with a disposition each (F7).
-- [ ] **Invariant 12 timing:** the archive + marker removal is the PR's LAST commit (Closeout step 5), after the impeccable gate and whole-diff review; entries stay IN PROGRESS until then (F9).
-- [ ] **Invariant 8 marker:** deferred to the implementation arc's closeout (the gate cannot run before UI code; no fabricated `RAN`, per the closeout design HONEST CEILING); `_metaInvariant8Closeout` reds on this unmerged branch by design (F8). AC-7 covers backlog reconciliation traceability (F10).
+- [ ] **RED validity:** every `red=` names the production line whose absence makes it fail (Tasks 1-4); Task 2/4 test scaffolding (helpers, imports, mocks) is all supplied in-step so each RED is a production-behavior red, not a scaffolding red (R1-F1); backlog reconciliation is NOT a TDD task (no production RED) so it carries no `red=` marker (R2-F2). Every pasted test typechecks under strict tsconfig (`EXPECTED` coalesces `string | null`, R2-F3).
+- [ ] **Transition inventory:** Task 4 Step 6 enumerates ALL ten `AvatarMenu` conditional renders/attributes (open, hasIdentity, two name/role separators, mounted/dark check, aria-disabled, alert, menuNameProps, two tabIndex) with a disposition each (R1-F7 + R2-F7).
+- [ ] **Per-endpoint independence:** Task 2 clears `logMock.warn` in beforeEach so each of the three endpoints' emit assertions is independent (R2-F4); the truth table pins precedence both directions (R2-F8).
+- [ ] **Placement + keyboard rigor:** the alert is pinned inside-popover, not-inside-menu, and following-the-menu (R2-F5); all four R4-F1 keyboard commands (ArrowDown, in-menu ArrowUp-wrap, End, reopen-ArrowUp) are exercised while pending, and success is asserted only after the transition settles (R2-F6, R1-F5).
+- [ ] **Invariant 12 + review-covers-what-merges:** the marker is filled BEFORE the whole-diff review (Closeout step 2), the archive + marker removal is the PR's LAST and ONLY post-review commit carrying only ledger-status changes (Closeout step 5), so reviewed code == merged code (R2-F1, R1-F9); entries stay IN PROGRESS until then.
+- [ ] **Invariant 8 marker:** deferred to the implementation arc's closeout (the gate cannot run before UI code; no fabricated `RAN`, per the closeout design HONEST CEILING); `_metaInvariant8Closeout` reds on this unmerged branch by design (R1-F8). AC-7 covers backlog reconciliation traceability (R1-F10).
 
 ## Adversarial review (cross-model)
 
