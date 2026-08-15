@@ -345,6 +345,41 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 
 **First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
 
+## BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS — 26 control outlines still at 1.59:1 on non-ground fills
+
+**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** visual boundary / DESIGN scope. **Effort:** M. **Class-sweep exception:** (a) — the repair needs a DESIGN.md scope decision this PR cannot settle. **Reachability:** PROBED, with a DERIVED cover (below).
+
+This arc moved the secondary-action outline to `border-text-faint` (3.35:1) at the shared constant and at the 25 sites that carry the same recipe inline over a `bg-bg` fill. Twenty-six in-scope CONTROLS still carry `border border-border-strong` (1.59:1 light / 1.60:1 dark) over `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` or `bg-transparent` fills.
+
+**Derived cover** (re-run it rather than trusting this list — it is a query, not an enumeration):
+
+```ts
+scanInteractiveElements(process.cwd()).filter((e) =>
+  allStrings(e).some((s) => /(^|\s)border-border-strong(\s|$)/.test(s)),
+);
+```
+
+from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 elements; three co-visible ones were repaired on the filing branch because THIS diff created their inconsistency (a swapped sibling sat beside them in one row: `Step2Verify.tsx:126`, `settings/DriveConnectionPanel.tsx:284`, `RecentAutoAppliedStrip.tsx:516`), leaving 26.
+
+**Why the sweep stopped there, and what has to be decided first.** DESIGN.md §1.2a's predicate is a control "whose fill is the near-ground". A `bg-surface` button ON a `bg-surface` card measures 1.00:1 against its container, so extending the rule to it is defensible — but that extension REWRITES the predicate from "the fill is the page ground" to "the fill equals its container", and the wider predicate then also captures the three switch TRACKS in the set (`PublishedToggle.tsx:292`, `settings/AutoPublishToggle.tsx:123`, `settings/NotifyToggle.tsx:131`), whose OFF-state boundary is pinned separately in §1.2 against `--color-accent-edge` as the load-bearing 1.4.11 pair. A blanket swap would silently retune that pinned pair. The text-level cover is also NOT safe to apply mechanically: of the 74 lines carrying `border border-border-strong`, most are cards, chips, tiles and popover surfaces that must keep the border token.
+
+**First scheduled step:** settle §1.2a's predicate — "near-ground" as page-ground only, or as fill-equals-container — and state explicitly whether switch tracks are in or out. The swap itself is one token per site once that is written down.
+
+## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
+
+**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** colour policy completeness. **Effort:** S-M. **Class-sweep exception:** (a) — whether a control may rest at the faint rung is a design decision, and the census this arc shipped was ratified around one token. **Reachability:** PROBED — all four sites read from the live tree.
+
+DESIGN §1.1a now says `--color-text-subtle` is never the resting colour of an action target outside three carve-out families. These four controls rest at `--color-text-faint`, which is one rung QUIETER (3.02:1 on `bg-surface-sunken`, vs subtle's 6.09:1) and which §1.1 already describes as "never used for crew-actionable copy":
+
+- `components/crew/primitives/SourceLink.tsx` — crew-facing "In sheet" deep link (sunlit-readability surface).
+- `components/shared/CardReportTrigger.tsx` — crew-facing card report flag.
+- `components/admin/BellPanel.tsx` — bell-row affordance.
+- `components/admin/HoverHelp.tsx` — help trigger glyph.
+
+**Why it was not repaired here.** The ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §2.3/§4.3) defines a hit as the BARE token `text-text-subtle`, and its tallies (15 exempt / 40 swap) are pinned executably. Policing a second token is a guard-contract change plus a new census, and the sites are deliberately recessive by their own documented design — two of them are crew surfaces whose quietness was an explicit choice. That is a decision to make, not an omission to patch. The `token` field already exists on `SubtleHit` and on the exemption registry rows precisely so a second policed token cannot alias the first's rows.
+
+**First scheduled step:** decide whether `text-faint` is admissible as a resting colour for a deliberately recessive control (and if so, name the condition in §1.1a — e.g. only where a non-colour affordance carries the control), or add it to the policed set and re-census.
+
 ## BL-ADMIN-DEV-PANEL-TAP-FLOOR — the two dev-panel buttons are ~28px, and their classes are not even compiled
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, found by the shipped tap-height scanner's first run). **Class:** accessibility / dev-only surface. **Effort:** S. **Class-sweep exception:** (c) — the repair is a build-scope decision about a surface this branch does not otherwise touch. **Reachability:** PROBED — `pnpm vitest run tests/styles/_metaTapTargetFloor.test.ts` against an empty census names both sites.

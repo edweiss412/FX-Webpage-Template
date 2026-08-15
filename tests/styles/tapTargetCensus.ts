@@ -340,7 +340,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/crew/primitives/SourceLink.tsx",
-    line: 66,
+    line: 74,
     tag: "a",
     category: "padding-arithmetic",
     reason:

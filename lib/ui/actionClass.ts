@@ -15,8 +15,11 @@
  *
  * The value is the outline the recovery actions already carried (Re-scan /
  * Retry now / Defer / Permanently ignore) — the majority treatment, and the one
- * DESIGN.md permits: `--color-text-subtle` is documented "Never used for action
- * targets", which is what the old ghost "View" wore.
+ * DESIGN.md permits: `--color-text-subtle` is documented "never the resting
+ * color of an action target, except the three carve-out families in §1.1a"
+ * (amended 2026-08-14; before that amendment it read "Never used for action
+ * targets"), and a ghost "View" in that token is neither the majority treatment
+ * nor a carve-out.
  *
  * THE OUTLINE TOKEN IS `--color-text-faint`, NOT `--color-border-strong`
  * (2026-08-14, DESIGN.md §1.2a control-outline rule). A border token is tuned

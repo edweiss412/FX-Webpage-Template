@@ -201,6 +201,17 @@ failure (ratified 2026-08-14, spec §1.1 R5).
 `disabled:opacity-60` drops the new outline back under 3:1 — WCAG exempts
 inactive controls, and the disabled state is a documented limit, not a finding.
 
+**Scope, so this rule and §1.1's `--color-border-strong` row do not read as a
+contradiction.** This rule governs the OUTLINE OF A CONTROL whose fill is the
+near-ground. `--color-border-strong` keeps every other job it had: tile and card
+edges, hover borders, focus-adjacent chrome, and the status-emphasis outline on
+non-interactive chrome (the flagged pill, the judgment chip). A card is not a
+control, and its edge is read against the fill beside it rather than as a
+standalone stroke. Controls whose fill is a SURFACE rather than the page ground
+are the open question — 26 of them still carry the border token, tracked as
+`BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with the predicate decision
+that has to come first.
+
 ### 1.3 Status-signal hues (M12.2 Phase A amendment — the one scoped exception to "orange stays alone")
 
 §1 commits to a single brand accent and "no competing accent hue (no blue, no purple, no teal)". The admin redesign (M12.2 Phase A) introduces **one narrowly-scoped exception**: a named **status-signal hue set** for sync/health/review state on the admin dashboard and per-show page. This is a _status_ hue family, **not a second brand accent**, and the exception is bounded by these rules:

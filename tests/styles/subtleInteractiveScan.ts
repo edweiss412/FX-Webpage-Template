@@ -11,6 +11,16 @@
  * BARE TOKEN ONLY. `hover:text-text-subtle` and `data-[…]:text-text-subtle` are
  * not hits: DESIGN.md §1.1's rule is about the color an action target RESTS at,
  * and a variant-prefixed token is a state, not the rest.
+ *
+ * DOCUMENTED LIMIT — the token must be on the CONTROL'S OWN className. A control
+ * that paints its label through a nested `<span>` (the onboarding wizard's step
+ * pills, `components/admin/OnboardingWizard.tsx`) is invisible to this scan: the
+ * span is not itself an in-scope element, and the button's own className does not
+ * carry the token. So the registry's 15 rows are the sites the POLICY can see,
+ * not a census of every pixel that renders subtle inside something clickable.
+ * Widening to descendants means every span inside every control, which is a
+ * different guard with a different census — it is a scope decision, not a bug fix
+ * (invariant-8 critique round 2, P3, 2026-08-14).
  */
 import { allStrings, scanInteractiveElements } from "./interactiveScanCore";
 

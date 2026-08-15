@@ -114,7 +114,7 @@ export function ReportButton(props: ReportButtonProps) {
   const offsetClass =
     RING_OFFSET_CLASS[ringOffset ?? (effectiveVariant === "accent" ? "surface" : "bg")];
 
-  // Text variant is the quiet footer affordance — keeps the crew page's
+  // Text variant is the footer affordance — keeps the crew page's
   // primary hierarchy intact while remaining discoverable. Accent
   // variant is the admin-side prominent CTA — Doug should see it as a
   // first-class control on the staged-review card.

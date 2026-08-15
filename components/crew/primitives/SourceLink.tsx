@@ -3,9 +3,17 @@
  *
  * A SUBTLE "In sheet" affordance for a SectionCard's header `action` slot. It is
  * deliberately RECESSIVE: a small spreadsheet glyph + the short label "In sheet"
- * in the faintest text token (`text-text-faint`, quieter than the card title's
- * `text-text-subtle`), so it never competes with the section title or its
- * content. Hover lifts it to `text-text-subtle` for affordance feedback.
+ * in the faintest text token (`text-text-faint`), so it never competes with the
+ * section title or its content. Hover lifts it to `text-text-subtle` for
+ * affordance feedback.
+ *
+ * NOTE (2026-08-14): DESIGN §1.1a retired `text-text-subtle` as a resting colour
+ * for action targets, and this control rests one rung BELOW that, at
+ * `text-text-faint` (3.02:1). It was outside that policy's census, which polices
+ * the subtle token only, and it is filed as
+ * `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR` with its three peers — the
+ * question of whether a crew-facing control may rest at the faint rung is a
+ * design decision, not an implementation detail.
  *
  * It renders NOTHING (returns null) when `buildSheetDeepLink(driveFileId, anchor)`
  * yields null — i.e. when there is no source sheet to link to (null/empty
