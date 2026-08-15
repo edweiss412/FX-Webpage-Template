@@ -80,7 +80,15 @@ Real-browser `getBoundingClientRect()` contracts, all in the arc's existing e2e 
 
 ## 4. Transition Inventory
 
-**No new visual states and no new animations.** Every change is a static class-string edit; the components' state machines are untouched (`showAll` toggle at `step3ReviewSections.tsx:2596` keeps its ratified instant treatment, comment at `step3ReviewSections.tsx:2593`). New/changed at-rest treatments (chip container, at-rest underline) are static; `hover:text-text` and `focus-visible` rings are instant, matching every sibling control on the surface. State pairs: none added — N states unchanged in every touched component, so the N\*(N−1)/2 inventory is the owning specs' existing one. Compound transitions: none possible from class-only edits.
+**No animations anywhere in this diff; every treatment below is explicitly instant.** The components' state machines (React state) are untouched (`showAll` toggle at `step3ReviewSections.tsx:2596` keeps its ratified instant treatment, comment at `step3ReviewSections.tsx:2593`). One PSEUDO-state is newly distinguishable: the §2.3 chip strings add a `focus-visible` ring to sites 6/7, which today have no focus treatment. Full pair inventory for the touched controls (states: rest, hover, focus-visible):
+
+| pair | treatment |
+| --- | --- |
+| rest ↔ hover (sites 4/6/7, pre-existing `hover:text-text`) | instant — no animation needed (unchanged) |
+| rest ↔ focus-visible (sites 6/7, NEW ring; site 5 pre-existing) | instant — no animation needed (the house ring is an instant outline everywhere, e.g. `step3ReviewSections.tsx:1946`) |
+| hover ↔ focus-visible, and the hover+focus-visible compound | instant — both are independent class-only pseudo-states; combined they render ring + text color with no transition property involved |
+
+At-rest treatments (chip container, site-4 underline) change the REST render only — no pair, nothing to animate. No `transition-*` utility is added or removed by this diff.
 
 ## 5. Meta-test / registry inventory
 
@@ -93,7 +101,7 @@ Real-browser `getBoundingClientRect()` contracts, all in the arc's existing e2e 
 
 ## 6. Verification
 
-TDD in the existing e2e file; every assertion mounts the PRODUCTION route and drives it to the state that renders the control (the suite's own contract). Render premises per the suite's existing pattern — the demoted_rescan seed carries `client_label: "Gallery Client"` (`tests/e2e/helpers/devCaptureStaged.ts:446`), so the meta line renders and premise 2 below is satisfiable; the meta line is located via the EXISTING production testid on its client segment (`wizard-step3-card-${dfid}-client`, `Step3SheetCard.tsx:520` — a span inside the meta `<p>`, whose rect top is the text top the bleed overlaps), so the RED touches test files only; no production edit precedes it. The suite's section locators (`-review-section-<id>`) are rendered by the review-modal wrapper (`components/admin/review/ShowReviewSurface.tsx:1057`), not by `step3ReviewSections.tsx` — recorded here because a two-file grep during review round 1 misread them as stale.
+TDD in the existing e2e file; every assertion mounts the PRODUCTION route and drives it to the state that renders the control (the suite's own contract). Render premises per the suite's existing pattern — the demoted_rescan seed carries `client_label: "Gallery Client"` (`tests/e2e/helpers/devCaptureStaged.ts:446`), so the meta line renders and the demoted-card premise below is satisfiable; the meta line is located via the EXISTING production testid on its client segment (`wizard-step3-card-${dfid}-client`, `Step3SheetCard.tsx:520` — a span inside the meta `<p>`, whose rect top is the text top the bleed overlaps), so the RED touches test files only; no production edit precedes it. The suite's section locators (`-review-section-<id>`) are rendered by the review-modal wrapper (`components/admin/review/ShowReviewSurface.tsx:1057`), not by `step3ReviewSections.tsx` — recorded here because a two-file grep during review round 1 misread them as stale.
 
 - **RED (all runnable against the current tree — each fails for a stated production-line reason):**
   1. Site 5: meta-line disjointness fails on the demoted_rescan card (~8px overlap from the shipped `-my-2.5 py-2.5`, measured against the `-client` segment rect), and the same shipped pair makes the no-details variant's warning-line disjointness fail by ~6px (its `mt-1` clears only 4px of the 10px downward bleed; the `no_details` seed variant, `tests/e2e/helpers/devCaptureStaged.ts:351`, renders that card with `data-no-details`, `Step3SheetCard.tsx:451`).
@@ -101,8 +109,8 @@ TDD in the existing e2e file; every assertion mounts the PRODUCTION route and dr
   3. Grid: `vehicleCell.height < driverCell.height` fails (default grid stretch equalizes them).
   4. Budget: cell height exceeds the 34+1 bound (shipped non-content space is 20px `py-2.5` + three 6px `gap-1.5` gaps = 38px).
   5. Site 4: at-rest `text-decoration-line: underline` fails (shipped string underlines on hover only).
-- **GREEN:** the §2 class edits + testid + comment/pointer edits land; the full suite (existing + new assertions) passes at 390px and wide.
-- **Anti-tautology:** every expected value derives from a token read (`--spacing-tap-min`) or from the seeded fixture's own fields; rects come off production testids/roles after real navigation in ONE `evaluate` per comparison (the suite's single-snapshot rule); the 34px budget and 9.5px clearance derive from the §2 class strings, stated here once and cited by the test.
+- **GREEN:** the §2 class edits + comment/pointer edits land (no production instrumentation is added anywhere in this arc); the full suite (existing + new assertions) passes at 390px and wide.
+- **Anti-tautology:** every expected value derives from a token read (`--spacing-tap-min`) or from the seeded fixture's own fields; every rect comes off the PRODUCTION DOM after real navigation, in ONE `evaluate` per comparison (the suite's single-snapshot rule) — located by a production testid where one exists (title link, client segment, section wrappers) and otherwise by a structural selector ROOTED at a production-testid or data-attribute scope (the warning `<p>` inside the `data-no-details` article; eyebrow/name/cell nodes inside the `-review-section-transport` wrapper), each behind an asserted render premise — never from a fixture copy of the JSX; the 34px budget and 9.5px clearance derive from the §2 class strings, stated here once and cited by the test.
 - **Impeccable critique + audit** on the implementation diff (invariant 8), pre-code mechanical gate first.
 
 ## 7. Documented limits
