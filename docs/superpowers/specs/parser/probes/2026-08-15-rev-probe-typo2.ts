@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { parseSheet } from "../../lib/parser/index";
+import { parseSheet } from "@/lib/parser";
 const p = "fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md";
 const md = readFileSync(p, "utf8");
 const blocks = md.split(/\n\s*\n/);

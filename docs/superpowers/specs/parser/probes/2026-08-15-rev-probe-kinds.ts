@@ -1,7 +1,7 @@
 // Independent review probe: what blockRef.kind do today's UNKNOWN_FIELD warnings carry?
 import { readFileSync } from "node:fs";
-import { FIXTURES } from "../../tests/parser/mutation/fixtures";
-import { parseSheet } from "../../lib/parser/index";
+import { FIXTURES } from "@/tests/parser/mutation/fixtures";
+import { parseSheet } from "@/lib/parser";
 
 const byKind = new Map<string, number>();
 const tpRows: { fixture: string; key: string; kind: string; block: string }[] = [];

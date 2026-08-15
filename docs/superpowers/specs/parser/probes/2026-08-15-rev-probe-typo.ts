@@ -2,8 +2,8 @@
 // flag spec §2.1 says to delete (venue.ts:135). Is it corpus-live, and is it
 // position-sensitive (i.e. does it participate in the AC-N2 swap-invariance gate)?
 import { readFileSync } from "node:fs";
-import { FIXTURES } from "../../tests/parser/mutation/fixtures";
-import { parseSheet } from "../../lib/parser/index";
+import { FIXTURES } from "@/tests/parser/mutation/fixtures";
+import { parseSheet } from "@/lib/parser";
 
 const CASES: Array<[string, number[]]> = [
   ["fixtures/shows/raw/2025-03-dci-rpas-central.md", [14, 15, 19]],

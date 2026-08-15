@@ -13,7 +13,7 @@ import { parseSheet } from "@/lib/parser/index";
 import { parseTableRows, presence } from "@/lib/parser/blocks/_helpers";
 import { resolveAlias, resolveAliasFull, resolveAliasScoped } from "@/lib/parser/aliases";
 import { matchesSectionHeader } from "@/lib/parser/blocks/_sectionHeaderMatch";
-import { FIXTURES, readFixture, type FixtureRef } from "../../tests/parser/mutation/fixtures";
+import { FIXTURES, readFixture, type FixtureRef } from "@/tests/parser/mutation/fixtures";
 
 const VENUE_BLOCK_TERMINATORS = new Set([
   "CREW",

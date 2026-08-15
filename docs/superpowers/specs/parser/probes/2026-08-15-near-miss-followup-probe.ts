@@ -287,7 +287,10 @@ function deepDiffLeafKeys(a: unknown, b: unknown, path: string, out: string[]): 
 }
 
 type ConsumptionVerdict = "UNCONSUMED" | "CONSUMED_OFFLABEL" | "CONSUMED_OTHER_KEY";
-type ConsumptionResult = Firing & { verdict: ConsumptionVerdict; changedKeys: string[] };
+// `via` is optional: only firings produced by computeFinalFiringsV3 (matched via v3
+// normalization, "plain" or "fused") carry it. consumptionCheck is also called with
+// plain v0 Firing[] (line 484 below), which never sets `via`.
+type ConsumptionResult = Firing & { verdict: ConsumptionVerdict; changedKeys: string[]; via?: "plain" | "fused" };
 
 function consumptionCheck(firings: Firing[]): ConsumptionResult[] {
   const byFixture = new Map<string, ReturnType<typeof readFixture>>();

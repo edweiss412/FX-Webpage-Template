@@ -3,8 +3,8 @@
 // Focus: the four labels spec §3.2 lists as "confirmed non-catches" and §9
 // files as documented limits. Are they surfaced TODAY?
 import { readFileSync } from "node:fs";
-import { FIXTURES } from "../../tests/parser/mutation/fixtures";
-import { parseSheet } from "../../lib/parser/index";
+import { FIXTURES } from "@/tests/parser/mutation/fixtures";
+import { parseSheet } from "@/lib/parser";
 
 const WATCH = ["cell phone:", "fax:", "alt. e-mail:", "event name:", "e-mail:", "address:", "phone:"];
 

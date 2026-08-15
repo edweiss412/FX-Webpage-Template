@@ -4,9 +4,9 @@
 // DOCUMENT ORDER, then slices to end. If a fixture holds >=2 DETAILS-header blocks,
 // an adjacent-block swap that reorders them changes which block is parsed.
 import { readFileSync } from "node:fs";
-import { FIXTURES } from "../../tests/parser/mutation/fixtures";
-import { parseSheet } from "../../lib/parser/index";
-import { parseTableRows } from "../../lib/parser/blocks/_helpers";
+import { FIXTURES } from "@/tests/parser/mutation/fixtures";
+import { parseSheet } from "@/lib/parser";
+import { parseTableRows } from "@/lib/parser/blocks/_helpers";
 
 const TOKENS = ["EVENT DETAILS", "DETAILS", "DETAILS/ROOM DIAGRAM", "GS DETAILS", "GS DETAILS (FOR BOTH)"];
 const isDetailsHeader = (c: string) => TOKENS.includes(c.trim().toUpperCase());
