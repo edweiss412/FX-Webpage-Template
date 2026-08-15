@@ -29,8 +29,12 @@ first UI edit is Task 2, not Task 3 (plan R1 F10). The dual-gate itself is Task 
   PR's last commit (invariant 12).
 - Heavy phases (`pnpm test`, `pnpm build`, screenshot capture, `pnpm mutation:guards`) run under
   `pnpm heavy` (AGENTS.md).
-- Commit per task, conventional-commits style. A task commits only in a passing state — no task
-  ends RED (plan R1 F4: guard-RED and its GREEN swaps live in ONE task).
+- Commit per task, conventional-commits style. A task commits only with the TEST SUITES
+  passing — no task ends RED (plan R1 F4: guard-RED and its GREEN swaps live in ONE task). A
+  task's `red=` MARKER command is a task-cycle observable, not a suite: it may lawfully remain
+  red across a task's intermediate passing-state commits and greens at the task's designated
+  GREEN step (plan R5 F2 — Task 8's patch-artifact commit and Task 6's baseline flow are the
+  two instances; every suite is green at every commit in both).
 - Em-dash ban and canonical token classes in any user-visible copy (pre-code mechanical UI gate).
 - Every pasted snippet was typechecked at plan time against strict + `noUncheckedIndexedAccess` +
   `exactOptionalPropertyTypes`; keep signatures exactly as written or update every consumer task
@@ -721,14 +725,20 @@ the invariant-12 contract (markers gone, archives reject in-flight work).
   graduation change — the three `BACKLOG-archive.md` entries with provenance (census history
   32/34/53/55, Family D ratification, the Task 4 census counts), the three BACKLOG.md entry
   removals including their `**Status:** IN PROGRESS` marker lines — as a git patch file
-  committed to the branch at `docs/superpowers/plans/2026-08-14-ui-interactive-token-policy.graduation.patch (new)`,
-  produced by `git diff` from a locally staged (then reset) application. The patch's SEMANTIC
-  content is thereby inside the whole-diff review's corpus; Step 3 applies it verbatim.
+  committed to the branch at `docs/superpowers/plans/2026-08-14-ui-interactive-token-policy.graduation.patch (new)`.
+  Exact production mechanics (plan R5 F1 — no staging involved): apply the ledger edits in the
+  WORKING TREE, run `git diff -- BACKLOG.md BACKLOG-archive.md > <patchfile>` (bare `git diff`
+  reads the working tree, which is where the edits are), then restore with
+  `git checkout -- BACKLOG.md BACKLOG-archive.md` and verify `git status --porcelain` shows
+  only the new patch file. The patch's SEMANTIC content is thereby inside the whole-diff
+  review's corpus; Step 3 applies it verbatim.
   Run the local gates in the same step: `pnpm heavy pnpm test` · `pnpm typecheck` ·
   `pnpm exec eslint .` · `pnpm format:check` ·
   `pnpm spec:lint docs/superpowers/specs/2026-08-14-ui-interactive-token-policy-design.md`.
   All green. (The ledger meta-test stays green here because the patch is not yet applied —
-  markers are still on and the archive unchanged.)
+  markers are still on and the archive unchanged. Task 8's red= marker command remains red at
+  this commit BY DESIGN; it greens at Step 3 — see the Global Constraints marker-vs-suite
+  distinction.)
 - [ ] **Step 2: Whole-diff cross-model review on the COMMITTED tree** (codex-guard,
   `--stage diff`; every change through Task 7 plus the graduation patch file is committed),
   split tight-scope briefs if the file list is large; APPROVE required. **Fix loop (plan R3
@@ -739,8 +749,10 @@ the invariant-12 contract (markers gone, archives reject in-flight work).
   on the new tree. Loop until APPROVE lands.
 - [ ] **Step 3: Apply the reviewed patch as the PR's LAST commit.**
   `git apply` of the committed graduation patch file,
-  verify the working diff equals the patch (`git diff | diff - <patchfile>` modulo headers —
-  any mismatch means the tree moved since review: STOP, regenerate, re-review), commit —
+  then verify byte identity: `git diff -- BACKLOG.md BACKLOG-archive.md > /tmp/applied.diff &&
+  diff /tmp/applied.diff <patchfile>` — IDENTICAL bytes, no header allowance (same base tree
+  produces the same headers; `git apply` failing OR any diff-of-diffs output means the tree
+  moved since review: STOP, revert the apply, regenerate the patch, re-review). Commit —
   `docs: graduate ui-token-policy ledger entries` (invariant 12's letter: markers come off in
   the last commit and never reach main; review-covers-what-merges holds because the commit
   reproduces reviewed bytes). Run the marker command — verify exit 0.
@@ -751,9 +763,10 @@ the invariant-12 contract (markers gone, archives reject in-flight work).
   (`git rev-list --left-right --count main...origin/main` → `0  0`).
   **Last-commit restoration loop (plan R4 F2):** if Step 4 or real CI forces ANY further
   change, first `git revert` the graduation commit (markers return, ledger meta-test stays
-  lawful), land the fix through the Step 2 fix-loop discipline (including review rerun on the
-  delta), regenerate the patch if ledger text moved, then repeat Steps 3-5 so the graduation
-  commit is again the branch's last commit at merge time. Real-CI-only failures are an
+  lawful), land the fix through the Step 2 fix-loop discipline — including a FULL whole-diff review
+  rerun on the new tree, never a delta-scoped review (plan R5 F3; the fresh-eyes whole-diff
+  contract admits no narrower scope) — regenerate the patch if ledger text moved, then repeat
+  Steps 3-5 so the graduation commit is again the branch's last commit at merge time. Real-CI-only failures are an
   expected class (AGENTS.md local-passes-CI-fails); they take this loop, never a hotfix on
   top of the graduation commit.
 
