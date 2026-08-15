@@ -18,7 +18,7 @@
 - **§12.4 three-lockstep** (one commit): master-spec prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`; `x1-catalog-parity` (`tests/cross-cutting/codes.test.ts`) gates it. Master spec is never Prettier'd.
 - **Copy rules:** no em-dash in crew copy; straight apostrophes matching existing catalog rows; no jargon (PRODUCT.md §5).
 - **Worktree only** (invariant 11); commit per task (invariant 6).
-- **impeccable-gate:** UI surfaces present — dual gate runs at close-out (marker in `## Closeout`).
+- **Invariant-8 dual gate:** UI surfaces present (`AvatarMenu.tsx`, `IdentityChip.tsx`) — the impeccable critique + audit gate runs in the IMPLEMENTATION arc against the real UI diff, and the machine `impeccable-gate:` closeout marker is filled at THAT arc's closeout (see Closeout; the gate cannot run before UI code exists, and fabricating a marker is forbidden).
 
 ## Meta-test inventory (declared)
 
@@ -41,6 +41,7 @@ N/A. Neither the origin gate nor the failure state calls `pg_advisory*` or mutat
 - **AC-4:** `PICKER_SWITCH_FAILED` exists in the catalog with crew copy "Couldn't switch. Please try again." and passes `x1-catalog-parity`; no orphan producer is introduced.
 - **AC-5:** On a failed clear, `AvatarMenu` renders a `role="alert"` node (sibling of `role="menu"`) with `PICKER_SWITCH_FAILED`'s crew copy, the menu stays open, and the submit re-enables; on `ok:true`/idle no alert renders; reopening after a failure shows no stale alert.
 - **AC-6:** Existing `clearIdentity` suites pass with a same-origin default header context; the `tests/auth/picker/clearIdentity.test.ts:228` no-emit pin is unchanged; the 3 void-mock component test files are updated to return `{ ok: true }`.
+- **AC-7:** Backlog reconciliation lands correctly: the two closed entries are archived with their IN PROGRESS markers removed **in the PR's last commit** (after the impeccable dual-gate and whole-diff review, invariant 12), and the two follow-up entries (`BL-SERVER-ACTION-ORIGIN-GATE-SWEEP`, `BL-SWITCH-PERSON-GOOGLE-LOOPBACK`) are filed; `_metaLedgerInProgress` and `_metaLedgerReferentialIntegrity` pass.
 
 ## File structure
 
@@ -146,41 +147,76 @@ export async function isSameOriginServerAction(): Promise<boolean> {
 
 <!-- task: red=`pnpm vitest run tests/auth/picker/clearIdentity.test.ts` ac=AC-2,AC-3,AC-6 -->
 
-- [ ] **Step 1: Write failing tests.** Add a gate-reject case per exported action, a bypass regression, and (for `clearIdentityAndSkip`) a no-`signOut` assertion:
+- [ ] **Step 1a: Extend the existing test harness so the gate is controllable.** The suite already mocks `next/headers` as `vi.mock("next/headers", () => ({ cookies: vi.fn() }))` (`tests/auth/picker/clearIdentity.test.ts:23`) and mocks `@/lib/log` as `logMock` (`tests/auth/picker/clearIdentity.test.ts:25-31`). `isSameOriginServerAction` (Task 1) reads `headers()` from `next/headers`, so extend the SAME mock and add a mutable header map, defaulting to same-origin so every EXISTING case still passes the gate. Do NOT import a `../helpers/headerMock` — no such file exists; the mock is inline:
 
 ```ts
-import { setSameOrigin, setHeaders } from "../helpers/headerMock"; // extend existing mock
+// widen the existing next/headers mock (was `{ cookies: vi.fn() }`):
+vi.mock("next/headers", () => ({ cookies: vi.fn(), headers: vi.fn() }));
 
-it("clearIdentity refuses a gate-failing request, writes no cookie, and emits the forensic code", async () => {
-  setHeaders({ "sec-fetch-site": "cross-site" });
-  const warnSpy = vi.spyOn(log, "warn");
-  const fd = new FormData();
-  fd.set("slug", SLUG); fd.set("shareToken", TOKEN); fd.set("showId", SHOW_ID);
-  const r = await clearIdentity(fd);
-  expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
-  expect(cookieSet).not.toHaveBeenCalled(); // no cookie mutation on reject
-  // R2-F3: the forensic emit is pinned, not just described; dropping it fails here
-  expect(warnSpy).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED" }));
-});
+// module-level, beside the other consts:
+import { headers } from "next/headers";
+const headerMap = new Map<string, string>();
+const setHeaders = (h: Record<string, string>): void => {
+  headerMap.clear();
+  for (const [k, v] of Object.entries(h)) headerMap.set(k.toLowerCase(), v);
+};
 
-it("clearIdentityAndSkip refuses cross-site WITHOUT signing out (no external mutation)", async () => {
-  setHeaders({ "sec-fetch-site": "cross-site" });
-  const r = await clearIdentityAndSkip(fdFull());
-  expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
-  expect(supabaseMock.signOut).not.toHaveBeenCalled(); // R1-F6: external mutation untouched
-  expect(cookieSet).not.toHaveBeenCalled();
-});
+// inside the top-level beforeEach (default = same-origin, so existing cases pass the gate):
+setHeaders({ "sec-fetch-site": "same-origin" });
+vi.mocked(headers).mockResolvedValue({
+  get: (k: string) => headerMap.get(k.toLowerCase()) ?? null,
+} as unknown as Awaited<ReturnType<typeof headers>>);
+```
 
-it("bypass regression: cross-site with NO Origin header is refused", async () => {
-  setHeaders({ "sec-fetch-site": "cross-site" }); // origin deliberately absent
-  const r = await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
-  expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+- [ ] **Step 1b: Write failing tests** — a new `describe` block; a gate-reject case for EACH of the three exported actions (each asserting no mutation AND the forensic emit — AC-2 for all three, R2-F3/F2), plus the documented-bypass regression. Uses the existing `fd({...})` FormData helper (`tests/auth/picker/clearIdentity.test.ts:63-69`), `logMock`, `cookieSet`, and `supabaseMock.signOut` — all already exposed by the harness. The file imports `test` (not `it`), so use `test(`:
+
+```ts
+describe("same-origin gate (BL-SERVER-ACTION-ORIGIN-GATE)", () => {
+  test("clearIdentity refuses cross-site, writes no cookie, emits the forensic code", async () => {
+    setHeaders({ "sec-fetch-site": "cross-site" });
+    const r = await clearIdentity(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
+    expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(cookieSet).not.toHaveBeenCalled();
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED" }),
+    );
+  });
+
+  test("clearIdentityAndSkip refuses cross-site WITHOUT signing out, writes no cookie, emits", async () => {
+    setHeaders({ "sec-fetch-site": "cross-site" });
+    const r = await clearIdentityAndSkip(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
+    expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(supabaseMock.signOut).not.toHaveBeenCalled(); // R1-F6: external mutation untouched
+    expect(cookieSet).not.toHaveBeenCalled();
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED" }),
+    );
+  });
+
+  test("clearIdentityCore refuses cross-site, writes no cookie, emits", async () => {
+    setHeaders({ "sec-fetch-site": "cross-site" });
+    const r = await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
+    expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(cookieSet).not.toHaveBeenCalled();
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED" }),
+    );
+  });
+
+  test("documented bypass: cross-site with NO Origin header is refused", async () => {
+    setHeaders({ "sec-fetch-site": "cross-site" }); // origin deliberately absent (§2.1)
+    const r = await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
+    expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+  });
 });
 ```
 
-Also: add a `same-origin` default to the suite's `headers()` mock so all EXISTING cases (which do not set fetch-metadata) still pass through the gate. The `tests/auth/picker/clearIdentity.test.ts:228` no-emit pin is unchanged. (`supabaseMock.signOut` and `cookieSet` are already exposed by the existing harness.)
+The `tests/auth/picker/clearIdentity.test.ts:228` no-emit pin is unchanged (it runs under the same-origin default, so the gate passes and it exercises the real body).
 
-RED premise: the gate line is absent from the three actions, so a cross-site request currently mutates and returns `{ ok: true }` — the assertion `{ ok: false, code: "PICKER_INVALID_INPUT" }` fails, and for `clearIdentityAndSkip` a pre-gate `signOut` would have fired. Anti-tautology: the `cookieSet` AND `signOut` spies assert NO mutation happened, and the `log.warn` spy asserts the forensic emit FIRED — a guard-order regression that revoked before refusing, or a silent rejection with no emit, fails here.
+RED premise (production line, not scaffolding): the gate call `if (!(await isSameOriginServerAction())) return rejectCrossOrigin(...)` is ABSENT from all three actions (Step 3 adds it), so a cross-site request currently falls through to the real body, mutates, and returns `{ ok: true }` / redirects — the `{ ok: false, code: "PICKER_INVALID_INPUT" }` assertion fails, `cookieSet`/`signOut` fire, and `logMock.warn` never sees `PICKER_ORIGIN_REJECTED`. Every failure is caused by the missing production gate line, not by an unresolved import or undefined symbol (Step 1a supplies every symbol the tests use). Anti-tautology: per endpoint the mutation spy proves NO write happened AND the emit spy proves the forensic code FIRED — a guard-order regression that revoked before refusing, or a silent rejection with no emit, fails on that endpoint specifically (all three are pinned independently, so rejecting only one action cannot pass the suite — F2).
 
 - [ ] **Step 2: Run tests, verify they fail** — Run `pnpm vitest run tests/auth/picker/clearIdentity.test.ts`; expected FAIL on the new cases (gate absent), existing cases green.
 
@@ -263,37 +299,72 @@ PICKER_SWITCH_FAILED: {
 
 <!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx` ac=AC-5 -->
 
-- [ ] **Step 1: Write failing tests** — extend `tests/components/auth/avatarMenu.test.tsx`; `clearAction` now returns `ClearIdentityResult`:
+- [ ] **Step 1: Write failing tests** — extend `tests/components/auth/avatarMenu.test.tsx`. The file already imports `it`, `act`, `fireEvent`, `render`, `screen`, `waitFor` (add `waitFor` + `vi` to the `@testing-library/react` / `vitest` import lines), `jest-dom/vitest`, and provides `ROUTE`, `renderMenu`, and `openMenu` (`tests/components/auth/avatarMenu.test.tsx:23-45`). Add two local helpers (`closeMenu`, `deferred`) and import the result type; do NOT reference a `baseProps` — render with `ROUTE` spread, matching the file's own `renderMenu`:
 
 ```tsx
+import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 import { messageFor } from "@/lib/messages/lookup";
+
 const EXPECTED = messageFor("PICKER_SWITCH_FAILED").crewFacing; // derive, never hardcode
 
-it("renders an in-menu alert on failure, as a sibling of role=menu, and keeps the menu open", async () => {
-  const action = vi.fn(async () => ({ ok: false as const, code: "PICKER_RESOLVER_LOOKUP_FAILED" }));
-  render(<AvatarMenu {...baseProps} clearAction={action} />);
+// closing: clicking the trigger while open calls close() (AvatarMenu.tsx:232).
+function closeMenu(): void {
+  act(() => { fireEvent.click(screen.getByTestId("avatar-menu-trigger")); });
+}
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+// render with an explicit clearAction, matching renderMenu's prop shape:
+const renderWith = (action: (fd: FormData) => Promise<ClearIdentityResult>) =>
+  render(<AvatarMenu name="Doug L." role="Lead" {...ROUTE} clearAction={action} />);
+
+it("EXPECTED copy is a non-empty catalog string (kills the empty-copy tautology)", () => {
+  expect(EXPECTED.length).toBeGreaterThan(0); // an emptied catalog copy fails HERE, not silently
+});
+
+it("passes the route inputs (slug/shareToken/showId) to the clear action (F3)", async () => {
+  const action = vi.fn(async () => ({ ok: true as const }));
+  renderWith(action);
   openMenu();
-  fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+  // submit the FORM so React builds FormData from the hidden inputs (AvatarMenu.tsx:350-352)
+  act(() => { fireEvent.submit(screen.getByTestId("avatar-menu-switch-person").closest("form")!); });
+  await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+  const received = action.mock.calls[0]![0] as FormData;
+  expect(received.get("slug")).toBe(ROUTE.slug);        // mutant clearAction(new FormData()) fails here
+  expect(received.get("shareToken")).toBe(ROUTE.shareToken);
+  expect(received.get("showId")).toBe(ROUTE.showId);
+});
+
+it("renders an in-menu alert on failure, as a sibling of role=menu, and keeps the menu open", async () => {
+  const action = vi.fn(async () => ({ ok: false as const, code: "PICKER_RESOLVER_LOOKUP_FAILED" as const }));
+  renderWith(action);
+  openMenu();
+  act(() => { fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); });
   const alert = await screen.findByRole("alert");
-  expect(alert).toHaveTextContent(EXPECTED);
-  expect(screen.getByRole("menu").contains(alert)).toBe(false); // R1-F5: sibling, not child
+  expect(alert.textContent?.trim()).toBe(EXPECTED); // EXACT match: a rendered suffix fails (not substring)
+  expect(screen.getByRole("menu").contains(alert)).toBe(false); // R1-F5: sibling of role=menu (avatar-menu-items), not child
   expect(screen.getByTestId("avatar-menu-popover")).toBeInTheDocument(); // stayed open
 });
 
-it("renders NO alert when the clear succeeds", async () => {
-  render(<AvatarMenu {...baseProps} clearAction={vi.fn(async () => ({ ok: true as const }))} />);
+it("renders NO alert when the clear succeeds (awaits the transition before asserting absence, F5)", async () => {
+  const action = vi.fn(async () => ({ ok: true as const }));
+  renderWith(action);
   openMenu();
-  fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
-  expect(screen.queryByRole("alert")).toBeNull();
+  act(() => { fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); });
+  await waitFor(() => expect(action).toHaveBeenCalled());        // let the transition settle
+  await act(async () => { await Promise.resolve(); });           // flush the post-resolve microtask/commit
+  expect(screen.queryByRole("alert")).toBeNull();                // a late alert (settled microtask) would now be present
 });
 
 it("clears a stale error when the menu is reopened (R1-F4)", async () => {
-  const action = vi.fn(async () => ({ ok: false as const, code: "PICKER_RESOLVER_LOOKUP_FAILED" }));
-  render(<AvatarMenu {...baseProps} clearAction={action} />);
+  const action = vi.fn(async () => ({ ok: false as const, code: "PICKER_RESOLVER_LOOKUP_FAILED" as const }));
+  renderWith(action);
   openMenu();
-  fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+  act(() => { fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); });
   await screen.findByRole("alert");
-  closeMenu();          // Escape / outside pointer
+  closeMenu();          // click trigger toggles closed
   openMenu();           // reopen
   expect(screen.queryByRole("alert")).toBeNull(); // reset-on-open, no stale error
 });
@@ -301,9 +372,9 @@ it("clears a stale error when the menu is reopened (R1-F4)", async () => {
 it("close WHILE PENDING then resolve-failure: no throw, no alert; reopen stays clean (R2-F2)", async () => {
   // The §2.3 probe verified this lifecycle on a Harness; here it is pinned on the real AvatarMenu.
   const d = deferred<ClearIdentityResult>();
-  render(<AvatarMenu {...baseProps} clearAction={() => d.promise} />);
+  renderWith(() => d.promise);
   openMenu();
-  fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+  act(() => { fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); });
   closeMenu();                       // close before the clear resolves
   await act(async () => { d.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }); await d.promise; });
   expect(screen.queryByRole("alert")).toBeNull(); // nothing rendered while closed, no throw
@@ -311,11 +382,11 @@ it("close WHILE PENDING then resolve-failure: no throw, no alert; reopen stays c
   expect(screen.queryByRole("alert")).toBeNull(); // reopen is idle
 });
 
-it("reopen WHILE STILL PENDING (Closed→Open-pending): submit disabled, no alert; failure then surfaces (R3-F1)", async () => {
+it("reopen WHILE STILL PENDING (Closed→Open-pending): submit aria-disabled, no alert; failure then surfaces (R3-F1)", async () => {
   const d = deferred<ClearIdentityResult>();
-  render(<AvatarMenu {...baseProps} clearAction={() => d.promise} />);
+  renderWith(() => d.promise);
   openMenu();
-  fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+  act(() => { fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); });
   closeMenu();
   openMenu();                        // reopen BEFORE the promise settles
   expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe("true"); // pending persists, focusable
@@ -325,30 +396,41 @@ it("reopen WHILE STILL PENDING (Closed→Open-pending): submit disabled, no aler
   expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe("false"); // re-enabled
 });
 
-it("keyboard nav reaches the pending switch item (aria-disabled, focusable) and re-entry is a no-op (R4-F1)", async () => {
+it("keyboard reaches the pending switch item by all four commands (aria-disabled, focusable) and re-activation is a no-op (R4-F1)", async () => {
   const action = vi.fn(() => new Promise<ClearIdentityResult>(() => {})); // never resolves; stays pending
-  render(<AvatarMenu {...baseProps} clearAction={action} />);
+  renderWith(action);
   openMenu();
-  fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); // pending
+  act(() => { fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); }); // one real activation → pending
   const submit = screen.getByTestId("avatar-menu-switch-person");
-  expect(submit.getAttribute("aria-disabled")).toBe("true");
-  expect((submit as HTMLButtonElement).disabled).toBe(false); // NOT native disabled
-  // arrow nav still reaches it: from the theme item ArrowDown lands focus on the switch item
   const menu = screen.getByTestId("avatar-menu-popover");
-  fireEvent.keyDown(menu, { key: "ArrowDown" });
-  fireEvent.keyDown(menu, { key: "ArrowDown" });
-  expect(document.activeElement).toBe(submit); // focus stayed inside the menu
+  expect(submit.getAttribute("aria-disabled")).toBe("true");
+  expect((submit as HTMLButtonElement).disabled).toBe(false); // NOT native disabled (native disabled would strand focus)
+  // (a) ArrowDown from the theme item lands focus on the pending switch item…
+  act(() => { screen.getByTestId("avatar-menu-theme").focus(); fireEvent.keyDown(menu, { key: "ArrowDown" }); });
+  expect(document.activeElement).toBe(submit);
+  // (b) End also lands on it (last item)…
+  act(() => { screen.getByTestId("avatar-menu-theme").focus(); fireEvent.keyDown(menu, { key: "End" }); });
+  expect(document.activeElement).toBe(submit);
+  // (c) reopen-with-ArrowUp wraps to the last item…
+  closeMenu();
+  act(() => { fireEvent.keyDown(screen.getByTestId("avatar-menu-trigger"), { key: "ArrowUp" }); });
+  expect(document.activeElement).toBe(screen.getByTestId("avatar-menu-switch-person"));
+  // re-activation while pending is a no-op: click the submit (real form activation), assert no extra call
   const calls = action.mock.calls.length;
-  fireEvent.keyDown(submit, { key: "Enter" }); // activate while pending
-  expect(action.mock.calls.length).toBe(calls); // no-op (guard)
+  act(() => { fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); });
+  expect(action.mock.calls.length).toBe(calls); // guard: onSwitchSubmit early-returns while pending
 });
 ```
 
-Anti-tautology: `EXPECTED` is derived from `messageFor` (a copy edit can't pass a stale literal); the query is scoped to `role="alert"` (the identity header can't satisfy it); the sibling assertion mirrors the existing header contract (`avatarMenu.test.tsx:97`). RED premise: `AvatarMenu` currently discards the result (no alert node, no local switch state), so `findByRole("alert")` throws and the reopen-reset path does not exist.
+Anti-tautology + mutant-to-layer mapping (F4). `EXPECTED` is derived from `messageFor`, so a wrong-code or copy-drift render fails; the alert assertion uses **exact** equality on `textContent` (not `toHaveTextContent`'s substring match), so a rendered suffix fails at the component layer. The four string-presence mutants are killed at the layer that actually observes them, NOT all claimed against one assertion:
+- **(a) empty crew copy** and **(b) suffixed crew copy** at the SOURCE are killed by `x1-catalog-parity` (Task 3): the catalog copy must equal the §12.4 prose, so emptying/suffixing the catalog reds `tests/cross-cutting/codes.test.ts`. The `EXPECTED.length > 0` test above is a second, component-suite guard against an emptied copy (it would otherwise make `expect("").toBe("")` a tautology here).
+- **(c) placement** (copy rendered in a `title` attribute, or inside `role="menu"`) is killed by the scoped `getByRole("alert")` + the `menu.contains(alert) === false` sibling assertion.
+- **(d) rendered suffix** (component appends to the rendered text) is killed by the exact-equality assertion (`textContent.trim() === EXPECTED`).
+- **ok true↔false** is killed by the success case (no alert) vs the failure case (alert present).
 
-String-presence guard — run all four pre-dispatch mutants, record in the commit: (a) empty the crew copy → alert empty, test fails; (b) append a suffix → `toHaveTextContent` exact-match fails; (c) render the copy in a `title` attribute / inside `role="menu"` → the scoped `role="alert"` + sibling assertions miss it; (d) vary `ok` true↔false → the success case asserts no alert.
+RED premise (production line): `AvatarMenu` currently types `clearAction` as `() => void | Promise<void>` and wires `<form action={clearAction}>` directly with no local switch state and no alert node (`components/auth/AvatarMenu.tsx:87`, `components/auth/AvatarMenu.tsx:349`), so `findByRole("alert")` throws, the FormData-seam test still passes only because the form already forwards inputs (that test guards the Step-3 refactor from regressing it), and the reset-on-open/pending paths do not exist. Each failure traces to missing production behavior Step 3 adds, not to test scaffolding.
 
-- [ ] **Step 2: Run tests, verify they fail** — Run `pnpm heavy pnpm vitest run tests/components/auth/avatarMenu.test.tsx`; expected FAIL (no alert node).
+- [ ] **Step 2: Run tests, verify they fail** — Run `pnpm vitest run tests/components/auth/avatarMenu.test.tsx` (scoped file list → NOT a heavy phase, no `pnpm heavy` wrapper); expected FAIL (no alert node; widened-type mismatch until Step 3/4).
 
 - [ ] **Step 3: Implement.** In `IdentityChip.tsx`, keep the wrapper name, widen its return type:
 
@@ -398,9 +480,17 @@ The alert is NOT a `menuitem` (not focusable, not in arrow traversal), mirroring
 
 - [ ] **Step 4: Fix the widened-prop void mocks (R1-F7)** — in `tests/components/auth/avatarMenu.test.tsx:37`, `tests/components/IdentityChip.test.tsx:42`, and `tests/components/identityChipSrSeparator.test.tsx:34`, change `clearAction: (): void => {}` to an async mock returning `{ ok: true }` so it typechecks against the widened prop. Run `pnpm typecheck` to confirm no other caller breaks; confirm `tests/components/_metaPickerRoleChipContract.test.ts:21` still matches `clearAction={clearIdentityFormAction}` (name preserved).
 
-- [ ] **Step 5: Run tests, verify they pass** — Run `pnpm heavy pnpm vitest run tests/components/auth/avatarMenu.test.tsx tests/components/IdentityChip.test.tsx tests/components/identityChipSrSeparator.test.tsx tests/components/_metaPickerRoleChipContract.test.ts`; expected PASS.
+- [ ] **Step 5: Run tests, verify they pass** — Run `pnpm vitest run tests/components/auth/avatarMenu.test.tsx tests/components/IdentityChip.test.tsx tests/components/identityChipSrSeparator.test.tsx tests/components/_metaPickerRoleChipContract.test.ts` (scoped file list → NOT a heavy phase); expected PASS.
 
-- [ ] **Step 6: Transition audit** — confirm every conditional render in `AvatarMenu` matches spec §4.6: `{open ? ...}` (existing `avatar-menu-in`), `{hasIdentity ? ...}`, the new `{switchStatus === "error" ? ...}` alert (instant, `role="alert"`, sibling of menu), the pending disable, and the reset-on-open path (Closed→Open-idle-after-failure). Verify the compound "close mid-pending then reopen" shows no stale error (the reopen test in Step 1 covers it).
+- [ ] **Step 6: Transition audit (writing-plans transition-inventory rule — enumerate EVERY conditional render in `AvatarMenu`, not only the new ones).** Confirm each against spec §4.6 with an explicit disposition:
+  1. `{open ? (<popover/>) : null}` (`AvatarMenu.tsx:248`) — mount/unmount on open toggle; instant (no `AnimatePresence`), pre-existing, unchanged.
+  2. `{hasIdentity ? (<identity header/>) : null}` (`AvatarMenu.tsx:271`) — pre-existing, unchanged; instant.
+  3. `{name.trim() !== "" && role.trim() !== "" && (<sr-separator/>)}` (`AvatarMenu.tsx:285`) — the SR name/role separator; pre-existing, unchanged; instant. (Named per F7 — previously omitted.)
+  4. `{name.trim() !== "" && role.trim() !== "" && (<role suffix/>)}` (`AvatarMenu.tsx:290`) — the visible role suffix; pre-existing, unchanged; instant. (Named per F7.)
+  5. `mounted && isDark ? "visible" : "invisible"` on the theme check (`AvatarMenu.tsx:336`) — a className visibility TOGGLE (not a mount), `suppressHydrationWarning`; pre-existing, unchanged; instant. (Named per F7 — the mounted/dark-theme ternary.)
+  6. **NEW** `aria-disabled={switchPending}` on the switch submit — an attribute toggle (not a mount), instant; keyboard-focusable throughout (R4-F1).
+  7. **NEW** `{switchStatus === "error" ? (<alert/>) : null}` — the alert node, sibling of `role="menu"`, instant (`role="alert"`), reset to idle on open.
+  Confirm the compound "close mid-pending then reopen" shows no stale error (the R2-F2 / R3-F1 tests in Step 1 cover it). None of items 1-5 changes behavior; items 6-7 are the only new states, both instant, matching the "instant, no animation needed" entries in §4.6.
 
 - [ ] **Step 7: Commit** — `git add components/auth/IdentityChip.tsx components/auth/AvatarMenu.tsx tests/components/auth/avatarMenu.test.tsx tests/components/IdentityChip.test.tsx tests/components/identityChipSrSeparator.test.tsx && git commit -m "feat(crew-page): legible in-menu failure for switch person"`
 
@@ -411,32 +501,41 @@ The alert is NOT a `menuitem` (not focusable, not in arrow traversal), mirroring
 
 **Interfaces:** none (docs).
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts` ac=AC-1 -->
+**Ordering (invariant 12 — critical).** The two entries stay `**Status:** IN PROGRESS · **Branch:** fix/auth-picker-hardening` for the ENTIRE implementation; their markers come OFF only in the PR's LAST commit, and archiving requires the markers already off (archives reject in-progress entries). So Step 1 (filing the two ADDITIVE follow-up entries) runs here as an ordinary task commit, but Step 2 (archive + marker removal) is deferred to the **Closeout** as the final pre-merge commit — AFTER the impeccable dual-gate and whole-diff review, so no later commit can follow it. Splitting the two halves is what keeps the archive commit last.
 
-- [ ] **Step 1: Archive the two closed entries** — move `BL-SERVER-ACTION-ORIGIN-GATE` and `BL-IDENTITY-CLEAR-FAILURE-IS-SILENT` from `BACKLOG.md` to `BACKLOG-archive.md` with a resolution note citing this plan and spec. Their `**Status:** IN PROGRESS · **Branch:** fix/auth-picker-hardening` markers come OFF in the same edit (archives reject in-progress entries; the marker must not reach main — invariant 12).
+<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts` ac=AC-7 -->
 
-- [ ] **Step 2: File the sweep + limit entries** — add to `BACKLOG.md`: (a) `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP` — gate the remaining destructive Server Actions with `isSameOriginServerAction()`, class-sweep disposition exception (c), noting the helper reduces each peer to a one-line guard and that admin actions behind require-gates get it additively; (b) `BL-SWITCH-PERSON-GOOGLE-LOOPBACK` — menu switch-person is ineffective for a Google-authed viewer (bootstrap re-mints, `lib/auth/picker/resolveShowPageAccess.ts:246`); needs a product decision on whether menu-switch should sign a Google viewer out (class-sweep exception (a)); reachability PROBED via the resolve order.
+- [ ] **Step 1: Verify the sweep + limit entries** — the two follow-up entries were FILED AT PLAN TIME in this spec+plan arc (they are additive, carry no IN PROGRESS marker, and the spec/plan cite them, so the ledger referential-integrity guard requires them to resolve): (a) `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP` — gate the remaining destructive Server Actions with `isSameOriginServerAction()`, class-sweep disposition exception (c), the helper reduces each peer to a one-line guard, admin actions behind require-gates get it additively; (b) `BL-SWITCH-PERSON-GOOGLE-LOOPBACK` — menu switch-person is ineffective for a Google-authed viewer (bootstrap re-mints, `lib/auth/picker/resolveShowPageAccess.ts:246`), needs a product decision (class-sweep exception (a)), reachability PROBED via the resolve order. At implementation time, confirm both are still present and accurate (update wording only if the implementation changed the helper's name or the resolve line); no new filing is required.
 
-- [ ] **Step 3: Run ledger meta-tests, verify PASS** — Run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts`; expected PASS. RED premise: an archive holding an in-progress marker fails `_metaLedgerInProgress`; observe by staging the archive move WITH the marker still on, then removing it.
+- [ ] **Step 2: Run ledger meta-tests, verify PASS** — Run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts`; expected PASS (the two originals still IN PROGRESS with a live `origin` branch; the two new entries well-formed and referentially closed). RED premise for the referential-integrity guard: a follow-up entry that cross-references a non-existent `BL-` id, or an IN PROGRESS entry naming a branch not on `origin`, reds `_metaLedgerReferentialIntegrity` / `_metaLedgerInProgress`; observe by first citing a bogus id, then fixing it.
 
-- [ ] **Step 4: Commit** — `git add BACKLOG.md BACKLOG-archive.md && git commit -m "docs: archive picker-hardening entries, file origin-gate sweep"`
+- [ ] **Step 3: Commit** — `git add BACKLOG.md && git commit -m "docs: file origin-gate sweep + google-loopback backlog entries"`
+
+- [ ] **Step 4 (DEFERRED to Closeout — the PR's LAST commit):** archive `BL-SERVER-ACTION-ORIGIN-GATE` and `BL-IDENTITY-CLEAR-FAILURE-IS-SILENT` from `BACKLOG.md` to `BACKLOG-archive.md` with a resolution note citing this plan and spec, removing their IN PROGRESS markers **in the same commit** (archives reject in-progress entries; the marker must never reach `main` — invariant 12). This commit runs ONLY after the impeccable dual-gate (Closeout) and the whole-diff review have APPROVED, so it is provably the last commit before `gh pr merge`. Re-run the two ledger meta-tests after it. See Closeout.
 
 <!-- tasks: end -->
 
 ## Closeout
 
-- **impeccable-gate:** `components/auth/IdentityChip.tsx` and `components/auth/AvatarMenu.tsx` are UI surfaces. Run `/impeccable critique` AND `/impeccable audit` on the diff; P0/P1 fixed or DEFERRED.md'd; findings + dispositions recorded here. Runs BEFORE whole-diff adversarial review.
-- **Whole-diff cross-model review** to APPROVE.
-- **Full local gates before push:** `pnpm test` (heavy → `pnpm heavy pnpm test`), `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
-- **Real CI green**, then merge, then FF local main to `0  0`.
+Ordered; each item gates the next. All of Closeout runs in the IMPLEMENTATION arc (this spec+plan arc stops at plan-APPROVE — see Execution handoff).
+
+1. **Impeccable dual-gate.** `components/auth/IdentityChip.tsx` and `components/auth/AvatarMenu.tsx` are UI surfaces. Run the impeccable critique gate AND the impeccable audit gate on the diff (v3 setup gates: the context.mjs load of PRODUCT.md + DESIGN.md, then the register-reference read); P0/P1 fixed or `DEFERRED.md`'d; findings + dispositions recorded here.
+2. **Whole-diff cross-model review** to APPROVE (after the gate).
+3. **Fill the machine closeout marker.** ONLY after steps 1-2 have actually run does the implementer add the bare-anchored marker line to this plan. The grammar (quoted here mid-line inside backticks so this instruction is NOT itself a marker line, per the closeout guard's line-initial rule): the implementer writes a line reading `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` with the REAL counts (`RAN-DEGRADED` if a gate half degraded; `dispositions=recorded` iff `p0+p1>0`, else `none`). It is added as its own line in this section. **Not filled now, and never fabricated:** the invariant-8 closeout design's HONEST CEILING (`docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md` §7) states a fabricated marker is a deliberate lie; the gate has not run in this spec+plan arc, so no `RAN` claim is honest yet. Consequently `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design (a declaring plan with no completed marker is correctly gated out of `main`); it goes green when this step fills the marker in the implementation arc, before merge.
+4. **Full local gates before push:** `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
+5. **Backlog archive — the PR's LAST commit** (Task 5 Step 4): archive the two closed entries and remove their IN PROGRESS markers, in one commit, AFTER steps 1-4. Re-run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts`.
+6. **Real CI green**, then `gh pr merge --merge`, then FF local `main` to `0  0`.
 
 ## Self-review checklist (author, pre-adversarial)
 
 - [ ] **Spec coverage:** every spec section maps to a task (§3 gate → Tasks 1-2; §4 UX → Tasks 3-4; §3.5 sweep + archive → Task 5). Documented limits §7 need no task.
 - [ ] **Placeholder scan:** no TBD/TODO; every code step has real content.
 - [ ] **Type consistency:** `ClearIdentityResult`, `isSameOriginServerAction`, `rejectCrossOrigin`, `clearIdentityFormAction` (name preserved), `PICKER_ORIGIN_REJECTED` (log-borne), `PICKER_INVALID_INPUT` (returned), `PICKER_SWITCH_FAILED` spelled identically across tasks.
-- [ ] **Anti-tautology:** Task 2 asserts no-mutation-on-reject; Task 4 derives copy from `messageFor` and scopes to `role="alert"`, with four string-presence mutants recorded.
-- [ ] **RED validity:** every `red=` names the production line whose absence makes it fail (Tasks 1-5).
+- [ ] **Anti-tautology:** Task 2 asserts no-mutation-on-reject AND the forensic emit, independently per all three endpoints (F2); Task 4 derives copy from `messageFor`, asserts the alert by EXACT `textContent` equality (not substring) scoped to `role="alert"`, proves the FormData route inputs reach the action (F3), awaits the transition before asserting success-has-no-alert (F5), and drives the pending re-entry guard by real form activation (F6); the four string-presence mutants are mapped to the layer that observes each (empty/suffix → `x1-catalog-parity`; placement → scoped `role="alert"` + sibling; rendered-suffix → exact match; ok true/false → success vs failure case) (F4).
+- [ ] **RED validity:** every `red=` names the production line whose absence makes it fail (Tasks 1-5); Task 2/4 test scaffolding (helpers, imports, mocks) is all supplied in-step so each RED is a production-behavior red, not a scaffolding red (F1).
+- [ ] **Transition inventory:** Task 4 Step 6 enumerates ALL seven `AvatarMenu` conditional renders with a disposition each (F7).
+- [ ] **Invariant 12 timing:** the archive + marker removal is the PR's LAST commit (Closeout step 5), after the impeccable gate and whole-diff review; entries stay IN PROGRESS until then (F9).
+- [ ] **Invariant 8 marker:** deferred to the implementation arc's closeout (the gate cannot run before UI code; no fabricated `RAN`, per the closeout design HONEST CEILING); `_metaInvariant8Closeout` reds on this unmerged branch by design (F8). AC-7 covers backlog reconciliation traceability (F10).
 
 ## Adversarial review (cross-model)
 

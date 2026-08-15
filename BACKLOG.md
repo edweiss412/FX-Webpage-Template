@@ -463,6 +463,32 @@ then archive this entry. Nothing else is owed.
 
 ---
 
+## BL-SERVER-ACTION-ORIGIN-GATE-SWEEP — gate the remaining destructive Server Actions on same-origin
+
+**Status:** OPEN · **Severity:** low · **Surfaced:** `fix/auth-picker-hardening` spec/plan (2026-08-15) · **Effort:** M
+
+`fix/auth-picker-hardening` closes the crew picker's identity-clear actions (`clearIdentity` / `clearIdentityAndSkip` / `clearIdentityCore`) with `isSameOriginServerAction()` (`lib/auth/sameOriginServerAction.ts`), a proxy-independent Fetch-Metadata gate that never trusts `x-forwarded-host`/`host`. That helper reduces each peer destructive Server Action to a one-line guard, but the arc deliberately scoped itself to the picker surface (class-sweep disposition exception (c): a redesign spanning enough sites to blow the review scope).
+
+**Reachable surface (stated, not probed here):** `rg -n '"use server"' lib app` at authoring time returned 38 files; not all are destructive, and the exact destructive set is the first step of this entry. Each destructive exported action that mutates on a forced cross-site POST has the same logout/CSRF shape as the filed `BL-SERVER-ACTION-ORIGIN-GATE`, minus a demonstrated higher-impact payload.
+
+**Trigger / first step:** enumerate the destructive `"use server"` exports; gate each on `isSameOriginServerAction()` (admin actions behind a `require`-gate get it additively). Admin mutating routes under `app/api/admin/` are a separate transport (route handlers, not actions) and are out of this entry's scope.
+
+---
+
+## BL-SWITCH-PERSON-GOOGLE-LOOPBACK — menu "Switch person" is ineffective for a Google-authenticated viewer
+
+**Status:** OPEN · **Severity:** low · **Class:** UX correctness / product decision · **Surfaced:** `fix/auth-picker-hardening` spec R1-F1 (2026-08-15) · **Effort:** M
+
+For a viewer whose access derives from a live Google session (not a cookie-only picker identity), tapping "Not you? Switch person" clears the picker cookie entry but the next resolve re-mints the SAME identity via bootstrap, so the control appears to do nothing. This is pre-existing behavior, distinct from the silent-failure defect `fix/auth-picker-hardening` fixes, and out of that arc's scope (class-sweep disposition exception (a): needs a product decision).
+
+**Reachability: PROBED.** `lib/auth/picker/resolveShowPageAccess.ts:246` — a Google `success` with a missing or mismatched picker entry returns `needs_picker_bootstrap`, which re-mints the identity; clearing the cookie entry does not end the Google session, so the loop closes back to the same person.
+
+**Open decision:** whether menu switch-person should sign a Google viewer out (Supabase `scope: "local"`) as part of the clear, or whether the control should be hidden/relabelled for Google-authed viewers. Documented as a limit in the arc spec §4.7 / §7.
+
+**Trigger:** the next auth/picker UX pass, or a product call on Google-viewer switch semantics.
+
+---
+
 ## BL-E2E-COVERAGE-SCANNER-EXCLUSION-FILTERS — audit other workflows now that paths-ignore counts as a filter
 
 **Status:** OPEN · **Severity:** low · **Surfaced:** `fix/picker-flow-app-bugs` review round 5 (2026-07-25) · **Effort:** S
