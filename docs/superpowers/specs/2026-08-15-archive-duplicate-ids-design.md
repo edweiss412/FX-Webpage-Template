@@ -1,6 +1,6 @@
 # Archive duplicate entry ids — de-duplicate and guard
 
-**Date:** 2026-08-15 · **Authoring branch:** `docs/archive-dup-ids-spec` · **Implementation branch:** `chore/archive-duplicate-ids` · **Entry:** `BL-ARCHIVE-DUPLICATE-ENTRY-IDS` (BACKLOG.md) · **Status:** DRAFT
+**Date:** 2026-08-15 · **Authoring branch:** `docs/archive-dup-ids-spec` · **Implementation branch:** `chore/archive-duplicate-ids` · **Entry:** `BL-ARCHIVE-DUPLICATE-ENTRY-IDS` (BACKLOG.md) · **Status:** spec-APPROVED (codex-guard R7, 2026-08-15; R1-R6 findings repaired in-branch)
 
 ## §0 Why, and what the probe actually found
 
