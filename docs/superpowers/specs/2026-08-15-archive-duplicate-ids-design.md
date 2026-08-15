@@ -171,7 +171,8 @@ One new `describe` block in `tests/docs/_metaDeferralLedgerGraduation.test.ts`:
   (`scripts/lib/ledger-fields.ts:82`; resolves to the same
   `{ requirePrefix: "BL-", levels: [2, 3] }` / `{ requirePrefix: null, levels: [3] }`
   values the suite already holds) for the DOMAIN pass, and a second SCAN pass at
-  `levels: [2, 3]` with the family's prefix rule.
+  the union of the family's own `levels` and `[2, 3]` (one derivation from the
+  registry opts — spec R2 F1), with the family's prefix rule.
 - **Offender rule:** an id is reported when it is in domain (appears at the family's
   ratified levels) AND the scan finds it on more than one heading. Failure message
   names file, id, and heading lines.
