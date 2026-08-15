@@ -26,7 +26,7 @@ Plan order is binding: Task 1 (RefAnchor component) → Task 2 (page skip path) 
 ## Non-negotiables (the ones this arc exercises)
 
 - TDD per task (invariant 1); the plan states each task's RED and the production line whose absence makes it fail.
-- Worktree-only edits (invariant 11). Ledger claim (invariant 12): the marker comes off inside the Task 4 graduation move (archives reject in-progress entries), which is the PR's last substantive commit.
+- Worktree-only edits (invariant 11). Ledger claim (invariant 12, graduation clause): the marker comes off INSIDE the Task 4 archive move — "a graduating entry's marker comes off in the same commit that archives it" — and review/CI repairs after that commit are fine; what may never happen is the marker reaching main or surviving past the archive move.
 - UI hard rule: the diff is `app/help/**` — you are Opus; implement and gate it yourself.
 - Spec §7 dual gate (both halves) BEFORE merge, with the closeout marker in the exact §3.3 grammar — Task 3's grep red proves it lands. Honest values only; the cross-check rule (`p0+p1>0` ⇒ `recorded`) is enforced by the meta-test.
 - The live-region guard (`tests/components/_metaLiveRegionMounting.test.ts`) must stay green with NO new exemption row — the region ships as lawful shape 1 (unconditional mount, text toggles).
