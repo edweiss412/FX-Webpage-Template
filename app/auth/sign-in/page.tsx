@@ -267,7 +267,7 @@ export default async function SignInPage({
         <Link
           data-testid="sign-in-view-show-list"
           href="/me"
-          className="inline-flex min-h-tap-min items-center text-sm text-text-subtle underline-offset-2 hover:text-text"
+          className="inline-flex min-h-tap-min items-center text-sm text-text underline-offset-2 hover:text-text-strong"
         >
           View show list
         </Link>

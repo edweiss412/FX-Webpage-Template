@@ -257,7 +257,7 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
         <Link
           href="/admin"
           data-testid="live-first-seen-staged-back"
-          className="inline-flex min-h-tap-min items-center text-sm text-text-subtle hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          className="inline-flex min-h-tap-min items-center text-sm text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
           ← Back to dashboard
         </Link>
