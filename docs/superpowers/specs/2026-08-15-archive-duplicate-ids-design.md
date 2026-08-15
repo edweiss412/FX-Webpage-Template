@@ -63,8 +63,15 @@ construction to `tests/docs/_metaDeferralLedgerGraduation.test.ts`'s cross-file 
 4. **Guard placement:** `tests/docs/_metaDeferralLedgerGraduation.test.ts`, per the
    entry. Inspected and confirmed right: that suite already owns the ledger-pair
    invariants, the per-family `ExtractOpts`, and the executable-plants pattern the new
-   lane reuses. File discovery via `ledgerFiles()` so a new ledger file is covered by
-   default (the in-progress meta-test's pattern, `tests/docs/_metaLedgerInProgress.test.ts:241`).
+   lane reuses. File discovery via `ledgerFiles()` with per-file opts from `optsFor()`
+   (`scripts/lib/ledger-fields.ts:82` — the registry-held grammar, not a re-derived
+   filename match), so a newly REGISTERED ledger family's file pair is covered by
+   default (the in-progress meta-test's pattern,
+   `tests/docs/_metaLedgerInProgress.test.ts:241`). Discovery reaches exactly the
+   registered families' `<FAMILY>.md` / `<FAMILY>-archive.md` pairs
+   (`LEDGER_FAMILIES`, `scripts/lib/ledger-fields.ts:47`); an UNREGISTERED
+   ledger-shaped sibling is `unregisteredLedgerFiles`' complaint surface and out of
+   this lane's domain (spec R1 F3).
 5. **Guard domain (the "CI" decision):** an id is IN DOMAIN only if it appears at its
    family's ratified entry levels (BACKLOG `##`/`###` with `BL-` prefix; DEFERRED `###`,
    any SHOUTY id). The collision SCAN spans levels 2–3 in every family, so a level-2
@@ -157,12 +164,14 @@ invisible to `DEFERRED_OPTS` levels `[3]` alone, which is exactly the entry's tr
 
 One new `describe` block in `tests/docs/_metaDeferralLedgerGraduation.test.ts`:
 
-- **Discovery:** `ledgerFiles(ROOT)` (`scripts/lib/ledger-fields.ts:96`) — a new
-  `BACKLOG*`/`DEFERRED*` file is covered by default; no enumerated file list.
-- **Extraction:** `extractEntries` with the file's family opts for the DOMAIN pass
-  (BACKLOG family `{ requirePrefix: "BL-", levels: [2, 3] }`; DEFERRED family
-  `{ requirePrefix: null, levels: [3] }` — the suite's existing constants), and a
-  second SCAN pass at `levels: [2, 3]` with the family's prefix rule.
+- **Discovery:** `ledgerFiles(ROOT)` (`scripts/lib/ledger-fields.ts:96`) — every file
+  of every REGISTERED family, no enumerated file list; a family added to
+  `LEDGER_FAMILIES` brings its pair into the lane by default.
+- **Extraction:** `extractEntries` with the file's family opts from `optsFor(file)`
+  (`scripts/lib/ledger-fields.ts:82`; resolves to the same
+  `{ requirePrefix: "BL-", levels: [2, 3] }` / `{ requirePrefix: null, levels: [3] }`
+  values the suite already holds) for the DOMAIN pass, and a second SCAN pass at
+  `levels: [2, 3]` with the family's prefix rule.
 - **Offender rule:** an id is reported when it is in domain (appears at the family's
   ratified levels) AND the scan finds it on more than one heading. Failure message
   names file, id, and heading lines.
@@ -203,10 +212,19 @@ None — prose and test changes only; no visual states.
 
 1. This branch (`docs/archive-dup-ids-spec`): spec → codex-guard `--stage spec` APPROVE
    → plan → codex-guard `--stage plan` APPROVE → `HANDOFF.md` → PR → CI → merge.
-2. Before this branch's last pre-merge commit releases its claim marker, the impl
-   branch `chore/archive-duplicate-ids` is created off `origin/main`, marks
-   `BL-ARCHIVE-DUPLICATE-ENTRY-IDS` `IN PROGRESS · Branch: chore/archive-duplicate-ids`,
-   and is pushed — no undeclared instant on origin (invariant 12, handoff-by-overlap).
+2. **Handoff-by-overlap (the L-wave §3 / M-wave §3 ratified protocol, spelled out —
+   spec R1 F1):** before this branch's last pre-merge commit, the impl worktree +
+   branch `chore/archive-duplicate-ids` is created off `origin/main`, and it runs
+   `pnpm ledger:claims --check BL-ARCHIVE-DUPLICATE-ENTRY-IDS` from the main checkout
+   EXPECTING exit 1 naming `docs/archive-dup-ids-spec` and ONLY it — that is the
+   planned-handoff signature, not a collision; any OTHER branch named = real
+   collision, stop and reconcile. It then marks the entry
+   `IN PROGRESS · Branch: chore/archive-duplicate-ids` and pushes. THEN this branch's
+   last pre-merge commit releases its own marker. At no instant is the entry
+   undeclared on origin; the transient dual declaration is the designed handoff state
+   (invariant 12's Stage-0 stop rule governs NEW claims, and the L-wave protocol is
+   the ratified exception shape for planned handoffs — its spec §3 and the merged
+   L-wave `HANDOFF.md` step 0.3 are the precedent).
 3. A fresh Opus pane implements from `HANDOFF.md`: guard RED (observed naming all 41)
    → repair → GREEN → archive the entry → PR → real CI green → merge → `0 0`.
 
@@ -246,8 +264,10 @@ None — prose and test changes only; no visual states.
   `BACKLOG-archive.md`, 6 `DEFERRED-archive.md`) before any repair commit; after the
   repairs it is green; all plant rows pass.
 - **AC-2:** every pair repaired per the §2.1 tables — survivor heading intact, demoted
-  line bold with identical text; the arc's diff over the two archive files touches only
-  the 41 demoted heading lines plus the §1.1.6 preamble annotations.
+  line bold with identical text; the REPAIR COMMIT's diff over the two archive files
+  touches only the 41 demoted heading lines plus the §1.1.6 preamble annotations. The
+  §2.4 archive move is its own later commit and adds its own section — outside AC-2's
+  discipline by construction (spec R1 F2).
 - **AC-3:** `pnpm vitest run tests/docs/` green on every commit; the graduation suite's
   provenance assertions pass unmodified.
 - **AC-4:** entry archived per §2.4; flight marker stripped in the archive move; the
@@ -260,9 +280,11 @@ None — prose and test changes only; no visual states.
   either repaired or reported by CI by name — never silently wrong. A duplicate outside
   the domain (limits 1–2) is a DOCUMENTED LIMIT, not a finding.
 - **PROBE DOMAIN:** the ledger files `ledgerFiles()` discovers on disk —
-  `BACKLOG.md`, `BACKLOG-archive.md`, `DEFERRED.md`, `DEFERRED-archive.md`, plus any
-  future family-named sibling. A probe input more than one ordinary edit from these
-  files files to documented limits.
+  `BACKLOG.md`, `BACKLOG-archive.md`, `DEFERRED.md`, `DEFERRED-archive.md`, plus the
+  file pair of any family later registered in `LEDGER_FAMILIES`
+  (`scripts/lib/ledger-fields.ts:47`). An unregistered ledger-shaped sibling is
+  `unregisteredLedgerFiles`' complaint surface, not this lane's (spec R1 F3). A probe
+  input more than one ordinary edit from these files files to documented limits.
 - **THREAT-MODEL FENCE:** accidental authoring mistakes and merge artifacts by ordinary
   contributors. Adversarial obfuscation (formatted ids, render-equivalent spellings,
   HTML-comment smuggling) is out of scope and files to §4.
