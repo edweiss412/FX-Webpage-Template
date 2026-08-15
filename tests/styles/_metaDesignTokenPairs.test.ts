@@ -76,8 +76,17 @@ describe("META DESIGN.md token-pair contract (Phase D close-out)", () => {
     expect(violations, violations.join("\n")).toEqual([]);
   });
 
-  it("sub-scan 3: text-text-subtle not on action-target elements (DESIGN.md L27)", () => {
-    // The banned pattern is text-text-subtle ON the action target's own
+  it("sub-scan 3: text-text-subtle not on action-target elements (DESIGN.md §1.1/§1.1a)", () => {
+    // SCOPE (2026-08-14): DESIGN §1.1a added three carve-out families where a
+    // control MAY rest subtle, and the authoritative policy guard is now
+    // `_metaSubtleOnInteractive` — AST-based, registry-backed, and complete over
+    // `app/**` + `components/**`. This sub-scan stays as a cheap same-line
+    // tripwire; it currently flags none of the 15 carve-out sites because each
+    // writes its className on a different line from its tag opener. If one ever
+    // lands on a single line, the fix is a registry row there and an exclusion
+    // here, not a silent loosening of either.
+    //
+    // The pattern this scan reports is text-text-subtle ON the action target's own
     // className. A container element styled with text-text-subtle that
     // wraps a child link/button (which overrides with its own color) is
     // a legitimate pattern — Breadcrumb.tsx is the canonical example
