@@ -20,7 +20,8 @@
 // they execute that SQL as a string literal as well, so the exemption is the honest
 // resolution rather than a widened recognizer.
 import { describe, expect, it } from "vitest";
-import { analyseDestructiveFile, DESTRUCTIVE_STATEMENT_PATTERNS } from "./_destructiveFileAnalysis";
+import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
+import { DESTRUCTIVE_STATEMENT_PATTERNS } from "./_destructiveStatements";
 
 const P = "tests/db/fixture.test.ts";
 const IMPORT = [
@@ -810,6 +811,81 @@ ${PRUNE}`;
     expect(DESTRUCTIVE_STATEMENT_PATTERNS.enablesWipeGate.test(justPast)).toBe(false);
     const justInside = `destructive_reset_gate ${"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"} enabled = true`;
     expect(DESTRUCTIVE_STATEMENT_PATTERNS.enablesWipeGate.test(justInside)).toBe(true);
+  });
+
+  /**
+   * Diff review R1's finding, and the class around it. Each of these returned `ok:true`
+   * against the reviewed tree, on a file discovery DOES pick up — a whole-database wipe
+   * blessed by a factory name whose binding the analyzer never proved immutable.
+   */
+  it("(be) rejects a client from a SHADOWED factory name (unchecked declared FIRST)", () => {
+    const src = `${IMPORT}
+function run() {
+  const make = () => getDbClient(process.env.TEST_DATABASE_URL);
+  const sql = make();
+  sql\`select public.prune_sync_log()\`;
+}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const make = () => postgres(DB_URL);
+void run;`;
+    expectRejected(src, REASON.uncheckedFactory);
+  });
+
+  it("(bf) rejects the same shape with the CHECKED declaration first", () => {
+    // Order independence: the escape was source-order dependent, so both orders are
+    // pinned. One of them passed before the repair and the other did not.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const make = () => postgres(DB_URL);
+function run() {
+  const make = () => getDbClient(process.env.TEST_DATABASE_URL);
+  const sql = make();
+  sql\`select public.prune_sync_log()\`;
+}
+void run;`;
+    expectRejected(src, REASON.uncheckedFactory);
+  });
+
+  it.each([
+    ["let", "let make = () => postgres(DB_URL);"],
+    ["var", "var make = () => postgres(DB_URL);"],
+    ["function declaration", "function make() { return postgres(DB_URL); }"],
+  ])("(bg) rejects a factory whose %s binding is REASSIGNED", (_label, decl) => {
+    // `const` answers the mutability question for the connected URL and for clients; it
+    // never covered the factory binding, and a function declaration is a mutable binding
+    // even without let or var.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+${decl}
+make = () => getDbClient(process.env.TEST_DATABASE_URL);
+const sql = make();
+sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bh) rejects a transaction callback parameter that is REASSIGNED", () => {
+    // The same escape one surface over: a parameter is not a `const` either, so a
+    // checked `tx` could be swapped for an unchecked client before the statement runs.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+await sql.begin(async (tx) => {
+  tx = getDbClient(process.env.TEST_DATABASE_URL);
+  await tx\`select public.prune_sync_log()\`;
+});`;
+    expectRejected(src, REASON.uncheckedExecution);
+  });
+
+  it("(bi) rejects a checked client whose name is reassigned anywhere in the file", () => {
+    // Completes the class at the client surface: `const` makes this unparseable in real
+    // TypeScript, but the analyzer reads syntax, and a name it can see being assigned is
+    // a name it cannot claim is still the client it checked.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+sql = getDbClient(process.env.TEST_DATABASE_URL);
+sql\`select public.prune_sync_log()\`;`;
+    expectRejected(src, REASON.uncheckedExecution);
   });
 
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {

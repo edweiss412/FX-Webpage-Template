@@ -29,11 +29,8 @@ import { describe, expect, test } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  analyseDestructiveFile,
-  DESTRUCTIVE_STATEMENT_PATTERNS,
-  GUARD_OWN_FILES,
-} from "./_destructiveFileAnalysis";
+import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
+import { DESTRUCTIVE_STATEMENT_PATTERNS, GUARD_OWN_FILES } from "./_destructiveStatements";
 import { stripCommentsForFile, stripSqlComments } from "@/tests/_shared/stripComments";
 
 const TESTS_ROOT = join(process.cwd(), "tests");

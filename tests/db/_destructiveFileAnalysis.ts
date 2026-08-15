@@ -55,6 +55,8 @@
 import ts from "typescript";
 import { dirname, resolve } from "node:path";
 
+import { DESTRUCTIVE_STATEMENT_PATTERNS } from "./_destructiveStatements";
+
 export type DestructiveFileVerdict = { ok: true } | { ok: false; reason: string };
 
 /** The guard module every destructive file must actually call into. */
@@ -67,33 +69,6 @@ const GUARD_MODULE = "tests/db/_localDbUrl";
  * regex but not the check behind it is a premise that is false where it runs.
  */
 const GUARD_NAMES: readonly string[] = ["assertLocalDbUrl"];
-
-/**
- * The destructive-statement recognizer, owned HERE and imported by the meta-test's
- * discovery walk: Rule 2 anchors recognized statements to checked executions, so the two
- * must range over the same set or discovery finds a file nothing anchors within — or the
- * reverse. Keyed on the FUNCTION NAME, not a statement shape (whole-diff r15).
- */
-export const DESTRUCTIVE_STATEMENT_PATTERNS = {
-  /** Executes the whole-DB wipe RPC. */
-  executesWipe: /\bpublic\.reset_validation_data\s*\(/i,
-  /** Flips the prod-safety gate ON - the only thing between a test run and a live wipe. */
-  enablesWipeGate: /destructive_reset_gate\b[\s\S]{0,120}?\benabled\s*=\s*(?:true|\$\{?\s*true)/i,
-  /** Executes a retention prune: deletes by time window against whatever DB it hits. */
-  executesPrune: /\bpublic\.prune_(?:sync_log|app_events)\s*\(/i,
-} as const;
-
-/**
- * The guard's own two files, exempted BY NAME rather than by accident. Both quote
- * destructive SQL as FIXTURE TEXT for a pure function; neither imports the driver, opens
- * a connection, or reads a database URL. Before this list they were exempt only because
- * one of them quoted the inline-exemption comment form inside a failure MESSAGE — an
- * exemption that holds by coincidence is one unrelated-looking edit from not holding.
- */
-export const GUARD_OWN_FILES: readonly string[] = [
-  "tests/db/_metaDestructiveDbTargetGuard.test.ts",
-  "tests/db/destructiveFileAnalysis.test.ts",
-];
 
 export function analyseDestructiveFile(
   filePath: string,
@@ -214,6 +189,49 @@ export function analyseDestructiveFile(
   // through a local factory (`newConn()` in resetValidationDataConcurrency.test.ts) and
   // interprocedural analysis looked like the price. It is not: a factory whose every
   // return is a checked connection is checked, summarized once, never recursively.
+  // Every name that is ever an ASSIGNMENT TARGET here. `const` answers the mutability
+  // question for the connected URL and for clients; it cannot answer it for a FUNCTION
+  // DECLARATION (a mutable binding in JS) or for a callback PARAMETER, and diff review R1
+  // probed all three: `let`, `var` and `function` factories reassigned from a guarded
+  // connection to TEST_DATABASE_URL each returned ok:true on a discovered file. Any
+  // appearance as a target poisons the name — the same any-occurrence rule the guard and
+  // driver shadow checks already use, and for the same reason: it needs no scope
+  // analysis to be sound.
+  const assigned = new Set<string>();
+  const noteTarget = (n: ts.Node): void => {
+    if (ts.isIdentifier(n)) assigned.add(n.text);
+    else if (ts.isParenthesizedExpression(n)) noteTarget(n.expression);
+    else if (ts.isSpreadElement(n)) noteTarget(n.expression);
+    else if (ts.isArrayLiteralExpression(n)) n.elements.forEach(noteTarget);
+    else if (ts.isObjectLiteralExpression(n)) {
+      for (const prop of n.properties) {
+        if (ts.isPropertyAssignment(prop)) noteTarget(prop.initializer);
+        else if (ts.isShorthandPropertyAssignment(prop)) assigned.add(prop.name.text);
+      }
+    }
+  };
+  const walkAssignments = (n: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      noteTarget(n.left);
+    } else if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      noteTarget(n.operand);
+    } else if (
+      (ts.isForInStatement(n) || ts.isForOfStatement(n)) &&
+      !ts.isVariableDeclarationList(n.initializer)
+    ) {
+      noteTarget(n.initializer);
+    }
+    ts.forEachChild(n, walkAssignments);
+  };
+  ts.forEachChild(sf, walkAssignments);
+
   const factoryChecked = new Map<string, boolean>();
   const returnsOf = (fn: ts.SignatureDeclaration): ts.Expression[] | null => {
     const body = (fn as { body?: ts.Node }).body;
@@ -234,10 +252,19 @@ export function analyseDestructiveFile(
   };
   const summarize = (name: string, fn: ts.SignatureDeclaration): void => {
     const returns = returnsOf(fn);
-    factoryChecked.set(
-      name,
-      returns !== null && returns.length > 0 && returns.every(isCheckedConnection),
-    );
+    const thisOne =
+      returns !== null &&
+      returns.length > 0 &&
+      returns.every(isCheckedConnection) &&
+      !assigned.has(name);
+    // AND across EVERY declaration of the name, never last-one-wins. Two factories can
+    // share a name across scopes, and overwriting let an outer checked `make` bless an
+    // inner unchecked one: diff review R1 probed exactly that on a DISCOVERED file and
+    // got ok:true, source-order dependent. This is the answer the connection leg and the
+    // checked-client set already give to the shadowing question, so the analyzer still
+    // resolves no scopes. Deliberately conservative: reusing a factory name for something
+    // unchecked rejects the checked one's call sites too, loudly, and renaming fixes it.
+    factoryChecked.set(name, (factoryChecked.get(name) ?? true) && thisOne);
   };
   const walkFactories = (n: ts.Node): void => {
     if (ts.isFunctionDeclaration(n) && n.name) summarize(n.name.text, n);
@@ -306,7 +333,7 @@ export function analyseDestructiveFile(
   for (let pass = 0; pass < candidates.size + 1; pass++) {
     let grew = false;
     for (const name of candidates) {
-      if (checked.has(name)) continue;
+      if (checked.has(name) || assigned.has(name)) continue;
       const decls = declarationsOf(sf, name);
       if (decls.length > 0 && decls.every(declQualifies)) {
         checked.add(name);
