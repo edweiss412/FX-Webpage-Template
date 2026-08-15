@@ -70,7 +70,7 @@ lib/specLint/redContract.ts         # Task 4 — static checks, gates; Task 5 �
 lib/specLint/types.ts               # Task 5 — ExecOutcome types
 scripts/spec-lint.ts                # Task 5 — --exec-red, env grammar, classifySpawnResult (exported)
 tests/specLint/citationIntent.test.ts        # Task 1
-tests/specLint/citationIntentWiring.test.ts  # Task 2 (runLint + real-CLI wiring)
+tests/specLint/citationIntentWiring.test.ts  # Task 2 (runLint-only; real-CLI cases live in cli.test.ts)
 tests/specLint/citationIntentCorpus.test.ts  # Task 2 (+ fixtures/citationIntent/)
 tests/specLint/taskContractV2Grammar.test.ts # Task 3 (+ fixtures/legacyPlans/)
 tests/specLint/redContract.test.ts           # Task 4
