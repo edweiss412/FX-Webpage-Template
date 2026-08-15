@@ -146,6 +146,11 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
   const { announce, entries } = useAnnounceLog({ ttlMs: ANNOUNCE_LOG_TTL_MS });
 
   const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Counts arms, so a deferred cancel can name WHICH window it meant. Without
+  // it the corrective effect below cancels "the" timer, and a success landing
+  // between the render that queued the corrective and the effect that delivers
+  // it loses the window it just armed — copied with nothing counting down.
+  const armGenRef = useRef(0);
   const clearReset = useCallback(() => {
     if (resetRef.current !== null) {
       clearTimeout(resetRef.current);
@@ -173,30 +178,47 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
   // and a flag would need the effect to clear it — a setState inside an effect,
   // which cascades a render and is what the React compiler rejects. A counter
   // changes exactly once per exit, so the dependency array alone gates it.
-  const [correctiveSeq, setCorrectiveSeq] = useState(0);
+  const [corrective, setCorrective] = useState({ seq: 0, gen: 0 });
   if (seenValue !== value) {
     setSeenValue(value);
     if (copied) {
       setCopied(false);
-      setCorrectiveSeq((n) => n + 1);
+      // `gen` names the window that was live at THIS moment — the only one this
+      // corrective is entitled to cancel.
+      setCorrective((c) => ({ seq: c.seq + 1, gen: armGenRef.current }));
     }
   }
   useEffect(() => {
-    if (correctiveSeq === 0) return; // nothing has exited yet (mount)
-    // The timer dies with the confirmation it was counting down. The state was
-    // cleared in the render phase above (an effect would paint one frame of the
-    // stale confirmation first), but clearing a timeout is a side effect and
-    // belongs here — leaving it running would orphan the clock and shorten the
-    // NEXT confirmation to whatever remained of this one.
-    clearReset();
+    if (corrective.seq === 0) return; // nothing has exited yet (mount)
+    // The timer dies with the confirmation it was counting down — leaving it
+    // running would orphan the clock and shorten the NEXT confirmation to
+    // whatever remained of this one. Clearing a timeout is a side effect, so it
+    // belongs in the effect rather than the render phase that cleared the
+    // state; the GENERATION CHECK is what makes that safe. A resolution can land
+    // between the render that queued this corrective and the effect that
+    // delivers it — React's own passive-effect window — and if it did, it has
+    // already armed a NEWER window. Cancelling that one leaves the control
+    // copied with nothing counting down at all.
+    //
+    // NOT COVERED BY A JSDOM TEST, stated rather than implied. The interleaving
+    // needs the value change COMMITTED while its passive effect is still
+    // pending, and `act` flushes passive effects at the end of its scope, which
+    // closes exactly that gap; three constructions were measured (both inside
+    // one act, act-free with an explicit flush, and delivery queued before the
+    // act) and none reproduced the order — each either delivered before the
+    // commit or ran the effect before the delivery. The defect was demonstrated
+    // by the round-4 reviewer's own component probe, and this guard is the
+    // repair; a test that passes with and without it would be worse than none.
+    if (armGenRef.current === corrective.gen) clearReset();
     announce(CORRECTIVE_MESSAGE);
-  }, [correctiveSeq, announce, clearReset]);
+  }, [corrective, announce, clearReset]);
 
   // Ownership registration. Empty deps so exactly one owner object exists per
   // island instance; the closures read the refs above, which every render
   // refreshes.
   useLayoutEffect(() => {
     const arm = () => {
+      armGenRef.current += 1;
       // NULLS ITS OWN HANDLE. A fired timer left in the ref reads as "a window
       // is running" forever, which made `ensureResetArmed` refuse to arm and
       // stranded a confirmation re-lit after the first window expired.
