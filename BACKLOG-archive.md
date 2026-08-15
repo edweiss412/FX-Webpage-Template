@@ -84,9 +84,12 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 **Deferred from `chore/guard-premise-reachability` under class-sweep exception (c) — the repair redesigns a surface this PR does not otherwise touch.** The sweep is complete: all three constants were found and dispositioned together, so this entry covers every instance of the class rather than one peer of several. The gap was named once before, in `5f1a98a66`'s commit message, and until now had no ledger row.
 
 **Archive disposition (2026-08-15, `chore/guard-completeness-wave`, SHIPPED).** `realGitSurface` takes an optional
-`{ spawn }` parameter defaulting to the module's own `spawnSync`, so all three production call
-sites are unchanged and the spawn-ban guard's anti-vacuity twin still sees the literal
-`node:child_process` import. All six internal spawn sites route through the seam, and
+`{ spawn }` parameter defaulting to the module's own `spawnSync`, so the one production caller —
+`scripts/ledger-claims.ts:65`, arity 0 — is unchanged, and the spawn-ban guard's anti-vacuity twin
+still sees the literal `node:child_process` import. (An earlier draft said "three production call
+sites"; `git grep realGitSurface -- ':!tests'` finds exactly one. Three was the reader count and
+six is the internal spawn-site count, neither of which is a caller of this function.) All six
+internal spawn sites route through the seam, and
 `tests/scripts/ledgerGitSpawnSeam.test.ts` records `(cmd, args, options)` per reader: the four
 constants are now observable, and their six mutation-ledger `accepted-gap` rows are deleted (gate
 row `ledgerGit: { equivalent: 6 }`). `localRefs` and `prList` gained the `maxBuffer` every other

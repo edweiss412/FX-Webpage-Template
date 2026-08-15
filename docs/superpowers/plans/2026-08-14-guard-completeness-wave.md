@@ -813,11 +813,7 @@ to `1e503d714b6e` and then to `ecbddfa1aac4` across the two merges, and that key
 belong to a new arc whose own numbering starts at 1 (precedent:
 `docs/review-rounds/test/resurrect-mobile-safari-e2e`, whose second file restarts the same way).
 
-Read end to end, the DIFF stage burned FOUR rounds on this branch — r1 under the first key, then
-r1/r2/r3 of the second key after the merge landed. The economy gate counts per arc, so neither file
-reaches the four-round filing threshold on the diff stage, and the spec and plan filings in
-`04f601134519.md` are unaffected. Recording it here is the point: the per-arc count is the gate's
-unit, and it would otherwise understate what this branch actually cost.
+Read end to end, the DIFF stage burned FIVE rounds on this branch, across three keys: `04f601134519` r1, `1e503d714b6e` r1/r2, `ecbddfa1aac4` r1/r2. This count is DERIVED from the corpus on disk at close-out rather than retyped, because three successive drafts of this section got it wrong by hand and two review rounds were spent saying so; `pnpm review:economy` reports the same rows. The second `origin/main` merge was sequenced BEFORE the last rounds on purpose: `mutation-harness` is path-filtered with `cancel-in-progress`, so merging afterwards would have restarted its ~2.5h whole-gate run and left the reviewed tree different from the tree that merges.
 
 Every diff round found something real, and all of it was one class plus its consequences.
 
@@ -899,10 +895,10 @@ real-git claims suite.
 The `destructiveFileAnalysis` row is TRANSCRIBED from the post-repair run, not derived — its
 verbatim output is `score={"killed":225,"countedSurvivors":0,"excluded":8,"denominator":225,
 "value":1} passed=true`, over 233 mutants in 447s with `baselineGreen=true`, and the eight
-reported survivors are exactly the eight ledgered `equivalent` rows. The other two rows ARE
+reported survivors are exactly the eight ledgered `equivalent` rows. The other THREE rows are
 derived, from their pass in the CI whole-gate run, and the derivation is exact: zero unaccepted
-survivors is a gate CONDITION and neither carries an accepted-gap row, so every surviving mutant
-is a ledgered `equivalent` and killed = mutants − equivalent. Mutant and no-op counts come from
+survivors is a gate CONDITION and none of them carries an accepted-gap row, so every surviving
+mutant is a ledgered `equivalent` and killed = mutants − equivalent. Mutant and no-op counts come from
 the gate's own `generateMutants`. Zero no-ops matters on its own — it rules out the vacuity mode
 where a run generates nothing and reports a perfect score over an empty set. `baselineGreen`
 matters for the same reason from the other direction: a red baseline would kill every mutant and

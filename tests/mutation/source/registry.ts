@@ -331,7 +331,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     sourcePath: "scripts/lib/ledger-claims-core.ts",
     suitePaths: ["tests/scripts/ledgerClaimsCheck.test.ts", "tests/scripts/ledgerClaims.test.ts"],
     operators: [...OPERATOR_NAMES],
-    // Measured 58/58 counted (61 mutants, 3 equivalent) on this branch. The
+    // Measured 60/60 counted (63 mutants, 3 equivalent) on this branch. The
     // floor is a FLOOR, not a snapshot: pinning it at the measured value turns
     // every future line of this module into a gate failure before it has a
     // test, which is how a ratchet becomes a wall.
