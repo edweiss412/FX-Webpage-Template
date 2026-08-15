@@ -114,7 +114,9 @@ describe("consumption ledger (spec §3.3)", () => {
       "schedule vocabulary contains RENTAL PICKUP",
       TRANSPORT_SCHEDULE_VOCAB.includes("RENTAL PICKUP"),
     );
-    const v2md = ["| TRANSPORTATION | TRANSPORTATION |", "| Rental Pickup | 5/12 @ 8:00 AM |"].join("\n");
+    // Header MUST match the live v2 matcher /^\|\s*TRANSPORTATION\s*\|\s*(?:NAME|TRANSPORTATION)\s*\|\s*PHONE\s*\|/im
+    // (transport.ts:353 - a two-column header returns null before any membership branch; plan-r4 finding).
+    const v2md = ["| TRANSPORTATION | TRANSPORTATION | PHONE |", "| Rental Pickup | 5/12 @ 8:00 AM |  |"].join("\n");
     const agg = newAggregator();
     parseTransportation(v2md, "v2", undefined, agg);
     expect(hasEntry([...agg.consumed.keys()], "TRANSPORTATION", "Rental Pickup")).toBe(true);
