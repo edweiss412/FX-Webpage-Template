@@ -95,10 +95,12 @@ describe("openShowReviewModal (unit-testable surface)", () => {
 ```
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 2: Run it — RED.** `pnpm vitest run tests/e2e/helpers/openShowReviewModal.unit.test.ts` — fails because the production module `tests/e2e/helpers/openShowReviewModal.ts` does not exist, so the import cannot resolve.
+- [ ] **Step 2: Create the guard-less stub so the RED names a production line, not a missing import** (an unresolved-import RED is invalid by construction — `docs/agents/writing-plans.md` RED-validity rule). Stub `tests/e2e/helpers/openShowReviewModal.ts`: export `LOADED_REVIEW_MODAL` (the exact selector) and an `openShowReviewModal` whose body goes STRAIGHT to `await page.goto(...)` then waits for the modal only — no slug guard, no boundary handling, no enriched errors. This is the pre-fix behavior transplanted; it is also Step 6's staged red.
+
+- [ ] **Step 3: Run it — RED.** `pnpm vitest run tests/e2e/helpers/openShowReviewModal.unit.test.ts` — the two guard cases fail for the stated production reason: the slug guard is ABSENT, so the stub calls `page.goto` on the `{}` stub page and rejects with a TypeError instead of the db:seed guard message. (The selector case passes already — the RED is the guard pair.)
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 3: Implement the helper** — `tests/e2e/helpers/openShowReviewModal.ts` (spec §4.1 contract, steps 1-7):
+- [ ] **Step 4: Implement the full helper** — replace the stub body of `tests/e2e/helpers/openShowReviewModal.ts` with the spec §4.1 contract, steps 1-7:
 
 ```ts
 /**
@@ -191,9 +193,11 @@ export async function openShowReviewModal(
 Every failure message carries BOTH the modal selector and the server signature — the diagnostic case in Step 5 asserts on substrings common to all three exits.
 
 <!-- spec-lint: ignore — file is created by this plan's tasks -->
-- [ ] **Step 4: Run the unit test — GREEN.** `pnpm vitest run tests/e2e/helpers/openShowReviewModal.unit.test.ts`
+- [ ] **Step 5: Run the unit test — GREEN.** `pnpm vitest run tests/e2e/helpers/openShowReviewModal.unit.test.ts` (the enrolled command: observed red in Step 3, green now, same command).
 
-- [ ] **Step 5: Adopt in the layout spec.** In `tests/e2e/admin-changes-feed-layout.spec.ts`: delete the local `LOADED_REVIEW_MODAL` constant (lines 37-38) and its comment block (lines 33-36) — the helper carries both now; add `import { openShowReviewModal } from "./helpers/openShowReviewModal";`; replace lines 133-135 (`page.goto` + `const modal = page.locator(...)` + `toBeVisible`) with:
+> **Staged-red note for the diagnostic case (R2 F1):** if strict red-first observation of the diagnostic case is wanted, run Step 6's adoption + diagnostic edit BEFORE Step 4's full implementation (i.e. against the Step 2 stub, whose bare modal-only timeout message fails the three-substring regex), observe the scoped red with `pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --grep "dead slug" --project=desktop-chromium`, then implement Step 4 and watch the same command pass. The stub's message deliberately contains NONE of the three pinned substrings, so the regex cannot pass by accident.
+
+- [ ] **Step 6: Adopt in the layout spec.** In `tests/e2e/admin-changes-feed-layout.spec.ts`: delete the local `LOADED_REVIEW_MODAL` constant (lines 37-38) and its comment block (lines 33-36) — the helper carries both now; add `import { openShowReviewModal } from "./helpers/openShowReviewModal";`; replace lines 133-135 (`page.goto` + `const modal = page.locator(...)` + `toBeVisible`) with:
 
 ```ts
 const modal = await openShowReviewModal(page, slug);
@@ -218,9 +222,9 @@ test("helper surfaces enriched diagnostics when a show never mounts (dead slug)"
 
 The regex pins all three substrings (modal testid, boundary testid, server signature) in the order every helper failure message emits them, so an incidental REAL 502 during this navigation (boundary path → retry → still no modal) still passes.
 
-- [ ] **Step 6: Local e2e run — 8/8.** `pnpm heavy pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium` against a freshly seeded local DB (`pnpm db:seed` first; confirm no sibling arc is mid-e2e on the shared stack). Expected: 8 passed — (3 bands + 1 diagnostic) × 2 projects.
+- [ ] **Step 7: Local e2e run — 8/8.** `pnpm heavy pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium` against a freshly seeded local DB (`pnpm db:seed` first; confirm no sibling arc is mid-e2e on the shared stack). Expected: 8 passed — (3 bands + 1 diagnostic) × 2 projects.
 
-- [ ] **Step 7: Commit.** `test(infra): shared review-modal wait helper with one surfaced boundary recovery`
+- [ ] **Step 8: Commit.** `test(infra): shared review-modal wait helper with one surfaced boundary recovery`
 
 ### Task 2: Snapshot log carries the PostgREST fields
 
@@ -458,7 +462,7 @@ Informational only — never a gate (a recovered run is a green run by design).
 
 <!-- tasks: end -->
 
-### Task 4: Ledger + docs bookkeeping (outside the enrolled region — no RED instrument; gate is `pnpm vitest run tests/docs`)
+### Task 4: Ledger + docs bookkeeping (outside the enrolled region; red instrument below)
 
 **Files:**
 
@@ -468,11 +472,13 @@ Informational only — never a gate (a recovered run is a green run by design).
 
 Steps:
 
+- [ ] **RED first — enroll the graduation.** Add `{ id: "BL-CHANGES-FEED-MODAL-BATCH-FLAKE", provenance: "fix/changes-feed-batch-flake" }` to the `BACKLOG_GRADUATED` registry (`tests/docs/_metaDeferralLedgerGraduation.test.ts:95`) BEFORE moving the entry. Run `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` — RED: the id is still in `BACKLOG.md` and absent from the archive ("every graduated id is archive-only", the test at `tests/docs/_metaDeferralLedgerGraduation.test.ts:595`). This is the TDD seam R2 named: an unenrolled graduation lets a deleted-but-never-archived entry pass silently.
 - [ ] Graduate `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` to `BACKLOG-archive.md`, recording the measured mechanism and explicitly correcting the filed fixture-collision theory (spec §2.3) so no future reader re-derives it. In the SAME commit, amend the umbrella AC-4-drop paragraph at `BACKLOG.md:665` (the batch-1 narrative asserting "a cross-spec interaction") — it survives graduation and would keep asserting the disproven theory; point it at the archive entry and the measured mechanism. The `**Status:** IN PROGRESS · **Branch:**` marker comes OFF in the PR's LAST commit (invariant 12; archives categorically reject in-flight entries — the graduation and the marker removal land together in that final commit).
 - [ ] File `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` (deferral reason (c); member list derived by re-running the spec §8.1 greps at filing time; `**Reachability:** INFERRED, NOT PROBED` per-spec, with this arc's CI evidence as the class proof).
 - [ ] File `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE` (deferral reason (a): reverses the ratified fail-hard posture, `app/admin/_showReviewModal.tsx:25-30`; evidence = spec §2.1 log excerpts).
 - [ ] Verify this plan's row in `docs/superpowers/plans/ci/README.md` (it landed with the plan commit at `docs/superpowers/plans/ci/README.md:15` — do NOT add a duplicate).
-- [ ] Run `pnpm vitest run tests/docs` — ledger shape, review-round economy, invariant-8 closeout guards all green.
+- [ ] Prepend a new segment to the `Last reconciled:` line (`BACKLOG.md:7`), demoting the current segment behind `Prior:` per the line's own convention — the graduation and the two filings are the reconciliation event.
+- [ ] Run `pnpm vitest run tests/docs` — GREEN: graduation registry (archive-only + provenance-in-section), ledger shape, review-round economy, invariant-8 closeout guards.
 - [ ] Commit: `docs: graduate BL-CHANGES-FEED-MODAL-BATCH-FLAKE; file helper-adoption and read-posture peers`
 
 ### Task 5: Pre-push gates, PR, five-green loop (closeout)
