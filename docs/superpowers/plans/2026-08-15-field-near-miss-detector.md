@@ -50,7 +50,7 @@ The r2 re-review probed all three proposed sites: isKnownSectionHeader and canon
 **Interfaces:**
 - Produces: `ParseAggregator.consumed: Map<string, number>` (key = `` `${col0.trim()}\u0000${value.trim()}` ``, value = count) and `markConsumed(agg: ParseAggregator | undefined, col0: string, value: string): void` exported from `lib/parser/warnings.ts`. CURATED resolutions only call it: `event.ts` exact-branch (NOT the `toCanonicalKey` fallback at `event.ts:222` — spec §3.3), `contacts.ts` regex-accepted rows, `transport.ts` schedule-label rows. Alias-resolved rows (`resolveAlias` non-null) need no ledger mark — the detector's candidate check already excludes them statically.
 
-- [ ] **Step 1: Write the failing test.** RED because `markConsumed` and `consumed` do not exist in `lib/parser/warnings.ts` (verified absent on the live tree — the production lines whose absence fails the import).
+- [ ] **Step 1: Write the failing test.** RED because `ParseAggregator` has no `consumed` field on the live tree (verified absent): the test imports only existing symbols (`newAggregator`, `parseEventDetails`), so the failure is the runtime `TypeError` at `[...agg.consumed.keys()]` — not an import error (r5 correction).
 
 ```ts
 // tests/parser/consumptionLedger.test.ts
@@ -63,7 +63,7 @@ The r2 re-review probed all three proposed sites: isKnownSectionHeader and canon
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { newAggregator } from "@/lib/parser/warnings";
-import { parseEvent } from "@/lib/parser/blocks/event";
+import { parseEventDetails } from "@/lib/parser/blocks/event";
 import { premiseHolds } from "@/tests/_shared/premise";
 
 const key = (c0: string, v: string) => `${c0}\u0000${v}`;
@@ -74,7 +74,7 @@ describe("consumption ledger (spec §3.3)", () => {
   it("curated event resolution marks consumed; fallback self-slug does not", () => {
     premiseHolds("fixture has a DETAILS section with Stage row", /\|\s*Stage\s*\|/.test(md));
     const agg = newAggregator();
-    parseEvent(md, agg);
+    parseEventDetails(md, "v4", agg);
     const consumedKeys = [...agg.consumed.keys()];
     // "Stage"/"Storage" take event.ts's unknown-label fallback (self-slug storage), NOT consumed
     expect(consumedKeys.some((k) => k.startsWith("Stage\u0000"))).toBe(false);
@@ -88,7 +88,7 @@ describe("consumption ledger (spec §3.3)", () => {
 });
 ```
 
-- [ ] **Step 2: FAIL:** `pnpm exec vitest run tests/parser/consumptionLedger.test.ts` — import error on `markConsumed`/missing `consumed` field.
+- [ ] **Step 2: FAIL:** `pnpm exec vitest run tests/parser/consumptionLedger.test.ts` — `TypeError` on the missing `agg.consumed` Map.
 - [ ] **Step 3: Implement.** In `lib/parser/warnings.ts`: add `consumed: new Map<string, number>()` to `newAggregator()`, extend the `ParseAggregator` type, export `markConsumed` (increments the count; no-op on undefined agg). Mark AT THE RESOLUTION SITE, BEFORE any presence()/sentinel write filter (spec 3.3 resolution-site semantics, r4 recalibration): in `event.ts` both the curated exact-match branch AND the gated fuzzy correction (`gatedVocabCorrect`, lib/parser/blocks/event.ts:200-212 and event.ts:292-298) mark the moment the label RESOLVES to a curated key — a resolved row whose value is then empty/filtered still marks (that is exactly the r4 false-positive class the semantics exist to exclude). In `contacts.ts`: mark where the regex resolves a row. In `transport.ts`: mark where a `V2_SCHEDULE_LABELS` row resolves. Do NOT touch the `toCanonicalKey` fallback. Then run the derived-cover walk (spec 3.3): audit all 11 `lib/parser/blocks/*.ts` files taking a ParseAggregator for internal resolution vocabularies; record the per-file disposition in the commit body (the committed baseline is the executable arbiter for a missed site).
 - [ ] **Step 4: PASS** the new test; also `pnpm exec vitest run tests/parser/blocks/event.test.ts tests/parser/blocks/venue.test.ts` (payload untouched).
 - [ ] **Step 5: Commit** `feat(parser): consumption ledger on ParseAggregator (curated resolutions only)`
@@ -99,7 +99,8 @@ describe("consumption ledger (spec §3.3)", () => {
 
 **Files:**
 - Create: lib/parser/fieldNearMiss.ts (created by this plan)
-- Modify: `lib/parser/warnings.ts` (`emitUnknownField` gains `candidate?: string` opt; `ParseWarning` gains an optional structured `candidate` field; message appends "looks like '<candidate>'" when present — spec §5's decided carrier, landed HERE so Task 4's baseline can read `warning.candidate` and Task 5 touches copy only)
+- Modify: `lib/parser/warnings.ts` (`emitUnknownField` gains `candidate?: string` opt; message appends "looks like '<candidate>'" when present — spec §5's decided carrier, landed HERE so Task 4's baseline can read `warning.candidate` and Task 5 touches copy only)
+- Modify: `lib/parser/types.ts` (the `ParseWarning` type at lib/parser/types.ts:67 gains the optional structured `candidate?: string` field — r5 finding 2: the type lives here, not in warnings.ts)
 - Modify: `lib/parser/sectionKind.ts` (export `LABEL_TO_KIND_KEYS` — Step 3)
 - Create: lib/parser/sectionHeaderTokens.ts (created — barrel, Step 3)
 - Create: tests/parser/fieldNearMiss.test.ts (created)
@@ -183,13 +184,17 @@ const isAllCapsSingle = (rawLabel: string, normTokens: Set<string>): boolean =>
 - Modify: `lib/parser/blocks/venue.ts` (remove `inVenueFieldScope` unknown-field machinery + its `emitUnknownField` call; RE-GATE `TYPO_NORMALIZED` at venue.ts:135 to venue-block membership per spec 2.1 - emit iff the row's typo alias resolves (isTypo) AND the row's physical block is the venue block; venue FIELD parsing unchanged)
 - Modify: `lib/drive/unknownFieldAnchors.ts` (refresh the :16 rationale comment; BLOCKS array unchanged - spec 2.1)
 - Modify: `lib/parser/blocks/event.ts` (remove the fallback-branch emitUnknownField call at lib/parser/blocks/event.ts:225; keep the `toCanonicalKey` self-slug storage)
+- Modify: `tests/parser/warnings.test.ts` (the two direct-`parseVenue` UNKNOWN_FIELD/raw-unrecognized cases at tests/parser/warnings.test.ts:213 and the :233 region — r5 finding 3)
+- Modify: `tests/parser/blocks/venue.test.ts` (the out-of-scope-alias UNKNOWN_FIELD assertion at tests/parser/blocks/venue.test.ts:301; payload assertions untouched)
+- Modify: `tests/parser/blocks/event.test.ts` (the direct-`parseEventDetails` unknown-label emission cases at tests/parser/blocks/event.test.ts:403 region)
 - Create: tests/parser/fieldNearMissBaseline.test.ts (created) + tests/parser/__fixtures__/fieldNearMiss.baseline.json (created)
 
 - [ ] **Step 1: Write the failing baseline test** (explicit committed JSON, `UPDATE_NEAR_MISS_BASELINE=1` regen path; each baseline row carries FULL emission identity per spec AC-N1: `{fixture, key, block, kind, candidate}` - not a bare key multiset, so a wrong block/kind mapping or drifted candidate fails the pin). RED because the detector is not yet wired into `parseSheet` (production line: the missing `detectFieldNearMisses` call in `lib/parser/index.ts`) — corpus emissions are still the positional sweep's.
 - [ ] **Step 2: FAIL**, then wire the detector, remove both legacy emit sites, re-gate TYPO_NORMALIZED to venue-block membership (spec 2.1), and emit kind/block by the spec 2.2 anchor-namespace mapping ("venue" for the venue block, "details" for DETAILS-family blocks, else normalized block-opener label). ADD the single-call-site structural pin to fieldNearMiss.test.ts in this task (exactly one emitUnknownField call site under lib/parser/ outside warnings.ts, filesystem grep in-test) - it lands GREEN here because both legacy sites are gone in this same commit.
+- [ ] **Step 2a (r5 finding 3): update the four direct block-parser emission tests in this same commit** — they assert emissions the removed call sites produced and CANNOT go green otherwise (the detector runs only at the `lib/parser/index.ts` seam, so direct `parseVenue`/`parseEventDetails` calls receive no replacement emissions). New contract per site: `tests/parser/warnings.test.ts:213` ("emits UNKNOWN_FIELD for unrecognized label in venue block") flips to assert ZERO `UNKNOWN_FIELD` from direct `parseVenue`, with a companion parseSheet-level case in the same describe proving the same `FOO BAR` doc DOES warn through the full parse; the `tests/parser/warnings.test.ts:233` raw-unrecognized case flips to assert `agg.rawUnrecognized` stays EMPTY on direct `parseVenue` (the push lives inside `emitUnknownField`, warnings.ts:365, and moves with it); `tests/parser/blocks/venue.test.ts:301` keeps its FIELD_LABEL_AUTOCORRECTED-absent assertion and flips the UNKNOWN_FIELD-present assertion to absent; `tests/parser/blocks/event.test.ts:403` region keeps its payload/self-slug assertions (`ed.rigging` still stored) and flips the emission assertions to zero-warnings, its "sensitive labels stay silent" cases now trivially green. Also DELETE the now-vacuous negative case at `tests/parser/warnings.test.ts:252` ("does NOT emit before any venue field is seen") — it pins the removed window guard and passes vacuously once no direct emission exists. Derived cover, not this enumeration: re-run `rg -n "UNKNOWN_FIELD" tests/parser/warnings.test.ts tests/parser/blocks/venue.test.ts tests/parser/blocks/event.test.ts` in-task and disposition every POSITIVE emission assertion reachable from a direct block-parser call (negative assertions like venue.test.ts:267/:394 stay green and stay). The `emitUnknownField` unit case at warnings.test.ts:129 calls the emitter directly and is unaffected.
 - [ ] **Step 2b (AC-N8/AC-N9):** extend the baseline test file: TYPO_NORMALIZED census pinned at 0 across the corpus; unit tests for the re-keyed membership gate both directions (constructed fixture with a Hotal Contact Info row inside the venue block fires once; the corpus Hotal Contact Info rows in hotel blocks and the Virtaul Audience row stay silent, incl. under the B16/B17 swap); anchor assertions - the four Stage/Storage baseline rows resolve non-null sourceCell via resolveUnknownFieldCell (kind "details"), one Timestamp-block row asserts null (documented-safe).
 - [ ] **Step 3: Generate the baseline** (`UPDATE_NEAR_MISS_BASELINE=1 pnpm exec vitest run tests/parser/fieldNearMissBaseline.test.ts`), verify GREEN without the env var, and verify the count: 65 rows total (spec §3.2). If the implementation's count differs from 65, STOP and reconcile against the follow-up probe's Part D (resolution-site definitive set) before committing — the probe is rerunnable from its committed path (`pnpm exec tsx --tsconfig tsconfig.json docs/superpowers/specs/parser/probes/2026-08-15-near-miss-followup-probe.ts`; Part D prints the per-fixture set and `SUMMARY-D ... new_total=65`).
-- [ ] **Step 4:** Regenerate `tests/parser/__fixtures__/venueSignalParity.baseline.json` (`UPDATE_VENUE_PARITY_BASELINE=1 ...`) — the ratified §7.2(a) delta, same commit. `tests/parser/venueSwapInvariance.test.ts` flips RED→GREEN (10/10); `tests/parser/blocks/venue.test.ts` stays green (AC-N3).
+- [ ] **Step 4:** Regenerate `tests/parser/__fixtures__/venueSignalParity.baseline.json` (`UPDATE_VENUE_PARITY_BASELINE=1 ...`) — the ratified §7.2(a) delta, same commit. `tests/parser/venueSwapInvariance.test.ts` flips RED→GREEN (10/10); `tests/parser/blocks/venue.test.ts` green with payload assertions untouched (AC-N3; the one emission assertion was updated in Step 2a).
 - [ ] **Step 5:** Exhaustive sweep GREEN: `pnpm heavy sh -c 'VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run tests/parser/mutationHarness.venueSwapSweep.test.ts --project mutation'`.
 - [ ] **Step 6: Commit** `feat(parser): content-keyed near-miss detector replaces positional sweep (65-row baseline, ratified quieting)`
 
