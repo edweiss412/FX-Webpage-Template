@@ -31,7 +31,12 @@
  */
 
 import { clean, presence, splitRow } from "./_helpers";
-import { type ParseAggregator, emitEmptySection, emitUnknownField } from "@/lib/parser/warnings";
+import {
+  type ParseAggregator,
+  emitEmptySection,
+  emitUnknownField,
+  markConsumed,
+} from "@/lib/parser/warnings";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
@@ -150,6 +155,10 @@ export function parseEventDetails(
 
   const section = markdown.slice(headerMatch.index);
   const lines = section.split("\n");
+  // Ledger key component (§3.3): the first-cell text of the section-opening row this
+  // parser matched. EVENT_DETAILS_HEADER_RE is `^\|`-anchored and multiline, so
+  // `headerMatch.index` is that row's opening pipe and `lines[0]` is the row itself.
+  const blockOpener = clean(splitRow((lines[0] ?? "").trim())[0] ?? "");
   let inBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
@@ -180,10 +189,28 @@ export function parseEventDetails(
     // Also break on GENERAL SESSION / BREAKOUT headers
     if (/^GENERAL SESSION\b/.test(col0) || /^BREAKOUT \d/.test(col0)) break;
 
+    // Label resolution is hoisted ABOVE the `if (col1)` value filter so the consumption
+    // ledger can mark at the RESOLUTION decision (spec §3.3), not at the write site. The
+    // corpus carries curated rows with EMPTY values — the east-coast DETAILS block's
+    // `Room Diagram` is one of seven — which never reach a write; write-site marking left
+    // them unledgered and the detector then called a correctly named field a near-miss of
+    // itself. The branch structure below is unchanged, so no payload moves.
+    const exactCanon = CANONICAL_KEY_MAP[col0Lower];
+    // Consulted only on an exact miss, exactly as the branch below orders it.
+    const fix =
+      exactCanon === undefined
+        ? gatedVocabCorrect(col0.toUpperCase(), EVENT_LABEL_VOCAB, EVENT_GATE_OPTS)
+        : null;
+    const fuzzyCanon = fix?.corrected ? CANONICAL_KEY_MAP[fix.match.toLowerCase()] : undefined;
+    // Both curated event sites: the CANONICAL_KEY_MAP exact hit and the gatedVocabCorrect
+    // acceptance. The `toCanonicalKey` fallback below deliberately does NOT mark.
+    if (exactCanon !== undefined || fuzzyCanon !== undefined) {
+      markConsumed(agg, blockOpener, col0, col1);
+    }
+
     // Two-column row: col0 is label, col1 is value
     if (col1) {
       const val = presence(col1);
-      const exactCanon = CANONICAL_KEY_MAP[col0Lower];
       if (exactCanon !== undefined) {
         // Known label — unchanged write; a REAL value claims the canonical so fuzzy can't
         // shadow it (an empty/sentinel exact value does NOT claim — see PR-D1 contract).
@@ -197,18 +224,16 @@ export function parseEventDetails(
         // would have matched `CANONICAL_KEY_MAP[col0Lower]` above, since EVENT_LABEL_VOCAB is
         // derived solely from the map's keys. If it ever did occur it falls through to the
         // fallback below, which is the safe default.)
-        const fix = gatedVocabCorrect(col0.toUpperCase(), EVENT_LABEL_VOCAB, EVENT_GATE_OPTS);
         if (fix?.corrected) {
-          const canon = CANONICAL_KEY_MAP[fix.match.toLowerCase()];
-          if (canon && val) {
+          if (fuzzyCanon && val) {
             // Defer; apply post-loop unless an exact label claims this canonical. Among fuzzy
             // siblings: last-write-wins with the SAME sentinel-aware precedence as exact labels
             // (a sentinel never displaces a real candidate), so `rawLabel` tracks the winning value.
-            const prev = fuzzyCandidates.get(canon);
+            const prev = fuzzyCandidates.get(fuzzyCanon);
             const incomingIsSentinel = shouldHideGenericOptional(val);
             const prevIsReal = prev !== undefined && !shouldHideGenericOptional(prev.value);
             if (!(incomingIsSentinel && prevIsReal)) {
-              fuzzyCandidates.set(canon, { rawLabel: col0, value: val });
+              fuzzyCandidates.set(fuzzyCanon, { rawLabel: col0, value: val });
             }
           }
         } else {
@@ -334,11 +359,25 @@ function harvestFormLayout(
     corrected: boolean;
     rawLabel: string;
     value: string | null;
+    // Ledger key components (§3.3): the enclosing table's opening first-cell text, and the
+    // row's value cell as `clean`ed raw text (NOT the `presence()`-processed `value` above —
+    // the ledger key must be built from the same cell text the detector reads).
+    opener: string;
+    rawValue: string;
   }[] = [];
   const flush = (): void => {
     if (run.filter((r) => r.canon !== null).length >= 3) {
       for (const r of run) {
         if (r.canon === null) continue; // closed-vocab: skip unknown labels entirely
+        // Curated resolution (spec §3.3): `resolveKnownCanon` is the harvest's exact-map +
+        // gated-fuzzy resolution, and the run anchored, so this row IS claimed by the parser.
+        // Marked above every value filter below (empty value, TRUE/FALSE checklist booleans,
+        // no-op fill) per the resolution-site rule. A row `resolveKnownCanon` rejects — an
+        // unknown label, or a HARVEST_EXCLUDED_CANON key (`floor_plan` / `room_diagram`,
+        // which read as PROSE questions in a form block) — resolves to null and is skipped
+        // above, so it stays a near-miss candidate. That exclusion must hold: the corpus's
+        // form-layout `Room Diagram` rows are baselined to fire.
+        markConsumed(agg, r.opener, r.rawLabel, r.rawValue);
         if (isSensitiveCanonicalKey(r.canon)) continue; // defense-in-depth (map has none)
         if (!r.value) continue; // never clobber/fill with an empty form value
         if (/^(TRUE|FALSE)$/i.test(r.value)) continue; // INTERNAL checklist booleans, not field values
@@ -364,13 +403,25 @@ function harvestFormLayout(
     }
     run = [];
   };
+  // Ledger key component (§3.3): the first-cell text of the row that opens the current pipe
+  // table, tracked by the same rule `parseContacts` uses. A table can hold several runs (a
+  // separator or a non-2-cell row ends a run without ending the table), and they all share
+  // the one opener — the run is a parsing unit, the table is the physical block the detector
+  // will locate a candidate row in.
+  let tableOpener = "";
+  let inTable = false;
   for (const line of markdown.split("\n")) {
     const t = line.trim();
     if (!t.startsWith("|")) {
+      inTable = false;
       flush();
       continue;
     }
     const cells = splitRow(t);
+    if (!inTable) {
+      inTable = true;
+      tableOpener = clean(cells[0] ?? "");
+    }
     if (cells.length !== 2 || cells.every((c) => /^[\s:|*-]*$/.test(c))) {
       flush();
       continue;
@@ -386,6 +437,8 @@ function harvestFormLayout(
       corrected: resolved?.corrected ?? false,
       rawLabel: col0,
       value: presence(cells[1] ?? ""),
+      opener: tableOpener,
+      rawValue: clean(cells[1] ?? ""),
     });
   }
   flush();

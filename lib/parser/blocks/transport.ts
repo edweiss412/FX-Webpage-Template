@@ -26,7 +26,7 @@
  */
 
 import type { TransportationRow, TransportScheduleEntry, CrewMemberRow } from "../types";
-import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection, markConsumed } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, splitRow, inferShowYear } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
@@ -198,6 +198,10 @@ function parseV4Transport(
     if (line.trim().startsWith("|")) tableLines.push(line.trim());
   }
 
+  // Ledger key component (§3.3): the first-cell text of the section-opening row this
+  // parser matched (`hm.index` is that row's opening pipe, so it is `tableLines[0]`).
+  const blockOpener = clean(splitRow(tableLines[0] ?? "")[0] ?? "");
+
   // Driver, two sources: the slash header encodes it inline (hm[1] defined);
   // the plain (exporter) header leaves it on the first Equipment Transporter /
   // Load In: / Driver body row.
@@ -214,7 +218,12 @@ function parseV4Transport(
   } else {
     for (const line of tableLines) {
       const c = splitRow(line);
-      if (/^(?:equipment transporter|load in:?|driver)$/i.test(clean(c[0] ?? ""))) {
+      const label = clean(c[0] ?? "");
+      if (/^(?:equipment transporter|load in:?|driver)$/i.test(label)) {
+        // Curated resolution (spec §3.3): this regex is the path that resolves the corpus
+        // `Load In:` row to `driver_name`. Marked before the presence() reads below, so a
+        // driver row with an empty name cell still counts as consumed.
+        markConsumed(agg, blockOpener, label, clean(c[1] ?? ""));
         driverName = presence(clean(c[1] ?? ""));
         driverPhone = presence(clean(c[2] ?? ""));
         driverEmail = canonicalize(clean(c[3] ?? ""));
@@ -302,8 +311,14 @@ function parseV4Transport(
     // Block-boundary detection: stop when we hit a known non-transport section label
     if (seenDateHeader && TRANSPORT_BLOCK_TERMINATORS.has(col0.toLowerCase())) break;
 
+    // Curated resolution (spec §3.3): membership in the schedule vocabulary is what
+    // resolves this label. The `seenDateHeader` arm is NOT a resolution — it accepts rows
+    // by table position, so marking it would ledger rows no curated vocabulary claims.
+    const scheduleLabelHit = V2_SCHEDULE_LABELS.has(label);
+    if (scheduleLabelHit) markConsumed(agg, blockOpener, col0, col1);
+
     // Schedule rows: after seeing DATE header, or when col0 matches known stage labels
-    if (seenDateHeader || V2_SCHEDULE_LABELS.has(label)) {
+    if (seenDateHeader || scheduleLabelHit) {
       // Skip rows that don't look like transport stages (allowlist guard)
       if (seenDateHeader && col0 && !isTransportStage(col0)) continue;
 
@@ -362,6 +377,9 @@ function parseV2Transport(
     if (line.trim().startsWith("|")) tableLines.push(line.trim());
   }
 
+  // Ledger key component (§3.3), same derivation as the v4 parser above.
+  const blockOpener = clean(splitRow(tableLines[0] ?? "")[0] ?? "");
+
   let driverName: string | null = null;
   let driverPhone: string | null = null;
   let vehicle: string | null = null;
@@ -398,6 +416,8 @@ function parseV2Transport(
     }
 
     if (V2_SCHEDULE_LABELS.has(label)) {
+      // Curated resolution (spec §3.3) — the v2 twin of the v4 membership mark above.
+      markConsumed(agg, blockOpener, col0, col1);
       // v2 format: col1 = "date @ time" or just a date
       const { date, time } = parseV2DateTime(col1, contextYear);
       schedule.push({

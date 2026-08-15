@@ -17,10 +17,62 @@ export type RawUnrecognized = { block: string; key: string; value: string };
 export type ParseAggregator = {
   warnings: ParseWarning[];
   rawUnrecognized: RawUnrecognized[];
+  /**
+   * Consumption ledger (field-near-miss spec §3.3) — occurrence-keyed record of
+   * every row a block parser RESOLVED to a curated canonical key. Keys are the
+   * NUL-joined `${blockOpener}\u0000${col0}\u0000${value}` triple (all trimmed);
+   * values are occurrence counts, since one document may carry the same resolved
+   * row more than once under the same opener.
+   *
+   * The opener is in the key because label+value alone cannot separate the two
+   * byte-identical empty-value `Room Diagram` rows three fixtures carry in BOTH a
+   * DETAILS-family block (consumed) and the Timestamp block (must warn): membership
+   * suppresses both, and count depletion is document-order-dependent, i.e.
+   * position-keyed — the defect class the near-miss detector exists to remove. The
+   * opener text moves with its rows under a block swap, so the triple is
+   * swap-invariant by construction.
+   */
+  consumed: Map<string, number>;
 };
 
 export function newAggregator(): ParseAggregator {
-  return { warnings: [], rawUnrecognized: [] };
+  return { warnings: [], rawUnrecognized: [], consumed: new Map() };
+}
+
+/**
+ * Ledger key for one resolved row occurrence. NUL-joined because NUL cannot occur
+ * in sheet cell text, so no label or value can forge a key boundary.
+ */
+export function consumptionKey(blockOpener: string, col0: string, value: string): string {
+  return `${blockOpener.trim()}\u0000${col0.trim()}\u0000${value.trim()}`;
+}
+
+/**
+ * Record that `col0` in the block opened by `blockOpener` RESOLVED to a curated
+ * canonical key (spec §3.3, resolution-site semantics).
+ *
+ * Call this AT the resolution decision, BEFORE any `presence()` / sentinel write
+ * filter: a row that resolves to a real field and then writes nothing because its
+ * value is empty is still consumed. Write-site marking left those rows unledgered,
+ * and the detector then reported a correctly named field as a near-miss of itself.
+ *
+ * Only CURATED resolutions call this. `parseEventDetails`'s unknown-label fallback
+ * stores under a generic self-slug (`toCanonicalKey`) without resolving to any real
+ * field, so it must NOT mark — those rows (Stage, Storage) are the corpus's
+ * most-confirmed near-miss true positives.
+ *
+ * No-ops when `agg` is undefined (the aggregator is optional in block-parser
+ * signatures), matching `emitEmptySection` above.
+ */
+export function markConsumed(
+  agg: ParseAggregator | undefined,
+  blockOpener: string,
+  col0: string,
+  value: string,
+): void {
+  if (!agg) return;
+  const key = consumptionKey(blockOpener, col0, value);
+  agg.consumed.set(key, (agg.consumed.get(key) ?? 0) + 1);
 }
 
 /**
