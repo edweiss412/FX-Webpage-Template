@@ -848,7 +848,7 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-SYNC-LOG-EMIT-UNGUARDED — a failed observability write can fail the sync it observes
 
-**Status:** OPEN · **Severity:** MEDIUM (availability of manual sync under a transient DB fault) · **Class:** error handling · **Effort:** S · **Filed:** 2026-08-10
+**Status:** IN PROGRESS · **Branch:** fix/sync-log-emit-guard · **Severity:** MEDIUM (availability of manual sync under a transient DB fault) · **Class:** error handling · **Effort:** S · **Filed:** 2026-08-10
 
 **Probe evidence.** `lib/sync/runScheduledCronSync.ts:2273` is `await deps.logSync?.(entry);` — no try/catch. `logSync` is called from inside the lock callback at `lib/sync/runScheduledCronSync.ts:3339` and `lib/sync/runScheduledCronSync.ts:3346` (both in `processOneFile_unlocked`, which `withShowLock` invokes), and the installed sink is `writeSyncLog`, which opens its OWN postgres connection (`lib/sync/syncLog.ts:51`). A transient connection fault at emit time therefore throws out of the lock callback and rolls the sync transaction back: **the log write can fail the thing it exists to observe.**
 
