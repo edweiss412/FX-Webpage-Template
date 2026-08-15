@@ -120,7 +120,7 @@ Commit: `fix(log): pass raw errors to log.* — the logger serializes once; guar
 
 ### Task T6 — ledger + close
 
-<!-- task: red=`pnpm vitest run tests/docs/` ac=AC-6,AC-8 -->
+<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-6,AC-8 -->
 
 ORDER IS BINDING — two rules hold simultaneously (plan R1 F4 + plan R2 F1): the marker-stripping archive commit is the PR's LAST pre-merge commit, AND the final review round examines the diff that merges (archive included — a review creates no commit, so archiving BEFORE the review satisfies both):
 
