@@ -50,7 +50,7 @@ Spec §2.4: the chip is absolutely positioned out of flow; no fixed-dimension pa
 
 ### Task C1 — chip state + render + timer (TDD)
 
-<!-- task: red=`pnpm vitest run tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ac=AC-1,AC-2,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6 -->
 
 Step 0 (probe, before any code): run the scanner-classification probe from the pre-draft pass; record the accepted const name.
 
@@ -74,34 +74,24 @@ GREEN: `demotedNoticeId` state + `closingRef` set-gate + the `openNonce` prop (p
 
 The §5.5 inventory row is PART OF THIS TASK and THIS COMMIT (plan R1 F4 — a separate task cannot satisfy both the one-commit-per-task invariant and the spec's same-commit timing lockstep, so the row belongs to C1): after the constant lands, run `pnpm vitest run tests/docs/_metaInteractionTimingInventory.test.ts` and OBSERVE it fail naming the unrowed constant (the inventory gate's own bidirectionality — this observed red is recorded in the task record); regen (`pnpm exec tsx scripts/scan-interaction-timings.cli.ts`) + add the DESIGN.md §5.5 row; the meta-test goes green on the same command; commit EVERYTHING as C1's single commit (AC-5).
 
-Commit: `feat(crew-page): transient demote chip on the affected lightbox slide (constant + §5.5 row in lockstep)`
-
-### Task C2 — transition audit (writing-plans mandatory task; plan R1 F3)
-
-<!-- task: red=`pnpm vitest run tests/components/diagrams/demoteChipTransitionAudit.test.ts` ac=AC-6 -->
-
-The spec's §2.3 Transition Inventory, carried as this task's audit table (every row gets an executable oracle or an explicit instant declaration; compound rows are exercised, not assumed):
+Transition audit (the writing-plans mandatory audit content, folded into THIS task per plan R2 F1 + R3 F1 — see the C2 tombstone below for the derivation). The spec's §2.3 Transition Inventory, with every row's executable oracle or explicit instant declaration:
 
 | Transition | Oracle |
 |---|---|
-| absent to visible (demote) | the AC-6 full class contract (C1 case 1 + the `transition-opacity` + token assertions; C1's GREEN carries the mount-time opacity ramp) |
-| visible to absent (timer) | instant unmount, declared deliberate — pinned executably by this task's audit test, below |
-| visible while user swipes away and back (compound) | C1 case 10 (remaining-lifetime pin) |
-| dialog closes while visible (compound) | C1 case 6 (all three initiators) |
-| second demote while visible (compound) | C1 case 5 (restart pinned) |
-| Reset chip visible simultaneously (compound) | C1 case 11 (disjoint slots) |
+| absent to visible (demote) | the AC-6 full class contract (case 1 + the `transition-opacity` + token assertions; the GREEN carries the mount-time opacity ramp) |
+| visible to absent (timer) | instant unmount, DECLARED deliberate — the chip render branch gets no exit-presence wrapper; the enumeration step below records it |
+| visible while user swipes away and back (compound) | case 10 (remaining-lifetime pin) |
+| dialog closes while visible (compound) | case 6 (all three initiators) |
+| second demote while visible (compound) | case 5 (restart pinned) |
+| Reset chip visible simultaneously (compound) | case 11 (disjoint slots) |
 
-Behavioral compound cases carry no RED here (plan R2 F1): after a conforming C1 every chip behavior in the inventory already holds, so a behavioral test authored in this task would pass on arrival — a false RED. Those cases live in C1's pre-implementation RED batch (cases 10 and 11), where the chip render branch's absence genuinely fails them.
+Audit enumeration (a GREEN-phase step of this task, recorded in the task record before the commit): list every JSX `AnimatePresence` usage across `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` in the post-implementation tree (pre-draft probe: exactly one — the session-level open/close presence at the `components/diagrams/Gallery.tsx:446` region; zero in the lightbox) and every ternary/conditional branch the diff adds or touches that renders the chip, the Reset chip, or the placeholder; give each row its disposition (exit-presence wrapper or declared instant). Any transition the enumeration surfaces that the table lacks is NEW work — it gets a real RED against a repair commit, not a seat in this one.
 
-This task's OWN RED is the audit made executable — a NEW structural test file (demoteChipTransitionAudit.test.ts under tests/components/diagrams/, the marker's command) that pins the enumeration instead of recording it as prose:
+Commit: `feat(crew-page): transient demote chip on the affected lightbox slide (constant + §5.5 row in lockstep)`
 
-1. It reads the source of `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` and collects every JSX `<AnimatePresence` usage site (per file). It asserts the collected set EQUALS a declared in-file disposition manifest (rows of file + one-line disposition). RED: the manifest ships EMPTY in the red step, so the run fails naming the live site the pre-draft pass verified — the session-level presence wrapper in `Gallery.tsx` (line 446 region, the M9 C6 open/close animation). GREEN: fill the manifest with that row's disposition ("session-level open/close presence; chip lifecycle is state-cleared, never exit-animated") — same command, red then green, inside this task.
-2. It asserts `GalleryLightbox.tsx` contains ZERO JSX `<AnimatePresence` usages — the executable form of the "visible to absent = instant, deliberate" declaration. An implementer (now or later) who wraps the chip in its own exit presence turns this red and must confront the inventory.
-3. The ternary/conditional-render enumeration over the diff (which conditional branches render the chip, the Reset chip, the placeholder) is recorded in the task record with each row's disposition; any transition the enumeration surfaces that the table above lacks is NEW work — it gets a real RED against a repair commit, not a seat in this audit commit.
+### Tombstone — the former Task C2, folded into C1 (plan R2 F1 + R3 F1)
 
-GREEN closes with a rerun of the C1 suite (`pnpm vitest run tests/components/diagrams/galleryLightbox.zoomGate.test.tsx`) confirming the audit changed no behavior.
-
-Commit: `test(crew-page): transition audit for the demote chip (compounds + instant-exit declaration)`
+A separate post-implementation transition-audit task cannot carry an honest RED on this surface: its behavioral compound cases pass on arrival once C1's implementation exists (R2 F1 — they now live in C1's pre-implementation RED batch as cases 10 and 11, where the chip render branch's absence genuinely fails them), and a manifest-style structural test turns green by editing test-local data with production untouched — the anti-tautology shape writing-plans prohibits (R3 F1). The mandated audit content — the §2.3 inventory table with per-row oracles, the AnimatePresence/ternary enumeration with dispositions, the deliberate-instant declaration, and the compound-transition tests — lives in full inside Task C1's body and single commit, where the compound tests have a real red. No separate commit exists for C2.
 
 ### Task C3 — dual gate + ledger + close
 
@@ -138,7 +128,7 @@ impeccable-gate: pending — filled at C3.1 (critique + audit on the implementat
 
 - [ ] Every named file/symbol re-grepped against the live tree.
 - [ ] Anti-tautology: AC-2 imports the constant; AC-1 derives the announce baseline from the existing case, not a hardcoded count; the no-chip rows exercise both non-demote paths.
-- [ ] `red=` validity: C1's cases are new cases in an existing suite (invariant-1 shape, production line named; the §5.5 inventory-gate red is ALSO observed inside C1); C2's red is its NEW audit test with an empty disposition manifest failing against the live `Gallery.tsx` presence site (plan R2 F1 — its behavioral compound cases moved into C1's RED batch as cases 10-11); C3's red is the archive-RED pattern.
+- [ ] `red=` validity: C1's cases are new cases in an existing suite (invariant-1 shape, production line named; the §5.5 inventory-gate red is ALSO observed inside C1; the audit compound cases are C1 cases 10-11, red in the pre-implementation batch); C2 is a tombstone, not a task — no marker, no commit (plan R2 F1 + R3 F1); C3's red is the archive-RED pattern.
 - [ ] Scanner-classification probe run and recorded BEFORE the constant is named in code.
 - [ ] Snippets typechecked against strict tsconfig before dispatch.
 - [ ] `pnpm spec:lint docs/superpowers/plans/2026-08-15-diagram-demote-notice/plan.md` 0 hard.
