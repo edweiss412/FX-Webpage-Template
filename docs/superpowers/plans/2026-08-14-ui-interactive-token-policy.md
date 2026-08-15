@@ -808,9 +808,13 @@ boot, readiness gate, or sampler is introduced.
 
 ### Task 4 census, derived by running the shipped scanner
 
-354 in-scope interactive elements; 303 clear the height floor statically; **51 census rows**:
-14 `full-bleed`, 13 `unresolvable-dynamic`, 8 `padding-arithmetic`, 7 `parent-label-target`,
-7 `inline-prose-link`, 2 `under-floor-filed`. The D2 side reproduced the ratified census
+354 in-scope interactive elements. AS FIRST RUN (2026-08-14): 303 clear, **51 census rows**
+— 14 `full-bleed`, 13 `unresolvable-dynamic`, 8 `padding-arithmetic`, 7 `parent-label-target`,
+7 `inline-prose-link`, 2 `under-floor-filed`. AS SHIPPED, after the whole-diff review tightened
+the recogniser and corrected three rows: **301 clear, 53 census rows** — 15 `full-bleed`, 13
+`unresolvable-dynamic`, 9 `padding-arithmetic`, 7 `inline-prose-link`, 5 `under-floor-filed`,
+4 `parent-label-target`. `tests/styles/tapTargetCensus.ts` is the authority and now asserts its
+own tallies against its rows, per section and in total; the numbers here are dated snapshots. The D2 side reproduced the ratified census
 exactly on its first run — 55 `text-text-subtle` hits across 44 files, matching spec §2.3 v3
 and every row of §4.3 by file, tag and line — which is the strongest available evidence that
 the shipped scanner and the drafting-time probe agree.

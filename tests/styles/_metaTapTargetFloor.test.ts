@@ -111,12 +111,16 @@ describe("census self-accounting (whole-diff R2 F2 / R3 F2)", () => {
   });
 
   it("every SECTION marker's tally matches the rows filed under it", () => {
-    // The file header is only half the accounting: the rows are grouped by
-    // `// ---- <category> (<n>) ----` markers, and round 4 found a marker that
-    // had gone stale AND a row sitting under the wrong one. Both are derived
-    // here — the count AND the membership — so a row moved between sections
-    // without its marker reds, and a marker whose number is edited by hand reds.
+    // The rows are grouped by `// ---- <category> (<n>) ----` markers. Three
+    // review rounds found three different ways for that grouping to lie: a
+    // stale number, a row under the wrong marker, and — once the first two were
+    // guarded — a tally that only had to hold IN AGGREGATE, so two sections of
+    // one category could offset each other's errors (R5 F1). Each section is
+    // checked on its own now, and the rows are counted back to the registry so
+    // a deleted or misspelled marker cannot quietly drop the rows beneath it
+    // (R5 F2).
     const sections: { category: string; declared: number; rows: string[] }[] = [];
+    let seenRows = 0;
     for (const line of source.split("\n")) {
       const marker = line.match(/^\s*\/\/ ---- ([a-z-]+)[^(]*\((\d+)\)/);
       if (marker && CATEGORIES.has(marker[1]!)) {
@@ -124,31 +128,35 @@ describe("census self-accounting (whole-diff R2 F2 / R3 F2)", () => {
         continue;
       }
       const category = line.match(/^\s*category: "([a-z-]+)",/);
-      if (category && sections.length > 0) sections.at(-1)!.rows.push(category[1]!);
+      if (!category) continue;
+      seenRows += 1;
+      if (sections.length > 0) sections.at(-1)!.rows.push(category[1]!);
     }
-    premiseHolds("the file is organised into marked sections", sections.length >= 6);
-    // Every row that follows a marker belongs to that marker's category...
+
+    // EVERY row is under some marker: a row before the first marker, or after a
+    // marker whose spelling stopped matching, would otherwise be invisible here
+    // while every other assertion passed.
+    expect(seenRows).toBe(TAP_TARGET_CENSUS.length);
+    expect(sections.reduce((n, s) => n + s.rows.length, 0)).toBe(TAP_TARGET_CENSUS.length);
+    // ...and every category in use has at least one marker, so a whole family
+    // cannot lose its heading.
+    expect([...new Set(sections.map((s) => s.category))].sort()).toEqual(
+      [...new Set(TAP_TARGET_CENSUS.map((r) => r.category))].sort(),
+    );
+
+    // PER SECTION, not per category: an aggregate check lets one section's
+    // overcount cancel another's undercount.
+    expect(
+      sections
+        .filter((s) => s.declared !== s.rows.length)
+        .map((s) => `${s.category}: declares ${s.declared}, holds ${s.rows.length}`),
+    ).toEqual([]);
+    // Every row that follows a marker belongs to that marker's category.
     expect(
       sections.flatMap((s) =>
         s.rows.filter((r) => r !== s.category).map((r) => `${s.category}<-${r}`),
       ),
     ).toEqual([]);
-    // ...and the counts add up per category, across sections that repeat one.
-    const declaredByCategory = new Map<string, number>();
-    const actualByCategory = new Map<string, number>();
-    for (const section of sections) {
-      declaredByCategory.set(
-        section.category,
-        (declaredByCategory.get(section.category) ?? 0) + section.declared,
-      );
-      actualByCategory.set(
-        section.category,
-        (actualByCategory.get(section.category) ?? 0) + section.rows.length,
-      );
-    }
-    expect(Object.fromEntries([...declaredByCategory].sort())).toEqual(
-      Object.fromEntries([...actualByCategory].sort()),
-    );
   });
 
   it("the header's row total matches the registry length", () => {
