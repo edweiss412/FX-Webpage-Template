@@ -1,6 +1,6 @@
 # Theme persistence-failure note — say so when the device will not remember
 
-**Date:** 2026-08-15 · **Authoring branch:** `docs/theme-persistence-note-spec` · **Implementation branch:** `feat/theme-persistence-note` · **Status:** DRAFT
+**Date:** 2026-08-15 · **Authoring branch:** `docs/theme-persistence-note-spec` · **Implementation branch:** `feat/theme-persistence-note` · **Status:** spec-APPROVED (codex-guard R4, 2026-08-15; R1 two + R2 one + R3 one findings repaired in-branch)
 **Entry:** `BL-THEME-PERSISTENCE-FAILURE-IS-SILENT` (BACKLOG.md, filed 2026-08-10) · **Effort:** S · **Plan:** authored beside this spec in the plan directory docs/superpowers/plans/2026-08-15-theme-persistence-note/ (same PR)
 
 ## §0 Why
