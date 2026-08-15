@@ -37,7 +37,8 @@
  *                         exactly the accidental shape this guard targets. The
  *                         row is labelled by the key as written.
  *
- * TOTALITY, which is what stops a silent residual: every `setTimeout` /
+ * TOTALITY IS PER-FORM, and the boundary is worth stating because the two
+ * halves differ. For TIMER DELAYS it is complete: every `setTimeout` /
  * `setInterval` delay ARGUMENT is walked, not only the ones that happen to be
  * literals. A delay that is neither a numeric literal (form 1) nor an identifier
  * resolving to a covered binding (form 2) is emitted as `unclassified` and fails
@@ -47,9 +48,22 @@
  * passes silently.
  *
  * DOCUMENTED LIMIT (threat-model fence: accidental authoring mistakes by an
- * ordinary contributor, not adversarial obfuscation). A delay assembled at
+ * ordinary contributor, not adversarial obfuscation). A DELAY assembled at
  * runtime — read off a config object, returned by a call, computed from
- * arithmetic — is reported as `unclassified` rather than resolved. A COMPUTED
+ * arithmetic — is reported as `unclassified` rather than resolved.
+ *
+ * PROPERTIES ARE LITERAL-ONLY, unlike delays, and this is a REAL GAP rather
+ * than a principled fence: a timing-named property whose value is not a numeric
+ * literal is DROPPED, not reported. Five sites in the tree today are invisible
+ * for that reason — the reduced-motion ternaries at
+ * components/admin/telemetry/EventRow.tsx and components/crew/RightNowHero.tsx
+ * (`duration: reduce ? 0 : 0.22`), and the resolved-elsewhere values in
+ * components/diagrams/GalleryLightbox.tsx. The behavior predates the key
+ * widening (the original `duration:` form dropped non-literals the same way);
+ * closing it means reporting them `unclassified` and dispositioning five
+ * pre-existing sites on surfaces this arc does not otherwise touch, so it is
+ * filed as BL-TIMING-SCAN-PROPERTY-TOTALITY rather than done here. Surfaced by
+ * whole-diff review round 7, with the site list above as its probe. A COMPUTED
  * key (`{ ["ttlMs"]: 17000 }`, `class C { ["ttlMs"] = 17000 }`) is likewise not
  * a site: the key is an expression, and writing one to declare a fixed timing
  * is not a spelling an ordinary contributor reaches for — unlike the quoted key

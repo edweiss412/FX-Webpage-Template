@@ -126,7 +126,15 @@ export function FactRows({ rows }: FactRowsProps) {
               {showCopy ? (
                 <div className="flex min-w-0 items-center justify-end gap-3.5">
                   <span className={valueClass}>{row.v}</span>
-                  <CopyFactValue value={row.v} label={copyLabel} />
+                  <CopyFactValue
+                    value={row.v}
+                    label={copyLabel}
+                    // Same key the row itself uses: stable across the sibling
+                    // churn that would otherwise remount the island, and
+                    // distinct between rows, so two opted-in rows can never
+                    // route each other's confirmations.
+                    identity={row.testId !== undefined ? row.testId : `${row.k}-${i}`}
+                  />
                 </div>
               ) : (
                 <span className={valueClass}>{row.v}</span>

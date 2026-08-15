@@ -694,6 +694,39 @@ describe("overlapping writes resolve by VALUE alone (§4.2)", () => {
 // ---------------------------------------------------------------------------
 
 describe("island lifecycle (§4.1)", () => {
+  test("a SECOND opted-in row does not receive the first row's confirmation", async () => {
+    // The module holds the owner registration so a write can outlive a remount
+    // (§4.1). Held as ONE global, the LAST island to mount wins it, and a
+    // second opted-in row anywhere on the page silently steals every
+    // confirmation: the row the user tapped stays idle while an untouched row
+    // lights up and announces. Production renders one island today, but that is
+    // a fact about the call sites, not a guard — an ordinary second `copyLabel`
+    // is all it takes.
+    const { container } = render(
+      <FactRows
+        rows={[
+          passwordRow(),
+          { k: "Room code", v: "4821", testId: "venue-room-code", copyLabel: "Copy the room code" },
+        ]}
+      />,
+    );
+    premiseHolds(
+      "both rows really render their own control",
+      copyButton(container) !== null && copyButton(container, "venue-room-code") !== null,
+    );
+
+    await act(async () => {
+      fireEvent.click(requireCopyButton(container));
+    });
+    await settle(0);
+
+    expect(isCopied(container), "the tapped row must be the one that confirms").toBe(true);
+    expect(
+      rowEl(container, "venue-room-code").querySelector("[data-slot='check-glyph']"),
+      "an untouched row must not confirm a copy nobody asked it for",
+    ).toBeNull();
+  });
+
   test("removing a PRECEDING sibling row does not remount the island", async () => {
     const dock: FactRow = { k: "Loading dock", v: "Rear of house", testId: "venue-dock" };
     const { container, rerender } = render(<FactRows rows={[dock, passwordRow()]} />);
@@ -714,16 +747,21 @@ describe("island lifecycle (§4.1)", () => {
   });
 
   test("a write pending across a REAL remount delivers through the new owner", async () => {
-    const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
+    const { container, rerender } = render(<FactRows key="a" rows={[passwordRow()]} />);
 
     await clickCopy(container); // pending, owned by the first island
+    const firstButton = requireCopyButton(container);
     await act(async () => {
-      // A changed testId changes the row key: island A unmounts, island B mounts.
-      rerender(<FactRows rows={[passwordRow({ testId: "venue-wifi-password-b" })]} />);
+      // A key change on the list REMOUNTS the whole subtree: island A unmounts
+      // and island B mounts for the SAME row. The row's identity is what the
+      // registration is keyed by, so it survives — which is the point. (Changing
+      // the row's testId instead would be a different row, not a remount of this
+      // one, and a write for one row must never land on another.)
+      rerender(<FactRows key="b" rows={[passwordRow()]} />);
     });
     premiseHolds(
-      "the original island really is gone",
-      container.querySelector(`[data-testid="${TESTID}"]`) === null,
+      "the island really was replaced, not merely re-rendered",
+      requireCopyButton(container) !== firstButton,
     );
     expect(logTexts(container)).toEqual([]);
 
@@ -733,10 +771,7 @@ describe("island lifecycle (§4.1)", () => {
     // time. Without that routing it would setState on a dead island and this
     // region would stay empty.
     expect(logTexts(container)).toEqual([COPIED_TEXT]);
-    expect(container.querySelector(`[data-testid="${TESTID}"]`)).toBeNull(); // the old row is gone…
-    expect(
-      container.querySelector("[data-testid='venue-wifi-password-b'] [data-slot='check-glyph']"),
-    ).not.toBeNull(); // …and the NEW island is the one showing copied
+    expect(isCopied(container), "the live island is the one showing copied").toBe(true);
   });
 });
 

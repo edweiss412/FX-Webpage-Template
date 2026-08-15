@@ -90,23 +90,41 @@ type Owner = {
   ensureResetArmed: () => void;
 };
 
-/** The island registered at the latest commit. Null between an unmount and the
- *  next mount, in which case a late resolution simply has nowhere to land. */
-let activeOwner: Owner | null = null;
+/**
+ * The island registered at the latest commit, PER IDENTITY. Keyed, not a single
+ * global: the registration exists so a write can outlive its island's remount,
+ * and a lone global gives the last island to mount the whole page's
+ * confirmations — a second opted-in row anywhere would leave the tapped row
+ * idle while an untouched one lit up and announced (whole-diff review round 7).
+ * The key is the row's identity, which is stable across the remount this
+ * mechanism is for and distinct between rows, which is what the routing needs.
+ * An identity with no entry means the island unmounted and nothing replaced it,
+ * so a late resolution simply has nowhere to land.
+ */
+const activeOwners = new Map<string, Owner>();
 
-/** Latest dispatched write. `value` is recorded for diagnosis; `seq` routes the
- *  reset arming (never truth — see the header). */
-const writeLedger: { seq: number; value: string } = { seq: 0, value: "" };
+/** Latest dispatched write PER IDENTITY. `value` is recorded for diagnosis;
+ *  `seq` routes the reset arming (never truth — see the header). */
+const writeLedgers = new Map<string, { seq: number; value: string }>();
 
-function recordWrite(value: string): number {
-  writeLedger.seq += 1;
-  writeLedger.value = value;
-  return writeLedger.seq;
+function ledgerFor(identity: string): { seq: number; value: string } {
+  const existing = writeLedgers.get(identity);
+  if (existing !== undefined) return existing;
+  const fresh = { seq: 0, value: "" };
+  writeLedgers.set(identity, fresh);
+  return fresh;
 }
 
-function deliverWrite(seq: number, value: string): void {
-  const owner = activeOwner;
-  if (owner === null) return;
+function recordWrite(identity: string, value: string): number {
+  const ledger = ledgerFor(identity);
+  ledger.seq += 1;
+  ledger.value = value;
+  return ledger.seq;
+}
+
+function deliverWrite(identity: string, seq: number, value: string): void {
+  const owner = activeOwners.get(identity);
+  if (owner === undefined) return;
 
   if (value === owner.currentValue()) {
     owner.announce(COPIED_MESSAGE);
@@ -117,7 +135,7 @@ function deliverWrite(seq: number, value: string): void {
     // after the newest window already expired re-lights the glyph, and with
     // nothing armed it stays lit for as long as the page is open. `ensure`
     // arms only when no window is running, so both halves hold at once.
-    if (seq === writeLedger.seq) owner.armReset();
+    if (seq === ledgerFor(identity).seq) owner.armReset();
     else owner.ensureResetArmed();
     return;
   }
@@ -132,7 +150,19 @@ function deliverWrite(seq: number, value: string): void {
   owner.announce(CORRECTIVE_MESSAGE);
 }
 
-export function CopyFactValue({ value, label }: { value: string; label: string }) {
+export function CopyFactValue({
+  value,
+  label,
+  identity,
+}: {
+  value: string;
+  label: string;
+  /** Stable across this row's remounts and distinct between rows — `FactRows`
+   *  passes the row's `testId`, falling back to its label. It keys the owner
+   *  registration, so it is what routes a resolution back to the row that asked
+   *  for it. */
+  identity: string;
+}) {
   const [copied, setCopied] = useState(false);
   // TTL-pruned, not cap-only. The distinction the shared channel documents is
   // whether a channel outlives its announcements: the warnings channel unmounts
@@ -258,20 +288,20 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
         if (resetRef.current === null) arm();
       },
     };
-    activeOwner = owner;
+    activeOwners.set(identity, owner);
     return () => {
       // Guard the swap: on a keyed remount React runs this cleanup before the
       // next island's setup, but an out-of-order cleanup must never clear a
       // registration it does not own.
-      if (activeOwner === owner) activeOwner = null;
+      if (activeOwners.get(identity) === owner) activeOwners.delete(identity);
       clearReset();
     };
-  }, [clearReset]);
+  }, [clearReset, identity]);
 
   const onClick = async () => {
     // Capture what THIS request is for; the value can move before it resolves.
     const requested = value;
-    const seq = recordWrite(requested);
+    const seq = recordWrite(identity, requested);
     try {
       await navigator.clipboard.writeText(requested);
     } catch {
@@ -283,7 +313,7 @@ export function CopyFactValue({ value, label }: { value: string; label: string }
       // depending on a write that failed.
       return;
     }
-    deliverWrite(seq, requested);
+    deliverWrite(identity, seq, requested);
   };
 
   const glyphClass = "size-3.5 shrink-0";
