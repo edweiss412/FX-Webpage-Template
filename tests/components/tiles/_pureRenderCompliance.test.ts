@@ -51,6 +51,38 @@ function listSectionFiles(): string[] {
   return CREW_DIRS.flatMap((d) => walkTsx(d)).sort();
 }
 
+/**
+ * Declared CLIENT ISLANDS living in these trees.
+ *
+ * The contract this file enforces is about what <WrappedSection> INVOKES:
+ * `render()` calls the section function inside its try/catch, so that function
+ * must be synchronous and server-side. An island is never invoked that way — a
+ * server primitive renders it as an ELEMENT child, React mounts it on the
+ * client, and no throw of its can reach the wrapper's call frame. Applying the
+ * server-only assertions to one would be asserting the wrong premise, so a row
+ * here exempts a file from the `use client` and `await` checks ONLY.
+ *
+ * Everything else still applies: an island may not import throwable server
+ * infrastructure either (asserted below, not assumed), and a row that names a
+ * file which is NOT actually a client island fails — so the registry cannot rot
+ * into a blanket hole the way a skip list would.
+ *
+ * Adding a row is a deliberate act with a reason, recorded next to it:
+ *   - CopyFactValue.tsx — the Wi-Fi password copy control
+ *     (docs/superpowers/specs/2026-08-10-wifi-password-legibility.md §4.0). It
+ *     is the smallest possible island so FactRows and VenueSection stay server
+ *     components; it awaits `navigator.clipboard.writeText`, which is a browser
+ *     API call in an event handler, not data fetching in a render path.
+ */
+const CLIENT_ISLANDS = new Set<string>([
+  join("components", "crew", "primitives", "CopyFactValue.tsx"),
+]);
+
+/** Files subject to the server-component assertions (everything not declared). */
+function listServerFiles(): string[] {
+  return listSectionFiles().filter((f) => !CLIENT_ISLANDS.has(f));
+}
+
 // Forbidden import paths — any module that can throw on data fetch. A section
 // receives a pre-resolved projection; it must never reach into these.
 const FORBIDDEN_IMPORT_PATTERNS = [
@@ -89,7 +121,23 @@ describe("META crew section/primitive pure-render compliance", () => {
     }
   });
 
-  test.each(listSectionFiles())(
+  test.each(Array.from(CLIENT_ISLANDS))(
+    "%s is a real client island, so its exemption is not a hole",
+    (file) => {
+      // A row naming a server file would silently exempt it from every
+      // assertion above. The registry only ever exempts what it can prove.
+      expect(existsSync(file), `${file} is registered as a client island but does not exist`).toBe(
+        true,
+      );
+      const source = readFileSync(file, "utf8");
+      expect(
+        /^\s*["']use client["']/m.test(source),
+        `${file} is registered as a client island but declares no 'use client'`,
+      ).toBe(true);
+    },
+  );
+
+  test.each(listServerFiles())(
     "%s render path has no await / direct Supabase client construction",
     (file) => {
       const source = readFileSync(file, "utf8");
@@ -102,7 +150,7 @@ describe("META crew section/primitive pure-render compliance", () => {
     },
   );
 
-  test.each(listSectionFiles())("%s is not a client component (no 'use client')", (file) => {
+  test.each(listServerFiles())("%s is not a client component (no 'use client')", (file) => {
     // A section/primitive that <WrappedSection> direct-invokes must be a Server
     // Component — a 'use client' directive would change the invocation contract
     // (the throwable transform must run synchronously inside the wrapper).

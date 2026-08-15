@@ -243,6 +243,40 @@ Un-defer trigger: the next DESIGN.md pass, or any milestone adding a third
 timing constant — at which point the inventory should be swept and pinned by a
 test rather than maintained by hand.
 
+**TRIGGER FIRED, clipboard-reset half reconciled (2026-08-14, `feat/wifi-password-legibility`).**
+The Wi-Fi password copy control was the third clipboard-reset constant, so the
+sweep ran: `rg -n "setCopied\(false\)|setCopied\(null\)" components/ app/ lib/`.
+Four pre-existing hits, each dispositioned:
+
+| site                                                | shape                             | disposition                              |
+| --------------------------------------------------- | --------------------------------- | ---------------------------------------- |
+| `app/admin/show/[slug]/ShareLinkCopyButton.tsx:113` | timer reset, bare `2_000` literal | **MIGRATED** to `lib/ui/copyFeedback.ts` |
+| `app/admin/show/[slug]/ShareLinkCopyButton.tsx:80`  | immediate synchronous reset       | no timing literal, no action             |
+| `components/admin/wizard/Step1Share.tsx:55`         | timer reset, own 2200 ms constant | **STAYS at 2200 ms** — see below         |
+| `components/admin/wizard/Step1Share.tsx:59`         | immediate synchronous reset       | no timing literal, no action             |
+
+The shared constant is `COPY_FEEDBACK_RESET_MS` in `lib/ui/copyFeedback.ts`
+(2000 ms), imported by both clipboard controls that share a window:
+`components/crew/primitives/CopyFactValue.tsx` and `ShareLinkCopyButton.tsx`.
+Which files import it is pinned by a module-source assertion in
+`tests/components/crew/primitives/copyFactValue.test.tsx`, so a re-inlined
+literal fails a test rather than drifting quietly — the "pinned by a test rather
+than maintained by hand" half of the trigger, for these two consumers.
+
+`Step1Share`'s 2200 ms is the recorded un-migrated peer: its confirmation sits
+beside a longer instruction and retuning it would be a behavior change in a
+surface this arc does not touch. Its constant was RENAMED to
+`WIZARD_COPY_FEEDBACK_RESET_MS` (`components/admin/wizard/Step1Share.tsx:38`) —
+it previously carried the same identifier as the shared 2000 ms one, and two
+values under one name is how a later edit "shares" it by importing the other and
+silently changes the window. The source pin cannot see this peer (it is not a
+consumer), which is why the sweep table above is the record for it.
+
+**Still open, so this entry does NOT graduate:** `ARM_REVERT_MS` (4000) and any
+other non-clipboard timing constant, plus the `DESIGN.md` §5.5 correction the
+original filing asks for. The sweep above covered the clipboard-reset family
+only.
+
 ### ATTENTION-INDEX-JUMP-FOCUS-1 — [P1] pressing an index row drops focus to `<body>`
 
 **Effort:** L
