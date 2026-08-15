@@ -9,7 +9,7 @@
 - **AC-A3** — a `GUARD SURFACE:` line whose remainder carries the cannot-express arm (`CANNOT-EXPRESS:` with non-empty tail) passes validation.
 - **AC-A4** — round ≥ 2 and stages `spec`/`plan`/`task` are exempt: the same bare-declared brief dispatches.
 - **AC-A5** — markers inside a fenced code block neither trigger (`GUARD SURFACE:`) nor satisfy (a fenced conforming disposition does not cover a live bare line).
-- **AC-A6** — per-line individually (spec §2.1, R1 findings 1–2): a MIXED brief (one conforming cannot-express line + one bare line) exits 2 naming the bare line; a score arm declaring a NON-empty unaccepted-survivor set (`1 unaccepted survivor`) or lacking the fraction exits 2.
+- **AC-A6** — per-line individually (spec §2.1, R1 findings 1–2 + R3 finding): a MIXED brief (one conforming cannot-express line + one bare line) exits 2 naming the bare line; a score arm declaring a NON-empty unaccepted-survivor set (`1 unaccepted survivor`), lacking the fraction, or carrying a semantically invalid fraction (`0/0`, `2/1` — killed > total or total = 0) exits 2.
 - **AC-B1** — `parseFiling` exposes per-section `mechanizable: { isNone, hasDecline, citedIds } | null`, block-scoped per spec §3.1.
 - **AC-B2** — `checkCorpus` reports `mechanizable_untracked` for a non-grandfathered filing section whose Mechanizable entry is non-none, cites no `BL-`/`DEF-` id inside the block, and has no `declined:` marker.
 - **AC-B3** — a block-scoped id or a `declined: <reason>` satisfies the duty; an id appearing only OUTSIDE the Mechanizable block (e.g. in Judgment) does not.
