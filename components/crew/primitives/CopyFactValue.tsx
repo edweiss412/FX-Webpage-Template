@@ -73,10 +73,14 @@ const COPIED_MESSAGE = "Copied.";
 const CORRECTIVE_MESSAGE = "Copy again - the clipboard may be out of date.";
 
 type Owner = {
-  /** False once this island's cleanup has run. A write routes to its OWN island
-   *  whenever that island is still mounted, which is what makes two rows
-   *  sharing an identity a degraded fallback rather than a mis-delivery. */
+  /** False once this island's cleanup has run. */
   mounted: boolean;
+  /**
+   * The island that REPLACED this one in the same commit, or null. Set only on
+   * a proven swap (see `vacating`), so following it can never wander onto a
+   * different row.
+   */
+  successor: Owner | null;
   currentValue: () => string;
   /** Enters the copied state. Never clears it — `clearCopied` is the only exit,
    *  because an exit must also kill the window's timer. */
@@ -95,28 +99,28 @@ type Owner = {
 };
 
 /**
- * The island registered at the latest commit, PER IDENTITY. Keyed, not a single
- * global: the registration exists so a write can outlive its island's remount,
- * and a lone global gives the last island to mount the whole page's
- * confirmations — a second opted-in row anywhere would leave the tapped row
- * idle while an untouched one lit up and announced (whole-diff review round 7).
- * The key is the row's identity, which is stable across the remount this
- * mechanism is for and distinct between rows, which is what the routing needs.
- * An identity with no entry means the island unmounted and nothing replaced it,
- * so a late resolution simply has nowhere to land.
+ * WHO RECEIVES A LATE RESOLUTION, and why this is a chain rather than a lookup.
+ *
+ * The registration exists for ONE case: an island unmounted while its clipboard
+ * write was still in flight, and the row it belonged to is now rendered by a
+ * replacement island that should show the confirmation. Every earlier version of
+ * this file answered "who is the replacement?" with a name — first a single
+ * global, then a map keyed by the row's identity — and a name cannot answer it.
+ * Identity is caller-supplied and only as unique as the caller makes it, so a
+ * name lookup also matches a DIFFERENT row that happens to share the identity,
+ * or a later row that reuses it. Whole-diff review rounds 7 through 10 each
+ * found another ordering that delivered a confirmation to a row nobody tapped.
+ *
+ * So the link is established at the only moment it is PROVABLE. React runs an
+ * outgoing island's cleanup and the incoming island's setup inside the same
+ * commit, synchronously, one immediately after the other. `vacating` holds the
+ * island that just cleaned up and is cleared on the next microtask, so a setup
+ * that sees it — for the same identity — really is the replacement, and a mount
+ * in any later turn is not. Anything else has NO successor and a late
+ * resolution simply lands nowhere: the value is on screen, the clipboard
+ * already holds it, and nothing is claimed.
  */
-const activeOwners = new Map<string, Owner>();
-
-/**
- * Identities two live islands have both claimed. A duplicate is an authoring
- * mistake — `FactRows` uses the row's testid, and two lists reusing one is the
- * ordinary way to make it happen — and for those identities the FALLBACK is
- * switched off: a write whose own island is gone lands nowhere instead of on a
- * row that never asked for it. Nowhere is the conservative outcome (the value
- * is on screen, the clipboard already holds it, nothing is claimed), and the
- * mistake is surfaced rather than absorbed (whole-diff review round 9).
- */
-const collidedIdentities = new Set<string>();
+let vacating: { identity: string; owner: Owner } | null = null;
 
 /** Latest dispatched write PER IDENTITY. `value` is recorded for diagnosis;
  *  `seq` routes the reset arming (never truth — see the header). */
@@ -138,19 +142,15 @@ function recordWrite(identity: string, value: string): number {
 }
 
 /**
- * Route a resolution. The DISPATCHING island gets it whenever that island is
- * still mounted — instance identity is exact, and no string can collide with
- * it. The identity map is the FALLBACK, for the one case it exists to serve: the
- * island unmounted mid-write, so the write is handed to whichever island now
- * occupies that row. Identity is caller-supplied and only as unique as the
- * caller makes it (`FactRows` uses the row's testid), so resting the ordinary
- * two-row case on it would mis-deliver whenever two lists reused one testid —
- * whole-diff review round 8 probed exactly that.
+ * Route a resolution to the dispatching island, or to whatever chain of proven
+ * replacements now stands in for it. No name is consulted: the walk can only
+ * reach islands that replaced each other in a commit, so it cannot arrive at a
+ * row that did not ask for this write.
  */
 function deliverWrite(dispatcher: Owner, identity: string, seq: number, value: string): void {
-  const fallback = collidedIdentities.has(identity) ? undefined : activeOwners.get(identity);
-  const owner = dispatcher.mounted ? dispatcher : fallback;
-  if (owner === undefined) return;
+  let owner: Owner | null = dispatcher;
+  while (owner !== null && !owner.mounted) owner = owner.successor;
+  if (owner === null) return;
 
   if (value === owner.currentValue()) {
     owner.announce(COPIED_MESSAGE);
@@ -300,6 +300,7 @@ export function CopyFactValue({
     };
     const owner: Owner = {
       mounted: true,
+      successor: null,
       currentValue: () => valueRef.current,
       setCopied: () => setCopied(true),
       clearCopied: () => {
@@ -318,33 +319,21 @@ export function CopyFactValue({
         if (resetRef.current === null) arm();
       },
     };
-    const incumbent = activeOwners.get(identity);
-    if (incumbent !== undefined && incumbent.mounted) {
-      // Two LIVE islands under one identity. React runs the outgoing island's
-      // cleanup before the incoming one's setup on a remount, so an incumbent
-      // that is still mounted is a genuine duplicate, never a swap.
-      collidedIdentities.add(identity);
-      if (process.env.NODE_ENV !== "production") {
-        console.warn(
-          `CopyFactValue: two live controls share the identity "${identity}". ` +
-            `A copy whose own control unmounts mid-write will now land nowhere ` +
-            `rather than on the wrong row. Give each row a distinct testId.`,
-        );
-      }
+    // A setup that runs while an island is still `vacating` under the same
+    // identity is that island's replacement — React runs cleanup and setup
+    // back to back inside one commit, and nothing else can land between them.
+    if (vacating !== null && vacating.identity === identity) {
+      vacating.owner.successor = owner;
+      vacating = null;
     }
-    activeOwners.set(identity, owner);
     ownerRef.current = owner;
     return () => {
       owner.mounted = false;
-      // Guard the swap: on a keyed remount React runs this cleanup before the
-      // next island's setup, but an out-of-order cleanup must never clear a
-      // registration it does not own.
-      if (activeOwners.get(identity) === owner) activeOwners.delete(identity);
-      // A collision lasts only as long as the duplicate does. Cleanup runs
-      // before the next island's setup, so on an ordinary remount the identity
-      // is briefly unclaimed and the incoming island is not mistaken for a
-      // duplicate of the one it replaces.
-      if (!activeOwners.has(identity)) collidedIdentities.delete(identity);
+      // Offered as a predecessor for the remainder of this commit only.
+      vacating = { identity, owner };
+      queueMicrotask(() => {
+        if (vacating !== null && vacating.owner === owner) vacating = null;
+      });
       clearReset();
     };
   }, [clearReset, identity]);

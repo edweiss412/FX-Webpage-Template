@@ -781,19 +781,13 @@ describe("island lifecycle (§4.1)", () => {
     ).toEqual([]);
   });
 
-  test("a duplicated identity disables the fallback rather than misrouting", async () => {
-    // The fallback exists for one case: the dispatching island unmounted
-    // mid-write, so the write goes to whichever island now occupies that row.
-    // Under a DUPLICATED identity that inference is wrong — "whichever island"
-    // may be a different row entirely — so a duplicate switches the fallback
-    // off for that identity. Landing nowhere is conservative: the value is on
-    // screen, the clipboard already holds it, and nothing is claimed.
-    //
-    // The ordering is the whole test. Tapping B and unmounting it is not enough
-    // (B's own cleanup empties the registration, so the fallback finds nothing
-    // anyway); A must RE-REGISTER in between, which is what leaves a live,
-    // wrong island sitting under B's identity when B's write resolves.
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  test("a duplicated identity never delivers to the row that did not dispatch", async () => {
+    // Two lists sharing one testid, then the ordering that defeated every
+    // name-based version of this: tap B, let A re-register, then unmount B with
+    // its write still pending. A name lookup hands B's write to A. A proven
+    // successor link cannot: A never replaced B, so B's write lands NOWHERE —
+    // the value is on screen, the clipboard already holds it, nothing is
+    // claimed.
     const both = (keyA: string) => (
       <>
         <FactRows key={keyA} rows={[passwordRow()]} />
@@ -803,13 +797,12 @@ describe("island lifecycle (§4.1)", () => {
     const { container, rerender } = render(both("a1"));
     const rows = () => container.querySelectorAll(`[data-testid="${TESTID}"]`);
     premiseHolds("both lists rendered the same testid", rows().length === 2);
-    premiseHolds("the duplicate was surfaced, not absorbed", warn.mock.calls.length > 0);
 
     await act(async () => {
       fireEvent.click(rows()[1]!.querySelector("button")!); // tap the SECOND list
     });
     await act(async () => {
-      rerender(both("a2")); // the FIRST list remounts and re-claims the identity
+      rerender(both("a2")); // the FIRST list remounts and would re-claim any name
     });
     await act(async () => {
       rerender(
@@ -830,7 +823,39 @@ describe("island lifecycle (§4.1)", () => {
     expect(
       Array.from(remaining.querySelectorAll("[data-announce-id]")).map((n) => n.textContent),
     ).toEqual([]);
-    warn.mockRestore();
+  });
+
+  test("a LATER row reusing the identity is not treated as a replacement", async () => {
+    // Sequential reuse: the row that dispatched is gone, and a different row
+    // takes its testid in a LATER commit. Same name, unrelated island — and the
+    // distinction is exactly what a name lookup cannot make. A replacement is
+    // recognized only inside the commit that performs the swap.
+    const { container, rerender } = render(<FactRows rows={[passwordRow()]} />);
+
+    await clickCopy(container); // pending
+    await act(async () => {
+      rerender(<FactRows rows={[{ k: "Power", v: "3 x 20A", testId: "other" }]} />);
+    });
+    premiseHolds(
+      "the dispatching row is gone",
+      container.querySelector(`[data-testid="${TESTID}"]`) === null,
+    );
+    await act(async () => {
+      // A DIFFERENT row, mounting later, reusing the identity.
+      rerender(
+        <FactRows
+          rows={[{ k: "Room code", v: PASSWORD, testId: TESTID, copyLabel: "Copy the room code" }]}
+        />,
+      );
+    });
+
+    await settle(0);
+
+    expect(
+      rowEl(container).querySelector("[data-slot='check-glyph']"),
+      "an unrelated later row must not inherit the confirmation",
+    ).toBeNull();
+    expect(logTexts(container)).toEqual([]);
   });
 
   test("a write pending across a REAL remount delivers through the new owner", async () => {
