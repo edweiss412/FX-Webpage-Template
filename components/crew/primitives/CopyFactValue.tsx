@@ -34,7 +34,7 @@
  * name. An affirmative follows a successor chain proven inside the commit that
  * performs a swap (see below); a retraction broadcasts by VALUE to every
  * mounted island, because the clipboard is one resource and only the
- * confirmation is per island (`retractStaleClaims`).
+ * confirmation is per island (`publishClipboardWrite`).
  *
  * RESOLUTION TRUTH IS VALUE-ONLY (§4.2, the one normative rule). A resolution
  * whose value equals the island's CURRENT value appends a keyed "Copied." entry
@@ -97,20 +97,18 @@ type Owner = {
    */
   windowSeq: number;
   currentValue: () => string;
-  /** Enters the copied state. Never clears it — `clearCopied` is the only exit,
-   *  because an exit must also kill the window's timer. */
+  /** Enters the copied state. Never clears it — the render-phase retraction is
+   *  the only exit, because an exit must also kill the window's timer, and a
+   *  timer left running with nothing standing behind it is an ORPHAN CLOCK: the
+   *  next success sees a non-null timer, declines to arm, and inherits whatever
+   *  is left of it, so a confirmation promised for the full window can vanish
+   *  in a fraction of it (whole-diff review round 3). */
   setCopied: () => void;
-  /** Leaves the copied state AND kills its timer together. A timer left running
-   *  with nothing standing behind it is an ORPHAN CLOCK: the next success sees
-   *  a non-null timer, declines to arm, and inherits whatever is left of it —
-   *  so a confirmation promised for the full window can vanish in a fraction of
-   *  it (whole-diff review round 3). */
-  clearCopied: () => void;
   announce: (message: string) => void;
   /** Told that the clipboard now holds `written`, so this island can retract a
-   *  claim that string just falsified. The island decides in its RENDER phase,
-   *  where `copied` and the standing entry are both accurate — see
-   *  `retractStaleClaims`. */
+   *  claim that string just falsified, or keep one the string confirms. The
+   *  island decides in its RENDER phase, where `copied` and the standing entry
+   *  are both accurate — see `publishClipboardWrite`. */
   clipboardMoved: (seq: number, written: string) => void;
   armReset: () => void;
   /** Arms the window ONLY if none is running, so an older success never extends
@@ -149,7 +147,7 @@ type Owner = {
  * Anything unlinked has NO successor, so a late resolution's AFFIRMATIVE lands
  * nowhere: the value is on screen, the clipboard already holds it, and nothing
  * is claimed. Its RETRACTION is a different question with a different answer —
- * see `retractStaleClaims`, which is not routed by this chain at all, because
+ * see `publishClipboardWrite`, which is not routed by this chain at all, since
  * what it retracts is a claim about the clipboard rather than about a row.
  *
  * NOT A DEFECT, and worth writing down because it looks like one: a different
@@ -222,8 +220,8 @@ function recordWrite(identity: string): number {
   return next;
 }
 
-/** Every island currently mounted, in mount order. Not a routing table — see
- *  `retractStaleClaims` for the one thing it is allowed to answer. */
+/** Every island currently mounted. Not a routing table — see
+ *  `publishClipboardWrite` for the one thing it is allowed to answer. */
 const liveOwners = new Set<Owner>();
 let clipboardWriteSeq = 0;
 
@@ -238,76 +236,71 @@ let clipboardWriteSeq = 0;
  * unlinked by construction, and a second opted-in row needs no unmount at all
  * (round 17).
  *
- * So the retraction is broadcast BY VALUE, which introduces no name lookup and
- * cannot produce a false positive: an island whose current value differs from
- * what the clipboard now holds is making a claim that is false, whichever row
- * it belongs to. Matching values are left alone — the claim is about the
- * string, so two rows showing it can both hold it truthfully (§4.2).
+ * So every island is TOLD what the clipboard now holds, and each decides for
+ * itself. No name lookup is involved and no false positive is available: an
+ * island whose current value differs from what the clipboard holds is making a
+ * claim that is false, whichever row it belongs to; matching values are left
+ * alone, because the claim is about the string and two rows showing it can both
+ * hold it truthfully (§4.2).
+ *
+ * EVERY island, including the one this write was delivered to. Excluding it
+ * looked like an optimisation — it already knows — and was a defect: with two
+ * rows resolving in ONE batch, the last writer then saw only the PREVIOUS
+ * writer's message, retracted a claim that was true, and both rows ended
+ * corrected (round 19). Told about its own write too, each island's decision is
+ * a pure function of the clipboard's FINAL content and its own value, so the
+ * order the messages arrive in stops mattering — which is the property that
+ * defect was missing, not a case it had not covered.
  *
  * The island decides in its own RENDER phase rather than here, both to reuse
  * the corrective machinery whole (including the generation-guarded cancel) and
  * because "is a claim standing" is only accurate there: read from a ref written
  * in a layout effect it lags inside a batch, which is round 1's defect exactly.
  */
-function retractStaleClaims(written: string, delivered: Owner | null): void {
+function publishClipboardWrite(written: string): void {
   clipboardWriteSeq += 1;
-  for (const owner of liveOwners) {
-    if (owner !== delivered) owner.clipboardMoved(clipboardWriteSeq, written);
-  }
+  for (const owner of liveOwners) owner.clipboardMoved(clipboardWriteSeq, written);
 }
 
-/**
- * Route a resolution to the dispatching island, or to whatever chain of proven
- * replacements now stands in for it. No name is consulted: the walk can only
- * reach islands that replaced each other in a commit, so it cannot arrive at a
- * row that did not ask for this write.
- */
 function deliverWrite(dispatcher: Owner, seq: number, value: string): void {
+  // First, and whether or not this write still has an owner: the clipboard
+  // moved, and every island re-decides its own claim against what it now holds.
+  publishClipboardWrite(value);
+
   let owner: Owner | null = dispatcher;
   while (owner !== null && !owner.mounted) owner = owner.successor;
-  // Before anything else, and whether or not this write has an owner left: the
-  // clipboard moved, and every OTHER island now claiming a different string is
-  // claiming something untrue.
-  retractStaleClaims(value, owner);
   if (owner === null) return;
+  // Only the AFFIRMATIVE is delivered here. A resolution that no longer matches
+  // this island's value retracts nothing by itself — the broadcast above
+  // already told every island, this one included, what the clipboard holds, and
+  // one retraction path means the log can never end on two.
+  if (value !== owner.currentValue()) return;
 
-  if (value === owner.currentValue()) {
-    owner.announce(COPIED_MESSAGE);
-    owner.setCopied();
-    // WHICH RESOLUTION OWNS THE WINDOW is decided against the write that armed
-    // the window now running — not against the newest write DISPATCHED. Only a
-    // resolution has a confirmation to protect: a newer write that is still in
-    // flight may reject or resolve to a different value, and until it lands the
-    // confirmation on screen is this one, entitled to a full window. Measuring
-    // against the dispatched maximum shortened a success to the remains of an
-    // older clock whenever any newer write was outstanding, needed a `failed`
-    // set to un-count the ones that rejected (round 14), and — since the
-    // counter is per identity while confirmations are per island — let a write
-    // dispatched by a DIFFERENT row sharing the identity expire this row's
-    // confirmation (round 16). Comparing per island against the arming seq
-    // retires all three: the bookkeeping existed only to patch the comparison.
-    if (seq >= owner.windowSeq) {
-      owner.windowSeq = seq;
-      owner.armReset();
-      return;
-    }
-    // An OLDER resolution landing mid-window must not stretch the confirmation
-    // past the clock the newer one armed. But every success still needs SOME
-    // window: one landing after that window already expired re-lights the
-    // glyph, and with nothing armed it stays lit for as long as the page is
-    // open. `ensure` arms only when no window is running, so both hold at once.
-    owner.ensureResetArmed();
+  owner.announce(COPIED_MESSAGE);
+  owner.setCopied();
+  // WHICH RESOLUTION OWNS THE WINDOW is decided against the write that armed
+  // the window now running — not against the newest write DISPATCHED. Only a
+  // resolution has a confirmation to protect: a newer write that is still in
+  // flight may reject or resolve to a different value, and until it lands the
+  // confirmation on screen is this one, entitled to a full window. Measuring
+  // against the dispatched maximum shortened a success to the remains of an
+  // older clock whenever any newer write was outstanding, needed a `failed`
+  // set to un-count the ones that rejected (round 14), and — since the
+  // counter is per identity while confirmations are per island — let a write
+  // dispatched by a DIFFERENT row sharing the identity expire this row's
+  // confirmation (round 16). Comparing per island against the arming seq
+  // retires all three: the bookkeeping existed only to patch the comparison.
+  if (seq >= owner.windowSeq) {
+    owner.windowSeq = seq;
+    owner.armReset();
     return;
   }
-
-  // UNCONDITIONAL, never guarded on "is it currently copied". The guard used to
-  // read a ref written in a layout effect, and within a SINGLE React batch that
-  // ref still holds the value from before the current-value resolution set
-  // copied — so two resolutions batched together announced the corrective and
-  // left the check glyph lit. A redundant `setCopied(false)` costs nothing; a
-  // skipped one leaves the log and the painted state disagreeing.
-  owner.clearCopied();
-  owner.announce(CORRECTIVE_MESSAGE);
+  // An OLDER resolution landing mid-window must not stretch the confirmation
+  // past the clock the newer one armed. But every success still needs SOME
+  // window: one landing after that window already expired re-lights the
+  // glyph, and with nothing armed it stays lit for as long as the page is
+  // open. `ensure` arms only when no window is running, so both hold at once.
+  owner.ensureResetArmed();
 }
 
 export function CopyFactValue({
@@ -373,7 +366,7 @@ export function CopyFactValue({
   // which cascades a render and is what the React compiler rejects. A counter
   // changes exactly once per exit, so the dependency array alone gates it.
   const [corrective, setCorrective] = useState({ seq: 0, gen: 0 });
-  // The clipboard's side of the same predicate, pushed in by `retractStaleClaims`.
+  // The clipboard's side of the same predicate, pushed in by `publishClipboardWrite`.
   // Only the LATEST write is tracked, because an island needs one fact — what
   // the clipboard holds now — and a later write supersedes an earlier one for
   // that purpose.
@@ -467,10 +460,6 @@ export function CopyFactValue({
         // generation names the confirmation, so it moves whenever one begins.
         armGenRef.current += 1;
         setCopied(true);
-      },
-      clearCopied: () => {
-        clearReset();
-        setCopied(false);
       },
       announce: (message) => announceRef.current(message),
       clipboardMoved: (seq, written) => setClipboardWrite({ seq, written }),

@@ -1213,6 +1213,55 @@ describe("island lifecycle (§4.1)", () => {
     expect(entriesIn(TESTID), "the tapped row's own claim is still true").toEqual([COPIED_TEXT]);
   });
 
+  test.each([
+    ["the password row last", 1, 0],
+    ["the room code last", 0, 1],
+  ])(
+    "two rows resolving in ONE batch leave the LAST writer's claim standing (%s)",
+    async (_label, firstIndex, lastIndex) => {
+      // Both rows' writes land in one React batch. Whichever resolved LAST is
+      // what the clipboard holds, so that row's claim is true and the other's
+      // is not — and the retraction must be decided against the clipboard's
+      // FINAL content, never against whichever broadcast happened to arrive
+      // while the batch was still running. Excluding the delivered owner from
+      // its own broadcast made the last writer process only the PREVIOUS
+      // writer's message, so it retracted a claim that was true and both rows
+      // ended corrected. (Round 19.)
+      const roomCode: FactRow = {
+        k: "Room code",
+        v: "4821",
+        testId: "venue-room-code",
+        copyLabel: "Copy the room code",
+      };
+      const { container } = render(<FactRows rows={[passwordRow(), roomCode]} />);
+      const testIdOf = (writeIndex: number) => (writeIndex === 0 ? TESTID : "venue-room-code");
+      const entriesIn = (testId: string) =>
+        Array.from(rowEl(container, testId).querySelectorAll("[data-announce-id]")).map(
+          (n) => n.textContent ?? "",
+        );
+      const copiedIn = (testId: string) =>
+        rowEl(container, testId).querySelector("[data-slot='check-glyph']") !== null;
+
+      await clickCopy(container); // write 0 — the password row
+      await act(async () => {
+        fireEvent.click(requireCopyButton(container, "venue-room-code")); // write 1
+      });
+      premise("both writes are genuinely in flight", writes.length, 1);
+
+      await act(async () => {
+        writes[firstIndex]!.resolve();
+        writes[lastIndex]!.resolve(); // same batch, no await between them
+      });
+
+      const last = testIdOf(lastIndex);
+      const first = testIdOf(firstIndex);
+      expect(copiedIn(last), "the row the clipboard actually holds must confirm").toBe(true);
+      expect(entriesIn(last), "a true claim must not be retracted").toEqual([COPIED_TEXT]);
+      expect(copiedIn(first), "the overwritten row's claim is no longer true").toBe(false);
+      expect(entriesIn(first)).toEqual([COPIED_TEXT, CORRECTIVE_TEXT]);
+    },
+  );
+
   test("a replacement replaced AGAIN before the sweep still carries the chain", async () => {
     // TWO swaps inside one vacancy window: a commit replaces island A with B,
     // and a layout effect committed with it synchronously replaces B with C —
