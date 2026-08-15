@@ -82,6 +82,9 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-accent-on-bg` icon on `--color-accent-tint`  | 4.91:1 | 8.03:1 | ≥3:1 graphical (icon) — retained reference pair (was bell info circle pre-§16 restyle; clears 4.5:1 text too) |
 | `--color-text-strong` on `--color-accent-tint`        | 16.5:1 | 14.9:1 | AA body (≥4.5:1) — active-count pill number             |
 | `--color-text-subtle` on `--color-surface-sunken`     | 6.09:1 | 6.94:1 | AA body (≥4.5:1) — stacked-band Published/Draft pill (spec 2026-07-24 §3 R0); pinned by tests/styles/status-token-contrast.test.ts |
+| `--color-text-faint` as OUTLINE vs `--color-surface`  | 3.35:1 | 3.76:1 | ≥3:1 non-text (SC 1.4.11) — the secondary action button's boundary on a card fill (§1.2a control-outline rule); pinned by tests/styles/secondary-action-contrast.test.ts |
+| `--color-text-faint` as OUTLINE vs `--color-surface-sunken` | 3.02:1 | 4.11:1 | ≥3:1 non-text — same button on the attention plate; light clears with a thin margin, so any `text-faint` or `surface-sunken` retune re-checks this row |
+| `--color-text-faint` as OUTLINE vs `--color-bg`       | 3.21:1 | 4.00:1 | ≥3:1 non-text — same button on the page ground |
 
 **Method note (D6):** ratios use the standard WCAG 2.x relative-luminance formula. The two `--color-text-subtle` rows above were recomputed against that formula (the previous light-on-bg `7.8:1` was a mistranscription — the same-method recompute of the neighbouring `--color-text`/`--color-text-strong` rows reproduces their published figures to within 0.1). The dark-mode figures elsewhere in this table carry a small historical calc offset (~0.3–0.4 more conservative than a fresh standard-formula recompute); a full-table recompute is tracked separately and is not load-bearing (every row already clears its stated floor with margin).
 
@@ -116,6 +119,34 @@ signal.
 1px indicator, check it against §1.2 rather than assuming a border token is
 the border-shaped choice. The `-faint`/`-subtle` text pair is the sanctioned
 hairline ramp.
+
+**The rule extends to CONTROL OUTLINES (2026-08-14).** An outline drawn around
+a control whose fill is the near-ground (`bg-bg` on a `bg-surface` card, or on
+the `bg-surface-sunken` attention plate) is a standalone stroke by the same
+argument: the fill it encloses carries no visual weight of its own, so the
+stroke IS the control's boundary. Worked example — the one secondary action
+treatment (`lib/ui/actionClass.ts`, `SECONDARY_ACTION_CLASS`, 8 call sites):
+
+| Boundary | Token | Light vs `--color-surface` | Dark vs `--color-surface` |
+| --- | --- | --- | --- |
+| Before (2026-08-14) | `--color-border-strong` | 1.59:1 | 1.60:1 |
+| After | `--color-text-faint` | 3.35:1 | 3.76:1 |
+
+The three ground pairings are pinned as §1.2 rows above (`surface`,
+`surface-sunken`, `bg`) and asserted live by
+`tests/styles/secondary-action-contrast.test.ts`, which also pins that the
+constant still wears the token the ratios are about.
+
+**This was a design upgrade, not a compliance repair.** The 1.59:1 boundary
+was not a WCAG failure: the button's LABEL carried the affordance at 18.35:1,
+and SC 1.4.11 asks for a perceivable control boundary, which a legible label
+inside a padded, focusable target supplies. What was missing was a written-down
+posture, and the upgrade is that the outline now carries its own weight rather
+than depending on the label to do it. Do not re-frame the prior state as an AA
+failure (ratified 2026-08-14, spec §1.1 R5).
+
+`disabled:opacity-60` drops the new outline back under 3:1 — WCAG exempts
+inactive controls, and the disabled state is a documented limit, not a finding.
 
 ### 1.3 Status-signal hues (M12.2 Phase A amendment — the one scoped exception to "orange stays alone")
 
