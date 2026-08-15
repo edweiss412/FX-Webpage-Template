@@ -16,8 +16,9 @@ Three user-ratified decisions (2026-08-14, decision mockup artifact + batched as
    themes, with **zero new tokens** — DESIGN.md §1.2a already sanctions the text ramp for
    standalone strokes.
 2. **D2 — subtle-on-interactive carve-out policy.** DESIGN.md §1.1's "never used for action
-   targets" rule for `--color-text-subtle` gains two named carve-out families — `<summary>`
-   disclosure headers and dismissable filter chips — which stay subtle *by documented decision*.
+   targets" rule for `--color-text-subtle` gains three named carve-out families —
+   `<summary>` disclosure headers, dismissable filter chips, and state-pair dim members — which
+   stay subtle *by documented decision*.
    Every other interactive element currently resting on `text-text-subtle` steps up to
    `text-text`. A structural AST guard with a reasons-required registry enforces both halves,
    fail-by-default for new sites.
@@ -29,7 +30,7 @@ Three user-ratified decisions (2026-08-14, decision mockup artifact + batched as
 
 ## 1. Scope
 
-In scope: `lib/ui/actionClass.ts`; the 26 swap sites and 8 carve-out sites in §4.3; DESIGN.md
+In scope: `lib/ui/actionClass.ts`; the 40 swap sites and 13 carve-out sites in §4.3; DESIGN.md
 §1.1/§1.2/§1.2a amendments; one contrast meta-test; two structural guard surfaces (scan modules +
 suites + registries) and their mutation-registry enrolment; screenshot-baseline regeneration for
 affected committed baselines (§8).
@@ -41,11 +42,11 @@ Out of scope: §11.
 | # | Decision | Ratification |
 |---|---|---|
 | R1 | D1 = Option A (darker outline via existing `--color-text-faint`). Options B (tinted fill) and C (document label-as-affordance, no change) were rendered in the mockup and declined. | User ask, 2026-08-14, this arc's decision pause (mockup artifact `Buttons & Quiet Labels` + AskUserQuestion) |
-| R2 | D2 = Option 2 (carve-outs). Strict-swap-all and freeze-census were declined. The two carve-out families are exactly: `<summary>` disclosure headers, dismissable filter chips. | Same ask |
+| R2 | D2 = Option 2 (carve-outs). Strict-swap-all and freeze-census were declined. Carve-out families: `<summary>` disclosure headers, dismissable filter chips — extended 2026-08-14 (same day, follow-up ask after the round-1 census widening surfaced a shape the mockup had not shown) by a THIRD user-ratified family, the state-pair dim member (§4.1 Family D). | Both asks, 2026-08-14 |
 | R3 | D3 = resolve-constants. Require-literals and accept-census were declined. | Same ask |
 | R4 | The secondary treatment stays ONE shared constant; per-site divergence is the failure it exists to prevent. | `lib/ui/actionClass.ts` header comment; `tests/components/admin/wizard/step3JudgmentChrome.test.tsx` follow-the-code scan (search `SECONDARY_ACTION_CLASS`) |
 | R5 | The current 1.6:1 boundary is NOT a WCAG failure and NOT a regression; D1 is a deliberate design upgrade, not a compliance repair. Do not re-frame as an AA fix. | `BACKLOG.md` § BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE ("This is NOT a strict AA failure") |
-| R6 | Census counts in the ledger rows are historical: entry said 32 sites / 19 files (2026-08-10); the live probe (§2.3, 2026-08-14) reports 34 / 29. The scan is the authority — the entry says so itself ("the scan is the authority, not this excerpt", `BACKLOG.md` § BL-SUBTLE-ON-INTERACTIVE-CLASS probe block). No reconciliation round is owed. | Entry text + §2.3 probe |
+| R6 | Census counts in the ledger rows are historical: the entry recorded 32 sites / 19 files (2026-08-10, restricted tag set); this arc's round-0 probe with the same restricted scope found 34 / 29; the round-1-corrected v2 probe (§2.3, widened to the D3 in-scope set + identifier resolution) reports 53 / 43 and is the census this spec disposes. The scan is the authority — the entry says so itself ("the scan is the authority, not this excerpt", `BACKLOG.md` § BL-SUBTLE-ON-INTERACTIVE-CLASS probe block). No reconciliation round is owed on the historical numbers. | Entry text + §2.3 probe |
 | R7 | The 2026-08-07 corpus baseline (340 in-scope / 139 uncleared / buckets A16 B5 C7 D4 E94 F13) is a dated record run at `origin/main` @ `61281c23e`. It is filing evidence, never re-corrected; the implementing branch re-derives current counts with the shipped scanner. | `docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md` §2.6 |
 | R8 | Bucket-A residue (8 inline text links/buttons) belongs to `BL-TAP-TARGET-INLINE-TEXT-CONTROLS`, not this arc: the guard records them as census rows referencing that entry; it does not repair them. | §2.6 disposition table (rows marked "Filed"); `BACKLOG-archive.md` graduation 2026-08-11 |
 | R9 | Both new guard surfaces are enrolled in the source-mutation registry (`tests/mutation/source/registry.ts`) BEFORE their first adversarial review round, authored as importable modules with referring suites from the start. Review convergence for the guards = mutation score + empty unaccepted-survivor set. | AGENTS.md "Convergence criterion" bullet 3 |
@@ -93,14 +94,22 @@ Label (`text-text-strong` on `bg-bg`): 18.35:1 light / 17.15:1 dark — unaffect
 
 ### 2.3 D2 census probe
 
-Procedure: TypeScript-compiler AST walk (`ts.createSourceFile`, `ScriptKind.TSX`) over every
-`.tsx` under `app/**` + `components/**`; JSX opening/self-closing elements with tag `button` /
-`a` / `summary`; `className` attribute's statically reachable strings (string literal, template
-statics + resolvable spans, both conditional branches, binary operands, call arguments —
-`cn()`/`clsx()` included); hit = bare token `text-text-subtle` present. Output 2026-08-14:
-**34 sites across 29 files** — full listing with dispositions in §4.3. (Probe script:
-drafting-time scratch; the shipped guard's scan module in §4.4 is the durable form and must
-reproduce this census on enrolment.)
+Procedure (round-2 revision — round 1 correctly found the round-0 probe's scope narrower than
+the policy's): TypeScript-compiler AST walk (`ts.createSourceFile`, `ScriptKind.TSX`) over every
+`.tsx` under `app/**` + `components/**`; in-scope elements are **the same set D3 uses** (§2.4:
+`button` / `a` / `Link` / `summary` / `input type="checkbox|radio"` / any tag with
+`role="button"` or `onClick`) — one exported predicate shared by both scans so the two can
+never drift (§4.4). For each in-scope element, the `className` attribute's statically reachable
+strings: string literal, template statics + resolvable spans, both conditional branches, binary
+operands, call arguments (`cn()`/`clsx()`/`.join()` included), and **identifier resolution** —
+any `const` initializer in the same file (any scope, innermost-wins on collision in the shipped
+scanner), plus one-hop imported `const` initializers (`@/` and relative specifiers), recursion
+depth-capped. Hit = bare token `text-text-subtle` present in the resolved strings. Output
+2026-08-14 (v2): **53 sites across 43 files**; 353 in-scope elements; 8 hit-site classNames
+carry an additional part the resolver cannot read (marked `[partial]` — the hit itself is
+proven; §10 records the non-provable direction). Full listing with dispositions in §4.3. (Probe
+script: drafting-time scratch; the shipped guard's scan module in §4.4 is the durable form and
+must reproduce this census on enrolment.)
 
 ### 2.4 D3 baseline
 
@@ -176,6 +185,15 @@ New §1.1a defines:
   marker/chevron and interaction, not by label weight. Resting `text-text-subtle` is sanctioned.
 - **Family C — dismissable filter chips.** A chip's text names an *applied filter* (caption); the
   dismiss glyph is the control. Resting `text-text-subtle` is sanctioned.
+- **Family D — state-pair dim members** (added by the 2026-08-14 follow-up ratification, R2).
+  The inactive/claimed member of an active↔inactive pair may rest subtle **only while the
+  active sibling carries a strong non-color cue**, named in the registry row: inactive admin
+  nav links (active = `bg-surface-raised` + `text-text-strong`, `components/admin/nav/AdminNav.tsx:168`),
+  inactive bottom tabs (active = `text-accent-on-bg`, `AdminNav.tsx:232`), inactive crew
+  sub-nav tabs (active = `border-accent` + `text-text-strong`, `components/crew/CrewSubNav.tsx:114`),
+  claimed picker rows (`bg-surface-sunken` + lock glyph, `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233`).
+  This keeps no state color-alone (the §1.2a colour-blind floor) while preserving the resting
+  hierarchy the Option-2 ratification chose.
 
 Everything else interactive rests at `text-text` or stronger. Hover/focus treatments are
 unchanged by the policy (existing `hover:text-text` / `hover:text-text-strong` stay; where a
@@ -188,9 +206,9 @@ Ratified (R2). The ledger entry itself flagged chips and `<summary>` as "arguabl
 … DESIGN.md should say so explicitly … rather than being read as absolute and then quietly
 excepted" (`BACKLOG.md` § BL-SUBTLE-ON-INTERACTIVE-CLASS, closing paragraph).
 
-### 4.3 Census disposition (34 sites, probe §2.3)
+### 4.3 Census disposition (53 sites, probe §2.3 v2)
 
-EXEMPT-S = Family S row in the registry; EXEMPT-C = Family C row; SWAP = rest color →
+EXEMPT-S / EXEMPT-C / EXEMPT-D = registry row in the named family (§4.1); SWAP = rest color →
 `text-text`. "Hover" column: `same` = existing hover kept; `→strong` = hover retargeted to
 `text-text-strong` because the old hover target equals the new rest color.
 
@@ -198,17 +216,28 @@ EXEMPT-S = Family S row in the registry; EXEMPT-C = Family C row; SWAP = rest co
 |---|---|---|---|
 | `app/admin/settings/admins/AddAdminForm.tsx:131` | button | SWAP | →strong |
 | `app/admin/settings/admins/RevokeRowButton.tsx:391` | button | SWAP | →strong |
-| `app/admin/settings/roles/RoleMappingRow.tsx:315` | button | SWAP | same (`hover:text-text-strong`) |
+| `app/admin/settings/roles/RoleMappingRow.tsx:232` | button | SWAP | same (`hover:text-text-strong` via `ghostBtn`) |
+| `app/admin/settings/roles/RoleMappingRow.tsx:315` | button | SWAP | same |
 | `app/admin/settings/roles/RoleMappingRow.tsx:353` | button | SWAP | same |
+| `app/admin/show/staged/[stagedId]/page.tsx:257` | Link | SWAP | same (`hover:text-text-strong`) |
+| `app/auth/sign-in/page.tsx:267` | Link | SWAP | →strong |
 | `app/me/meShowSections.tsx:122` | summary | EXEMPT-S | — |
 | `app/me/page.tsx:134` | button | SWAP | →strong |
+| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233` | button | EXEMPT-D (claimed rows; lock glyph + sunken fill) | — |
 | `components/admin/AppHealthPopover.tsx:89` | button | SWAP | →strong |
+| `components/admin/BellPanel.tsx:686` | a | SWAP (`HELP_LINK` const) | →strong |
 | `components/admin/BellPanel.tsx:1210` | a | SWAP | same |
 | `components/admin/IdentityHoldDisclosure.tsx:33` | button | SWAP | per-site check |
 | `components/admin/OnboardingWizard.tsx:140` | button | SWAP | same |
 | `components/admin/ReSyncButton.tsx:175` | button | SWAP | →strong |
+| `components/admin/RoleRecognizeControl.tsx:394` | button | SWAP (`ghostBtn` const) | same |
+| `components/admin/ShowRowActions.tsx:999` | Link | SWAP | per-site check |
 | `components/admin/StagedReviewCard.tsx:675` | button | SWAP | per-site check (conditional className) |
 | `components/admin/dev/SwitcherControls.tsx:142` | button | SWAP | same (border affordance) |
+| `components/admin/nav/AdminNav.tsx:168` | Link | EXEMPT-D (active = raised bg + strong) | — |
+| `components/admin/nav/AdminNav.tsx:232` | Link | EXEMPT-D (active = `text-accent-on-bg`) | — |
+| `components/admin/nav/AppHealthIndicator.tsx:90` | Link | SWAP (`TAP_TARGET` const) | →strong |
+| `components/admin/nav/AppHealthIndicator.tsx:104` | button | SWAP (`TAP_TARGET` const) | →strong |
 | `components/admin/nav/NotifBell.tsx:76` | button | SWAP | per-site check |
 | `components/admin/nav/OnboardingTopBar.tsx:84` | button | SWAP | →strong |
 | `components/admin/nav/UserMenu.tsx:51` | button | SWAP | per-site check |
@@ -220,21 +249,33 @@ EXEMPT-S = Family S row in the registry; EXEMPT-C = Family C row; SWAP = rest co
 | `components/admin/telemetry/ActiveFilterChips.tsx:101` | button | EXEMPT-C | — |
 | `components/admin/telemetry/AutoRefreshControl.tsx:119` | button | SWAP | →strong |
 | `components/admin/telemetry/EventFilters.tsx:85` | button | SWAP (unselected branch) | n/a (selected branch inverts) |
+| `components/admin/telemetry/EventRow.tsx:100` | Link | SWAP | same (pill `bg-surface-sunken` affordance) |
+| `components/admin/wizard/Step2Verify.tsx:626` | Link | SWAP | same (`hover:text-text-strong`) |
 | `components/admin/wizard/Step3ReviewModal.tsx:475` | button | SWAP | →strong |
+| `components/admin/wizard/Step3ReviewWithFinalize.tsx:143` | Link | SWAP | same (`hover:text-text-strong`) |
 | `components/admin/wizard/step3ReviewSections.tsx:1410` | a | SWAP | per-site check |
 | `components/admin/wizard/step3ReviewSections.tsx:1422` | a | SWAP | per-site check |
 | `components/admin/wizard/step3ReviewSections.tsx:1599` | summary | EXEMPT-S | — |
 | `components/admin/wizard/step3ReviewSections.tsx:2594` | button | SWAP | per-site check |
 | `components/agenda/AgendaPdfViewer.tsx:165` | button | SWAP | same (`hover:bg-surface-raised`) |
 | `components/crew/AgendaScheduleBlock.tsx:107` | summary | EXEMPT-S | — |
+| `components/crew/CrewSubNav.tsx:114` | button | EXEMPT-D (active = `border-accent` + strong) | — |
 | `components/crew/primitives/KeyTimesStrip.tsx:191` | summary | EXEMPT-S | — |
+| `components/crew/primitives/PersonRow.tsx:196` | a | SWAP (`ACTION_CLASS` const) | per-site check |
+| `components/crew/primitives/PersonRow.tsx:213` | a | SWAP (`ACTION_CLASS` const) | per-site check |
+| `components/crew/primitives/RunOfShowList.tsx:82` | summary | EXEMPT-S (synthetic-row dim also noted in the row's reason) | — |
 | `components/layout/ThemeToggle.tsx:81` | button | SWAP | per-site check |
+| `components/shared/ReportButton.tsx:141` | button | SWAP | →strong |
 | `components/shared/ReportModal.tsx:579` | button | SWAP | →strong |
 
-Tallies (single source is this table; the guard registry re-states it executably): 34 total = 8
-EXEMPT (6 Family S + 2 Family C) + 26 SWAP. "Per-site check" hover cells are settled task-by-task
-in the plan against each site's existing hover token — the policy constraint is only that hover
-must still strengthen (or the site has a non-color hover affordance, e.g. `hover:bg-*`).
+Tallies (single source is this table; the guard registry re-states it executably): 53 total =
+13 EXEMPT (7 Family S + 2 Family C + 4 Family D) + 40 SWAP. "Per-site check" hover cells are
+settled task-by-task in the plan against each site's existing hover token — the policy
+constraint is only that hover must still strengthen (or the site has a non-color hover
+affordance, e.g. `hover:bg-*`). Sites whose subtle token arrives via a shared const
+(`ghostBtn`, `TAP_TARGET`, `HELP_LINK`, `ACTION_CLASS`) are swapped AT THE CONST, so each
+edit covers every consumer of that const; the scan re-run confirms no consumer was
+double-counted.
 
 Line numbers above are drafting-time locators (2026-08-14); the durable anchors are file +
 element + the `data-testid` values visible at each site.
@@ -249,16 +290,22 @@ field — reasons never blank; the file+line key trade-off is the shipped preced
 there for the same reason).
 
 - Scan = §2.3 procedure, walked from the filesystem (a NEW `.tsx` file is covered by default).
+  The in-scope element predicate, the className resolver (rules 1–6 of §5.2), and the corpus
+  walk live in ONE shared core module `tests/styles/interactiveScanCore.ts (new)` imported by
+  both this scan and D3's — the two guards cannot drift apart on scope or resolution (round-1
+  F1's class, closed by derivation rather than by keeping two copies reconciled).
 - Pass condition per hit: the site has a registry row (family + reason) — else FAIL naming
   `file:line`, tag, and the token.
 - **Family-shape check:** a `family: "summary-disclosure"` row whose site's tag is not
   `summary` fails; Family C rows are checked to sit in the chips component
-  (`components/admin/telemetry/ActiveFilterChips.tsx`) until a second chip surface ships.
+  (`components/admin/telemetry/ActiveFilterChips.tsx`) until a second chip surface ships;
+  Family D (`"state-dim"`) rows must carry a non-empty `siblingCue` field naming the active
+  sibling's non-color cue (§4.1 Family D lists the four current cues).
 - **Premise pin:** the suite asserts the scan finds ≥ 1 hit in the committed tree (Family S
   sites exist by design), so an AST regression that finds nothing cannot pass silently; and it
   asserts registry rows resolve to live files/lines that actually carry the token (a stale row
   fails — the stale-marker failure mode, applied to exemptions).
-- Steady state after the swap: registry = exactly the 8 EXEMPT rows.
+- Steady state after the swap: registry = exactly the 13 EXEMPT rows.
 - Mutation-registry enrolment (R9): row in `tests/mutation/source/registry.ts` targeting
   `tests/styles/subtleInteractiveScan.ts (new)` with the referring suite; operator set and minimum
   score fixed at plan time from the registry's existing operator vocabulary; unaccepted-survivor
@@ -266,37 +313,68 @@ there for the same reason).
 
 ## 5. D3 — tap-target guard with static resolution
 
-### 5.1 Deliverable
+### 5.1 Deliverable — and what the static guard claims
 
 Importable scan module `tests/styles/tapTargetScan.ts (new)` + suite
 `tests/styles/_metaTapTargetFloor.test.ts (new)` + census registry
 `tests/styles/tapTargetCensus.ts (new)`. In-scope elements and floor tokens: exactly §2.4's sets
-(inherited from the a11y spec §2.6 so the two scanners cannot drift apart on scope; the floor
-token list is exported and cited by both).
+(inherited from the a11y spec §2.6 so the two scanners cannot drift apart on scope; the
+in-scope predicate and floor-token list are exported from one shared module and used by both
+this scan and D2's, §4.4).
+
+**The static guard's claim is the HEIGHT floor** (round-1 F2): a class string can prove
+`min-height`/`height` ≥ 44px statically, but width is usually content-driven (`px-*` plus a
+label) and no width token exists at most legitimately-sized controls — a static width demand
+would push essentially the whole corpus into the census and the guard would pin nothing. Height
+is also the dimension every measured defect in the filing corpus was (16.8–19.4px rows, the
+36px HelpSheet trigger). Width stays with the real-browser rect oracles
+(`tests/e2e/tap-target-floor.layout.spec.ts`, the lifecycle-layout e2e assertions), which
+measure both dimensions on production routes — §10 records the split. Height-proving tokens:
+`min-h-tap-min`, `size-tap-min` (proves both dimensions), numeric `h-*`/`min-h-*` ≥ 11 on the
+4px scale, arbitrary `min-h-[...]`/`h-[...]` ≥ 44px, the negative-margin+padding recipe,
+`before:absolute` inset expansion, `sr-only` (real target is the parent label). A bare
+`min-w-*`/`w-*` token proves nothing here.
 
 ### 5.2 Accept-set — what the recogniser resolves (structure-keyed, not spelling-keyed)
 
-An element CLEARS when a floor token is **unconditionally** reachable from its `className`
-(or its floor is carried by a registered component). Resolution rules:
+An element CLEARS when (a) a height-floor token is **unconditionally** reachable from its
+`className` (or its floor is carried by a registered component), (b) the className is **fully
+resolved** — no part of the expression was unreadable, and (c) **no defeater token** (rule 8)
+is reachable anywhere in the resolved strings. Resolution rules:
 
 1. **String literal / no-substitution template** — read directly.
 2. **Template with expressions** — static heads/tails read directly; each expression resolved
-   by these same rules; an unresolvable expression contributes nothing (it cannot clear, and
-   does not poison what the static parts already prove).
+   by these same rules; an expression the rules cannot resolve makes the element
+   **UNCLASSIFIED** (round-1 F3: an unread span can carry a defeater, so a partially-read
+   string never clears).
 3. **Conditional (`?:`)** — the floor must be reachable in BOTH branches (a floor present in
    one branch only does not clear).
 4. **Logical (`&&`, `||`, `??`)** — a floor inside a right-hand operand of `&&` is conditional
    and does not clear; `||`/`??` fallback pairs must BOTH carry it.
 5. **`cn(...)`/`clsx(...)`/`[...].join(" ")`** — union of unconditional arguments (conditional
-   arguments per rules 3–4).
-6. **Identifier** — resolve a same-file `const` to its initializer; resolve an imported named
-   binding one module hop to an exported `const` initializer (re-export chains followed up to a
-   fixed depth of 3); the initializer is then resolved by rules 1–5. An initializer that is not
-   string-composed (function call other than rule 5, computed member, parameter) → UNCLASSIFIED.
+   arguments per rules 3–4); an argument outside rules 1–6 (spread, computed member, call)
+   makes the element UNCLASSIFIED per rule 2's posture.
+6. **Identifier** — resolve a `const` declared anywhere in the same file (innermost scope wins
+   on name collision); resolve an imported named binding one module hop to an exported `const`
+   initializer (re-export chains followed up to a fixed depth of 3); the initializer is then
+   resolved by rules 1–5. An initializer that is not string-composed (function call other than
+   rule 5, computed member, parameter) → UNCLASSIFIED.
 7. **Floor-carrying components** — a component allowlist (`AccentButton` first member) whose
-   base class guarantees the floor; each allowlist row carries a companion source assertion (the
-   suite reads `components/shared/AccentButton.tsx` and asserts `BASE_CLASS` contains
-   `min-h-tap-min`) so the row cannot outlive the component's contract.
+   base class guarantees the HEIGHT floor; each allowlist row carries a companion source
+   assertion (the suite reads `components/shared/AccentButton.tsx` and asserts `BASE_CLASS`
+   contains `min-h-tap-min`) so the row cannot outlive the component's contract. A registered
+   component's call site is still subject to rule 8 on its own `className` prop (round-1 F3:
+   `<AccentButton className="min-h-0!">` must not clear).
+8. **Defeater tokens (negative rule; round-1 F3).** After resolution, the element is
+   UNCLASSIFIED — reported by name, never passed — if ANY reachable resolved string (including
+   conditional branches and `&&` operands, i.e. reachability here is existential where rule 3's
+   is universal) contains a token whose effective CSS can push height back under the floor:
+   any `h-*`/`min-h-*`/`size-*` utility computing < 44px (numeric < 11, `0`, `auto`, `none`,
+   `fit`, `min`, `max`, arbitrary < 44px), any of those in `!`-important form, and any
+   variant-prefixed form (`sm:`, `md:`, `max-*:`, `hover:`, any `*:`-prefixed height-affecting
+   utility). Conservative by design: a defeater that turns out harmless (earlier in cascade
+   order, inapplicable variant) still demotes to the census with the arithmetic recorded in its
+   reason — a false UNCLASSIFIED is a registry row, a false CLEAR is a silent hole.
 
 Everything outside the accept-set is **rejected by name**: reported UNCLASSIFIED, and the suite
 fails unless that element has a census row.
@@ -397,8 +475,8 @@ enumerates the affected manifest entries; heavy phases run under `pnpm heavy`.
   (token reverted) or ratio (token value drifts below 3:1) mutation.
 - **AC-3** DESIGN.md carries the §3.2 amendments; `pnpm spec:lint` and the DESIGN-figure parity
   suite (`tests/styles/design-figure-parity.test.ts`) stay green.
-- **AC-4** All 26 SWAP sites rest at `text-text`; the 8 EXEMPT sites are registry rows with
-  family + reason; `_metaSubtleOnInteractive` walks the filesystem and fails by name on an
+- **AC-4** All 40 SWAP sites rest at `text-text`; the 13 EXEMPT sites are registry rows with
+  family + reason (Family D rows with `siblingCue`); `_metaSubtleOnInteractive` walks the filesystem and fails by name on an
   unregistered hit.
 - **AC-5** `_metaTapTargetFloor` ships unblocked: recogniser implements §5.2 rules 1–7; census
   registry seeds per §5.3; suite fails by name on an unregistered UNCLASSIFIED element.
@@ -414,9 +492,25 @@ enumerates the affected manifest entries; heavy phases run under `pnpm heavy`.
 
 - **Disabled-state contrast.** `disabled:opacity-60` drops the new outline below 3:1. WCAG
   exempts inactive controls; not a finding.
+- **The static tap guard proves height, not width** (§5.1). Width floors remain the real-browser
+  rect suites' claim; a width-only defect (a tall, 20px-wide icon button with no `min-w-*`)
+  passes the static guard and is caught only where an e2e assertion covers its route. `size-*`
+  tokens and rule-7 components with a width guarantee prove both; everything else is
+  height-only by declaration.
 - **Adversarial class assembly** (runtime concatenation, spread props, computed members) defeats
   rule 6 by design; such an element lands UNCLASSIFIED and fails until a census row names it —
-  conservative + surfaced, per §5.4.
+  conservative + surfaced, per §5.4 and rules 2/5.
+- **Rule 8 is token-syntactic, not a cascade engine.** It flags any reachable sub-floor
+  height-affecting token regardless of source order, specificity, or variant applicability —
+  over-demotion is the accepted direction; it never under-demotes within the token grammar it
+  declares. A defeater expressed outside that grammar (a bespoke CSS class in `globals.css`, an
+  inline `style` prop) is outside the scanner's corpus by declaration.
+- **D2 partial classNames.** A hit is registered/failed when provable; a className whose only
+  `text-text-subtle` lives behind an unresolvable expression is invisible to the D2 scan (8
+  `[partial]` sites in §2.3 have proven hits plus an unread remainder; none has its ONLY hit
+  unread). D2's worst case is cosmetic (the ledger row's own framing), so the D2 scan does not
+  demote partial classNames the way D3's rule 2 does — asymmetry is deliberate and this line is
+  its record.
 - **Import-resolution depth** is bounded (3 hops); a deeper re-export chain lands UNCLASSIFIED,
   same posture.
 - **Non-JSX renderers** (e.g. `document.createElement` in scripts, non-`.tsx` files) are outside
@@ -435,5 +529,5 @@ brief); `BL-TAP-TITLE-LINK-META-LINE-BLEED`, `BL-TRANSPORT-CELL-STRETCH-AFTER-TA
 `BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING`, `BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT` (its
 `app/globals.css:1206` comment sits near, but not in, any file this arc edits);
 `BL-TAP-TARGET-INLINE-TEXT-CONTROLS` residue (R8); any redesign of the secondary treatment
-beyond the border token; any `text-text-subtle` use on non-interactive elements (534 of the 568
-raw grep hits are captions and stay).
+beyond the border token; any `text-text-subtle` use on non-interactive elements (the remaining several hundred
+caption/timestamp sites in the raw grep stay untouched).
