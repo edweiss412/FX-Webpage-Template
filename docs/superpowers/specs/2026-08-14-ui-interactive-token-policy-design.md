@@ -30,7 +30,7 @@ Three user-ratified decisions (2026-08-14, decision mockup artifact + batched as
 
 ## 1. Scope
 
-In scope: `lib/ui/actionClass.ts`; the 40 swap sites and 13 carve-out sites in §4.3; DESIGN.md
+In scope: `lib/ui/actionClass.ts`; the 40 swap sites and 15 carve-out sites in §4.3; DESIGN.md
 §1.1/§1.2/§1.2a amendments; one contrast meta-test; two structural guard surfaces (scan modules +
 suites + registries) and their mutation-registry enrolment; screenshot-baseline regeneration for
 affected committed baselines (§8).
@@ -46,7 +46,7 @@ Out of scope: §11.
 | R3 | D3 = resolve-constants. Require-literals and accept-census were declined. | Same ask |
 | R4 | The secondary treatment stays ONE shared constant; per-site divergence is the failure it exists to prevent. | `lib/ui/actionClass.ts` header comment; `tests/components/admin/wizard/step3JudgmentChrome.test.tsx` follow-the-code scan (search `SECONDARY_ACTION_CLASS`) |
 | R5 | The current 1.6:1 boundary is NOT a WCAG failure and NOT a regression; D1 is a deliberate design upgrade, not a compliance repair. Do not re-frame as an AA fix. | `BACKLOG.md` § BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE ("This is NOT a strict AA failure") |
-| R6 | Census counts in the ledger rows are historical: the entry recorded 32 sites / 19 files (2026-08-10, restricted tag set); this arc's round-0 probe with the same restricted scope found 34 / 29; the round-1-corrected v2 probe (§2.3, widened to the D3 in-scope set + identifier resolution) reports 53 / 43 and is the census this spec disposes. The scan is the authority — the entry says so itself ("the scan is the authority, not this excerpt", `BACKLOG.md` § BL-SUBTLE-ON-INTERACTIVE-CLASS probe block). No reconciliation round is owed on the historical numbers. | Entry text + §2.3 probe |
+| R6 | Census counts in the ledger rows are historical: the entry recorded 32 sites / 19 files (2026-08-10, restricted tag set); this arc's round-0 probe with the same restricted scope found 34 / 29; the round-1-corrected v2 probe (widened to the D3 in-scope set + identifier resolution) reported 53 / 43; the round-3-corrected v3 probe (§2.3, adding same-file helper-function resolution and allowlist-component call sites) reports 55 / 44 and is the census this spec disposes. The scan is the authority — the entry says so itself ("the scan is the authority, not this excerpt", `BACKLOG.md` § BL-SUBTLE-ON-INTERACTIVE-CLASS probe block). No reconciliation round is owed on the historical numbers. | Entry text + §2.3 probe |
 | R7 | The 2026-08-07 corpus baseline (340 in-scope / 139 uncleared / buckets A16 B5 C7 D4 E94 F13) is a dated record run at `origin/main` @ `61281c23e`. It is filing evidence, never re-corrected; the implementing branch re-derives current counts with the shipped scanner. | `docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md` §2.6 |
 | R8 | Bucket-A residue (8 inline text links/buttons) belongs to `BL-TAP-TARGET-INLINE-TEXT-CONTROLS`, not this arc: the guard records them as census rows referencing that entry; it does not repair them. | §2.6 disposition table (rows marked "Filed"); `BACKLOG-archive.md` graduation 2026-08-11 |
 | R9 | Both new guard surfaces are enrolled in the source-mutation registry (`tests/mutation/source/registry.ts`) BEFORE their first adversarial review round, authored as importable modules with referring suites from the start. Review convergence for the guards = mutation score + empty unaccepted-survivor set. | AGENTS.md "Convergence criterion" bullet 3 |
@@ -98,14 +98,21 @@ Procedure (round-2 revision — round 1 correctly found the round-0 probe's scop
 the policy's): TypeScript-compiler AST walk (`ts.createSourceFile`, `ScriptKind.TSX`) over every
 `.tsx` under `app/**` + `components/**`; in-scope elements are **the same set D3 uses** (§2.4:
 `button` / `a` / `Link` / `summary` / `input type="checkbox|radio"` / any tag with
-`role="button"` or `onClick`) — one exported predicate shared by both scans so the two can
-never drift (§4.4). For each in-scope element, the `className` attribute's statically reachable
-strings: string literal, template statics + resolvable spans, both conditional branches, binary
-operands, call arguments (`cn()`/`clsx()`/`.join()` included), and **identifier resolution** —
-any `const` initializer in the same file (any scope, innermost-wins on collision in the shipped
-scanner), plus one-hop imported `const` initializers (`@/` and relative specifiers), recursion
-depth-capped. Hit = bare token `text-text-subtle` present in the resolved strings. Output
-2026-08-14 (v2): **53 sites across 43 files**; 353 in-scope elements; 8 hit-site classNames
+`role="button"` or `onClick`, plus — round-3 F2 — any JSX element whose tag is in the rule-7
+floor-component allowlist, so a registered component's call site is in scope even without
+`onClick`) — one exported predicate shared by both scans so the two can never drift (§4.4),
+deriving its component-tag arm from the rule-7 allowlist import. For each in-scope element, the
+`className` attribute's statically reachable strings: string literal, template statics +
+resolvable spans, both conditional branches, binary operands, call arguments
+(`cn()`/`clsx()`/`.join()` included), **identifier resolution** — any `const` initializer in
+the same file (any scope, innermost-wins on collision in the shipped scanner), plus one-hop
+imported `const` initializers (`@/` and relative specifiers), recursion depth-capped — and,
+round-3 F1, **same-file helper-function resolution**: a call to a same-file function
+declaration or arrow/function-expression `const` resolves to the union of its `return`
+expressions (or its expression body), each resolved by these same rules; a call to anything
+else marks the element's className partially unresolved. Hit = bare token `text-text-subtle`
+present in the resolved strings. Output 2026-08-14 (v3): **55 sites across 44 files**; 354
+in-scope elements; 8 hit-site classNames
 carry an additional part the resolver cannot read (marked `[partial]` — the hit itself is
 proven; §10 records the non-provable direction). Full listing with dispositions in §4.3. (Probe
 script: drafting-time scratch; the shipped guard's scan module in §4.4 is the durable form and
@@ -124,8 +131,9 @@ padding-arithmetic; bucket (A) is dispositioned (§1.1 R8).
 Named class-string constants confirmed live: `SECONDARY_ACTION_CLASS`
 (`lib/ui/actionClass.ts`), `DISCARD_RESTING_CLASS` / `IGNORE_ARMED_CLASS`
 (`components/admin/PendingPanelDiscardButtons.tsx:49` and line 52), AccentButton's `BASE_CLASS`
-(`components/shared/AccentButton.tsx:105`, carries `min-h-tap-min`; 6 `<AccentButton` call
-sites).
+(`components/shared/AccentButton.tsx:105`, carries `min-h-tap-min`; 5 `<AccentButton` JSX
+call sites at the round-3 anchored probe — the count is re-derived by the shipped scanner, not
+pinned here).
 
 ## 3. D1 — secondary button boundary
 
@@ -202,6 +210,11 @@ New §1.1a defines:
     carries `border-accent` + `text-text-strong` (`CrewSubNav.tsx:92`); active mobile branch
     carries `text-accent-on-bg` only (`CrewSubNav.tsx:100`) plus `aria-current="page"`
     (`CrewSubNav.tsx:118`) — both branches recorded on the one registry row.
+  - Unselected dashboard bucket segments (`components/admin/DashboardBucketSegmentedControl.tsx:56`,
+    `DashboardBucketSegmentedControl.tsx:76`; round-3 F1 members, admitted by the ratified
+    definition rather than by a new ask): selected segment carries `bg-surface` +
+    `text-text-strong` + `shadow-tile` (`DashboardBucketSegmentedControl.tsx:42`) plus
+    `aria-current="page"`.
   - Claimed picker rows: the dim member ITSELF carries the distinguishing cues —
     `bg-surface-sunken` fill plus the lock glyph
     (`app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx`, `picker-row-lock` span). See the
@@ -220,7 +233,7 @@ Ratified (R2). The ledger entry itself flagged chips and `<summary>` as "arguabl
 … DESIGN.md should say so explicitly … rather than being read as absolute and then quietly
 excepted" (`BACKLOG.md` § BL-SUBTLE-ON-INTERACTIVE-CLASS, closing paragraph).
 
-### 4.3 Census disposition (53 sites, probe §2.3 v2)
+### 4.3 Census disposition (55 sites, probe §2.3 v3)
 
 EXEMPT-S / EXEMPT-C / EXEMPT-D = registry row in the named family (§4.1); SWAP = rest color →
 `text-text`. "Hover" column: `same` = existing hover kept; `→strong` = hover retargeted to
@@ -241,6 +254,8 @@ EXEMPT-S / EXEMPT-C / EXEMPT-D = registry row in the named family (§4.1); SWAP 
 | `components/admin/AppHealthPopover.tsx:89` | button | SWAP | →strong |
 | `components/admin/BellPanel.tsx:686` | a | SWAP (`HELP_LINK` const) | →strong |
 | `components/admin/BellPanel.tsx:1210` | a | SWAP | same |
+| `components/admin/DashboardBucketSegmentedControl.tsx:56` | Link | EXEMPT-D (selected = surface fill + shadow + strong) | — |
+| `components/admin/DashboardBucketSegmentedControl.tsx:76` | Link | EXEMPT-D (same pair; disabled span sibling at line 71 is non-interactive and out of scope) | — |
 | `components/admin/IdentityHoldDisclosure.tsx:33` | button | SWAP | per-site check |
 | `components/admin/OnboardingWizard.tsx:140` | button | SWAP | same |
 | `components/admin/ReSyncButton.tsx:175` | button | SWAP | →strong |
@@ -282,8 +297,8 @@ EXEMPT-S / EXEMPT-C / EXEMPT-D = registry row in the named family (§4.1); SWAP 
 | `components/shared/ReportButton.tsx:141` | button | SWAP | →strong |
 | `components/shared/ReportModal.tsx:579` | button | SWAP | →strong |
 
-Tallies (single source is this table; the guard registry re-states it executably): 53 total =
-13 EXEMPT (7 Family S + 2 Family C + 4 Family D) + 40 SWAP. "Per-site check" hover cells are
+Tallies (single source is this table; the guard registry re-states it executably): 55 total =
+15 EXEMPT (7 Family S + 2 Family C + 6 Family D) + 40 SWAP. "Per-site check" hover cells are
 settled task-by-task in the plan against each site's existing hover token — the policy
 constraint is only that hover must still strengthen (or the site has a non-color hover
 affordance, e.g. `hover:bg-*`). Sites whose subtle token arrives via a shared const
@@ -318,12 +333,12 @@ reason).
   Family D (`"state-dim"`) rows must carry a `siblingCue: { file, token }`, and the suite
   VALIDATES it against source: it reads `siblingCue.file` and asserts `siblingCue.token` is
   present in that file (the rule-7-companion pattern), so a refactor that removes the cue fails
-  the row instead of leaving a stale claim (§4.1 Family D lists the four current cues).
+  the row instead of leaving a stale claim (§4.1 Family D lists the six current cues).
 - **Premise pin:** the suite asserts the scan finds ≥ 1 hit in the committed tree (Family S
   sites exist by design), so an AST regression that finds nothing cannot pass silently; and it
   asserts registry rows resolve to live files/lines that actually carry the token (a stale row
   fails — the stale-marker failure mode, applied to exemptions).
-- Steady state after the swap: registry = exactly the 13 EXEMPT rows.
+- Steady state after the swap: registry = exactly the 15 EXEMPT rows.
 - Mutation-registry enrolment (R9): row in `tests/mutation/source/registry.ts` targeting
   `tests/styles/subtleInteractiveScan.ts (new)` with the referring suite; operator set and minimum
   score fixed at plan time from the registry's existing operator vocabulary; unaccepted-survivor
@@ -338,7 +353,9 @@ Importable scan module `tests/styles/tapTargetScan.ts (new)` + suite
 `tests/styles/tapTargetCensus.ts (new)`. In-scope elements and floor tokens: exactly §2.4's sets
 (inherited from the a11y spec §2.6 so the two scanners cannot drift apart on scope; the
 in-scope predicate and floor-token list are exported from one shared module and used by both
-this scan and D2's, §4.4).
+this scan and D2's, §4.4). The predicate's component-tag arm derives from the rule-7 allowlist
+(round-3 F2): every allowlisted component's call site is in scope by construction, so a
+`type="submit"` `AccentButton` with no `onClick` is still checked for rule-8 defeaters.
 
 **The static guard's claim is the HEIGHT floor** (round-1 F2): a class string can prove
 `min-height`/`height` ≥ 44px statically, but width is usually content-driven (`px-*` plus a
@@ -372,11 +389,14 @@ is reachable anywhere in the resolved strings. Resolution rules:
 5. **`cn(...)`/`clsx(...)`/`[...].join(" ")`** — union of unconditional arguments (conditional
    arguments per rules 3–4); an argument outside rules 1–6 (spread, computed member, call)
    makes the element UNCLASSIFIED per rule 2's posture.
-6. **Identifier** — resolve a `const` declared anywhere in the same file (innermost scope wins
-   on name collision); resolve an imported named binding one module hop to an exported `const`
-   initializer (re-export chains followed up to a fixed depth of 3); the initializer is then
-   resolved by rules 1–5. An initializer that is not string-composed (function call other than
-   rule 5, computed member, parameter) → UNCLASSIFIED.
+6. **Identifier and same-file helper call** — resolve a `const` declared anywhere in the same
+   file (innermost scope wins on name collision); resolve an imported named binding one module
+   hop to an exported `const` initializer (re-export chains followed up to a fixed depth of 3);
+   resolve a CALL to a same-file function declaration or arrow/function-expression `const`
+   (round-3 F1: the `segClass(...)` shape) to the union of its `return` expressions or
+   expression body. Each resolved node is then processed by rules 1–5 and this rule,
+   depth-capped. Anything else — an imported function call, a computed member, a parameter —
+   → UNCLASSIFIED.
 7. **Floor-carrying components** — a component allowlist (`AccentButton` first member) whose
    base class guarantees the HEIGHT floor; each allowlist row carries a companion source
    assertion (the suite reads `components/shared/AccentButton.tsx` and asserts `BASE_CLASS`
@@ -454,7 +474,7 @@ admissible only with a surviving mutant from the declared operator set.
   states introduced. `EventFilters.tsx:85` and `StagedReviewCard.tsx:675` carry conditional
   classNames: the swap edits only the branch(es) carrying `text-text-subtle`; the other branch
   is untouched (mode boundary: selected-state inversion at EventFilters stays).
-- **Cap/truncation:** census registries are bounded by the scan (53 D2 sites and the derived (E)
+- **Cap/truncation:** census registries are bounded by the scan (55 D2 sites and the derived (E)
   residue); no unbounded list renders anywhere.
 
 ### Transition Inventory
@@ -504,7 +524,7 @@ enumerates the affected manifest entries; heavy phases run under `pnpm heavy`.
   (token reverted) or ratio (token value drifts below 3:1) mutation.
 - **AC-3** DESIGN.md carries the §3.2 amendments; `pnpm spec:lint` and the DESIGN-figure parity
   suite (`tests/styles/design-figure-parity.test.ts`) stay green.
-- **AC-4** All 40 SWAP sites rest at `text-text`; the 13 EXEMPT sites are registry rows with
+- **AC-4** All 40 SWAP sites rest at `text-text`; the 15 EXEMPT sites are registry rows with
   family + reason (Family D rows with `siblingCue`); `_metaSubtleOnInteractive` walks the filesystem and fails by name on an
   unregistered hit.
 - **AC-5** `_metaTapTargetFloor` ships unblocked: recogniser implements §5.2 rules 1–8 (rule 8's full defeater grammar included); census
