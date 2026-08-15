@@ -1472,8 +1472,10 @@ export async function applyStaged_unlocked(
     showId: coreResult.showId,
     syncAuditId: coreResult.syncAuditId,
     derivedSideEffects: coreResult.derivedSideEffects,
-    // §3.4: carried out to the post-commit sync_log emit in applyStaged (the tail below is
-    // sinkless by construction, and an existing-show apply never reaches it at all).
+    // §3.4: carried out to the post-commit sync_log emit in the locked `applyStaged` wrapper. The
+    // tail below is sinkless by construction, and an existing-show apply never reaches it at all.
+    // Written WITHOUT a trailing `(` after any identifier: the single-holder lock guard builds its
+    // call graph by regex over raw source, so `name (` in a comment forges a call edge.
     parseWarnings: coreResult.parseWarnings,
     adminAlertCode: assetAdjusted.adminAlertCode,
     adminAlertCodes: assetAdjusted.adminAlertCodes,

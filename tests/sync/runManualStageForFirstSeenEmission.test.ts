@@ -17,7 +17,11 @@ import {
   runManualStageForFirstSeen,
   type RunManualStageForFirstSeenDeps,
 } from "@/lib/sync/runManualStageForFirstSeen";
-import { classifySyncFailure, type SyncLogEntry } from "@/lib/sync/runScheduledCronSync";
+import {
+  classifySyncFailure,
+  errorPayload,
+  type SyncLogEntry,
+} from "@/lib/sync/runScheduledCronSync";
 import { premiseHolds } from "@/tests/_shared/premise";
 
 const FILE_ID = "first-seen-emission-file";
@@ -190,8 +194,14 @@ describe("runManualStageForFirstSeen — single-site sync_log emission (spec §3
       result.outcome === "parsed_pending_review",
     );
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ driveFileId: FILE_ID, outcome: "stage" });
-    expect(entries[0]?.durationMs).toBe(emitMs - startMs);
+    // Exact shape, not a subset (tests review R1 F3): `stagedId` is deliberately absent, because
+    // SyncLogEntry has no such field and logSync drops it — identical to the cron `stage` twin. A
+    // partial matcher would also tolerate stray fields appearing on the row.
+    expect(entries[0]).toEqual({
+      driveFileId: FILE_ID,
+      outcome: "stage",
+      durationMs: emitMs - startMs,
+    });
   });
 
   test("hard_fail → one `hard_fail` row carrying phase 1's code", async () => {
@@ -319,6 +329,9 @@ describe("runManualStageForFirstSeen — thrown attempts (spec §3.2, AC-3/AC-5)
       driveFileId: FILE_ID,
       outcome: "parse_error",
       code: classifySyncFailure(thrown),
+      // Payload too (tests review R1 F4): without it, dropping `payload: errorPayload(error)` from
+      // the production catch leaves this assertion green and the forensic cause unrecorded.
+      payload: errorPayload(thrown),
     });
     // Escaped-throw rule (spec §1.1): the attempt aborted, so no duration is claimed.
     expect(entries[0]?.durationMs).toBeUndefined();
@@ -341,7 +354,11 @@ describe("runManualStageForFirstSeen — thrown attempts (spec §3.2, AC-3/AC-5)
     ).rejects.toBe(thrown);
 
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ outcome: "parse_error", code: classifySyncFailure(thrown) });
+    expect(entries[0]).toMatchObject({
+      outcome: "parse_error",
+      code: classifySyncFailure(thrown),
+      payload: errorPayload(thrown),
+    });
   });
 
   test("throw AFTER the tail row landed → no second row (tracked-sink dedupe)", async () => {

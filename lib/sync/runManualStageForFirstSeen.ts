@@ -228,7 +228,9 @@ async function toResult(
     }
     default: {
       const _exhaustive: never = result;
-      throw new Error(`unreachable Phase1Result outcome: ${JSON.stringify(_exhaustive)}`);
+      throw new Error(
+        `unreachable Phase1Result outcome: ${String((_exhaustive as { outcome?: string }).outcome)}`,
+      );
     }
   }
 }
@@ -345,7 +347,9 @@ export async function runManualStageForFirstSeen(
       default: {
         const _exhaustive: never = outcome;
         throw new Error(
-          `unreachable RunManualStageForFirstSeenResult outcome: ${JSON.stringify(_exhaustive)}`,
+          `unreachable RunManualStageForFirstSeenResult outcome: ${String(
+            (_exhaustive as { outcome?: string }).outcome,
+          )}`,
         );
       }
     }
@@ -372,7 +376,12 @@ export async function runManualStageForFirstSeen(
           driveFileId,
           error: serializeError(sinkError),
         });
-        await escalation.catch(() => {
+        // Invariant 10 (prod diff review R1 P0): this catch runs INSIDE the caller's held
+        // advisory lock, and app_events emits must never extend that window. Fire-and-forget
+        // rather than awaited — the same shape as the PARSE_SHEET_THREW forensic emit in
+        // runScheduledCronSync. The sync_log write above is the ratified in-lock channel; the
+        // app_events escalation is not.
+        void escalation.catch(() => {
           /* best-effort: a recording failure must never displace the failure it was recording */
         });
       }

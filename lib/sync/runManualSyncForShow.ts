@@ -343,7 +343,13 @@ export async function runManualSyncForShow_unlocked(
           driveFileId,
           error: serializeError(sinkError),
         });
-        await escalation.catch(() => {
+        // Invariant 10 (prod diff review R1 P0): this catch runs INSIDE the caller's held
+        // advisory lock — the retry route calls this entry point from within its own
+        // withRowTryLock — and an app_events emit must never extend that window. Fire-and-
+        // forget rather than awaited, the same shape as the PARSE_SHEET_THREW forensic emit
+        // in runScheduledCronSync. The sync_log write above is the ratified in-lock channel;
+        // this escalation is not.
+        void escalation.catch(() => {
           /* best-effort: a recording failure must never displace the failure it was recording */
         });
       }

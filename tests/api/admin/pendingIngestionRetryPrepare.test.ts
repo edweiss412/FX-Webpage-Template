@@ -19,7 +19,11 @@ import {
   FirstSeenStagePrepareError,
   handleLivePendingIngestionRetry,
 } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
-import { classifySyncFailure, type SyncLogEntry } from "@/lib/sync/runScheduledCronSync";
+import {
+  classifySyncFailure,
+  errorPayload,
+  type SyncLogEntry,
+} from "@/lib/sync/runScheduledCronSync";
 import { readyPrepared } from "@/tests/_shared/preparedProcessOneFile";
 import { premiseHolds } from "@/tests/_shared/premise";
 
@@ -168,8 +172,37 @@ describe("pending-ingestion retry: existing-show prepare (spec §3.1, AC-1/AC-3)
       driveFileId: FILE_ID,
       outcome: "parse_error",
       code: classifySyncFailure(thrown),
+      // Payload too (tests review R1 F4): the forensic cause is the point of the row.
+      payload: errorPayload(thrown),
     });
     expect(records.some((r) => r.code === "PENDING_INGESTION_RETRY_FAILED")).toBe(true);
+  });
+
+  test("a sink failure in the existing-show catch still surfaces the ORIGINAL error", async () => {
+    // Distinct catch from the first-seen one below (tests review R1 F5): removing this catch's
+    // inner sink guard would let the sink error replace the prepare error, and no other case here
+    // exercises this surface.
+    const records = capture();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const thrown = new Error("probe-prepare-explosion");
+
+    await expect(
+      handleLivePendingIngestionRetry(
+        req(),
+        context,
+        deps(tx, {
+          prepareProcessOneFile: (async () => {
+            throw thrown;
+          }) as never,
+          logSyncSink: (async () => {
+            throw new Error("probe-sink-down");
+          }) as never,
+        }),
+      ),
+    ).rejects.toBe(thrown);
+
+    expect(records.filter((r) => r.code === "SYNC_LOG_EMIT_FAILED")).toHaveLength(1);
   });
 });
 
@@ -202,6 +235,9 @@ describe("pending-ingestion retry: first-seen prepare failures (spec §3.1, AC-8
       driveFileId: FILE_ID,
       outcome: "parse_error",
       code: "STAGED_PARSE_FAILED",
+      // The payload carries the CAUSE, not the wrapper (spec §3.1): a FirstSeenStagePrepareError's
+      // message is just its code, so recording the wrapper would lose the real failure.
+      payload: errorPayload(cause),
     });
   });
 

@@ -19,6 +19,7 @@ import {
 } from "@/lib/sync/runManualSyncForShow";
 import {
   classifySyncFailure,
+  errorPayload,
   STAGED_PARSE_REVISION_RACE,
   STAGED_PARSE_REVISION_RACE_COOLDOWN,
   STAGED_PARSE_SOURCE_GONE,
@@ -118,6 +119,8 @@ describe("runManualSyncForShow — escaped throws reach sync_log (spec §3.3)", 
       driveFileId: FILE_ID,
       outcome: "parse_error",
       code: classifySyncFailure(thrown),
+      // Payload too (tests review R1 F4): the forensic cause is the point of the row.
+      payload: errorPayload(thrown),
     });
     // Escaped-throw rule (spec §1.1): the attempt aborted, so no duration is claimed.
     expect(entries[0]?.durationMs).toBeUndefined();
@@ -311,6 +314,8 @@ describe("runManualSyncForShow_unlocked — prepared threading + escaped throws 
       driveFileId: FILE_ID,
       outcome: "parse_error",
       code: classifySyncFailure(thrown),
+      // Payload too (tests review R1 F4): the forensic cause is the point of the row.
+      payload: errorPayload(thrown),
     });
     expect(entries[0]?.durationMs).toBeUndefined();
   });

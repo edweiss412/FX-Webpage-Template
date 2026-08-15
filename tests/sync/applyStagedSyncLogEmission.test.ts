@@ -16,7 +16,13 @@ import {
   type ApplyStagedDeps,
   type PendingSyncForApply,
 } from "@/lib/sync/applyStaged";
-import type { SyncLogEntry, SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
+import {
+  classifySyncFailure,
+  emitSuccessfulPhase2Tail,
+  errorPayload,
+  type SyncLogEntry,
+  type SyncPipelineTx,
+} from "@/lib/sync/runScheduledCronSync";
 import { premiseHolds } from "@/tests/_shared/premise";
 
 const logMock = vi.hoisted(() => ({
@@ -256,12 +262,20 @@ describe("applyStaged writes the applied sync_log row post-commit (spec §3.4, A
     const entries: SyncLogEntry[] = [];
     const smuggled = vi.fn(async () => {});
 
+    const tailRuns: number[] = [];
     const result = await runApply({
       firstSeen: true,
       sink: async (entry) => {
         entries.push(entry);
       },
       overrides: {
+        // Delegates to the REAL tail and records that it ran. Without this the premise below is
+        // satisfied by an apply that never reaches the tail at all — deleting the production
+        // invocation would leave the assertion green (tests review R1 F2).
+        emitSuccessfulPhase2Tail: (async (args: Parameters<typeof emitSuccessfulPhase2Tail>[0]) => {
+          tailRuns.push(1);
+          return emitSuccessfulPhase2Tail(args);
+        }) as NonNullable<ApplyStagedDeps["emitSuccessfulPhase2Tail"]>,
         // Cast through the wider type: the field is typed Omit<..., "logSync">, but TypeScript is
         // structural, so the runtime strip at the invocation site is the actual guarantee.
         firstPublishedTailDeps: {
@@ -272,8 +286,8 @@ describe("applyStaged writes the applied sync_log row post-commit (spec §3.4, A
     });
 
     premiseHolds(
-      "the tail ran at all (first-seen apply), so a smuggled sink COULD have fired",
-      !("skipped" in result) && result.outcome === "applied",
+      "the tail actually EXECUTED, so a smuggled sink could have fired",
+      tailRuns.length === 1 && !("skipped" in result) && result.outcome === "applied",
     );
     expect(smuggled).not.toHaveBeenCalled();
     expect(entries).toHaveLength(1);
@@ -288,6 +302,31 @@ describe("applyStaged writes the applied sync_log row post-commit (spec §3.4, A
 
     // Fail-open: a recording failure must not turn a committed apply into an error response.
     expect(result).toMatchObject({ outcome: "applied", showId: SHOW_ID });
+    const escalations = (
+      logMock.error.mock.calls as unknown as Array<[string, { code?: string }]>
+    ).filter(([, fields]) => fields.code === "SYNC_LOG_EMIT_FAILED");
+    expect(escalations).toHaveLength(1);
+  });
+
+  test("a throwing live apply whose CATCH sink also fails still rethrows the ORIGINAL error", async () => {
+    // A distinct catch from the applied-success emitter above (tests review R1 F5): removing this
+    // catch's inner sink guard would let the sink error replace the phase-2 error, and no other
+    // case here exercises that surface.
+    const thrown = new Error("probe-phase2-explosion");
+
+    await expect(
+      runApply({
+        sink: async () => {
+          throw new Error("probe-sink-down");
+        },
+        overrides: {
+          runPhase2: (async () => {
+            throw thrown;
+          }) as NonNullable<ApplyStagedDeps["runPhase2"]>,
+        },
+      }),
+    ).rejects.toBe(thrown);
+
     const escalations = (
       logMock.error.mock.calls as unknown as Array<[string, { code?: string }]>
     ).filter(([, fields]) => fields.code === "SYNC_LOG_EMIT_FAILED");
@@ -312,7 +351,14 @@ describe("applyStaged writes the applied sync_log row post-commit (spec §3.4, A
     ).rejects.toBe(thrown);
 
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ driveFileId: FILE_ID, outcome: "parse_error" });
+    expect(entries[0]).toMatchObject({
+      driveFileId: FILE_ID,
+      outcome: "parse_error",
+      // Code AND payload, not just the outcome: without these, dropping either thread from the
+      // production emitter leaves this green (tests review R1 F4).
+      code: classifySyncFailure(thrown),
+      payload: errorPayload(thrown),
+    });
     // Escaped-throw rule (spec §1.1): the attempt aborted, so no duration is claimed.
     expect(entries[0]?.durationMs).toBeUndefined();
   });

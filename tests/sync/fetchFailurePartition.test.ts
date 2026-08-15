@@ -265,7 +265,7 @@ const CELLS: Array<{
 
 describe("handleFetchFailure_unlocked: every partition cell writes exactly one row (AC-7)", () => {
   test.each(CELLS)("$label", async (cell) => {
-    const { tx, result } = await runCell(cell.code, {
+    const { tx, result, injected } = await runCell(cell.code, {
       showPresent: cell.showPresent,
       existingPending: cell.existingPending,
     });
@@ -278,6 +278,10 @@ describe("handleFetchFailure_unlocked: every partition cell writes exactly one r
         (result as { code?: string }).code === cell.expected.code,
     );
 
+    // Exactly-once is a property of the ATTEMPT, not of one channel (tests review R1 F1): a row
+    // added on the OTHER writer family would leave a per-sink count of 1 while two rows land.
+    expect(tx.recoveryRows.length + injected.length).toBe(1);
+    expect(injected).toHaveLength(0);
     expect(tx.recoveryRows).toHaveLength(1);
     const row = tx.recoveryRows[0] as RecoveryRow;
     expect(row.driveFileId).toBe(FILE_ID);
@@ -338,6 +342,9 @@ describe("pull-sheet-override TOCTOU skip records its row (§3.5)", () => {
         result.outcome === "skipped" &&
         (result as { reason?: string }).reason === "pull_sheet_override_changed_under_lock",
     );
+    // Exactly-once across BOTH families, same reason as the matrix above (tests review R1 F1).
+    expect(injected.length + tx.recoveryRows.length).toBe(1);
+    expect(tx.recoveryRows).toHaveLength(0);
     expect(injected).toHaveLength(1);
     expect(injected[0]).toMatchObject({
       driveFileId: FILE_ID,

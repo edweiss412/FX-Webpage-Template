@@ -2833,8 +2833,9 @@ async function handleFetchFailure_unlocked(
       lastWarnings: [],
       lastSeenModifiedTime: binding.modifiedTime,
     });
-    // §3.5 repair: this arm upserted a pending_ingestions row and returned a terminal value with no
-    // sync_log row. Records the RETURNED code (SYNC_FILE_FAILED), not the input.
+    // §3.5 repair: this arm upserted a pending_ingestions (live-partition:n/a — doc reference, no
+    // statement) row and returned a terminal value with no sync_log row. Records the RETURNED code
+    // (SYNC_FILE_FAILED), not the input.
     await recoveryTx.insertSyncLog({
       driveFileId,
       outcome: "parse_error",

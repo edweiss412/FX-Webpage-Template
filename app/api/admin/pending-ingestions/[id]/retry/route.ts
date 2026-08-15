@@ -485,7 +485,11 @@ export async function handleLivePendingIngestionRetry(
               driveFileId: row.drive_file_id,
               error: serializeError(sinkError),
             });
-            await escalation.catch(() => {
+            // Invariant 10 (prod diff review R1 P0): this catch runs inside the held
+            // withRowTryLock, and an app_events emit must never extend that window.
+            // Fire-and-forget rather than awaited; the sync_log write above is the
+            // ratified in-lock channel, this escalation is not.
+            void escalation.catch(() => {
               /* best-effort: the escalation must never displace the original failure */
             });
           }
@@ -582,7 +586,9 @@ export async function handleLivePendingIngestionRetry(
             driveFileId: row.drive_file_id,
             error: serializeError(sinkError),
           });
-          await escalation.catch(() => {
+          // Invariant 10 (prod diff review R1 P0): in-lock, so fire-and-forget rather than
+          // awaited — an app_events emit must never extend the held-lock window.
+          void escalation.catch(() => {
             /* best-effort: the typed response still returns */
           });
         }
