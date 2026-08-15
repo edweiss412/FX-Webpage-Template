@@ -1038,6 +1038,286 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
     expect(only(run(claimOver(long, 2)).findings, B)).toEqual([]);
   });
 
+  // ---- CommonMark thematic breaks are <hr>, not siblings (review R20, probed) ----
+
+  it("a `- - -` break after the last item is an <hr>, not a third sibling", () => {
+    const doc = ["The spec names 2 measured shapes:", ...bullets(2), "- - -", ""].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("the asterisk form `* * *` is a break too", () => {
+    const doc = ["The spec names three measured shapes:", ...bullets(3), "* * *", ""].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("a break ENDS the list, so items after it are a different list", () => {
+    const doc = [
+      "The spec names 2 measured shapes:",
+      ...bullets(2),
+      "- - -",
+      "- unrelated",
+      "- also unrelated",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("a break where the list would start is no list at all", () => {
+    const doc = ["The spec names three measured shapes:", "- - -", ""].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("TWO markers are a list item, not a break", () => {
+    // `- -` is a bullet whose content is `-`; only three or more make an <hr>.
+    const doc = ["The spec names 2 measured shapes:", "- shape 1", "- -", ""].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("a break INSIDE an item's content does not end the list", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "  - - -",
+      "- shape 2",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  // ---- the R20 class sweep: what CommonMark calls an item, and what ends a list ----
+
+  // An empty marker is an item, a setext underline, or a lazy continuation depending on
+  // CommonMark rules a line scan cannot decide, and the readings differ by one sibling.
+  // Every marker kind refuses. Before the sweep each of these reported "1 items".
+  it.each([
+    ["dash", ["- shape 1", "-", "- shape 3"]],
+    ["star", ["* shape 1", "*", "* shape 3"]],
+    ["ordered", ["1. shape 1", "2.", "3. shape 3"]],
+  ])("an EMPTY %s marker at the list's indent is not counted either way", (_kind, lines) => {
+    const doc = ["The spec names three measured shapes:", ...lines, ""].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("an empty marker DEEPER than the list cannot change the sibling count, so it still fires", () => {
+    const doc = ["The spec names three measured shapes:", "- shape 1", "  -", "- shape 2", ""].join(
+      "\n",
+    );
+    const findings = only(run(doc).findings, B);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toBe("claim of 3 shapes over an adjacent list of 2 items");
+  });
+
+  it("a lazy continuation line does not end the list, so the count is not answered", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "continued lazily at column zero",
+      "- shape 2",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("...and counting THROUGH the lazy line is not the answer either", () => {
+    // The two readings differ by the items below the lazy line, so this claim would draw an
+    // advisory against three counted siblings if the counter simply carried on.
+    const doc = [
+      "The spec names four measured shapes:",
+      "- shape 1",
+      "continued lazily at column zero",
+      "- shape 2",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("a table row inside an item does not end the list either", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "| a | b |",
+      "- shape 2",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("an ambiguous line with no sibling below it reads the same either way, so it still fires", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "- shape 2",
+      "trailing prose at column zero",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("a blank line closes the paragraph, so prose after it ends the list for certain", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "- shape 2",
+      "",
+      "A following paragraph.",
+      "- a different list",
+      "- with two items",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("a heading interrupts a paragraph, so it ends the list with no blank line needed", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "- shape 2",
+      "# A heading",
+      "- a different list",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("a blockquote interrupts a paragraph too", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "- shape 2",
+      "> quoted",
+      "- a different list",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  // ---- what the list's END is read from, pinned one rule at a time ----
+
+  it("a heading four columns in is item content, not the list's end", () => {
+    // Three spaces is CommonMark's limit for a top-level block; the fourth column belongs to
+    // the item — but only where the item's content starts later than that, as it does here.
+    const doc = [
+      "The spec names three measured shapes:",
+      "-    shape 1",
+      "    # not a heading at this column",
+      "-    shape 2",
+      "-    shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("SEVEN hashes are not a heading, so they do not end the list", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "####### ordinary text, since a heading stops at six",
+      "- shape 2",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("a repeated character that is not a break character is still ordinary text", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "...",
+      "- shape 2",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("a break's characters must be the ONLY ones on the line", () => {
+    // `- - - x` carries content, so it is a list item and the third sibling here.
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "- shape 2",
+      "- - - x",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  // ---- whether the list is NESTED is read from the block above it ----
+
+  const NESTED = ["  - shape 1", "  - shape 2", "- outside the nested list", ""];
+
+  it("an outdent CLOSES a nested list, and the enclosing item is what says it is nested", () => {
+    const doc = ["- The spec names three measured shapes:", ...NESTED].join("\n");
+    const findings = only(run(doc).findings, B);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toBe("claim of 3 shapes over an adjacent list of 2 items");
+  });
+
+  it("...across a blank line between the enclosing item and the list", () => {
+    const doc = ["- The spec names three measured shapes:", "", ...NESTED].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("...across the enclosing item's own continuation lines", () => {
+    const doc = ["- outer", "  The spec names three measured shapes:", ...NESTED].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  it("...and the outdent is measured against the list's INDENT, not its marker width", () => {
+    const doc = [
+      "- The spec names three measured shapes:",
+      "  - shape 1",
+      "  - shape 2",
+      " - one column in, which is still outdented",
+      "",
+    ].join("\n");
+    const findings = only(run(doc).findings, B);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toBe("claim of 3 shapes over an adjacent list of 2 items");
+  });
+
+  it("...and it is the NEAREST enclosing block that decides, not the first line above it", () => {
+    const doc = [
+      "Prose that encloses nothing.",
+      "- The spec names three measured shapes:",
+      ...NESTED,
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toHaveLength(1);
+  });
+
+  // ---- item content resets the blank-line run, so a list is not cut in half by it ----
+
+  it("an indented thematic break between two blanks is item content", () => {
+    const doc = [
+      "The spec names 2 measured shapes:",
+      "- shape 1",
+      "",
+      "  - - -",
+      "",
+      "- shape 2",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("an indented empty marker between two blanks is item content", () => {
+    const doc = [
+      "The spec names 2 measured shapes:",
+      "- shape 1",
+      "",
+      "  -",
+      "",
+      "- shape 2",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
   it("gate: nested-list indentation — a claim bullet at the list's own indent", () => {
     const doc = ["- The spec names three measured shapes:", ...bullets(2), ""].join("\n");
     expect(only(run(doc).findings, B)).toEqual([]);
@@ -1209,12 +1489,12 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
     expect(only(run(doc).findings, B)).toEqual([]);
   });
 
-  it("an OUTDENTED bullet ends the list even when its marker is wider than the indent", () => {
-    // The deeper-bullet branch must test the INDENT, not the marker width. A `100.`
-    // marker is four characters wide against a two-space indent, so a check that
-    // compared marker width would run straight past the outdent and swallow the
-    // following item — reported by whole-diff review R1 with a probe, which refuted the
-    // equivalence argument this case replaces.
+  it("an OUTDENTED bullet ends the list when its marker TYPE differs, however wide it is", () => {
+    // The nesting test must be the item's content column, not the marker width. A `100.` marker
+    // is four characters wide against a two-space indent, so a check that compared marker width
+    // would run straight past this line and swallow the item below it — reported by whole-diff
+    // review R1 with a probe, which refuted the equivalence argument this case replaces. What
+    // ends the list here is the marker TYPE: an ordered delimiter cannot continue a `-` list.
     const doc = [
       "The spec names three measured shapes:",
       "  - shape 1",
@@ -1228,7 +1508,56 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
     expect(findings[0]!.message).toBe("claim of 3 shapes over an adjacent list of 2 items");
   });
 
-  it("prose at the list's own indent ENDS it, and a later bullet is not counted", () => {
+  it("an outdented bullet of the SAME type is a sibling, not the list's end", () => {
+    // Short of the item's content column a marker cannot be that item's content, so CommonMark
+    // keeps it in the same list. Ending the list here instead undercounted (R20 sweep).
+    const doc = [
+      "The spec names three measured shapes:",
+      "  - shape 1",
+      "  - shape 2",
+      "- shape 3",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("a marker-type change at the list's own indent ends it", () => {
+    const doc = ["The spec names 2 measured shapes:", "- shape 1", "- shape 2", "* other", ""].join(
+      "\n",
+    );
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("...and the run before the change is what gets counted", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "- shape 1",
+      "* other 1",
+      "* other 2",
+      "",
+    ].join("\n");
+    const findings = only(run(doc).findings, B);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toBe("claim of 3 shapes over an adjacent list of 1 items");
+  });
+
+  it("an ordered list's NUMBERS may differ — only the delimiter decides the type", () => {
+    const doc = [
+      "The spec names three measured shapes:",
+      "1. shape 1",
+      "9. shape 2",
+      "4) other",
+      "",
+    ].join("\n");
+    const findings = only(run(doc).findings, B);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toBe("claim of 3 shapes over an adjacent list of 2 items");
+  });
+
+  it("prose at the list's own indent leaves the extent undecided once a bullet follows", () => {
+    // CommonMark reads the prose as a lazy continuation of the last item and the bullet below
+    // it as a third sibling; ending the list here instead counted 2 and drew a false advisory
+    // (R20 sweep, probed). Neither reading is asserted — the counter declines.
     const doc = [
       "The spec names three measured shapes:",
       ...bullets(2),
@@ -1236,7 +1565,7 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
       "- a bullet belonging to something else",
       "",
     ].join("\n");
-    expect(only(run(doc).findings, B)).toHaveLength(1);
+    expect(only(run(doc).findings, B)).toEqual([]);
   });
 
   it("a `***Step 4***` bullet is not a checklist step, so it counts", () => {

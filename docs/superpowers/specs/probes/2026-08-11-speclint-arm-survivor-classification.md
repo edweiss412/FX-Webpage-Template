@@ -20,27 +20,27 @@ misdescribes its own measurements is worse than no record.
 populations is classified MECHANICALLY, by the structural signature the record already
 carries (claim value, counted value, their delta, and the quantity lists). Within each
 stratum a subset was HAND-READ against the source document to name the mechanism:
-**18 of 179** shape-(b) rows and **8 of 84** shape-(c) rows. The per-stratum mechanisms
+**18 of 174** shape-(b) rows and **8 of 84** shape-(c) rows. The per-stratum mechanisms
 below are therefore named from hand-reading and counted mechanically; they are not a
-per-row verdict on all 263. No row is dropped or summarised away.
+per-row verdict on all 258. No row is dropped or summarised away.
 
 ---
 
-## Shape (b) — `SIBLING_LIST_CARDINALITY`, 179 advisories
+## Shape (b) — `SIBLING_LIST_CARDINALITY`, 174 advisories
 
 Distribution over `delta = counted - claimed`. Every row falls in exactly one bucket and
-the buckets sum to 179.
+the buckets sum to 174.
 
 | delta | rows | delta | rows |
 | --- | --- | --- | --- |
-| +12 | 1 | -1 | 15 |
-| +7 | 2 | -2 | 14 |
+| +12 | 1 | -1 | 14 |
+| +7 | 1 | -2 | 12 |
 | +6 | 1 | -3 | 9 |
 | +5 | 3 | -4 | 5 |
 | +4 | 7 | -5 | 6 |
 | +3 | 7 | -6 | 4 |
 | +2 | 20 | -7 | 5 |
-| +1 | 67 | -8 | 1 |
+| +1 | 66 | -8 | 1 |
 | | | -9 | 2 |
 | | | -10 | 1 |
 | | | -13 | 4 |
@@ -50,8 +50,8 @@ the buckets sum to 179.
 | | | -29 | 1 |
 | | | -36 | 1 |
 
-108 rows where the list is LONGER than the claim, 71 where it is shorter. By document
-class: 89 specs, 84 plans, 3 `BACKLOG.md`, 2 handoffs, 1 review-round filing — i.e. the
+106 rows where the list is LONGER than the claim, 68 where it is shorter. By document
+class: 86 specs, 82 plans, 3 `BACKLOG.md`, 2 handoffs, 1 review-round filing — i.e. the
 arm fires where this repo's counted prose lives, not in one hot file.
 
 ### The mechanisms, named
@@ -69,7 +69,7 @@ grain. Hand-read instances:
   (Corrected after whole-diff review R3: an earlier draft of this bullet said the arm
   reads `3 files`. It does not, and the committed record says so — the mechanism is
   M-b6, not a noun the arm resolved.)
-- `BACKLOG.md:922` — "Six rounds of work, preserved:" over 8 design bullets. The bullets
+- `BACKLOG.md:916` — "Six rounds of work, preserved:" over 8 design bullets. The bullets
   are the design, not the rounds.
 - `docs/superpowers/plans/observability/2026-07-05-.../00-overview.md:17` — "remove 6
   grandfather rows + flip pin" over 4 task steps. The 6 rows live in a source file.
@@ -93,9 +93,16 @@ prose is correct; the counter cannot see that.
 **M-b4 — the counted list is not the whole enumeration.** The claim's list continues past
 something the sibling counter stops at, or is nested one level deeper than the level the
 counter locked onto. Hand-read:
-`docs/superpowers/plans/2026-07-20-warning-surface-trim/plan.md:168` ("Five states, six
-fixtures:") and
 `docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:897`.
+
+The population moved 179 -> 174 here, and only here, when whole-diff review R20's class
+sweep repaired the counter's list-extent reading (CommonMark thematic breaks, marker-type
+changes, lazy continuations, empty markers). Five M-b4 rows left the population because the
+counter now REFUSES a list whose extent it cannot decide, and one changed its count. The
+second hand-read instance this bullet used to cite,
+`docs/superpowers/plans/2026-07-20-warning-surface-trim/plan.md:168` ("Five states, six
+fixtures:"), is one of the five: it stopped at a lazy continuation and reported four items.
+No row entered the population, and every other mechanism's rows are untouched.
 
 **M-b6 — markup interrupts noun extraction, moving which cardinality is "last".** A
 cardinality is only recognized when a WORD follows it, so inline code or emphasis right
@@ -151,7 +158,7 @@ not keep circulating as an example.
 population's FP rate and no such rate is claimed here — the hand-read set was chosen to
 cover every delta stratum, which deliberately over-samples the large deltas where M-b1
 lives. What the record does establish is that both genuine drift and every mechanism
-M-b1..M-b5 are present in the same 179, which is exactly why the arm stays ADVISORY.
+M-b1..M-b5 are present in the same 174, which is exactly why the arm stays ADVISORY.
 
 **Severity copy: unchanged.** Advisory, one line, both quantities in the message. Nothing
 in the above argues for promotion, and the two documented limits argue against it.
@@ -240,9 +247,9 @@ detail line, so c-L1 and c-L2 are dismissible at a glance.
 | population | emitted by the scan | classified here |
 | --- | --- | --- |
 | `SCRIPT_CONSTANT_PARITY` | 0 | 0 |
-| `SIBLING_LIST_CARDINALITY` | 179 | 179 |
+| `SIBLING_LIST_CARDINALITY` | 174 | 174 |
 | `TEMPLATE_QUANTITY_DRIFT` | 84 | 84 |
-| total | 263 | 263 |
+| total | 258 | 258 |
 
 Emitted equals classified in every row of that table, diffed mechanically from the record
 rather than asserted. Shape (a)'s zero is the expected result and not a dud: both live

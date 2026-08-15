@@ -759,12 +759,67 @@ function cardinalsOn(line: string, spanRanges: Range[], markerEnd: number): Card
 }
 
 /**
- * Sibling items of the list starting at `start`.
+ * A CommonMark thematic break — three or more `-` or `*`, spaces and tabs allowed between
+ * them, nothing else on the line.
+ *
+ * `_` is a thematic-break character too, but it is never a bullet marker, so an `___` line
+ * already ends a list through the ordinary fall-through below; recognizing it here would
+ * add a branch no input can reach.
+ */
+/** A marker with no content — CommonMark's empty list item, which `BULLET_RE` cannot match. */
+const EMPTY_ITEM_RE = /^(\s*)(?:[-*+]|\d+[.)])[ \t]*$/;
+
+/**
+ * A marker's TYPE: the bullet character, or an ordered marker's delimiter. Two items are in
+ * the same list only when these agree, so `1.` and `9.` are one list and `1.` and `1)` are two.
+ */
+const markerType = (marker: string): string => marker.slice(-1);
+
+/**
+ * Blocks that ALWAYS interrupt a paragraph, so meeting one at the list's own indent ends the
+ * list for certain rather than continuing an item lazily: an ATX heading and a blockquote.
+ * Fenced blocks and thematic breaks interrupt too and are handled by their own branches.
+ */
+const PARAGRAPH_INTERRUPTER = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>)/;
+
+function isThematicBreak(line: string): boolean {
+  const body = line.trim();
+  const c = body[0];
+  if (c !== "-" && c !== "*") return false;
+  let n = 0;
+  for (const ch of body) {
+    if (ch === c) n++;
+    else if (ch !== " " && ch !== "\t") return false;
+  }
+  return n >= 3;
+}
+
+/**
+ * Sibling items of the list starting at `start`, or `null` when the list's extent is not
+ * DETERMINABLE from the text.
  *
  * `stopAtChecklist` is the contract's final counter (spec §3.2's stop-at-break
  * row): the enumeration ends where task scaffolding begins.
+ *
+ * The `null` is the R20 class sweep's answer, and it is a REFUSAL rather than a reading. This
+ * counter is line-based; CommonMark's list extent depends on paragraph continuation, on which
+ * markers may interrupt a paragraph, and on setext underlines, none of which a line scan can
+ * decide. Three shapes were probed producing a FALSE advisory — a lazy prose line and a GFM
+ * table row each turned a 3-item list into "1 items", and an empty marker did the same — and
+ * the fix for each was a different CommonMark rule. So rather than approximate the grammar one
+ * construct at a time, the counter reports only when the list's end is CERTAIN and refuses
+ * otherwise: a miss costs a tripwire, where a reading that guesses wrong invents one.
+ *
+ * Certain: end of document, a second blank line, anything at all after ONE blank line (which
+ * closes the item's paragraph, so nothing below can continue it lazily), a thematic break or
+ * fence at the list's own indent, an ATX heading or blockquote (both always interrupt a
+ * paragraph), a marker of a DIFFERENT type (which starts a new list, so this one has ended),
+ * and the ratified checklist stop. Refused: an empty marker at the list's own indent, and an
+ * unindented non-bullet line with the paragraph still open — the latter deferred rather than
+ * refused outright, since it only matters when a sibling follows it; with nothing below, both
+ * readings give the same count.
  */
-function countListItems(model: DocModel, start: number, stopAtChecklist: boolean): number {
+function countListItems(model: DocModel, start: number, stopAtChecklist: boolean): number | null {
   const first = BULLET_RE.exec(model.lines[start]!);
   if (first === null) return 0;
   const indent = first[1]!.length;
@@ -774,8 +829,29 @@ function countListItems(model: DocModel, start: number, stopAtChecklist: boolean
   // measured from the line rather than assumed, since `-   first` pads its marker and puts
   // the content four columns in (review R18, probed).
   const contentIndent = first[0]!.length - first[3]!.length;
+  // CommonMark: two items belong to the same list only when they use the same bullet character
+  // or the same ordered delimiter, so `-` then `*` is TWO lists. Counting across the change
+  // over-counted a list that had already ended, which drew a false advisory whenever the claim
+  // matched the first run (R20 sweep, probed) — and under-reported the tripwire the other way.
+  const listType = markerType(first[2]!);
+  // Is this list NESTED inside an item of a shallower one? A marker outdented past this list
+  // closes it and continues the enclosing list, so it is this list's end; but with no enclosing
+  // list there is nothing for it to continue, and CommonMark keeps it here as a sibling whose
+  // marker merely sits further left. Both readings are reachable in the corpus — treating the
+  // nested case as a sibling swallowed six following lists into one count of 19 — and the
+  // enclosing block is what tells them apart, so it is read rather than assumed.
+  let nested = false;
+  for (let i = start - 1; i >= 0; i--) {
+    const above = model.lines[i]!;
+    if (above.trim() === "") continue;
+    if (/^(\s*)/.exec(above)![1]!.length >= indent) continue;
+    nested = BULLET_RE.test(above) || EMPTY_ITEM_RE.test(above);
+    break;
+  }
   let count = 0;
   let blanks = 0;
+  /** Set once a line was read whose reading the list's extent depends on. */
+  let ambiguous = false;
   /** Indent of the OPEN fence's delimiter, or null outside a fence. */
   let fenceIndent: number | null = null;
   for (let i = start; i < model.lines.length; i++) {
@@ -802,19 +878,57 @@ function countListItems(model: DocModel, start: number, stopAtChecklist: boolean
       if (blanks >= 2) break;
       continue;
     }
+    // A thematic break WINS over a list item in CommonMark, so `- - -` is an <hr> that ends
+    // the list rather than a third sibling (review R20, probed). Indented to the item's
+    // content column it is a break inside that item, which the list carries over like any
+    // other item content.
+    if (isThematicBreak(line)) {
+      if (/^(\s*)/.exec(line)![1]!.length < contentIndent) break;
+      blanks = 0;
+      continue;
+    }
+    // A marker with NOTHING after it. `BULLET_RE` requires content, so this line would
+    // otherwise end the list and undercount it — but CommonMark's answer is not simply "an
+    // item" either: an empty marker cannot interrupt a paragraph, and a lone `-` under a
+    // paragraph line is a setext underline. At the list's own indent the reading changes the
+    // count, so the counter refuses rather than pick one (probed for all three marker kinds).
+    // Deeper than the list it is inside an item and the sibling count is the same either way.
+    const empty = EMPTY_ITEM_RE.exec(line);
+    if (empty !== null) {
+      if (empty[1]!.length >= contentIndent) {
+        blanks = 0;
+        continue;
+      }
+      return null;
+    }
     const b = BULLET_RE.exec(line);
-    if (b !== null && b[1]!.length === indent) {
+    if (b !== null) {
+      // Reaching the item's content column makes this a nested list, which belongs to the item
+      // above it. Short of that column it cannot be content, so it is a sibling of THIS list
+      // unless the list is itself nested, where an outdent closes it instead (both readings
+      // probed). Review R1's probe refuted reading the marker's WIDTH here rather than its
+      // column, which ran straight past an outdent and swallowed the item below it.
+      if (b[1]!.length >= contentIndent) {
+        blanks = 0;
+        continue;
+      }
+      if (markerType(b[2]!) !== listType) break;
+      if (nested && b[1]!.length < indent) break;
       if (stopAtChecklist && CHECKLIST_RE.test(b[3]!)) break;
+      if (ambiguous) return null;
       blanks = 0;
       count++;
       continue;
     }
-    if (b !== null && b[1]!.length > indent) {
+    if (/^(\s*)/.exec(line)![1]!.length >= contentIndent) {
       blanks = 0;
       continue;
     }
-    if (/^(\s*)/.exec(line)![1]!.length > indent) {
-      blanks = 0;
+    // Certain terminators: a heading and a blockquote interrupt a paragraph, so the list ends
+    // here whatever preceded. So does anything at all once a blank line has closed the item's
+    // paragraph — lazy continuation needs an OPEN one. Everything else is the ambiguity above.
+    if (blanks === 0 && !PARAGRAPH_INTERRUPTER.test(line)) {
+      ambiguous = true;
       continue;
     }
     break;
@@ -1044,7 +1158,8 @@ export function checkNumerics(
       break;
     }
     if (listIdx < 0) continue;
-    if (countListItems(model, listIdx, false) < 1) continue;
+    const adjacent = countListItems(model, listIdx, false);
+    if (adjacent === null || adjacent < 1) continue;
     if (claim.value < CLAIM_VALUE_MIN || claim.value > CLAIM_VALUE_MAX) continue;
     if (SENTENCE_END.test(line.slice(claim.end))) continue;
     if (!COLON_TERMINATED.test(line) && line.length - claim.end > CLAIM_TAIL_MAX) continue;
@@ -1053,7 +1168,7 @@ export function checkNumerics(
     if (!claim.lexOk) continue;
     if (qualifierBoundStarts(line).has(claim.index)) continue; // exclusion (ii)
     const counted = countListItems(model, listIdx, true);
-    if (counted === claim.value) continue;
+    if (counted === null || counted === claim.value) continue;
     findings.push({
       check: "numerics",
       code: "SIBLING_LIST_CARDINALITY",

@@ -63,12 +63,7 @@ export function runLint(doc: LintDoc, resolver: FileResolver): LintResult {
   const model = parseDoc(doc.text);
   const citations = checkCitations(model, resolver);
   const scripts = resolveScriptTexts(model, resolver);
-  const numerics = checkNumerics(
-    model,
-    citations.candidateSpans,
-    scripts.texts,
-    scripts.ambiguous,
-  );
+  const numerics = checkNumerics(model, citations.candidateSpans, scripts.texts, scripts.ambiguous);
   const copy = checkCopy(model);
   const sections = checkSections(model, doc.kind, citations.resolvedPaths);
   const taskContract = checkTaskContract(model, doc.kind);

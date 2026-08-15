@@ -1,14 +1,14 @@
 spec:lint prose-count parity arms — corpus survivor records
-measured 2026-08-15T13:00:08.195Z on branch feat/speclint-prose-count-parity
+measured 2026-08-15T16:42:18.383Z on branch feat/speclint-prose-count-parity
 documents linted: 1052 of 1053 (kind forced on 62; 1 refused by the CLI by design)
-elapsed: 10.7s
+elapsed: 18.1s
 
 == refused by the CLI by design (NOT covered by this scan) ==
 docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md — {"error":"not a regular file (symlink): docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-do
 
 == SCRIPT_CONSTANT_PARITY: 0 advisories ==
 
-== SIBLING_LIST_CARDINALITY: 179 advisories ==
+== SIBLING_LIST_CARDINALITY: 174 advisories ==
 BACKLOG.md:263:107 claim of 2 sites over an adjacent list of 3 items
     claim "two sites"; list starts at doc line 265 with 3 sibling items
 BACKLOG.md:916:80 claim of 6 rounds over an adjacent list of 8 items
@@ -71,8 +71,6 @@ docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:897:28 claim of 3 te
     claim "three tests"; list starts at doc line 898 with 2 sibling items
 docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/00-overview.md:56:63 claim of 6 re-runs over an adjacent list of 1 items
     claim "6 re-runs"; list starts at doc line 57 with 1 sibling items
-docs/superpowers/plans/2026-07-20-warning-surface-trim/plan.md:168:14 claim of 6 fixtures over an adjacent list of 4 items
-    claim "six fixtures"; list starts at doc line 169 with 4 sibling items
 docs/superpowers/plans/2026-07-22-dev-modal-capture/SPIKE.md:35:42 claim of 9 implementations over an adjacent list of 4 items
     claim "9 implementations"; list starts at doc line 37 with 4 sibling items
 docs/superpowers/plans/2026-07-24-attention-index.md:91:516 claim of 2 files over an adjacent list of 3 items
@@ -127,8 +125,6 @@ docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.m
     claim "13 adds"; list starts at doc line 1385 with 0 sibling items
 docs/superpowers/plans/observability/2026-07-04-mutation-surface-observability.md:480:27 claim of 2 mutations over an adjacent list of 1 items
     claim "2 mutations"; list starts at doc line 481 with 1 sibling items
-docs/superpowers/plans/observability/2026-07-04-telemetry-admin-dev-gate/02-partB-app.md:49:33 claim of 3 changes over an adjacent list of 4 items
-    claim "three changes"; list starts at doc line 50 with 4 sibling items
 docs/superpowers/plans/observability/2026-07-05-admin-outcome-behavioral-coverage-registry/00-overview.md:17:25 claim of 6 rows over an adjacent list of 4 items
     claim "6 rows"; list starts at doc line 19 with 4 sibling items
 docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:498:86 claim of 3 its over an adjacent list of 0 items
@@ -227,8 +223,6 @@ docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md:
     claim "Two rules"; list starts at doc line 446 with 3 sibling items
 docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md:359:199 claim of 2 constraints over an adjacent list of 3 items
     claim "Two constraints"; list starts at doc line 361 with 3 sibling items
-docs/superpowers/specs/2026-07-26-gallery-screenshot-capture-design.md:335:29 claim of 3 layers over an adjacent list of 1 items
-    claim "Three layers"; list starts at doc line 337 with 1 sibling items
 docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md:72:888 claim of 4 names over an adjacent list of 2 items
     claim "four names"; list starts at doc line 74 with 2 sibling items
 docs/superpowers/specs/2026-08-01-announce-a11y-pass-design.md:138:101 claim of 11 runs over an adjacent list of 5 items
@@ -247,8 +241,6 @@ docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:332:27 claim of 
     claim "3 findings"; list starts at doc line 333 with 4 sibling items
 docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:338:27 claim of 4 findings over an adjacent list of 6 items
     claim "4 findings"; list starts at doc line 339 with 6 sibling items
-docs/superpowers/specs/2026-08-03-app-wide-font-binding.md:24:1 claim of 3 findings over an adjacent list of 2 items
-    claim "Three findings"; list starts at doc line 26 with 2 sibling items
 docs/superpowers/specs/2026-08-03-harness-font-fidelity-design.md:177:1 claim of 2 changes over an adjacent list of 1 items
     claim "Two changes"; list starts at doc line 179 with 1 sibling items
 docs/superpowers/specs/2026-08-03-inter-numeral-disambiguation-design.md:86:325 claim of 2 files over an adjacent list of 5 items
@@ -273,8 +265,8 @@ docs/superpowers/specs/admin/2026-07-01-shows-720-title-floor-design.md:38:42 cl
     claim "7 lines"; list starts at doc line 40 with 5 sibling items
 docs/superpowers/specs/admin/2026-07-03-developer-tier.md:281:521 claim of 3 things over an adjacent list of 4 items
     claim "three things"; list starts at doc line 283 with 4 sibling items
-docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md:247:156 claim of 3 rounds over an adjacent list of 10 items
-    claim "three rounds"; list starts at doc line 249 with 10 sibling items
+docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md:247:156 claim of 3 rounds over an adjacent list of 7 items
+    claim "three rounds"; list starts at doc line 249 with 7 sibling items
 docs/superpowers/specs/admin/2026-07-16-consolidated-admin-show-page.md:367:14 claim of 2 phases over an adjacent list of 0 items
     claim "two phases"; list starts at doc line 369 with 0 sibling items
 docs/superpowers/specs/admin/2026-07-16-destructive-confirm-pass.md:7:1 claim of 4 idioms over an adjacent list of 5 items
@@ -291,8 +283,6 @@ docs/superpowers/specs/alerts/2026-07-16-notify-email-batching.md:88:52 claim of
     claim "two files"; list starts at doc line 90 with 3 sibling items
 docs/superpowers/specs/ci/2026-07-19-ci-unit-suite-under-5min.md:27:34 claim of 3 commitments over an adjacent list of 0 items
     claim "3 commitments"; list starts at doc line 29 with 0 sibling items
-docs/superpowers/specs/ci/2026-07-19-ci-unit-suite-under-5min.md:95:42 claim of 3 steps over an adjacent list of 7 items
-    claim "three steps"; list starts at doc line 97 with 7 sibling items
 docs/superpowers/specs/ci/2026-07-19-ci-unit-suite-under-5min.md:129:24 claim of 2 meta-tests over an adjacent list of 4 items
     claim "two meta-tests"; list starts at doc line 131 with 4 sibling items
 docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:380:276 claim of 3 rounds over an adjacent list of 5 items
@@ -538,5 +528,5 @@ docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-sh
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:707:1 near-identical line repeated at doc line 713 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1, 1] there
     similarity 1.00; doc line 707: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1._"; doc line 713: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1/1._"
 
-TOTAL advisories across the three arms: 263
+TOTAL advisories across the three arms: 258
 HARD findings from the three arms: 0 (asserted)

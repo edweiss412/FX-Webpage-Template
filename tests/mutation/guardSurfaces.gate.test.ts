@@ -75,7 +75,7 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // shapes those probes used. So a 43rd row is a coverage regression to argue rather than
   // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
   // first, needing its own backlog entry.
-  specLintNumerics: { equivalent: 51 },
+  specLintNumerics: { equivalent: 50 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
