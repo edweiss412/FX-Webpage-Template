@@ -90,7 +90,9 @@ construction to `tests/docs/_metaDeferralLedgerGraduation.test.ts`'s cross-file 
    authoring a second recognizer.
 6. **Archives may be edited for this purpose.** The entry mandates de-duplicating the
    archive; the edit is structural (heading marks), with every word preserved. Where a
-   preamble sentence says the original "follows verbatim", the impl appends
+   preamble sentence claims verbatim preservation in ANY spelling — "follows
+   verbatim", "Entry preserved verbatim below", and peers (R6 F2: the clause keys on
+   the verbatim CLAIM, not one phrase) — the impl appends
    "(heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS)" in the same
    commit so the prose stays true.
 7. **Autonomy:** user grant 2026-08-15 — both user review gates WAIVED; Fable authors,
@@ -104,8 +106,9 @@ construction to `tests/docs/_metaDeferralLedgerGraduation.test.ts`'s cross-file 
 ### §2.1 The repair (43 pairs, one mechanical rule)
 
 For each pair below, the NON-SURVIVING heading line is rewritten in place from
-`#{2,3} <text>` to `**<text>**` (exact text preserved). No other body change, except the
-§1.1.6 "follows verbatim" preamble annotations. Line numbers are drafting-time locators
+`#{2,4} <text>` to `**<text>**` (exact text preserved; the depth range spans every
+live demotion target — the two R5 F1 targets are `####`, R6 F1). No other body
+change, except the §1.1.6 verbatim-preamble annotations. Line numbers are drafting-time locators
 at base `fafa354ac`; the impl re-derives them from the guard's own RED output.
 
 `BACKLOG-archive.md` — 37 pairs, all keep-FIRST (terminal record first; the last
