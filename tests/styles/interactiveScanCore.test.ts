@@ -19,6 +19,9 @@ const el = (over: Partial<ScanElement>): ScanElement => ({
   paths: [[]],
   unresolved: false,
   hasClassName: true,
+  // Default FALSE, deliberately: the allowlist is an identity the scanner
+  // resolves from an import, so a unit case has to claim it on purpose.
+  allowlisted: false,
   ...over,
 });
 
@@ -532,6 +535,94 @@ describe("resolver end-to-end fixtures (plan R2 F3, executable, not comments)", 
     expect(b && heightFloorSatisfied(b)).toBe(false);
   });
 
+  // ---- soundness of what the resolver CLAIMS to have read (R1 F4) ----
+  it("a reassignable binding is not read from its initializer", () => {
+    // `let cls = floor; if (f) cls = under-floor;` renders the second value on a
+    // real path. Tracking assignments is a dataflow problem the scan does not
+    // do, so the binding is declined and the site becomes a census row.
+    const b = scanFixture(
+      [
+        "export function C({ f }: { f: boolean }) {",
+        '  let cls = "min-h-tap-min";',
+        '  if (f) cls = "min-h-0";',
+        "  return <button className={cls}>x</button>;",
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(true);
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
+
+  it("a declined local binding does not fall through to an import of the same name", () => {
+    // The failure this guards is subtle: treating "found but unreadable" as
+    // "not found" sends the lookup to the import table, where an unrelated
+    // module's export of that name resolves — and clears.
+    const b = scanFixtureFiles({
+      "components/Fx.tsx": [
+        'import { cls } from "./a";',
+        "export function C({ f }: { f: boolean }) {",
+        "  // eslint-disable-next-line prefer-const",
+        '  let cls = "min-h-0";',
+        '  if (f) cls = "min-h-0";',
+        "  return <button className={cls}>x</button>;",
+        "}",
+      ].join("\n"),
+      "components/a.tsx": 'export const cls = "min-h-tap-min";',
+    }).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(true);
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
+
+  it.each([
+    ["    if (f) return;", "a bare return"],
+    ["    // no other return", "falling off the end"],
+  ])("a helper path that returns NO class is an alternative (%s)", (extra) => {
+    const b = scanFixture(
+      [
+        "export function C({ f }: { f: boolean }) {",
+        "  function seg() {",
+        extra,
+        '    if (f) return "min-h-tap-min";',
+        "  }",
+        "  return <button className={seg()}>x</button>;",
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b && heightFloorSatisfied(b)).toBe(false);
+  });
+
+  it("a helper whose LAST statement returns a floor still clears", () => {
+    // The mirror of the two cases above: the conservative rule must not swallow
+    // the ordinary shape, or every helper call lands in the census.
+    const b = scanFixture(
+      [
+        "export function C() {",
+        "  function seg() {",
+        '    return "min-h-tap-min";',
+        "  }",
+        "  return <button className={seg()}>x</button>;",
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "button");
+    expect(b?.unresolved).toBe(false);
+    expect(b && heightFloorSatisfied(b)).toBe(true);
+  });
+
+  it("the floor-component allowlist is an IMPORT identity, not a name", () => {
+    const local = scanFixture(
+      [
+        "function AccentButton({ children }: { children?: unknown }) {",
+        '  return <button className="min-h-0">{children as never}</button>;',
+        "}",
+        "export function C() {",
+        "  return <AccentButton>x</AccentButton>;",
+        "}",
+      ].join("\n"),
+    ).find((e) => e.tag === "AccentButton");
+    expect(local?.allowlisted).toBe(false);
+    expect(local && heightFloorSatisfied(local)).toBe(false);
+  });
+
   it("nested conditional keeps ancestry: inner both-branch floor under a floorless outer arm never clears", () => {
     const els = scanFixture(
       [
@@ -568,12 +659,22 @@ describe("height floor (spec §5.1/§5.2 rules 1-4, 7) and defeaters (rule 8)", 
   });
   it("rule 7: allowlisted component clears with no className, but a call-site defeater demotes", () => {
     expect(
-      heightFloorSatisfied(el({ tag: "AccentButton", paths: [[]], hasClassName: false })),
+      heightFloorSatisfied(
+        el({ tag: "AccentButton", allowlisted: true, paths: [[]], hasClassName: false }),
+      ),
     ).toBe(true);
-    expect(heightFloorSatisfied(el({ tag: "AccentButton", paths: [["min-h-0!"]] }))).toBe(false);
-    expect(heightFloorSatisfied(el({ tag: "AccentButton", paths: [[]], unresolved: true }))).toBe(
-      false,
-    );
+    expect(
+      heightFloorSatisfied(el({ tag: "AccentButton", allowlisted: true, paths: [["min-h-0!"]] })),
+    ).toBe(false);
+    expect(
+      heightFloorSatisfied(
+        el({ tag: "AccentButton", allowlisted: true, paths: [[]], unresolved: true }),
+      ),
+    ).toBe(false);
+    // The TAG alone grants nothing: `allowlisted` is resolved from the import.
+    expect(
+      heightFloorSatisfied(el({ tag: "AccentButton", paths: [[]], hasClassName: false })),
+    ).toBe(false);
   });
   it.each(["min-h-0!", "max-h-10!", "[height:0]!", "[min-height:0]", "sm:min-h-0", "hover:h-4"])(
     "defeater %s demotes even from a minority path",
@@ -660,9 +761,12 @@ describe("height floor (spec §5.1/§5.2 rules 1-4, 7) and defeaters (rule 8)", 
   // than one — so every off-by-one in that walk survived.
   it("a bracketed variant whose argument contains a colon still finds the real separator", () => {
     expect(defeaterPresent(el({ paths: [["supports-[display:grid]:min-h-0"]] }))).toBe(true);
-    expect(heightFloorSatisfied(el({ paths: [["supports-[display:grid]:min-h-tap-min"]] }))).toBe(
-      true,
-    );
+    // The separator has to be found in the floor direction too, and a variant
+    // token never floors (see the unconditional-height table), so the readable
+    // consequence is that the utility is not mistaken for something else: with
+    // the bracket walk off by one, `baseToken` returns the WHOLE token and the
+    // defeater above disappears.
+    expect(defeaterPresent(el({ paths: [["supports-[display:grid]:h-4"]] }))).toBe(true);
   });
 
   it("a token with TWO variant prefixes classifies on the last one", () => {
@@ -690,14 +794,73 @@ describe("height floor (spec §5.1/§5.2 rules 1-4, 7) and defeaters (rule 8)", 
     );
   });
 
+  // ---- the unconditional-height claim (whole-diff review R1, findings 2 and 3) ----
+  //
+  // The guard's claim is that the element is AT LEAST 44px on EVERY render. Each
+  // shape below was cleared by the first shipped grammar and none of them
+  // establishes that, which is the only silent direction this scan has.
+  it.each([
+    // A maximum is not a minimum. `max-h-96` says the box stops at 384px; it
+    // says nothing about how short it may be.
+    "max-h-96",
+    // A floor that only applies in a STATE is not a floor at rest.
+    "hover:min-h-tap-min",
+    "sm:min-h-tap-min",
+    "focus-visible:h-11",
+    // A pseudo bleed that only expands HORIZONTALLY cannot prove a height, and
+    // this is the shape two live sites actually wear.
+    "relative before:absolute before:-inset-x-2",
+    // A vertical bleed too small to reach the floor over an unknown-height row.
+    "relative before:absolute before:-inset-y-1",
+    // Vertical padding that a later utility overrides back down.
+    "-my-1 p-3 py-1 text-xs",
+  ])("%s does NOT prove the floor", (tok) => {
+    expect(heightFloorSatisfied(el({ paths: [[tok as string]] }))).toBe(false);
+  });
+
+  it.each([
+    // The shipped switch recipe: 28 + 2*8 = 44 in the browser, and it still
+    // does NOT clear, because `h-7` is a rule-8 defeater and rule 8 is
+    // deliberately unconditional. The three switches carry it as a census row
+    // whose reason says exactly that (tapTargetCensus.ts, `padding-arithmetic`).
+    // Pinned here so the precedence is a decision on the record rather than an
+    // accident of evaluation order.
+    ["relative h-7 before:absolute before:-inset-y-2", false],
+    // Same bleed, no declared height: 20 (assumed single-line row) + 16 = 36.
+    ["relative before:absolute before:-inset-y-2", false],
+    // A bleed that reaches the floor over the same assumed row: 20 + 2*12 = 44.
+    ["relative before:absolute before:-inset-y-3", true],
+    ["relative before:absolute before:-inset-3", true],
+  ])("%s -> %s (element height + proven vertical bleed)", (tok, want) => {
+    expect(heightFloorSatisfied(el({ paths: [[tok as string]] }))).toBe(want);
+  });
+
+  it("a self-targeted arbitrary variant is the element's own box, not a descendant's", () => {
+    // `[&_svg]` and `[&>svg]` reach a CHILD; `[&:hover]` and `[&.is-open]` are
+    // the element itself, so their heights are its heights.
+    expect(defeaterPresent(el({ paths: [["min-h-tap-min [&:hover]:h-4"]] }))).toBe(true);
+    expect(defeaterPresent(el({ paths: [["min-h-tap-min [&_svg]:h-4"]] }))).toBe(false);
+  });
+
+  it("named spacing tokens come from @theme, not from anywhere in the stylesheet", () => {
+    // The map is read by regex out of `app/globals.css`. Scoped to the `@theme`
+    // block and with comments stripped, a token that Tailwind does not emit
+    // cannot make a class clear. `--spacing-header-link-slot` is a real token
+    // and stays readable; a name that appears only in prose must not.
+    expect(heightFloorSatisfied(el({ paths: [["min-h-tile-min-h"]] }))).toBe(true);
+    expect(heightFloorSatisfied(el({ paths: [["min-h-not-a-real-token"]] }))).toBe(false);
+  });
+
   it("the pseudo-element expansion recipes DO floor (spec §5.1)", () => {
     // Explicit-height form: a 44px absolutely-positioned pseudo IS the hit area.
     expect(
       heightFloorSatisfied(el({ paths: [["relative before:absolute before:h-tap-min"]] })),
     ).toBe(true);
-    // Negative-inset form.
+    // Negative-inset form, at a magnitude that reaches the floor over the
+    // assumed single-line row (20 + 2*12). The smaller bleeds are in the table
+    // above, where they correctly do NOT clear on their own.
     expect(
-      heightFloorSatisfied(el({ paths: [["relative before:absolute before:-inset-y-2"]] })),
+      heightFloorSatisfied(el({ paths: [["relative before:absolute before:-inset-y-3"]] })),
     ).toBe(true);
     // A non-expanding pseudo is not a recipe.
     expect(heightFloorSatisfied(el({ paths: [["relative before:absolute before:inset-0"]] }))).toBe(

@@ -47,11 +47,45 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
   it.each([
     ["light", lightBlock],
     ["dark", darkBlock],
-  ])("%s: text-faint clears 3:1 on surface, surface-sunken, and bg", (_mode, block) => {
+  ])("%s: text-faint clears 3:1 on every NEUTRAL ground DESIGN §1.2 pins", (_mode, block) => {
     const faint = tokenIn(block, "--color-text-faint");
-    for (const ground of ["--color-surface", "--color-surface-sunken", "--color-bg"]) {
+    // `surface-raised` was missing here while DESIGN §1.2 carried its row, so
+    // the document claimed a pin the suite did not make (whole-diff R1 F1).
+    for (const ground of [
+      "--color-surface",
+      "--color-surface-sunken",
+      "--color-bg",
+      "--color-surface-raised",
+    ]) {
       expect(contrast(faint, tokenIn(block, ground))).toBeGreaterThanOrEqual(3.0);
     }
+  });
+
+  /**
+   * The TINTED plates, recorded rather than claimed.
+   *
+   * Ten shipped controls stand on a `warning-bg` / `info-bg` / `danger-bg`
+   * card, and against those the outline's OUTER edge measures 2.79-2.88:1 in
+   * one theme each — under 3:1. DESIGN §1.2a states that position and files the
+   * design question as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`; this case exists
+   * so the numbers cannot drift silently in either direction. A token change
+   * that lifts a plate over 3:1 fails here too, which is the point: the
+   * document and the stylesheet move together.
+   */
+  it.each([
+    ["light", "--color-warning-bg", 3.04],
+    ["dark", "--color-warning-bg", 2.79],
+    ["light", "--color-info-bg", 2.87],
+    ["dark", "--color-info-bg", 3.48],
+    ["light", "--color-danger-bg", 2.88],
+    ["dark", "--color-danger-bg", 3.19],
+  ])("%s: text-faint vs %s is the recorded %s:1", (mode, ground, expected) => {
+    const block = mode === "light" ? lightBlock : darkBlock;
+    const measured = contrast(
+      tokenIn(block, "--color-text-faint"),
+      tokenIn(block, ground as string),
+    );
+    expect(measured).toBeCloseTo(expected as number, 2);
   });
 
   /**
@@ -60,12 +94,18 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
    *
    * `app/globals.css` excludes `lib/` from Tailwind's source detection, and
    * this constant is the one runtime class string that lives there. Every
-   * other class in it happens to be worn by markup under `app/`/`components/`,
+   * other class in it happened to be worn by markup under `app/`/`components/`,
    * so the exclusion never bit — until the outline moved to
-   * `border-text-faint`, which no scanned file wears: Tailwind emitted no rule,
-   * `border-color` fell back to `currentColor`, and the button drew a
-   * near-black outline. Every assertion above stayed green, because a token's
-   * contrast says nothing about whether a utility exists.
+   * `border-text-faint`, which no scanned file wore at the time: Tailwind
+   * emitted no rule, `border-color` fell back to `currentColor`, and the button
+   * drew a near-black outline. Every assertion above stayed green, because a
+   * token's contrast says nothing about whether a utility exists.
+   *
+   * That specific hole is closed twice over now — the same branch put
+   * `border-text-faint` on 31 scanned sites, so `@source inline(...)` no longer
+   * carries it alone. The RATIONALE is therefore historical and the GUARANTEE
+   * is not: the next class added to this constant will be the one no scanned
+   * file wears, and it is checked below the moment it is added.
    *
    * The subject here is therefore the COMPILED stylesheet, and the expectation
    * is DERIVED from the constant rather than enumerated: a class added to

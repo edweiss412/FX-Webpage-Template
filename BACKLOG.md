@@ -331,6 +331,31 @@ DESIGN §1.1a now says `--color-text-subtle` is never the resting colour of an a
 
 **First scheduled step:** decide whether `text-faint` is admissible as a resting colour for a deliberately recessive control (and if so, name the condition in §1.1a — e.g. only where a non-colour affordance carries the control), or add it to the policed set and re-census.
 
+## BL-CONTROL-OUTLINE-ON-TINTED-PLATES — the secondary outline dips under 3:1 against warning, info and danger cards
+
+**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R1 F1). **Class:** design-system contrast. **Effort:** S at the token, M across the plates. **Class-sweep exception:** (a) — which treatment a tinted plate should get is a design decision this policy did not make. **Reachability:** PROBED — ratios computed from the runtime tokens in `app/globals.css` and pinned in `tests/styles/secondary-action-contrast.test.ts`.
+
+The secondary action paints its own `bg-bg` fill, so its outline has two neighbours: the fill inside it (3.21:1 light / 4.00:1 dark) and whatever it stands on outside. On the four neutral grounds DESIGN §1.2 pins, both sides clear 3:1. On a tinted plate the outer edge does not, in exactly one theme per plate: `warning-bg` **2.79** dark (3.04 light), `info-bg` **2.87** light (3.48 dark), `danger-bg` **2.88** light (3.19 dark).
+
+Ten shipped controls stand on such a plate: `components/admin/DataQualityWarningControls.tsx:21`, `MaintenanceResetButtons.tsx:308` and `:328`, `PerShowAlertResolveButton.tsx:94`, `ReapStaleSessionsButton.tsx:146`, `RecentAutoAppliedStrip.tsx:551`, `ReSyncButton.tsx:286`, `ShowRowActions.tsx:932`, `wizard/step3ReviewSections.tsx:2682`, and `wizard/archivedTabOffer.tsx:140` (both its accept and revoke controls).
+
+**Why it is recorded rather than repaired here.** `BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE` was explicit that the prior 1.59:1 boundary was NOT a WCAG failure — the label carried the affordance — and this arc shipped the upgrade under that frame (spec §1.1 R5). A boundary that is strong against its own fill and 2.79-2.88:1 against a tinted plate is a weaker instance of the upgrade, not a regression against the state before it. Choosing the treatment — a darker token used only on tinted plates, a plate-matched outline, or accepting the current numbers — is a design decision, and picking one silently inside a policy arc is what the ledger exists to prevent.
+
+**First scheduled step:** decide whether tinted plates get their own outline token. If yes, the shape is a per-plate `border-*` in the same recipe rather than a new global token, because the neutral grounds already clear and moving the shared token would push them the other way.
+
+## BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR — three native-input rows are targeted through a label that carries no floor
+
+**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R1 F5). **Class:** accessibility / tap target. **Effort:** S per site, M as a class. **Class-sweep exception:** (a) — the repair needs a decision the current PR cannot settle, stated per site below. **Reachability:** PROBED — the markup is read out in each census row, and the guard now names all three as `under-floor-filed`.
+
+A native checkbox or radio is normally targeted through its `<label>`, and the tap-height census carries that as an exemption family. In three places the mechanism holds and the FLOOR does not:
+
+- `app/admin/settings/roles/RoleMappingRow.tsx:266` and `components/admin/RoleRecognizeControl.tsx:343` — the FINANCIALS checkbox is not label-wrapped like its A1/V1/L1 siblings. It sits in a `div` carrying `min-h-tap-min` with the `<label htmlFor>` as a SIBLING, and a `div` does not toggle a checkbox. The real target is the 20px input plus a label whose own box is one text line.
+- `components/admin/StagedReviewCard.tsx:580` — the radio IS label-wrapped, but the label is `flex cursor-pointer items-center gap-2 text-sm`: no minimum height, no padding, so the target is a single 20px line.
+
+**Why not repaired here.** The FINANCIALS structure is deliberate: the caution copy is bound with `aria-describedby` precisely so it stays out of the checkbox's accessible name (the comment at `RoleRecognizeControl.tsx:337` says so). Wrapping the row in a `<label>` to gain the floor folds that caution back into the name, so the fix trades one a11y property for another and needs a decision, not a patch. The staged-review radio sits in a dense per-item list where adding 24px per row is a layout decision on a surface this branch does not otherwise touch.
+
+**First scheduled step:** decide the FINANCIALS shape — either a `<label>` wrapping only the checkbox and its short caption with the caution outside it, or padding on the existing sibling label — then apply the same answer to both files, and settle the staged-review list separately.
+
 ## BL-MUTATION-HARNESS-WALLCLOCK-CEILING — the nightly job's wall clock grows with every enrolled surface and nothing bounds it
 
 **Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, Task 5 enrolment). **Class:** CI capacity. **Effort:** M. **Class-sweep exception:** (c) — the repair is a redesign of the harness's execution model (sharding) on a surface this branch only enrols into. **Reachability:** PROBED — three measured runs, below.

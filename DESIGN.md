@@ -66,7 +66,10 @@ weight. Resting subtle is sanctioned. (7 sites.)
 
 **Family C — dismissable filter chips.** A chip's text names an APPLIED FILTER,
 which is a caption; the dismiss glyph is the control. Resting subtle is
-sanctioned. (2 sites.)
+sanctioned. (1 site. The second was the "Clear filters" action standing beside
+the chips — a plain underlined button with no caption and no dismiss glyph — so
+it never met this definition; it rests at `text-text` like any other action.
+Corrected 2026-08-15.)
 
 **Family D — state-pair dim members.** The dim member of a state pair
 (inactive↔active, claimed↔unclaimed) may rest subtle **only while the pair
@@ -186,10 +189,31 @@ treatment (`lib/ui/actionClass.ts`, `SECONDARY_ACTION_CLASS`, 8 call sites):
 | Before (2026-08-14) | `--color-border-strong` | 1.59:1 | 1.60:1 |
 | After | `--color-text-faint` | 3.35:1 | 3.76:1 |
 
-The three ground pairings are pinned as §1.2 rows above (`surface`,
-`surface-sunken`, `bg`) and asserted live by
+The four neutral ground pairings are pinned as §1.2 rows above (`surface`,
+`surface-sunken`, `bg`, `surface-raised`) and asserted live by
 `tests/styles/secondary-action-contrast.test.ts`, which also pins that the
 constant still wears the token the ratios are about.
+
+**What the outline is measured against, and where it does not clear 3:1.** The
+button paints its own `bg-bg` fill, so the outline has two neighbours: the fill
+INSIDE it (3.21:1 light / 4.00:1 dark, every instance) and whatever the button
+stands on OUTSIDE it. On the four neutral grounds above, both sides clear. On a
+TINTED plate they do not, and the measured numbers are recorded here rather than
+implied away — `warning-bg` 3.04 light / **2.79** dark, `info-bg` **2.87** light
+/ 3.48 dark, `danger-bg` **2.88** light / 3.19 dark. Ten shipped controls stand
+on such a plate (the data-quality card, the maintenance and reap actions, the
+per-show alert resolve, the re-sync and show-row actions, the step-3 review and
+archived-tab offers).
+
+Two things follow, and the second is why this is a recorded position and not a
+defect. First, the outer edge dips to 2.79–2.88:1 in exactly one theme per
+plate, never both. Second, R5 above is the standing frame: the outline is an
+upgrade over a label that already carried the affordance, so a boundary that is
+strong against its own fill and slightly under 3:1 against a tinted plate is a
+weaker version of the upgrade, not a regression against the prior state (which
+was 1.59:1 against everything). Whether tinted plates should get their own
+treatment — a darker token, or a plate-matched outline — is a design decision
+this policy did not make, filed as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.
 
 **This was a design upgrade, not a compliance repair.** The 1.59:1 boundary
 was not a WCAG failure: the button's LABEL carried the affordance at 18.35:1,

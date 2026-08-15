@@ -56,6 +56,10 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
     }
   });
   it("registry cardinality matches the spec §4.3 tallies", () => {
-    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(15);
+    // 15 -> 14 (2026-08-15, whole-diff R1 F2): the second `ActiveFilterChips`
+    // row was the "Clear filters" action, which has no filter caption and no
+    // dismiss glyph and therefore never met Family C's definition. It was
+    // swapped rather than re-carved-out; spec §4.3 carries the correction.
+    expect(SUBTLE_INTERACTIVE_EXEMPTIONS.length).toBe(14);
   });
 });

@@ -19,10 +19,17 @@
  *   unresolvable-dynamic bucket E residue — className the resolver cannot read
  *
  * Seeded 2026-08-14 by running the shipped scanner (spec §1.1 R7: the branch
- * derives its own numbers). 51 rows out of 354 in-scope elements — 303 clear
- * statically. Per category: 14 full-bleed, 13 unresolvable-dynamic, 8
- * padding-arithmetic, 7 parent-label-target, 7 inline-prose-link, 2
- * under-floor-filed.
+ * derives its own numbers), and re-derived 2026-08-15 after the whole-diff
+ * review tightened the grammar. 53 rows out of 354 in-scope elements — 301
+ * clear statically. Per category: 16 full-bleed, 13 unresolvable-dynamic, 8
+ * padding-arithmetic, 7 inline-prose-link, 5 under-floor-filed, 4
+ * parent-label-target.
+ *
+ * The two rows the tightening ADDED are the useful record here: both had been
+ * clearing on a horizontal-only pseudo bleed that proves nothing about height.
+ * A census row that grows because the recogniser got stricter is the system
+ * working; a clear that survives because the recogniser is loose is the failure
+ * this guard exists to prevent.
  */
 
 export type TapCensusCategory =
@@ -47,7 +54,7 @@ export type TapCensusRow = {
 };
 
 export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
-  // ---- under-floor-filed (2) ---------------------------------------------
+  // ---- under-floor-filed (5) ---------------------------------------------
   {
     file: "app/admin/dev/page.tsx",
     line: 151,
@@ -65,6 +72,62 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     reason:
       "Second dev-panel button, same shape and same filing as the one above (py-1, Tailwind-excluded, build-gated out of production).",
     backlogRef: "BL-ADMIN-DEV-PANEL-TAP-FLOOR",
+  },
+  // These three were `parent-label-target` until the whole-diff review read the
+  // markup (R1 F5). The category was right about the MECHANISM — a native input
+  // is targeted through its label — and wrong about the FLOOR: in these three
+  // the label does not carry one. A census reason that is true of the pattern
+  // and false of the site is the failure mode this file exists to prevent, so
+  // they move to the honest category and take a ledger entry with them.
+  {
+    file: "app/admin/settings/roles/RoleMappingRow.tsx",
+    line: 266,
+    tag: "input",
+    category: "under-floor-filed",
+    reason:
+      "The FINANCIALS checkbox is NOT label-wrapped like its A1/V1/L1 siblings: it sits in a `div` carrying `min-h-tap-min`, with its `<label htmlFor>` as a SIBLING (RoleMappingRow.tsx:277). A div does not toggle a checkbox, so the real target is the 20px input plus a label whose own box is one text line. The structure is deliberate — the caution text is bound with `aria-describedby` so it stays out of the accessible name — which is why the repair is a decision, not a patch.",
+    backlogRef: "BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR",
+  },
+  {
+    file: "components/admin/RoleRecognizeControl.tsx",
+    line: 343,
+    tag: "input",
+    category: "under-floor-filed",
+    reason:
+      "The same FINANCIALS shape as RoleMappingRow:266 — `div` with `min-h-tap-min`, sibling `<label htmlFor>`, `aria-describedby` caution — in the crew-facing recognize control (RoleRecognizeControl.tsx:342).",
+    backlogRef: "BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR",
+  },
+  {
+    file: "components/admin/StagedReviewCard.tsx",
+    line: 580,
+    tag: "input",
+    category: "under-floor-filed",
+    reason:
+      "This radio IS wrapped by its `<label>`, but that label is `flex cursor-pointer items-center gap-2 text-sm` — no minimum height and no padding, so the target is a single 20px text line. The wrapping was the whole reason the row read as exempt.",
+    backlogRef: "BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR",
+  },
+
+  // ---- full-bleed, added by the R1 grammar tightening (2) ----------------
+  // Both of these were CLEARING before the whole-diff review, and both for the
+  // wrong reason: the pseudo recipe read any `before:-inset-*` as proof of
+  // height, including the horizontal-only form. Neither element's height comes
+  // from its own class string at all, so neither can be proven statically —
+  // which is a census row, not a defect (whole-diff R1 F3).
+  {
+    file: "components/admin/BellPanel.tsx",
+    line: 712,
+    tag: "a",
+    category: "full-bleed",
+    reason:
+      "The chevron link is `w-7 self-stretch` inside the alert row, so its height is the ROW's, which the file's own comment measures at 60px+. `before:inset-y-0 before:-inset-x-2` bleeds the target 8px sideways to 44px WIDE — a width repair, and width is not what this guard proves (spec §5.1). The height is real and comes from the parent, which no class string on this element can state.",
+  },
+  {
+    file: "components/admin/nav/AdminPageHeader.tsx",
+    line: 47,
+    tag: "Link",
+    category: "full-bleed",
+    reason:
+      "The back link's hit area is a DIRECTIONAL pseudo bleed — `before:-inset-x-2 before:-top-6 before:bottom-0` — reaching 24px upward into the header's own padding and nothing downward. The scanner models the symmetric `-inset-y-*` form only, deliberately: adding the edges up needs the element's own line height, which is exactly the content-dependence this census exists for.",
   },
 
   // ---- inline-prose-link (7) ---------------------------------------------
@@ -127,7 +190,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
       "'What the sync statuses mean' link inside the legend paragraph under the table; inline within running text.",
   },
 
-  // ---- parent-label-target (7) -------------------------------------------
+  // ---- parent-label-target (4) -------------------------------------------
   // A native checkbox inside a <label>: the label is the target, and it carries
   // the floor. The input's own `size-*` is the drawn box, not the hit area.
   {
@@ -139,32 +202,11 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
       "Role-flag checkbox inside `<label className='flex min-h-tap-min cursor-pointer items-center gap-2.5'>` — the label carries the floor and the whole row is the target.",
   },
   {
-    file: "app/admin/settings/roles/RoleMappingRow.tsx",
-    line: 266,
-    tag: "input",
-    category: "parent-label-target",
-    reason: "Second role-flag checkbox in the same label-wrapped list; same floor-carrying label.",
-  },
-  {
     file: "components/admin/RoleRecognizeControl.tsx",
     line: 327,
     tag: "input",
     category: "parent-label-target",
     reason: "Role-recognize checkbox inside its floor-carrying `<label>` row.",
-  },
-  {
-    file: "components/admin/RoleRecognizeControl.tsx",
-    line: 343,
-    tag: "input",
-    category: "parent-label-target",
-    reason: "Second role-recognize checkbox in the same label-wrapped list.",
-  },
-  {
-    file: "components/admin/StagedReviewCard.tsx",
-    line: 580,
-    tag: "input",
-    category: "parent-label-target",
-    reason: "Staged-item selection checkbox inside its label row; the row is the target.",
   },
   {
     file: "components/admin/dev/MaterializeCard.tsx",

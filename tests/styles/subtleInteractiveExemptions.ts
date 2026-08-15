@@ -117,15 +117,13 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     reason:
       "Active-filter chip: the label states the applied filter and the dismiss glyph is the control (DESIGN §1.1a Family C)",
   },
-  {
-    file: "components/admin/telemetry/ActiveFilterChips.tsx",
-    line: 101,
-    tag: "button",
-    token: "text-text-subtle",
-    family: "dismissable-chip",
-    reason:
-      "Active-filter chip (second chip surface in the same row): same caption-plus-glyph shape (DESIGN §1.1a Family C)",
-  },
+  // `ActiveFilterChips.tsx:101` was a SECOND Family C row until the whole-diff
+  // review read the markup (R1 F2). It is the "Clear filters" action — a plain
+  // underlined button with no filter caption and no dismiss glyph — so it is
+  // not a chip and never met Family C's definition (spec §4.2). It was swapped
+  // to `text-text` with `hover:text-text-strong` instead, which is what the
+  // ratified policy says about a control that belongs to no carve-out family.
+  // The family set is untouched; a membership claim that was false is not.
 
   // ---- Family D: state-pair dim members (6) -------------------------------
   // The dim member of a state pair may rest subtle only while the pair stays
@@ -188,10 +186,16 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     family: "state-dim",
     reason:
       'Inactive admin bottom tab; the active tab carries `aria-current="page"` and the visual delta is `text-accent-on-bg` vs subtle — a hue-plus-lightness delta with no layout cue, recorded as-is (DESIGN §1.1a Family D)',
-    // Pinned on the VISUAL delta, not on `aria-current`: the semantic cue is
-    // written `aria-current={active ? "page" : undefined}`, so a source pin on
-    // the literal attribute value would assert a string the file never contains.
-    siblingCue: { file: "components/admin/nav/AdminNav.tsx", token: "text-accent-on-bg" },
+    // Pinned on `aria-current`, which is what the reason actually rests on. The
+    // first version pinned `text-accent-on-bg` — the COLOUR DELTA ITSELF — so
+    // the row asserted the very thing Family D requires an additional cue FOR
+    // (whole-diff R1 F7). The attribute is written as an expression, so the pin
+    // is that expression: `aria-current="page"` is a string this file never
+    // contains, and pinning it would fail for the wrong reason.
+    siblingCue: {
+      file: "components/admin/nav/AdminNav.tsx",
+      token: 'aria-current={active ? "page" : undefined}',
+    },
   },
   {
     file: "components/crew/CrewSubNav.tsx",
@@ -201,6 +205,13 @@ export const SUBTLE_INTERACTIVE_EXEMPTIONS: readonly SubtleExemption[] = [
     family: "state-dim",
     reason:
       'Inactive crew sub-nav tab; the active desktop branch carries `border-accent` + `text-text-strong`, the active mobile branch `text-accent-on-bg` plus `aria-current="page"` (DESIGN §1.1a Family D)',
-    siblingCue: { file: "components/crew/CrewSubNav.tsx", token: "border-accent" },
+    // `border-accent` is the DESKTOP branch's cue only; the mobile branch this
+    // row also covers rests on `aria-current` alone, so the desktop pin left
+    // half the row unasserted (whole-diff R1 F7). Pinned on the cue both
+    // branches share.
+    siblingCue: {
+      file: "components/crew/CrewSubNav.tsx",
+      token: 'aria-current={isActive ? "page" : undefined}',
+    },
   },
 ];

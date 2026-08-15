@@ -30,12 +30,18 @@
  * false CLEAR is a silent hole.
  *
  * Recipe-scoped defeaters (spec §5.2 rule 8, families 3 and 4) are enforced
- * structurally rather than as separate defeater tokens: the negative-margin
- * recipe floors only while its vertical padding still reaches the floor
- * arithmetic, and the `before:` recipe floors only in its EXPANDING forms (a
- * negative inset, or an explicit height already at the floor). A token that
- * shrinks either recipe therefore removes the floor it was scoped to, which is
- * the same demotion a defeater would produce.
+ * structurally rather than as separate defeater tokens: both recipes are
+ * ARITHMETIC over the element's declared height (or `ASSUMED_TEXT_ROW_PX` when
+ * it declares none), so a token that shrinks one — `py-1` after `p-3`, a bleed
+ * too small, a horizontal-only bleed — removes the floor it was scoped to
+ * rather than needing its own defeater rule.
+ *
+ * WHAT "PROVES" MEANS HERE, made explicit after a whole-diff review found four
+ * shapes that cleared without proving anything (R1 F2/F3): the claim is at-rest
+ * height on every viewport, so a `hover:`/`sm:` variant cannot supply it, a
+ * `max-h-*` ceiling cannot supply it, an `[&:hover]` variant is the element
+ * itself rather than a descendant, and a pseudo bleed only counts on the
+ * VERTICAL axis and only when the arithmetic reaches 44.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve as resolvePath } from "node:path";
@@ -48,6 +54,14 @@ export type ScanElement = {
   paths: string[][]; // the COMPLETE set of render alternatives (see header)
   unresolved: boolean; // any part unreadable, or path cap exceeded
   hasClassName: boolean;
+  /**
+   * This element IS the allowlisted floor-carrying component, resolved by
+   * IMPORT rather than by tag spelling.
+   *
+   * A name is not an identity: a locally defined `AccentButton` would otherwise
+   * inherit the canonical component's guarantee for free (whole-diff R1 F4).
+   */
+  allowlisted: boolean;
 };
 
 export const FLOOR_COMPONENT_ALLOWLIST: ReadonlyArray<{
@@ -175,11 +189,53 @@ function variantPrefixes(raw: string): string[] {
   return prefixes;
 }
 
+/**
+ * `[&…]` selects a DESCENDANT only when what follows `&` starts a new compound —
+ * a combinator (`_`, `>`, `+`, `~`). `[&:hover]`, `[&:not(:disabled)]` and
+ * `[&.is-open]` are the element ITSELF in another state, so their heights are
+ * its heights, and reading them as somebody else's box is a false clear
+ * (whole-diff R1 F2).
+ */
+function arbitraryVariantIsDescendant(prefix: string): boolean {
+  return /^\[&[_>+~]/.test(prefix);
+}
+
 function tokenScope(raw: string): TokenScope {
   const prefixes = variantPrefixes(raw);
-  if (prefixes.some((p) => p.startsWith("[&"))) return "descendant";
+  if (prefixes.some(arbitraryVariantIsDescendant)) return "descendant";
   if (prefixes.some((p) => p === "before" || p === "after")) return "pseudo";
   return "element";
+}
+
+/**
+ * The `@theme` block(s) of a stylesheet, comments removed.
+ *
+ * Tailwind only emits a `--spacing-*` utility for a token DECLARED IN `@theme`,
+ * so a declaration in prose, in a commented-out block, or under an ordinary
+ * selector is a name the browser never sees. Reading the whole file let such a
+ * name make a non-existent `min-h-*` utility clear (whole-diff R1 F6).
+ */
+function themeBlocks(css: string): string {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  let out = "";
+  let index = withoutComments.indexOf("@theme");
+  while (index !== -1) {
+    const open = withoutComments.indexOf("{", index);
+    if (open === -1) break;
+    let depth = 0;
+    let end = open;
+    for (; end < withoutComments.length; end += 1) {
+      const ch = withoutComments[end];
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    out += withoutComments.slice(open, end);
+    index = withoutComments.indexOf("@theme", end);
+  }
+  return out;
 }
 
 /**
@@ -196,7 +252,7 @@ const spacingTokens = (() => {
     const map = new Map<string, number>();
     const cssPath = join(process.cwd(), "app", "globals.css");
     if (existsSync(cssPath)) {
-      for (const m of readFileSync(cssPath, "utf8").matchAll(
+      for (const m of themeBlocks(readFileSync(cssPath, "utf8")).matchAll(
         /--spacing-([a-z0-9-]+):\s*([^;]+);/g,
       )) {
         const px = lengthPx(m[2]!.trim());
@@ -241,9 +297,16 @@ function tokenIsFloor(raw: string, allowPseudo = false): boolean {
   const scope = tokenScope(raw);
   if (scope === "descendant") return false;
   if (scope === "pseudo" && !allowPseudo) return false;
+  // A state or breakpoint variant proves a height in that state, which is not
+  // the claim (whole-diff R1 F2). Pseudo recipes are read on their own terms
+  // below, so `before:` is allowed to keep its one prefix there.
+  if (variantPrefixes(raw).length > (allowPseudo && scope === "pseudo" ? 1 : 0)) return false;
   const t = baseToken(raw);
   // `sr-only`: the visible target is the parent label, per the 2026-08-07 baseline.
   if (t === "sr-only") return true;
+  // `max-h-*` is a CEILING. It can defeat a floor and can never establish one,
+  // so it is excluded here and left to `tokenIsDefeater` (whole-diff R1 F2).
+  if (/^max-h-/.test(t)) return false;
   const px = utilityPx(t);
   return px !== null && px >= FLOOR_PX;
 }
@@ -267,41 +330,102 @@ function tokenIsDefeater(raw: string): boolean {
 }
 
 /**
+ * The row height the expansion recipes are measured against when the element
+ * declares no height of its own.
+ *
+ * Spec §5.3 ratified the `p-3` threshold on exactly this assumption — 12px of
+ * padding each side around a single-line text row clears 44px. It is stated as
+ * a NAMED constant here because both recipes rest on it, and because a review
+ * round showed the two had drifted into different, unstated versions of it
+ * (whole-diff R1 F3: a 4px bleed cleared while the same arithmetic in the
+ * padding recipe would not have).
+ */
+const ASSUMED_TEXT_ROW_PX = 20;
+
+/** The element's own declared height, LAST-WINS, or null when it declares none. */
+function declaredHeightPx(tokens: readonly string[]): number | null {
+  let px: number | null = null;
+  for (const raw of tokens) {
+    if (tokenScope(raw) !== "element" || variantPrefixes(raw).length > 0) continue;
+    const t = baseToken(raw);
+    if (!/^(?:min-h|h|size)-/.test(t)) continue;
+    const value = utilityPx(t);
+    if (value !== null) px = value;
+  }
+  return px;
+}
+
+/**
+ * Vertical padding on EVERY side, last-wins per axis.
+ *
+ * `p-3 py-1` is 4px, not 12px: the later utility wins in the cascade. Reading
+ * this existentially cleared `-my-1 p-3 py-1` (whole-diff R1 F3).
+ */
+function verticalPaddingPx(tokens: readonly string[]): number {
+  let top: number | null = null;
+  let bottom: number | null = null;
+  for (const raw of tokens) {
+    if (tokenScope(raw) !== "element" || variantPrefixes(raw).length > 0) continue;
+    const m = baseToken(raw).match(/^p([ytb]?)-(\d+(?:\.\d+)?)$/);
+    if (!m?.[2]) continue;
+    const px = Number(m[2]) * 4;
+    if (m[1] === "" || m[1] === "y") {
+      top = px;
+      bottom = px;
+    } else if (m[1] === "t") top = px;
+    else bottom = px;
+  }
+  return Math.min(top ?? 0, bottom ?? 0) * 2;
+}
+
+/**
+ * Vertical bleed, per side, from an absolutely-positioned pseudo's NEGATIVE
+ * inset — last-wins, and horizontal-only forms contribute nothing.
+ *
+ * `before:-inset-x-2` bleeds sideways and proves no height at all; two live
+ * sites wore exactly that and cleared on it (whole-diff R1 F3).
+ */
+function pseudoVerticalBleedPx(tokens: readonly string[]): number {
+  let bleed = 0;
+  for (const raw of tokens) {
+    const m = raw.match(/^before:-inset(-[xy])?-(\d+(?:\.\d+)?)$/);
+    if (!m?.[2]) continue;
+    if (m[1] === "-x") continue;
+    bleed = Number(m[2]) * 4;
+  }
+  return bleed;
+}
+
+/**
  * Does ONE render alternative carry a height floor?
  *
  * The two recipe families are path-scoped, not token-scoped: they need two
- * cooperating tokens, and they only floor in the form that actually expands.
+ * cooperating tokens, and they only floor in the form whose ARITHMETIC reaches
+ * the floor. Both are measured against the element's declared height when it
+ * has one and against `ASSUMED_TEXT_ROW_PX` when it does not.
  */
 function pathHasFloor(path: readonly string[]): boolean {
   const tokens = path.flatMap(tokenize);
   if (tokens.some((t) => tokenIsFloor(t))) return true;
 
-  // The pseudo-element expansion recipes. Both need `before:absolute` — an
+  const base = declaredHeightPx(tokens) ?? ASSUMED_TEXT_ROW_PX;
+
+  // The pseudo-element expansion recipe. It needs `before:absolute` — an
   // absolutely-positioned pseudo inside the control IS part of its hit area —
-  // plus something that actually EXPANDS: a negative inset, or an explicit
-  // height that already clears the floor. A non-negative `before:inset-*` does
-  // not expand and grants no floor, which is rule 8's inset-narrowing family
-  // enforced structurally rather than as a separate defeater.
-  if (
-    tokens.some((t) => t === "before:absolute") &&
-    tokens.some(
-      (t) =>
-        /^before:-inset(-[xy])?-/.test(t) || (t.startsWith("before:") && tokenIsFloor(t, true)),
-    )
-  ) {
-    return true;
+  // plus either a pseudo that already clears the floor by its own height, or a
+  // negative VERTICAL inset whose arithmetic reaches it. A non-negative
+  // `before:inset-*` does not expand and grants no floor, which is rule 8's
+  // inset-narrowing family enforced structurally rather than as a defeater.
+  if (tokens.some((t) => t === "before:absolute")) {
+    if (tokens.some((t) => t.startsWith("before:") && tokenIsFloor(t, true))) return true;
+    if (base + 2 * pseudoVerticalBleedPx(tokens) >= FLOOR_PX) return true;
   }
 
-  // Negative-margin + padding recipe. The padding must reach p-3 (12px each
-  // side): with any single-line text row that clears 44px, and below it the
-  // arithmetic is content-dependent, so the site lands in the census under
-  // `padding-arithmetic` with its arithmetic written out (spec §5.3).
+  // Negative-margin + padding recipe (spec §5.3). `p-3` around a single-line
+  // row is the ratified boundary and falls out of the same arithmetic; below it
+  // the site lands in the census under `padding-arithmetic`.
   const negativeMargin = tokens.some((t) => /^-m(?:[ytb])?-\d+$/.test(baseToken(t)));
-  const padding = tokens.some((t) => {
-    const m = baseToken(t).match(/^p(?:[ytb])?-(\d+)$/);
-    return m?.[1] !== undefined && Number(m[1]) >= 3;
-  });
-  return negativeMargin && padding;
+  return negativeMargin && base + verticalPaddingPx(tokens) >= FLOOR_PX;
 }
 
 // ---------------------------------------------------------------------------
@@ -327,7 +451,8 @@ export function defeaterPresent(el: ScanElement): boolean {
 export function heightFloorSatisfied(el: ScanElement): boolean {
   if (el.unresolved) return false;
   if (defeaterPresent(el)) return false;
-  if (ALLOWLIST_TAGS.has(el.tag)) return true;
+  // `allowlisted`, not the tag's spelling: the scanner resolves the import.
+  if (el.allowlisted) return true;
   return el.paths.length > 0 && el.paths.every((path) => pathHasFloor(path));
 }
 
@@ -381,6 +506,20 @@ function resolveModulePath(spec: string, ctx: Ctx): string | null {
   return null;
 }
 
+/**
+ * Only a `const` binding can be read from its initializer.
+ *
+ * `let cls = "min-h-tap-min"; if (f) cls = "min-h-0";` renders the second value
+ * on a real path, and reading the initializer alone cleared it (whole-diff R1
+ * F4). Tracking assignments is a dataflow problem; declining to read `let` at
+ * all is a demotion, which is the safe direction and lands the site in the
+ * census with a reason.
+ */
+function isConstDeclaration(declaration: ts.VariableDeclaration): boolean {
+  const list = declaration.parent;
+  return ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0;
+}
+
 /** Statement containers that introduce a lexical scope for `const` lookup. */
 function statementsOf(node: ts.Node): readonly ts.Statement[] | null {
   if (ts.isSourceFile(node) || ts.isBlock(node) || ts.isModuleBlock(node)) return node.statements;
@@ -390,7 +529,9 @@ function statementsOf(node: ts.Node): readonly ts.Statement[] | null {
 
 type LocalBinding =
   | { kind: "variable"; declaration: ts.VariableDeclaration }
-  | { kind: "function"; declaration: ts.FunctionDeclaration };
+  | { kind: "function"; declaration: ts.FunctionDeclaration }
+  /** Found, and deliberately not read (a reassignable `let`/`var`). */
+  | { kind: "unreadable" };
 
 /** Innermost-wins lookup (spec §2.3): the nearest enclosing scope's binding shadows outer ones. */
 function findLocalBinding(name: string, from: ts.Node): LocalBinding | null {
@@ -402,7 +543,12 @@ function findLocalBinding(name: string, from: ts.Node): LocalBinding | null {
         if (ts.isVariableStatement(statement)) {
           for (const declaration of statement.declarationList.declarations) {
             if (ts.isIdentifier(declaration.name) && declaration.name.text === name) {
-              return { kind: "variable", declaration };
+              // A `let`/`var` binding is FOUND but not readable — a distinct
+              // answer from "not found", which would fall through to the import
+              // lookup and resolve some other module's export of that name.
+              return isConstDeclaration(declaration)
+                ? { kind: "variable", declaration }
+                : { kind: "unreadable" };
             }
           }
         }
@@ -468,9 +614,32 @@ function resolveExported(name: string, file: string, ctx: Ctx): Resolution {
   return UNRESOLVED;
 }
 
-/** Union over a function's return expressions (spec §5.2 rule 6, the `segClass` shape). */
+/**
+ * Can control reach the end of this block without returning or throwing?
+ *
+ * Approximated by the LAST statement only, which is sound in the direction that
+ * matters: anything other than a terminal `return`/`throw` is treated as "yes",
+ * so a helper whose returns are all conditional gains an empty alternative
+ * rather than clearing on the returns it happens to have (whole-diff R1 F4).
+ */
+function canCompleteNormally(body: ts.Node): boolean {
+  if (!ts.isBlock(body)) return false;
+  const last = body.statements[body.statements.length - 1];
+  if (!last) return true;
+  return !ts.isReturnStatement(last) && !ts.isThrowStatement(last);
+}
+
+/**
+ * Union over a function's return expressions (spec §5.2 rule 6, the `segClass`
+ * shape), INCLUDING the paths that return no class at all.
+ *
+ * A bare `return;` and a fall-off-the-end both render `undefined`, which React
+ * turns into no className — a floorless alternative, and one the first version
+ * dropped silently.
+ */
 function resolveReturns(body: ts.Node, ctx: Ctx): Resolution {
   const returns: ts.Expression[] = [];
+  let returnsNothing = false;
   const visit = (node: ts.Node): void => {
     // Do not descend into nested functions: their returns belong to them.
     if (
@@ -479,14 +648,18 @@ function resolveReturns(body: ts.Node, ctx: Ctx): Resolution {
     ) {
       return;
     }
-    if (ts.isReturnStatement(node) && node.expression) returns.push(node.expression);
+    if (ts.isReturnStatement(node)) {
+      if (node.expression) returns.push(node.expression);
+      else returnsNothing = true;
+    }
     ts.forEachChild(node, visit);
   };
   visit(body);
   if (returns.length === 0) return UNRESOLVED;
-  return returns
+  const resolved = returns
     .map((expression) => resolveExpression(expression, { ...ctx, depth: ctx.depth + 1 }))
     .reduce((acc, res, index) => (index === 0 ? res : union(acc, res)));
+  return returnsNothing || canCompleteNormally(body) ? union(resolved, EMPTY_RESOLUTION) : resolved;
 }
 
 function resolveCallee(callee: ts.Expression, ctx: Ctx): Resolution {
@@ -496,6 +669,7 @@ function resolveCallee(callee: ts.Expression, ctx: Ctx): Resolution {
   if (binding.kind === "function") {
     return binding.declaration.body ? resolveReturns(binding.declaration.body, ctx) : UNRESOLVED;
   }
+  if (binding.kind === "unreadable") return UNRESOLVED;
   const initializer = binding.declaration.initializer;
   if (!initializer) return UNRESOLVED;
   if (ts.isArrowFunction(initializer)) {
@@ -593,7 +767,7 @@ function resolveExpression(node: ts.Expression, ctx: Ctx): Resolution {
         ? resolveExpression(binding.declaration.initializer, deeper)
         : UNRESOLVED;
     }
-    if (binding?.kind === "function") return UNRESOLVED;
+    if (binding?.kind === "function" || binding?.kind === "unreadable") return UNRESOLVED;
     const specifier = findImportSpecifier(node.text, ctx.sf);
     if (!specifier) return UNRESOLVED;
     const target = resolveModulePath(specifier, ctx);
@@ -667,6 +841,22 @@ function spreadCannotCarryClassName(node: ts.Expression): boolean {
   });
 }
 
+/**
+ * Is this tag the ALLOWLISTED component, or just a name that matches one?
+ *
+ * The tag has to be imported into this file from the registered path. A
+ * component defined locally under the same name would otherwise inherit a floor
+ * guarantee nobody checked, purely by spelling (whole-diff R1 F4).
+ */
+function resolvesToAllowlistedComponent(tag: string, ctx: Ctx): boolean {
+  const row = FLOOR_COMPONENT_ALLOWLIST.find((entry) => entry.tag === tag);
+  if (!row) return false;
+  const specifier = findImportSpecifier(tag, ctx.sf);
+  if (!specifier) return false;
+  const target = resolveModulePath(specifier, ctx);
+  return target !== null && relative(ctx.root, target) === row.file;
+}
+
 function isInScope(tag: string, attributes: ts.JsxAttributes): boolean {
   if (INTRINSIC_TAGS.has(tag) || tag === "Link") return true;
   if (ALLOWLIST_TAGS.has(tag)) return true;
@@ -725,6 +915,7 @@ export function scanInteractiveElements(rootDir: string): ScanElement[] {
             paths: resolution.paths,
             unresolved: resolution.unresolved || hasSpread,
             hasClassName: className !== null,
+            allowlisted: resolvesToAllowlistedComponent(tag, ctx),
           });
         }
       }
