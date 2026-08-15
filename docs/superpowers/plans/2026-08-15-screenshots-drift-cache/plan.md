@@ -66,10 +66,14 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
    `describe("screenshots-drift nextcache: exact input-hash key, no fallback, always-save")`,
    asserting on PARSED step objects — `import { parse } from "yaml"` and walk
    `jobs.screenshots-drift.steps`, the same pattern the wiring guards already use
-   (`tests/cross-cutting/app-e2e-ci-wiring.test.ts:27`); never file-wide substrings
-   and never raw text-block slicing, so a commented-out `# uses:` line can satisfy
-   nothing (plan R2 F1) — the spec §2.2 nine (behavioral assertion 9 included — plan
-   R1 F1):
+   (`tests/cross-cutting/app-e2e-ci-wiring.test.ts:27`); never file-wide substrings,
+   so a commented-out `# uses:` line can satisfy nothing (plan R2 F1). ONE
+   deliberate exception (plan R4 F1): assertion 7 checks a YAML COMMENT, which
+   `parse` discards — it operates on the RAW-TEXT slice of the save step, bounded
+   by line positions DERIVED from the parsed steps (the save step's `name` and its
+   successor's `name` located in the raw text), so the slice cannot land on a
+   commented-out step while the comment stays checkable. The spec §2.2 nine
+   (behavioral assertion 9 included — plan R1 F1):
    1. exactly one `actions/cache/restore@v4` and one `actions/cache/save@v4` step; no
       combined `actions/cache@v4` block naming `.next-screenshots-help/cache` (the
       OTHER workflows' `~/.cache/ms-playwright` combined steps asserted at lines
@@ -87,7 +91,8 @@ Verified 2026-08-15 on the authoring branch (grep transcripts in the review disp
       `next.config.ts`, `package.json` (parse both lists from the YAML; compare as
       sets; the exclusion's reason — capture mutates those bytes mid-run — lives in
       the assertion's comment);
-   7. the save block cites `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING`;
+   7. the save block cites `BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING`
+      (raw-text slice bounded by parsed step positions — the R4 F1 exception above);
    8. key SHAPE (spec R2 F4): the restore key matches exactly
       `${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles(...) }}` — namespace
       present, no further components;
