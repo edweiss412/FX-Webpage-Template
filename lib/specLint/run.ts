@@ -1,6 +1,6 @@
 import { checkCitations } from "./citations";
 import { checkCopy } from "./copyRules";
-import { checkNumerics, scriptMentionMatcher } from "./numerics";
+import { ambiguousBasenames, basenameOf, checkNumerics, scriptMentionMatcher } from "./numerics";
 import { parseDoc, type DocModel } from "./parse";
 import { fenceCoverage, waiverTarget } from "./waiverCoverage";
 import { checkTaskContract } from "./taskContract";
@@ -40,10 +40,12 @@ const waiverAdvisory = (line: number, message: string): Finding => ({
 function resolveScriptTexts(model: DocModel, resolver: FileResolver): Record<string, string> {
   const out: Record<string, string> = {};
   const lines = model.lines.filter((_, i) => model.fencedInfo[i] === undefined);
-  for (const path of resolver.listTrackedFiles()) {
-    if (!path.startsWith("scripts/")) continue;
+  const scripts = resolver.listTrackedFiles().filter((p) => p.startsWith("scripts/"));
+  // A basename shared by two scripts identifies neither, so those resolve by path only.
+  const ambiguous = ambiguousBasenames(scripts);
+  for (const path of scripts) {
     // Compiled once per script, then tested against every non-fenced line.
-    const mentions = scriptMentionMatcher(path);
+    const mentions = scriptMentionMatcher(path, !ambiguous.has(basenameOf(path)));
     if (!lines.some((line) => mentions.test(line))) continue;
     const text = resolver.readFileLines(path);
     if (text === null) continue;

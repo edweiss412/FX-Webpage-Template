@@ -298,6 +298,46 @@ describe("SCRIPT_CONSTANT_PARITY — shape (a), spec §3.1", () => {
     expect(only(findings, A)).toEqual([]);
   });
 
+  it("an ESCAPED backtick does not open or close a template", () => {
+    // Review R6, probed: counting raw backticks exposed template text as live and hid
+    // the real declaration, so prose that correctly says 38 drew an advisory against 37.
+    const body = [
+      "const sample = `",
+      "\\`",
+      "const EXPECTED_SITE_TOTAL = 37;",
+      "`;",
+      siteConst(38),
+    ].join("\n");
+    const { findings } = run(acLine(38) + "\n", { [PARITY_SCRIPT]: `// header\n${body}\n` });
+    expect(only(findings, A)).toEqual([]);
+  });
+
+  it("an AMBIGUOUS basename identifies no script, so only the full path associates", () => {
+    // Review R6, probed: `check.mjs` in two directories matched both, and the doc drew an
+    // advisory against a file it never mentioned.
+    const texts = {
+      "scripts/a/check.mjs": scriptSrc("const EXPECTED_SITE_TOTAL = 3;"),
+      "scripts/b/check.mjs": scriptSrc("const EXPECTED_SITE_TOTAL = 4;"),
+    };
+    expect(only(run("`check.mjs` covers 3 sites\n", texts).findings, A)).toEqual([]);
+    // The full path still names one script, so it still associates.
+    expect(only(run("`scripts/b/check.mjs` covers 3 sites\n", texts).findings, A)).toHaveLength(1);
+  });
+
+  it("basename uniqueness is compared on the WHOLE basename", () => {
+    // `check.mjs` and `xheck.mjs` differ only in their FIRST character, so each still names
+    // exactly one script. A comparison that dropped a leading character would fuse them,
+    // mark both ambiguous, and silently drop an association the doc really made — the
+    // failure is a MISSING advisory, which no other fixture here would notice.
+    const texts = {
+      "scripts/a/check.mjs": scriptSrc(siteConst(3)),
+      "scripts/a/xheck.mjs": scriptSrc(siteConst(9)),
+    };
+    const { findings } = run("`check.mjs` covers 4 sites\n", texts);
+    expect(only(findings, A)).toHaveLength(1);
+    expect(only(findings, A)[0]!.detail).toContain("scripts/a/check.mjs");
+  });
+
   it("a period INSIDE a clause does not break the qualifier's binding", () => {
     // `i.e.` is not a sentence end, so the qualifier still binds the 38 (review R5).
     const { findings } = run(

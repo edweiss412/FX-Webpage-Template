@@ -276,9 +276,16 @@ function constantNoun(ident: string): string {
  * Declaration-SHAPED text is not a declaration. A commented-out
  * `const EXPECTED_SITE_TOTAL = 37;` sitting at column 0 above the live value drew a
  * FALSE advisory — the wrong direction, and the one the consequence bound cares about
- * (whole-diff review R5, probed). Blanking is deliberately crude and errs toward
- * blanking: over-blanking costs a tripwire that does not fire, under-blanking costs a
- * wrong flag.
+ * (whole-diff review R5, probed).
+ *
+ * This is a TEXTUAL scan, not a lexer, and the accept-set is bounded accordingly. An
+ * ESCAPED backtick is not a delimiter and no longer flips the state (review R6, probed:
+ * it exposed template text as live and hid the real declaration). DOCUMENTED LIMIT: a
+ * backtick inside an ordinary string, a regex or a line comment still flips it, which
+ * BLANKS the rest of the file and hides later declarations — a tripwire that does not
+ * fire rather than a wrong flag, which is the direction this arm accepts. Reading scope
+ * exactly means parsing, and the originating spec's boundary is that this arm never
+ * imports or parses the script.
  */
 function readableScriptLines(text: string): string[] {
   const blanked = text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
@@ -286,7 +293,7 @@ function readableScriptLines(text: string): string[] {
   let inTemplate = false;
   for (const line of blanked.split("\n")) {
     out.push(inTemplate ? "" : line);
-    if ((line.match(/`/g) ?? []).length % 2 === 1) inTemplate = !inTemplate;
+    if ((line.match(/(?<!\\)`/g) ?? []).length % 2 === 1) inTemplate = !inTemplate;
   }
   return out;
 }
@@ -327,10 +334,30 @@ const escapeForRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\
  * Lookbehind is ES2018 and this pattern is built at runtime from a string, so the
  * ES2017 `target` never sees it; every consumer is Node-side (the spec:lint CLI
  * and its suites).
+ *
+ * `allowBasename` is false when the basename does NOT identify one script. Spec §3.1's
+ * association is that a doc "names a script", and `check.mjs` names none in particular
+ * when two directories hold one — matching both drew an advisory against a file the doc
+ * never mentioned (review R6, probed). The full path still matches, so an unambiguous
+ * reference keeps working.
  */
-export function scriptMentionMatcher(path: string): RegExp {
+export const basenameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
+
+/** Basenames shared by two or more of `paths`; those cannot identify one script. */
+export function ambiguousBasenames(paths: readonly string[]): Set<string> {
+  const seen = new Set<string>();
+  const dupes = new Set<string>();
+  for (const p of paths) {
+    const base = basenameOf(p);
+    if (seen.has(base)) dupes.add(base);
+    seen.add(base);
+  }
+  return dupes;
+}
+
+export function scriptMentionMatcher(path: string, allowBasename = true): RegExp {
   const slash = path.lastIndexOf("/");
-  const forms = slash === -1 ? [path] : [path, path.slice(slash + 1)];
+  const forms = slash === -1 || !allowBasename ? [path] : [path, path.slice(slash + 1)];
   const alternation = forms.map(escapeForRegExp).join("|");
   return new RegExp(`(?<!${MENTION_LEFT_CLASS})(?:${alternation})(?!${MENTION_RIGHT_PATTERN})`);
 }
@@ -565,10 +592,11 @@ export function checkNumerics(
   // ---- shape (a): SCRIPT_CONSTANT_PARITY (spec §3.1) ----
   if (scriptTexts !== undefined) {
     // Matcher compiled ONCE per script, outside the per-hit loop below.
+    const ambiguous = ambiguousBasenames(Object.keys(scriptTexts));
     const constantsByPath = Object.entries(scriptTexts)
       .map(([path, text]) => ({
         path,
-        mentions: scriptMentionMatcher(path),
+        mentions: scriptMentionMatcher(path, !ambiguous.has(basenameOf(path))),
         constants: scriptConstants(text),
       }))
       .filter((entry) => entry.constants.length > 0);
