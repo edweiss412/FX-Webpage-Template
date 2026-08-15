@@ -402,18 +402,30 @@ export function emitDateOrderSuggestsDmy(
 
 export function emitUnknownField(
   agg: ParseAggregator | undefined,
-  opts: { block: string; kind: string; key: string; value: string },
+  opts: { block: string; kind: string; key: string; value: string; candidate?: string },
 ): void {
   if (!agg) return;
   const key = opts.key.trim();
   const value = opts.value ?? "";
-  agg.warnings.push({
+  // The near-miss detector supplies `candidate` — the RAW spelling of the vocabulary
+  // label this row nearly matched (field-near-miss spec §3.1 tie-break). It rides BOTH
+  // the human-readable message and a STRUCTURED `ParseWarning.candidate`, so a surface
+  // reads the suggestion instead of parsing it back out of prose (§5, r4 finding 1).
+  // Absent when no candidate is supplied: the KEY is omitted, never set to `undefined`
+  // (exactOptionalPropertyTypes), so absence discriminates and legacy emissions stay
+  // byte-identical. Catalog copy is aligned separately (§5); this is only the carrier.
+  const warning: ParseWarning = {
     severity: "warn",
     code: "UNKNOWN_FIELD",
-    message: `Unrecognized ${opts.block} row label: '${key}'`,
+    message:
+      opts.candidate === undefined
+        ? `Unrecognized ${opts.block} row label: '${key}'`
+        : `Unrecognized ${opts.block} row label: '${key}'; looks like '${opts.candidate}'`,
     blockRef: { kind: opts.kind, name: key },
     rawSnippet: `${key} | ${value}`,
-  });
+  };
+  if (opts.candidate !== undefined) warning.candidate = opts.candidate;
+  agg.warnings.push(warning);
   agg.rawUnrecognized.push({ block: opts.block, key, value });
 }
 
