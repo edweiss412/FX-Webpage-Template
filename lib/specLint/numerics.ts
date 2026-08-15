@@ -433,6 +433,8 @@ export function readableScriptLines(text: string): string[] | null {
   // Whitespace ENDS the trailing identifier without erasing it — `return /re/` needs the
   // word across the space, while `export default` must not fuse into one token.
   let inWord = false;
+  // The word before `lastWord`, for the one two-word control head: `for await (`.
+  let prevWord = "";
   // Per OPEN paren, whether a control-flow head opened it; and, for the character just
   // consumed, whether the `)` that closed it was one of those.
   const controlParens: boolean[] = [];
@@ -440,13 +442,17 @@ export function readableScriptLines(text: string): string[] | null {
   const pushCode = (c: string): void => {
     // `lastChar` still holds the character before this one, so an identifier character
     // there means `lastWord` ends immediately before the paren — across a space or not.
-    if (c === "(") controlParens.push(IDENT_CHAR.test(lastChar) && CONTROL_HEADS.has(lastWord));
+    if (c === "(") {
+      const head = lastWord === "await" ? prevWord : lastWord;
+      controlParens.push(IDENT_CHAR.test(lastChar) && CONTROL_HEADS.has(head));
+    }
     if (c === ")") afterControlParen = controlParens.pop() ?? false;
     if (c === " " || c === "\t") {
       inWord = false;
       return;
     }
     if (IDENT_CHAR.test(c)) {
+      if (!inWord) prevWord = lastWord;
       lastWord = inWord ? lastWord + c : c;
       inWord = true;
     } else {
@@ -714,6 +720,8 @@ function countListItems(model: DocModel, start: number, stopAtChecklist: boolean
   const indent = first[1]!.length;
   let count = 0;
   let blanks = 0;
+  /** Indent of the OPEN fence's delimiter, or null outside a fence. */
+  let fenceIndent: number | null = null;
   for (let i = start; i < model.lines.length; i++) {
     const line = model.lines[i]!;
     // A bullet-SHAPED line inside a fenced block is not a sibling item (review R12,
@@ -721,6 +729,15 @@ function countListItems(model: DocModel, start: number, stopAtChecklist: boolean
     // three). The fence belongs to the item it sits under, so it is skipped rather than
     // treated as the list's end.
     if (model.fencedInfo[i] !== undefined) {
+      if (fenceIndent === null) {
+        // The OPENING delimiter decides: a fence indented past the item marker is that
+        // item's content and is skipped; one at the list's own indent ends the list, and
+        // skipping it would swallow whatever follows into this list (review R13, probed).
+        fenceIndent = /^(\s*)/.exec(line)![1]!.length;
+        if (fenceIndent <= indent) break;
+      } else if (model.fencedInfo[i] === null) {
+        fenceIndent = null;
+      }
       blanks = 0;
       continue;
     }

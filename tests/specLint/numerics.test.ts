@@ -273,6 +273,14 @@ describe("readableScriptLines — the lexical scan shape (a) reads declarations 
       [`if (a(b) && c) ${gap("/'/")}.test(d);`],
     ],
     [
+      // Review R13, probed: `for await (` records `await` as the word before the paren, so
+      // the head was missed and the regex after it read as division. It is the one
+      // two-word control head in the language.
+      "`for await` is still a control head",
+      "for await (const x of y) /'/.test(x);",
+      [`for await (const x of y) ${gap("/'/")}.test(x);`],
+    ],
+    [
       // R12's other separating input: `]` after a reserved word, where a stale trailing
       // identifier would misread the slash.
       "an array literal returned then divided is division",
@@ -1314,6 +1322,56 @@ describe("SIBLING_LIST_CARDINALITY — shape (b), spec §3.2", () => {
       "",
       "- second",
       "- third",
+      "",
+    ].join("\n");
+    expect(only(run(doc).findings, B)).toEqual([]);
+  });
+
+  it("only the DELIMITER decides where a fence begins and ends", () => {
+    // Two lines that are fence CONTENT, one of them flush left, and the region's own
+    // closing delimiter: reading either as a boundary breaks the walk. The first case
+    // treats content as a new opener and stops counting; the second never notices the
+    // close and swallows the following fence, so a separate list joins this one.
+    const nested = [
+      "There are 3 cases:",
+      "- first",
+      "- second",
+      "  ~~~text",
+      "  keep",
+      "- flush interior",
+      "  ~~~",
+      "- third",
+      "",
+    ].join("\n");
+    expect(only(run(nested).findings, B)).toEqual([]);
+    const twoFences = [
+      "There are 2 cases:",
+      "- first",
+      "- second",
+      "  ~~~text",
+      "  keep",
+      "  ~~~",
+      "```text",
+      "- not an item",
+      "```",
+      "- separate",
+      "",
+    ].join("\n");
+    expect(only(run(twoFences).findings, B)).toEqual([]);
+  });
+
+  it("a fence at the list's own indent ENDS the list", () => {
+    // Review R13, probed: skipping every fenced region treated a column-zero fence as
+    // content of the second item, so a SEPARATE list below it was counted as a third
+    // sibling. A fence belongs to an item only when it is indented past the item marker.
+    const doc = [
+      "There are 2 cases:",
+      "- first",
+      "- second",
+      "```text",
+      "- not an item",
+      "```",
+      "- a separate list",
       "",
     ].join("\n");
     expect(only(run(doc).findings, B)).toEqual([]);
