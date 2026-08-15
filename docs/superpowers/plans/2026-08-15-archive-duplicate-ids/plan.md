@@ -12,7 +12,7 @@ spec's §2.1 tables, and land the within-file id-uniqueness lane in
 **Architecture:** one implementation branch, `chore/archive-duplicate-ids`, off
 `origin/main`, three tasks, one PR.
 
-**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md` · **Status:** DRAFT
+**Date:** 2026-08-15 · **Spec:** `docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md` · **Status:** plan-APPROVED (codex-guard R5, 2026-08-15; R1-R4 findings repaired in-branch. Spec APPROVED codex-guard R7 same day.)
 
 ## Global constraints
 
