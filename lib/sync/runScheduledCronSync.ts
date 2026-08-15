@@ -2281,7 +2281,10 @@ type SuccessfulPhase2TailDeps = SyncLogDeps &
     publishShowInvalidation?: ProcessOneFileDeps["publishShowInvalidation"];
   };
 
-async function logSync(
+// Exported (spec 2026-08-14 §3.2): the manual first-seen stage path and the staged-apply
+// post-commit region reuse this single duration/entry-shape implementation rather than
+// growing drifting copies of it.
+export async function logSync(
   deps: SyncLogDeps,
   driveFileId: string,
   result: ProcessOneFileResult,
