@@ -281,7 +281,7 @@ describe("ReSyncButton", () => {
       }),
     }) as unknown as Response;
 
-  const OVERLAY_TOKENS = ["absolute", "inset-x-0", "top-full", "z-50", "overflow-y-auto"];
+  const OVERLAY_TOKENS = ["absolute", "inset-x-0", "top-full", "z-overlay", "overflow-y-auto"];
 
   /** Every overlay panel anchors to the BAND, caps its height and scrolls
    *  internally (§6.7). Asserted per branch — relocating two of three is the
@@ -289,7 +289,7 @@ describe("ReSyncButton", () => {
   function expectOverlayPanel(el: HTMLElement) {
     const tokens = el.className.split(/\s+/);
     for (const t of OVERLAY_TOKENS) expect(tokens, `overlay panel missing ${t}`).toContain(t);
-    // z-50 vs the publish popover's z-40 (PublishedToggle.tsx) is a RULE: an
+    // z-overlay (50) vs the publish popover's z-banner (40, PublishedToggle.tsx) is a RULE: an
     // unspecified z can leave the focused shrink confirm obscured.
     expect(tokens).not.toContain("z-40");
     // The height cap is what keeps "reserves no layout space" from becoming an

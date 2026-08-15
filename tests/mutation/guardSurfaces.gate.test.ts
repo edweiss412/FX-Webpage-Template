@@ -46,6 +46,12 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repaid by a test, so a row appearing here later is a regression to
   // explain rather than a number to update.
   ledgerClaimsCore: { equivalent: 3 },
+  // Enrolled 2026-08-10 with an EMPTY ledger, deliberately. The surface's first
+  // run scored 0.607, and the answer was to assert the recognizer's forms
+  // directly (tests/docs/interactionTimingScan.test.ts) and to move the CLI out
+  // of the mutated module — not to accept survivors. A row appearing here later
+  // is therefore a regression to explain, not a number to update.
+  interactionTimingScan: { equivalent: 8 },
   // Counted from the surface: SIX reachability arguments -- the three two-field
   // parses at ledger-git.ts:83, :130 and :192, the twice-tested regex group at :219,
   // the `+++ b/` fallthrough at :280, and headRepo's three-way collapse at :325

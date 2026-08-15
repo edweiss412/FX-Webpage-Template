@@ -4,6 +4,7 @@ declare const lockedPromoteTxBrand: unique symbol;
 
 export type LockablePromoteTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+  queryRows<T>(sql: string, params: unknown[]): Promise<T[]>;
 };
 
 export type LockedPromoteTx<T extends LockablePromoteTx> = T & {
@@ -28,6 +29,10 @@ function postgresTxAdapter(tx: PostgresTransaction): LockablePromoteTx {
     async queryOne<T>(sql: string, params: unknown[]) {
       const rows = await tx.unsafe(sql, params);
       return rows[0] as T;
+    },
+    async queryRows<T>(sql: string, params: unknown[]) {
+      const rows = await tx.unsafe(sql, params);
+      return rows as T[];
     },
   };
 }

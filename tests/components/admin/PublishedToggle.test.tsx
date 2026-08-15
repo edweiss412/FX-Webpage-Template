@@ -293,7 +293,7 @@ describe("PublishedToggle — inline variant", () => {
       "absolute",
       "inset-x-0",
       "top-full",
-      "z-40",
+      "z-banner",
       "mt-1",
       // `wrap-break-word` is Tailwind v4's canonical spelling of the old
       // `break-words`; the rule reported the rename once the const moved inside
@@ -324,7 +324,7 @@ describe("PublishedToggle — inline variant", () => {
       "focus-visible:ring-inset",
     ]);
     // Finalize chip must carry NONE of the absolute-geometry tokens (it is in-flow, CASP2-4 item 1).
-    const ABSOLUTE_GEOMETRY = ["absolute", "inset-x-0", "top-full", "z-40", "mt-1"];
+    const ABSOLUTE_GEOMETRY = ["absolute", "inset-x-0", "top-full", "z-banner", "mt-1"];
     const FINALIZE_SKIN = ["bg-surface-sunken", "border-border", "text-xs", "text-text-subtle"];
     // Fixed FORBIDDEN (prior test anchored `$` right after `max-w-`/`min-w-`, so a real `max-w-60`
     // never matched): prefix-match width caps + single-side anchors so any regression trips it.

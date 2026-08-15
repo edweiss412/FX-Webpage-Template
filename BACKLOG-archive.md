@@ -1,3 +1,114 @@
+## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking was raw Tailwind numerics — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
+
+**Resolution: SHIPPED.** Task U1 of the M-wave-2 plan
+(`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`); contract at
+`docs/superpowers/specs/2026-08-09-m-wave-2-design.md` §2.6.
+
+Seven fixed bands in `app/globals.css` `@theme` — `raised:10 · dropdown:20 · nav:30 · banner:40 ·
+overlay:50 · dev-controls:60 · sticky-banner:100` — and every live numeral swept to the band its own
+number names. **Name substitution, zero stacking change**, verified pairwise across the diff: every
+`z-50` became `z-overlay`, every `z-20` `z-dropdown`, and so on, plus the single inline
+`zIndex: 100` on the preview banner. The exemption registry
+(`tests/styles/zIndexExemptions.ts`) is EMPTY, which is the expected steady state: the census mapped
+1:1 onto the band set.
+
+**The guard took four review findings across two rounds to become honest, and every one was the same
+shape — a green state compatible with the thing it claims to prevent.**
+
+_Round 1._ The scanner reported ZERO sites for three files that carried live numerals, because it
+anchored the utility pattern on a bare token boundary (so `focus:z-50` hid) and required
+`node.parent === sf` for consts (so a function-local `cn("… z-10 …")` hid). Both widened; the
+widened scanner independently reproduced exactly the three sites the review named. Round 1 also
+found that a typo'd band (`z-overaly`) is not a numeral, so the census stays silent while Tailwind
+emits nothing at all — a silent stacking loss with a green guard.
+
+_Round 2._ The repair for that was `@theme`-scoped STRING PRESENCE, and review killed it: searching
+the block's text cannot distinguish a live declaration from a commented-out one (the comment still
+contains the string), from a duplicate whose second value wins, or from a later `:root` override.
+The check now COMPILES — Tailwind reads the shipped `app/globals.css` with a synthetic content file
+and the emitted rules are asserted for presence AND resolved value. Round 2 also found exemptions
+keyed on file + token alone, so one row would have exempted every identical site in a file; the key
+now includes the line.
+
+Both rounds' vectors are mutated against the repaired guard and each reds the appropriate test.
+
+**A defect the sweep surfaced that no reviewer asked for:** `maxZLevel` existed in two test copies,
+and only one learned the band names — so a swept `z-nav` read as level 0 in
+`publishedReviewModal.test.tsx` and reddened a correct implementation. Both suites now import
+`tests/_shared/zLevel.ts`.
+
+**Effort:** M · **Closed:** 2026-08-10
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+
+The admin overlay cluster stacks by bare numeric utility: `z-20` (attention panel and hub
+backdrop), `z-30` (elevated hub trigger), `z-40` (PublishedToggle refusal banner). The bands
+and their ordering are explained only in code comments, so the relationships they encode —
+"the elevated trigger must outrank the backdrop", "the refusal banner outranks everything in
+the strip" — are invisible at each use site and are re-derived by hand every time an overlay
+is added.
+
+`app/globals.css` defines no `--z-*` tokens. The impeccable general rules ask for a semantic
+scale (dropdown, sticky, modal-backdrop, modal, toast, tooltip) so the intent is readable and
+a new surface picks a band rather than a number.
+
+**Trigger:** the next overlay added to this cluster, or the first stacking bug caused by two
+surfaces picking the same numeric. A tree-wide sweep is the natural companion to filing tokens,
+since the value of the scale is that every site uses it.
+
+---
+
+## BL-GLYPHS-OUTSIDE-INTER-SUBSET — UI glyph sites rendering in a fallback face — CLOSED 2026-08-10 (`feat/m2-ui-cluster`, SHIPPED)
+
+**Resolution: SHIPPED as a widened subset.** Task U5 of the M-wave-2 plan
+(`docs/superpowers/plans/2026-08-09-m-wave-2/plan.md`). Probe output committed at
+`docs/superpowers/plans/2026-08-09-m-wave-2/glyph-probe.md`.
+
+**The population is a fifth of what this entry recorded, and the difference is the whole finding.**
+This entry's probe excluded comment-only LINES; the U5 probe reads the AST and counts only what can
+reach the DOM — JSX text, string and template literals, MDX prose outside fenced code, and CSS
+`content:`. Raw characters over the same tree give 33 missing codepoints; the AST gives 16. `→`
+is the clearest case: 205 files by raw count, 20 by rendered. Four of this entry's named glyphs —
+`≥`, `≤`, `↔`, `▸` — turn out to occur ONLY in comment prose, so they were never on screen at all.
+Subsetting from the raw list would have paid first-visit bytes, on a preloaded file, for characters
+no user can see.
+
+**Nine added, seven left.** Of the 16, the upstream face carries nine: `←` `→` `↗` `⊘` `⌃` `⌄` `⌘`
+`⚠` `✓`. Those are now in the `LATIN` ranges of `scripts/subset-inter.sh`, pinned individually in
+`PINNED_RANGE_COVERAGE`, and asserted by MEMBERSHIP (not count) in
+`tests/styles/fontFeatureAvailability.test.ts` — the list was derived FROM the face, so a zero there
+is a regression rather than a legitimate superset gap. Cost: 176,696 → 179,088 bytes (+2,392,
+about 1.4%); cmap 1004 → 1013.
+
+**The other seven are not fixable by subsetting: Inter does not have them.** `ℹ` `⋮` `☎` `✉` `�`
+`🔒` `🔗` still fall back. This refutes the spec's own headline known-add: `U+22EE ⋮`, cited as five
+help MDX pages, is real at those five sites and absent from the face. `U+FFFD` is the sharper case —
+the `LATIN` range has requested it since the first subset and upstream has never supplied it, so
+`["U+FFFD", 0]` was already pinned and the request was always a no-op.
+
+Full identity ripple in the same commit: new hashed filename `InterVariable-latin.d5549562.woff2`,
+`app/fonts.css`, `components/FontPreload.tsx`, `tests/helpers/fontManifest.ts` (paths + digest),
+`tests/styles/fontLoadingMutants.test.ts`, and `public/fonts/PROVENANCE.md`.
+
+**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, the non-degraded invariant-8 re-run of the step3-a11y cluster). **Class:** visual consistency (`DESIGN.md` §2.1 commits to ONE type family). **Effort:** M — the fix is a decision plus either a wider subset or a glyph-to-icon migration, not a patch. **Class-sweep exception:** (c) — it spans surfaces no single PR touches. **Reachability: PROBED.** · **Closed:** 2026-08-10
+
+`app/fonts.css:28` loads `public/fonts/InterVariable-latin.d5549562.woff2`, a latin + latin-ext subset carrying **1004 codepoints**. Any character outside it falls back to a system face, so the glyph renders in a different family from the text beside it — which is what the one-family commitment says should not happen.
+
+**Probe** — fontTools over the shipped binary, then a scan of every tracked `.tsx`/`.ts` under `app/` and `components/`, comment-only lines excluded:
+
+```
+codepoints in shipped subset: 1004
+U+2192 →   84 sites     U+2265 ≥   21     U+2197 ↗   11     U+2713 ✓    6
+U+25B8 ▸    4           U+2194 ↔    4     U+2264 ≤    4     U+21D2 ⇒    2
+24 distinct glyphs, ~150 sites total (also ⚠ ⟷ ≠ ⌄ ⌃ ← ℹ 🔗 ⌘ 🔒 ✕ ≈ ☎ ✉ ⊘)
+```
+
+**Why it is filed rather than fixed, and why nothing was reverted.** It is overwhelmingly PRE-EXISTING: `→` at 84 sites and `↗` at 11 have shipped for months. The step3-a11y cluster added exactly two members — `components/admin/OnboardingWizard.tsx:644` and `components/admin/settings/AdministratorsSection.tsx:142`, the disclosure carets that replaced the native `<summary>` marker `inline-flex` removes. Reverting those would restore a real regression the cross-model review caught (two disclosures losing their open/closed cue) in exchange for a cosmetic inconsistency shared with ~148 other sites. The pattern they copy, `app/me/meShowSections.tsx:130`, predates the branch.
+
+**Worst case is cosmetic and already on screen:** the glyph renders, in a system face, at a slightly different weight and metric. Nothing is unreadable, and every one of these is decorative and `aria-hidden`, so assistive technology is unaffected. That is why this is a backlog row rather than a deferral with a trigger.
+
+**First scheduled step is the decision, not the edit:** either widen the subset to cover the arrows and math symbols actually in use (cheap in bytes, but `scripts/subset-inter.sh` and its checksum-pinned input make it deliberate), or migrate the recurring ones to the lucide icons the codebase already ships. Counting first is what makes that call possible; the counts above are the input.
+
 # BACKLOG-archive.md
 
 Historical ledger of resolved / shipped / superseded BACKLOG items — full provenance kept (what, why, how it was resolved). The live speculative queue is **[BACKLOG.md](./BACKLOG.md)**; entries graduate here when they ship.
@@ -5337,10 +5448,45 @@ instance of either shape appearing in the ledgers.
 
 ---
 
+### BL-TAP-TARGET-INLINE-TEXT-CONTROLS — ✅ SHIPPED 2026-08-11 (3 exempt / 5 repaired, `fix/tap-target-inline-controls`)
+
+**Status:** SHIPPED 2026-08-11 · PR #781 · **Effort (as shipped):** S
+
+**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §9.1). **Class:** accessibility (tap-target floor). **Class-sweep exception at filing:** (a) — needed a product decision the filing branch could not settle. **Reachability:** PROBED — every site and its computed height was in the spec's §2.6 corpus baseline (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
+
+**Historical filing.** The `fix/step3-a11y-cluster` corpus pass (AST walk, 340 in-scope interactive elements) found 16 literal-className elements genuinely under the 44px floor. Eight were repaired on that branch (chrome: disclosures, icon buttons, pills, the brand link). These were the other eight — all inline text links or text buttons sitting inside sentences. `PRODUCT.md:59` grants an explicit WCAG 2.5.5 exception to "links rendered inline within prose body text", so whether each was inline prose (exempt) or chrome (repair) was a per-site product judgment, not a mechanical class edit. The row was filed to obtain that judgment.
+
+**✅ SHIPPED (2026-08-11).** The judgment was made by the user in a decision round on 2026-08-10, each site shown in rendered context: **3 exempt as inline prose, 5 repaired as chrome.** Spec `docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md` (cross-model APPROVED r6); plan `docs/superpowers/plans/2026-08-10-tap-target-inline-controls.md` (APPROVED r4).
+
+**Exempt (3), no class change** — each carries a `tap-floor: inline-prose exemption, PRODUCT.md:59 — ratified 2026-08-10` comment at the control, so the next corpus sweep classifies them from the source instead of re-litigating: `RevokeRowButton.tsx` "Refresh", `RoleRecognizeControl.tsx` "Change what they see", `ReportModal.tsx` "Start a new report anyway". Enforcement is a SOURCE scan (`tests/a11y/tapTargetInlineExemptions.test.ts`), not a browser test — an exempt site's contract is "unchanged source", which the source states directly, and a rendered box cannot tell you whether the exemption is still the ratified decision or an accident nobody wrote down. The guard pins both the recorded decision and the class string, and was proven against four mutants (token emptied / suffixed / commented-out / moved to the wrong control in the same file), all killed.
+
+**Repaired (5)**, each with the step3-a11y cluster's ratified recipe applied verbatim to the control and nothing else. Red was observed first on the PRODUCTION routes in a real browser at 390px — site 4 16.80px, site 5 19.36px, site 6 17.05px, site 8 16.80px — then 4/4 green, with the floor read from `--spacing-tap-min` rather than a hardcoded 44:
+
+| #   | site                                | recipe                                                                                 |
+| --- | ----------------------------------- | -------------------------------------------------------------------------------------- |
+| 4   | pack-list "Show all N items" toggle | `inline-flex w-fit min-h-tap-min items-center`                                         |
+| 5   | sheet-title deep link               | `inline-block -my-2.5 -mx-2 px-2 py-2.5`                                               |
+| 6   | `tel:` contact link                 | `min-h-tap-min` (display preserved)                                                    |
+| 7   | `mailto:` contact link              | `min-h-tap-min` (display preserved)                                                    |
+| 8   | dev-panel "Report this"             | `inline-flex w-fit min-h-tap-min items-center` + `text-blue-700` → `text-accent-on-bg` |
+
+**Two of the row's own site labels were wrong** and were corrected from the live tree before implementation: the `ReportModal` site is the resume-banner link "Start a new report anyway" (the modal's actual "Start fresh" button already carried `min-h-tap-min`), and the wizard toggle's label is "Show all {n} items" / "Show fewer items", not "show more".
+
+**Two measurement lessons, each of which produced a wrong answer first.** (1) `boundingBox()` is viewport-relative and Playwright's actionability check scrolls, so reading two rects through separate Locator calls compares two different scroll positions — that reported a phantom 5.4px overlap between list rows 18px apart in flow. Every rect a comparison uses is now read in ONE evaluate. (2) Acting on that phantom, an interim revision made the tail `<li>` a flex container so the inline-level button would blockify; with the measurement fixed, a mutant reverting it left the suite green, so it is not in the shipped diff.
+
+**CI home.** The new spec runs in `lifecycle-layout-e2e.yml` (mobile-safari, unfiltered `pull_request:`, so no allowlist row) behind an execution oracle the job did not previously have — `scripts/check-lifecycle-layout-executed.mjs`, floor derived from a real run's report, verified in both directions (ok/exit 0 against the real report; "executed 0, expected at least 4"/exit 1 against a doctored all-skipped report). A companion wiring guard (`tests/cross-cutting/lifecycle-layout-e2e-ci-wiring.test.ts`) extends the app-e2e guard's three closures to this workflow and was proven against seven mutants, all killed. Seventeen governance pairs registered.
+
+**Invariant-8 dual gate:** critique=RAN audit=RAN p0=0 p1=0 (Design Health 31/40, Audit Health 18/20; record in the plan's §12). The gate's one P1 was REFUTED by measurement — it cited a STALE comment at `app/globals.css:1206-1209` claiming `--color-accent-on-bg` is 4.11:1, a figure invalidated by `BL-ACCENT-ON-BG-AA-CONTRAST` in 2026-07-16; the live values are 5.34:1 light and 9.39:1 dark, and the replaced `text-blue-700` was 6.42:1, so both sides of the swap clear AA and the change is a hue decision (PRODUCT.md bans a competing accent). Four follow-ups filed with probed evidence: `BL-TAP-TITLE-LINK-META-LINE-BLEED`, `BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR`, `BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING`, `BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT`.
+
+**Not attempted, deliberately:** the corpus-wide structural guard remains `BL-TAP-TARGET-STRUCTURAL-GUARD`, still blocked on the non-literal-className policy. This arc repaired the last known literal-className under-floor sites; it is regression coverage, not discovery coverage.
+
+---
+
 ## Reconciliation log
 
 Reconciliation history moved out of `BACKLOG.md`'s header line on 2026-08-02. That line was append-only and every merge re-appended the incoming branch's whole chain, so it had grown to 40 segments / 24,188 characters of which 26 segments were verbatim duplicates. Entries below are the deduplicated set, newest first, verbatim apart from three mechanical edits: the `Prior:` / `Prior same day:` lead-ins were dropped, the mainline row's "merged into this branch" was resolved to "merged into the then-shipping branch" now that the branch is gone, and one shorter 2026-07-26 restatement was dropped as subsumed by the fuller row that also names its branch. No id lost its citation — all 33 `BL-` ids named in the old header line are still named here or in `BACKLOG.md`. No entry defines a `BL-` id; ids named here are citations resolving to their own entries above.
 
+- 2026-08-11 — `fix/tap-target-inline-controls` graduated `BL-TAP-TARGET-INLINE-TEXT-CONTROLS`: the per-site prose-vs-chrome judgment the row was filed to obtain, ratified by the user 2026-08-10 as 3 exempt / 5 repaired. The exempt half is pinned in SOURCE (comment + class string, four mutants killed) because an exempt site's contract is unchanged source; the repaired half is pinned by real-browser rects on the production routes, wired into `lifecycle-layout-e2e.yml` behind an execution oracle that job did not previously have. Two of the row's own site labels were wrong and were corrected from the live tree. Filed `BL-TAP-TITLE-LINK-META-LINE-BLEED`, `BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR`, `BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING` and `BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT`.
 - 2026-08-01 — feat/card-copy-parity-sync-job-names graduated BL-CARD-COPY-HELPFULCONTEXT-PARITY (§4.2 helpfulContext frozen for all 44 rows after reconciling rows 12/29 to the shipped catalog) and BL-SYNC-JOB-FOUR-NAMES (one name: "Auto sync" — catalog x6 codes with §12.4 lockstep, runSummary label, explainer mirror; StagedReviewCard badge unchanged).
 - 2026-08-01 — `fix/announce-a11y-pass` graduated the two Cluster A announcement rows (`BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`, `BL-SHAREHUB-REMOTE-ROTATE-ANNOUNCE`): arm-expiry announcements on all 11 `ARM_REVERT_MS` surfaces (shared `ARM_EXPIRED_ANNOUNCEMENT`, dispatch-entry clears, per-group keying on bulk ignore, StagedReviewCard Apply-disarm fix, T4/T4a/T5 guards) and the ShareHub remote-rotation live region (seed-diff `remoteTokenChanges` counter, mirror-the-cue predicate).
 - 2026-08-01 — `test/ledger-guard-mdast-rewrite` graduated `BL-LEDGER-GUARD-MDAST-REWRITE` (the graduation tripwire ported onto the remark/mdast walker at `tests/docs/_ledgerMdast.ts`; the owner-split r22–r41 hardening restored from snapshot `a1cfce98d` with a two-row reconcile; the three r41 findings closed by probe — the split's follow-up branch is retired).
@@ -7346,6 +7492,37 @@ Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image mi
 them; they are filed rather than fixed in that branch because the repair is a focus-management and
 announcement decision on a surface the branch does not otherwise change.
 
+## BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES — promotion compares list lengths, not the names the manifest requires — RESOLVED 2026-08-10 (`fix/promote-identity-validation`, IMPLEMENTED)
+
+**Status:** RESOLVED 2026-08-10 · **Filed:** from cross-model review of PR #761 · **Severity:** medium · **Class:** CORRECTNESS · **Effort:** S
+
+`promoteSnapshot` computed how many objects the manifest describes and compared that number to the
+temp listing's length and then to the canonical listing's length. It never checked that each
+`snapshotPath` basename and each variant `key` was actually PRESENT. A missing required object plus an
+unrelated object of equal count passed both checks, got moved to canonical, and cut over a manifest
+pointing at bytes that are not there. Duplicate entries produced the same class.
+
+Reviewer's probe: `countCheckPasses: true` with `missingExpected: ["embedded-a.png@256.webp"]`; the
+only integrity conditions in the function were the two length comparisons, and there was no set or
+membership check anywhere.
+
+**Resolution.** The entry's own framing — "a spec, not a patch" — is how it closed: the extras
+decision was ratified by the user (EXACT SET — unexpected objects under the temp prefix fail
+promotion loudly), spec `docs/superpowers/specs/2026-08-10-promote-identity-validation.md`, plan
+`docs/superpowers/plans/2026-08-10-promote-identity-validation.md`. What shipped:
+`EXPECTED_ASSET_COUNT_SQL` deleted and replaced by `EXPECTED_ASSET_NAMES_SQL` — discriminated
+`kind='original'` (full `snapshotPath`) / `kind='variant'` (key) rows, multiplicities preserved,
+read through a new `queryRows` seam on `LockablePromoteTx` only (the shared `LockableSyncTx` stays
+narrow, typecheck-fenced). Path binding runs before any listing comparison (a stale-revision or
+slash-less original fails as `mispathed` with `storage.list` never invoked), then both checkpoints
+compare basenames as multisets: `missing`, `extra` (exact set), `duplicated` (its own class, never
+`missing`). `manifest_mismatch` gained bounded `deltas` (10 names per list + `truncated`) on the
+three comparison-derived branches, and `promoteSnapshotUpload` emits one post-commit
+`SNAPSHOT_PROMOTE_MANIFEST_MISMATCH` `log.warn` — the invariant-10 emit every caller shares.
+Rollback/cutover/claim mechanics unchanged. The filing's probe shape is the unit suite's AC-1
+fixture; the names SQL is pinned against real Postgres through the composed
+`withPromoteLock → withShowLock → queryRows` seam.
+
 ## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom — RESOLVED 2026-08-10 (`feat/m2-guard-precision`)
 
 **Effort:** M
@@ -7398,3 +7575,39 @@ review surface.
 **Status:** RESOLVED
 
 **Resolution (2026-08-10, `feat/m2-guard-precision`, M-wave 2 W-GUARDS Task G2).** Haystack rebuilt to RENDERED TEXT ONLY via the TypeScript AST (`tests/help/_renderedTextHaystack.ts`, spec §2.5 node set): JsxText children; string/template content — fragments included — inside JSX expression CHILDREN; a named allowlist of user-visible attributes. Premise fixtures pin both directions. The U8 documented-limit pin flipped as designed (the entry-level RED) and is rewritten as the closed form. Triage of the 11 newly-failing labels: 10 indirect-copy rows (`tests/help/_uiLabelIndirectCopySources.ts`, executable citations — source must contain the literal, haystack must NOT attest, MDX must still carry it; one label, "Not synced yet", fails on two pages and takes one row per page) + 1 real drift corrected (`**Finalize**` named no shipped control; getting-started now says "finish-setup step", matching the wizard UI). The 2 third-party carve rows (`tests/help/_uiLabelThirdPartyCarve.ts` — Share/Viewer are Google Drive's controls) are ADDITIONAL to the 11: rendered text coincidentally attests both, and the carve exists so they can never become candidates. The new residual is the carve itself — a label wrongly placed there is invisible; reason fields + review are the mitigation (wave spec §4 limit 3). The mdx copy correction flipped the unit's impeccable gate to the dual gate, recorded in the wave closeout.
+
+### BL-HELP-TOUR-HYDRATION-MISMATCH — /help/tour throws a React hydration mismatch on every visit
+
+**Decision:** 2026-08-11, SHIPPED by `fix/help-tour-hydration` (PR #778). Spec: `docs/superpowers/specs/2026-08-10-help-tour-hydration-fix.md`; plan: `docs/superpowers/plans/2026-08-10-help-tour-hydration-fix.md`.
+
+**Root cause, and it is not the one this entry guessed.** The entry hypothesized column-0 `<a>` elements being wrapped in a `<p>`. An `@mdx-js/mdx` compile probe against the live file settled it differently: MDX parses the children of a JSX flow element as markdown **flow** content, so a text child sitting on its own line becomes a markdown paragraph and compiles to `<_components.p>` nested inside whichever JSX element holds it. Three of the seven tour cards had at some point been reformatted prettier-style — multi-line attributes with the eyebrow, body, and CTA text on their own lines — which produced `<p>` inside `<p>` and `<p>` inside `<span>`, invalid nesting and one of the named causes in React's own mismatch message. Nine such wrappers, six inside `<span>` and three inside `<p>`. The four compact cards compiled to plain text children and were never affected.
+
+**Fix.** Every text child of the three expanded cards ("Review queues", "Preview as crew", "Onboarding wizard") is now a JSX expression child. Expressions compile as expressions regardless of line placement, so Prettier may lay the file out however it likes and the invalid nesting cannot return — a probe of the narrower repair, converting only the nine offending children, showed Prettier re-expanding the headings into new markdown paragraphs, which is why the recipe is uniform rather than surgical. No copy, href, aria-label, or className changed: 66 attribute values byte-equal, card text equal after collapsing whitespace runs (moving a text child onto one line replaces its newlines-plus-indentation with single spaces, the same collapse HTML rendering applies).
+
+**Verification.** `BASELINE_SERVER_ONLY=1 pnpm exec playwright test tests/e2e/help-pages.spec.ts --project=mobile-safari` went 1-failed/14-passed to 15-passed. The compile probe yields exactly one `_components.p` in the module (the legitimate intro paragraph) and none nested, before AND after running the repo's Prettier over the file. A live DOM probe on the rendered page returns `p p`=0, `span p`=0, `p div`=0 with zero page errors, and all seven cards' body text at `--color-text`. That probe was run on a RELOCATED port (`E2E_PORT`), which is load-bearing: `playwright.config.ts` sets `reuseExistingServer: !CI`, and a probe that reuses :3000 measures whichever sibling worktree happens to own that port. An earlier report of the three cards rendering in the subtle token — the visible half of the same defect, since a nested markdown paragraph escapes the styled `<p>` — came from exactly that contamination and describes a different branch's tree, so it is recorded here as an observation of the pre-fix SHAPE and not as a measured before/after on this arc. The uncontaminated after-state above, the compile probe, and CI are what this entry rests on.
+
+**The e2e case gained a hydration gate in the same arc.** `networkidle` says the network went quiet, not that React finished hydrating, so a late hydration error could post-date the assertion window and the page-error check could read an empty array on a broken page. The case now clicks the help sidebar disclosure and awaits its `aria-expanded` flip — an onClick handler firing proves hydration completed, and SSR-only DOM cannot respond — then restores the closed state before reading `pageErrors`.
+
+**The promotion this entry banked was spent in the same PR.** `tests/e2e/help-pages.spec.ts` came off the `UNSEEN` allowlist in `tests/ci/_metaE2eWorkflowCoverage.test.ts` and into `.github/workflows/app-e2e.yml`'s run step, with a `"help-pages.spec.ts": 15` row in the executed-count oracle (14 NAV routes + the NAV-parity guard, x 1 project — the spec resolves under mobile-safari only) and the 17 `ENV_KEY_ALLOWLIST` `governs` arrays the promotion makes it subject to. `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`'s census moved **24 → 23** and its ninth-member paragraph records the promotion. (24, not the 25 this arc was planned against: `origin/main` promoted `right-now-transitions` while the branch was in review, and the figure was recounted from the allowlist rather than carried forward by arithmetic.)
+
+**The original entry, preserved:**
+
+**Status:** OPEN · **Severity:** MEDIUM (a real user-visible page re-renders client-side after a failed hydration) · **Class:** app defect (UI surface) · **Effort:** S · **Filed:** 2026-08-09
+
+`/help/tour` emits a React hydration mismatch — "the server rendered HTML didn't match the client" — plus twelve further page errors, on every admin visit. Probed 2026-08-09 under BOTH server postures this repo runs, so it is not a dev-only artifact:
+
+```
+BASELINE_SERVER_ONLY=1 pnpm exec playwright test tests/e2e/help-pages.spec.ts --project=mobile-safari
+  ✘ /help/tour → 200, H1 "Tour", sidebar mounted, no console errors
+    Error: /help/tour: page errors observed
+    - Array []
+    + Array [ "Hydration failed because the server rendered HTML didn't match the client…" ] (13 entries)
+```
+
+Same failure against `pnpm build && pnpm start`. Every other one of the fourteen `/help/*` routes passes the identical assertions, so the defect is local to this page, not to the help layout.
+
+**Likely cause, not yet confirmed:** `app/help/tour/page.mdx` interleaves raw JSX blocks with markdown — several `<a>` elements begin at column 0 inside a `<div>` block, which MDX can wrap in a `<p>`, and a block element inside a paragraph is invalid nesting, one of the named causes in React's own mismatch message. Confirm before fixing.
+
+**Why it is filed rather than repaired in the arc that found it.** `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` batch 1 (PR #753) is a CI-wiring arc carrying `impeccable-gate: N/A — no UI surface`. The fix lands under `app/`, which is a UI surface under AGENTS.md invariant 8 and therefore owes the impeccable critique + audit dual gate — a different arc with a different gate, which is exception (c) of the class-sweep disposition rule (the repair is a change to a surface the PR does not otherwise touch). That arc dropped `help-pages.spec.ts` from its batch under AC-4 rather than wire a permanently-red job.
+
+**Closing this unblocks a one-line follow-up:** delete the `help-pages.spec.ts` row from `LOCAL_ONLY_ALLOWLIST` and add the spec to `.github/workflows/app-e2e.yml`'s run step. Its route-coverage guard is already repaired (derives from `app/help/_nav.ts`, covers all fourteen NAV routes including `/help/admin/settings`), so no other work is owed.
