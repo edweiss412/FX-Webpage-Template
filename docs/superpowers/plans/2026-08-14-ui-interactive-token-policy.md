@@ -532,12 +532,12 @@ describe("subtle-on-interactive policy (DESIGN §1.1/§1.1a, spec §4)", () => {
 - [ ] **Step 6b: One-shot hover verification (plan R2 F5).** The guard makes no hover claim at
   all — what it pins is the registry's rows plus the absence of any other bare
   `text-text-subtle`, not a site's replacement token — so
-  hover retargets are verified once, executably, at this step: for each of the 14 spec-§4.3
-  rows whose Hover cell is `→strong` — 15 as shipped, once `ActiveFilterChips.tsx:101` joined
-  them in the 2026-08-15 correction — run
+  hover retargets are verified once, executably, at this step: for each of the 15 spec-§4.3
+  rows whose Hover cell is `→strong` (15 as shipped: `ActiveFilterChips.tsx:101` joined them in
+  the 2026-08-15 correction) run
   `rg -n "hover:text-text-strong" <file>` and confirm a hit on the edited element's class
   string; for each `per-site check` row, confirm the recorded choice (commit body) leaves a
-  hover that strengthens or a non-color hover affordance. Paste the 14-site command outputs
+  hover that strengthens or a non-color hover affordance. Paste the 15-site command outputs
   into the commit body. This is a one-shot migration check, not a standing guard — hover
   policy permanence lives in DESIGN.md prose; worst case of later drift is cosmetic
   (documented limit, consistent with the spec's D2 posture).
