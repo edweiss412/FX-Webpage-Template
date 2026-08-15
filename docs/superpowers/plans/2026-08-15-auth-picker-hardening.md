@@ -51,7 +51,7 @@ N/A. Neither the origin gate nor the failure state calls `pg_advisory*` or mutat
 - `components/auth/IdentityChip.tsx` (modify, UI) — widen `clearIdentityFormAction` return type (name preserved).
 - `components/auth/AvatarMenu.tsx` (modify, UI) — local `useState`+`useTransition` switch state (reset-on-open), alert node as sibling of `role="menu"`, pending disable, widened prop type.
 - tests/auth/sameOriginServerAction.test.ts (new), `tests/auth/picker/clearIdentity.test.ts` (modify), `tests/components/auth/avatarMenu.test.tsx` (modify), `tests/components/IdentityChip.test.tsx` (modify), `tests/components/identityChipSrSeparator.test.tsx` (modify).
-- `tests/components/auth/_probeSwitchCloseRace.test.tsx` (committed probe) — empirical close/pending/reopen evidence (spec §2.3), 3/3 pass; Task 4 folds its assertions onto the real `AvatarMenu`.
+- `tests/components/auth/_probeSwitchCloseRace.test.tsx` (committed probe) — empirical close/pending/reopen evidence (spec §2.3), 4/4 pass; Task 4 folds its assertions onto the real `AvatarMenu`.
 - `BACKLOG.md` / `BACKLOG-archive.md` (modify) — archive two entries, file two sweep/limit entries.
 
 <!-- tasks: depth=3 -->
@@ -318,11 +318,29 @@ it("reopen WHILE STILL PENDING (Closed→Open-pending): submit disabled, no aler
   fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
   closeMenu();
   openMenu();                        // reopen BEFORE the promise settles
-  expect((screen.getByTestId("avatar-menu-switch-person") as HTMLButtonElement).disabled).toBe(true); // pending persists
+  expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe("true"); // pending persists, focusable
   expect(screen.queryByRole("alert")).toBeNull();
   await act(async () => { d.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }); await d.promise; });
   expect(await screen.findByRole("alert")).toBeTruthy(); // failure surfaces in the open menu
-  expect((screen.getByTestId("avatar-menu-switch-person") as HTMLButtonElement).disabled).toBe(false); // re-enabled
+  expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe("false"); // re-enabled
+});
+
+it("keyboard nav reaches the pending switch item (aria-disabled, focusable) and re-entry is a no-op (R4-F1)", async () => {
+  const action = vi.fn(() => new Promise<ClearIdentityResult>(() => {})); // never resolves; stays pending
+  render(<AvatarMenu {...baseProps} clearAction={action} />);
+  openMenu();
+  fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); // pending
+  const submit = screen.getByTestId("avatar-menu-switch-person");
+  expect(submit.getAttribute("aria-disabled")).toBe("true");
+  expect((submit as HTMLButtonElement).disabled).toBe(false); // NOT native disabled
+  // arrow nav still reaches it: from the theme item ArrowDown lands focus on the switch item
+  const menu = screen.getByTestId("avatar-menu-popover");
+  fireEvent.keyDown(menu, { key: "ArrowDown" });
+  fireEvent.keyDown(menu, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(submit); // focus stayed inside the menu
+  const calls = action.mock.calls.length;
+  fireEvent.keyDown(submit, { key: "Enter" }); // activate while pending
+  expect(action.mock.calls.length).toBe(calls); // no-op (guard)
 });
 ```
 
@@ -352,6 +370,7 @@ In `AvatarMenu.tsx`:
   const [switchStatus, setSwitchStatus] = useState<"idle" | "error">("idle");
   const [switchPending, startSwitch] = useTransition();
   const onSwitchSubmit = (formData: FormData): void => {
+    if (switchPending) return; // R4-F1: aria-disabled item stays focusable; guard re-entry here
     setSwitchStatus("idle");
     startSwitch(async () => {
       const result = await clearAction(formData);
@@ -360,7 +379,7 @@ In `AvatarMenu.tsx`:
   };
   ```
 - reset on open: add `setSwitchStatus("idle")` in `openAt(...)` and the trigger's open branch;
-- bind the form `action={onSwitchSubmit}` (keep the hidden `slug`/`shareToken`/`showId` inputs); set the submit `disabled={switchPending}`;
+- bind the form `action={onSwitchSubmit}` (keep the hidden `slug`/`shareToken`/`showId` inputs); set the submit `aria-disabled={switchPending}` (NOT native `disabled`, R4-F1 — native disabled removes the item from focus and breaks the roving-tabindex `.focus()` at `AvatarMenu.tsx:106-109`) plus `aria-disabled:opacity-60 aria-disabled:cursor-not-allowed` for the visual; the `onSwitchSubmit` guard above prevents the re-entrant submit that native `disabled` would otherwise have blocked;
 - render the alert as the LAST child of the popover, a SIBLING placed immediately AFTER the `role="menu"` element (NOT inside it, NOT after `</form>`), when `switchStatus === "error"`, using the repo's canonical inline-error idiom (verbatim from `components/admin/ShowRowActions.tsx:859` — `warning-*` tokens; `text-danger`/`border-danger` do NOT exist, R3-F2):
   ```tsx
   <div role="menu" ...>{/* theme item + form */}</div>

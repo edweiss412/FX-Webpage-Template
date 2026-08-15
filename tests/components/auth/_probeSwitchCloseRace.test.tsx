@@ -24,6 +24,7 @@ function Harness({ action }: { action: () => Promise<{ ok: boolean }> }) {
     setOpen(true);
   };
   const submit = () => {
+    if (pending) return; // R4-F1: aria-disabled item stays focusable; guard re-entry here
     setStatus("idle");
     start(async () => {
       const r = await action();
@@ -36,7 +37,7 @@ function Harness({ action }: { action: () => Promise<{ ok: boolean }> }) {
       <button data-testid="close" onClick={() => setOpen(false)}>close</button>
       {open ? (
         <div data-testid="popover">
-          <button data-testid="submit" disabled={pending} onClick={submit}>switch</button>
+          <button data-testid="submit" aria-disabled={pending} onClick={submit}>switch</button>
           {status === "error" ? <div role="alert">Couldn't switch. Please try again.</div> : null}
         </div>
       ) : null}
@@ -95,13 +96,15 @@ describe("PROBE: switch-person close/pending/reopen race", () => {
     // reopen BEFORE the promise settles — the transition (pending) persists on the mounted parent
     fireEvent.click(screen.getByTestId("trigger"));
     expect(screen.getByTestId("popover")).toBeTruthy();
-    expect((screen.getByTestId("submit") as HTMLButtonElement).disabled).toBe(true); // still pending
+    // R4-F1: aria-disabled (focusable), NOT native disabled — arrow nav still reaches it
+    expect(screen.getByTestId("submit").getAttribute("aria-disabled")).toBe("true");
+    expect((screen.getByTestId("submit") as HTMLButtonElement).disabled).toBe(false);
     expect(screen.queryByRole("alert")).toBeNull(); // idle (reset), pending, no error yet
     await act(async () => {
       d.resolve({ ok: false }); // settles while OPEN → alert appears
       await d.promise;
     });
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect((screen.getByTestId("submit") as HTMLButtonElement).disabled).toBe(false); // re-enabled
+    expect(screen.getByTestId("submit").getAttribute("aria-disabled")).toBe("false"); // re-enabled
   });
 });
