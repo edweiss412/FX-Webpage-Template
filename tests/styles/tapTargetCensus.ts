@@ -193,7 +193,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/BellPanel.tsx",
-    line: 1256,
+    line: 1259,
     tag: "div",
     category: "full-bleed",
     reason: "Bell-panel scrim: `fixed inset-0 z-banner bg-overlay-scrim`.",

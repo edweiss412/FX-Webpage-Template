@@ -177,7 +177,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
                 data-testid="wizard-step1-copy-email-button"
                 onClick={handleCopy}
                 aria-label={`Copy ${serviceAccountEmail} to clipboard`}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 {copied ? "Copied" : "Copy"}
               </button>

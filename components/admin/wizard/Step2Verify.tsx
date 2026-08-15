@@ -433,7 +433,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           spellCheck={false}
           disabled={isSubmitting}
           aria-describedby={matchesScanned ? "wizard-step2-scanned-note" : undefined}
-          className="min-h-tap-min rounded-sm border border-border-strong bg-bg px-3 text-base text-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          className="min-h-tap-min rounded-sm border border-text-faint bg-bg px-3 text-base text-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         />
 
         {matchesScanned && priorScan ? (

@@ -122,7 +122,7 @@ export function PublishCheckbox({
         aria-hidden="true"
         data-testid={`wizard-step3-card-${driveFileId}-checkbox-box`}
         className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface ${
-          checked ? "border-accent bg-accent text-accent-text" : "border-border-strong bg-bg"
+          checked ? "border-accent bg-accent text-accent-text" : "border-text-faint bg-bg"
         }`}
       >
         <Check

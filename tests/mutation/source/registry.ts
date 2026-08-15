@@ -654,4 +654,54 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  {
+    id: "interactiveScanCore",
+    sourcePath: "tests/styles/interactiveScanCore.ts",
+    // All three suites: the core's own unit + fixture cases, plus the two
+    // guards that consume it. A mutant that survives the unit cases can still
+    // be killed by the census it silently changes, and vice versa.
+    suitePaths: [
+      "tests/styles/interactiveScanCore.test.ts",
+      "tests/styles/_metaSubtleOnInteractive.test.ts",
+      "tests/styles/_metaTapTargetFloor.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Universal -> existential on the path set: a floor on ANY render
+    // alternative would clear, which is exactly the branch-ancestry defect the
+    // path model exists to prevent.
+    control: {
+      from: "el.paths.length > 0 && el.paths.every((path) => pathHasFloor(path))",
+      to: "el.paths.length > 0 && el.paths.some((path) => pathHasFloor(path))",
+    },
+    accepted: [],
+  },
+  {
+    id: "subtleInteractiveScan",
+    sourcePath: "tests/styles/subtleInteractiveScan.ts",
+    suitePaths: ["tests/styles/_metaSubtleOnInteractive.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Polices a token no registry row is keyed to, so every exemption goes
+    // stale at once.
+    control: {
+      from: 'const POLICED_TOKEN = "text-text-subtle";',
+      to: 'const POLICED_TOKEN = "text-text-faint";',
+    },
+    accepted: [],
+  },
+  {
+    id: "tapTargetScan",
+    sourcePath: "tests/styles/tapTargetScan.ts",
+    suitePaths: ["tests/styles/_metaTapTargetFloor.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Clears everything: the census rows all go stale, which is the failure a
+    // guard that silently passes would produce.
+    control: {
+      from: 'state: heightFloorSatisfied(el) && !defeaterPresent(el) ? "clear" : "unclassified",',
+      to: 'state: "clear",',
+    },
+    accepted: [],
+  },
 ];

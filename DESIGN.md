@@ -88,6 +88,15 @@ No pair is color-ALONE in the semantic tree: every one carries `aria-current`
 or a structural glyph, holding the §1 color-blind floor while preserving the
 resting hierarchy the carve-out decision chose.
 
+**Family D is a predicate, not a list, and it EXCLUDES more pairs than it
+admits.** A state pair whose active member INVERTS the fill — the telemetry
+level filter's selected segment is `bg-text text-bg`
+(`components/admin/telemetry/EventFilters.tsx`) — is not a Family D pair: the
+inversion already separates the two members at full strength, so the inactive
+member has no reason to rest dim, and it rests at `text-text` like any other
+control. Family D is for pairs whose dim member would otherwise be
+distinguished by the text-color delta ALONE.
+
 **Hover is unchanged by this policy.** Where a swapped site's existing hover
 target became its new resting color, that site's hover steps to
 `--color-text-strong` so hover still visibly strengthens; sites whose hover
