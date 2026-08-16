@@ -73,7 +73,8 @@
     "test:e2e:standalone": "playwright test --config tests/e2e/standalone.config.ts",
     "test:audit:pg-cron-validation": "vitest run tests/cross-cutting/pg-cron-coverage.test.ts",
     "ledger:mass": "tsx scripts/ledger-mass.ts",
-    "plan:fences": "tsx scripts/plan-fences.ts"
+    "plan:fences": "tsx scripts/plan-fences.ts",
+    "panes:compact": "tsx scripts/pane-compaction.ts"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",

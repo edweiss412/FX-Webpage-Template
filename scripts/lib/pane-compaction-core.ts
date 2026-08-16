@@ -359,3 +359,70 @@ export function resolveOwnership(
   }
   return { kind: "owned" };
 }
+
+// ---------------------------------------------------------------------------
+// §5.3 — report, envelope, and `--check` aggregation
+// ---------------------------------------------------------------------------
+
+export type PaneReport = {
+  paneId: string;
+  branch: string | null;
+  tenths: number | null;
+  verdict: Verdict;
+  rule: number;
+  position: Position;
+  /** Whether this pane is in the invoking orchestrator's purview. */
+  inPurview: boolean;
+};
+
+/**
+ * The `--json` payload: an ENVELOPE, never a bare array.
+ *
+ * NEVER CAPPED, and exported so that is provable. A display cap belongs to the
+ * human table alone; slicing here silently truncates a machine consumer's view.
+ * It is exported because the live roster is ~12 panes, so an end-to-end
+ * assertion could not fail against the mutant it names — the same reasoning as
+ * `reportEnvelope` in `scripts/ledger-claims.ts`.
+ */
+export function reportEnvelope(
+  panes: PaneReport[],
+  degraded: string[],
+): { status: number; degraded: string[]; panes: PaneReport[] } {
+  return { status: 0, degraded, panes };
+}
+
+/**
+ * `--check`'s exit code, over PURVIEW PANES ONLY.
+ *
+ * The report covers every roster pane; this does not. An orchestrator owning
+ * part of a shared machine would otherwise never see 0 or 1, because someone
+ * else's pane is permanently `UNOWNED` or `NOT-AN-ARC`.
+ *
+ * 2 outranks 1: trust is affected, and an unresolvable pane matters more than
+ * an actionable one.
+ */
+export function checkExitCode(panes: PaneReport[]): 0 | 1 | 2 {
+  const mine = panes.filter((p) => p.inPurview);
+  if (mine.some((p) => p.verdict === "UNDETERMINED")) return 2;
+  if (mine.some((p) => p.verdict === "COMPACT" || p.verdict === "FORCE")) return 1;
+  return 0;
+}
+
+/**
+ * One rendered report row.
+ *
+ * Carries the verdict AND the position evidence, which is what AC-1 requires:
+ * the classifier can compute both while an adapter silently omits them, and
+ * without the evidence an operator cannot overrule an inference — which is the
+ * whole reason inferred position is acceptable (§4.4).
+ */
+export function renderRow(p: PaneReport): string {
+  const gauge = p.tenths === null ? "?" : `${p.tenths}/10`;
+  return [
+    p.paneId.padEnd(8),
+    (p.branch ?? "(unlabeled)").padEnd(34),
+    gauge.padStart(5),
+    p.verdict.padEnd(13),
+    `row ${p.position.row} ${p.position.cost}`,
+  ].join("  ");
+}
