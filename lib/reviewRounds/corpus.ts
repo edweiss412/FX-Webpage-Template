@@ -287,15 +287,20 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
           });
           continue;
         }
-        // Spec R9 finding 1: for NEW filings the field duty is satisfied by
-        // RENDERED fields, because the raw line scan is satisfied by lines
+        // Spec R9 finding 1: for NEW filings the field duty needs BOTH the raw
+        // line anchor AND a rendered label. Raw alone is satisfied by lines
         // inside a fence, an indented block, or an HTML node - content the
-        // reader never sees - and parity below is then never consulted.
+        // reader never sees; rendered alone is satisfied by a mid-sentence
+        // strong-run MENTION (diff R1 finding 2), which never opens a field
+        // paragraph. The conjunction rejects both while the compact
+        // soft-broken form (raw anchor + rendered label) stays legal.
         // Grandfathered filings keep the shipped raw semantics.
-        const examinedOk = grandfathered ? section.hasExamined : section.astExamined;
+        const examinedOk = grandfathered
+          ? section.hasExamined
+          : section.hasExamined && section.astExamined;
         const dispositionOk = grandfathered
           ? section.hasDisposition
-          : section.astDispositions.length > 0;
+          : section.hasDisposition && section.astDispositions.length > 0;
         if (!examinedOk || !dispositionOk) {
           const rawOnly: string[] = [];
           if (section.hasExamined && !examinedOk) rawOnly.push("**Examined:**");

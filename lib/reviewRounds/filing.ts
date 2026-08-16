@@ -1,4 +1,4 @@
-import type { ListItem, Paragraph, Parent, RootContent } from "mdast";
+import type { Paragraph, Parent, RootContent } from "mdast";
 import { remark } from "remark";
 import remarkGfm from "remark-gfm";
 
@@ -101,11 +101,6 @@ function beginsWithDecline(node: RootContent): boolean {
   return false;
 }
 
-function listItemDeclines(item: ListItem): boolean {
-  const first = item.children[0];
-  return first !== undefined && beginsWithDecline(first);
-}
-
 /**
  * Every `**<name>:**` label rendered anywhere in the tree - a strong node whose
  * text ends in a colon, outside code/html/delete content (spec R9). Feeds
@@ -125,16 +120,36 @@ function renderedFieldLabels(nodes: RootContent[], out: Set<string>): void {
   }
 }
 
-/** True when any listItem, at any depth, holds a rendered Mechanizable field. */
+/**
+ * True when a rendered Mechanizable FIELD PARAGRAPH exists anywhere BELOW the
+ * top level - under a list item, inside a blockquote (bare or nested), in a
+ * doubly nested list (diff R1 finding 3: the first version checked only direct
+ * children of list items, so `- > **Mechanizable:** x` rendered for the reader
+ * while marker discovery saw nothing). Callers pass each top-level node's
+ * CHILDREN, so a top-level marker never matches itself.
+ */
 function hasNestedMechanizable(nodes: RootContent[]): boolean {
   for (const node of nodes) {
-    if (node.type === "code" || node.type === "html") continue;
-    if (node.type === "listItem") {
-      for (const child of node.children) {
-        if (fieldName(child) === "Mechanizable") return true;
-      }
-    }
+    if (node.type === "code" || node.type === "html" || node.type === "delete") continue;
+    if (fieldName(node) === "Mechanizable") return true;
     if ("children" in node && hasNestedMechanizable((node as Parent).children as RootContent[])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * True when any descendant paragraph (outside code/html/delete) declares a
+ * decline. Paragraph-scoped begins-with, so a mid-sentence mention still fails
+ * the test wherever it nests (diff R1 finding 4: a conforming decline in a
+ * sub-list item or a blockquote paragraph was rejected over its depth).
+ */
+function declinesAnywhere(nodes: RootContent[]): boolean {
+  for (const node of nodes) {
+    if (node.type === "code" || node.type === "html" || node.type === "delete") continue;
+    if (beginsWithDecline(node)) return true;
+    if ("children" in node && declinesAnywhere((node as Parent).children as RootContent[])) {
       return true;
     }
   }
@@ -157,7 +172,15 @@ function analyzeBody(text: string): AstAnalysis {
   renderedFieldLabels(top, labels);
   const astDispositions = DISPOSITIONS.filter((d) => labels.has(d));
   const astExamined = labels.has("Examined");
-  const nestedMechanizable = hasNestedMechanizable(top);
+  // Each top node's CHILDREN, so a canonical top-level marker is not its own
+  // nesting violation while anything rendered below the top level is.
+  const nestedMechanizable = top.some(
+    (n) =>
+      n.type !== "code" &&
+      n.type !== "html" &&
+      "children" in n &&
+      hasNestedMechanizable((n as Parent).children as RootContent[]),
+  );
 
   const markerIndexes = top.flatMap((n, i) => (fieldNames[i] === "Mechanizable" ? [i] : []));
   if (markerIndexes.length === 0) {
@@ -183,21 +206,7 @@ function analyzeBody(text: string): AstAnalysis {
 
   const isNone = /^none\b/i.test(remainder);
 
-  let hasDecline = DECLINE.test(remainder);
-  if (!hasDecline) {
-    for (const node of block.slice(1)) {
-      if (beginsWithDecline(node)) {
-        hasDecline = true;
-        break;
-      }
-      if (node.type === "list") {
-        if (node.children.some((item) => listItemDeclines(item))) {
-          hasDecline = true;
-          break;
-        }
-      }
-    }
-  }
+  const hasDecline = DECLINE.test(remainder) || declinesAnywhere(block.slice(1));
 
   const blockText = block.map((n) => visibleText(n, true)).join("\n");
   const citedIds = [...new Set(blockText.match(CITED_ID) ?? [])];

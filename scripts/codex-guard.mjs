@@ -531,8 +531,16 @@ function checkGuardSurfaceDeclarations(cfg) {
       const total = Number(score[2]);
       // The shipped authority's no-mutants and unaccounted-mutants conditions
       // (tests/mutation/source/gate.ts): 0/0 and 2/1 are declarations of
-      // nothing, not evidence.
-      if (total >= 1 && killed <= total) continue;
+      // nothing, not evidence. SAFE integers required (diff R1 finding 1):
+      // past MAX_SAFE_INTEGER the operands round together and an impossible
+      // killed > total pair reads as equal.
+      if (
+        Number.isSafeInteger(killed) &&
+        Number.isSafeInteger(total) &&
+        total >= 1 &&
+        killed <= total
+      )
+        continue;
     }
     if (/CANNOT-EXPRESS:\s*\S/.test(remainder)) continue;
     bad.push(`  line ${i + 1}: ${line.trim().slice(0, 80)}`);

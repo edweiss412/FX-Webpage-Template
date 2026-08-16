@@ -374,6 +374,38 @@ describe("review-round economy gate (spec §7.1)", () => {
     expect(message).not.toContain("non-rendered");
   });
 
+  // Diff R1 finding 2: a prose MENTION of a field label - a strong run
+  // mid-sentence - is rendered but does not open a field paragraph, so it must
+  // not satisfy the Examined or disposition duties. The duties need BOTH the
+  // raw line anchor AND a rendered label.
+  it("FAILS a filing whose only field labels are mid-sentence mentions", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      {
+        path: `${ARC}.md`,
+        body: `## diff — ${ROUND_THRESHOLD} rounds\n\nThis paragraph merely mentions **Examined:** and **Judgment:** as examples.\n`,
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+    expect(problems[0]!.message).toContain(
+      "needs an **Examined:** line and at least one disposition line",
+    );
+  });
+
+  // The compact soft-broken form stays legal under the conjunction: the raw
+  // anchor and the rendered label both hold on `**Examined:** a\n**Infra:** b`.
+  it("PASSES the compact soft-broken field form", () => {
+    expect(
+      check([
+        { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+        {
+          path: `${ARC}.md`,
+          body: `## diff — ${ROUND_THRESHOLD} rounds\n\n**Examined:** R1-R${ROUND_THRESHOLD}.\n**Mechanizable:** none\n`,
+        },
+      ]),
+    ).toEqual([]);
+  });
+
   // Failure caught: a malformed BODY reported and the section checked anyway.
   // The case above cannot see it - its heading declares the true count, so
   // falling through compares 4 against 4 and adds nothing. Declaring a wrong
@@ -802,6 +834,28 @@ describe("mechanizable ledger parity (enforcement-pair spec §3)", () => {
     const problems = gate(`**Judgment:** the real disposition\n\n${m} **Mechanizable:** nested candidate`);
     expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
     expect(problems[0]!.message).toMatch(/nest/);
+  });
+
+  // Diff R1 finding 3, gate level: a rendered Mechanizable field nested under
+  // a blockquote inside a list item (and a bare top-level blockquote) is
+  // rejected, not silently admitted beside a conforming Judgment.
+  it.each([
+    ["a blockquote inside a list item", "- > **Mechanizable:** nested candidate"],
+    ["a bare top-level blockquote", "> **Mechanizable:** quoted candidate"],
+  ])("FAILS a rendered Mechanizable field in %s", (_n, body) => {
+    const problems = gate(`**Judgment:** the real disposition\n\n${body}`);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+    expect(problems[0]!.message).toMatch(/top-level/);
+  });
+
+  // Diff R1 finding 4, gate level: a decline declared in a sub-list item or a
+  // blockquote paragraph inside the block is a declaration - the gate must not
+  // reject a conforming filing over its nesting depth.
+  it.each([
+    ["a sub-list item", "- one candidate\n  - declined: owner decision"],
+    ["a blockquote paragraph", "> declined: quoted owner decision"],
+  ])("PASSES a decline declared in %s", (_n, body) => {
+    expect(gate(`**Mechanizable:** one candidate\n\n${body}`)).toEqual([]);
   });
 
   // §3.3: the grandfather exemption, pinned on a REAL frozen path whose fixture

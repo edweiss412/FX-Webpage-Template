@@ -290,4 +290,42 @@ describe("mechanizable block analysis (spec §3.1)", () => {
     expect(sections[0]?.hasExamined).toBe(true);
     expect(sections[1]?.stage).toBe("spec");
   });
+
+  // Diff R1 finding 3: a rendered Mechanizable field at ANY non-top-level
+  // position - a blockquote inside a list item, a bare top-level blockquote, a
+  // doubly nested list - renders for the reader while marker discovery sees
+  // nothing, so nestedMechanizable must expose every one of them.
+  it.each([
+    ["blockquote inside a list item", "- > **Mechanizable:** nested candidate\n"],
+    ["bare top-level blockquote", "> **Mechanizable:** quoted candidate\n"],
+    ["doubly nested list", "- outer\n  - **Mechanizable:** nested candidate\n"],
+  ])("flags a rendered Mechanizable field in %s", (_n, body) => {
+    const s = section(`**Judgment:** the real disposition\n\n${body}`);
+    expect(s?.nestedMechanizable).toBe(true);
+    expect(s?.mechanizable).toBeNull();
+  });
+
+  // Diff R1 finding 4: a conforming decline is a declaration wherever it
+  // renders inside the block - a sub-list item, a blockquote paragraph.
+  it.each([
+    ["a sub-list item", "- one candidate\n  - declined: owner decision\n"],
+    ["a blockquote paragraph", "> declined: quoted owner decision\n"],
+  ])("hasDecline accepts a decline in %s", (_n, body) => {
+    expect(section(`**Mechanizable:** one candidate\n\n${body}`)?.mechanizable?.hasDecline).toBe(
+      true,
+    );
+  });
+
+  // The mention protections survive the recursive walk: struck-through and
+  // mid-sentence forms inside nested containers still declare nothing.
+  it("nested mention forms still do not declare", () => {
+    expect(
+      section("**Mechanizable:** one candidate\n\n- ~~declined: struck~~\n")?.mechanizable
+        ?.hasDecline,
+    ).toBe(false);
+    expect(
+      section("**Mechanizable:** one candidate\n\n> we should use declined: <reason> later\n")
+        ?.mechanizable?.hasDecline,
+    ).toBe(false);
+  });
 });

@@ -120,10 +120,17 @@ describe("round-1 diff guard-surface gate (spec §2.1)", () => {
   });
 
   // Spec R3 probe pair: semantically impossible fractions, per the shipped
-  // authority's no-mutants and unaccounted-mutants conditions.
+  // authority's no-mutants and unaccounted-mutants conditions. The third row is
+  // the diff R1 finding-1 probe: past Number.MAX_SAFE_INTEGER the operands
+  // round together, so an impossible killed > total pair reads as equal - the
+  // arm requires SAFE integers, not merely parseable ones.
   it.each([
     ["0/0 - no mutants", "MUTATION SCORE: 0/0, 0 unaccepted survivors"],
     ["2/1 - killed exceeds total", "MUTATION SCORE: 2/1, 0 unaccepted survivors"],
+    [
+      "unsafe integers rounding equal",
+      "MUTATION SCORE: 9007199254740993/9007199254740992, 0 unaccepted survivors",
+    ],
   ])("EXITS 2 on a semantically invalid fraction (%s)", async (_n, decl) => {
     const run = mkRun();
     briefWith(run, `GUARD SURFACE: lib/foo.ts — ${decl}`);
