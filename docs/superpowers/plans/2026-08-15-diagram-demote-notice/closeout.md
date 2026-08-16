@@ -67,9 +67,12 @@ with a live capture. Detector: the only hits are pre-existing `broken-image` fal
 | C2 | — | Critique: the code comment said "eleven characters" for a 23-character string (inherited from spec §4 limit 1). | **FIXED in-branch** in both the comment and the spec, with the arithmetic corrected and the reasoning left standing. |
 
 P0: none. P1: none. P2: one, fixed in-branch. No `DEFERRED.md` entry is required because nothing at
-P0/P1 was left undone.
+P0/P1 was left undone. The marker below reads `dispositions=none` for that reason and not because the
+table above is empty: the grammar's cross-check ties that field to the P0/P1 count specifically
+(`tests/docs/_invariant8Closeout.ts`), so `recorded` with `p0=0 p1=0` is rejected as malformed. The
+P2 and P3 dispositions are recorded in the table regardless.
 
-impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=recorded
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
 
 ## Documented limits carried forward
 
