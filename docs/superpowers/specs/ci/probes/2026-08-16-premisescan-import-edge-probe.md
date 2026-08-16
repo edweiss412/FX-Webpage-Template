@@ -274,7 +274,7 @@ Under that model `0 MISSES` is uninformative: the divergences make misses **less
 | static side-effect `import "./x"` (no import clause) | **NO** — 7 in-repo sites |
 | a target that does not resolve | **NO** — both walkers call `check` only inside `if (t)` |
 
-Two consequences follow and both are stated rather than left to be re-derived. The `.mdx` total is **31** edges — 2 static, 25 direct-variable dynamic, 4 embedded — and this harness reports **27**, the first two groups; the four it misses are `tests/help/help-catalog-tables.test.tsx:116,132,145,154`. And the harness parses `.jsx` as `ScriptKind.TSX` while the target scanner parses it as TS (`tests/mutation/source/premiseScan.ts:61`), so its `.jsx` rows measure a different parser than the implementation contract — which is spec §4 limit 9's residual, not a fact about the corpus.
+Two consequences follow and both are stated rather than left to be re-derived. The `.mdx` total is **31** edges — 2 static, 25 direct-variable dynamic, 4 embedded — and this harness reports **27**, the first two groups; the four it misses are all in `tests/help/help-catalog-tables.test.tsx`, at lines 116, 132, 145 and 154. And the harness parses `.jsx` as `ScriptKind.TSX` while the target scanner parses it as TS (`tests/mutation/source/premiseScan.ts:61`), so its `.jsx` rows measure a different parser than the implementation contract — which is spec §4 limit 9's residual, not a fact about the corpus.
 
 **So the zero-miss conclusion is scoped to the classes marked YES**, which is the claim spec §3.3b now makes. The classes marked NO are exactly what spec §2.4b's single rule REPORTS, and their populations are measured independently by probe 5 below — so nothing in this table is an unmeasured gap.
 
@@ -733,6 +733,19 @@ NEAR DOMAIN (git ls-files tests + closure, 3,269 modules)
   63  total
 ```
 
+**The predicate is proven to FIRE before its zero is believed** (round-5 finding 3). A first version gated every dynamic row on `inRepo = !!t`, so any dynamic import whose target does not resolve was discarded — the exact final row of §2.4b's table, silently unmeasurable. Fixed, and the premise is stated executably rather than assumed, against a two-case fixture:
+
+```
+it("a", async () => { await import("./missing-target"); });
+it("b", async () => { const m = await import("./also-missing"); void m; });
+
+  2  dynamic import whose in-repo specifier does not resolve
+       probe.test.ts:1
+       probe.test.ts:2
+```
+
+Under the discarding predicate both rows were `[]`. The corpus figure is unchanged at zero for that row, so the conclusion held — but it now RESTS on a walk that can see the case, which it previously could not.
+
 **A first run reported 819 unresolved specifiers and that figure was WRONG.** Its in-repo test was `/^[.@]/`, which counts every scoped npm package (`@supabase/ssr`, `@supabase/supabase-js`) as a repo path; only `./`, `../` and `@/` are in-repo. The corrected count is 5. Recorded because this arc has been caught three times by a claim wider than its harness, and this instance was caught before it reached the spec rather than after — which is the only difference that matters between this and the three findings.
 
 **Conclusion.** The live population is zero at every row, so §2.4b's rule moves no declared count and AC-1 holds. The near-domain cost is 63 sites — the same order as §4 limit 3's 41 namespace sites — payable as an explicit `// no-premise:` when such a suite is enrolled.
@@ -823,7 +836,13 @@ function scan(seeds: string[], label: string): void {
         } else {
           kind = "embedded in a larger expression";
         }
-        if (inRepo && kind !== "direct variable declaration (MODELLED)"
+        // Round-5 finding 3: gating on `inRepo` discarded every dynamic import
+        // whose target does not resolve — the exact final row of §2.4b's table.
+        // An in-repo specifier that misses is recorded as its own kind.
+        const inRepoSpec = !!lit && /^\.|^@\//.test(lit);
+        if (inRepoSpec && !t) {
+          rows.push({ kind: "dynamic import whose in-repo specifier does not resolve", where: at(n) });
+        } else if (inRepo && kind !== "direct variable declaration (MODELLED)"
             && kind !== "non-literal specifier (already unclassifiable)") {
           rows.push({ kind, where: at(n) });
         }

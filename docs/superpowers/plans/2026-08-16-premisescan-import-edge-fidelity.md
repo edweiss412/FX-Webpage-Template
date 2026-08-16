@@ -917,21 +917,33 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     ).toBe("environment-free");
   });
 
+  it("a LOCAL dynamic namespace resolves — the discriminating foil", () => {
+    // §2.3 binds this member-precisely and AC-2b pins it. The EXPORTED
+    // spellings are NOT foils: §2.2 REPORTS them, because once `ns` crosses a
+    // module boundary the importer holds a promise, not a namespace. A round-4
+    // draft listed them as foils that "resolve normally", contradicting §2.2.
+    expect(
+      verdictWithModules(
+        { helper: SPAWNS },
+        `it("x", async () => { const ns = await import("__MODULE_helper__"); ns.spawner(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
   it.each([
     ["export const ns = await import()", `export const ns = await import("__MODULE_helper__");`, "ns"],
     ["export const { spawner } = await import()", `export const { spawner } = await import("__MODULE_helper__");`, "spawner"],
     ["const ns = await import(); export { ns }", `const ns = await import("__MODULE_helper__");\nexport { ns };`, "ns"],
     ["const { spawner } = await import(); export { spawner }", `const { spawner } = await import("__MODULE_helper__");\nexport { spawner };`, "spawner"],
-  ])("a DIRECT variable-declaration dynamic binding resolves: %s", (_l, barrel, name) => {
-    // AC-5c's foil: the four spellings the resolver DOES model. Each imports the
-    // name its own barrel exports — a fixture importing a name the barrel lacks
-    // would be pure for a test-local reason and could never go green.
+  ])("an EXPORTED dynamic binding REPORTS: %s (spec §2.2)", (_l, barrel, name) => {
+    // Each imports the name its own barrel exports — a fixture importing a name
+    // the barrel lacks would be pure for a test-local reason and never go green.
     expect(
       verdictWithModules(
         { helper: SPAWNS, barrel },
         `import { ${name} } from "__MODULE_barrel__";\n it("x", () => { void ${name}; });`,
       ),
-    ).toBe("environment-touching");
+    ).toBe("unclassifiable");
   });
 });
 ```
