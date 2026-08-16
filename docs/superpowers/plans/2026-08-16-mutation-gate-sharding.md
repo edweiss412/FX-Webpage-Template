@@ -31,8 +31,9 @@ impeccable-gate: N/A — no UI surface
 ## Meta-test inventory (mandatory declaration)
 
 **CREATES:**
-- **tests/mutation/_metaSourceShardIntegrity.test.ts** — pins matrix index lists, shard file sets, and **realized execution targets** for both matrices against their TypeScript constants (AC-6a, AC-6b).
+- **tests/mutation/_metaSourceShardIntegrity.test.ts** — pins matrix index lists, shard file sets, shard file BODIES, realized execution targets, the `mutation:guards` script, the budget job's arguments, and `notify`'s job references, all against their TypeScript constants (AC-4, AC-6, AC-6a, AC-6b, AC-6c, AC-7, AC-10).
 - **tests/mutation/source/shardPartition.test.ts** — the partition's own unit suite; also the referring suite that makes the module enrollable in the source-mutation registry (Task 7).
+- **tests/ci/shardBudget.test.ts** — the budget logic's unit suite, and its referring suite for the same reason (Task 7).
 
 **EXTENDS:**
 - `tests/cross-cutting/mutation-browser-ci-wiring.test.ts` — its two assertions naming the monolith must become shard-aware (Task 5).
@@ -44,7 +45,9 @@ impeccable-gate: N/A — no UI surface
 
 ## Mutation-family closure (guard surfaces shipped here)
 
-Task 7 enrols **tests/mutation/source/shardPartition.ts** with the full declared operator set (`[...OPERATOR_NAMES]`, six families) — the same closure every other surface uses. The convergence criterion for the guard is **the mutation score plus an empty unaccepted-survivor set**, both machine-computed. A reviewer-proposed new operator family is a registry change carrying its own before/after numbers, not a round on this diff.
+Task 7 enrols **both** guard surfaces this arc ships — **tests/mutation/source/shardPartition.ts** and **lib/ci/shardBudget.ts** — each with the full declared operator set (`[...OPERATOR_NAMES]`, six families), the same closure every other surface uses.
+
+**Both are importable modules with a referring suite, and neither carries a CLI main.** The budget checker's decision logic lives in **lib/ci/shardBudget.ts** and its command-line entry in a separate **scripts/check-shard-budget.ts**, because the registry already records the cost of the combined shape: `phantomGapExecuted` "enrolled as one file with its CLI main block inline it scored 0.27, 18 of 19 survivors sitting in code the referring suite can never execute through an import" (`tests/mutation/source/registry.ts:993-1008`). A guard that cannot be imported cannot be enrolled, and enrolment precedes review. The convergence criterion for the guard is **the mutation score plus an empty unaccepted-survivor set**, both machine-computed. A reviewer-proposed new operator family is a registry change carrying its own before/after numbers, not a round on this diff.
 
 **Enrolment precedes the diff review** (`AGENTS.md`): Task 7 runs before the whole-diff dispatch, and its score plus survivor set go in the round-1 diff brief. The module is authored as an importable module with a referring suite from the start (Task 1), never a CLI script — that shape is what makes it enrollable at all.
 
@@ -61,7 +64,10 @@ Task 7 enrols **tests/mutation/source/shardPartition.ts** with the full declared
 | **tests/mutation/source/surfaceCases.ts** | `registerSurfaceCases(surfaces)` — the seven per-surface `it`s, one copy, called by each shard. |
 | `tests/mutation/guardSurfaces.shard{0,1,2,3}.test.ts` | Four same-template files; only the `SOURCE_SHARD` literal and the filename comment differ. |
 | **tests/mutation/guardSurfaces.gates.test.ts** | Corpus-wide: registry completeness, partition totality/disjointness/balance, the `it`-count pin, and the live child-timeout premise. |
-| **tests/mutation/_metaSourceShardIntegrity.test.ts** | Workflow ↔ constant ↔ file-set ↔ realized-target integrity, both matrices. |
+| **tests/mutation/_metaSourceShardIntegrity.test.ts** | Workflow ↔ constant ↔ file-set ↔ template ↔ realized-target ↔ notify-reference integrity. |
+| **lib/ci/shardBudget.ts** | Fail-closed completeness + budget decisions. No I/O, no `process`, so it is enrollable. |
+| **scripts/check-shard-budget.ts** | Thin CLI: parse arguments, read the artifact dir, call the module, exit. Decides nothing. |
+| **tests/ci/shardBudget.test.ts** | Its unit suite (per-task TDD applies to CI scripts too). |
 
 **Delete**
 | path | why |
@@ -503,7 +509,9 @@ Expected: PASS.
 - [ ] **Step 8: Verify the split preserved every case**
 
 Run: `pnpm heavy pnpm mutation:guards`
-Expected: PASS, with the shards plus gates collecting **`7 × GUARD_SURFACES.length + 4`** cases in total — the seven per-surface cases across the four shards, plus the gates file's one completeness case, three partition cases, and one timeout case. With 18 surfaces enrolled that is 126 + 5 = **131**, against the monolith's 128 (the three extra are the new partition cases). Record the observed count in the commit; a shortfall means a surface was lost in the split, which is what this step exists to catch.
+Expected: the shards plus gates collect **`7 × GUARD_SURFACES.length + 5`** cases — the seven per-surface cases across the four shards, plus the gates file's ONE completeness case, THREE partition cases, and ONE timeout case, which is five. With 18 surfaces enrolled that is 126 + 5 = **131**, against the monolith's 128; the three extra are the new partition cases. Record the observed count in the commit; a shortfall means a surface was lost in the split, which is what this step exists to catch.
+
+**Expect a FAILURE, not a pass, and check its signature.** `pnpm mutation:guards` is red at the merge base: `interactionTimingScan` carries an unaccepted survivor (`logical-connector:330:39:&&>||`), which this arc explicitly does not fix (Global Constraints; spec §2.7). The passing condition for this step is therefore **the collected count above, plus a failure set equal to the merge-base signatures in Task 8 Step 1 restricted to this gate** — that one survivor and nothing else. A DIFFERENT failure is this task's regression; the absence of that failure means something stopped executing.
 
 > This is the one full-gate run in the plan and it is slow. It runs under `pnpm heavy`. If the semaphore is saturated, wait — do not run it unwrapped.
 
@@ -790,12 +798,17 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     }
   });
 
-  it("the tracking issue can name which family failed (AC-6)", () => {
-    // A per-family result must reach the issue body, or a red matrix files an
-    // issue that says only "something failed" across fourteen legs.
+  it("the tracking issue reports each job's RESULT, not merely its name (AC-6)", () => {
+    // Checking for the job NAME is non-discriminating: a body listing all five
+    // names as static labels, or names appearing only in step names and `if:`
+    // conditions, satisfies it while the issue still cannot say which family
+    // failed. What has to reach the body is each job's RESULT EXPRESSION.
     const notifySteps = JSON.stringify(wf.jobs["notify"]?.steps ?? []);
     for (const job of [...FAMILIES.map((f) => f.job), ...GATES.map((g) => g.job), "budget"]) {
-      expect(notifySteps, `the issue body never names ${job}`).toContain(job);
+      expect(
+        notifySteps,
+        `the issue body never reports ${job}'s result, only (at most) its name`,
+      ).toContain(`needs.${job}.result`);
     }
   });
 });
@@ -886,22 +899,24 @@ git commit -m "feat(infra): run every mutation shard as its own job, pinned to t
 AC-6c and AC-7 are behavioural claims about a script, so the script gets a test before it gets a body — the per-task TDD invariant applies to `.github/scripts/**` exactly as it does to `lib/**`.
 
 **Files:**
-- Create: **.github/scripts/check-shard-budget.mjs**, **tests/ci/checkShardBudget.test.ts**
+- Create: **lib/ci/shardBudget.ts** (the logic), **scripts/check-shard-budget.ts** (a thin CLI), **tests/ci/shardBudget.test.ts** (its suite)
 - Modify: `.github/workflows/mutation-harness.yml` (the `budget` job body, `notify.needs`)
 
 **Interfaces:**
-- Produces: `export function checkBudget(records: {leg: string, seconds: number}[], expectedLegs: string[], budgetSeconds: number): {ok: boolean, failures: string[], warnings: string[]}` — an importable function, plus a thin CLI wrapper. Importable because a terminal CLI script cannot be tested or enrolled.
+- Produces, from **lib/ci/shardBudget.ts**: `export function checkBudget(records: {leg: string, seconds: number}[], expectedLegs: string[], budgetSeconds: number): {ok: boolean, failures: string[], warnings: string[]}` and `export function expectedLegNames(parserShards: number, sourceShards: number): string[]`.
+
+**The logic and the CLI are SEPARATE FILES, and this is not a style choice.** The registry records what happens otherwise: `phantomGapExecuted` was "enrolled as one file with its CLI main block inline it scored 0.27, 18 of 19 survivors sitting in code the referring suite can never execute through an import" (`tests/mutation/source/registry.ts:993-1008`). A guard with an inline main is not enrollable, and this budget checker IS a guard. So **lib/ci/shardBudget.ts** holds every decision and **scripts/check-shard-budget.ts** holds only argument parsing, a call, and `process.exit` — thin enough that nothing in it needs mutation coverage.
 - Consumes at RUNTIME, from the workflow's arguments rather than from constants of its own: `--budget-seconds`, `--parser-shards`, `--source-shards`, `--dir`. The script derives `expectedLegs` from the two counts. Step 5 pins those arguments to the TypeScript constants in the integrity meta-test, so the script cannot become a second copy of either number.
 
-<!-- task: red=`pnpm vitest run tests/ci/checkShardBudget.test.ts` red-state=authored red-target=`.github/scripts/check-shard-budget.mjs` why=`the script does not exist, so the suite's import fails to resolve` ac=AC-6c,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/ci/shardBudget.test.ts` red-state=authored red-target=`lib/ci/shardBudget.ts` why=`the module does not exist, so the suite's import fails to resolve` ac=AC-6c,AC-7 -->
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-// tests/ci/checkShardBudget.test.ts
+// tests/ci/shardBudget.test.ts
 import { describe, expect, it } from "vitest";
 
-import { checkBudget } from "../../.github/scripts/check-shard-budget.mjs";
+import { checkBudget, expectedLegNames } from "@/lib/ci/shardBudget";
 
 const LEGS = ["source-shards-0", "source-shards-1"];
 const BUDGET = 3600;
@@ -952,23 +967,53 @@ describe("shard budget check", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe("expected leg names", () => {
+  it("derives one leg per shard plus the two gates legs", () => {
+    // Derived from the counts, so the leg set has ONE origin -- the same two
+    // numbers the workflow passes and the integrity meta-test pins.
+    expect(expectedLegNames(2, 3).sort()).toEqual(
+      [
+        "parser-shards-0",
+        "parser-shards-1",
+        "source-shards-0",
+        "source-shards-1",
+        "source-shards-2",
+        "parser-gates",
+        "source-gates",
+      ].sort(),
+    );
+  });
+
+  it("scales with each count independently", () => {
+    // A derivation that ignored one count would give the same length for both.
+    expect(expectedLegNames(8, 4)).toHaveLength(8 + 4 + 2);
+    expect(expectedLegNames(4, 8)).toHaveLength(4 + 8 + 2);
+    expect(expectedLegNames(8, 4)).not.toEqual(expectedLegNames(4, 8));
+  });
+
+  it("names no duplicate leg", () => {
+    const legs = expectedLegNames(8, 4);
+    expect(new Set(legs).size).toBe(legs.length);
+  });
+});
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `pnpm vitest run tests/ci/checkShardBudget.test.ts`
-Expected: FAIL — cannot resolve **.github/scripts/check-shard-budget.mjs**, verified absent on the live tree.
+Run: `pnpm vitest run tests/ci/shardBudget.test.ts`
+Expected: FAIL — cannot resolve **lib/ci/shardBudget.ts**, verified absent on the live tree.
 
 - [ ] **Step 3: Write the script**
 
-`checkBudget` exported for the suite; a `main` guarded by an `import.meta.url` check parses `--dir`, `--budget-seconds`, `--parser-shards` and `--source-shards`, derives the expected leg names from the two counts (`parser-shards-<i>`, `source-shards-<i>`, plus `parser-gates` and `source-gates`), reads the artifact directory, builds the records, calls `checkBudget`, prints a **::warning::** annotation per warning, and exits non-zero when `ok` is false.
+**lib/ci/shardBudget.ts** holds `checkBudget` and `expectedLegNames`, and nothing else — no `process`, no I/O, no exit. **scripts/check-shard-budget.ts** parses `--dir`, `--budget-seconds`, `--parser-shards` and `--source-shards`, reads the artifact directory into records, calls `expectedLegNames` then `checkBudget`, prints a **::warning::** annotation per warning, and exits non-zero when `ok` is false. Every decision lives in the module; the script decides nothing.
 
 Completeness is checked **before** any maximum is taken: an absent or duplicated leg is a failure naming the leg, never a smaller maximum. A record that does not parse as a finite number is a failure, not a zero. **The script declares no default for any of the four arguments** — a missing one is a usage error and a non-zero exit, because a default is how it would silently become a second copy of a constant that lives elsewhere.
 
 - [ ] **Step 4: Run it to verify it passes**
 
-Run: `pnpm vitest run tests/ci/checkShardBudget.test.ts`
-Expected: PASS, 8 tests.
+Run: `pnpm vitest run tests/ci/shardBudget.test.ts`
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Wire the budget job, passing the constants rather than restating them**
 
@@ -983,7 +1028,7 @@ Expected: PASS, 8 tests.
       - uses: actions/download-artifact@v4
         with: { pattern: elapsed-*, path: elapsed }
       - run: >
-          node .github/scripts/check-shard-budget.mjs
+          pnpm tsx scripts/check-shard-budget.ts
           --dir elapsed
           --budget-seconds 3600
           --parser-shards 8
@@ -996,9 +1041,13 @@ Expected: PASS, 8 tests.
   it("the budget job is invoked with the canonical constants (AC-7)", () => {
     const run = runsOf("budget").find((r) => r.includes("check-shard-budget")) ?? "";
     expect(run, "the budget job runs no budget script").not.toBe("");
-    expect(run).toContain(`--budget-seconds ${SHARD_BUDGET_SECONDS}`);
-    expect(run).toContain(`--parser-shards ${SHARD_COUNT}`);
-    expect(run).toContain(`--source-shards ${SOURCE_SHARD_COUNT}`);
+    // END-ANCHORED, not `toContain`: `--budget-seconds 36000` CONTAINS "3600",
+    // so a substring check passes while the one-hour ceiling is silently ten
+    // hours. Each value must be the whole argument, not a prefix of it.
+    const arg = (flag: string, value: number) => new RegExp(`${flag} ${value}(?![0-9])`);
+    expect(run).toMatch(arg("--budget-seconds", SHARD_BUDGET_SECONDS));
+    expect(run).toMatch(arg("--parser-shards", SHARD_COUNT));
+    expect(run).toMatch(arg("--source-shards", SOURCE_SHARD_COUNT));
   });
 ```
 
@@ -1021,14 +1070,18 @@ Build a scratch directory holding one record per leg, then:
 - one record set to `3601` → expected non-zero exit naming the over-budget leg;
 - one record deleted → expected non-zero exit naming the **absent** leg;
 - one record duplicated → expected non-zero exit naming the duplicate;
-- all records at `100` → expected exit 0, no warning.
+- all records at `100` → expected exit 0, and **no** **::warning::** on stdout;
+- one record at `2881` (80 % of 3600) → expected exit **0** with a **::warning::** naming that leg. Without this probe, deleting the annotation entirely leaves every other check green;
+- `--budget-seconds` omitted → expected non-zero **usage** exit, naming the missing argument. Without this probe, a hard-coded default silently reinstates the second copy of the constant that repair #4 removed;
+- `--parser-shards` omitted → same;
+- `--budget-seconds 36000` against a record of `3601` → expected exit 0, confirming the script actually READS the argument rather than ignoring it in favour of an internal value.
 
-A budget check never observed failing is not known to fail. Record all four in the commit.
+A budget check never observed failing is not known to fail, and an annotation never observed emitting is not known to emit. Record all eight in the commit.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add .github/scripts/check-shard-budget.mjs tests/ci/checkShardBudget.test.ts .github/workflows/mutation-harness.yml
+git add lib/ci/shardBudget.ts scripts/check-shard-budget.ts tests/ci/shardBudget.test.ts .github/workflows/mutation-harness.yml
 git commit -m "feat(infra): fail-closed per-shard wall-clock budget with a tested completeness check"
 ```
 
@@ -1097,11 +1150,22 @@ Required **before** the whole-diff review dispatch: this arc ships a guard surfa
 **Files:**
 - Modify: `tests/mutation/source/registry.ts`, **tests/mutation/source/expectedLedgerKinds.ts**
 
-<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts` why=`a registry row without its EXPECTED_LEDGER_KINDS entry fails the completeness assertion, which is the fail-by-default property that makes a new surface declare its own counts` ac=AC-5 -->
+<!-- task: red=`pnpm heavy env VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts` why=`a registry row without its EXPECTED_LEDGER_KINDS entry fails the completeness assertion, which is the fail-by-default property that makes a new surface declare its own counts` ac=AC-5 -->
 
 - [ ] **Step 1: Add the registry row**
 
 ```ts
+  {
+    id: "shardBudget",
+    sourcePath: "lib/ci/shardBudget.ts",
+    suitePaths: ["tests/ci/shardBudget.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Turns the strictly-above budget comparison into at-or-above, which the
+    // exactly-at-budget case is built to notice.
+    control: { from: "seconds > budgetSeconds", to: "seconds >= budgetSeconds" },
+    accepted: [],
+  },
   {
     id: "sourceShardPartition",
     sourcePath: "tests/mutation/source/shardPartition.ts",
@@ -1120,8 +1184,10 @@ Required **before** the whole-diff review dispatch: this arc ships a guard surfa
 
 - [ ] **Step 2: Run the gates file to observe the RED**
 
-Run: `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts`
+Run: `pnpm heavy env VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts`
 Expected: FAIL — `EXPECTED_LEDGER_KINDS` has no `sourceShardPartition` key while `GUARD_SURFACES` now does. The fail-by-default property working.
+
+> **`pnpm heavy` is not optional here.** Any `--project mutation` invocation is in the must-wrap set (Global Constraints; `AGENTS.md` heavy-phase rule), regardless of how few files it names — classification is by invocation shape, not by expected duration.
 
 > **The env var and `--project mutation` are both load-bearing.** Task 2 Step 5 puts the gates file in `NIGHTLY_ONLY_EXCLUDES`, so a bare `pnpm vitest run <path>` reports `No test files found` and exits non-zero for a reason that has nothing to do with this task — a red that would never turn green no matter what the task did. Every command in this plan that names a nightly file carries the opt-in.
 
@@ -1133,16 +1199,27 @@ Expected: FAIL — `EXPECTED_LEDGER_KINDS` has no `sourceShardPartition` key whi
   // row appearing here later is a coverage regression to repair, not a number
   // to bump.
   sourceShardPartition: {},
+  // Enrolled 2026-08-16 with an EMPTY ledger. The module is pure decision logic
+  // with the CLI deliberately in a separate file, so every branch is reachable
+  // through the referring suite and a row appearing here is a gap to repay.
+  shardBudget: {},
 ```
 
-- [ ] **Step 4: Run the gate and record the score**
+- [ ] **Step 4: Run the SAME command green**
+
+Run: `pnpm heavy env VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts`
+Expected: PASS. This is the identical command Step 2 observed red, which is what the marker contract requires; the gates file is generation-only apart from one child, so it is cheap to run twice.
+
+- [ ] **Step 5: Run the whole gate and record the score**
 
 Run: `pnpm heavy pnpm mutation:guards`
-Expected: PASS. **Record the new surface's score and its full survivor list in the commit message** — those two numbers are the convergence criterion the diff-review brief states.
+Expected: the same known merge-base failure and no other — `interactionTimingScan`'s `logical-connector:330:39:&&>||` unaccepted survivor, which this arc does not fix (Global Constraints; spec §2.7). **PASS is the wrong expectation here and would require fixing out-of-scope work.** Every OTHER surface, including the two newly enrolled ones, must be clean.
+
+**Record each new surface's score and its full survivor list in the commit message** — those numbers are the convergence criterion the diff-review brief states.
 
 Every survivor is repaid with a case in **tests/mutation/source/shardPartition.test.ts** or argued into `EXPECTED_LEDGER_KINDS` with a reachability argument in prose. Do not bless a survivor you have not argued.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add tests/mutation/source/registry.ts tests/mutation/source/expectedLedgerKinds.ts tests/mutation/source/shardPartition.test.ts
@@ -1242,10 +1319,12 @@ Registry-count reconciliation, also run now: `GUARD_SURFACES` holds **18** rows 
 
 ## Self-review
 
-**Spec coverage.** AC-1/AC-2 → Task 1 (union, disjointness, determinism, optimal-makespan) and the gates file's partition block. AC-3 → Task 2 Step 8, the case-count parity check across the split. AC-4 → Task 4's template-equality and registration-shape cases, mutant (f). AC-5 → Task 2 (assertion moved once, corpus-wide) and Task 7 (fail-by-default demonstrated). AC-6a → Task 4's index-list and file-set cases, mutants (b) and (c). AC-6b → Task 4's interpolation, gates-leg and union cases, mutants (a), (d), (e). AC-6c → Task 5's absent-leg and duplicate-leg cases, plus `notify.needs` in Task 4. AC-7 → Task 5's boundary, warning and no-warning cases plus the Step 6 CLI probes. AC-8 → Task 4 Step 3 (permissions preserved verbatim). AC-9/AC-9b → Task 8 Steps 1-2. AC-9a → Task 2 Step 5 and Task 3, with the direct `--project parallel` check in Task 3 Step 4. AC-10 → Task 2 Step 6 and Task 4's `mutation:guards` case. No AC is unclaimed.
+**Spec coverage.** AC-1/AC-2 → Task 1 (union, disjointness, determinism, optimal makespan) and the gates file's partition block. AC-3 → Task 2 Step 8, the case-count parity check. AC-4 → Task 4's template-equality and registration-shape cases, mutants (f) and (g). AC-5 → Task 2 (assertion moved once, corpus-wide) and Task 7 (fail-by-default demonstrated). AC-6 → Task 4's dangling-`needs` and result-reporting cases, plus Task 5's condition rewrite. AC-6a → Task 4's index-list and file-set cases, mutants (b) and (c). AC-6b → Task 4's interpolation, gates-leg and union cases, mutants (a), (d), (e). AC-6c → Task 5's absent-leg and duplicate-leg cases plus the `needs` case in Task 4. AC-7 → Task 5's boundary, warn-band and no-warn cases, the argument-pinning case in Task 4, and the eight CLI probes at Task 5 Step 6. AC-8 → Task 4 Step 3 (permissions preserved verbatim). AC-9/AC-9b → Task 8 Steps 1-2, against the twelve transcribed merge-base signatures. AC-9a → Task 2 Step 5 and Task 3, with the direct `--project parallel` check at Task 3 Step 4. AC-10 → Task 2 Step 6 and Task 4's `mutation:guards` case. No AC is unclaimed.
 
-**Placeholder scan.** None. The earlier draft's `expect(7).toBe(7)` placeholder is gone — Task 2 Step 4's `(c)` case now derives the count of 7 from the extracted per-surface module on disk, so adding or removing a per-surface case reds it and forces §2.2's enrolment arithmetic to be revisited.
+**Placeholder scan.** None.
 
-**Anti-tautology.** Four assertions were rewritten after the first plan review found them true by construction: the weight case now varies suites and ledger size against a fixed source and asserts the DELTA (a formula ignoring either field gives a different delta, and Task 1 Step 5 runs both mutants); the makespan case asserts equality with the heaviest weight behind an executable `premise` rather than a `>=` that any additive packing satisfies; totality and disjointness are asserted over the four slices built the way the shard FILES build them, not over the assignment map's own size; and Task 4's realized-target union extracts EVERY target from each leg rather than the first, so an extra target cannot pass.
+**Anti-tautology.** Nine assertions were rewritten across two review rounds after being found true by construction, and each now carries the mutant that proves otherwise. The weight case holds the source fixed and varies suites and ledger size, asserting the delta, with both formula mutants run at Task 1 Step 5. The makespan case asserts equality behind an executable `premise` rather than a `>=` any additive packing satisfies. Totality and disjointness are asserted over the four slices built the way the shard FILES build them, not over the assignment map's own size. Task 4's realized-target union extracts EVERY target per leg rather than the first, and compares as a sorted set and by length. The template normalizer covers every index-bearing site per family and was probed against all eight live parser shards. The constant-pinning assertions are end-anchored regexes, because `--budget-seconds 36000` contains `3600`. The notify guard requires each job's `needs.<job>.result` expression, not its bare name, which a static label would satisfy. And Task 5's CLI probes now include the warn band and two missing-argument cases, without which deleting the annotation or hard-coding a default would leave everything green.
+
+**Expected-failure honesty.** Both full-gate checkpoints (Task 2 Step 8, Task 7 Step 5) expect the known merge-base failure rather than a pass. `pnpm mutation:guards` is red at the merge base on `interactionTimingScan`'s unaccepted survivor, which this arc explicitly does not fix; demanding PASS would have required fixing out-of-scope work for the task to complete.
 
 **Type consistency.** `sourceShardAssignment` / `shardOfSurface` / `surfacesForShard` / `weightOf` / `SOURCE_SHARD_COUNT` / `SHARD_BUDGET_SECONDS` are spelled identically in Tasks 1, 2, 4, 5 and 7. `registerSurfaceCases` is spelled identically in Task 2's Steps 2 and 3 and in Task 4's registration case. The parser constant is `SHARD_COUNT` and the source one is `SOURCE_SHARD_COUNT`; Task 4 imports both. `ShardAssignment` is imported from the parser module rather than redeclared, since `lptAssign` returns that exact type.
