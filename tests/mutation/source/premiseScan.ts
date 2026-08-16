@@ -63,43 +63,135 @@ function registrarRoot(callee: ts.Expression): string | null {
 }
 
 /** Every identifier referenced anywhere inside a node. */
-function referencedNames(node: ts.Node): Set<string> {
-  const out = new Set<string>();
+/**
+ * Every identifier REFERENCE under `node`, each paired with the identifier
+ * itself so resolution can start from the reference's own scope.
+ *
+ * Names alone were enough only while extents were a single flat map. They are
+ * not: `cache` in one function and `cache` at module scope are different
+ * bindings, and which one a reference means is a property of WHERE it sits.
+ */
+function referencedNames(node: ts.Node): Map<string, ts.Node> {
+  const out = new Map<string, ts.Node>();
   const walk = (n: ts.Node): void => {
-    if (ts.isIdentifier(n)) out.add(n.text);
+    if (ts.isIdentifier(n) && !out.has(n.text)) out.set(n.text, n);
     ts.forEachChild(n, walk);
   };
   walk(node);
   return out;
 }
 
+/** A binding environment: a function-like node, or the source file itself. */
+type Scope = ts.Node;
+
+/** The nearest enclosing scope of `node` — where a binding declared at `node` lives. */
+function scopeOf(node: ts.Node): Scope | null {
+  let p: ts.Node | undefined = node.parent;
+  while (p) {
+    if (ts.isSourceFile(p) || isFunctionLike(p)) return p;
+    p = p.parent;
+  }
+  return null;
+}
+
+function isFunctionLike(node: ts.Node): boolean {
+  return (
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isConstructorDeclaration(node) ||
+    ts.isGetAccessor(node) ||
+    ts.isSetAccessor(node)
+  );
+}
+
 type ModuleFacts = {
   sf: ts.SourceFile;
-  /** local name → module specifier it was imported from. */
-  imports: Map<string, string>;
-  /** local name → the nodes forming its extent (initializer/body + writes). */
-  extents: Map<string, ts.Node[]>;
+  /** local name → the module it came from, and the name it has THERE. */
+  imports: Map<string, { spec: string; imported: string }>;
+  /**
+   * scope → (local name → the nodes forming its extent).
+   *
+   * Keyed by SCOPE, not by name alone. A flat map made unrelated same-named
+   * bindings share an extent in both directions: `reportEnvelope`'s parameter
+   * `res` inherited a `const res = spawnSync(...)` from inside another function
+   * (a false POSITIVE — spec AC-10b), while a helper declared inside `describe`
+   * registered no extent at all and its provenance vanished (a false NEGATIVE).
+   * Scope keys close both without trading one for the other.
+   */
+  extents: Map<Scope, Map<string, ts.Node[]>>;
+  /**
+   * scope → names BOUND there with no extent of their own (parameters).
+   *
+   * A shadow stops the innermost-out walk: a parameter named `cache` means the
+   * enclosing `cache` is not what the reference denotes, so falling through to
+   * it would resurrect the collision this design exists to prevent.
+   */
+  shadows: Map<Scope, Set<string>>;
   /** Recognized-but-unresolvable constructs found anywhere in the file. */
   unclassifiable: string[];
 };
 
+/**
+ * The extent a reference denotes, resolved innermost-out from its own scope.
+ *
+ * Returns `[]` when a shadow blocks the walk, which is a real answer: the name
+ * is bound to something with no provenance.
+ */
+function resolveExtent(facts: ModuleFacts, name: string, from: ts.Node): ts.Node[] {
+  let scope: Scope | null = scopeOf(from) ?? facts.sf;
+  while (scope) {
+    const here = facts.extents.get(scope)?.get(name);
+    if (here && here.length > 0) return here;
+    if (facts.shadows.get(scope)?.has(name)) return [];
+    scope = scopeOf(scope);
+  }
+  return [];
+}
+
+/** A module's EXPORTED binding, looked up by the name it carries there. */
+function moduleScopeExtent(facts: ModuleFacts, name: string): ts.Node[] {
+  return facts.extents.get(facts.sf)?.get(name) ?? [];
+}
+
 function moduleFacts(path: string): ModuleFacts | null {
   if (!existsSync(path)) return null;
   const sf = parse(path, readFileSync(path, "utf8"));
-  const imports = new Map<string, string>();
-  const extents = new Map<string, ts.Node[]>();
+  const imports = new Map<string, { spec: string; imported: string }>();
+  const extents = new Map<Scope, Map<string, ts.Node[]>>();
+  const shadows = new Map<Scope, Set<string>>();
   const unclassifiable: string[] = [];
+  /** Writes, resolved in a SECOND pass: a write's target binding cannot be
+   * known until every declaration in the file has been registered. */
+  const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
 
-  const addExtent = (name: string, node: ts.Node): void => {
-    const list = extents.get(name) ?? [];
-    list.push(node);
-    extents.set(name, list);
+  /** Register `node` in the extent of `name` as bound in `declaredAt`'s scope. */
+  const addExtent = (name: string, node: ts.Node, declaredAt: ts.Node): void => {
+    const scope = scopeOf(declaredAt) ?? sf;
+    const byName = extents.get(scope) ?? new Map<string, ts.Node[]>();
+    byName.set(name, [...(byName.get(name) ?? []), node]);
+    extents.set(scope, byName);
+  };
+
+  const addShadow = (name: string, declaredAt: ts.Node): void => {
+    const scope = scopeOf(declaredAt) ?? sf;
+    const set = shadows.get(scope) ?? new Set<string>();
+    set.add(name);
+    shadows.set(scope, set);
   };
 
   const bindPattern = (name: ts.BindingName, spec: string): void => {
-    if (ts.isIdentifier(name)) imports.set(name.text, spec);
+    if (ts.isIdentifier(name)) imports.set(name.text, { spec, imported: name.text });
     else if (ts.isObjectBindingPattern(name)) {
-      for (const el of name.elements) if (ts.isIdentifier(el.name)) imports.set(el.name.text, spec);
+      for (const el of name.elements) {
+        if (!ts.isIdentifier(el.name)) continue;
+        // `const { spawnSync: run } = await import(...)` carries the source name
+        // in propertyName, exactly as a named import does.
+        const imported =
+          el.propertyName && ts.isIdentifier(el.propertyName) ? el.propertyName.text : el.name.text;
+        imports.set(el.name.text, { spec, imported });
+      }
     }
   };
 
@@ -108,10 +200,20 @@ function moduleFacts(path: string): ModuleFacts | null {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const spec = node.moduleSpecifier.text;
       const clause = node.importClause;
-      if (clause?.name) imports.set(clause.name.text, spec);
+      if (clause?.name) imports.set(clause.name.text, { spec, imported: clause.name.text });
       const b = clause?.namedBindings;
-      if (b && ts.isNamespaceImport(b)) imports.set(b.name.text, spec);
-      if (b && ts.isNamedImports(b)) for (const e of b.elements) imports.set(e.name.text, spec);
+      if (b && ts.isNamespaceImport(b)) imports.set(b.name.text, { spec, imported: b.name.text });
+      if (b && ts.isNamedImports(b)) {
+        for (const e of b.elements) {
+          // `import { helper as h }` binds `h` locally but names `helper` in the
+          // target module. Looking the extent up by the LOCAL name found
+          // nothing there, so an aliased provenance helper read as pure.
+          imports.set(e.name.text, {
+            spec,
+            imported: e.propertyName ? e.propertyName.text : e.name.text,
+          });
+        }
+      }
     }
 
     // dynamic import, destructured or not
@@ -137,43 +239,87 @@ function moduleFacts(path: string): ModuleFacts | null {
       unclassifiable.push(`computed member access on process at ${pos(sf, node)}`);
     }
 
-    // Declarations and their extents -- MODULE SCOPE ONLY. Registering every
-    // scope into one flat map makes names collide across unrelated functions:
-    // probed, `reportEnvelope`'s parameter `res` collided with a `const res =
-    // resolveClaims(realGitSurface(), ...)` inside main(), and every test
-    // importing reportEnvelope classified as environment-touching. That is the
-    // over-classification this rule exists to avoid (spec AC-10b).
-    if (ts.isVariableDeclaration(node) && isModuleScope(node)) {
+    // Declarations and their extents, registered IN THE SCOPE THAT BINDS THEM.
+    //
+    // This used to be module scope only, because a single flat name→extent map
+    // makes unrelated same-named bindings collide: probed, `reportEnvelope`'s
+    // parameter `res` collided with a `const res = resolveClaims(...)` inside
+    // main(), and every test importing reportEnvelope classified as
+    // environment-touching (spec AC-10b). Restricting to module scope closed
+    // that by DISCARDING every nested binding, which cost the opposite error —
+    // a helper declared inside `describe` had no extent, so its provenance was
+    // invisible. Scope keys plus parameter shadows close both: the AC-10b
+    // fixture and the describe-scope fixture are regression cases side by side.
+    if (ts.isVariableDeclaration(node)) {
       if (ts.isIdentifier(node.name) && node.initializer) {
-        addExtent(node.name.text, node.initializer);
+        addExtent(node.name.text, node.initializer, node);
       }
       if (ts.isObjectBindingPattern(node.name) && node.initializer) {
         for (const el of node.name.elements) {
-          if (ts.isIdentifier(el.name)) addExtent(el.name.text, node.initializer);
+          if (ts.isIdentifier(el.name)) addExtent(el.name.text, node.initializer, node);
+        }
+      }
+      // A declaration with NO initializer still BINDS the name here, so a later
+      // write inside a nested function attaches to this binding rather than
+      // falling through to a same-named outer one.
+      if (ts.isIdentifier(node.name) && !node.initializer) addShadow(node.name.text, node);
+    }
+    if (ts.isFunctionDeclaration(node) && node.name) addExtent(node.name.text, node, node);
+    if (ts.isClassDeclaration(node) && node.name) addExtent(node.name.text, node, node);
+
+    // Parameters bind their names with no extent of their own. Recorded as
+    // shadows so the innermost-out walk STOPS rather than inheriting an outer
+    // binding's provenance.
+    if (isFunctionLike(node)) {
+      for (const param of (node as ts.SignatureDeclaration).parameters ?? []) {
+        if (ts.isIdentifier(param.name)) {
+          const scope = shadows.get(node) ?? new Set<string>();
+          scope.add(param.name.text);
+          shadows.set(node, scope);
         }
       }
     }
-    if (ts.isFunctionDeclaration(node) && node.name && isModuleScope(node)) {
-      addExtent(node.name.text, node);
-    }
-    if (ts.isClassDeclaration(node) && node.name && isModuleScope(node)) {
-      addExtent(node.name.text, node);
-    }
 
-    // a statement that WRITES to a binding is part of that binding's extent
+    // A statement that WRITES to a binding is part of THAT binding's extent —
+    // the one the target resolves to, innermost-out from the write itself, not
+    // whichever module-scope name happens to match. `cache = spawnSync(...)`
+    // inside `init()` extends the module `cache` when that is what `cache`
+    // denotes there, and extends only the local one when a local shadows it.
     if (
       ts.isExpressionStatement(node) &&
       ts.isBinaryExpression(node.expression) &&
       node.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
       ts.isIdentifier(node.expression.left)
     ) {
-      addExtent(node.expression.left.text, node.expression.right);
+      writes.push({ name: node.expression.left.text, at: node, value: node.expression.right });
     }
 
     ts.forEachChild(node, walk);
   };
   walk(sf);
-  return { sf, imports, extents, unclassifiable };
+
+  // Second pass: attach each write to the binding its target actually denotes,
+  // walking innermost-out from the write. A binding is anything DECLARED in a
+  // scope — with an extent or (an uninitialized `let`, a parameter) without one
+  // — because that is what determines which name a write reaches. Unresolved
+  // targets fall to module scope, the conservative direction: the write is
+  // recorded rather than dropped.
+  const bindingScope = (name: string, from: ts.Node): Scope => {
+    let scope: Scope | null = scopeOf(from) ?? sf;
+    while (scope) {
+      if (extents.get(scope)?.has(name) || shadows.get(scope)?.has(name)) return scope;
+      scope = scopeOf(scope);
+    }
+    return sf;
+  };
+  for (const { name, at, value } of writes) {
+    const scope = bindingScope(name, at);
+    const byName = extents.get(scope) ?? new Map<string, ts.Node[]>();
+    byName.set(name, [...(byName.get(name) ?? []), value]);
+    extents.set(scope, byName);
+  }
+
+  return { sf, imports, extents, shadows, unclassifiable };
 }
 
 /** Strip parentheses and `as` casts, which otherwise hide the real callee. */
@@ -181,24 +327,6 @@ function unwrap(node: ts.Expression): ts.Expression {
   let n: ts.Expression = node;
   while (ts.isParenthesizedExpression(n) || ts.isAsExpression(n)) n = n.expression;
   return n;
-}
-
-/** A declaration directly under the source file, not nested in a function. */
-function isModuleScope(node: ts.Node): boolean {
-  let p: ts.Node | undefined = node.parent;
-  while (p) {
-    if (ts.isSourceFile(p)) return true;
-    if (
-      ts.isFunctionDeclaration(p) ||
-      ts.isFunctionExpression(p) ||
-      ts.isArrowFunction(p) ||
-      ts.isMethodDeclaration(p)
-    ) {
-      return false;
-    }
-    p = p.parent;
-  }
-  return false;
 }
 
 const pos = (sf: ts.SourceFile, n: ts.Node): string =>
@@ -239,8 +367,8 @@ function extentIsProvenance(node: ts.Node, facts: ModuleFacts): boolean {
       hit = true;
     }
     if (ts.isIdentifier(n)) {
-      const spec = facts.imports.get(n.text);
-      if (spec && isProvenanceModule(spec)) hit = true;
+      const imported = facts.imports.get(n.text);
+      if (imported && isProvenanceModule(imported.spec)) hit = true;
     }
     ts.forEachChild(n, walk);
   };
@@ -273,27 +401,28 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     const unresolved: string[] = [];
     const visit = (node: ts.Node, f: ModuleFacts, path: string): boolean => {
       if (extentIsProvenance(node, f)) return true;
-      for (const name of referencedNames(node)) {
+      for (const [name, reference] of referencedNames(node)) {
         const key = `${path}#${name}`;
         if (seen.has(key)) continue;
         seen.add(key);
 
-        const spec = f.imports.get(name);
-        if (spec !== undefined) {
-          if (isProvenanceModule(spec)) return true;
-          const target = resolveSpecifier(root, path, spec);
+        const imported = f.imports.get(name);
+        if (imported !== undefined) {
+          if (isProvenanceModule(imported.spec)) return true;
+          const target = resolveSpecifier(root, path, imported.spec);
           if (target === null) continue; // node_modules, pure by L-2
           const tf = factsFor(target);
           if (tf === null) {
-            unresolved.push(`unparseable in-repo module ${spec}`);
+            unresolved.push(`unparseable in-repo module ${imported.spec}`);
             continue;
           }
-          for (const ext of tf.extents.get(name) ?? []) {
+          // By the name it carries THERE, not the local alias.
+          for (const ext of moduleScopeExtent(tf, imported.imported)) {
             if (visit(ext, tf, target)) return true;
           }
           continue;
         }
-        for (const ext of f.extents.get(name) ?? []) {
+        for (const ext of resolveExtent(f, name, reference)) {
           if (visit(ext, f, path)) return true;
         }
       }

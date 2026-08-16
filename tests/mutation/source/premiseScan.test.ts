@@ -171,6 +171,102 @@ describe("unclassifiable — recognized but unresolvable, and it reds", () => {
   });
 });
 
+describe("scope-aware extent resolution", () => {
+  /** Write a helper module plus a test that imports it, and return the verdict. */
+  function verdictWithModule(moduleSrc: string, testSrc: string): string {
+    const id = n++;
+    const mod = join(scratch, `mod${id}.ts`);
+    writeFileSync(mod, moduleSrc, "utf8");
+    const p = join(scratch, `case${id}-user.ts`);
+    writeFileSync(p, testSrc.replace("__MODULE__", `./mod${id}`), "utf8");
+    const [first] = classifyTests(ROOT, p);
+    return first?.verdict ?? "<no test found>";
+  }
+
+  // The entry's own two-variant probe. The sources differ ONLY in WHERE the
+  // helper is declared — same import, same spawn, same call site — so a
+  // difference in verdict is a scope-resolution defect and nothing else.
+  const HELPER_BODY = `function helper() { return spawnSync("git", []); }`;
+  const IMPORT = `import { spawnSync } from "node:child_process";`;
+
+  it("module-scope helper reaches the environment", () => {
+    expect(
+      verdict(`${IMPORT}
+        ${HELPER_BODY}
+        it("x", () => { helper(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("describe-scope helper reaches the environment too — same helper, nested", () => {
+    // The defect: `isModuleScope` registered no extent for a nested helper, so
+    // the recognizer reported a clean corpus it no longer understood.
+    expect(
+      verdict(`${IMPORT}
+        describe("suite", () => {
+          ${HELPER_BODY}
+          it("x", () => { helper(); });
+        });`),
+    ).toBe("environment-touching");
+  });
+
+  it("an ALIASED cross-module import resolves through the imported name", () => {
+    // The cross-module lookup used the LOCAL name, so `helper as h` missed.
+    expect(
+      verdictWithModule(
+        `import { spawnSync } from "node:child_process";
+         export function helper() { return spawnSync("git", []); }`,
+        `import { helper as h } from "__MODULE__";
+         it("x", () => { h(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("AC-10b stays closed: a parameter named like an unrelated module const", () => {
+    // The collision this whole scope rule exists to avoid. `res` as a PARAMETER
+    // must not inherit the extent of an unrelated `const res = <provenance>`
+    // declared inside a different function.
+    expect(
+      verdictWithModule(
+        `import { spawnSync } from "node:child_process";
+         export function reportEnvelope(res) { return res.body; }
+         function main() { const res = spawnSync("git", []); return res; }`,
+        `import { reportEnvelope } from "__MODULE__";
+         it("x", () => { reportEnvelope({ body: 1 }); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("a parameter SHADOWS a same-named module binding", () => {
+    expect(
+      verdict(`${IMPORT}
+        const cache = spawnSync("git", []);
+        function pure(cache) { return cache; }
+        it("x", () => { pure(1); });`),
+    ).toBe("environment-free");
+  });
+
+  // The assignment pair — both directions, because an implementation that
+  // attaches every nested write to module scope passes the first and fails the
+  // second, and one that attaches none fails the first.
+  it("a nested write extends the MODULE binding's extent", () => {
+    expect(
+      verdict(`${IMPORT}
+        let cache;
+        function init() { cache = spawnSync("git", []); }
+        it("x", () => { init(); return cache; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a function-LOCAL write does not leak into a same-named module binding", () => {
+    expect(
+      verdict(`${IMPORT}
+        let cache = 1;
+        function init() { let cache; cache = spawnSync("git", []); return cache; }
+        it("x", () => { return cache; });`),
+    ).toBe("environment-free");
+  });
+});
+
 describe("premise and exemption detection", () => {
   it("sees a premise inside the test body", () => {
     const p = join(scratch, "prem.ts");

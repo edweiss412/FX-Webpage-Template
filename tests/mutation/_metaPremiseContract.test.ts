@@ -107,11 +107,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // the same rule the corpus suite is declared 0 under.
   //
   // This count started as a FALSE 0. The spawning helper was declared inside
-  // the describe body, and premiseScan registers declaration extents at module
-  // scope only (premiseScan.ts:146-161), so all three classified
-  // environment-free. The helper is now at module scope. The recognizer's
-  // blindness to nested helpers is the wider class, probed and filed as
-  // BL-PREMISESCAN-NESTED-HELPER-SCOPE.
+  // the describe body, and premiseScan registered declaration extents at module
+  // scope ONLY, so all three classified environment-free; the helper was moved
+  // to module scope to work around it. That blindness is now FIXED
+  // (BL-PREMISESCAN-NESTED-HELPER-SCOPE): extents are keyed by scope and
+  // resolved innermost-out, so a helper declared inside `describe` carries its
+  // provenance and the count no longer depends on where the helper sits.
   "tests/ci/phantomGapExecuted.test.ts": 3,
   // The interactive-scan guard surfaces, enrolled 2026-08-14
   // (fix/ui-interactive-token-policy). All three declare 0, and the declaration
