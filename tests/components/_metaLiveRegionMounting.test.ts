@@ -145,6 +145,10 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
     "server-rendered banner: present on first paint with its text, never inserted later",
   ],
   [
+    "staged-preview-banner",
+    "server-rendered banner on a force-dynamic admin route: present on first paint with its text, and every state change (viewing-as, exit) is a FULL navigation, so it is never inserted into a live document — same shape as picker-banner above",
+  ],
+  [
     "crew-row-reset-announcer",
     "already a PERSISTENT sr-only region; the gate above it is the crew SECTION (actions enabled and members present), not the announcement's own state",
   ],

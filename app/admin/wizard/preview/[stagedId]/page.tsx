@@ -29,11 +29,13 @@ import { nowDate } from "@/lib/time/now";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Crew preview · Admin · FXAV" };
 
-// not-subject:M5-D8 — admin-only copy, following the published preview route's
-// inline-copy precedent (app/admin/show/[slug]/preview/[crewId]/page.tsx:44-49).
-// No §12.4 catalog row applies: these strings are never crew-facing, so the
-// three-way catalog lockstep is untouched.
+// Admin-only copy, following the published preview route's inline-copy precedent
+// (app/admin/show/[slug]/preview/[crewId]/page.tsx:44-49). No §12.4 catalog row
+// applies: these strings are never crew-facing, so the three-way catalog lockstep
+// is untouched.
+// not-subject:M5-D8
 const LOAD_FAILURE_COPY = "We could not load this preview.";
+// not-subject:M5-D8
 const EMPTY_ROSTER_COPY =
   "This sheet has no crew members yet, so there is no crew page to preview.";
 

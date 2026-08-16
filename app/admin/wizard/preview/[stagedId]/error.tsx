@@ -15,7 +15,8 @@
  * detail, and invariant 5 keeps raw codes out of the UI.
  */
 
-// not-subject:M5-D8 — admin-only copy, matching the page's §2.7 surfaces.
+// Admin-only copy, matching the page's §2.7 surfaces.
+// not-subject:M5-D8
 const RENDER_FAILURE_COPY = "We could not load this preview.";
 
 export default function StagedPreviewError({
