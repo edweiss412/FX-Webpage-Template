@@ -1068,3 +1068,78 @@ refs=367 resolved-to-covered-declaration=35 other-binding=292 unresolved=40
 deltas vs the name filter (0):
 ```
 
+## P8 — module-graph and declaration-merging shapes under the pinned options
+
+Run after the first seven, to settle the resolution shapes the spec asserts in §2.2 and §4 rather than reasoning about them: an `export *` re-export, a type-only import beside a value import, a namespace member assigned to a local, and a DECLARATION MERGE (one symbol, several declarations).
+
+### Script — `probe/p8-export-star.ts`
+
+```ts
+/** P8 — export *, type-only import, and a const shadowed by a later re-declaration,
+ *  under the pinned RESOLVER_OPTIONS. Does resolution stay conservative? */
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import ts from "typescript";
+
+const root = mkdtempSync(join(tmpdir(), "p8-"));
+mkdirSync(join(root, "components", "x"), { recursive: true });
+const w = (rel: string, body: string) => writeFileSync(join(root, rel), body, "utf8");
+w("components/x/consts.ts", `export const COPY_FEEDBACK_RESET_MS = 1600;\n`);
+w("components/x/star.ts", `export * from "./consts";\n`);
+w("components/x/StarImport.tsx", `import { COPY_FEEDBACK_RESET_MS } from "./star";\nexport function A(fn:()=>void){ setTimeout(fn, COPY_FEEDBACK_RESET_MS); }\n`);
+w("components/x/TypeOnly.tsx", `import type { Foo } from "./consts";\nimport { COPY_FEEDBACK_RESET_MS } from "./consts";\nexport function B(fn:()=>void){ setTimeout(fn, COPY_FEEDBACK_RESET_MS); }\nexport type Bar = Foo;\n`);
+w("components/x/NamespaceUse.tsx", `import * as C from "./consts";\nconst DELAY_MS = C.COPY_FEEDBACK_RESET_MS;\nexport function D(fn:()=>void){ setTimeout(fn, DELAY_MS); }\n`);
+w("components/x/MergedDecl.tsx", `export const TTL_MS = 500;\nexport type TTL_MS = number;\nexport function E(fn:()=>void){ setTimeout(fn, TTL_MS); }\n`);
+
+const files = [
+  "components/x/consts.ts","components/x/star.ts","components/x/StarImport.tsx",
+  "components/x/TypeOnly.tsx","components/x/NamespaceUse.tsx","components/x/MergedDecl.tsx",
+];
+const program = ts.createProgram(files.map((f) => join(root, f)), {
+  noEmit: true, noResolve: true, noLib: true, types: [], allowJs: false,
+  target: ts.ScriptTarget.Latest, jsx: ts.JsxEmit.Preserve,
+  module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+  baseUrl: root, paths: { "@/*": ["./*"] },
+});
+const checker = program.getTypeChecker();
+for (const file of files) {
+  const sf = program.getSourceFile(join(root, file));
+  if (!sf) { console.log(`${file}: NOT IN PROGRAM`); continue; }
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "setTimeout") {
+      const d = node.arguments[1];
+      if (d && ts.isIdentifier(d)) {
+        let s = checker.getSymbolAtLocation(d);
+        const aliased = !!(s && s.flags & ts.SymbolFlags.Alias);
+        if (aliased) { try { s = checker.getAliasedSymbol(s!); } catch { /* keep */ } }
+        const decls = s?.declarations ?? [];
+        console.log(`${file} ${d.text}: alias=${aliased} decls=${decls.length} → ` +
+          decls.map((dd) => {
+            const dsf = dd.getSourceFile();
+            const nn = ts.isVariableDeclaration(dd) && dd.name ? dd.name : dd;
+            return `${relative(root, dsf.fileName)}:${dsf.getLineAndCharacterOfPosition(nn.getStart(dsf)).line + 1}[${ts.SyntaxKind[dd.kind]}]`;
+          }).join(", ") || "none");
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+}
+```
+
+### Transcript
+
+```
+components/x/StarImport.tsx COPY_FEEDBACK_RESET_MS: alias=true decls=1 → components/x/consts.ts:1[VariableDeclaration]
+components/x/TypeOnly.tsx COPY_FEEDBACK_RESET_MS: alias=true decls=1 → components/x/consts.ts:1[VariableDeclaration]
+components/x/NamespaceUse.tsx DELAY_MS: alias=false decls=1 → components/x/NamespaceUse.tsx:2[VariableDeclaration]
+components/x/MergedDecl.tsx TTL_MS: alias=false decls=2 → components/x/MergedDecl.tsx:1[VariableDeclaration], components/x/MergedDecl.tsx:2[TypeAliasDeclaration]
+```
+
+### What it settles
+
+- `export *` resolves through to the declaring file, so a barrel is not a documented limit under these options.
+- A type-only import beside a value import does not disturb the value resolution.
+- A namespace member assigned to a local (`const DELAY_MS = C.COPY_FEEDBACK_RESET_MS`) resolves to that LOCAL binding, which is not a covered row, so the site REPORTS. Conservative and correct: the local is an indirection the scan cannot value.
+- **A declaration merge yields ONE symbol with TWO declarations** — a `VariableDeclaration` (the covered numeric constant) and a `TypeAliasDeclaration`. That is the direct evidence for §2.2's SOME-declaration rule: an exactly-one-declaration rule would report a covered constant as unclassified on this ordinary shape.

@@ -35,7 +35,7 @@ Every id below is the spec's; this table is the map, and no task invents one.
 | **AC-2** | in one file, the shadowed call reports while the unshadowed call stays resolved — precision, not blanket reporting | Task 1, fires case 2 |
 | **AC-3** | a parameter shadowing a covered constant reports | Task 1, fires case 3 |
 | **AC-4** | a timing-named PROPERTY whose value is a shadowing identifier reports, carrying its `propertyKey`; the live `ttlMs` pass-throughs stay resolved | Task 2 |
-| **AC-5** | legit local, direct import, aliased import, and barrel re-export all resolve — no new residual from any of them | Task 1, the four quiet halves |
+| **AC-5** | legit local, direct import, aliased import, and barrel re-export all resolve — no new residual from any of them | Task 1: three stays-quiet halves (legit local, direct import, barrel re-export) plus the aliased import, which is a fires-to-quiet change |
 | **AC-6** | zero live delta: `tests/docs/` green, `DESIGN.md` byte-identical, live `unclassified` still empty | Task 2's verification step |
 | **AC-7** | the resolver's alias assumption is pinned against `tsconfig.json` | Task 3 |
 | **AC-8** | mutation gate green at floor 0.95 with the accepted set re-derived, both numbers in the round-1 diff brief | Task 4 |
@@ -53,7 +53,7 @@ Declared delta for this arc: **the accepted set is RE-DERIVED, not edited.** `si
 
 ## Meta-test inventory (declared)
 
-- **CREATES:** the nine synthetic-universe cases in `tests/docs/interactionTimingScan.test.ts` (four fires halves — module-level shadow, inner-scope shadow, parameter shadow, property-value shadow; five stays-quiet halves — the unshadowed peer in the shadowing file, a legit same-file constant, a direct import, an aliased import, a barrel re-export); one structural test pinning the resolver's alias assumption against `tsconfig.json`.
+- **CREATES:** ten synthetic-universe assertions in `tests/docs/interactionTimingScan.test.ts`, derived from the Task 1 and Task 2 tables rather than counted by hand — **five FIRES** (an assertion that fails before the repair: module-level shadow, inner-scope shadow, parameter shadow, aliased import, and Task 2's property-value shadow) and **five STAYS-QUIET** (passes before and after: the unshadowed peer in the shadowing file, a legit same-file constant, a direct import, a barrel re-export, and Task 2's live-shaped `ttlMs` pass-through). The aliased import is a FIRES case rather than a quiet one because it reports `unclassified` under today's name filter and resolves after — the one place this arc removes a residual instead of adding one. One structural test pins the resolver's alias assumption against `tsconfig.json`.
 - **EXTENDS:** `scripts/scan-interaction-timings.ts` (`TimingSite.refPos`, the resolver, `scanRepo`'s resolution step, the header paragraph documenting the hole); `tests/mutation/source/registry.ts` (`interactionTimingScan` accepted set, re-derived).
 - **NOT touched:** `DESIGN.md` (AC-6), `UNCLASSIFIED_DISPOSITIONS`, `EXPLICIT_INCLUDES`, `inventoryRows`, `scripts/scan-interaction-timings.cli.ts`. No invariant-9 registry (no Supabase call site), no invariant-10 mutation surface (tooling and test code only).
 
