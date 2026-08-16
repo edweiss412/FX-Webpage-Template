@@ -27,7 +27,7 @@ unclassified`), which is what the inventory gate reads.
 - `tests/components/diagrams/gallery.failedItem.test.tsx` — 5 session cases through the REAL parent:
   all three close initiators, the exit-window repopulation block, and the positive re-entry ordering
   (the case that fails against an effect-timed reset).
-- 17 cases in total, re-derived from the runner rather than counted by hand: `vitest -t "demote's sighted chip"` reports 12 and `-t "never survives a dialog session"` reports 5. Sixteen were observed RED before implementation; the seventeenth (the inactive-branch clear-4 route) was added in diff review round 5 and is mutation-killed (11 + 5, counted from the runtime selection: `-t "demote's sighted chip"` reports 11 passed, `-t "never survives a dialog session"` reports 5); `tests/components/diagrams/` green at 153.
+- 17 cases in total, derived from the runner rather than counted by hand: `vitest -t "demote's sighted chip"` reports 12 and `-t "never survives a dialog session"` reports 5. Sixteen were observed RED before implementation; the seventeenth (the inactive-branch clear-4 route) was added in diff review round 5 and is mutation-killed.
 - `tests/docs/_metaInteractionTimingInventory.test.ts` observed failing by name
   (`DEMOTE_CHIP_VISIBLE_MS = 6000` not listed) before the §5.5 row landed; green both directions in
   the same commit.
@@ -143,6 +143,21 @@ because the plan requires the trail, not just the final verdict.
 | The inactive-branch clear (R5 repair) | critique + audit, one scoped run | No findings either half. The audit confirmed the per-`map` guard cannot clear another slide's notice, that last-demote-wins still holds when an older slide fails late, and that no branch nulls the state while leaving the timer armed. One P3 noted and declined: the guard line is duplicated across the two branches, matching the file's existing `setFailedKeys` shape. |
 
 Neither re-run changed the gate's headline: P0 none, P1 none.
+
+## Review economy — the arc's own record, and where it stopped
+
+Eight diff rounds, 16 findings (derived by summing `findingCount` over the verdict rows of
+`docs/review-rounds/feat/diagram-demote-notice/ba676b08d1a4.jsonl`; the filing beside it carries the
+analysis). Two rounds found something the code did wrong — R2's test-validity pair and R5's
+clear-condition-4 gap on the inactive slide branch. R6, R7 and R8 each returned only record drift,
+and each stated plainly that no admissible behavioral defect remained under the consequence bound,
+probe domain, and threat-model fence.
+
+**Stopped at R8 by an orchestrator re-scope**, per the AGENTS.md late-arc rule: past the round
+threshold, a bookkeeping finding is not a reason for another round. R8's finding was arithmetic
+inside the filing itself; it is repaired by DERIVING the total from the corpus instead of restating
+it, and the class bullets no longer carry counts that can drift. No behavioral finding was left
+open — the last three rounds say so in their own words.
 
 ## Documented limits carried forward
 
