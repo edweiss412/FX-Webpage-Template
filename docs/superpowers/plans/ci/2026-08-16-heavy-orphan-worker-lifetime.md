@@ -107,7 +107,7 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The directory runs **124 cases** (28 classify + 24 collect + 61 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 124 are green. Both states observed, both edits reverted.
+- The directory runs **125 cases** (28 classify + 24 collect + 62 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 125 are green. Both states observed, both edits reverted.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
 - Thirteen cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
@@ -1179,6 +1179,27 @@ describe("readIdentity: the K1 / K6 boundary, executed", () => {
     expect(r.state).toBe("read");
     if (r.state === "read") expect(r.identity.command).toContain("worker-4242");
   });
+
+  it("pins LC_ALL=C on the REAL ps, so a localized lstart cannot shift its token offsets", () => {
+    // Against the real `ps`, not the fixture, because the fixture ignores locale entirely and
+    // would keep this green with the env pin deleted. zh_CN renders lstart in FOUR tokens on this
+    // machine; the C-locale shape is five, and the identity parse depends on that.
+    process.env.LC_ALL = "zh_CN.UTF-8";
+    process.env.LANG = "zh_CN.UTF-8";
+    try {
+      const r = readIdentity(process.pid);
+      expect(r.state).toBe("read");
+      if (r.state === "read") {
+        expect(r.identity.startedAt).toMatch(
+          /^[A-Z][a-z]{2} [A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}$/,
+        );
+        expect(r.identity.command).not.toBe("");
+      }
+    } finally {
+      delete process.env.LC_ALL;
+      delete process.env.LANG;
+    }
+  }, 20_000);
 
   it("K1: ps exiting 1 with NO output means gone", () => {
     process.env.FAKE_PS_IDENTITY_GONE = "4242";
