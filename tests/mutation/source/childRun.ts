@@ -17,7 +17,11 @@ export function childRun(root: string, fixture: string, target: string): number 
   try {
     execFileSync("pnpm", ["exec", "vitest", "run", "--config", CONFIG], {
       cwd: root,
-      stdio: "pipe",
+      // Same shape as `runSuite` in ./runner.ts, repaired together: the exit
+      // code is the whole signal, the output is never read, and piping it only
+      // buys Node's 1 MB `maxBuffer` cap — under which a loud enough child dies
+      // as an infra fault instead of reporting its status.
+      stdio: ["ignore", "ignore", "ignore"],
       env: {
         ...process.env,
         VITEST_INCLUDE_MUTATION_HARNESS: "1",

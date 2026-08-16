@@ -40,9 +40,12 @@
  *
  * The file list is a FILESYSTEM WALK from the repo root, not a hardcoded
  * roster: a psql site added in a brand-new directory fails by default. The
- * ratified `docs/**` exclusion is ROOT-relative (see IGNORED_AT_ROOT) — reading
- * it as a basename at every depth is what hid `tests/docs/**`, a real directory
- * of executable tests, from the scan entirely.
+ * ratified `docs/**` exclusion is ROOT-relative (see ROOT_SKIP_LITERALS) —
+ * reading it as a basename at every depth is what hid `tests/docs/**`, a real
+ * directory of executable tests, from the scan entirely. Every OTHER root skip
+ * is derived from the committed root `.gitignore` (`rootSkipNamesFromGitignore`)
+ * rather than listed here, and a file the walk still reaches is either analyzed
+ * or NAMED in a loud failure (`analyzeNaming`) — never silently dropped.
  *
  * ── Reading psql's option grammar ──────────────────────────────────────────
  *
@@ -307,23 +310,81 @@ const SELF = [
 const IGNORED_ANYWHERE = new Set([".git", "node_modules"]);
 
 /**
- * Skipped only at the REPO ROOT. Matching these by basename at every depth is
- * what hid `tests/docs/**` — five real test files — from the scan entirely, and
- * would equally hide a nested `build`/`dist`/`out`. The ratified exclusion is
- * `docs/**`, which is root-relative.
+ * Skipped only at the REPO ROOT, and DERIVED — never a hand-list.
+ *
+ * Matching these by basename at every depth is what hid `tests/docs/**` — five
+ * real test files — from the scan entirely, and would equally hide a nested
+ * `build`/`dist`/`out`. The ratified exclusion is `docs/**`, which is
+ * root-relative, and it is the ONE literal that stays: it names committed prose
+ * that quotes `execFileSync("psql", …)`, so no ignore file declares it.
+ *
+ * Everything else comes from the committed root `.gitignore` (see
+ * `rootSkipNamesFromGitignore`). The hand-list version listed `.next` but not
+ * the six sibling build outputs this repo's own tooling writes, so the walk fed
+ * multi-MB generated bundles to the AST scan and the recursive `visit`
+ * overflowed — 19 cases red, no file named, half an hour of bisect per
+ * developer, and CI green throughout because a fresh checkout has no build
+ * output (BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS). A derived cover cannot go
+ * stale when a seventh build target appears; an enumeration re-opens the moment
+ * someone adds one.
  */
-const IGNORED_AT_ROOT = new Set([
-  ".next",
-  ".turbo",
-  ".vercel",
-  "coverage",
-  "dist",
-  "build",
-  "out",
-  "docs",
-  "playwright-report",
-  "test-results",
-]);
+const ROOT_SKIP_LITERALS = new Set(["docs"]);
+
+/**
+ * The root-skip names a `.gitignore` text contributes.
+ *
+ * ACCEPT-SET, keyed on STRUCTURE rather than spelling: a line contributes iff
+ * it is a PLAIN NAME — an optional leading `/`, then one path segment carrying
+ * no glob metacharacter (`*`, `?`, `[`), no `!`, no escape, no whitespace and no
+ * interior `/`, then an optional trailing `/`. Comments and blank lines are
+ * dropped first.
+ *
+ * Everything else — `*.log`, `.env.*.local`, `!keep/`, `playwright/.cache/` —
+ * is REJECTED and its directory is walked exactly as before. Rejection is the
+ * conservative direction by construction: the walk can only ever over-scan,
+ * never silently under-scan, and an over-scanned pathological file now fails
+ * LOUD with its own name (`analyzeNaming`). Widening the accept-set is a future
+ * decision, not drift.
+ *
+ * The COMMITTED file is the only input — never `git check-ignore` — so the skip
+ * set is byte-identical on every machine and in CI, and never varies with a
+ * developer's global excludes.
+ */
+export function rootSkipNamesFromGitignore(text: string): Set<string> {
+  const names = new Set<string>();
+  for (const raw of text.split("\n")) {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    // Comment and blank lines need no special case: `#` is excluded from the
+    // name class and the class requires at least one character, so `# comment`,
+    // `#nospace` and `` all fall out of the accept-set structurally. Keeping a
+    // separate comment test would be a second, drifting definition of the same
+    // rule (and a local comment-handling idiom, which
+    // `_metaStripCommentsSingleSource` rightly flags).
+    const plainName = /^\/?([^*?[\]!/\\\s#]+)\/?$/.exec(line);
+    if (plainName) names.add(plainName[1]!);
+  }
+  return names;
+}
+
+/**
+ * `ROOT_SKIP_LITERALS` ∪ the derived set for `repoRoot`.
+ *
+ * An ABSENT `.gitignore` yields the empty derived set — constructed fixture
+ * roots and the nested-root calls this suite makes (`tests/docs`,
+ * `lib/admin/__generated__`) keep working. A PRESENT-but-unreadable one
+ * propagates its error loudly: a silent fallback to a stale literal list is the
+ * exact failure mode this derivation replaces.
+ */
+function rootSkipNames(repoRoot: string): Set<string> {
+  let text: string;
+  try {
+    text = readFileSync(join(repoRoot, ".gitignore"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Set(ROOT_SKIP_LITERALS);
+    throw error;
+  }
+  return new Set([...ROOT_SKIP_LITERALS, ...rootSkipNamesFromGitignore(text)]);
+}
 
 // ── flag clusters ────────────────────────────────────────────────────────
 
@@ -2901,7 +2962,13 @@ export function scanSource(source: string, file: string): PsqlSite[] {
  * silent under-count this whole file exists to prevent. Unreadable now fails the
  * meta-test.
  */
-function walk(directory: string, out: string[], unreadable: string[], depth = 0): void {
+function walk(
+  directory: string,
+  out: string[],
+  unreadable: string[],
+  skipAtRoot: Set<string>,
+  depth = 0,
+): void {
   let entries: string[];
   try {
     entries = readdirSync(directory);
@@ -2911,7 +2978,7 @@ function walk(directory: string, out: string[], unreadable: string[], depth = 0)
   }
   for (const entry of entries) {
     if (IGNORED_ANYWHERE.has(entry)) continue;
-    if (depth === 0 && IGNORED_AT_ROOT.has(entry)) continue;
+    if (depth === 0 && skipAtRoot.has(entry)) continue;
     const full = join(directory, entry);
     let stats;
     try {
@@ -2920,15 +2987,38 @@ function walk(directory: string, out: string[], unreadable: string[], depth = 0)
       unreadable.push(full);
       continue;
     }
-    if (stats.isDirectory()) walk(full, out, unreadable, depth + 1);
+    if (stats.isDirectory()) walk(full, out, unreadable, skipAtRoot, depth + 1);
     else if (SCANNED_EXTENSIONS.includes(extensionOf(entry))) out.push(full);
+  }
+}
+
+/**
+ * Run one per-file analyzer, and NAME THE FILE if it throws.
+ *
+ * A scan error is rethrown, never caught-and-continued: a swallowed one is a
+ * silent under-count, the exact class the walk's `unreadable` ledger exists to
+ * prevent. What this adds is the path. The `.gitignore` gap that shipped this
+ * guard's worst local failure surfaced as a bare `RangeError: Maximum call
+ * stack size exceeded` from inside `visit`, naming nothing, so finding the file
+ * took a bisect. The next unknown pathological file names itself instead.
+ *
+ * Applied to EVERY per-file analyzer call in `collectPsqlUsage` — the scan,
+ * indirection and workflow passes alike, not only the path a fixture happens to
+ * exercise. The deciding suite pins that structurally.
+ */
+export function analyzeNaming<T>(relPath: string, analyze: () => T): T {
+  try {
+    return analyze();
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`psql startup-file scan failed on ${relPath}: ${reason}`, { cause: error });
   }
 }
 
 export function collectPsqlUsage(repoRoot: string): PsqlUsage {
   const files: string[] = [];
   const unreadableAbsolute: string[] = [];
-  walk(repoRoot, files, unreadableAbsolute);
+  walk(repoRoot, files, unreadableAbsolute, rootSkipNames(repoRoot));
   files.sort();
 
   const sites: PsqlSite[] = [];
@@ -2948,21 +3038,21 @@ export function collectPsqlUsage(repoRoot: string): PsqlUsage {
     // psql while containing no literal `psql`, so the prefiltered walk never
     // handed them to the scanner that knows how to read them.
     const rel = relative(repoRoot, full).split(sep).join("/");
-    sites.push(...scanSource(source, rel));
+    sites.push(...analyzeNaming(rel, () => scanSource(source, rel)));
     if (JS_EXTENSIONS.includes(extensionOf(full)) && !SELF.includes(rel))
-      indirections.push(...scanBinaryIndirection(source, rel));
+      indirections.push(...analyzeNaming(rel, () => scanBinaryIndirection(source, rel)));
     // The SHELL side needs its own tripwire. The header used to name
     // `scanBinaryIndirection` as the backstop for an expanded command word, but
     // that function only ever ran on JS files, so `PG=psql; "$PG" -qAt mydb`
     // was invisible and `alias psql="psql -F"` could turn a certified `-X` into
     // `-F`'s value. Neither is statically resolvable; both are now LOUD.
     if (!JS_EXTENSIONS.includes(extensionOf(full)) && !SELF.includes(rel))
-      indirections.push(...scanShellIndirection(source, rel));
+      indirections.push(...analyzeNaming(rel, () => scanShellIndirection(source, rel)));
     // YAML needs BOTH: the shell rules still apply to the shell text inside a
     // `run:` scalar, and the workflow rules cover the bindings only YAML can
     // spell (`env:`, `matrix`), which no `NAME=value` reader can see.
     if (YAML_EXTENSIONS.includes(extensionOf(full)) && !SELF.includes(rel))
-      indirections.push(...scanWorkflowIndirection(source, rel));
+      indirections.push(...analyzeNaming(rel, () => scanWorkflowIndirection(source, rel)));
   }
   return { sites, indirections, unreadable, filesScanned: files.length };
 }
