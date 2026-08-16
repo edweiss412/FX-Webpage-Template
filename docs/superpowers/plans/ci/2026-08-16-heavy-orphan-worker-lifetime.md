@@ -107,11 +107,11 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- Tasks 1-3's suites run GREEN against Tasks 1-3's implementations: **95 cases, 3 files** (27 + 20 + 48), including nine that execute scripts/heavy-reap.ts itself as a child process and five that drive `readIdentity` against a real `ps` at its K1/K6 boundary.
-- Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 6 passed (9)`, and GREEN (`9 passed`) once package.json:56 is edited. Both were observed and the edit reverted afterwards.
-- The whole directory runs **104 cases: 101 green and Task 4's 3 expected reds**.
+- The whole directory runs **107 cases**. Before Tasks 3-4's edits to package.json, exactly FOUR are red — Task 4's three plus Task 3's `heavy:reap` wiring case — and after them all 107 are green. Both states were observed and the edits reverted.
+- Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 6 passed (9)`, and GREEN (`9 passed`) once package.json:56 is edited.
+- Nine cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
-- The CLI was additionally driven by hand through every exit path: default, `--all`, `--kill`, a rejected `FX_REAP_MIN_AGE_S`, an absent `ps`, a non-zero `ps`, an empty table, and `--kill --quiet` under an identity drift that forces K2.
+- Five cases drive `readIdentity` against a real `ps` at its K1/K6 boundary, including the two status-1 spellings and a hanging read bounded by its timeout.
 
 This pass earned its cost repeatedly. It found the SPEC defect this plan is written against — executing Task 1's clause-(c) case is how the unreachable slot clause was discovered (spec §4.2) — and it found plan defects that plan review round 1 then confirmed and extended: a Step 2 claiming the wrong red count, a mutation control the suite adapted to, missing subprocess timeouts, and a CLI whose `main()` no case executed.
 
@@ -465,8 +465,12 @@ be run with `--kill` in a test without any possibility of signalling something r
 ```js
 #!/usr/bin/env node
 // A stand-in for ps(1), selected via FX_REAP_PS_BIN. Serves both invocations the reaper makes:
-// the whole-table read and the per-target identity read. Modes come from FAKE_PS_MODE, and the
-// pids it reports (4242-4244) are owned by no real process, so --kill is safe in a test.
+// the bulk table read and the per-target identity read.
+//
+// The table comes from FAKE_PS_TABLE, a JSON array of {pid, ppid, etime, command} (a string entry
+// is emitted verbatim, which is how an unparsable row is produced). Tests that exercise --kill put
+// the pids of processes THEY SPAWNED in it, so the reaper only ever signals something the test
+// owns. FAKE_PS_MODE injects failures.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
@@ -475,29 +479,32 @@ const identityRead = args.includes("-o");
 
 if (mode === "fail" && !identityRead) process.exit(2);
 if (mode === "identity-fail" && identityRead) process.exit(2);
-if (mode === "hang" && !identityRead) setTimeout(() => {}, 60_000);
-else if (mode === "identity-hang" && identityRead) setTimeout(() => {}, 60_000);
-else if (!identityRead) {
-  // pid ppid etime command
-  if (mode === "empty") process.stdout.write("");
-  else
-    process.stdout.write(
-      "4242 1 1-05:29:53 /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js\n" +
-        "4243 4244 1-05:29:53 /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js\n" +
-        "4244 1 1-05:29:53 /usr/bin/pnpm exec vitest run\n",
-    );
+// A status-1 exit WITH output is a ps error, not "no such pid": K6, never K1.
+if (mode === "identity-noisy-fail" && identityRead) {
+  process.stdout.write("ps: some diagnostic\n");
+  process.exit(1);
+}
+if ((mode === "hang" && !identityRead) || (mode === "identity-hang" && identityRead)) {
+  setTimeout(() => {}, 60_000);
+} else if (!identityRead) {
+  const rows = JSON.parse(process.env.FAKE_PS_TABLE ?? "[]");
+  process.stdout.write(
+    rows
+      .map((r) => (typeof r === "string" ? r : `${r.pid} ${r.ppid} ${r.etime} ${r.command}`))
+      .map((l) => `${l}\n`)
+      .join(""),
+  );
 } else {
   const pid = args[args.indexOf("-p") + 1];
-  if (process.env.FAKE_PS_IDENTITY_GONE === pid) process.exit(1);
-  // Under DRIFT the second read of a pid reports a different start time, which is exactly K2.
-  let nonce = "Sun Aug 16 09:35:23 2026";
+  if (process.env.FAKE_PS_IDENTITY_GONE === pid) process.exit(1); // status 1, NO output: K1
+  let startedAt = "Sun Aug 16 09:35:23 2026";
   if (process.env.FAKE_PS_IDENTITY_DRIFT === "1") {
     const counter = `${process.env.TMPDIR ?? "/tmp"}/fake-ps-drift-${pid}`;
     const seen = existsSync(counter) ? Number(readFileSync(counter, "utf8")) : 0;
     writeFileSync(counter, String(seen + 1));
-    if (seen > 0) nonce = "Mon Aug 17 11:11:11 2026";
+    if (seen > 0) startedAt = "Mon Aug 17 11:11:11 2026";
   }
-  process.stdout.write(`${nonce} /usr/bin/node /x/worker-${pid}\n`);
+  process.stdout.write(`${startedAt} /usr/bin/node /x/worker-${pid}\n`);
 }
 ```
 
@@ -750,13 +757,14 @@ Decision logic is exported as pure functions so it is testable without killing a
 
 ```ts
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MIN_AGE_SECONDS, type Decision } from "../../lib/heavyReap/classify";
 import {
   type IdentityRead,
+  type TargetIdentity,
   readIdentity,
   type KillOutcome,
   executeKills,
@@ -871,12 +879,15 @@ describe("executeKills: AC-5, AC-5b", () => {
     expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "identity-changed" }]);
   });
 
-  it("AC-5b: the triple has no ppid and no etime, so neither changing blocks the signal", () => {
-    expect(Object.keys(ident(10)).sort()).toEqual(["command", "pid", "startedAt"]);
+  it("AC-5b: an advanced etime and a changed ppid do NOT block the signal", () => {
+    // Both identities carry ppid/etime that DIFFER. If an implementation ever adds either to the
+    // comparison, this fails; asserting on two identical objects could not detect that.
+    const planned = { ...ident(10), ppid: 1, etimeSeconds: 100 } as unknown as TargetIdentity;
+    const current = { ...ident(10), ppid: 99, etimeSeconds: 5_000 } as unknown as TargetIdentity;
     const signalled: number[] = [];
     const out = executeKills([10], {
-      identityAtPlan: new Map([[10, ident(10)]]),
-      readIdentity: read,
+      identityAtPlan: new Map([[10, planned]]),
+      readIdentity: () => ({ state: "read", identity: current }),
       kill: (pid) => {
         signalled.push(pid);
       },
@@ -884,6 +895,12 @@ describe("executeKills: AC-5, AC-5b", () => {
     });
     expect(signalled).toEqual([10]);
     expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "killed" }]);
+  });
+
+  it("AC-5b: readIdentity's own output carries exactly the triple, and nothing else", () => {
+    const r = readIdentity(process.pid);
+    expect(r.state).toBe("read");
+    if (r.state === "read") expect(Object.keys(r.identity).sort()).toEqual(["command", "pid", "startedAt"]);
   });
 
   it("K1: a pid gone BEFORE the identity read is already-gone", () => {
@@ -965,6 +982,7 @@ describe("exitStatus: §6.2", () => {
   });
 });
 
+
 // ---------------------------------------------------------------------------
 // readIdentity at its REAL boundary. Everything above injects IdentityRead
 // states into executeKills; without these, deleting readIdentity's timeout or
@@ -974,16 +992,13 @@ describe("exitStatus: §6.2", () => {
 const FAKE_PS = new URL("./fixtures/fake-ps.mjs", import.meta.url).pathname;
 
 describe("readIdentity: the K1 / K6 boundary, executed", () => {
-  it("reads a live-looking identity into the triple", () => {
+  it("reads a live identity into the triple", () => {
     const r = readIdentity(4242, FAKE_PS);
     expect(r.state).toBe("read");
-    if (r.state === "read") {
-      expect(r.identity.startedAt).toBe("Sun Aug 16 09:35:23 2026");
-      expect(r.identity.command).toContain("worker-4242");
-    }
+    if (r.state === "read") expect(r.identity.command).toContain("worker-4242");
   });
 
-  it("K1: ps exiting 1 with no output means GONE", () => {
+  it("K1: ps exiting 1 with NO output means gone", () => {
     process.env.FAKE_PS_IDENTITY_GONE = "4242";
     try {
       expect(readIdentity(4242, FAKE_PS).state).toBe("gone");
@@ -992,7 +1007,16 @@ describe("readIdentity: the K1 / K6 boundary, executed", () => {
     }
   });
 
-  it("K6: any other ps failure is UNREADABLE, never gone", () => {
+  it("K6: ps exiting 1 WITH output is a ps error, never gone", () => {
+    process.env.FAKE_PS_MODE = "identity-noisy-fail";
+    try {
+      expect(readIdentity(4242, FAKE_PS).state).toBe("unreadable");
+    } finally {
+      delete process.env.FAKE_PS_MODE;
+    }
+  });
+
+  it("K6: any other ps failure is unreadable", () => {
     process.env.FAKE_PS_MODE = "identity-fail";
     try {
       expect(readIdentity(4242, FAKE_PS).state).toBe("unreadable");
@@ -1001,7 +1025,7 @@ describe("readIdentity: the K1 / K6 boundary, executed", () => {
     }
   });
 
-  it("K6: a missing ps binary is UNREADABLE, never gone", () => {
+  it("K6: a missing ps binary is unreadable, never gone", () => {
     expect(readIdentity(4242, "/definitely/not/a/real/ps").state).toBe("unreadable");
   });
 
@@ -1018,20 +1042,33 @@ describe("readIdentity: the K1 / K6 boundary, executed", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The CLI ITSELF, executed. Every case above tests a unit; these run
-// `scripts/heavy-reap.ts` as a child so main()'s wiring cannot be wrong while
-// the units are right (plan round 1 finding 3). `ps` is replaced via
-// FX_REAP_PS_BIN with a fixture reporting pids no real process owns.
+// The CLI ITSELF, executed. `ps` is replaced via FX_REAP_PS_BIN, and every table
+// these cases feed it is built from pids the TEST SPAWNED, so --kill can only
+// ever signal a process this suite owns (plan round 3 finding 1). Fixed literal
+// pids would be recyclable and could name someone else's process.
 // ---------------------------------------------------------------------------
 const CLI = new URL("../../scripts/heavy-reap.ts", import.meta.url).pathname;
-/** Any line reporting a kill outcome. Its ABSENCE is what proves the default kills nothing. */
-const KILL_LINE = /heavy-reap: (killed|already-gone|failed|partial|identity-changed|identity-unreadable) pid=/;
+const KILL_LINE =
+  /heavy-reap: (killed|already-gone|failed|partial|identity-changed|identity-unreadable) pid=/;
+const WORKER_CMD = "/usr/bin/node /x/node_modules/vitest/dist/workers/forks.js";
+const OLD = "1-05:29:53";
 
-function runCli(args: string[], env: Record<string, string> = {}): { out: string; code: number } {
+type Row = { pid: number; ppid: number; etime: string; command: string } | string;
+
+function runCli(
+  args: string[],
+  table: Row[],
+  env: Record<string, string> = {},
+): { out: string; code: number } {
   try {
     const out = execFileSync("pnpm", ["exec", "tsx", CLI, ...args], {
       encoding: "utf8",
-      env: { ...process.env, FX_REAP_PS_BIN: FAKE_PS, ...env },
+      env: {
+        ...process.env,
+        FX_REAP_PS_BIN: FAKE_PS,
+        FAKE_PS_TABLE: JSON.stringify(table),
+        ...env,
+      },
       timeout: 120_000,
     });
     return { out, code: 0 };
@@ -1041,75 +1078,169 @@ function runCli(args: string[], env: Record<string, string> = {}): { out: string
   }
 }
 
+/**
+ * A real process this suite created, spawned so that it REPARENTS TO INIT.
+ *
+ * Two reasons it is a grandchild rather than a direct child. It matches what the reaper actually
+ * targets, `ppid == 1`, so the fake table's claim is true rather than a fiction. And a direct
+ * child that is SIGKILLed becomes a ZOMBIE until this process reaps it, while `kill(pid, 0)`
+ * succeeds on a zombie, so the reaper's verification re-scan would report `partial` for a process
+ * it had just killed. Init reaps an orphan immediately, so a real orphan never has that problem.
+ */
+function spawnOrphan(): { pid: number; alive: () => boolean; kill: () => void } {
+  const pid = Number(
+    execFileSync(
+      "sh",
+      [
+        "-c",
+        // stdio to /dev/null, or execFileSync waits on the inherited pipe until the orphan exits.
+        `${process.execPath} -e 'setTimeout(() => {}, 60000)' >/dev/null 2>&1 & echo $!`,
+      ],
+      { encoding: "utf8" },
+    ).trim(),
+  );
+  return {
+    pid,
+    alive: () => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    kill: () => {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    },
+  };
+}
+
 describe("the CLI, executed end to end", () => {
-  it("AC-6: the default reports candidates and kills NOTHING", () => {
-    const { out, code } = runCli([]);
-    expect(out).toContain("REAPABLE pid=4242");
-    expect(out).toContain("1 candidate(s)");
-    // The load-bearing assertion: no kill outcome of ANY kind was produced. Deleting the
-    // `if (!flags.kill) return` guard makes this fail, which a `not.toContain("killed")`
-    // would not, because a fake target reports `already-gone`.
+  it("AC-6: the default reports candidates with reasons and kills NOTHING", () => {
+    const owned = spawnOrphan();
+    try {
+      const table: Row[] = [
+        { pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
+        { pid: 777001, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
+        { pid: 777002, ppid: 777001, etime: OLD, command: WORKER_CMD },
+      ];
+      const { out, code } = runCli([], table);
+      expect(out).toContain(`REAPABLE pid=${owned.pid}`);
+      expect(out).toContain("1 candidate(s)");
+      expect(out).toContain("skip 777001 (not-a-worker)"); // orphan-shaped decline, WITH its reason
+      expect(out).not.toContain("skip 777002"); // ppid != 1, so not orphan-shaped
+      expect(out).not.toMatch(KILL_LINE);
+      expect(code).toBe(0);
+      expect(owned.alive()).toBe(true); // the default is non-destructive, observed on a real process
+    } finally {
+      owned.kill();
+    }
+  }, 180_000);
+
+  it("AC-6: --all adds the non-orphan and the unparsable row, each with its reason", () => {
+    const table: Row[] = [
+      { pid: 777001, ppid: 777002, etime: OLD, command: WORKER_CMD },
+      { pid: 777002, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
+      "garbage-line-with-no-pid",
+    ];
+    const { out } = runCli(["--all"], table);
+    expect(out).toContain("skip 777001 (has-live-parent)");
+    expect(out).toContain("skip unparsable");
     expect(out).not.toMatch(KILL_LINE);
-    expect(code).toBe(0);
   }, 180_000);
 
-  it("§6.2: the default reports the ORPHAN-SHAPED decline and hides the non-orphan", () => {
-    const { out } = runCli([]);
-    expect(out).toContain("skip 4244"); // ppid == 1, declined not-a-worker
-    expect(out).not.toContain("skip 4243"); // ppid == 4244, so not orphan-shaped
-  }, 180_000);
-
-  it("AC-6: --all widens the REPORT and still kills nothing", () => {
-    const { out, code } = runCli(["--all"]);
-    expect(out).toContain("skip 4243");
-    expect(out).toContain("skip 4244");
-    expect(out).toContain("1 candidate(s)");
-    expect(out).not.toMatch(KILL_LINE);
-    expect(code).toBe(0);
-  }, 180_000);
-
-  it("§6.2: --kill reports a KillOutcome line per target", () => {
-    const { out } = runCli(["--kill"]);
-    expect(out).toMatch(KILL_LINE);
+  it("§6.2: --kill prints one KillOutcome line per target, and keeps the default report", () => {
+    const root = spawnOrphan();
+    const kid = spawnOrphan();
+    try {
+      const table: Row[] = [
+        { pid: root.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
+        { pid: kid.pid, ppid: root.pid, etime: OLD, command: WORKER_CMD },
+      ];
+      const { out } = runCli(["--kill"], table);
+      expect(out).toContain(`REAPABLE pid=${root.pid}`); // the default report is retained
+      expect(out).toContain(`killed pid=${root.pid}`);
+      expect(out).toContain(`killed pid=${kid.pid}`); // per TARGET, not just the first
+      expect(root.alive()).toBe(false);
+      expect(kid.alive()).toBe(false); // the recorded subtree, really killed
+    } finally {
+      root.kill();
+      kid.kill();
+    }
   }, 180_000);
 
   it("C4: a rejected ceiling stops the run BEFORE the table is read, exit non-zero", () => {
-    const { out, code } = runCli([], { FX_REAP_MIN_AGE_S: "-5" });
+    const { out, code } = runCli([], [], { FX_REAP_MIN_AGE_S: "-5" });
     expect(out).toContain("rejected: -5");
     expect(out).not.toContain("rows read");
     expect(code).toBe(1);
   }, 180_000);
 
-  it("C1: an unreadable process table exits non-zero and never reports a clean machine", () => {
-    const { out, code } = runCli([], { FX_REAP_PS_BIN: "/definitely/not/a/real/ps" });
-    expect(out).toContain("cannot read the process table");
+  it("C1: an unreadable table names the failure and exits non-zero", () => {
+    const { out, code } = runCli([], [], { FX_REAP_PS_BIN: "/definitely/not/a/real/ps" });
+    expect(out).toContain("ps-unavailable"); // the problem is NAMED, not just 'cannot read'
     expect(out).not.toContain("candidate(s)");
     expect(code).toBe(1);
   }, 180_000);
 
   it("C2: an EMPTY table reports zero rows rather than saying nothing", () => {
-    const { out, code } = runCli([], { FAKE_PS_MODE: "empty" });
+    const { out, code } = runCli([], []);
     expect(out).toContain("0 rows read");
     expect(out).toContain("0 candidate(s)");
     expect(code).toBe(0);
   }, 180_000);
 
-  it("--quiet suppresses declines but NEVER a non-success outcome (K2)", () => {
-    // A fresh TMPDIR per run, because the fixture's drift counter lives there and a stale one
-    // would make the FIRST read already-drifted, so both reads would agree and K2 never fires.
-    const { out, code } = runCli(["--kill", "--quiet"], {
-      FAKE_PS_IDENTITY_DRIFT: "1",
-      TMPDIR: mkdtempSync(join(tmpdir(), "fake-ps-drift-")),
-    });
-    expect(out).not.toContain("skip ");
-    expect(out).toContain("identity-changed pid=4242");
-    expect(code).toBe(1);
+  it("--quiet suppresses declines and plain successes, never a non-success outcome (K2)", () => {
+    const owned = spawnOrphan();
+    try {
+      const table: Row[] = [
+        { pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
+        { pid: 777001, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
+      ];
+      const { out, code } = runCli(["--kill", "--quiet"], table, {
+        FAKE_PS_IDENTITY_DRIFT: "1",
+        TMPDIR: mkdtempSync(join(tmpdir(), "fake-ps-drift-")),
+      });
+      expect(out).not.toContain("skip "); // declines suppressed
+      expect(out).toContain(`identity-changed pid=${owned.pid}`); // K2 always visible
+      expect(out).toContain("REAPABLE"); // candidates are NOT declines, so they stay
+      expect(code).toBe(1);
+      expect(owned.alive()).toBe(true); // K2 means no signal was sent
+    } finally {
+      owned.kill();
+    }
   }, 180_000);
 
-  it("--quiet DOES suppress the plain successes (K1)", () => {
-    const { out } = runCli(["--kill", "--quiet"]);
-    expect(out).not.toContain("already-gone");
+  it("--quiet suppresses a successful `killed` line too", () => {
+    const owned = spawnOrphan();
+    try {
+      const table: Row[] = [{ pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD }];
+      const { out } = runCli(["--kill", "--quiet"], table);
+      expect(out).not.toContain("killed pid=");
+      expect(owned.alive()).toBe(false); // suppressed in the REPORT, still performed
+    } finally {
+      owned.kill();
+    }
   }, 180_000);
+
+  it("--quiet keeps C4 visible", () => {
+    const { out, code } = runCli(["--kill", "--quiet"], [], { FX_REAP_MIN_AGE_S: "abc" });
+    expect(out).toContain("rejected: abc");
+    expect(code).toBe(1);
+  }, 180_000);
+});
+
+describe("package wiring", () => {
+  it("exposes heavy:reap so the tool is reachable by name", () => {
+    const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts["heavy:reap"]).toBe("tsx scripts/heavy-reap.ts");
+  });
 });
 ```
 
@@ -1258,9 +1389,11 @@ export function readIdentity(pid: number, psBin: string = psBinFromEnv()): Ident
     }).trim();
   } catch (e) {
     const err = e as { status?: number; code?: string; message?: string };
-    // ps exits 1 with no output for a pid that does not exist; anything else is a READ FAILURE
-    // and must not be reported as a gone process.
-    if (err.status === 1) return { state: "gone" };
+    // ps exits 1 with NO OUTPUT for a pid that does not exist. Status 1 WITH output is a ps
+    // error, and anything else is a read failure; both are K6 and must never be reported as a
+    // gone process, which would signal nothing while claiming an ordinary success.
+    const stdout = String((e as { stdout?: unknown }).stdout ?? "").trim();
+    if (err.status === 1 && stdout.length === 0) return { state: "gone" };
     return { state: "unreadable", detail: err.code ?? err.message ?? "ps failed" };
   }
   if (out.length === 0) return { state: "gone" };
@@ -1271,13 +1404,36 @@ export function readIdentity(pid: number, psBin: string = psBinFromEnv()): Ident
   };
 }
 
-export function stillAlive(pid: number): boolean {
+/** Sleep synchronously, so the verification re-scan can settle without going async. */
+function sleepMs(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+const exists = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;
   } catch (e) {
+    // EPERM means the process EXISTS but belongs to another user. Counting it dead would report a
+    // kill that never happened.
     return (e as { code?: string }).code === "EPERM";
   }
+};
+
+/**
+ * K4's verification, with a bounded settle.
+ *
+ * SIGKILL is asynchronous: the kernel tears the process down after `kill` returns, and a check
+ * issued immediately can still see it. Without the retry the reaper reports `partial` for a target
+ * it killed correctly, which is a false alarm AND a non-zero exit. Four 50 ms attempts cost
+ * nothing when the process is already gone, because the first check returns.
+ */
+export function stillAlive(pid: number, attempts = 4, waitMs = 50): boolean {
+  for (let i = 0; i < attempts; i += 1) {
+    if (!exists(pid)) return false;
+    if (i < attempts - 1) sleepMs(waitMs);
+  }
+  return true;
 }
 
 /** Ancestry of this process, so AC-4 can exempt it and everything above it. */
@@ -1381,11 +1537,18 @@ if (process.argv[1] !== undefined && process.argv[1] === fileURLToPath(import.me
 
 - [ ] **Step 4: Run tests to verify they pass.** Run: `pnpm vitest run tests/heavyReap/cli.test.ts`. Expected: PASS.
 
-- [ ] **Step 5: Add the script.** In package.json, beside `"heavy"`:
+- [ ] **Step 5: Add the script — this is part of the SAME red-to-green cycle.** The suite's
+      `package wiring` case asserts the `heavy:reap` script is exactly
+      `tsx scripts/heavy-reap.ts`, so it is RED until this edit and GREEN after it, on the same
+      command. Without that case the alias could be omitted or misspelled with every declared test
+      still green, and only a manual invocation would notice (plan round 3 finding 5). In
+      package.json, beside `"heavy"`:
 
 ```json
     "heavy:reap": "tsx scripts/heavy-reap.ts",
 ```
+
+      Re-run `pnpm vitest run tests/heavyReap/cli.test.ts` — GREEN.
 
 - [ ] **Step 6: Run it live and record the output in the commit.**
 
@@ -1676,8 +1839,19 @@ git commit -m "docs(infra): document the pre-admission reap in the heavy-phase c
 - [ ] Push; open the PR (merge-commit convention).
 - [ ] **Adversarial review (cross-model), whole diff, to APPROVE.** The round-1 brief carries Task 5's mutation score and unaccepted-survivor set, plus the spec's consequence bound, `PROBE DOMAIN:` and threat fence (§9), and the do-not-relitigate list from §1.1.
 - [ ] Real CI green — not just local.
-- [ ] **Final commit — graduation + marker removal** (after review APPROVE and CI green; nothing lands after it except the merge). Enrol the graduation in `BACKLOG_GRADUATED` FIRST and observe that guard RED, then graduate `BL-HEAVY-ORPHAN-WORKER-LIFETIME` to `BACKLOG-archive.md` and remove the `**Status:** IN PROGRESS · **Branch:**` marker in the SAME commit (invariant 12 — archives reject in-flight entries, so the two are inseparable), then GREEN on the same command.
-- [ ] **Delta review** of the graduation commit's diff alone — the whole-diff review predates it, and review must cover what merges.
+- [ ] **Final commit — graduation + marker removal** (after review APPROVE and CI green). Enrol the
+      graduation in `BACKLOG_GRADUATED` FIRST and observe that guard RED, then graduate
+      `BL-HEAVY-ORPHAN-WORKER-LIFETIME` to `BACKLOG-archive.md` and remove the
+      `**Status:** IN PROGRESS · **Branch:**` marker in the SAME commit (invariant 12 — archives
+      reject in-flight entries, so the two are inseparable), then GREEN on the same command.
+- [ ] **PUSH the final commit, and wait for CI GREEN on that head.** This step is easy to skip and
+      the plan previously did (round 3 finding 6): a graduation commit created after CI has passed
+      either never reaches the remote — so the merge lands the PREVIOUS head and leaves the ledger
+      marker on the branch — or reaches it unproven. The head that merges is the head CI must have
+      passed, and it is also the head whose marker removal invariant 12 requires.
+- [ ] **Delta review** of the graduation commit's diff alone — the whole-diff review predates it,
+      and review must cover what merges. If it forces a repair, that repair becomes the new final
+      commit and this step and the CI wait above BOTH repeat.
 - [ ] `gh pr merge --merge`; fast-forward local `main`; verify `git rev-list --left-right --count main...origin/main` → `0  0`.
 
 ## 12. Closeout
