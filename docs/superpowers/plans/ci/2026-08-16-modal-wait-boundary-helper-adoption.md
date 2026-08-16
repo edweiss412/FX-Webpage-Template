@@ -21,7 +21,7 @@ impeccable-gate: N/A — no UI surface
 - Downstream assertions are byte-unchanged at every adopted site. The helper replaces the navigation-plus-presence wait and nothing else.
 - The recovery bound stays exactly 1 (parent §1.1; helper header `tests/e2e/helpers/openShowReviewModal.ts:13-15`).
 - No workflow gating changes: no retries flags added or removed, no run-step file lists changed. The only workflow edits are reporter flags, `PLAYWRIGHT_JSON_OUTPUT_NAME`, and `if: always()` print steps.
-- Acceptance criteria are spec §5's. Each task's `ac=` names the ones it discharges: **AC-1** helper surface; **AC-2** all 51 member sites adopted; **AC-2b** the executable candidate enumeration + total disposition; **AC-2b-pattern** one shared route-pattern constant; **AC-3** guard + mutation enrolment; **AC-4** collector, printer, oracle print duties, workflow wiring; **AC-5** no gating change; **AC-6** ledger + README + corpus.
+- Acceptance criteria are spec §5's. Each task's `ac=` names the ones it discharges: **AC-1** helper surface; **AC-2** all 51 member sites adopted; **AC-2b** the executable candidate enumeration + total disposition; **AC-2b-pattern** one shared route-pattern constant; **AC-3** guard + mutation enrolment; **AC-4** collector, printer, oracle print duties, workflow wiring; **AC-5** no gating change; **AC-6** ledger + README + corpus. AC-1 through AC-5 are each named by an `ac=` field on a Task 1-10 marker; **AC-6 is discharged by Task 12**, which sits outside the red-contract region (bookkeeping-and-merge tail, not a TDD unit) and so states its discharge in prose along with the red-then-green it must still observe.
 
 ## Guard ordering (the one deliberate red span)
 
@@ -210,7 +210,9 @@ Shape G here is a mechanical one-for-one replacement of goto-plus-loaded-const-w
 
 ### Task 8: Enrol the guard predicate in the source-mutation registry
 
-**Files:** Modify `tests/mutation/source/registry.ts` (one `GuardSurface` row).
+**Files:** Modify `tests/mutation/source/registry.ts` (one `GuardSurface` row), `tests/mutation/guardSurfaces.gate.test.ts` (its `EXPECTED_LEDGER_KINDS` key), and `tests/mutation/_metaPremiseContract.test.ts` (its `EXPECTED_ENV_TOUCHING` key).
+
+**Enrollment is a THREE-registry edit, and that is what makes this task's red observable** (plan review R2 findings 1 and 2). The mutation registry is opt-in with no discovery (`tests/mutation/source/registry.ts:8-10`) and `tests/mutation/_metaGuardSurfaceRegistry.test.ts` only iterates existing rows, so adding nothing keeps it green — the earlier marker's red half was impossible. But two companion registries are EXACT: `tests/mutation/guardSurfaces.gate.test.ts:150-154` asserts `EXPECTED_LEDGER_KINDS`' keys equal the surface ids, and `tests/mutation/_metaPremiseContract.test.ts:137-142` asserts `EXPECTED_ENV_TOUCHING`' keys equal the enrolled suites. So the cycle is real and on one command: add the `GuardSurface` row → both suites go RED on the exact-equality assertions → add the two keys → GREEN. Do the row first and observe the red; that ordering IS the TDD step here.
 
 Row fields per `tests/mutation/source/registry.ts:12-38`:
 
@@ -220,11 +222,17 @@ Row fields per `tests/mutation/source/registry.ts:12-38`:
 - `suitePaths`: a one-element array naming the Task 2 suite
 - `operators`: **all six declared families** — `relational-boundary`, `equality-flip`,
   `logical-connector`, `integer-literal`, `regex-quantifier-bound`, `statement-removal`
-  (`tests/mutation/source/operators.ts:17-24`). Every one is live on this surface: the scan
-  compares line indices and counts, tests equality on exemption reasons, ands/ors its guard
-  conditions, carries the ±1 line-above exemption window, and its route pattern is a regex
-  with quantifiers. Taking the full set is also the honest default — a narrowed subset is a
-  claim about which mutations cannot escape, and this surface has no evidence for one.
+  (`tests/mutation/source/operators.ts:17-24`). Enrolling the full set is the honest default: a
+  narrowed subset is a claim about which mutations cannot escape, and this surface has no
+  evidence for one. **Do NOT claim all six are exercised.** Plan review R2 finding 3 probed the
+  earlier draft's liveness claim and refuted it: `regex-quantifier-bound` recognizes only
+  bounded `{m,n}` syntax (`tests/mutation/source/operators.ts:157-164`), and the route pattern
+  uses `*`, so it yields ZERO sites here. The gate checks only that the surface produces some
+  mutants, never one per declared family, so a claimed-live family can exercise nothing while
+  the score and the empty survivor set both look healthy. **The first `pnpm mutation:guards` run
+  therefore reports per-family site counts, and every family yielding zero sites on this surface
+  is recorded in the closeout as not-exercised** — an accepted limit someone has to re-state,
+  never a coverage claim nobody checked.
 - `scoreFloor`: set from the first real run, never guessed.
 - `control: { from, to }`: a deliberately behavior-changing edit this surface's own suite MUST
   notice — per-surface, never a literal borrowed from another row (the registry header at
@@ -240,7 +248,7 @@ closure criterion while enumerating nothing.
 
 Run `pnpm heavy pnpm mutation:guards`; record the score and the unaccepted-survivor set (must be empty) in the commit message and the closeout, **before the first diff-review dispatch**.
 
-<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:151` why=`GUARD_SURFACES at :151 has no row for the modal-wait predicate module, so the harness never overlays it and the surface has no score` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/mutation/guardSurfaces.gate.test.ts tests/mutation/_metaPremiseContract.test.ts` red-state=authored red-target=`tests/mutation/guardSurfaces.gate.test.ts:150` why=`EXPECTED_LEDGER_KINDS at :150 and EXPECTED_ENV_TOUCHING assert exact key equality against GUARD_SURFACES; adding this task's registry row reds both until each declares its key, which is the observable red the opt-in registry suite could never provide` ac=AC-3 -->
 
 ### Task 9: Shared collector, thin printer, and the print-before-gate repair in BOTH oracles
 
@@ -273,13 +281,33 @@ Apply the transcript table. Every added print step carries `if: always()` — wi
 
 <!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`.github/workflows/published-modal-e2e.yml:149` why=`the step emits --reporter=list with no json, so no report exists for a print step to read; the same suite also reds on the new PLAYWRIGHT_JSON_OUTPUT_NAME values until they are registered in ENV_KEY_ALLOWLIST, which is why the registry edit is in this task` ac=AC-4,AC-5 -->
 
-### Task 11: Ledger graduation, README row, closeout
+## Task 11: Adversarial review (cross-model)
+
+**Split tight-scope reviews are the default at this diff size** (AGENTS.md): dispatch per surface — (a) helper + guard predicate, (b) adoption, (c) collector/printer/oracles/workflows — with each brief's file list inlined.
+
+Each dispatch is launched BACKGROUNDED with every required flag. Plan review R2 finding 4 probed the earlier draft's abbreviated form and it exits 2 before reviewing (`--brief`, `--cwd` and `--out` are all required, `scripts/codex-guard.mjs:151-153`):
+
+```
+node scripts/codex-guard.mjs review \
+  --brief <brief-file> \
+  --cwd /Users/ericweiss/FX-worktrees/modal-wait-helper-adoption \
+  --out <fresh-timestamped-dir> \
+  --stage diff --round <n>
+```
+
+Read the dispatch's result.json on completion; `no_verdict` is an infra fault, not a finding set. Iterate to APPROVE.
+
+Every brief carries: REVIEWER ONLY; spec §6's consequence bound, PROBE DOMAIN and threat fence; the do-not-relitigate list from spec §1.1; and — because the predicate is registry-enrolled — **the Task 8 mutation score plus the empty unaccepted-survivor set as the convergence criterion**, with "the guard does not pin what it claims" admissible ONLY with a surviving mutant from the declared operator set, plus the per-family site counts so a zero-site family is not mistaken for coverage.
+
+Carry forward the spec arc's fenced repairs so they are not re-derived: the census is closed as code with non-normative tables; there is no `readySelector`; AC-1 asserts locator cardinality, not branch execution; the gating exit is the last statement by construction.
+
+## Task 12: Final commit — ledger graduation, README row, closeout, corpus rows, marker removal
 
 - `BACKLOG.md` → `BACKLOG-archive.md` for `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION`, recording the census correction (the open-site derivation is the durable form, and closing it as CODE is what four spec rounds bought) and both exclusion classes.
 - `BL-MODAL-WAIT-SKELETON-TOLERANT-SITES` stays OPEN — it is this arc's filed peer, not its debt.
 - The `**Status:** IN PROGRESS · **Branch:** …` marker comes off in the PR's LAST commit, before the merge (AGENTS.md invariant 12) — never in a post-merge turn.
 - `docs/superpowers/specs/ci/README.md` index row: already present, verify only. Add the plan's own README row if `docs/superpowers/plans/ci/README.md` indexes plans.
-**Discharges AC-6.**
+**Discharges AC-6.** It carries no task marker because it sits outside the red-contract region (it is the branch's bookkeeping-and-merge tail, not a TDD unit), so the discharge is stated here rather than in an `ac=` field. The red-then-green is still real and MUST be observed: add the `BACKLOG_GRADUATED` row while the entry is still in `BACKLOG.md` and `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` goes RED (the registry asserts every registered id is archive-only); the archive move in the same commit turns it GREEN.
 
 **This task DOES have a red, and plan review R1 finding 7 is why it is here.** The earlier
 draft declared no red available, having probed only the invariant-8 and in-progress gates —
@@ -298,16 +326,12 @@ two-grep sweep the entry proposed) — in the SAME commit as the archive move.
   `tests/docs/_metaLedgerInProgress.test.ts`, `tests/docs/_metaInvariant8Closeout.test.ts`,
   `tests/docs/_metaReviewRoundEconomy.test.ts`.
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:99` why=`BACKLOG_GRADUATED at :99 has no row for BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION, so the entry can be archived with the graduation contract bypassed; the row plus the archive move is what turns it green` ac=AC-6 -->
 
+**This task runs AFTER Task 11 and is the branch's LAST commit** (plan review R2 finding 5). The earlier ordering was impossible: `scripts/codex-guard.mjs` appends a tracked JSONL row under `docs/review-rounds/` keyed by branch and base sha at every dispatch, so any review in Task 11 dirties the tree after a "final" bookkeeping commit. This branch demonstrates it — the round-1 repair commit carries that very file.
 
-## Task 12: Adversarial review (cross-model)
+So this task commits, together and last: the ledger graduation, the README row, the closeout, **every review-round corpus row including the ones Task 11's own dispatches emitted**, and the `**Status:** IN PROGRESS · **Branch:** …` marker removal (AGENTS.md invariant 12 — the marker comes off in the PR's last commit, never in a post-merge turn).
 
-Whole-diff Codex review via `node scripts/codex-guard.mjs review --stage diff --round <n>`, iterating to APPROVE. **Split tight-scope reviews are the default at this diff size** (AGENTS.md): dispatch per surface — (a) helper + guard predicate, (b) adoption, (c) collector/printer/oracles/workflows — with each brief's file list inlined.
-
-Every brief carries: REVIEWER ONLY; spec §6's consequence bound, PROBE DOMAIN and threat fence; the do-not-relitigate list from spec §1.1; and — because the predicate is registry-enrolled — **the Task 8 mutation score plus the empty unaccepted-survivor set as the convergence criterion**, with "the guard does not pin what it claims" admissible ONLY with a surviving mutant from the declared operator set.
-
-Carry forward the spec arc's fenced repairs so they are not re-derived: the census is closed as code with non-normative tables; there is no `readySelector`; AC-1 asserts locator cardinality, not branch execution; the gating exit is the last statement by construction.
+**Why the regress terminates here, stated so nobody re-opens it:** committing Task 11's corpus rows is itself a tree change the final review did not examine, and reviewing THAT would emit another row. It terminates because those rows are wrapper-emitted telemetry ABOUT the reviews — a JSONL line recording stage, round, verdict and finding count — not design a reviewer could hold an opinion on. The reviewable diff is what Task 11 approved; this commit adds bookkeeping over it. Re-run `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` here so the corpus and its filing stay consistent at the merged state.
 
 ## Task 13: Execution handoff
 
