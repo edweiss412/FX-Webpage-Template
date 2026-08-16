@@ -353,7 +353,7 @@ single-line JSDoc, then another table's rows):
 python3 - <<'EOF'
 import re
 lines = open("docs/superpowers/specs/ci/2026-08-16-heavy-orphan-worker-lifetime-design.md").read().split("\n")
-src = {i for i, l in enumerate(lines) if re.match(r"^\| (C[1-4]|R[1-4]|K[1-5]) \|", l.strip())}
+src = {i for i, l in enumerate(lines) if re.match(r"^\| (C[1-4]|R[1-4]|K[1-6]) \|", l.strip())}
 verbs = re.compile(r"exit non-zero|non-zero.exit|reap(s|ing)? (nothing|NOTHING)|exit status|exits? 0"
                    r"|unaffected|tolerated|never reaped|not reapable|stops the run|is blocked"
                    r"|kills nothing|non-destructive|failed kill|partial kill|identity-changed"
@@ -387,7 +387,7 @@ a preamble that restated one is what rounds 1 through 4 kept finding drifted.
 | --- | --- | --- |
 | Collection-level (C1-C4) | the whole run | AC-3b |
 | Row-level (R1-R4) | that row only | AC-3 |
-| Kill-time (K1-K5) | that target only | AC-5, AC-5b; exit status per §6.2 |
+| Kill-time (K1-K6) | that target only | AC-5, AC-5b; exit status per §6.2 |
 
 The one design idea behind the C-rows, stated as the rule it is: **a clause you cannot evaluate
 has not been evaluated.** Concluding a process is unexempt from a failure to check is the precise
@@ -423,6 +423,7 @@ apply to them; §6.2 owns their exit status.
 | K2 | the pid was recycled between classify and kill | re-verify identity immediately before signalling (below); a mismatch skips the kill and reports `identity-changed`, exit non-zero |
 | K3 | `kill` fails for any other reason (e.g. `EPERM`) | reported per pid as `failed`; the run continues to the remaining targets; exit non-zero |
 | K4 | a recorded target survives the subtree kill | after killing the recorded set, ONE verification re-scan; any recorded pid still alive is reported as `partial` by pid; exit non-zero |
+| K6 | the identity read for a target FAILS, as opposed to reporting the pid gone (`ps` denied, timed out, or errored) | the target is NOT signalled and is reported as `identity-unreadable`; exit non-zero. Distinct from K1 by construction: "the pid is gone" is an answer, "the read failed" is the absence of one, and collapsing them would signal nothing while reporting an ordinary success. |
 | K5 | a descendant was created AFTER collection, or reparented between collection and kill | NOT reached by this run, and the spec does not claim otherwise (L-5). It becomes an ordinary orphan and is a candidate on the NEXT run: the reaper is idempotent and repeated, not transactional. |
 
 **Identity, for K2 — and what it must NOT be.** The identity of a target is the triple
@@ -566,9 +567,10 @@ arguments to the END of the script body, so the wrapper must be the LAST command
 placed after the wrapper would capture the caller's command instead.
 
 **The one failure mode `;` does NOT cover is a reaper that HANGS**, which would block admission
-rather than fail open. The reaper is bounded by construction — one `ps` invocation, plus one
-cheap `ps -o lstart=` per KILL TARGET — and every one of those invocations carries an explicit
-subprocess timeout, after which the reaper abandons the run and exits non-zero rather than waiting
+rather than fail open. The reaper is bounded by construction, and the count is exact: ONE bulk
+`ps` read, plus TWO `ps -o lstart=` reads per KILL TARGET — once at classification and once
+immediately before the signal, which is what K2 requires. K4's verification re-scan spawns nothing
+(it is `kill(pid, 0)`). **Every one of those invocations carries an explicit subprocess timeout,** after which the reaper abandons the run and exits non-zero rather than waiting
 (AC-8). A timeout on each child is what makes the `;` sequencing safe: `;` waits for the reaper to
 terminate, so an unbounded reaper would block admission even though it cannot fail it. No other guard is needed, because a reaper that cannot finish
 a `ps` in seconds is on a machine with worse problems than orphans.
@@ -584,7 +586,7 @@ Stop hook of its own, and there is no guarantee any other session ever ends a tu
 | `pnpm heavy:reap` (default) | no | every reap CANDIDATE, and every declined process that is orphan-shaped (`ppid == 1`), with its reason; plus all collection problems and config notes |
 | `pnpm heavy:reap --all` | no | the above, plus every non-orphan-shaped row and its reason — the full decision list |
 | `pnpm heavy:reap --kill` | yes | exactly what the default reports, plus a `KillOutcome` line per target |
-| `--quiet` | modifier | suppresses ONLY the per-row DECLINE lines. Everything else is still emitted: collection problems, config notes, and every K-row outcome that is not a plain success (K2, K3, K4). Only meaningful with `--kill`, and it is what trigger 1 uses, so a reap that went wrong during admission is still visible. |
+| `--quiet` | modifier | suppresses ONLY the per-row DECLINE lines. Everything else is still emitted: collection problems, config notes, and every K-row outcome that is not a plain success (K2, K3, K4, K6). K1 IS a plain success and is suppressed with the declines. Only meaningful with `--kill`, and it is what trigger 1 uses, so a reap that went wrong during admission is still visible. |
 
 Killing requires `--kill` explicitly; running the tool can never be the destructive act by
 accident. `--all` is a REPORTING breadth flag only and never widens what is killed.
@@ -592,7 +594,7 @@ accident. `--all` is a REPORTING breadth flag only and never widens what is kill
 Exit status, enumerated by §4.4 row ID so it cannot drift from the table:
 
 - **Non-zero** on C1 or C4 (an undecidable collection condition — nothing was reaped) or on any of
-  K2, K3, K4 (a kill was skipped, failed, or left a recorded target alive).
+  K2, K3, K4, K6 (a kill was skipped, failed, or left a recorded target alive).
 - **Zero** otherwise, including C2, C3 and K1, each of which is an ordinary outcome per its row.
 
 K2 is deliberately non-zero even though no signal was sent: an `identity-changed` skip means the
@@ -607,7 +609,7 @@ the same edits applied by hand. Keeping the decision logic tracked means it is r
 testable, mutation-scored, and identical in every checkout; only trigger 2 stays machine-local,
 and trigger 1 is tracked because `package.json` is.
 
-Not wrapped in `pnpm heavy`: the CLI is one `ps` invocation plus one per kill target. Wrapping it
+Not wrapped in `pnpm heavy`: the CLI is one bulk `ps` read plus two per kill target. Wrapping it
 would deadlock trigger 1 against the semaphore it runs in front of.
 
 ---
@@ -698,8 +700,8 @@ to say something §4.4 does not, it says only that.
 - **AC-5** — Killing removes the RECORDED target set — the reaped root plus every descendant
   present in the collection snapshot — in the order §4.4 specifies, and K4's verification re-scan
   reports any recorded pid still alive. K5 is outside this criterion by construction.
-- **AC-5b** — K2 holds: no pid is signalled whose identity triple (pid, start time, command) has
-  changed since classification. The residual window between that check and the syscall is L-8, and
+- **AC-5b** — K2 and K6 hold: no pid is signalled whose identity triple (pid, start time,
+  command) has changed since classification, and none whose identity could not be READ. The residual window between that check and the syscall is L-8, and
   this criterion deliberately does not claim it. `etime` and `ppid` are NOT part of that triple, and a target whose
   `etime` advanced or whose `ppid` changed because this run killed its parent is still signalled.
 - **AC-6** — Each invocation in §6.2's table behaves as its row states, and the two properties
