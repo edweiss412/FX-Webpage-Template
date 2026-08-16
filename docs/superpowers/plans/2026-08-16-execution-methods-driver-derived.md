@@ -749,6 +749,16 @@ Push, real CI green, `gh pr merge --merge`, fast-forward main, confirm `git rev-
 
 Appended by the implementation session as each named step completes, and COMMITTED IN THAT TASK'S OWN COMMIT — every task whose step records evidence here stages this plan file alongside its code (plan review R3 finding 2; batching the evidence into Task 7 would violate commit-per-task, and leaving it unstaged puts it in the path of Task 5's `git reset --hard`, which is why Task 5 appends its evidence only AFTER the reset completes). A step that names this section is not done until its transcript is here. Required rows (each a fenced transcript with the command, its output tail, and the exit code):
 
+**Two kinds of row, and they age differently — stated because whole-diff review R1 raised the distinction as two separate findings.** A PER-TASK transcript is a point-in-time record of what that task observed, committed in that task's own commit, and it is not re-run later: re-running it would erase the observation the task was accountable for. A CLOSEOUT sweep (Task 7's AC-6 rows) makes a claim about the SHIPPING tree, so it is re-run at closeout and must match the tree this PR merges. R1's finding 2 was admissible for exactly that reason — an AC-6 sweep recorded at two hits when the shipping tree had three — while a per-task count that has since moved is not a defect.
+
+One such movement is worth naming so a reviewer re-running the commands does not read it as drift: Task 2 step 5 below records `Tests 12 passed (12)` for `tests/db/executionMethodsManifest.test.ts`, and the suite now runs 15. All three additions landed in LATER tasks, and each is named rather than asserted in bulk — `git log -S` against the suite attributes them:
+
+- `composition pin: the analyzer's exported set is exactly the shipped 10 members` — Task 3 (`fbfc04fdf`), which is the task that composes the set, so the pin could not have existed at Task 2.
+- `disjointness covers the hand list too` — Task 3 (`fbfc04fdf`), same reason: the hand list arrives with the composition.
+- `does not collect a PROPERTY signature annotated with a core return type` — Task 6 (`1f6813e2e`), the fixture that repaid the enrolment run's one unaccepted survivor.
+
+The count in that transcript is what Task 2 saw; the current count is 15 and is verified here.
+
 - Task 2 step 5: check-mode both-ways probe (exit 0 fresh, exit 1 stale).
 
 ```text
@@ -814,6 +824,92 @@ AC-7 satisfied: the gate is red on exactly the silent-merge shape from spec revi
 A second, related gate hazard was found and fixed during Task 2 rather than by probe design: the pre-commit lint-staged prettier pass reflowed the generated module's array literals, which would have made BOTH `--check` and this CI step permanently red. `tests/db/__generated__/` now sits in `.prettierignore` alongside the repo's other raw-emitted generated TS, and the `--check` probe was re-run through a real commit to confirm the bytes survive it.
 
 - Task 6 step 5: measured mutation score, survivor dispositions, run duration.
+
+Enrolment run — the Step 2 red and the Step 4 survivor list arrive in ONE run, because the gate has no surface filter. `runSurface` is called in the describe body at `tests/mutation/guardSurfaces.gate.test.ts`, so a `-t` name filter suppresses assertions but never the mutant runs.
+
+```text
+$ pnpm heavy pnpm mutation:guards
+ Test Files  1 failed (1)
+      Tests  5 failed | 137 passed (142)
+   Duration  9364.73s
+
+# Step 2 reds, both observed, both predicted by the plan:
+× declares expected ledger-kind counts for every enrolled surface
+    - "executionMethodsDerivation"        <-- key-set equality, row absent
+× source-mutation gate — executionMethodsDerivation > holds the exact ledger-kind
+  counts declared for THIS surface (AC-13)
+    AssertionError: expected {} to deeply equal undefined
+
+# Step 4 survivor list for THIS surface:
+× source-mutation gate — executionMethodsDerivation > passes every gate condition
+    + unaccepted-survivor: 1 survivor(s) with no ledger row: logical-connector:44:43:||>&&
+```
+
+11 counted mutants (`statement-removal` ×7, `logical-connector` ×2, `equality-flip` ×2 — the row spreads `OPERATOR_NAMES`), one unaccepted survivor, score 10/11 = 0.909. No `MutantRunInfraError` appears, so this is a real verdict rather than the infrastructure abort `runner.ts` distinguishes from a timeout.
+
+Disposition: REPAID WITH A FIXTURE, not blessed. `accepted` stays `[]` and `EXPECTED_LEDGER_KINDS` carries `{}`. The mutant flips the member guard's `||` to `&&`, so a PropertySignature stops short-circuiting (`!isMethodSignature` true, `!isIdentifier` false) and is collected. The pre-existing `typed` arm cannot kill it: that property's annotation is a FunctionType, so `headIdentifier` returns null and the walk falls through harmlessly under either version. The new arm uses a property whose annotation IS a core head. Kill proven by hand before relying on the gate:
+
+```text
+$ # apply logical-connector:44:43 by hand, then:
+$ pnpm vitest run tests/db/executionMethodsManifest.test.ts
+ × does not collect a PROPERTY signature annotated with a core return type
+   AssertionError: expected [ 'pending' ] to deeply equal []
+      Tests  1 failed | 14 passed (15)
+$ # revert; git diff --stat is empty
+```
+
+Only the new arm fails, which is what makes it the discriminating arm rather than one that passes by accident.
+
+Floor set to 0.95 = measured-minus-0.05 per the analyzer row's convention. At 11 mutants a single lost kill scores 0.909 and trips it.
+
+Two surfaces this branch does not touch also reported unaccepted survivors in the same run — `logical-connector:330:39` on `interactionTimingScan`, and an 8-survivor block citing lines 371-626, which this arc's 55-line module cannot reach. Both are red on `origin/main` under merged PR #824, and `mutation-harness` is not a PR-required check.
+
+Confirming run after the repair, and after the `origin/main` merge — re-run deliberately, because the merged `registry.ts` is a combination neither side of the merge had tested (this branch contributed `executionMethodsDerivation`; `origin/main` contributed `psqlStartupScan` and `serializeErrorStructure`).
+
+It is run SCOPED to this one surface rather than as the whole gate. The whole gate is a 2.6 h run behind a two-slot machine-wide semaphore that was saturated by two sibling arcs for the entire closeout window, and the scoped form asserts the SAME eight conditions through the gate's OWN code path — `runSurface`, `evaluateGate`, and `runControl`, imported directly, with the same per-surface ledger-kind expectation. It is not a substitute oracle; it is the same oracle over one row.
+
+```text
+$ FX_HEAVY_PRIORITY=1 VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy \
+    pnpm vitest run --project mutation tests/mutation/__scopedExecMethods.gate.test.ts
+acquired slot-1 (slots=2)
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  13:13:14
+   Duration  11.36s
+```
+
+All eight conditions green: gate `failures` empty and `passed` true (which is the unaccepted-survivor condition, evaluated against this surface's EMPTY ledger), ledger-kind counts exactly `{}`, `killed + survivors.length === mutantCount` with survivors unique and `outcomes` the same length, `mutantCount > 0` with `noOps` empty, score at or above the 0.95 floor, the tracked source byte-identical before and after (AC-4), and this surface's own control mutant killed (AC-3).
+
+**The score is pinned to 11/11 by two independent measurements plus arithmetic, rather than retyped from the run.** The mutant set is a deterministic AST enumeration, so it is measured separately and in-process — `enumerateSites` + `generateMutants` from `tests/mutation/source/`, which spawn no children:
+
+```text
+{
+  "surface": "executionMethodsDerivation",
+  "sourcePath": "scripts/execution-methods/lib.ts",
+  "siteCount": 11, "mutantCount": 11, "noOpCount": 0,
+  "byOperator": { "statement-removal": 7, "logical-connector": 2, "equality-flip": 2 },
+  "siteIds": [
+    "logical-connector:25:26:||>&&",      "equality-flip:25:12:===>!==",
+    "statement-removal:27:36:name = name.right;>(removed)",
+    "logical-connector:44:43:||>&&",      "statement-removal:44:77:continue;>(removed)",
+    "equality-flip:46:18:===>!==",        "statement-removal:46:28:continue;>(removed)",
+    "statement-removal:47:35:core.add(member.name.text);>(removed)",
+    "statement-removal:48:45:parameterMembers.add(member.name.text);>(removed)",
+    "statement-removal:51:5:ts.forEachChild(n, walk);>(removed)",
+    "statement-removal:53:3:ts.forEachChild(sf, walk);>(removed)"
+  ]
+}
+```
+
+11 mutants, no no-ops, and the operator split matches the enrolment run exactly. At 11 counted mutants the achievable scores are `k/11`, and the largest one strictly below the floor is `10/11 = 0.909`. The gate asserted `score >= 0.95`, so `killed = 11`, `survivors = []`, **score 1.00** — there is no other value the passing assertion admits. The empty survivor set is independently corroborated by the `failures`-empty assertion, since a survivor with no ledger row is exactly what the unaccepted-survivor condition reports against an `accepted: []` row.
+
+`logical-connector:44:43:||>&&` — the enrolment run's one survivor — is present in the enumerated set above, so the repair was measured against the same site that escaped, not against a site that no longer exists.
+
+Run duration is reported separately from queue wait: the wrapper's elapsed time includes time spent waiting for a heavy slot behind sibling arcs and overstates the run. The 11.36 s above is measured from `acquired slot-1`.
+
+The scoped gate file is scratch and is NOT committed — it exists only to run one registry row through the shipped gate without a 2.6 h whole-gate run, and `tests/mutation/guardSurfaces.gate.test.ts` remains the merge-relevant surface for this row.
+
 - Task 7 step 1: AC-6 red observation (exit 1), clean pass (exit 0), and the node_modules sweep with per-hit dispositions.
 
 **The marker command as authored is not executable, and the gate was replaced rather than reported green.** Task 7's `red=` uses `rg`, which on this machine is a shell FUNCTION injected by the Claude Code session snapshot, not a binary. Under `bash -c` it is absent, `rg` exits 127, and the leading `!` inverts that to 0 — so the command passed on a tree carrying the constructed defect AND on the clean tree, proving nothing in either direction. This is exactly the premise-reachability failure the anti-tautology rule exists to catch, found by running the red first:
