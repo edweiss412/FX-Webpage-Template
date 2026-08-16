@@ -1421,7 +1421,8 @@ function ContactCell({
           // stand on its own needs text-grade contrast (DESIGN.md §1.2a). `border-border` here
           // measures 1.15:1 against the sunken cell — an edge that exists in the DOM and is
           // invisible on the floor. `text-faint` is the pinned 3.02:1 light / 4.11:1 dark row
-          // (DESIGN.md §1.2), the same recipe SECONDARY_ACTION_CLASS uses for its boundary.
+          // (DESIGN.md §1.2), the same recipe the shared secondary-action button uses for
+          // its own boundary.
           className="flex w-full min-h-tap-min min-w-0 items-center justify-center gap-1 rounded-sm border border-text-faint bg-surface px-2 text-[11px] tabular-nums text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
         >
           <Phone className="size-3 shrink-0" aria-hidden="true" />

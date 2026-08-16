@@ -49,6 +49,8 @@ const SEEDED_VEHICLE = "Sprinter ABC-1042";
 const CONTACT_CELL_DEAD_SPACE_PX = 34;
 /** Spec §2.3: the derived 10px chip separation, less the suite's 0.5px tolerance. */
 const CHIP_CLEARANCE_MIN_PX = 9.5;
+/** `px-3` on the transport cell — the inset the chip-width comparison cannot see. */
+const CONTACT_CELL_INSET_PX = 12;
 
 type Rect = {
   label: string;
@@ -137,8 +139,9 @@ async function assertIsControl(
 
 type StyledRect = Rect & {
   backgroundColor: string;
-  borderTopWidth: string;
-  borderTopColor: string;
+  /** All four edges: a `border-t`/`border-y` regression keeps the row's top edge. */
+  borderWidths: string[];
+  borderColors: string[];
 };
 
 type TransportMeasurement =
@@ -185,8 +188,18 @@ async function measureTransportGrid(
         nestedInteractive: el.querySelectorAll("a, button, input, select, textarea, summary")
           .length,
         backgroundColor: cs.backgroundColor,
-        borderTopWidth: cs.borderTopWidth,
-        borderTopColor: cs.borderTopColor,
+        borderWidths: [
+          cs.borderTopWidth,
+          cs.borderRightWidth,
+          cs.borderBottomWidth,
+          cs.borderLeftWidth,
+        ],
+        borderColors: [
+          cs.borderTopColor,
+          cs.borderRightColor,
+          cs.borderBottomColor,
+          cs.borderLeftColor,
+        ],
       };
     };
     const tel = root.querySelector('a[href^="tel:"]');
@@ -369,13 +382,16 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
 
       // Resolved in the page, never hardcoded: a token retune must move the
       // expectation with it (the site-8 on-token assertion's posture).
-      const textFaint = await page.evaluate(() => {
-        const probe = document.createElement("span");
-        probe.style.color = "var(--color-text-faint)";
-        document.body.appendChild(probe);
-        const c = getComputedStyle(probe).color;
-        probe.remove();
-        return c;
+      const [textFaint, surface] = await page.evaluate(() => {
+        const read = (v: string) => {
+          const probe = document.createElement("span");
+          probe.style.color = `var(${v})`;
+          document.body.appendChild(probe);
+          const c = getComputedStyle(probe).color;
+          probe.remove();
+          return c;
+        };
+        return [read("--color-text-faint"), read("--color-surface")];
       });
 
       assertFloor(tel, floor, "site 6 (tel: chip)");
@@ -393,11 +409,23 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
 
       // Dead-space budget (spec §2.2.3) — compaction comes out of the gaps and
       // padding, never out of the two 44px floors, which are added in here.
+      // EXACT, not a ceiling. An upper bound alone is satisfied by deleting the
+      // padding it exists to protect: drop `py-2` and the dead space falls to
+      // 18px, which passes any `<= 34` check while the cell collapses. The spec
+      // states the budget as an equality, so the assertion does too.
       const contentHeight = eyebrow.height + nameRow.height + tel.height + mailto.height;
       expect(
-        driverCell.height,
-        `contact-cell dead space over budget: cell ${driverCell.height}px vs content ${contentHeight}px + ${CONTACT_CELL_DEAD_SPACE_PX}px`,
-      ).toBeLessThanOrEqual(contentHeight + CONTACT_CELL_DEAD_SPACE_PX + 1);
+        driverCell.height - contentHeight,
+        `contact-cell dead space must be exactly ${CONTACT_CELL_DEAD_SPACE_PX}px: cell ${driverCell.height}px, content ${contentHeight}px`,
+      ).toBeCloseTo(CONTACT_CELL_DEAD_SPACE_PX, 0);
+
+      // Horizontal inset, for the same reason: the chips are measured against the
+      // BODY, and body and chips expand together, so dropping the cell's `px-3`
+      // moves neither side of that comparison.
+      expect(
+        driverCell.width - body.width,
+        `contact cell must keep its px-3 inset: cell ${driverCell.width}px vs body ${body.width}px`,
+      ).toBeCloseTo(CONTACT_CELL_INSET_PX * 2, 0);
 
       // Separation: two 44px targets 6px apart put "dial the driver mid-show"
       // one thumb-width from "email them".
@@ -430,7 +458,12 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
           chip.backgroundColor,
           `${chip.label} must be distinguishable from the cell ground`,
         ).not.toBe(driverCell.backgroundColor);
-        expect(chip.borderTopWidth, `${chip.label} must carry a visible border`).toBe("1px");
+        expect(chip.borderWidths, `${chip.label} must carry a border on ALL four edges`).toEqual([
+          "1px",
+          "1px",
+          "1px",
+          "1px",
+        ]);
         // A border that EXISTS is not a border that can be SEEN. `border-border`
         // measures 1.15:1 against this cell's ground — the width and colour-delta
         // assertions above both pass on it while the edge is invisible on a
@@ -439,10 +472,37 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
         // (DESIGN.md §1.2a: a control edge standing alone needs text-grade
         // contrast; §1.2 pins this pair at 3.02:1 light / 4.11:1 dark).
         expect(
-          chip.borderTopColor,
-          `${chip.label} must use the control-outline token, not a border token`,
-        ).toBe(textFaint);
+          chip.borderColors,
+          `${chip.label} must use the control-outline token on every edge`,
+        ).toEqual([textFaint, textFaint, textFaint, textFaint]);
+        // The RESOLVED surface token, not merely "unequal to the cell": any opaque
+        // colour satisfies a delta, and the chip's lift is a specific one.
+        expect(chip.backgroundColor, `${chip.label} must be filled with the surface token`).toBe(
+          surface,
+        );
       }
+
+      // Spec §2.2 puts `items-start` live at BOTH column counts (2-up below 560px,
+      // 3-up at or above it), so measuring only the project's 390px viewport
+      // leaves an ordinary `min-[560px]:items-stretch` regression green. Re-run
+      // the geometry that depends on it above the breakpoint.
+      await page.setViewportSize(WIDE_VIEWPORT);
+      const wide = await measureTransportGrid(transport, {
+        email: DRIVER_EMAIL,
+        vehicle: SEEDED_VEHICLE,
+      });
+      expect(wide.ok, wide.ok ? "" : wide.error).toBe(true);
+      if (!wide.ok) return;
+      assertFloor(wide.tel, floor, `site 6 (tel: chip, ${WIDE_VIEWPORT.width}px)`);
+      assertFloor(wide.mailto, floor, `site 7 (mailto: chip, ${WIDE_VIEWPORT.width}px)`);
+      expect(
+        wide.vehicleCell.height,
+        `the short Vehicle cell stretched at ${WIDE_VIEWPORT.width}px: ${wide.vehicleCell.height}px vs driver ${wide.driverCell.height}px`,
+      ).toBeLessThan(wide.driverCell.height);
+      expect(
+        wide.mailto.y - (wide.tel.y + wide.tel.height),
+        `sites 6/7 clearance at ${WIDE_VIEWPORT.width}px`,
+      ).toBeGreaterThanOrEqual(CHIP_CLEARANCE_MIN_PX);
 
       await signOut(page);
     } finally {
