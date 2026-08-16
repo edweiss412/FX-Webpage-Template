@@ -1142,3 +1142,16 @@ dispositions existed but no section accounted for them id-by-id.
 **Reachability:** PROBED in the originating filing (the R4 closeout round). Filed under
 class-sweep exception (c). May share one lint surface with
 `BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP`; the implementing arc decides and records it.
+
+## BL-MUTATION-HARNESS-MAIN-RED-TWO-SURFACES — the nightly gate is red on main for two surfaces, and every PR inherits it
+
+**Status:** OPEN. · **Filed:** 2026-08-16 (found while shipping `chore/round-economy-enforcement-pair`, whose own enrolled surfaces passed) · **Severity:** MEDIUM (a permanently red non-required gate trains every arc to read its verdict as noise, which is how the twelve-survivor catch of #786 nearly did not happen) · **Class:** CI gate fidelity · **Effort:** S-M
+
+`mutation-harness` fails on main-side state with exactly two failures, and both reproduce on unrelated branches:
+
+1. `tests/mutation/guardSurfaces.gate.test.ts > source-mutation gate — interactionTimingScan` — one unaccepted survivor, `logical-connector:330:39:&&>||` in `scripts/scan-interaction-timings.ts`.
+2. `tests/parser/mutationHarness.shard4.test.ts > slice alarms == ledger slice` — `blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L38..L45` alarms present as `|wrong|<fingerprint>` with no matching ledger slice rows.
+
+**Reachability: PROBED, cross-branch.** Both failures appear identically on two unrelated PR heads: `chore/round-economy-enforcement-pair` (run 31942707419, job 95154111932) and `fix/local-harness-false-failures` (the sibling run one hour earlier). Neither branch touches `scripts/scan-interaction-timings.ts`, its two suites, or any file under `lib/parser`/`tests/parser` — `git diff origin/main...HEAD` is empty on all of them for the first branch, and the second is a harness-only change. The shard-4 drift is in the data-gap alarm domain that `0be765a4c` ("register SYNC_LOG_EMIT_FAILED as a non-gap code and re-pin the shifted alert-producer sites") touched on main; the survivor in (1) was already present in a baseline run taken before that branch made any edit.
+
+**Why it is a row and not a shrug.** The gate is not a required context, so it merges red indefinitely, and its own memory record is that CI's run — not a local one — is what finds real survivors. A gate that is always red cannot deliver that signal. **First scheduled step:** decide per failure whether the surface is genuinely uncovered (repay with a test) or the ledger is stale (re-key), then re-run the workflow on main via `workflow_dispatch` to confirm a clean baseline; the shard-4 half likely needs the alarm ledger re-pinned by whoever owns the non-gap-code change.
