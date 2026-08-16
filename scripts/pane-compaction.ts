@@ -264,8 +264,15 @@ export function parseArgv(argv: string[]): Parsed {
     else if (a === "--all") out.all = true;
     else if (a === "--check") out.mode = "check";
     else if (a === "--as") {
-      i += 1;
-      out.as = argv[i] ?? null;
+      // A flag is never a session id. `--as --dry-run` is a MISSING `--as`, and
+      // swallowing the flag would both invent an orchestrator identity and drop
+      // the option that followed — the one thing this parser must not do, since
+      // §6 turns on `--as` being explicit and never inferred.
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        out.as = next;
+        i += 1;
+      }
     } else if (a === "--checkpoint" || a === "--compact" || a === "--resume") {
       out.mode = a.slice(2) as Parsed["mode"];
       const next = argv[i + 1];
