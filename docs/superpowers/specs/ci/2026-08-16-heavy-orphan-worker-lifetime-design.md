@@ -342,21 +342,21 @@ waiting wrapper has a live session parent and is exempt under (b) long before ag
 
 ### 4.4 Guard conditions — every input at its degenerate value
 
-**The safety invariant, stated per class — because a single sentence over all three classes is
-false and round 2 proved it.** An earlier draft claimed every degenerate input makes a process
-LESS reapable. That is wrong for exactly the inputs that feed an EXEMPTION clause: an unreadable
-slot directory removes clause (c)'s ability to exempt anything, which makes candidates MORE
-reapable, not less. The invariant is therefore three statements, not one:
+**Three classes, distinguished by SCOPE and by which criterion owns them. The behavior of each
+condition is in its row and nowhere else** — this preamble deliberately states no behavior, because
+a preamble that restated one is what rounds 1 through 4 kept finding drifted.
 
-1. **Collection-level undecidability stops the whole run.** If any input that clause (b) or (c)
-   depends on cannot be read, the run reaps NOTHING and exits non-zero. Not "proceeds with fewer
-   exemptions" — a clause you cannot evaluate has not been evaluated, and concluding a process is
-   unexempt from a failure to check is the precise error that made the codex reaper kill live work.
-2. **Row-level undecidability drops that row only.** A row whose own fields cannot decide a clause
-   is not reaped; other rows are unaffected.
-3. **Kill-time failures are best-effort, fully reported, and non-zero-exit.** Killing is an
-   ACTION, so "resolves toward inaction" does not apply to it; what applies is that no failure is
-   silent. AC-3 is scoped to classification (1 and 2); AC-5 governs this class.
+| Class | Scope of a condition's effect | Owned by |
+| --- | --- | --- |
+| Collection-level (C1-C8) | the whole run | AC-3b |
+| Row-level (R1-R5) | that row only | AC-3 |
+| Kill-time (K1-K5) | that target only | AC-5, AC-5b; exit status per §6.2 |
+
+The one design idea behind the C-rows, since it is a rule and not a behavior: **a clause you
+cannot evaluate has not been evaluated.** Concluding a process is unexempt from a failure to check
+is the precise error that made the codex reaper kill live work, so an undecidable exemption input
+stops the run rather than shrinking the exemption set. Which C-rows are undecidable is the table's
+`Decidable?` column.
 
 §5's types are what make the reporting half expressible; round 1 found the earlier signature could
 not carry most of this table, which is why the two sections are written against each other.
@@ -368,9 +368,10 @@ round 3 F1/F2). The class is "a normative claim restated in prose drifts from it
 defense that closes it is to have exactly one statement of each behavior and make every other
 mention a reference. No AC below restates a condition's behavior.
 
-**Collection-level conditions.** `Decidable?` is the load-bearing column: an UNDECIDABLE condition
-means an exemption clause could not be evaluated, and the run must reap nothing. A DECIDABLE one is
-an answer — possibly a boring answer — and the run proceeds.
+**Collection-level conditions.** `Decidable?` is the load-bearing column, and it asks one thing:
+does the clause this input feeds still have an ANSWER? "No" means the clause was never evaluated;
+"yes" means it was, even when the answer is a boring one like "nobody is exempt". What follows from
+each is in the row.
 
 | ID | Condition | Decidable? | Behavior |
 | --- | --- | --- | --- |
@@ -393,8 +394,8 @@ an answer — possibly a boring answer — and the run proceeds.
 | R4 | `command` empty | NOT reapable (clause (a) cannot match); retained and reported |
 | R5 | ancestry walk hits a cycle or a missing parent | the walk terminates; the row is NOT exempt-by-(c) and NOT reapable — an unresolvable ancestry is undecidable, and undecidable means inaction |
 
-**Kill-time conditions.** These are ACTIONS, so "resolves toward inaction" does not apply; what
-applies is that no failure is silent.
+**Kill-time conditions.** These are ACTIONS, so the undecidable-stops-the-run rule above does not
+apply to them; §6.2 owns their exit status.
 
 | ID | Condition | Behavior |
 | --- | --- | --- |
@@ -643,8 +644,8 @@ surfaced signal files here rather than as a review round.
 - **L-3 — an unwrapped, detached, legitimately long heavy phase past the ceiling is reapable.**
   The one false-positive window, and the one row of §4.3's table that clause (b) and (c) do not
   cover. Two convention violations are required to reach it, `FX_REAP_MIN_AGE_S` covers the
-  genuine outlier, and the default invocation kills nothing. AC-2 is scoped to exclude this case
-  rather than claiming it away.
+  genuine outlier, and the default invocation is non-destructive per §6.2. AC-2 is scoped to exclude
+  this case rather than claiming it away.
 - **L-4 — Codex trees and MCP fleets are out of scope.** reap-idle-codex.sh owns them. The
   accept-set contains no Codex entrypoint, so the two cannot both claim a process.
 - **L-5 — `ps` is a sample, not a transaction, and the subtree kill is therefore best-effort.**
@@ -688,11 +689,11 @@ to say something §4.4 does not, it says only that.
   The rows §4.3 marks "no" are NOT covered by this criterion; they are L-3.
 - **AC-3** — Every row-level condition R1-R5 behaves as its row states, and each appears in
   `Classification.decisions` — so `decisions.length === rows.length` for any input.
-- **AC-3b** — Every collection-level condition C1-C8 behaves as its row states. In particular the
-  UNDECIDABLE rows (C1, C3, C5, C8) reap nothing and exit non-zero, and the DECIDABLE rows
-  (C2, C4, C6, C7) proceed. A run that cannot evaluate an exemption clause never concludes a
-  process is unexempt; a run that CAN evaluate it and finds nobody exempt is not the same thing and
-  is not blocked.
+- **AC-3b** — Every collection-level condition C1-C8 behaves as its row states, and the
+  undecidable/decidable partition it is tested against is the table's `Decidable?` column — C1, C3,
+  C5, C8 undecidable; C2, C4, C6, C7 decidable. The distinction the criterion exists to pin: a run
+  that CANNOT evaluate an exemption clause is not the same as one that CAN and finds nobody exempt,
+  and only the first is blocked.
 - **AC-4** — The reaper never targets its own process or any ancestor of it.
 - **AC-5** — Killing removes the RECORDED target set — the reaped root plus every descendant
   present in the collection snapshot — in the order §4.4 specifies, and K4's verification re-scan
@@ -703,8 +704,9 @@ to say something §4.4 does not, it says only that.
 - **AC-6** — `pnpm heavy:reap` with no flags kills nothing and reports every reap candidate and
   every declined orphan-shaped process; `--all` widens only the report, never what is killed;
   `--kill` is required to kill; `--quiet` suppresses only decline rows. Exit status per §6.2.
-- **AC-7** — C1 holds: a `ps` that cannot be invoked reaps nothing and exits non-zero, rather than
-  reporting a clean machine.
+- **AC-7** — C1 holds, on every one of its three spellings (binary missing, non-zero exit, sandbox
+  denial). Called out separately from AC-3b because it is the condition under which a reaper would
+  otherwise report a clean machine.
 - **AC-8** — Trigger 1 fails open: with scripts/heavy-reap.ts absent, erroring, or timing out,
   `pnpm heavy <cmd>` admits and runs `<cmd>` exactly as it does today, with byte-identical argv,
   and the wrapper's own exit status still reaches the caller.
@@ -728,7 +730,7 @@ Convergence criterion for every review dispatch on this arc:
 
 - **Consequence bound:** every process is either correctly classified, or declined with a reason
   reported through the §5 channel for its condition class; and whenever an exemption clause cannot
-  be EVALUATED, the run reaps nothing and says so (§4.4's three-class invariant). Never silently
+  be EVALUATED, the run reaps nothing and says so (§4.4's C-rows). Never silently
   killed, never silently omitted from the report, and never reaped on the strength of a check that
   did not run. A decline is a DOCUMENTED LIMIT (§7), not a finding.
 - **`PROBE DOMAIN:`** the live process table on this machine
