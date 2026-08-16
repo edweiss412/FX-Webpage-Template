@@ -14,7 +14,7 @@
 
 - Invariant 1 (AGENTS.md): TDD per task — failing test, minimal implementation, passing test, commit. Commit per task, conventional-commits style.
 - Invariant 11: all work in the isolated worktree /Users/ericweiss/FX-worktrees/execution-methods-driver-derived on branch test/execution-methods-driver-derived; the main checkout is read-only.
-- Heavy-phase rule (AGENTS.md): `pnpm mutation:guards` runs wrapped — `pnpm heavy mutation:guards`. Scoped vitest runs with an explicit file list stay unwrapped.
+- Heavy-phase rule (AGENTS.md): `pnpm mutation:guards` runs wrapped — `pnpm heavy pnpm mutation:guards`. Scoped vitest runs with an explicit file list stay unwrapped. **The inner `pnpm` is load-bearing.** `heavy` is `python3 scripts/with-heavy-slot.py --`, and the wrapper `execvp`s its first argument (`scripts/with-heavy-slot.py:724`), so `pnpm heavy mutation:guards` execs a binary literally named `mutation:guards` and dies with `FileNotFoundError`. The failure is late, not fast: the wrapper acquires a slot FIRST, so on a saturated semaphore the broken form blocks for however long the queue takes and only then fails — which is why it reads as a hang rather than a typo. Diff review R2 found this form at seven sites in this plan.
 - Behavior freeze: the composed execution set stays exactly the shipped 10 members (spec §1.1). Any diff that changes the set's membership is out of scope.
 - Rejected shape (spec §1.1): no vitest suite parses node_modules type-declaration text. The only test-time node_modules read is the version sentinel's package.json read.
 - No em-dash in user-visible copy or generated-code comments (pre-code mechanical gate, AGENTS.md); generated headers use `--` or prose without dashes.
@@ -619,7 +619,7 @@ git commit -m "infra: record freshness-gate probe evidence"
 
 ### Task 6: Mutation enrolment
 
-<!-- task: red=`pnpm heavy mutation:guards` ac=AC-5 -->
+<!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-5 -->
 
 The marker's `red=` is the enrolment gate itself: it is red whenever the new surface's score is under its floor or an unaccepted survivor exists, and the task is not done until it is green — enrolment precedes the first diff-review dispatch (AGENTS.md convergence bullet 4; spec §5).
 
@@ -664,7 +664,7 @@ With the registry row from Step 1 in place and NO companion rows yet, run both o
 Run: `pnpm vitest run tests/mutation/_metaPremiseContract.test.ts`
 Expected: FAIL — "declares a count for every enrolled suite" (`tests/mutation/_metaPremiseContract.test.ts:137-142`) rejects the newly enrolled suite with no `EXPECTED_ENV_TOUCHING` key.
 
-Run: `pnpm heavy mutation:guards`
+Run: `pnpm heavy pnpm mutation:guards`
 Expected: FAIL — "declares expected ledger-kind counts for every enrolled surface" (`tests/mutation/guardSurfaces.gate.test.ts:150-155`) rejects `executionMethodsDerivation` with no `EXPECTED_LEDGER_KINDS` key. This red is UNCONDITIONAL (an equality over key sets), not score-dependent.
 
 - [ ] **Step 3: Add the two mandatory companion-registry rows (plan review R2 finding 1)**
@@ -679,12 +679,12 @@ Expected: PASS after both rows land (row well-formed; the suite's premise usage 
 
 - [ ] **Step 4: Run the gate**
 
-Run: `pnpm heavy mutation:guards`
+Run: `pnpm heavy pnpm mutation:guards`
 Expected: the new surface reports a score and a survivor list. For each unaccepted survivor: kill it with a new derivation fixture where it exposes a real gap, or add an `accepted` row with a reachability argument where it is equivalent (registry conventions; deletion of dead code beats blessing it). Iterate until zero unaccepted survivors.
 
 - [ ] **Step 5: Tighten the floor and re-run**
 
-Set `scoreFloor` to measured-minus-0.05. Re-run `pnpm heavy mutation:guards`; expected green. Record the measured score, the survivor dispositions, and the run duration in the Execution evidence section — the diff-review round-1 brief must state them (spec §5).
+Set `scoreFloor` to measured-minus-0.05. Re-run `pnpm heavy pnpm mutation:guards`; expected green. Record the measured score, the survivor dispositions, and the run duration in the Execution evidence section — the diff-review round-1 brief must state them (spec §5).
 
 - [ ] **Step 6: Commit**
 
@@ -726,10 +726,10 @@ Expected: first prints `exit=0` — the SAME command that just failed now passes
 ```bash
 pnpm typecheck && pnpm exec eslint scripts/execution-methods scripts/generate-execution-methods.ts tests/db/executionMethodsManifest.test.ts
 pnpm vitest run tests/db/executionMethodsManifest.test.ts tests/db/destructiveFileAnalysis.test.ts tests/db/_metaDestructiveDbTargetGuard.test.ts tests/cross-cutting/pretest-gen-manifest.test.ts tests/mutation/_metaGuardSurfaceRegistry.test.ts
-pnpm heavy test:fast
+pnpm heavy pnpm test:fast
 ```
 
-Expected: all green. (`pnpm heavy test:fast` is the full-suite leg and MUST run under the heavy wrapper per AGENTS.md.)
+Expected: all green. (`pnpm heavy pnpm test:fast` is the full-suite leg and MUST run under the heavy wrapper per AGENTS.md.)
 
 - [ ] **Step 3: Cross-model diff review to APPROVE (marker still on)**
 
