@@ -35,6 +35,20 @@
 // PREDICATE above, swept across every position a wrapper can occupy, rather than three patches
 // for the three reported spellings.
 //
+// HOW THE VALUE AXIS IS CLOSED, AND WHY IT IS CLOSED BY NARROWING. R1 widened the initializer
+// shape parser; R2 immediately produced a second grammar corner on the same axis (`cond ?
+// serializeError(e) : e` and the `&&` / `||` / `??` carriers). That is the one-corner-per-round
+// ratchet, where each widening is a bigger target for the next round. So the value axis is NOT
+// parsed at all: `mentionsWrapper` asks whether the `error` value's SUBTREE mentions a
+// serializeError binding, which is a closed question over a finite tree rather than an open
+// question over a grammar. Ternaries, short-circuits, nesting, and any future syntax are covered
+// by construction, not by another case. A finding claiming a new VALUE-SHAPE evasion is refuted
+// by that predicate; only the two limits below remain open, and both are outside the fence.
+//
+// The structural traversal (which object literals contribute to `fields`, and which spread forms
+// carry one) is still shape-based, because that is a question about STRUCTURE, not value — it
+// decides where to look, not what counts once you are looking.
+//
 // DOCUMENTED LIMITS, not gaps to widen the recognizer for: a helper that wraps and then forwards
 // (interprocedural flow), and a computed/dynamic property name. Both are outside the threat
 // model below, and a probe demonstrating either files to the spec's limits section rather than
@@ -145,7 +159,39 @@ function contributingObjectLiterals(root: ObjectLiteralExpression): ObjectLitera
   return literals;
 }
 
-/** Report every `log.<level>(msg, { ... error: serializeError(x) ... })` in one source file. */
+/**
+ * Does the VALUE expression for `error` mention the wrapper anywhere inside it?
+ *
+ * This deliberately does NOT classify the expression's shape. Diff review R1 widened the shape
+ * parser once (transparent wrappers) and R2 immediately produced a second grammar corner on the
+ * same axis (`cond ? serializeError(e) : e`, `cond && serializeError(e)`, `||`, `??`) — the
+ * one-corner-per-round ratchet AGENTS.md names, where every widening is a bigger target for the
+ * next round. So the axis is closed by NARROWING instead: stop parsing the grammar of the value
+ * and ask one closed question over its subtree.
+ *
+ * Sound in the direction that matters. If `serializeError` appears anywhere in the value that
+ * reaches `error`, then on at least one path the logger receives an already-serialized object
+ * and re-serializes it to "[object Object]". A conditional carrier is not a special case of
+ * that — it IS that, on one branch.
+ *
+ * The cost is a possible false positive: an expression that mentions the helper without its
+ * result reaching `error`. That is a LOUD failure a contributor resolves by hoisting the call,
+ * never silent corruption, so it sits on the correct side of this file's consequence bound. No
+ * such site exists in the tree today.
+ */
+function mentionsWrapper(initializer: Node, wrappers: Set<string>): boolean {
+  for (const call of initializer.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (Node.isIdentifier(callee) && wrappers.has(callee.getText())) return true;
+  }
+  if (Node.isCallExpression(initializer)) {
+    const callee = initializer.getExpression();
+    if (Node.isIdentifier(callee) && wrappers.has(callee.getText())) return true;
+  }
+  return false;
+}
+
+/** Report every `log.<level>(msg, { ... error: <anything mentioning serializeError> ... })`. */
 export function findDoubleSerializedSites(sourceFile: SourceFile): Finding[] {
   const wrappers = serializeErrorBindings(sourceFile);
   if (wrappers.size === 0) return [];
@@ -170,10 +216,7 @@ export function findDoubleSerializedSites(sourceFile: SourceFile): Finding[] {
         if (property.getName() !== "error") continue;
         const initializerNode = property.getInitializer();
         if (!initializerNode) continue;
-        const initializer = unwrapTransparent(initializerNode);
-        if (!Node.isCallExpression(initializer)) continue;
-        const wrapper = initializer.getExpression();
-        if (!Node.isIdentifier(wrapper) || !wrappers.has(wrapper.getText())) continue;
+        if (!mentionsWrapper(initializerNode, wrappers)) continue;
         findings.push({
           file: sourceFile.getFilePath(),
           line: property.getStartLineNumber(),
@@ -297,6 +340,40 @@ export function wrappedFields(e: unknown) {
 }
 `;
 
+/**
+ * Diff review R2's four probed initializer carriers. These are pinned as fixtures, but they are
+ * NOT four more parser cases: `mentionsWrapper` closes all of them, and every future one on the
+ * same axis, by subtree containment. They are here so the closure is executable rather than
+ * asserted in a comment.
+ */
+const INITIALIZER_CARRIER_FIXTURE = `
+import { serializeError } from "@/lib/log/serializeError";
+import { log } from "@/lib/log";
+
+export function ternary(e: unknown, cond: boolean) {
+  void log.error("ternary", { source: "probe", error: cond ? serializeError(e) : e });
+}
+export function logicalAnd(e: unknown, cond: boolean) {
+  void log.error("and", { source: "probe", error: cond && serializeError(e) });
+}
+export function logicalOr(e: unknown, prior: unknown) {
+  void log.error("or", { source: "probe", error: prior || serializeError(e) });
+}
+export function nullish(e: unknown, prior: unknown) {
+  void log.error("nullish", { source: "probe", error: prior ?? serializeError(e) });
+}
+`;
+
+/** Nested inside a call argument — the shape a parser-based check would need yet another case for. */
+const NESTED_ARGUMENT_FIXTURE = `
+import { serializeError } from "@/lib/log/serializeError";
+import { log } from "@/lib/log";
+
+export function nested(e: unknown) {
+  void log.error("nested", { source: "probe", error: { cause: serializeError(e) } });
+}
+`;
+
 const ALLOWED_FIXTURE = `
 import { serializeError } from "@/lib/log/serializeError";
 import { log } from "@/lib/log";
@@ -327,6 +404,7 @@ describe("no double-serialized log.* error fields (AC-7)", () => {
       ["logical-and-spread", LOGICAL_AND_SPREAD_FIXTURE],
       ["nullish-spread", NULLISH_SPREAD_FIXTURE],
       ["wrapped-fields-argument", WRAPPED_FIELDS_FIXTURE],
+      ["nested-argument", NESTED_ARGUMENT_FIXTURE],
     ] as const;
 
     for (const [family, source] of banned) {
@@ -334,6 +412,17 @@ describe("no double-serialized log.* error fields (AC-7)", () => {
       const found = findDoubleSerializedSites(fixture);
       expect(found, `the ${family} family must be recognized`).toHaveLength(1);
     }
+
+    // Four carriers in ONE fixture: the subtree predicate closes them together, so they are
+    // asserted together rather than as four more parser cases.
+    const carriers = project.createSourceFile(
+      "__premise_initializer_carriers__.ts",
+      INITIALIZER_CARRIER_FIXTURE,
+    );
+    expect(
+      findDoubleSerializedSites(carriers),
+      "every short-circuit initializer carrier must be recognized",
+    ).toHaveLength(4);
   });
 
   test("the scanner leaves a raw error field and a console-direct site alone", () => {
