@@ -345,18 +345,26 @@ describe("the persist-failure note", () => {
     });
   }
 
-  const note = () => screen.getByTestId("theme-persist-note");
+  /** The VISIBLE note inside the popover; absent until a write fails. */
+  const note = () => screen.queryByTestId("theme-persist-note");
+  /** The always-mounted live region that owns the announcement. */
+  const announcer = () => screen.getByTestId("theme-persist-announcer");
 
-  it("mounts the status region empty when the menu opens, before any failure (AC-4)", () => {
+  it("mounts the live region before any failure, and OUTSIDE the popover (AC-4)", () => {
     blockWrites();
     renderMenu();
-    openMenu();
 
-    // Present BEFORE the failing activation. A region inserted at failure time
-    // announces nothing — the ReSyncButton trap, pinned.
-    expect(note()).toBeInTheDocument();
-    expect(note()).toHaveAttribute("role", "status");
-    expect(note().textContent).toBe("");
+    // Present before the menu is even opened, let alone before the failing
+    // activation: a region that arrives WITH its message is never announced
+    // (the ReSyncButton trap, and the repo-wide guard at
+    // tests/components/_metaLiveRegionMounting.test.ts).
+    expect(announcer()).toBeInTheDocument();
+    expect(announcer()).toHaveAttribute("role", "status");
+    expect(announcer().textContent).toBe("");
+    expect(note()).toBeNull();
+
+    openMenu();
+    expect(announcer().textContent).toBe("");
   });
 
   it("renders the note on a blocked write and leaves the menu open (AC-1)", () => {
@@ -366,7 +374,8 @@ describe("the persist-failure note", () => {
 
     flipTheme();
 
-    expect(note().textContent).toBe("This device won't remember this choice.");
+    expect(note()?.textContent).toBe("This device won't remember this choice.");
+    expect(announcer().textContent).toBe("This device won't remember this choice.");
     // The absorb holds: the theme still applied, and the row did not close the menu.
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(screen.getByRole("menu")).toBeInTheDocument();
@@ -380,6 +389,7 @@ describe("the persist-failure note", () => {
 
     const menu = screen.getByRole("menu");
     expect(menu.contains(note())).toBe(false);
+    expect(menu.contains(announcer())).toBe(false);
     // `role="menu"` constrains what it owns; the note is a popover sibling.
     expect(within(menu).queryByRole("status")).toBeNull();
     expect(
@@ -395,15 +405,18 @@ describe("the persist-failure note", () => {
     renderMenu();
     openMenu();
     flipTheme();
-    expect(note().textContent).toBe("This device won't remember this choice.");
+    expect(note()?.textContent).toBe("This device won't remember this choice.");
 
     act(() => fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" }));
     expect(screen.queryByTestId("theme-persist-note")).toBeNull();
+    // The ANNOUNCER survives the close, so the report is not withdrawn from
+    // assistive tech when the popover goes away.
+    expect(announcer().textContent).toBe("This device won't remember this choice.");
 
     openMenu();
     // Hook state lives on the component, not the popover: the device has not
     // started remembering just because the menu closed.
-    expect(note().textContent).toBe("This device won't remember this choice.");
+    expect(note()?.textContent).toBe("This device won't remember this choice.");
   });
 
   it("keeps the note through a repeated failure and clears it on recovery (AC-1, AC-3)", () => {
@@ -413,11 +426,14 @@ describe("the persist-failure note", () => {
 
     flipTheme();
     flipTheme();
-    expect(note().textContent).toBe("This device won't remember this choice.");
+    expect(note()?.textContent).toBe("This device won't remember this choice.");
 
     allowWrites();
     flipTheme();
-    expect(note().textContent).toBe("");
+    // Recovery removes the visible note and EMPTIES the live region rather than
+    // unmounting it, so the next failure is a content change it can announce.
+    expect(note()).toBeNull();
+    expect(announcer().textContent).toBe("");
   });
 });
 

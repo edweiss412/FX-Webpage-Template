@@ -332,31 +332,27 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
           ) : null}
 
           {/*
-            SIBLING of the menu, never a child. `role="menu"` constrains the
-            elements it owns — the same ARIA required-owned-elements rule that
-            already forced `role="none"` onto the switch-person form, and the
-            same reason the switch-person alert sits outside it — and the popover
-            panel is used to hosting non-menuitem content (the identity header).
+            The VISIBLE note. It is deliberately NOT a live region: the
+            announcement is owned by the always-mounted announcer at the
+            component root below, which survives the popover's open/close so a
+            failure that happens with the menu open is announced once, from a
+            node that was already in the tree.
 
             ABOVE the menu rather than below it: the switch-person alert holds
             the slot immediately after the menu, pinned executably as the
             popover's last child (its §4.3 placement contract). Two regions
             cannot both be last, and that one is an ALERT about an action the
             user just took, so it keeps the position closest to the control;
-            this is a polite status about the device.
-
-            Always mounted while the popover is open, with only the TEXT
-            conditional: a live region inserted together with its message
-            announces nothing. The theme row keeps the menu open on activation,
-            so the note is visible in place when the failed write happens.
+            this is a quiet status about the device.
           */}
-          <div role="status" data-testid="theme-persist-note">
-            {persistFailed ? (
-              <p className="px-3 pb-1 text-xs/relaxed text-text-subtle">
-                {THEME_PERSIST_FAILED_NOTE}
-              </p>
-            ) : null}
-          </div>
+          {persistFailed ? (
+            <p
+              data-testid="theme-persist-note"
+              className="px-3 pb-1 text-xs/relaxed text-text-subtle"
+            >
+              {THEME_PERSIST_FAILED_NOTE}
+            </p>
+          ) : null}
 
           <div role="menu" data-testid="avatar-menu-items" {...menuNameProps}>
             <button
@@ -462,6 +458,24 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
           ) : null}
         </div>
       ) : null}
+
+      {/*
+        ALWAYS MOUNTED, text conditional — the shape the repo's own
+        BL-ANNOUNCE-REGION-UNMOUNT-CLASS guard requires and the reason
+        ReSyncButton's inserted status card announced nothing. It lives outside
+        the popover's conditional render because the popover is exactly what
+        unmounts: a region that arrives with its message already in it is never
+        announced, so a failure that happened while the menu was open would be
+        silent for anyone listening.
+      */}
+      <span
+        role="status"
+        data-testid="theme-persist-announcer"
+        className="sr-only"
+        suppressHydrationWarning
+      >
+        {persistFailed ? THEME_PERSIST_FAILED_NOTE : ""}
+      </span>
     </div>
   );
 }
