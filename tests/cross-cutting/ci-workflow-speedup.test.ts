@@ -1,7 +1,20 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { parse as parseYaml } from "yaml";
 import { describe, expect, it } from "vitest";
+
+/** The subset of a GitHub Actions step this file asserts on. */
+type WorkflowStep = {
+  name?: string;
+  id?: string;
+  uses?: string;
+  if?: string;
+  run?: string;
+  with?: Record<string, unknown>;
+};
 
 // Structural guards for the CI-speedup changes (PR A — Phase 1 + Phase 2c).
 // These are regression guards, not behavior tests: they pin the workflow-yaml
@@ -238,4 +251,262 @@ describe("CI e2e workflows that boot a no-env-block webServer supply build-criti
       ).toBe(true);
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// screenshots-drift nextcache: exact input-hash key, no fallback, always-save.
+//
+// BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING. The combined
+// `actions/cache@v4` step saved only in the post step of a SUCCESSFUL job, and
+// its key carried two prefix `restore-keys` fallbacks. Composition: once every
+// saved entry predates a UI-changing merge, the nightly run prefix-restores a
+// stale Next compiler cache, renders the OLD chrome, fails the byte gate, and
+// BY FAILING skips the save. The failure self-perpetuates until a human deletes
+// the caches. Measured live (2026-08-14): two same-sha drift runs failed on 6
+// md5-verified files while the no-cache regen workflow reproduced the committed
+// bytes exactly; deleting all 12 caches flipped it green with zero source change.
+//
+// The repair makes a stale restore IMPOSSIBLE rather than merely saving more
+// often: an exact content-hash key over the render inputs, in a fresh `-v2-`
+// namespace, with NO fallback. A hit therefore means the cached compilation was
+// built from byte-identical inputs, so reuse is sound BY KEY CONSTRUCTION
+// instead of by trusting Next's invalidation — the exact trust the incident
+// broke. The split restore/save with `if: always()` rides along for WARMTH: the
+// first run at a given input set saves even when the byte gate fails.
+//
+// Spec: docs/superpowers/specs/ci/2026-08-15-screenshots-drift-cache-refresh-design.md
+//
+// Asserted on PARSED step objects, never file-wide substrings, so a
+// commented-out `# uses:` line satisfies nothing. Assertion 7 is the one
+// deliberate exception (it checks a YAML COMMENT, which `parse` discards) and
+// bounds its raw-text slice by positions DERIVED from the parsed steps.
+// ---------------------------------------------------------------------------
+
+describe("screenshots-drift nextcache: exact input-hash key, no fallback, always-save", () => {
+  const RAW = readWorkflow("screenshots-drift.yml");
+  const DOC = parseYaml(RAW) as {
+    on: { pull_request: { paths: string[] } };
+    jobs: Record<string, { steps: WorkflowStep[] }>;
+  };
+  const STEPS = DOC.jobs["screenshots-drift"]!.steps;
+  const CACHE_PATH = ".next-screenshots-help/cache";
+  const NAMED_EXTRAS = ["pnpm-lock.yaml", "next.config.ts", "package.json"] as const;
+  // The capture step MUTATES these bytes mid-run and actions/cache/save
+  // re-evaluates a content-derived key at save time, so a baselines-in-key
+  // census makes a drifting run save under a phantom key no checkout requests.
+  // They are the comparison TARGET, not a compiler input.
+  const MUTATED_TARGET_GLOB = "public/help/screenshots/**";
+
+  const stepsUsing = (action: string): WorkflowStep[] =>
+    STEPS.filter((s) => typeof s.uses === "string" && s.uses.startsWith(action));
+  const indexOfStep = (pred: (s: WorkflowStep) => boolean): number => STEPS.findIndex(pred);
+
+  it("1. exactly two steps touch the nextcache path: the restore and the save", () => {
+    expect(stepsUsing("actions/cache/restore@v4")).toHaveLength(1);
+    expect(stepsUsing("actions/cache/save@v4")).toHaveLength(1);
+
+    // A CLOSED question over the JOB's cache steps, which deliberately does not
+    // consult the path at all.
+    //
+    // Two rounds took this assertion one input family at a time. R2: it banned
+    // the literal `actions/cache@v4`, and `actions/cache@v4.2.0` walked past.
+    // R3: it asked which steps had `path === CACHE_PATH`, and six equivalent
+    // spellings walked past that — trailing slash, `./` prefix, YAML literal
+    // block, multi-path block, an ancestor directory, and a covering glob (the
+    // action accepts all of them). Each repair invited the next escape, which
+    // is a recognizer ratcheting one representation per round.
+    //
+    // So this stops recognizing refs and stops normalizing paths. It asks the
+    // one question with a finite answer: WHICH cache-family steps does this job
+    // run? Exactly two, and they must be the sanctioned pair. A third — any
+    // ref, any path spelling, any glob, any ancestor — fails here by name,
+    // because the path is never consulted. Scope is this job only, so other
+    // workflows' ~/.cache/ms-playwright combined steps stay legal.
+    const cacheSteps = STEPS.filter(
+      (s) => typeof s.uses === "string" && s.uses.startsWith("actions/cache"),
+    ).map((s) => s.uses as string);
+    expect(
+      cacheSteps.sort(),
+      "this job may run exactly two cache-family steps, the sanctioned restore/save pair. " +
+        "A combined actions/cache step at ANY ref saves only on job success and can carry " +
+        "restore-keys, so it could prefix-restore stale compiler bytes BEFORE the exact " +
+        "restore misses — the always-save would then archive those stale bytes under the " +
+        "new exact key, recreating the self-perpetuating lifecycle this entry closes.",
+    ).toEqual(["actions/cache/restore@v4", "actions/cache/save@v4"]);
+  });
+
+  it("2. the save step runs `if: always()` so a failing byte gate still saves", () => {
+    const [save] = stepsUsing("actions/cache/save@v4");
+    expect(save?.if).toBe("always()");
+  });
+
+  it("3. restore and save share a path, and the save reuses the restore's key BY REFERENCE", () => {
+    const [restore] = stepsUsing("actions/cache/restore@v4");
+    const [save] = stepsUsing("actions/cache/save@v4");
+    expect(restore?.with?.path).toBe(CACHE_PATH);
+    expect(save?.with?.path).toBe(CACHE_PATH);
+    expect(restore?.id).toBe("nextcache-restore");
+    // Single evaluation. A hand-copied or re-evaluated save key is the phantom-key
+    // hole: hashFiles re-runs at save time, after the job mutated the tree.
+    expect(save?.with?.key).toBe("${{ steps.nextcache-restore.outputs.cache-primary-key }}");
+  });
+
+  it("4. the restore declares NO restore-keys (a fallback is what served stale bytes)", () => {
+    const [restore] = stepsUsing("actions/cache/restore@v4");
+    expect(restore?.with && "restore-keys" in restore.with).toBe(false);
+  });
+
+  it("5. step order is capture -> chown -> drift check -> save", () => {
+    const capture = indexOfStep((s) => (s.name ?? "").startsWith("Capture screenshots"));
+    const chown = indexOfStep((s) => (s.name ?? "").startsWith("Reclaim Next cache ownership"));
+    const drift = indexOfStep((s) => (s.name ?? "").startsWith("Check screenshot drift"));
+    const save = indexOfStep(
+      (s) => typeof s.uses === "string" && s.uses.startsWith("actions/cache/save@v4"),
+    );
+    for (const [label, i] of [
+      ["capture", capture],
+      ["chown", chown],
+      ["drift", drift],
+      ["save", save],
+    ] as const) {
+      expect(i, `${label} step not found`).toBeGreaterThanOrEqual(0);
+    }
+    // chown before save: the Docker build left the cache root-owned and the
+    // save runs as the runner user.
+    expect(capture).toBeLessThan(chown);
+    expect(chown).toBeLessThan(drift);
+    expect(drift).toBeLessThan(save);
+  });
+
+  it("6. the key's hashFiles census == the PR paths filter, minus the mutated target, plus the named extras", () => {
+    const [restore] = stepsUsing("actions/cache/restore@v4");
+    const key = String(restore?.with?.key ?? "");
+    const args = /hashFiles\(([^)]*)\)/.exec(key)?.[1] ?? "";
+    // Extract QUOTED LITERALS, never `args.split(",")` (diff review R1 F1).
+    // Splitting on commas treats a comma INSIDE a quoted glob as an argument
+    // separator, so joining any adjacent pair into one literal —
+    // `hashFiles('app/**, components/**', …)` — reconstructs both expected
+    // patterns and passes while the expression actually supplies one combined
+    // glob that matches nothing. The reviewer's probe escaped all 23 adjacent
+    // boundaries this way. A literal-level parse cannot: the joined argument is
+    // one census entry containing a comma, equal to no expected glob.
+    const census = new Set(
+      [...args.matchAll(/'([^']*)'|"([^"]*)"/g)].map((m) => m[1] ?? m[2] ?? ""),
+    );
+    // Anti-vacuity: a broken extractor yielding {} would satisfy no comparison
+    // by accident, but an extractor yielding one giant literal must not read as
+    // "24 args" either. Pin the count against the literal count.
+    expect(census.size, "hashFiles must supply one quoted literal per render-input glob").toBe(
+      (args.match(/'/g) ?? []).length / 2,
+    );
+    const filter = DOC.on.pull_request.paths;
+    // ONE derivation: the filter is the render-input census, so a future repair
+    // to the filter repairs the key too instead of drifting from it.
+    const expected = new Set([...filter.filter((g) => g !== MUTATED_TARGET_GLOB), ...NAMED_EXTRAS]);
+    expect(census).toEqual(expected);
+    expect(census.has(MUTATED_TARGET_GLOB)).toBe(false);
+  });
+
+  it("7. the save step's comment cites the entry id", () => {
+    // The ONE raw-text assertion: `parse` discards comments. The slice is bounded
+    // by positions derived from the PARSED steps, so it cannot land on a
+    // commented-out step while the comment stays checkable.
+    const [save] = stepsUsing("actions/cache/save@v4");
+    const saveIdx = indexOfStep((s) => s === save);
+    const prev = STEPS[saveIdx - 1]!;
+    const startAt = RAW.indexOf(`name: ${prev.name}`);
+    const endAt = RAW.indexOf("actions/cache/save@v4");
+    expect(startAt, "could not locate the preceding step in raw text").toBeGreaterThanOrEqual(0);
+    expect(endAt).toBeGreaterThan(startAt);
+    expect(RAW.slice(startAt, endAt)).toContain(
+      "BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING",
+    );
+  });
+
+  it("8. the restore key is exactly the v2 namespace plus one hashFiles, nothing else", () => {
+    const [restore] = stepsUsing("actions/cache/restore@v4");
+    const key = String(restore?.with?.key ?? "");
+    // A smuggled `github.sha` (or any second component) would make every run a
+    // miss-then-save, reintroducing per-run entries; a lost `-v2-` would make the
+    // poisoned generation reachable again.
+    expect(key).toMatch(
+      /^\$\{\{ runner\.os \}\}-nextcache-screenshots-v2-\$\{\{ hashFiles\([^)]*\) \}\}$/,
+    );
+  });
+
+  it("9. the drift check NAMES every divergence, tracked and untracked (behavioral)", () => {
+    // Shape assertions cannot see filename emission. Extract the step's real
+    // script and RUN it against a constructed repo holding both kinds of drift.
+    const drift = STEPS.find((s) => (s.name ?? "").startsWith("Check screenshot drift"));
+    const script = String(drift?.run ?? "");
+    expect(script.length, "drift-check step has no run: script").toBeGreaterThan(0);
+
+    const build = (kind: "both" | "tracked" | "untracked" | "clean"): string => {
+      const dir = mkdtempSync(join(tmpdir(), "drift-check-"));
+      const shots = join(dir, "public", "help", "screenshots");
+      mkdirSync(shots, { recursive: true });
+      writeFileSync(join(shots, "tracked.webp"), "original");
+      const git = (...a: string[]): void => {
+        execFileSync("git", a, { cwd: dir, stdio: "pipe" });
+      };
+      git("init", "-q");
+      git("config", "user.email", "t@t.t");
+      git("config", "user.name", "t");
+      git("add", "-A");
+      git("commit", "-qm", "base");
+      if (kind === "both" || kind === "tracked") {
+        writeFileSync(join(shots, "tracked.webp"), "MODIFIED");
+      }
+      if (kind === "both" || kind === "untracked") {
+        writeFileSync(join(shots, "untracked.webp"), "NEW");
+      }
+      return dir;
+    };
+
+    const run = (dir: string) => {
+      const r = spawnSync("bash", ["-c", script], { cwd: dir, encoding: "utf8" });
+      return { status: r.status, out: `${r.stdout}${r.stderr}` };
+    };
+
+    // FOUR states, not two (diff review R1 F2). Both-plus-clean alone cannot
+    // see a gate that only fails when BOTH classes are present: the reviewer
+    // flipped the script's final `||` to `&&` and it survived, leaving
+    // tracked-only drift and untracked-only captures each exiting 0 with the
+    // filename printed. Each SINGLETON is therefore its own row.
+    const dirs = {
+      both: build("both"),
+      tracked: build("tracked"),
+      untracked: build("untracked"),
+      clean: build("clean"),
+    };
+    try {
+      const both = run(dirs.both);
+      expect(both.status, "the drift check must fail when captures diverge").not.toBe(0);
+      // The pre-repair script hid untracked filenames behind
+      // `test -z "$(git ls-files --others ...)"` (probed: status=1, 0 bytes of
+      // output), and its fail-fast `git diff --exit-code` exited before any
+      // later branch could run — so with both kinds present only the tracked
+      // name printed.
+      expect(both.out, "the tracked drift filename must be named").toContain("tracked.webp");
+      expect(both.out, "the untracked capture filename must be named").toContain("untracked.webp");
+
+      // Tracked drift ALONE must fail and name itself.
+      const tracked = run(dirs.tracked);
+      expect(tracked.status, "tracked-only drift must fail the gate").not.toBe(0);
+      expect(tracked.out).toContain("tracked.webp");
+
+      // An untracked NEW capture ALONE must fail and name itself. This is the
+      // half the original script could not report at all.
+      const untracked = run(dirs.untracked);
+      expect(untracked.status, "untracked-only captures must fail the gate").not.toBe(0);
+      expect(untracked.out).toContain("untracked.webp");
+
+      const ok = run(dirs.clean);
+      expect(ok.status, "a clean capture set must pass").toBe(0);
+      expect(ok.out).not.toContain("tracked.webp");
+      expect(ok.out).not.toContain("untracked.webp");
+    } finally {
+      for (const d of Object.values(dirs)) rmSync(d, { recursive: true, force: true });
+    }
+  });
 });

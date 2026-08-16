@@ -24,13 +24,18 @@ import { pathToFileURL } from "node:url";
 // specs wired at that point, all green. (An earlier eight-spec measurement read 60;
 // admin-changes-feed-layout then left the batch under AC-4 on a CI-reproduced flake, taking its 6
 // with it.) help-pages joined 2026-08-10 once its blocker closed
-// (BL-HELP-TOUR-HYDRATION-MISMATCH), measured at 15 on its own run — EIGHT wired specs, 69
-// executions.
+// (BL-HELP-TOUR-HYDRATION-MISMATCH), measured at 15 on its own run — eight wired specs, 69
+// executions. admin-changes-feed-layout RE-ENTERED 2026-08-15 with the wait-helper repair (its
+// root cause was a transient gateway 502, not the filed fixture collision — spec
+// docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md), adding a fourth
+// case, so it returns at 8 rather than its old 6 — NINE wired specs, 77 executions.
 //
 // Each count is the spec's FULL executable set, not a floor of 1: a floor of 1 would let a nested
 // `beforeEach(() => test.skip())` runtime-skip every case but one while the job stayed green, and a
 // partially dark suite is the same defect as a wholly dark one, just quieter.
 export const REQUIRED = {
+  // 3 width bands + the dead-slug helper-diagnostics case, x 2 projects.
+  "admin-changes-feed-layout.spec.ts": 8,
   // 2 cases x 2 projects.
   "admin-layout.spec.ts": 4,
   // 4 cases x 1 project — admin-phase2-surfaces resolves under mobile-safari only
@@ -52,6 +57,41 @@ export const REQUIRED = {
   // 1 case x 2 projects.
   "sample.spec.ts": 2,
 };
+
+/**
+ * Every `infra-recovery` annotation in the run, one row per occurrence.
+ *
+ * tests/e2e/helpers/openShowReviewModal.ts pushes one whenever it recovers from the admin route
+ * error boundary (a transient gateway 502 — spec
+ * docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md §4.4). Those runs
+ * are GREEN by design, and a green run uploads no Playwright artifact while the list reporter
+ * prints no annotations — so this stdout is the only place an operator ever sees them.
+ *
+ * READ LOCATION: Playwright serializes a runtime-pushed annotation at BOTH `tests[].annotations`
+ * and `results[].annotations`. Read the merged `tests[]` location ONLY — traversing both
+ * double-counts every recovery, and reading results first-match-only drops later ones.
+ */
+export function collectInfraRecoveries(report) {
+  const rows = [];
+  const walk = (suites) => {
+    for (const suite of suites ?? []) {
+      for (const spec of suite.specs ?? []) {
+        for (const test of spec.tests ?? []) {
+          for (const a of test.annotations ?? []) {
+            if (a.type !== "infra-recovery") continue;
+            rows.push({
+              title: `${spec.file}:${spec.line} ${spec.title}`,
+              description: a.description ?? "",
+            });
+          }
+        }
+      }
+      walk(suite.suites);
+    }
+  };
+  walk(report.suites);
+  return rows;
+}
 
 // Importable table, runnable script — no side effects on import, so a guard can pin these
 // thresholds against live Playwright resolution without executing the checker.
@@ -155,4 +195,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       .sort()
       .join(", ")}`,
   );
+
+  // Informational, never a gate: a recovered run is a green run by design. The count is printed
+  // even when zero, so "no recoveries" and "the print duty regressed" stay distinguishable.
+  const recoveries = collectInfraRecoveries(report);
+  for (const r of recoveries) console.log(`infra-recovery: ${r.title} :: ${r.description}`);
+  console.log(`infra-recovery total: ${recoveries.length}`);
 }

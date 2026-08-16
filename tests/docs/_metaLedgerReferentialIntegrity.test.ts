@@ -270,6 +270,12 @@ const NOT_A_CITATION: Record<string, Record<string, string>> = {
     "BL-X": "planted entry id in the Task 3/4 resolver fixtures",
     "BL-Y": "the second planted entry in Task 4's boundary-overlap hunk fixture",
   },
+  "docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md": {
+    "BL-X": "planted duplicate-heading example id in the §2.2 plant rows",
+  },
+  "docs/superpowers/plans/2026-08-15-archive-duplicate-ids/plan.md": {
+    "BL-X": "the same plant examples, restated in Task A1's plant rows",
+  },
   "docs/superpowers/specs/ci/2026-08-04-review-round-economy.md": {
     "BL-SPEC-CITATION-RESOLVE": "invented id in §6's sample filing, showing where a real one goes",
   },

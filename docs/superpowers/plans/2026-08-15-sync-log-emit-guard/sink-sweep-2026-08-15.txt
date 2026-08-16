@@ -1,0 +1,166 @@
+# Alias-aware sink sweep — regenerated 2026-08-15 (plan R2 F2 artifact; the R1 artifact embedded literal 0x08 bytes from an unescaped backslash-b)
+
+Command 1 (verbatim, single-quoted so the pattern reaches grep intact):
+  grep -rn 'logSync\|logSyncSink\|writeSyncLog\|insertSyncLog\|baseSink(' lib/ app/ --include='*.ts'
+```
+lib/showLifecycle/unarchiveShow.ts:8:import { writeSyncLog } from "@/lib/sync/syncLog";
+lib/showLifecycle/unarchiveShow.ts:19:  deps?: { processDeps?: { logSync?: typeof writeSyncLog } },
+lib/showLifecycle/unarchiveShow.ts:42:    await catchUp(driveFileId, "manual", { processDeps: { logSync: writeSyncLog } });
+lib/sync/runScheduledCronSync.ts:467:  // AGENDA_DAY_EMPTIED). insertSyncLog unions these alongside the per-outcome payload row.
+lib/sync/runScheduledCronSync.ts:514:  insertSyncLog(entry: SyncLogEntry): Promise<void>;
+lib/sync/runScheduledCronSync.ts:589:  logSync?: (entry: SyncLogEntry) => Promise<void>;
+lib/sync/runScheduledCronSync.ts:594:   *  by logSync. Threaded on a COPY of the caller's deps, never assigned onto the
+lib/sync/runScheduledCronSync.ts:611:  logSync?: (entry: SyncLogEntry) => Promise<void>;
+lib/sync/runScheduledCronSync.ts:623:    deps?: Pick<ProcessOneFileDeps, "logSync" | "roleVocabDriftEligibleIds">,
+lib/sync/runScheduledCronSync.ts:1242:  async insertSyncLog(entry: SyncLogEntry) {
+lib/sync/runScheduledCronSync.ts:2267:  logSync?: ProcessOneFileDeps["logSync"];
+lib/sync/runScheduledCronSync.ts:2269:   *  for the §3.3.1 writers that own no attempt boundary; logSync then emits no
+lib/sync/runScheduledCronSync.ts:2287:export async function logSync(
+lib/sync/runScheduledCronSync.ts:2313:  await deps.logSync?.(entry);
+lib/sync/runScheduledCronSync.ts:2488:  await logSync(args.deps, args.driveFileId, args.result, undefined, args.result.parseWarnings);
+lib/sync/runScheduledCronSync.ts:2650:  await recoveryTx.insertSyncLog({
+lib/sync/runScheduledCronSync.ts:2706:    await (tx as LockedShowTx<CronRecoveryTx>).insertSyncLog({
+lib/sync/runScheduledCronSync.ts:2730:    await recoveryTx.insertSyncLog({
+lib/sync/runScheduledCronSync.ts:2766:    await recoveryTx.insertSyncLog({
+lib/sync/runScheduledCronSync.ts:2839:    await recoveryTx.insertSyncLog({
+lib/sync/runScheduledCronSync.ts:2857:  await recoveryTx.insertSyncLog({
+lib/sync/runScheduledCronSync.ts:2880:    // DEF-4: an archived show is a SILENT skip — return WITHOUT logSync. The normal skip path below
+lib/sync/runScheduledCronSync.ts:2881:    // writes a sync_log row (logSync's `"skipped" in result` guard checks for the {skipped:true}
+lib/sync/runScheduledCronSync.ts:2907:      await logSync(depsWithStart, driveFileId, prepared.result, prepared.payload);
+lib/sync/runScheduledCronSync.ts:2926:    await logSync(depsWithStart, driveFileId, skipped);
+lib/sync/runScheduledCronSync.ts:3480:  // lock acquisition). Silent abort — return WITHOUT logSync / any persisted mutation.
+lib/sync/runScheduledCronSync.ts:3502:      await logSync(txDeps, driveFileId, result);
+lib/sync/runScheduledCronSync.ts:3509:    await logSync(txDeps, driveFileId, lockedDeferralSkip);
+lib/sync/runScheduledCronSync.ts:3514:    await logSync(txDeps, driveFileId, pipeline.result, pipeline.payload);
+lib/sync/runScheduledCronSync.ts:3518:    await logSync(txDeps, driveFileId, pipeline.result);
+lib/sync/runScheduledCronSync.ts:3522:    await logSync(txDeps, driveFileId, pipeline.result, pipeline.payload);
+lib/sync/runScheduledCronSync.ts:3527:    await logSync(txDeps, driveFileId, pipeline.result, pipeline.payload);
+lib/sync/runScheduledCronSync.ts:3556:      await logSync(txDeps, driveFileId, result);
+lib/sync/runScheduledCronSync.ts:3601:    await logSync(txDeps, driveFileId, result);
+lib/sync/runScheduledCronSync.ts:3636:    await logSync(txDeps, driveFileId, result);
+lib/sync/runScheduledCronSync.ts:3662:    await logSync(txDeps, driveFileId, result);
+lib/sync/runScheduledCronSync.ts:3667:    await logSync(txDeps, driveFileId, result, {
+lib/sync/runScheduledCronSync.ts:3825:    await logSync(txDeps, driveFileId, result);
+lib/sync/runScheduledCronSync.ts:3976:        await deps.logSync?.({
+lib/sync/runScheduledCronSync.ts:3992:      await deps.logSync?.({
+lib/sync/runScheduledCronSync.ts:4072:    // `logSync` present-only so an absent injector stays absent rather than `undefined`.
+lib/sync/runScheduledCronSync.ts:4073:    const processDeps: Pick<ProcessOneFileDeps, "logSync" | "roleVocabDriftEligibleIds"> = {
+lib/sync/runScheduledCronSync.ts:4075:      ...(deps.logSync ? { logSync: deps.logSync } : {}),
+lib/sync/runScheduledCronSync.ts:4086:        // path (which records contention via `deps.logSync` → sync_log), this
+lib/sync/runScheduledCronSync.ts:4149:        await deps.logSync?.({
+lib/sync/runManualSyncForShow.ts:99:  insertSyncLog(entry: {
+lib/sync/runManualSyncForShow.ts:179:  await recoveryTx.insertSyncLog({
+lib/sync/runManualSyncForShow.ts:225:  await recoveryTx.insertSyncLog({
+lib/sync/runManualSyncForShow.ts:303:  const baseSink = deps.processDeps?.logSync;
+lib/sync/runManualSyncForShow.ts:305:  const trackedSink: ProcessOneFileDeps["logSync"] = baseSink
+lib/sync/runManualSyncForShow.ts:308:        await baseSink(entry);
+lib/sync/runManualSyncForShow.ts:319:        ...(trackedSink ? { logSync: trackedSink } : {}),
+lib/sync/runManualSyncForShow.ts:331:        await baseSink({
+lib/sync/runManualSyncForShow.ts:502:  const baseSink = deps.processDeps?.logSync;
+lib/sync/runManualSyncForShow.ts:504:  const trackedSink: ProcessOneFileDeps["logSync"] = baseSink
+lib/sync/runManualSyncForShow.ts:507:        await baseSink(entry);
+lib/sync/runManualSyncForShow.ts:514:      ...(trackedSink ? { logSync: trackedSink } : {}),
+lib/sync/runManualSyncForShow.ts:559:        await baseSink({
+lib/sync/runPushSyncForShow.ts:17:import { writeSyncLog } from "@/lib/sync/syncLog";
+lib/sync/runPushSyncForShow.ts:21:/** A sync_log entry shape (the parameter the logSync sink accepts). */
+lib/sync/runPushSyncForShow.ts:22:type PushLogEntry = Parameters<NonNullable<ProcessOneFileDeps["logSync"]>>[0];
+lib/sync/runPushSyncForShow.ts:78:    deps?: Pick<ProcessOneFileDeps, "logSync">,
+lib/sync/runPushSyncForShow.ts:80:  logSync?: ProcessOneFileDeps["logSync"];
+lib/sync/runPushSyncForShow.ts:82:  // logSync-producing branch. Defaults to withPostgresSyncPipelineLock (blocking).
+lib/sync/runPushSyncForShow.ts:238:  logSync: NonNullable<RunPushSyncForShowDeps["logSync"]>,
+lib/sync/runPushSyncForShow.ts:246:    await logSync(logEntry);
+lib/sync/runPushSyncForShow.ts:255:  const logSync = deps.logSync ?? writeSyncLog;
+lib/sync/runPushSyncForShow.ts:277:      logSync,
+lib/sync/runPushSyncForShow.ts:289:    return await logUnlessArchived(withLock, driveFileId, logSync, preflight.logEntry, {
+lib/sync/runPushSyncForShow.ts:303:    logSync,
+lib/sync/applyStaged.ts:51:  logSync as writeSyncLogEntry,
+lib/sync/applyStaged.ts:55:import { writeSyncLog } from "@/lib/sync/syncLog";
+lib/sync/applyStaged.ts:331:  logSync?: ProcessOneFileDeps["logSync"];
+lib/sync/applyStaged.ts:388:  // `logSync` is Omitted (spec §3.4 R4 F2/R7 F1): a sink supplied here would make the in-tx tail
+lib/sync/applyStaged.ts:392:  firstPublishedTailDeps?: Omit<Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"], "logSync">;
+lib/sync/applyStaged.ts:973:  // `logSync` Omitted for the same reason as the ApplyStagedDeps declaration above.
+lib/sync/applyStaged.ts:974:  firstPublishedTailDeps?: Omit<Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"], "logSync">;
+lib/sync/applyStaged.ts:1502:    const suppliedTailDeps: Omit<TailDeps, "logSync"> | undefined = deps.firstPublishedTailDeps
+lib/sync/applyStaged.ts:1504:          const { logSync: _stripped, ...rest } = deps.firstPublishedTailDeps as TailDeps;
+lib/sync/applyStaged.ts:1994:    const sink = deps.logSync ?? writeSyncLog;
+lib/sync/applyStaged.ts:2053:        await writeSyncLogEntry(
+lib/sync/applyStaged.ts:2054:          { logSync: sink, attemptStartedAtMs, ...(deps.now ? { now: deps.now } : {}) },
+lib/sync/runManualStageForFirstSeen.ts:24:  logSync,
+lib/sync/runManualStageForFirstSeen.ts:81:  logSync?: ProcessOneFileDeps["logSync"];
+lib/sync/runManualStageForFirstSeen.ts:82:  /** Set by runManualStageForFirstSeen at its own entry; read by logSync via the tail. */
+lib/sync/runManualStageForFirstSeen.ts:248:  const baseSink = deps.logSync;
+lib/sync/runManualStageForFirstSeen.ts:250:  const trackedLogSync: RunManualStageForFirstSeenDeps["logSync"] = baseSink
+lib/sync/runManualStageForFirstSeen.ts:253:        await baseSink(entry);
+lib/sync/runManualStageForFirstSeen.ts:261:    ...(trackedLogSync ? { logSync: trackedLogSync } : {}),
+lib/sync/runManualStageForFirstSeen.ts:307:        await logSync(depsWithStart, driveFileId, {
+lib/sync/runManualStageForFirstSeen.ts:316:        await logSync(depsWithStart, driveFileId, {
+lib/sync/runManualStageForFirstSeen.ts:324:        await logSync(
+lib/sync/runManualStageForFirstSeen.ts:335:        await logSync(
+lib/sync/runManualStageForFirstSeen.ts:363:        await depsWithStart.logSync?.({
+lib/sync/runOnboardingScan.ts:125:    logSync(entry: {
+lib/sync/runOnboardingScan.ts:659:  async logSync(entry: { code: string; driveFileId?: string; payload?: Record<string, unknown> }) {
+lib/sync/runOnboardingScan.ts:740:      await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:741:        tx.logSync({
+lib/sync/runOnboardingScan.ts:814:      await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:815:        tx.logSync({
+lib/sync/runOnboardingScan.ts:831:        await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:832:          tx.logSync({
+lib/sync/runOnboardingScan.ts:852:        await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:853:          tx.logSync({
+lib/sync/runOnboardingScan.ts:878:        await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:879:          tx.logSync({
+lib/sync/runOnboardingScan.ts:898:      await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:899:        tx.logSync({
+lib/sync/runOnboardingScan.ts:916:        await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:917:          tx.logSync({
+lib/sync/runOnboardingScan.ts:947:        await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:948:          tx.logSync({
+lib/sync/runOnboardingScan.ts:1049:    await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:1050:      tx.logSync({
+lib/sync/runOnboardingScan.ts:1057:  await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:1058:    tx.logSync({
+lib/sync/runOnboardingScan.ts:1168:  await callTx("logSync", () =>
+lib/sync/runOnboardingScan.ts:1169:    tx.logSync({
+lib/sync/syncLog.ts:26:  // Flow 6.2 §3.2: persist the applied-outcome parse warnings that logSync threads
+lib/sync/syncLog.ts:28:  // the recovery sink insertSyncLog). Payload row first, then the parse warnings.
+lib/sync/syncLog.ts:65:export async function writeSyncLog(entry: SyncLogEntry): Promise<void> {
+app/admin/show/[slug]/_actions/useRaw.ts:33:import { writeSyncLog } from "@/lib/sync/syncLog";
+app/admin/show/[slug]/_actions/useRaw.ts:163:  // inside runManualSyncForShow (logSync under the pipeline lock) — which is true
+app/admin/show/[slug]/_actions/useRaw.ts:166:  // recoveryTx.insertSyncLog (markManualDriveError_unlocked and
+app/admin/show/[slug]/_actions/useRaw.ts:175:          processDeps: { logSync: writeSyncLog },
+app/admin/show/[slug]/_actions/roleToken.ts:30:import { writeSyncLog } from "@/lib/sync/syncLog";
+app/admin/show/[slug]/_actions/roleToken.ts:186:      processDeps: { logSync: writeSyncLog },
+app/admin/dev/actions.ts:99:import { writeSyncLog } from "@/lib/sync/syncLog";
+app/admin/dev/actions.ts:628:          processDeps: { logSync: writeSyncLog },
+app/api/admin/show/pull-sheet-override/route.ts:7:import { writeSyncLog } from "@/lib/sync/syncLog";
+app/api/admin/show/pull-sheet-override/route.ts:215:      await runSync(body.driveFileId, "manual", { processDeps: { logSync: writeSyncLog } }),
+app/api/admin/sync/[slug]/route.ts:5:import { writeSyncLog } from "@/lib/sync/syncLog";
+app/api/admin/sync/[slug]/route.ts:99:      // processDeps?: ProcessOneFileDeps, not a top-level logSync, so a top-level
+app/api/admin/sync/[slug]/route.ts:101:      processDeps: { logSync: writeSyncLog },
+app/api/admin/pending-ingestions/[id]/retry/route.ts:18:import { writeSyncLog } from "@/lib/sync/syncLog";
+app/api/admin/pending-ingestions/[id]/retry/route.ts:81:  logSyncSink?: typeof writeSyncLog;
+app/api/admin/pending-ingestions/[id]/retry/route.ts:247:    logSyncSink: deps.logSyncSink ?? writeSyncLog,
+app/api/admin/pending-ingestions/[id]/retry/route.ts:458:        const processDeps = { logSync: writeSyncLog };
+app/api/admin/pending-ingestions/[id]/retry/route.ts:474:            await deps.logSyncSink({
+app/api/admin/pending-ingestions/[id]/retry/route.ts:506:          // processDeps?: ProcessOneFileDeps - a top-level logSync typechecks against
+app/api/admin/pending-ingestions/[id]/retry/route.ts:573:          await deps.logSyncSink({
+app/api/admin/pending-ingestions/[id]/retry/route.ts:599:        logSync: writeSyncLog,
+app/api/cron/sync/route.ts:4:import { writeSyncLog } from "@/lib/sync/syncLog";
+app/api/cron/sync/route.ts:21:    const result = await runScheduledCronSync({ logSync: writeSyncLog });
+app/api/drive/webhook/route.ts:15:import { writeSyncLog } from "@/lib/sync/syncLog";
+app/api/drive/webhook/route.ts:57:    deps?: Pick<RunPushSyncForShowDeps, "fileMeta" | "logSync">,
+app/api/drive/webhook/route.ts:59:  logSync?: RunPushSyncForShowDeps["logSync"];
+app/api/drive/webhook/route.ts:201:  deps: Pick<DriveWebhookDeps, "listFolder" | "runPushSyncForShow" | "logSync"> = {},
+app/api/drive/webhook/route.ts:212:  const logSync = deps.logSync ?? writeSyncLog;
+app/api/drive/webhook/route.ts:224:    await logSync(entry);
+app/api/drive/webhook/route.ts:230:      const result = await runPushSyncForShow(file.driveFileId, { fileMeta: file, logSync });
+app/api/drive/webhook/route.ts:234:      await logSync({
+```
+
+Command 2 (verbatim; -E, word-boundary via ERE):
+  grep -rnE '[[:<:]]sink\(' lib/ app/ --include='*.ts'
+```
+lib/messages/__internal__/parseWarningSites.ts:248:      // Contextual OR intrinsic: a warning passed to `sink(x: ParseWarning | Alert)`
+lib/parser/blocks/hotels.ts:972:      if (split.ambiguity && sink) sink(rowIndex, split.ambiguity);
+lib/sync/applyStaged.ts:2004:        await sink({
+```

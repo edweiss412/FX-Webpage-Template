@@ -22,8 +22,10 @@
  * Contract highlights:
  *   §9.0 step-1 four prompts rendered verbatim; the advance affordance
  *   reads "I've shared the folder." No raw error codes (invariant 5).
- *   Every interactive control ≥44px (DESIGN.md:185); text-text-subtle is
- *   never a summary label (DESIGN.md:27). Curly apostrophes throughout.
+ *   Every interactive control ≥44px (DESIGN.md:185); text-text-subtle rests on
+ *   no action target here, and DESIGN §1.1a's Family S carve-out (a `<summary>`
+ *   disclosure header MAY rest subtle) is not claimed by this file. Curly
+ *   apostrophes throughout.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -189,7 +191,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
                 data-testid="wizard-step1-copy-email-button"
                 onClick={handleCopy}
                 aria-label={`Copy ${serviceAccountEmail} to clipboard`}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 {copied ? "Copied" : "Copy"}
               </button>

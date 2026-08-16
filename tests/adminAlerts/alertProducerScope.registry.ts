@@ -102,7 +102,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "context forwarded as a shorthand variable (lib/sync/runScheduledCronSync.ts:386)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2444",
+    site: "lib/sync/runScheduledCronSync.ts:2470",
     contextKeys: [
       "crew_count",
       "drive_file_id",
@@ -115,7 +115,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2656",
+    site: "lib/sync/runScheduledCronSync.ts:2682",
     contextKeys: ["drive_file_id", "previous_last_seen_modified_time", "sheet_name"],
     code: "SHEET_UNAVAILABLE",
     scope: "per-show",
@@ -123,7 +123,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     // BL-CRON-WORKBOOK-FAULT-CODE (spec 2026-08-09-m-wave-2 §2.3): the workbook-
     // synthesis fetch-failure arm — parse-family producer for an EXISTING show.
-    site: "lib/sync/runScheduledCronSync.ts:2740",
+    site: "lib/sync/runScheduledCronSync.ts:2766",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     // error_code is spread-conditional on the failure code being allowlisted
@@ -134,7 +134,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "context built by buildParseErrorContext (workbook-synthesis arm; twin of the hard_fail producer)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2777",
+    site: "lib/sync/runScheduledCronSync.ts:2803",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -145,7 +145,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2796",
+    site: "lib/sync/runScheduledCronSync.ts:2822",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -156,7 +156,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3607",
+    site: "lib/sync/runScheduledCronSync.ts:3633",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     // error_code is spread-conditional on the failure code being allowlisted
@@ -167,7 +167,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3547)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3642",
+    site: "lib/sync/runScheduledCronSync.ts:3668",
     contextKeys: ["detail", "drive_file_id", "held_modified_time", "sheet_name"],
     code: "RESYNC_SHRINK_HELD",
     scope: "per-show",
@@ -222,7 +222,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
   },
   {
-    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:162",
+    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:176",
     contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",
     scope: "per-show",
@@ -283,7 +283,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId null; only when error.code === BOT_LOGIN_MISSING",
   },
   {
-    site: "lib/sync/applyStaged.ts:2098",
+    site: "lib/sync/applyStaged.ts:2097",
     contextKeys: ["drive_file_id"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",
@@ -291,7 +291,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCode",
   },
   {
-    site: "lib/sync/applyStaged.ts:2108",
+    site: "lib/sync/applyStaged.ts:2107",
     contextKeys: ["drive_file_id"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",
@@ -299,7 +299,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:2108",
+    site: "lib/sync/applyStaged.ts:2107",
     contextKeys: ["drive_file_id"],
     code: "OPENING_REEL_PERMISSION_DENIED",
     scope: "per-show",
@@ -307,7 +307,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:2108",
+    site: "lib/sync/applyStaged.ts:2107",
     contextKeys: ["drive_file_id"],
     code: "OPENING_REEL_NOT_VIDEO",
     scope: "per-show",
@@ -315,7 +315,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:2108",
+    site: "lib/sync/applyStaged.ts:2107",
     contextKeys: ["drive_file_id"],
     code: "REEL_DRIFTED",
     scope: "per-show",
@@ -323,7 +323,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:2108",
+    site: "lib/sync/applyStaged.ts:2107",
     contextKeys: ["drive_file_id"],
     code: "EMBEDDED_ASSET_DRIFTED",
     scope: "per-show",
@@ -336,7 +336,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     // producer did not change shape, it MOVED here, and both former sites now delegate to it.
     // The two finalize routes reach the same alert through this site too, so it is the single
     // per-show ROLE_FLAGS_NOTICE producer for the whole codebase.
-    site: "lib/sync/emitRoleFlagsNotice.ts:41",
+    site: "lib/sync/emitRoleFlagsNotice.ts:40",
     computedContext: true,
     contextKeys: ["drive_file_id", "changes"],
     code: "ROLE_FLAGS_NOTICE",
@@ -408,7 +408,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "const; showId hard-coded null",
   },
   {
-    site: "app/api/drive/webhook/route.ts:298",
+    site: "app/api/drive/webhook/route.ts:332",
     contextKeys: ["channel_id", "reason"],
     code: "WEBHOOK_TOKEN_INVALID",
     scope: "global",
@@ -416,7 +416,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "const; no showId -> null (token_mismatch)",
   },
   {
-    site: "app/api/drive/webhook/route.ts:314",
+    site: "app/api/drive/webhook/route.ts:348",
     contextKeys: ["channel_id", "reason"],
     code: "WEBHOOK_TOKEN_INVALID",
     scope: "global",

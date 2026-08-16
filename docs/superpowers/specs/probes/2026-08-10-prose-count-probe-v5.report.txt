@@ -1,0 +1,100 @@
+=== SHAPE B final tiers ===
+  tier>=4: hits=1151 PARITY=579 (50.3%) MISMATCH=572
+  tier>=5: hits=926 PARITY=556 (60.0%) MISMATCH=370
+  tier>=6: hits=708 PARITY=509 (71.9%) MISMATCH=199
+  T6 with checklist-stop counter: PARITY=518 (73.2%) MISMATCH=190
+  lexical guard alone removed 218 of 926 T5 hits (23.5% were decimal/section/marker fragments)
+  T6+stop mismatch by class: specs=93 plans=91 filings=1 ledgers=3
+  delta: -36:1 -29:1 -23:1 -17:1 -14:1 -13:4 -10:1 -9:2 -8:1 -7:5 -6:4 -5:7 -4:5 -3:10 -2:14 -1:18 +1:69 +2:22 +3:7 +4:7 +5:4 +6:1 +7:3 +12:1
+  word vs digit among T6: word=583 digit=125
+
+=== SHAPE C (prose only, no fenced/dated/record) ===
+  candidates=61359 groups=27
+   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md lines=2005,2020 sim=0.88
+      @2005: `<!-- spec-id: section-6-8-derivation-table -->` — §6.8 invariants derivation table
+      @2020: <!-- spec-id: section-6-8-derivation-table -->
+   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M6-drive-sync.md lines=455,529 sim=0.89
+      @455: `POST /api/admin/staged/[fileId]/apply`: `501 WIZARD_SCOPE_NOT_YET_IMPLEMENTED`; `404 PENDING_SYNC_NOT_FOUND`; `400 MISSING_REVIEWER_CHOICE` / `INVALI
+      @529: `POST /api/admin/staged/[fileId]/apply`: `404 PENDING_SYNC_NOT_FOUND`; `400 MISSING_REVIEWER_CHOICE` / `INVALID_REVIEWER_ACTION`; `500 SYNC_INFRA_ERRO
+   docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md lines=44,1619 sim=0.89
+      @44: Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts`
+      @1619: [ ] E2e re-run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review
+   docs/superpowers/plans/2026-07-22-hoverhelp-caret-blur-close.md lines=704,1054 sim=0.88
+      @704: Run: `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts --grep "T-E"`
+      @1054: Run: `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts --grep "T-E4"`
+   docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md lines=38,1288 sim=0.89
+      @38: Create: `tests/e2e/warning-panel-polish.spec.ts` (T8)
+      @1288: Create: `tests/e2e/warning-panel-polish.spec.ts`
+   docs/superpowers/plans/2026-07-24-picker-flow-app-bugs.md lines=136,264 sim=0.91
+      @136: Modify: `tests/e2e/picker-flow.spec.ts` (un-skip the paired stub at line 84, this task's outer red phase)
+      @264: Modify: `tests/e2e/picker-flow.spec.ts` (un-skip the paired stub at line 241, this task's outer red phase)
+   docs/superpowers/plans/2026-07-26-driveid-guard-cluster/00-overview.md lines=179,191 sim=0.88
+      @179: | 10 | public.sync_audit.drive_file_id | no | sync_audit_drive_file_id_nonblank | applied_by, derived_side_effects, parse_result_summary, reviewer_cho
+      @191: | 22 | dev.sync_audit.drive_file_id | no | sync_audit_drive_file_id_nonblank | applied_by, derived_side_effects, parse_result_summary, reviewer_choice
+   docs/superpowers/plans/2026-08-07-step3-a11y-cluster.md lines=329,368 sim=0.89
+      @329: <!-- task: red=`pnpm exec playwright test --config tests/e2e/standalone.config.ts tap-target-floor` ac=AC-2,AC-2b,AC-3 -->
+      @368: <!-- task: red=`pnpm exec playwright test --config tests/e2e/standalone.config.ts tap-target-floor` ac=AC-1,AC-2,AC-2b -->
+   docs/superpowers/plans/2026-08-08-parser-mutation-wave/01-unicode.md lines=18,114 sim=0.88
+      @18: <!-- task: red=`pnpm exec vitest run tests/parser/payloadZeroWidth.test.ts` ac=AC-U1,AC-U2 -->
+      @114: <!-- task: red=`pnpm exec vitest run tests/parser/payloadZeroWidth.test.ts` ac=AC-U1,AC-U2,AC-U3,AC-U4 -->
+   docs/superpowers/plans/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md lines=712,1107 sim=0.86
+      @712: Consumes: `TileRenderLedger`, `createTileRenderLedger` (Task 1); `sweepTileRenderAlerts` (Task 3).
+      @1107: Consumes: `sweepTileRenderAlerts` (Task 3), `createTileRenderLedger` (Task 1).
+   docs/superpowers/plans/coverage.md lines=17,18 sim=0.88
+      @17: | §13.2.1 | 13.2.1 Admin issue body template | — | implemented | spec heading anchor | Heading anchors are walked for matrix completeness; structured 
+      @18: | §13.2.2 | 13.2.2 Crew issue body template | — | implemented | spec heading anchor | Heading anchors are walked for matrix completeness; structured c
+   docs/superpowers/plans/coverage.md lines=45,52 sim=0.91
+      @45: | §5.3 | 5.3 Failure modes | — | implemented | spec heading anchor | Heading anchors are walked for matrix completeness; structured coverage markers o
+      @52: | §5.5.5 | 5.5.5 Push failure modes | — | implemented | spec heading anchor | Heading anchors are walked for matrix completeness; structured coverage 
+   docs/superpowers/plans/crew/2026-07-17-venue-card-vcr2-vcr3-fixes.md lines=29,196 sim=0.94
+      @29: **Modify (tests)** `tests/components/admin/wizard/venueMapTile.test.tsx`, `tests/components/admin/wizard/venueBreakdown.test.tsx`, `tests/e2e/step3-re
+      @196: Modify (tests): `tests/components/admin/wizard/venueMapTile.test.tsx`, `tests/components/admin/wizard/venueBreakdown.test.tsx`, `tests/components/admi
+   docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md lines=488,1086 sim=0.85
+      @488: `SYNC_PROBLEM_CODES` (`lib/notify/constants.ts:2`); `STATUS_TO_CODE` + SQL `CASE` (`lib/notify/detect/recoveryResolution.ts:4,58`).
+      @1086: `lib/notify/constants.ts` `SYNC_PROBLEM_CODES` `:2-6`; `lib/notify/detect/recoveryResolution.ts` `STATUS_TO_CODE` `:4-8`, SQL CASE `:58-62`.
+   docs/superpowers/plans/data-quality/2026-07-16-cron-wizard-owned-skip.md lines=500,656 sim=0.87
+      @500: Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts tests/sync/_metaInfraContract.test.ts tests/sync/_partitionScopeContract.test.ts 2>&1 | tail
+      @656: Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts tests/sync/_metaInfraContract.test.ts tests/sync/_partitionScopeContract.test.ts 2>&1 | tail
+   docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md lines=229,479,611 sim=0.92
+      @229: Run: `pnpm exec vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx
+      @479: Run: `pnpm exec vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx
+      @611: Run: `pnpm exec vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx
+   docs/superpowers/plans/data-quality/2026-07-17-use-raw-control-site-a11y-copy/plan.md lines=427,587 sim=0.90
+      @427: Run: `cd /Users/ericweiss/fxav-worktrees/use-raw-site-a11y && pnpm vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx`
+      @587: Run: `cd /Users/ericweiss/fxav-worktrees/use-raw-site-a11y && pnpm vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/c
+   docs/superpowers/plans/parser/2026-06-27-deeplink-parser-fidelity-batch.md lines=31,213 sim=0.88
+      @31: Modify: `lib/sync/phase2.ts` — post-apply pure re-attach for `AGENDA_DAY_EMPTIED` (Task 3).
+      @213: Modify: `lib/sync/phase2.ts` (post-apply pure re-attach for `AGENDA_DAY_EMPTIED`)
+   docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md lines=567,584 sim=0.93
+      @567: Run: `pnpm vitest run tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts`
+      @584: Run: `pnpm vitest run tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts`
+   docs/superpowers/plans/step3-onboarding/2026-07-09-step1-share-folder-redesign.md lines=141,393 sim=0.93
+      @141: Run: `pnpm exec vitest run tests/components/admin/wizard/Step1Share.transitions.test.tsx tests/components/admin/wizard/Step1Share.noFolder.test.tsx`
+      @393: Run: `pnpm exec vitest run tests/components/admin/wizard/Step1Share.test.tsx tests/components/admin/wizard/Step1Share.noFolder.test.tsx tests/componen
+   docs/superpowers/specs/2026-07-18-modal-header-reconciliation.md lines=195,1098 sim=1.00
+      @195: | `app/globals.css` | 334 | `--color-warning-bg-runtime: #3a2e14;` |
+      @1098: `--warning-bg:#3a2e14` = `--color-warning-bg-runtime` (`app/globals.css:334`),
+   docs/superpowers/specs/2026-07-20-attention-alert-routing.md lines=224,225 sim=0.86
+      @224: | 1 | `PARSE_ERROR_LAST_GOOD` | non-empty | present | **Crew are still seeing the last good version.** Your latest changes didn't go through. `<Title>
+      @225: | 2 | `PARSE_ERROR_LAST_GOOD` | non-empty | absent | **Crew are still seeing the last good version.** Your latest changes didn't go through. Anything 
+   docs/superpowers/specs/2026-07-25-newtab-announcement-family.md lines=117,125 sim=0.85
+      @117: | `components/admin/wizard/VenueMapTile.tsx:138` | `Directions` at `components/admin/wizard/VenueMapTile.tsx:125` | `Open the venue in Google Maps (op
+      @125: `components/admin/wizard/VenueMapTile.tsx:138` → `Directions, open the venue in Google Maps (opens in a new tab)`
+   docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md lines=158,631 sim=0.89
+      @158: ### 3.3 TravelRow eyebrow (`components/crew/sections/TravelSection.tsx:124`)
+      @631: | TravelRow eyebrow | `components/crew/sections/TravelSection.tsx:124` |
+   docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md lines=121,126 sim=0.88
+      @121: **`V4_MARKERS` (8, 3 blocks)** — each an exact col-0 label in 4/4 v4, 0/6 v2:
+      @126: **`V2_MARKERS` (7, 3 blocks)** — each an exact col-0 label in 6/6 v2, 0/4 v4:
+   docs/superpowers/specs/schedule/2026-06-27-agenda-pdf-schedule-merge.md lines=220,412 sim=0.86
+      @220: public.agenda_extract_leases WHERE wizard_session_id = $1 AND drive_file_id = $2 AND
+      @412: public.agenda_extract_leases WHERE wizard_session_id = $2 and drive_file_id = $3 AND
+   docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md lines=643,650,675,695,707,713 sim=1.00
+      @643: _Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2._
+      @650: _Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2._
+      @675: _Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1._
+      @695: _Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3._
+      @707: _Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1._
+      @713: _Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1/1._
+
+wrote v5-shapeB-T6.txt, v5-report.json

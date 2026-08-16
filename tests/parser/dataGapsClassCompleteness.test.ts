@@ -107,6 +107,11 @@ const NON_GAP_CATALOG_CODES = new Set<string>([
   "SYNC_FILE_FAILED",
   "SYNC_INFRA_ERROR",
   "SYNC_STEP_TIMEOUT",
+  // The sync_log SINK failed while the operation it observes continued (spec
+  // 2026-08-15-sync-log-emit-guard-design). An app_events-only escalation about the
+  // LOGGING channel, never a statement about the sheet's data — it says a row is
+  // missing from sync_log, not that a field failed to read.
+  "SYNC_LOG_EMIT_FAILED",
   "CONCURRENT_SYNC_SKIPPED",
   "WEBHOOK_NOOP_ALREADY_SYNCED",
   "DRIVE_FETCH_FAILED",

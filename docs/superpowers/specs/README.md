@@ -56,6 +56,17 @@ Feedback-driven specs created after the v1 bundle are grouped into **subsystem f
 
 Each folder has its own `README.md` index listing every entry. The `v1-pre-deployment-amendments/` subdir is frozen at v1 launch; it's a historical artifact of the launch bundle, distinct from these subsystem folders.
 
+## Repo-tooling specs
+
+Specs for the tooling agents run against this corpus rather than for product surfaces. They sit at
+the root of this directory alongside the dated product specs.
+
+| Spec | Scope |
+| --- | --- |
+| [`2026-07-19-spec-lint.md`](./2026-07-19-spec-lint.md) | `pnpm spec:lint` — the governing spec: citations, numerics, copy, sections, task contract. |
+| [`2026-08-09-task-enrollment-multi-region-design.md`](./2026-08-09-task-enrollment-multi-region-design.md) | Multi-region task enrollment — amends the task-region grammar. |
+| [`2026-08-15-spec-lint-intent-red-arms.md`](./2026-08-15-spec-lint-intent-red-arms.md) | Citation-intent tiers with relocation hints, and the declared red-contract grammar plus `--exec-red`. |
+
 ## Conventions
 
 - **Markdown is canonical** for any spec read by agents or implementers. HTML companions are for non-technical stakeholders only (per [`../../CLAUDE.md`](../../CLAUDE.md)) — never the source of truth.

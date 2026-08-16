@@ -46,9 +46,19 @@ export async function readShowReviewSnapshot(
       p_show_id: showId,
     });
     if (error) {
+      // Explicit fields, not the raw object: the log pipeline's serializeError
+      // stringifies a non-Error value, and the PostgREST error reaching this
+      // branch is a plain object — it rendered as '[object Object]' and made a
+      // CI gateway 502 undiagnosable (spec
+      // docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md §2.4).
+      // The SQLSTATE rides under `pgrstCode`; `code` is the §12.4 telemetry slot
+      // and this read path deliberately stamps none.
       void log.error("get_admin_show_review_snapshot returned error", {
         source: "admin.showReview.snapshot",
-        error,
+        error: error.message,
+        pgrstCode: error.code,
+        pgrstDetails: error.details,
+        pgrstHint: error.hint,
       });
       return { kind: "infra_error", message: "show review snapshot read failed" };
     }

@@ -129,7 +129,10 @@ function SwitchButton({ on, disabled }: { on: boolean; disabled: boolean }) {
       data-testid="auto-publish-toggle"
       disabled={isDisabled}
       className={cn(
-        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
+        // before:* extends the hit area to the 44px tap-min floor (DESIGN.md --spacing-tap-min)
+        // without growing the 28px visual track: 28 + 2x8 = 44. Same recipe as PublishedToggle,
+        // which is the sibling switch this one was copied from before the recipe existed.
+        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
         on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken",
       )}
     >

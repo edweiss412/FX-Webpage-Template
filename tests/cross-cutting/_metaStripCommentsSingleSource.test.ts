@@ -60,6 +60,23 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  false positives). NEVER file-wide: an unlisted (family, marker) in the same file
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
+  ...(["//", "/*", "*/"] as const).map((marker) => ({
+    file: "tests/specLint/numerics.test.ts",
+    family: "two-char-literal" as const,
+    marker,
+    reason:
+      "NOT comment handling. All three markers are FIXTURE DATA for shape (a)'s " +
+      "lexical scan of a JavaScript file: `readableScriptLines` must blank a " +
+      "declaration-SHAPED line that sits inside a comment, so the cases feed it " +
+      "script text containing literal `//`, `/*` and `*/` and assert the exact " +
+      "line-for-line output. Removing the markers removes the input under test. " +
+      "The stripping itself lives in lib/specLint/numerics.ts, which cannot import " +
+      "a test helper (tests/specLint/_metaPureCore.test.ts pins the module's " +
+      "purity) and must track comments, all three quote forms, templates with " +
+      "nested interpolation, and regex literals in ONE pass — separate passes " +
+      "invert the state rather than lose it, which whole-diff review refuted three " +
+      "times (R6, R8, R9).",
+  })),
   {
     file: "tests/planFences/readCore.test.ts",
     family: "two-char-literal",
