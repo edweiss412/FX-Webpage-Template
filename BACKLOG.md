@@ -10,7 +10,7 @@ Last reconciled: 2026-08-15 — `feat/spec-lint-intent-red` graduated `BL-SPEC-L
 
 ## BL-PSQL-SCAN-MUTATION-ENROLMENT — the psql startup-file scanner is measurable now, and scores 0.354
 
-**Status:** OPEN · **Filed:** 2026-08-15 (`fix/local-harness-false-failures`, from that arc's own enrolment probe) · **Class:** guard coverage · **Effort:** M · **Class-sweep exception:** (a) — the disposition of 31 survivors is a judgment call the filing PR cannot settle, ratified by the user against repaying in-branch. · **Reachability:** PROBED — the numbers below are a real run, not an estimate.
+**Status:** IN PROGRESS · **Branch:** test/psql-scan-mutation-enrolment · **Filed:** 2026-08-15 (`fix/local-harness-false-failures`, from that arc's own enrolment probe) · **Class:** guard coverage · **Effort:** M · **Class-sweep exception:** (a) — the disposition of 31 survivors is a judgment call the filing PR cannot settle, ratified by the user against repaying in-branch. · **Reachability:** PROBED — the numbers below are a real run, not an estimate.
 
 `tests/cross-cutting/psqlStartupFiles/scan.ts` is registry-expressible (an importable module with a deciding suite, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`) and is still NOT enrolled. The arc that would have enrolled it ran the probe instead, and the probe says enrolment is its own piece of work.
 
