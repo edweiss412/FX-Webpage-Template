@@ -774,6 +774,20 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     );
   });
 
+  it("every shard job stamps its start as its FIRST step (AC-7)", () => {
+    // Prose said "first step" while an earlier snippet had checkout above it,
+    // and the record then measured the vitest step rather than job wall clock:
+    // 1,200 s of setup plus a 3,000 s test is a 3,000 s record on a 4,200 s job,
+    // which passes a 3,600 s budget. Complete, finite, plausible, and wrong --
+    // so the POSITION is asserted rather than described.
+    for (const f of FAMILIES) {
+      const steps = wf.jobs[f.job]?.steps ?? [];
+      expect(steps[0]?.run ?? "", `${f.job} does not stamp its start first`).toContain(
+        "SHARD_START=",
+      );
+    }
+  });
+
   it("a red shard does not cancel its siblings, and budget gates notify (AC-6c)", () => {
     for (const f of FAMILIES) expect(wf.jobs[f.job]?.strategy?.["fail-fast"]).toBe(false);
     expect(wf.jobs["notify"]?.needs ?? []).toEqual(
@@ -804,11 +818,15 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     // an `if:` condition, satisfies a whole-object substring search while the
     // body itself reports nothing -- the sibling-contamination shape the
     // anti-tautology rule exists to stop.
-    const bodies = (wf.jobs["notify"]?.steps ?? [])
-      .map((s) => s.with?.script ?? "")
-      .filter((b) => b.length > 0);
-    expect(bodies.length, "notify runs no github-script step").toBeGreaterThan(0);
-    const body = bodies.join("\n");
+    // The FILING step alone. `notify` has two github-script steps -- the one
+    // that opens/comments the issue and the one that auto-closes on green --
+    // and joining them lets the auto-close body satisfy a check about the issue
+    // body. That is the same sibling contamination one level up.
+    const filing = (wf.jobs["notify"]?.steps ?? []).filter(
+      (s) => (s.with?.script ?? "").includes("issues.create"),
+    );
+    expect(filing, "notify has no issue-filing github-script step").toHaveLength(1);
+    const body = filing[0]!.with!.script!;
     for (const job of [...FAMILIES.map((f) => f.job), ...GATES.map((g) => g.job), "budget"]) {
       expect(body, `the issue body never reports ${job}'s result`).toContain(
         `needs.${job}.result`,
@@ -833,10 +851,9 @@ Replace the single job with four families plus `budget` (Task 5 supplies the bud
     timeout-minutes: 90
     permissions: { contents: read }
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
       # FIRST step of the job, BEFORE checkout and setup. $GITHUB_ENV lives
-      # outside the workspace, so the value survives checkout.
+      # outside the workspace, so the value survives checkout. Nothing may be
+      # inserted above this step -- the integrity meta-test asserts index 0.
       - name: Stamp job start
         run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
@@ -1054,9 +1071,13 @@ Expected: PASS, 11 tests.
     // constant. Take the token after the flag and compare it exactly.
     const tokens = run.split(/\s+/);
     const argValue = (flag: string): string | undefined => {
-      const i = tokens.indexOf(flag);
-      expect(i, `the budget job passes no ${flag}`).toBeGreaterThanOrEqual(0);
-      return tokens[i + 1];
+      // EXACTLY ONE occurrence. `indexOf` reads the first, while Node's
+      // `util.parseArgs` resolves a repeated flag to the LAST -- so
+      // `--budget-seconds 3600 … --budget-seconds 3600.5` would satisfy a
+      // first-match guard while the CLI ran with 3600.5.
+      const hits = tokens.filter((t) => t === flag).length;
+      expect(hits, `${flag} must appear exactly once, found ${hits}`).toBe(1);
+      return tokens[tokens.indexOf(flag) + 1];
     };
     expect(argValue("--budget-seconds")).toBe(String(SHARD_BUDGET_SECONDS));
     expect(argValue("--parser-shards")).toBe(String(SHARD_COUNT));
@@ -1336,7 +1357,17 @@ Registry-count reconciliation, also run now: `GUARD_SURFACES` holds **18** rows 
 
 **Placeholder scan.** None.
 
-**Falsified at plan time, against the reviewer's own counterexamples.** The two repairs that had already failed once were re-probed rather than asserted:
+**Falsified at plan time, against the reviewer's own counterexamples.** Round 5's three repairs, each re-probed rather than asserted:
+
+```
+#1 auto-close body carries the expressions, issue body does not -> guard False
+#2 --budget-seconds 3600 … --budget-seconds 3600.5 (duplicate)   -> guard False
+#2 --budget-seconds 3600 (single)                                -> guard True
+#3 stamp at steps[0]                                             -> guard True
+#3 checkout at steps[0], stamp after                             -> guard False
+```
+
+Round 4's, likewise: The two repairs that had already failed once were re-probed rather than asserted:
 
 ```
 --budget-seconds 3600    accepted=True     --parser-shards 8    accepted=True
