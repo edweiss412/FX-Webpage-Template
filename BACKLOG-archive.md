@@ -1,3 +1,30 @@
+## BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal — CLOSED 2026-08-16 (`feat/theme-persistence-note`, SHIPPED)
+
+**Severity (as filed):** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S
+
+**Probed, not theorized.** With `localStorage.setItem` throwing (restrictive in-app browser, private mode, third-party-storage block):
+
+```
+after-toggle-with-storage-blocked: dark:dark  stored null
+next-load/os-light:                light
+```
+
+The user picks dark, the page turns dark, and the next load is light again with nothing said.
+
+**Why it is filed rather than fixed here.** `components/layout/useAppliedTheme.ts` absorbs the write failure deliberately — throwing would take the whole control down over a preference, and the fallback (follow the OS) is the conservative answer. What is missing is the SIGNAL, and what the signal should say is a product-copy decision this arc cannot settle: a toast is heavy for a preference, an inline note next to a toggle inside a popover has nowhere to live, and "your browser will not remember this" is the kind of technical explanation `PRODUCT.md` §5 rules out of the UI. Class-sweep disposition exception (a): needs a product decision.
+
+**Reachability:** PROBED — the failure mode is reachable in any embedded webview with storage partitioning, which is exactly where crew open a link from a group thread.
+
+**What shipped.** Both theme controls now say so when the device will not remember the choice. `useAppliedTheme` gained `persistFailed` (set in the `setTheme` catch, cleared by a later successful write, preserved across the mount sync so a pre-mount blocked click is not silently wiped); `ThemeToggle` renders an always-mounted `role="status"` anchored bubble whose TEXT is conditional; the avatar-menu popover renders the same copy from the same exported const, as a sibling of its `role="menu"` element. The silent absorb stayed exactly as filed — this arc added the signal, not a throw.
+
+**The copy answers the filing's own open question.** "This device won't remember this choice." — no mechanism, no "localStorage", no error code, which is what `PRODUCT.md` §5 asks for and what the filing said the arc could not settle alone. It was settled by the spec, ratified before implementation.
+
+**Limits carried forward, not defects** (spec §4): the note is per-control-instance and per-page-session and cannot survive a reload (nothing here can persist — that IS the failure); repeated failures while it is already shown do not re-announce, and a popover re-open renders it without re-announcing (a polite region announces content CHANGES); the bubble overlays what sits under the toggle while the failed state persists. Two open follow-ups carry the parts that need a decision rather than an implementation: `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE` (a dismiss control is a product decision) and `BL-THEME-NOTE-BUBBLE-TEXT-ALIGN` (the alignment is in a ratified spec class list, so changing it is a spec edit).
+
+**Proof, not assertion:** 5 hook cases including the pre-effect mount-sync window rendered through `createRoot` + `flushSync` with a premise assertion so it cannot pass vacuously; 8 toggle cases including the always-mounted-container pin (the repo's own measured "inserted status announces nothing" trap); 5 avatar-menu cases including DOM containment against `role="menu"`; and a real-browser Playwright spec asserting viewport containment at 320px and wrapper-equals-button geometry on two consumers, observed RED before implementation and green after.
+
+---
+
 ## BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a stale restore is now impossible, and a failing run refreshes its own cache — CLOSED 2026-08-15 (`fix/screenshots-drift-cache`, SHIPPED)
 
 **Severity (as filed):** MEDIUM · **Class:** CI-INFRA · **Effort (as shipped):** S, as estimated · **Filed:** 2026-08-14 from a live main-branch incident
