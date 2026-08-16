@@ -28,6 +28,7 @@
 import type { TransportationRow, TransportScheduleEntry, CrewMemberRow } from "../types";
 import { type ParseAggregator, emitEmptySection, markConsumed } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, splitRow, inferShowYear } from "./_helpers";
+import { openerByLine } from "./_rowScan";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { buildCol0HeaderAltRe } from "./_sectionHeaderMatch";
@@ -193,14 +194,31 @@ function parseV4Transport(
   const section = markdown.slice(hm.index);
   const lines = section.split("\n");
   const tableLines: string[] = [];
-  for (const line of lines) {
+  // Ledger key component (§3.3): the PHYSICAL pipe-run opener at each row's own line, which
+  // is what the near-miss detector probes with. Taking `tableLines[0]` — the row this
+  // parser's header regex matched — was wrong whenever the semantic header is not the first
+  // row of its run: the mark landed under a key the detector never looks up, and a row
+  // parsed as the driver was reported unrecognized under a NEIGHBOURING block's namespace
+  // (whole-diff r5 P1, found on the `blank-row:remove` mutant `fintech:B8:L58`, where the
+  // physical opener is `HOTEL` and the semantic one `TRANSPORTATION`). Same repair, same
+  // shared derivation, as `event.ts` took in r4.
+  // Doc lines are recorded per table row; the whole-document opener scan is deferred until a
+  // key is actually needed, because these parsers also run with no aggregator (see the note
+  // on the same construction in `event.ts`).
+  const tableDocLines: number[] = [];
+  const headerDocLine = markdown.slice(0, hm.index).split("\n").length - 1;
+  for (const [offset, line] of lines.entries()) {
     if (!line.trim().startsWith("|") && tableLines.length > 0) break;
-    if (line.trim().startsWith("|")) tableLines.push(line.trim());
+    if (line.trim().startsWith("|")) {
+      tableLines.push(line.trim());
+      tableDocLines.push(headerDocLine + offset);
+    }
   }
-
-  // Ledger key component (§3.3): the first-cell text of the section-opening row this
-  // parser matched (`hm.index` is that row's opening pipe, so it is `tableLines[0]`).
-  const blockOpener = clean(splitRow(tableLines[0] ?? "")[0] ?? "");
+  let openersByDocLine: string[] | null = null;
+  const openerAt = (i: number): string => {
+    openersByDocLine ??= openerByLine(markdown);
+    return openersByDocLine[tableDocLines[i] ?? tableDocLines[0] ?? 0] ?? "";
+  };
 
   // Driver, two sources: the slash header encodes it inline (hm[1] defined);
   // the plain (exporter) header leaves it on the first Equipment Transporter /
@@ -216,14 +234,14 @@ function parseV4Transport(
     driverPhone = hm[2] !== undefined ? presence(clean(hm[2])) : null;
     driverEmail = canonicalize(hm[3] !== undefined ? clean(hm[3]) : "");
   } else {
-    for (const line of tableLines) {
+    for (const [ti, line] of tableLines.entries()) {
       const c = splitRow(line);
       const label = clean(c[0] ?? "");
       if (/^(?:equipment transporter|load in:?|driver)$/i.test(label)) {
         // Curated resolution (spec §3.3): this regex is the path that resolves the corpus
         // `Load In:` row to `driver_name`. Marked before the presence() reads below, so a
         // driver row with an empty name cell still counts as consumed.
-        markConsumed(agg, blockOpener, label, clean(c[1] ?? ""));
+        markConsumed(agg, openerAt(ti), label, clean(c[1] ?? ""));
         driverName = presence(clean(c[1] ?? ""));
         driverPhone = presence(clean(c[2] ?? ""));
         driverEmail = canonicalize(clean(c[3] ?? ""));
@@ -315,7 +333,7 @@ function parseV4Transport(
     // resolves this label. The `seenDateHeader` arm is NOT a resolution — it accepts rows
     // by table position, so marking it would ledger rows no curated vocabulary claims.
     const scheduleLabelHit = V2_SCHEDULE_LABELS.has(label);
-    if (scheduleLabelHit) markConsumed(agg, blockOpener, col0, col1);
+    if (scheduleLabelHit) markConsumed(agg, openerAt(i), col0, col1);
 
     // Schedule rows: after seeing DATE header, or when col0 matches known stage labels
     if (seenDateHeader || scheduleLabelHit) {
@@ -372,13 +390,24 @@ function parseV2Transport(
   const section = markdown.slice(hm.index);
   const lines = section.split("\n");
   const tableLines: string[] = [];
-  for (const line of lines) {
+  // Physical pipe-run opener per row, same derivation and same reason as the v4 parser above.
+  // Doc lines are recorded per table row; the whole-document opener scan is deferred until a
+  // key is actually needed, because these parsers also run with no aggregator (see the note
+  // on the same construction in `event.ts`).
+  const tableDocLines: number[] = [];
+  const headerDocLine = markdown.slice(0, hm.index).split("\n").length - 1;
+  for (const [offset, line] of lines.entries()) {
     if (!line.trim().startsWith("|") && tableLines.length > 0) break;
-    if (line.trim().startsWith("|")) tableLines.push(line.trim());
+    if (line.trim().startsWith("|")) {
+      tableLines.push(line.trim());
+      tableDocLines.push(headerDocLine + offset);
+    }
   }
-
-  // Ledger key component (§3.3), same derivation as the v4 parser above.
-  const blockOpener = clean(splitRow(tableLines[0] ?? "")[0] ?? "");
+  let openersByDocLine: string[] | null = null;
+  const openerAt = (i: number): string => {
+    openersByDocLine ??= openerByLine(markdown);
+    return openersByDocLine[tableDocLines[i] ?? tableDocLines[0] ?? 0] ?? "";
+  };
 
   let driverName: string | null = null;
   let driverPhone: string | null = null;
@@ -417,7 +446,7 @@ function parseV2Transport(
 
     if (V2_SCHEDULE_LABELS.has(label)) {
       // Curated resolution (spec §3.3) — the v2 twin of the v4 membership mark above.
-      markConsumed(agg, blockOpener, col0, col1);
+      markConsumed(agg, openerAt(i), col0, col1);
       // v2 format: col1 = "date @ time" or just a date
       const { date, time } = parseV2DateTime(col1, contextYear);
       schedule.push({
@@ -441,7 +470,7 @@ function parseV2Transport(
         // Fuzzy recovery is a resolution (spec §3.3), so it ledgers like the exact
         // `V2_SCHEDULE_LABELS` branch above. Otherwise the leg is recovered AND the row is
         // reported unrecognized (whole-diff r3 P1, probed with `Rental Pick-up`).
-        markConsumed(agg, blockOpener, col0, col1);
+        markConsumed(agg, openerAt(i), col0, col1);
         const { date, time } = parseV2DateTime(col1, contextYear);
         schedule.push({
           stage: col0,

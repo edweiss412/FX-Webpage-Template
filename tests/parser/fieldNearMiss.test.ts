@@ -596,12 +596,21 @@ const EXCLUDED_DIRS = new Map<string, string>([
 ]);
 
 /**
- * Every `.ts`/`.tsx` file under `dir`, recursively, as repo-relative paths.
+ * Every source file under `dir`, recursively, as repo-relative paths.
+ *
+ * The extension set is every one this repo can COMPILE AND RUN, not just the two most source
+ * files happen to use: `tsconfig.json` sets `allowJs`, explicitly includes an `.mts` glob, and
+ * Next builds `.mjs` config and script files. A `.ts`/`.tsx`-only walk therefore let a second
+ * emitter land in a `.mts` or `.js` production file without failing a guard whose entire
+ * claim is whole-repository sole-emitter coverage (whole-diff r5 P2). The parse is TS-mode
+ * for every extension, which reads plain JS correctly.
  *
  * Dot-prefixed entries are skipped wholesale: VCS (`.git`), CI config (`.github`), agent and
  * editor state (`.claude`, `.serena`, `.superpowers`, `.impeccable`), and build output
  * (`.next`) all live there and none holds an authored call site.
  */
+const SOURCE_EXT = /\.(?:tsx?|mts|cts|jsx?|mjs|cjs)$/;
+
 function walkTs(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir === "" ? "." : dir, { withFileTypes: true })) {
@@ -610,7 +619,7 @@ function walkTs(dir: string): string[] {
     if (entry.isDirectory()) {
       if (EXCLUDED_DIRS.has(p)) continue;
       out.push(...walkTs(p));
-    } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) out.push(p);
+    } else if (SOURCE_EXT.test(entry.name)) out.push(p);
   }
   return out;
 }

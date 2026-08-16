@@ -158,10 +158,16 @@ export function parseEventDetails(
   // reported unrecognized under a neighbouring block's namespace (whole-diff r4 P1, probed
   // with `Stage Size` → `Stage-Size`). `openerByLine` applies `scanRowsWithOpener`'s own rule
   // from the document start, so writer and reader cannot disagree.
-  const openersByDocLine = openerByLine(markdown);
+  // Built LAZILY and only when there is a ledger to write to: `openerByLine` walks the whole
+  // document, and `parseEventDetails` is called ~31 times by the PR-D1 vocabulary sweep with
+  // no aggregator at all, where an eager scan pushed that case past its 30s timeout. Nobody
+  // keeping a ledger means nobody needs the keys.
+  let openersByDocLine: string[] | null = null;
   const headerDocLine = markdown.slice(0, headerMatch.index).split("\n").length - 1;
-  const openerForOffset = (offset: number): string =>
-    openersByDocLine[headerDocLine + offset] ?? "";
+  const openerForOffset = (offset: number): string => {
+    openersByDocLine ??= openerByLine(markdown);
+    return openersByDocLine[headerDocLine + offset] ?? "";
+  };
   let inBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
