@@ -98,7 +98,7 @@ export type BaselineResult = {
  * zero tests exits 0, and every mutant would then run nothing and score
  * SURVIVED — a perfect-looking score for a surface nothing tested.
  */
-export function assertBrowserBaseline(surfaceId: string, results: readonly BaselineResult[]): void {
+export function assertBrowserBaseline(surfaceId: string, results: readonly BaselineResult[]): true {
   for (const result of results) {
     if (result.exitStatus === null) {
       throw new MutantRunInfraError(`${surfaceId} baseline [${result.label}]`, null, undefined);
@@ -114,6 +114,14 @@ export function assertBrowserBaseline(surfaceId: string, results: readonly Basel
       );
     }
   }
+  // Returns its own proof rather than `void` (diff review round 5, P0). The
+  // caller used to call this for effect and then pass `baselineGreen: true` as a
+  // LITERAL — a claim about work that a `statement-removal` of the call could
+  // erase while the literal went on asserting it. Against an already-red suite
+  // every mutant scores KILLED, so that deletion produces a perfect score from a
+  // baseline nobody checked. A value that can only be obtained by running the
+  // check cannot be forged by deleting it.
+  return true;
 }
 
 /** A suite's label in run output and error messages. */
@@ -243,8 +251,11 @@ export function runBrowserSurface(root: string, surface: BrowserGuardSurface): R
   }
 
   // Baseline FIRST, unmutated: against an already-red suite every mutant scores
-  // KILLED and the run would report a meaningless perfect score.
-  assertBrowserBaseline(
+  // KILLED and the run would report a meaningless perfect score. The result is
+  // BOUND, not discarded — see the return value's note. Deleting this statement
+  // now leaves `baselineGreen` unbound rather than leaving a literal `true`
+  // behind, so the fail-open shape is not expressible here at all.
+  const baselineGreen = assertBrowserBaseline(
     surface.id,
     orderSuites(surface.suites).map((suite) => {
       const { exitStatus, report } = runChild(root, suite, null);
@@ -257,7 +268,7 @@ export function runBrowserSurface(root: string, surface: BrowserGuardSurface): R
     verdict: runMutant(root, surface, mutant),
   }));
 
-  return accountOutcomes({ surfaceId: surface.id, baselineGreen: true, outcomes });
+  return accountOutcomes({ surfaceId: surface.id, baselineGreen, outcomes });
 }
 
 /**

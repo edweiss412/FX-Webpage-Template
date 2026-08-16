@@ -41,10 +41,20 @@ const source = readFileSync(join(ROOT, GATE), "utf8");
  * deleted. Prose is not a predicate; strip it once, centrally, so a future scan
  * added here inherits the property instead of re-deriving it.
  */
+const RUNNER = "tests/mutation/browser/runner.ts";
+const runnerSource = readFileSync(join(ROOT, RUNNER), "utf8");
+
+const stripProse = (text: string): string =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1")
+    .replace(/(it|describe)\((["'`])[\s\S]*?\2/g, "$1(<title>");
+
 const code = source
   .replace(/\/\*[\s\S]*?\*\//g, " ")
   .replace(/(^|[^:])\/\/[^\n]*/g, "$1")
   .replace(/(it|describe)\((["'`])[\s\S]*?\2/g, "$1(<title>");
+const runnerCode = stripProse(runnerSource);
 
 describe("the browser gate still registers the work it claims to run", () => {
   it("reads a non-trivial gate file (anti-vacuity for every scan below)", () => {
@@ -108,5 +118,54 @@ describe("the browser gate still registers the work it claims to run", () => {
     expect(code, "and its result must be asserted true").toMatch(
       /\.equals\([\s\S]{0,200}\.toBe\(true\)/,
     );
+  });
+});
+
+/**
+ * The runner's fail-open CLASS, not its instances (diff review rounds 2, 4, 5).
+ *
+ * Three rounds landed on one axis: `runner.ts` cannot be enrolled in the
+ * mutation registry — its other half is a spawn boundary — so a
+ * `statement-removal` there can make the gate report success. Round 2 was the
+ * kill fold, round 4 the exit-status assignment, round 5 the baseline call.
+ * Patching a fourth instance would only invite a fifth, so what is pinned here
+ * is the SHAPE that makes any of them possible: a success value asserted as a
+ * literal beside the check that is supposed to establish it.
+ *
+ * Each repair removed the literal rather than guarding it — the value is now
+ * obtained only by running the check, so deleting the check leaves it unbound
+ * instead of leaving a forged claim behind. These scans keep it that way.
+ */
+describe("the runner cannot assert success it did not compute", () => {
+  it("reads the runner's executable text (anti-vacuity)", () => {
+    expect(runnerCode).toContain("export function runBrowserSurface");
+    premiseHolds(
+      "prose was stripped but code survived",
+      runnerCode.includes("accountOutcomes") && !runnerCode.includes("Baseline FIRST"),
+    );
+  });
+
+  it("derives baselineGreen from the baseline check, never from a literal", () => {
+    expect(
+      runnerCode,
+      "baselineGreen must be BOUND from assertBrowserBaseline, so deleting the call unbinds it",
+    ).toMatch(/const baselineGreen = assertBrowserBaseline\(/);
+    expect(
+      runnerCode,
+      "a literal `baselineGreen: true` is the fail-open shape rounds 2/4/5 all wore",
+    ).not.toMatch(/baselineGreen:\s*true/);
+  });
+
+  it("keeps the exit status defaulted to the CONSERVATIVE value", () => {
+    // Round 4: unassigned, a removed assignment leaves `undefined`, which scores
+    // KILLED. Defaulted to null it classifies infra instead.
+    expect(runnerCode).toMatch(/let exitStatus: number \| null = null;/);
+  });
+
+  it("folds the per-suite verdict through the ENROLLED predicate", () => {
+    // Round 2: an inline `verdict === "KILLED"` is an equality-flip site in a
+    // module the registry cannot score.
+    expect(runnerCode).toMatch(/if \(killsMutant\(verdict\)\) return "KILLED";/);
+    expect(runnerCode).not.toMatch(/verdict\s*[!=]==\s*"KILLED"/);
   });
 });
