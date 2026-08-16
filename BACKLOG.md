@@ -1136,3 +1136,80 @@ helper at DESCRIBE scope -> ["environment-free"]
 **Live cost already paid.** `tests/ci/phantomGapExecuted.test.ts` declared its spawning `runCli` inside the `describe` body; all three shipped-CLI cases classified environment-free and `EXPECTED_ENV_TOUCHING` recorded a truthful-looking `0`. Hoisting the helper to module scope moved it to `3`. Nothing failed in between — the corpus simply under-reported, silently, which is the failure mode the premise contract exists to prevent.
 
 **Fix:** scope-aware extent resolution in `premiseScan`, with the AC-10b `reportEnvelope`/`res` collision kept as a regression case so the repair cannot trade a false negative for the false positive it replaced. Until then the recognizer's contract is "module-scope helpers only", which no current caller states.
+
+## BL-E2E-WORKFLOW-PATHS-COVERAGE-GENERIC — a workflow-invoked spec can sit outside that workflow's `paths:` filter
+
+**Status:** OPEN. · **Filed:** 2026-08-15, backfill from the review-round filing `docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md` (plan §, candidate 3 / R4-F2), per the enforcement-pair spec §4 candidate 1 · **Severity:** medium · **Class:** CI wiring · **Effort:** S
+
+For each spec named in a workflow `run:` line, assert the workflow's `paths:` filter covers the
+spec, its fixtures, and (advisory) the components it asserts on. Per-workflow wiring tests exist
+for exactly three workflows (`tests/cross-cutting/app-e2e-ci-wiring.test.ts`,
+`tests/cross-cutting/lifecycle-layout-e2e-ci-wiring.test.ts`,
+`tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts`); the generic walk does not exist, so the
+fourth workflow ships uncovered by default.
+
+**Reachability:** PROBED in the originating filing — R4-F2 was a live instance found by review
+round, and the three enumerated wiring tests are the enumeration-not-derivation shape the
+class-sweep rule warns re-opens per workflow. Filed under class-sweep exception (c): a guard
+surface of its own, out of scope for the arc that found it.
+
+## BL-PLANLINT-ACCEPT-SET-CALIBRATION-PROBE — an enumerated accept-set must carry its calibration probe
+
+**Status:** OPEN. · **Filed:** 2026-08-15, backfill from
+`docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md` (delta-arc plan §,
+candidate 1), per the enforcement-pair spec §4 candidate 3 · **Severity:** medium · **Class:**
+plan-lint arm (sibling of `BL-SPECLINT-RED-EXECUTABILITY-ARM`) · **Effort:** S-M
+
+Any plan text of the form "assert every X is one of {…}" must embed the probe output of the
+current base measured against that set. The originating arc's R4-F1 is the proof: authored from
+the repair context instead of a probe, the set was narrower than the tree it had to accept, and
+no round before R4 ran the one command that shows it.
+
+**Reachability:** PROBED in the originating filing (R4-F1, a live plan defect that burned a
+round). Filed under class-sweep exception (c): a lint surface of its own.
+
+## BL-PLANLINT-RECORDED-SHA-EXPIRY — a recorded SHA names its own expiry
+
+**Status:** OPEN. · **Filed:** 2026-08-15, backfill from
+`docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md` (delta-arc plan §,
+candidate 2), per the enforcement-pair spec §4 candidate 4 · **Severity:** medium · **Class:**
+plan-lint arm (same family as `BL-PLANLINT-ACCEPT-SET-CALIBRATION-PROBE`) · **Effort:** S-M
+
+Any plan step that records a commit SHA for later reuse must enumerate every later step that
+rewrites history and either re-resolve there or state why nothing can intervene. The vector burned
+three rounds in the originating arc (R2-F1, R3-F1, R4-F2), each one history-rewrite deeper — the
+signature of a class that wants a rule.
+
+**Reachability:** PROBED in the originating filing (three rounds, three live instances). Filed
+under class-sweep exception (c). May share one lint surface with
+`BL-PLANLINT-ACCEPT-SET-CALIBRATION-PROBE`; the implementing arc decides and records it.
+
+## BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP — a repair round stale-ifies forward references the term-grep cannot see
+
+**Status:** OPEN. · **Filed:** 2026-08-15, backfill from
+`docs/review-rounds/chore/guard-completeness-wave/04f601134519.md` (spec §, item (a)), per the
+enforcement-pair spec §4 candidate 5 · **Severity:** medium · **Class:** spec-lint arm ·
+**Effort:** M
+
+A spec:lint arm cross-checking out-of-scope bullets and closeout summaries against sections
+mandating the same change. Both escapes in the originating arc were forward references — an
+"out of scope" bullet and a marker-timing summary contradicted by a later repaired section — that
+a term-grep of the repaired text cannot see.
+
+**Reachability:** PROBED in the originating filing (R2-F3/R5, two live escapes each costing a
+round). Filed under class-sweep exception (c).
+
+## BL-SPECLINT-BL-DISPOSITION-CLOSEOUT-ARM — a spec dispositioning `BL-` ids owes a closeout naming each id's terminal state
+
+**Status:** OPEN. · **Filed:** 2026-08-15, backfill from
+`docs/review-rounds/chore/guard-completeness-wave/04f601134519.md` (spec §, item (c)), per the
+enforcement-pair spec §4 candidate 6 · **Severity:** low · **Class:** spec-lint arm ·
+**Effort:** S
+
+A spec that dispositions `BL-` ids owes a graduation/closeout section naming each id's terminal
+state (graduated, superseded, declined) — the originating arc's R4 closeout class, where the
+dispositions existed but no section accounted for them id-by-id.
+
+**Reachability:** PROBED in the originating filing (the R4 closeout round). Filed under
+class-sweep exception (c). May share one lint surface with
+`BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP`; the implementing arc decides and records it.
