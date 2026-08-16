@@ -264,8 +264,12 @@ describe("generated execution-methods module (spec §2.4)", () => {
   it("version sentinel: the committed module matches the installed driver", () => {
     const raw = readFileSync(DRIVER_PACKAGE_JSON, "utf8");
     const installed = (JSON.parse(raw) as { version: string }).version;
-    // The suite's one environment-touching test (premise-contract classification,
-    // Task 6): its premise is that the installed driver actually yielded a version.
+    // The suite's one premise-bearing filesystem read: its premise is that the
+    // installed driver actually yielded a version. It is NOT environment-touching
+    // by the premise-contract classifier -- provenance there is child_process,
+    // ledger-git and process.env, so a bare node:fs read is pure to it, which is
+    // why this suite's EXPECTED_ENV_TOUCHING count is ZERO. The premiseHolds line
+    // stands regardless: it states the read's premise for the human reader.
     premiseHolds("installed driver package.json yields a version", installed.length > 0);
     expect(
       POSTGRES_TYPES_VERSION,
