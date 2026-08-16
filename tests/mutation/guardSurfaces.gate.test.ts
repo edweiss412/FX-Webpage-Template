@@ -81,11 +81,22 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // rather than a number to update.
   reviewRoundCount: {},
   // Counted from the surface: exactly TWO reachability arguments -- the
-  // directory fallthrough at corpus.ts:77, which lands on the very next line's
-  // `isFile()` skip, and the one-past-the-end read at :144, which `?? ""` turns
+  // directory fallthrough at corpus.ts:79, which lands on the very next line's
+  // `isFile()` skip, and the one-past-the-end read at :146, which `?? ""` turns
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
   reviewRoundCorpus: { equivalent: 2 },
+  // Enrolled by the enforcement-pair arc (spec §6.3): the parse contract for
+  // Mechanizable parity. Counted from the surface after the diff R1/R2 repairs
+  // reshaped the walkers: EIGHT reachability arguments - the visibleText
+  // code/html literal guard, six guard-flip legs across the three recursive
+  // walkers (label collection is paragraph-scoped and fieldName/
+  // beginsWithDecline are paragraph-only, so descending into code/html/delete
+  // subtrees finds nothing), and close()'s current-null hygiene. Every other
+  // survivor across the enrolment runs was repaid by a named test in
+  // tests/reviewRounds/filing.test.ts or the meta-test's message assertions -
+  // an accepted-gap row appearing here later needs its own backlog entry.
+  reviewRoundFiling: { equivalent: 8 },
   // Counted from the surface: the executed-count oracle carries NO blessed
   // survivor. Its floor is 1, so a row appearing here is a coverage regression
   // to repair rather than a number to update. The surface exists in its current
@@ -145,6 +156,17 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
   // repay rather than a number to bump.
   interactiveScanCore: { equivalent: 11 },
+  // feat/mutation-playwright-component-mode (2026-08-15): the browser mode's own
+  // two modules, enrolled before the arc's first review dispatch. Both declare an
+  // EMPTY ledger and a floor of 1 — a row appearing here later is a coverage
+  // regression to repair, not a number to update.
+  // First run scored 55/57 and 30/39. Ten of the eleven survivors were real
+  // coverage gaps and were repaid with cases in the two deciding suites, each
+  // proven against its own mutant; the one row below is the only survivor whose
+  // mutation no consumer can distinguish. So a SECOND row here is a gap to
+  // repay rather than a number to bump.
+  browserRegistry: {},
+  browserMutate: { equivalent: 1 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
