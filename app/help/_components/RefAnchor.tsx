@@ -1,9 +1,18 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 const VALID_ID = /^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/;
 const VALID_AS: Set<string> = new Set(["h2", "h3"]);
+
+/** How long the copy confirmation stays in the live region before it clears. */
+const CLEAR_AFTER_MS = 2000;
+
+/** SUCCESS copy, not error copy — there is no §12.4 code for "the link was
+ *  copied", and minting one to satisfy a name pattern would put a non-error in
+ *  the error catalog (spec §1.1 item 6, the `COMPLETE_COPY` precedent). */
+// not-subject:M5-D8 — success copy; see the block above for why no §12.4 code exists.
+const COPIED_ANNOUNCEMENT = "Link copied";
 
 /**
  * RefAnchor — catalog-code section headings with a copy-link affordance.
@@ -40,6 +49,23 @@ export function RefAnchor({
   as?: "h2" | "h3";
   children: ReactNode;
 }) {
+  // Hooks precede the id/as validation throws so they are never called
+  // conditionally; an invalid call site still throws before anything renders.
+  const [announcement, setAnnouncement] = useState("");
+  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (clearTimerRef.current !== null) {
+        clearTimeout(clearTimerRef.current);
+        clearTimerRef.current = null;
+      }
+    };
+  }, []);
+
   if (!VALID_ID.test(id)) {
     throw new Error(
       `<RefAnchor id="${id}"> — id must match /^(MI-\\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/ (catalog code shape: standard \`SCREAMING_SNAKE\` or MI-class \`MI-N[a-z]_BODY\`).`,
@@ -62,26 +88,61 @@ export function RefAnchor({
   // the fragment navigation still fires (middle-click "open in new tab"
   // continues to work). Clipboard is gated on https/localhost, so wrap in
   // try/catch — fallback is the default <a href> navigation.
+  // Announcement is SETTLEMENT-GATED (spec §2.2): only a RESOLVED write
+  // announces, because "Link copied" on a write that failed is a claim the
+  // user cannot act on. A rejected or unavailable clipboard touches neither
+  // the announcement nor any timer already running, so a failed re-copy
+  // leaves the previous copy's clear schedule intact instead of stranding
+  // "Link copied" on screen forever.
+  const announceCopied = () => {
+    if (!mountedRef.current) return;
+    setAnnouncement(COPIED_ANNOUNCEMENT);
+    if (clearTimerRef.current !== null) clearTimeout(clearTimerRef.current);
+    clearTimerRef.current = setTimeout(() => {
+      clearTimerRef.current = null;
+      if (mountedRef.current) setAnnouncement("");
+    }, CLEAR_AFTER_MS);
+  };
+
   const handleCopyClick = () => {
     try {
       const url = `${window.location.origin}${window.location.pathname}#${id}`;
-      void navigator.clipboard?.writeText?.(url);
+      const written = navigator.clipboard?.writeText?.(url);
+      // No clipboard API: stays silent, and the default navigation still fires.
+      void Promise.resolve(written).then(
+        () => {
+          if (written !== undefined) announceCopied();
+        },
+        () => {
+          // Copy failed. Silence is the documented limit (spec §4 limit 1) —
+          // the fallback is the default <a href> fragment navigation.
+        },
+      );
     } catch {
       // Clipboard unavailable; the default <a href> navigation still fires.
     }
   };
 
   return (
-    <Tag id={id} className={className}>
-      {children}
-      <a
-        href={`#${id}`}
-        onClick={handleCopyClick}
-        aria-label="Copy link to this section"
-        className="inline-flex size-11 shrink-0 -my-2 items-center justify-center rounded text-text md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100 transition-opacity text-sm"
-      >
-        🔗
-      </a>
-    </Tag>
+    <>
+      <Tag id={id} className={className}>
+        {children}
+        <a
+          href={`#${id}`}
+          onClick={handleCopyClick}
+          aria-label={`Copy link to ${id}`}
+          className="inline-flex size-11 shrink-0 -my-2 items-center justify-center rounded text-text md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100 transition-opacity text-sm"
+        >
+          🔗
+        </a>
+      </Tag>
+      {/* Unconditionally mounted, text mutates — lawful shape 1 of the
+          live-region guard, and the `FinalizeAnnouncer` pattern. It sits
+          OUTSIDE the heading: inside, the transient text would join the
+          heading's computed name and pollute heading navigation. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </span>
+    </>
   );
 }
