@@ -100,6 +100,35 @@ describe("classify: clause (a) is structural, never containment", () => {
     });
   });
 
+  // The two cases below pin the EMPTY-TOKEN filter in `workerShape`, which nothing else
+  // reaches: every other command fixture is already tightly spaced, so the filter's
+  // predicate could be weakened in either direction with the whole suite still green.
+  // Both inputs come from the declared probe domain rather than from imagination: the
+  // collector hands `classify` the remainder of a `ps` line after the fixed five-token
+  // `lstart` window, so a command that arrives with padding on either end is what the real
+  // producer emits, not a constructed one.
+  it.each([
+    ["leading", `  ${NODE} ${FORKS}`],
+    ["trailing", `${NODE} ${FORKS}  `],
+  ])("accepts a worker whose command carries %s padding", (_label, command) => {
+    // Relaxing the filter to `t.length >= 0` keeps the empty string that the padding
+    // produces, which moves argv0 (leading) or the last token (trailing) onto `""` and
+    // silently declines a genuine worker — a MISSED reap, conservative but wrong.
+    expect(only([worker({ command })])).toMatchObject({ reap: true });
+  });
+
+  it("declines a node process whose last token is a single character", () => {
+    // The mirror of the padding cases, and the one that matters for safety: tightening the
+    // filter to `t.length > 1` drops single-character tokens, so this command's real last
+    // token disappears, the entrypoint becomes last by default, and a process the
+    // structural rule declines would be KILLED instead. Single-character trailing tokens
+    // are ordinary in a process table (`-`, a bare shard index, a redirect target).
+    expect(only([worker({ command: `${NODE} ${FORKS} -` })])).toMatchObject({
+      reap: false,
+      because: "not-a-worker",
+    });
+  });
+
   it("accepts every declared entrypoint", () => {
     for (const entry of [
       "vitest/dist/workers/forks.js",
