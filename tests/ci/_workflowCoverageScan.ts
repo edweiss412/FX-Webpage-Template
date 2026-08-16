@@ -776,6 +776,52 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
         // per (case, PROJECT) rather than per file.
         governs: [],
       },
+      // ---- 2026-08-16 modal-wait adoption arc (spec §4.3) --------------------
+      // Every workflow step that runs a MEMBER spec now emits a JSON report so the
+      // recovery printer has something to read. Each path is DISTINCT, by the same
+      // design rule as the four above: two steps writing one path would let one
+      // step's output stand in for another's, and phantom-gap-e2e.yml runs
+      // admin-layout-dimensions.spec.ts in THREE -g-filtered steps that would
+      // otherwise overwrite each other's report. Inert with respect to what runs,
+      // exactly like the values above — the printer surfaces a missing report and
+      // exits 0, so a wrong value costs a missing print, never a changed verdict.
+      {
+        text: "test-results/published-modal-e2e-report.json",
+        // Empty by live derivation, for the crew value's reason: published-modal-e2e.yml
+        // is path-filtered, so the census classifies its specs as path-gated.
+        governs: [],
+      },
+      {
+        text: "test-results/admin-layout-e2e-report.json",
+        // Empty by live derivation, same reason — admin-layout-e2e.yml is path-filtered.
+        governs: [],
+      },
+      {
+        text: "test-results/lifecycle-layout-e2e-report.json",
+        // lifecycle-layout-e2e.yml is UNfiltered pull_request, so this derives real
+        // governance for the one spec its step names — the same shape as the
+        // tap-target value above.
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+      {
+        text: "test-results/lifecycle-transitions-e2e-report.json",
+        // Same job, its own step and its own path. Both playwright invocations in that
+        // step's inline shell write here; they are alternatives (REPEATS=1 vs the
+        // measurement loop), never concurrent.
+        governs: [],
+      },
+      {
+        text: "test-results/phantom-gap-nophantom-report.json",
+        governs: [],
+      },
+      {
+        text: "test-results/phantom-gap-width-chain-report.json",
+        governs: [],
+      },
+      {
+        text: "test-results/phantom-gap-freshness-report.json",
+        governs: [],
+      },
     ],
     reason:
       "Destination for a Playwright run's own json report, which that job's post-run " +
