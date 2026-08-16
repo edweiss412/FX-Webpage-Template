@@ -3771,6 +3771,22 @@ export const MESSAGE_CATALOG = {
       "The picker action received malformed form data and rejected it before writing a credential. If this repeats without a custom client or stale page, inspect the rendered hidden fields.",
     helpHref: "/help/errors#PICKER_INVALID_INPUT",
   },
+  PICKER_SWITCH_FAILED: {
+    code: "PICKER_SWITCH_FAILED",
+    warningClass: "general",
+    // Asserts ONLY the server-observable fact. It deliberately does not claim
+    // "the identity was not cleared" (a reachable branch stages the cookie
+    // deletion before revalidatePath throws) nor "they were shown a retry" (a
+    // viewer who closed the menu mid-clear never sees the alert).
+    dougFacing: "A crew member's switch person clear did not land.",
+    crewFacing: "Couldn't switch. Please try again.",
+    followUp: "Crew → try again; Eric if repeated",
+    helpfulContext: "The picker clear action failed for a crew member's switch-person tap.",
+    title: "Switch person failed",
+    longExplanation:
+      "A crew member tapped switch person and the clear did not land. The avatar menu stays open with a retry instead of appearing to have worked.",
+    helpHref: "/help/errors#PICKER_SWITCH_FAILED",
+  },
   PICKER_CREW_MEMBER_NOT_FOUND: {
     code: "PICKER_CREW_MEMBER_NOT_FOUND",
     warningClass: "general",

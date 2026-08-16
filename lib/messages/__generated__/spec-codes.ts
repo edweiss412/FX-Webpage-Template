@@ -950,6 +950,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → text Doug",
     "helpfulContext": null,
   },
+  "PICKER_SWITCH_FAILED": {
+    "crewFacing": "Couldn't switch. Please try again.",
+    "dougFacing": "A crew member's switch person clear did not land.",
+    "followUp": "Crew → try again; Eric if repeated",
+    "helpfulContext": "The picker clear action failed for a crew member's switch-person tap.",
+  },
   "PUBLISH_BLOCKED_PENDING_REVIEW": {
     "crewFacing": null,
     "dougFacing": "This show has changes from its sheet that haven't been synced or reviewed yet. Re-sync, clear anything pending, then publish.",
