@@ -69,11 +69,21 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // rather than a number to update.
   reviewRoundCount: {},
   // Counted from the surface: exactly TWO reachability arguments -- the
-  // directory fallthrough at corpus.ts:77, which lands on the very next line's
-  // `isFile()` skip, and the one-past-the-end read at :144, which `?? ""` turns
+  // directory fallthrough at corpus.ts:79, which lands on the very next line's
+  // `isFile()` skip, and the one-past-the-end read at :146, which `?? ""` turns
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
   reviewRoundCorpus: { equivalent: 2 },
+  // Enrolled by the enforcement-pair arc (spec §6.3): the parse contract for
+  // Mechanizable parity. Counted from the surface: SIX reachability arguments -
+  // three childless-literal guards (visibleText's code/html arm and the two
+  // walker guards, where descending into a literal finds nothing), the two
+  // decline-loop breaks (the body only ever assigns true), and close()'s
+  // current-null hygiene (reassigned at every heading branch). The first run's
+  // other six survivors were real gaps, each repaid by a named test in
+  // tests/reviewRounds/filing.test.ts or the meta-test's message assertions -
+  // an accepted-gap row appearing here later needs its own backlog entry.
+  reviewRoundFiling: { equivalent: 6 },
   // Counted from the surface: the executed-count oracle carries NO blessed
   // survivor. Its floor is 1, so a row appearing here is a coverage regression
   // to repair rather than a number to update. The surface exists in its current

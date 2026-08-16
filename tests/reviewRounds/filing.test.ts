@@ -234,4 +234,60 @@ describe("mechanizable block analysis (spec §3.1)", () => {
     expect(raw?.astExamined).toBe(false);
     expect(raw?.astDispositions).toEqual(["Mechanizable"]);
   });
+
+  // Mutation repairs (Task-4 enrolment run): each case kills a named survivor.
+  // The label comes from the STRONG node, not from text that happens to end in
+  // a colon - a plain-text `Examined:` paragraph is not a field (kills
+  // equality-flip:118:19, which survived because the recursion re-derived the
+  // label from the text INSIDE the strong node).
+  it("does not read a plain-text colon line as a field label", () => {
+    const s = section("Examined:\n\n**Mechanizable:** none\n");
+    expect(s?.astExamined).toBe(false);
+  });
+
+  // A struck-through field is a retraction for the label sets too (kills
+  // logical-connector:117:54, under which the walk descends into `delete`).
+  it("does not count a struck-through field label", () => {
+    const s = section("~~**Examined:** a~~\n\n**Mechanizable:** none\n");
+    expect(s?.astExamined).toBe(false);
+    expect(section("~~**Judgment:** x~~\n\n**Mechanizable:** none\n")?.astDispositions).toEqual([
+      "Mechanizable",
+    ]);
+  });
+
+  // A paragraph whose PLAIN TEXT ends in a colon does not close the block
+  // (kills logical-connector:82:27, under which fieldName reads the first text
+  // child of any paragraph as a label).
+  it("does not close the block at a plain-text paragraph ending in a colon", () => {
+    const s = section(
+      "**Mechanizable:** one candidate\n\nThe shortlist, for later:\n\nBL-IN-BLOCK\n",
+    );
+    expect(s?.mechanizable?.citedIds).toEqual(["BL-IN-BLOCK"]);
+  });
+
+  // The block ends at the FIRST closer, not the last (kills the removal of the
+  // block-extent loop's break at filing.ts:177).
+  it("closes the block at the first field even when more fields follow", () => {
+    const s = section(
+      "**Mechanizable:** one candidate\n\n**Judgment:** BL-IN-JUDGMENT\n\n**Infra:** none\n",
+    );
+    expect(s?.mechanizable?.citedIds).toEqual([]);
+  });
+
+  // `line` is the heading's 1-indexed line - the corpus gate's messages point
+  // authors at it (kills integer-literal:247:15).
+  it("records the heading's 1-indexed line", () => {
+    const sections = parseFiling("## diff — 4 rounds\n\n**Examined:** a\n");
+    expect(sections[0]?.line).toBe(1);
+  });
+
+  // A loose heading closes the OPEN section like a strict one does (kills the
+  // removal of the loose branch's close() at filing.ts:261).
+  it("closes the previous section at a loose heading", () => {
+    const sections = parseFiling("## diff — 4 rounds\n\n**Examined:** a\n\n## spec\n\nx\n");
+    expect(sections).toHaveLength(2);
+    expect(sections[0]?.stage).toBe("diff");
+    expect(sections[0]?.hasExamined).toBe(true);
+    expect(sections[1]?.stage).toBe("spec");
+  });
 });

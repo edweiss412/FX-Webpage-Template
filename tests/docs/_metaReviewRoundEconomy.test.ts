@@ -353,9 +353,25 @@ describe("review-round economy gate (spec §7.1)", () => {
     // The message names the FILING, not the corpus: the author has to open the
     // .md to fix it. Failure caught: `filingPath` never recorded, which reports
     // every filing problem against "null" while the kinds stay right.
-    expect(problems.find((p) => p.kind === "filing_malformed")?.message).toContain(
-      `docs/review-rounds/${ARC}.md`,
-    );
+    const message = problems.find((p) => p.kind === "filing_malformed")?.message;
+    expect(message).toContain(`docs/review-rounds/${ARC}.md`);
+    // A field that is MISSING gets the base message, never the non-rendered
+    // one - the two send the author to different repairs (Task-4 mutation
+    // repairs: kills the &&>|| flips at corpus.ts:301/:302 and the rawOnly
+    // length boundary at :306, each of which mislabels an absent field as a
+    // non-rendered one).
+    expect(message).toContain("needs an **Examined:** line and at least one disposition line");
+    expect(message).not.toContain("non-rendered");
+  });
+
+  it("uses the base message when the DISPOSITION is missing entirely", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      { path: `${ARC}.md`, body: `## diff — ${ROUND_THRESHOLD} rounds\n\n**Examined:** a\n` },
+    ]);
+    const message = problems.find((p) => p.kind === "filing_malformed")?.message;
+    expect(message).toContain("needs an **Examined:** line and at least one disposition line");
+    expect(message).not.toContain("non-rendered");
   });
 
   // Failure caught: a malformed BODY reported and the section checked anyway.

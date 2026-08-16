@@ -573,16 +573,73 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [
       // ---- equivalent: cannot change observable behavior (spec §2.4) -------
       {
-        siteId: "statement-removal:77:7:continue;>(removed)",
+        // Line-keyed siteIds re-derived after the enforcement-pair arc's edits
+        // shifted corpus.ts by two lines (an import and a ProblemKind member).
+        siteId: "statement-removal:79:7:continue;>(removed)",
         kind: "equivalent",
         reason:
-          "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:79), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
+          "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:81), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
       },
       {
-        siteId: "relational-boundary:144:25:<><=",
+        siteId: "relational-boundary:146:25:<><=",
         kind: "equivalent",
         reason:
-          'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:146 continues before parseRow sees it',
+          'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:148 continues before parseRow sees it',
+      },
+    ],
+  },
+  {
+    // Enrolled by the enforcement-pair arc (its spec §6.3, dogfood): enrolment
+    // precedes this surface's own round-1 diff review, and the run's score
+    // feeds the brief's GUARD SURFACE: line that the new codex-guard dispatch
+    // gate checks.
+    id: "reviewRoundFiling",
+    sourcePath: "lib/reviewRounds/filing.ts",
+    suitePaths: ["tests/reviewRounds/filing.test.ts", "tests/docs/_metaReviewRoundEconomy.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Inverts the none decision: every non-none Mechanizable entry reads as
+    // none, so the parity duty never fires anywhere.
+    control: {
+      from: "const isNone = /^none\\b/i.test(remainder);",
+      to: "const isNone = !/^none\\b/i.test(remainder);",
+    },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior ------------------
+      {
+        siteId: "logical-connector:68:28:||>&&",
+        kind: "equivalent",
+        reason:
+          'visibleText\'s code/html guard: both node types are mdast LITERALS (a value, no children), so they fail every typed branch below and land on the final `return ""` either way - the guard is clarity, not behavior',
+      },
+      {
+        siteId: "logical-connector:117:30:||>&&",
+        kind: "equivalent",
+        reason:
+          "the inner flip leaves `|| delete` intact, so only code/html stop being skipped - and both are childless literals renderedFieldLabels can extract nothing from (not strong, no children to recurse into)",
+      },
+      {
+        siteId: "logical-connector:131:30:||>&&",
+        kind: "equivalent",
+        reason:
+          "same shape in hasNestedMechanizable: code/html are childless literals with no listItem or field paragraph beneath them, so descending finds nothing",
+      },
+      {
+        siteId: "statement-removal:191:9:break;>(removed)",
+        kind: "equivalent",
+        reason:
+          "the decline loop's body only ever assigns hasDecline = true; iterating past the first hit can only re-assign the same value",
+      },
+      {
+        siteId: "statement-removal:196:11:break;>(removed)",
+        kind: "equivalent",
+        reason: "same loop, list arm: further iterations can only re-assign true",
+      },
+      {
+        siteId: "statement-removal:233:5:current = null;>(removed)",
+        kind: "equivalent",
+        reason:
+          "both heading branches reassign `current` immediately after their close() call, and after the final close() nothing reads it - the null is hygiene against a future reader, not reachable state",
       },
     ],
   },
