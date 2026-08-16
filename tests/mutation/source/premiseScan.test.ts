@@ -350,3 +350,115 @@ describe("recognizer edges the mutation gate found unpinned", () => {
     expect(classifyTests(ROOT, p)[0]?.line).toBe(3);
   });
 });
+
+// ── Whole-diff review R1: the scope model resolved by NAME in three places ────
+//
+// Every case below is a SILENT wrong answer, not a refusal — the direction the
+// consequence bound forbids. They are grouped by which of the three name-keyed
+// steps produced them, and each pair fixes everything except the one thing
+// under test, so a verdict difference is that step and nothing else.
+describe("R1 — a reference denotes a BINDING, never a name", () => {
+  const IMPORT = `import { spawnSync } from "node:child_process";`;
+  const MODULE_CACHE = `const cache = spawnSync("git", []);`;
+
+  // (1) Reference dedup collapsed same-named bindings, so which one a test was
+  // judged against depended on SOURCE ORDER. Both halves read the module
+  // `cache`; only the order of the shadowed reference differs.
+  it("a shadow seen FIRST does not hide a later read of the module binding", () => {
+    expect(
+      verdict(`${IMPORT}
+        ${MODULE_CACHE}
+        it("x", () => { const f = (cache) => cache; f(1); return cache; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("the same source with the two references REVERSED agrees", () => {
+    // The foil: this half already passed. Keeping it makes the pair a
+    // source-order probe rather than a single assertion that could be
+    // satisfied by classifying everything as touching.
+    expect(
+      verdict(`${IMPORT}
+        ${MODULE_CACHE}
+        it("x", () => { const r = cache; const f = (cache) => cache; f(1); return r; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("two same-named helpers in different scopes are both visited", () => {
+    expect(
+      verdict(`${IMPORT}
+        function outer() { return spawnSync("git", []); }
+        it("x", () => { const inner = () => { const outer = () => 1; return outer(); }; inner(); return outer(); });`),
+    ).toBe("environment-touching");
+  });
+
+  // (2) The import map is file-global, and it was consulted BEFORE lexical
+  // resolution — so any inner binding that happened to reuse an import's name
+  // read as provenance it cannot reach.
+  it("a parameter shadowing an import is not provenance", () => {
+    expect(
+      verdict(`${IMPORT}
+        function pure(spawnSync) { return spawnSync; }
+        it("x", () => { pure(1); });`),
+    ).toBe("environment-free");
+  });
+
+  it("a function-local const shadowing an import is not provenance", () => {
+    expect(
+      verdict(`${IMPORT}
+        it("x", () => { const spawnSync = 1; return spawnSync; });`),
+    ).toBe("environment-free");
+  });
+
+  it("the unshadowed import still IS provenance", () => {
+    // The foil for both cases above: same import, nothing shadowing it.
+    expect(
+      verdict(`${IMPORT}
+        it("x", () => { spawnSync("git", []); });`),
+    ).toBe("environment-touching");
+  });
+
+  // (3) Only identifier declarations and identifier parameters were bound, so
+  // every other ordinary binding form fell through to a same-named outer one.
+  const shadowingForms: ReadonlyArray<readonly [string, string]> = [
+    ["object parameter pattern", `function pure({ cache }) { return cache; } pure({ cache: 1 });`],
+    ["array parameter pattern", `function pure([cache]) { return cache; } pure([1]);`],
+    [
+      "nested parameter pattern",
+      `function pure({ a: [cache] }) { return cache; } pure({ a: [1] });`,
+    ],
+    ["rest parameter", `function pure(...cache) { return cache; } pure(1);`],
+    ["destructured const", `const { cache } = { cache: 1 }; return cache;`],
+    ["array const", `const [cache] = [1]; return cache;`],
+    ["destructured for-of binding", `for (const { cache } of []) { void cache; }`],
+    ["destructured catch binding", `try { void 0; } catch ({ cache }) { void cache; }`],
+    [
+      "named function expression self-binding",
+      `const p = function cache() { return cache; }; p();`,
+    ],
+  ];
+  it.each(shadowingForms)("%s shadows the module binding", (_form, body) => {
+    expect(
+      verdict(`${IMPORT}
+        ${MODULE_CACHE}
+        it("x", () => { ${body} });`),
+    ).toBe("environment-free");
+  });
+
+  it("a block-local binding does NOT shadow the read that follows the block", () => {
+    // The other direction of the same model: a scope that ENDS must stop
+    // shadowing, or the loss is silent in the false-negative direction.
+    expect(
+      verdict(`${IMPORT}
+        ${MODULE_CACHE}
+        it("x", () => { { const cache = 1; void cache; } return cache; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a `var` is function-scoped, so a block does not confine it", () => {
+    expect(
+      verdict(`${IMPORT}
+        ${MODULE_CACHE}
+        it("x", () => { { var cache = 1; } return cache; });`),
+    ).toBe("environment-free");
+  });
+});

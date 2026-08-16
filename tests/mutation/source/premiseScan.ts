@@ -62,30 +62,116 @@ function registrarRoot(callee: ts.Expression): string | null {
   return ts.isIdentifier(node) && REGISTRARS.has(node.text) ? node.text : null;
 }
 
-/** Every identifier referenced anywhere inside a node. */
 /**
- * Every identifier REFERENCE under `node`, each paired with the identifier
- * itself so resolution can start from the reference's own scope.
+ * EVERY identifier REFERENCE under `node`, in source order, each kept as the
+ * identifier node itself so resolution starts from the reference's own scope.
  *
- * Names alone were enough only while extents were a single flat map. They are
- * not: `cache` in one function and `cache` at module scope are different
- * bindings, and which one a reference means is a property of WHERE it sits.
+ * Deliberately NOT deduplicated by name. A name-keyed map kept whichever
+ * occurrence came first and threw the rest away, so `{ const f = (cache) => cache;
+ * return cache; }` was judged against the parameter and the module `cache` it
+ * actually reads was never resolved — a silent false negative whose direction
+ * flipped when the two references swapped places (whole-diff R1 #1). Dedup
+ * happens downstream, keyed by the BINDING a reference resolves to.
  */
-function referencedNames(node: ts.Node): Map<string, ts.Node> {
-  const out = new Map<string, ts.Node>();
+function referencedIdentifiers(node: ts.Node): ts.Identifier[] {
+  const out: ts.Identifier[] = [];
   const walk = (n: ts.Node): void => {
-    if (ts.isIdentifier(n) && !out.has(n.text)) out.set(n.text, n);
+    if (ts.isIdentifier(n) && isReferenceIdentifier(n)) out.push(n);
     ts.forEachChild(n, walk);
   };
   walk(node);
   return out;
 }
 
-/** A binding environment: a function-like node, or the source file itself. */
+/**
+ * Is this identifier a REFERENCE to a binding, or just a name in a position
+ * that happens to hold one?
+ *
+ * A member name, a property key and a declaration's own name are not
+ * references, and reading them as such resolves them against whatever
+ * same-named binding is in scope: `pure({ cache: 1 })` inherited the extent of
+ * a module `const cache = spawnSync(...)` from the KEY alone. The name-keyed
+ * dedup hid this by keeping only one occurrence per name.
+ */
+function isReferenceIdentifier(id: ts.Identifier): boolean {
+  const p = id.parent;
+  if (p === undefined) return true;
+  if (ts.isPropertyAccessExpression(p) && p.name === id) return false;
+  if (ts.isQualifiedName(p) && p.right === id) return false;
+  if (ts.isPropertyAssignment(p) && p.name === id) return false;
+  // `{ prop: local }` — the KEY names a property, the local name is a binding.
+  if (ts.isBindingElement(p) && p.propertyName === id) return false;
+  if (ts.isJsxAttribute(p) && p.name === id) return false;
+  if (ts.isMetaProperty(p)) return false;
+  // A declaration's own name: it BINDS here, it does not read anything.
+  if (
+    (ts.isVariableDeclaration(p) ||
+      ts.isParameter(p) ||
+      ts.isBindingElement(p) ||
+      ts.isFunctionDeclaration(p) ||
+      ts.isFunctionExpression(p) ||
+      ts.isClassDeclaration(p) ||
+      ts.isClassExpression(p) ||
+      ts.isMethodDeclaration(p) ||
+      ts.isPropertyDeclaration(p) ||
+      ts.isPropertySignature(p) ||
+      ts.isEnumMember(p) ||
+      ts.isImportSpecifier(p) ||
+      ts.isImportClause(p) ||
+      ts.isNamespaceImport(p) ||
+      ts.isTypeParameterDeclaration(p)) &&
+    p.name === id
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Does any identifier under `node` carry this name? (membership only — no resolution). */
+function referencesName(node: ts.Node, name: string): boolean {
+  return referencedIdentifiers(node).some((id) => id.text === name);
+}
+
+/** A binding environment: the source file, or any node that introduces one. */
 type Scope = ts.Node;
 
-/** The nearest enclosing scope of `node` — where a binding declared at `node` lives. */
+/**
+ * Every node that introduces a binding environment.
+ *
+ * Function-like nodes and the source file are the two the extent map was
+ * originally keyed by. The rest are here because a binding form that is NOT
+ * function-scoped — `let`/`const` in a block, a `for` head, a `catch`
+ * parameter, a named function expression's self-binding — otherwise registers
+ * one scope too wide and shadows references that sit outside it (whole-diff R1
+ * #3). A class expression is a scope for the same reason: its name binds inside
+ * its own body and nowhere else.
+ */
+function isScopeNode(node: ts.Node): boolean {
+  return (
+    ts.isSourceFile(node) ||
+    isFunctionLike(node) ||
+    ts.isClassExpression(node) ||
+    ts.isBlock(node) ||
+    ts.isForStatement(node) ||
+    ts.isForOfStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isCatchClause(node) ||
+    ts.isCaseBlock(node)
+  );
+}
+
+/** The nearest enclosing scope of `node` — where a block-scoped binding declared at `node` lives. */
 function scopeOf(node: ts.Node): Scope | null {
+  let p: ts.Node | undefined = node.parent;
+  while (p) {
+    if (isScopeNode(p)) return p;
+    p = p.parent;
+  }
+  return null;
+}
+
+/** The nearest enclosing FUNCTION scope — where `var` and hoisted names live. */
+function functionScopeOf(node: ts.Node): Scope | null {
   let p: ts.Node | undefined = node.parent;
   while (p) {
     if (ts.isSourceFile(p) || isFunctionLike(p)) return p;
@@ -104,6 +190,31 @@ function isFunctionLike(node: ts.Node): boolean {
     ts.isGetAccessor(node) ||
     ts.isSetAccessor(node)
   );
+}
+
+/** Every name a binding form introduces — identifier, or any nesting of object/array patterns. */
+function bindingIdentifiers(name: ts.BindingName): ts.Identifier[] {
+  if (ts.isIdentifier(name)) return [name];
+  const out: ts.Identifier[] = [];
+  for (const el of name.elements) {
+    if (ts.isOmittedExpression(el)) continue;
+    out.push(...bindingIdentifiers(el.name));
+  }
+  return out;
+}
+
+/** `const x = await import("m")` / `= import("m")` — the two spellings of a dynamic-import binding. */
+function isDynamicImportInitializer(init: ts.Expression | undefined): boolean {
+  if (init === undefined) return false;
+  const expr = ts.isAwaitExpression(init) ? init.expression : init;
+  return ts.isCallExpression(expr) && expr.expression.kind === ts.SyntaxKind.ImportKeyword;
+}
+
+/** `var` (function-scoped) vs `let`/`const` (block-scoped). */
+function isVarDeclaration(decl: ts.VariableDeclaration): boolean {
+  const list = decl.parent;
+  if (list === undefined || !ts.isVariableDeclarationList(list)) return false;
+  return (list.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0;
 }
 
 type ModuleFacts = {
@@ -132,20 +243,41 @@ type ModuleFacts = {
 };
 
 /**
- * The extent a reference denotes, resolved innermost-out from its own scope.
+ * What a reference DENOTES: a local binding (with its extent, possibly empty),
+ * an import, or nothing.
  *
- * Returns `[]` when a shadow blocks the walk, which is a real answer: the name
- * is bound to something with no provenance.
+ * One resolution for both consumers. The import map is file-global, so reading
+ * it before the lexical walk made every inner binding that reused an import's
+ * name — `function pure(spawnSync)`, a local `const spawnSync` — read as
+ * provenance it cannot reach (whole-diff R1 #2). Imports are what a name means
+ * only when no enclosing scope binds it.
  */
-function resolveExtent(facts: ModuleFacts, name: string, from: ts.Node): ts.Node[] {
+type Binding =
+  | { kind: "local"; scope: Scope; extent: ts.Node[] }
+  | { kind: "import"; spec: string; imported: string }
+  | { kind: "unbound" };
+
+function resolveBinding(facts: ModuleFacts, name: string, from: ts.Node): Binding {
   let scope: Scope | null = scopeOf(from) ?? facts.sf;
   while (scope) {
     const here = facts.extents.get(scope)?.get(name);
-    if (here && here.length > 0) return here;
-    if (facts.shadows.get(scope)?.has(name)) return [];
+    if (here && here.length > 0) return { kind: "local", scope, extent: here };
+    // A shadow is a real answer, not a miss: the name is bound to something
+    // with no provenance, so the walk STOPS rather than inheriting an outer
+    // binding's extent.
+    if (facts.shadows.get(scope)?.has(name)) return { kind: "local", scope, extent: [] };
     scope = scopeOf(scope);
   }
-  return [];
+  const imported = facts.imports.get(name);
+  if (imported !== undefined) return { kind: "import", ...imported };
+  return { kind: "unbound" };
+}
+
+/** Identity of the binding a reference resolves to — the dedup key. */
+function bindingKey(name: string, binding: Binding): string | null {
+  if (binding.kind === "local") return `${name}@${binding.scope.kind}:${binding.scope.pos}`;
+  if (binding.kind === "import") return `${name}@import`;
+  return null;
 }
 
 /** A module's EXPORTED binding, looked up by the name it carries there. */
@@ -163,16 +295,19 @@ function moduleFacts(path: string): ModuleFacts | null {
    * known until every declaration in the file has been registered. */
   const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
 
-  /** Register `node` in the extent of `name` as bound in `declaredAt`'s scope. */
-  const addExtent = (name: string, node: ts.Node, declaredAt: ts.Node): void => {
-    const scope = scopeOf(declaredAt) ?? sf;
+  /** Register `node` in the extent of `name`, bound in exactly `scope`. */
+  const addExtentIn = (scope: Scope, name: string, node: ts.Node): void => {
     const byName = extents.get(scope) ?? new Map<string, ts.Node[]>();
     byName.set(name, [...(byName.get(name) ?? []), node]);
     extents.set(scope, byName);
   };
 
-  const addShadow = (name: string, declaredAt: ts.Node): void => {
-    const scope = scopeOf(declaredAt) ?? sf;
+  /** Register `node` in the extent of `name` as bound in `declaredAt`'s scope. */
+  const addExtent = (name: string, node: ts.Node, declaredAt: ts.Node): void => {
+    addExtentIn(scopeOf(declaredAt) ?? sf, name, node);
+  };
+
+  const addShadowIn = (scope: Scope, name: string): void => {
     const set = shadows.get(scope) ?? new Set<string>();
     set.add(name);
     shadows.set(scope, set);
@@ -237,33 +372,50 @@ function moduleFacts(path: string): ModuleFacts | null {
     // a helper declared inside `describe` had no extent, so its provenance was
     // invisible. Scope keys plus parameter shadows close both: the AC-10b
     // fixture and the describe-scope fixture are regression cases side by side.
+    //
+    // EVERY binding form binds, not just the identifier ones. Reading only
+    // `const x = …` and identifier parameters left object/array patterns, `for`
+    // heads, destructured `catch` clauses and named function expressions
+    // unbound, so each fell through to a same-named outer binding and inherited
+    // provenance it cannot reach (whole-diff R1 #3).
     if (ts.isVariableDeclaration(node)) {
-      if (ts.isIdentifier(node.name) && node.initializer) {
-        addExtent(node.name.text, node.initializer, node);
-      }
-      if (ts.isObjectBindingPattern(node.name) && node.initializer) {
-        for (const el of node.name.elements) {
-          if (ts.isIdentifier(el.name)) addExtent(el.name.text, node.initializer, node);
+      // `var` hoists to the enclosing FUNCTION; `let`/`const` bind in the block
+      // they sit in. Registering a block-scoped name at function scope shadows
+      // references that follow the block, which is the false-NEGATIVE direction.
+      const home = isVarDeclaration(node) ? (functionScopeOf(node) ?? sf) : (scopeOf(node) ?? sf);
+      // A dynamic-import binding is recorded in `imports` (with the name it
+      // carries in the TARGET module) by the clause above. Registering a local
+      // extent for it too would shadow that entry with the bare `await
+      // import(...)` expression, which names no provenance by itself and
+      // carries no edge to follow into an in-repo module. LIMIT: such a binding
+      // is therefore modelled as module-scoped, so two dynamic imports of the
+      // same local name in different scopes share one entry.
+      if (!isDynamicImportInitializer(node.initializer)) {
+        for (const id of bindingIdentifiers(node.name)) {
+          // A declaration with NO initializer still BINDS the name here, so a
+          // later write inside a nested function attaches to this binding rather
+          // than falling through to a same-named outer one.
+          if (node.initializer) addExtentIn(home, id.text, node.initializer);
+          else addShadowIn(home, id.text);
         }
       }
-      // A declaration with NO initializer still BINDS the name here, so a later
-      // write inside a nested function attaches to this binding rather than
-      // falling through to a same-named outer one.
-      if (ts.isIdentifier(node.name) && !node.initializer) addShadow(node.name.text, node);
     }
     if (ts.isFunctionDeclaration(node) && node.name) addExtent(node.name.text, node, node);
     if (ts.isClassDeclaration(node) && node.name) addExtent(node.name.text, node, node);
 
+    // A named function or class EXPRESSION binds its own name inside itself and
+    // nowhere else: `const p = function cache() { return cache; }` reads the
+    // function, not an outer `cache`.
+    if ((ts.isFunctionExpression(node) || ts.isClassExpression(node)) && node.name) {
+      addShadowIn(node, node.name.text);
+    }
+
     // Parameters bind their names with no extent of their own. Recorded as
     // shadows so the innermost-out walk STOPS rather than inheriting an outer
-    // binding's provenance.
+    // binding's provenance. Patterns bind exactly as identifiers do.
     if (isFunctionLike(node)) {
       for (const param of (node as ts.SignatureDeclaration).parameters ?? []) {
-        if (ts.isIdentifier(param.name)) {
-          const scope = shadows.get(node) ?? new Set<string>();
-          scope.add(param.name.text);
-          shadows.set(node, scope);
-        }
+        for (const id of bindingIdentifiers(param.name)) addShadowIn(node, id.text);
       }
     }
 
@@ -297,7 +449,7 @@ function moduleFacts(path: string): ModuleFacts | null {
       if (extents.get(scope)?.has(name) || shadows.get(scope)?.has(name)) return scope;
       scope = scopeOf(scope);
     }
-    return sf;
+    return sf; // unresolved: record the write at module scope rather than drop it
   };
   for (const { name, at, value } of writes) {
     const scope = bindingScope(name, at);
@@ -350,9 +502,12 @@ function extentIsProvenance(node: ts.Node, facts: ModuleFacts): boolean {
     if (ts.isIdentifier(n) && n.text === "process" && ts.isVariableDeclaration(n.parent)) {
       hit = true;
     }
-    if (ts.isIdentifier(n)) {
-      const imported = facts.imports.get(n.text);
-      if (imported && isProvenanceModule(imported.spec)) hit = true;
+    // An identifier is the import only when NOTHING between it and module scope
+    // binds that name — a file-global map read cannot tell `spawnSync` the
+    // import from `function pure(spawnSync)` (whole-diff R1 #2).
+    if (ts.isIdentifier(n) && isReferenceIdentifier(n)) {
+      const binding = resolveBinding(facts, n.text, n);
+      if (binding.kind === "import" && isProvenanceModule(binding.spec)) hit = true;
     }
     ts.forEachChild(n, walk);
   };
@@ -385,13 +540,20 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     const unresolved: string[] = [];
     const visit = (node: ts.Node, f: ModuleFacts, path: string): boolean => {
       if (extentIsProvenance(node, f)) return true;
-      for (const [name, reference] of referencedNames(node)) {
-        const key = `${path}#${name}`;
+      for (const reference of referencedIdentifiers(node)) {
+        const name = reference.text;
+        // Dedup by the BINDING, not the name: two same-named bindings in
+        // different scopes are two different things to visit, and collapsing
+        // them made the verdict depend on which occurrence came first.
+        const binding = resolveBinding(f, name, reference);
+        const bk = bindingKey(name, binding);
+        if (bk === null) continue; // unbound: nothing to visit
+        const key = `${path}#${bk}`;
         if (seen.has(key)) continue;
         seen.add(key);
 
-        const imported = f.imports.get(name);
-        if (imported !== undefined) {
+        if (binding.kind === "import") {
+          const imported = binding;
           if (isProvenanceModule(imported.spec)) return true;
           const target = resolveSpecifier(root, path, imported.spec);
           if (target === null) continue; // node_modules, pure by L-2
@@ -406,7 +568,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           }
           continue;
         }
-        for (const ext of resolveExtent(f, name, reference)) {
+        for (const ext of binding.extent) {
           if (visit(ext, f, path)) return true;
         }
       }
@@ -548,7 +710,7 @@ function premiseIsAssociated(call: ts.CallExpression, facts: ModuleFacts): boole
       ts.isIdentifier(n.expression) &&
       /^premise(Holds)?$/.test(n.expression.text) &&
       n.getStart(facts.sf) < call.getStart(facts.sf) &&
-      referencedNames(n).has(binding)
+      referencesName(n, binding)
     ) {
       found = true;
     }
