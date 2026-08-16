@@ -99,8 +99,13 @@ export function checkBudget(
     // comparisons below pushes nothing and the output is identical. Rather than
     // bless a survivor, the mechanism that produced it is gone -- there is no
     // longer a statement whose removal changes nothing.
-    if (!Number.isFinite(r.seconds)) {
-      failures.push(`leg ${r.leg} reported a non-numeric elapsed value: ${r.seconds}`);
+    if (!Number.isFinite(r.seconds) || r.seconds < 0) {
+      // NEGATIVE counts as malformed, not as "very fast". A negative elapsed is
+      // finite and below every budget, so it passes each comparison below while
+      // meaning the start stamp was never written or the clock moved. Zero is
+      // NOT rejected: a leg can legitimately start and finish inside one second,
+      // and a guard that reds on correct input is broken rather than stricter.
+      failures.push(`leg ${r.leg} reported an implausible elapsed value: ${r.seconds}`);
     } else if (Number.isFinite(budgetSeconds) && r.seconds > budgetSeconds) {
       // Strictly above: exactly at budget is compliant. Seconds, not minutes --
       // an integer-minute record cannot express 60m59s, so a shard already over

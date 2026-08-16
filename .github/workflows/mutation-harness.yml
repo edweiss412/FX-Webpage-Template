@@ -209,6 +209,11 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    # Republished so `notify` can name the over-budget legs and their elapsed
+    # seconds in the tracking issue. A budget failure's entire content is WHICH
+    # leg and HOW LONG; before this it lived only in this job's log.
+    outputs:
+      report: ${{ steps.budget-check.outputs.report }}
     steps:
       - uses: actions/checkout@v4
       # `tsx` is a project dependency, not a runner binary, so this job needs the
@@ -252,6 +257,18 @@ jobs:
     permissions:
       contents: read
       issues: write
+      # Reading the run's own jobs is what lets the issue name WHICH of the
+      # fifteen legs failed, including its matrix index. `needs.<job>.result` is
+      # only ever the family aggregate.
+      actions: read
+    env:
+      # ONE predicate, used in both directions, so the two branches cannot
+      # disagree about what "green" means. `!contains(..., 'failure')` alone
+      # treated `cancelled` and `skipped` as green, which let a non-green run
+      # AUTO-CLOSE the standing tracking issue -- the exact silence spec §3.5
+      # exists to prevent (whole-diff review R1 #1).
+      ALL_GREEN: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') && !contains(needs.*.result, 'timed_out') }}
+      BUDGET_REPORT: ${{ needs.budget.outputs.report }}
     steps:
       # `contains(needs.*.result, 'failure')` rather than a named job: the single
       # `mutation-harness` job this workflow used to branch on no longer exists,
@@ -261,34 +278,48 @@ jobs:
       # silent exactly when it is needed.
       - name: Surface a red nightly as a tracking issue
         id: file-issue
-        if: ${{ contains(needs.*.result, 'failure') }}
+        if: ${{ env.ALL_GREEN != 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
             const label = "mutation-harness-red";
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            // WHICH leg failed, in the issue body. This workflow now runs fifteen
-            // legs; without this a triager opens the run and reads fifteen job
-            // names to find the red one, which is the cost that made a
-            // non-required red job effectively silent.
-            const results = {
-              "parser-shards": "${{ needs.parser-shards.result }}",
-              "parser-gates": "${{ needs.parser-gates.result }}",
-              "source-shards": "${{ needs.source-shards.result }}",
-              "source-gates": "${{ needs.source-gates.result }}",
-              "budget": "${{ needs.budget.result }}",
-            };
-            const rows = Object.entries(results).map(([j, r]) => `   - ${j}: ${r}`);
-            const failed = Object.entries(results).filter(([, r]) => r === "failure").map(([j]) => j);
+            // WHICH LEG failed, by its real name INCLUDING its matrix index.
+            // `needs.<job>.result` is only ever the family aggregate, so an
+            // issue built from it says "parser-shards failed" and leaves a
+            // triager to open the run and read fifteen job names -- the cost
+            // that made a non-required red job effectively silent, and the
+            // arc's whole legibility objective (whole-diff review R1 #2).
+            // The run's own jobs carry the per-leg conclusion; `actions: read`
+            // is declared for exactly this.
+            const jobs = await github.paginate(
+              github.rest.actions.listJobsForWorkflowRun,
+              { owner, repo, run_id: context.runId, per_page: 100 },
+            );
+            // `notify` is itself in this list and is still in_progress; a job
+            // with no conclusion yet is not a result to report.
+            const legs = jobs
+              .filter((j) => j.name !== context.job && j.conclusion !== null)
+              .map((j) => ({ name: j.name, conclusion: j.conclusion }));
+            const failed = legs
+              .filter((l) => l.conclusion !== "success")
+              .map((l) => `${l.name} (${l.conclusion})`);
+            const rows = legs.map((l) => `   - ${l.name}: ${l.conclusion}`);
+            // The budget verdict's detail -- which leg, how many seconds --
+            // republished as a job output. Read from the ENVIRONMENT rather
+            // than interpolated into this script: leg names come from artifact
+            // directory names, which are not trusted input.
+            const budgetReport = (process.env.BUDGET_REPORT || "").trim();
             const body = [
               `The nightly mutation-harness run failed: ${runUrl}`,
               "",
-              `FAILED: ${failed.length > 0 ? failed.join(", ") : "(none reported failure; a leg was cancelled or timed out)"}`,
+              `NOT GREEN: ${failed.length > 0 ? failed.join(", ") : "(no leg reported a non-success conclusion; see the run)"}`,
               "",
-              "Per-job results (a matrix job is 'failure' if ANY of its shards failed; open the run to find which index):",
+              "Every leg's conclusion:",
               ...rows,
               "",
+              ...(budgetReport ? ["Budget verdict:", ...budgetReport.split("\n").map((l) => `   ${l}`), ""] : []),
               "This workflow runs TWO independent harnesses. Identify which one failed FIRST — they share no code and their remediation differs entirely.",
               "",
               "A) PARSER fixture-mutation harness — jobs `parser-shards` / `parser-gates` (tests/parser/mutationHarness.*.test.ts).",
@@ -325,7 +356,7 @@ jobs:
             }
       - name: Auto-close the tracking issue on green
         id: close-issue
-        if: ${{ !contains(needs.*.result, 'failure') }}
+        if: ${{ env.ALL_GREEN == 'true' }}
         uses: actions/github-script@v7
         with:
           script: |

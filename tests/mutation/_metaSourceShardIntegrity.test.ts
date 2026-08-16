@@ -32,6 +32,9 @@ type Job = {
   strategy?: { matrix?: Record<string, unknown>; "fail-fast"?: boolean };
   needs?: string[];
   steps?: Step[];
+  env?: Record<string, string>;
+  permissions?: Record<string, string>;
+  outputs?: Record<string, string>;
 };
 const WORKFLOW = join(ROOT, ".github/workflows/mutation-harness.yml");
 const wf = parseYaml(readFileSync(WORKFLOW, "utf8")) as { jobs: Record<string, Job> };
@@ -321,22 +324,63 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     }
   });
 
-  it("the tracking issue reports each job's RESULT, in the BODY (AC-6)", () => {
-    // Scoped to the github-script BODY, not the serialized step object. A step
-    // NAME like `Report needs.parser-shards.result`, or the same expression in
-    // an `if:` condition, satisfies a whole-object substring search while the
-    // body itself reports nothing -- the sibling-contamination shape the
-    // anti-tautology rule exists to stop.
-    // Selected by DECLARED ID, not by matching text in the body. `notify` has
-    // two github-script steps, and `issues.createComment` -- which BOTH bodies
-    // call -- contains the substring `issues.create`, so a body-text selector
-    // matches the auto-close step too and lets its text satisfy a claim about
-    // the issue body. An `id` is exact, unique per job, and workflow-controlled.
-    const filing = (wf.jobs["notify"]?.steps ?? []).filter((x) => x.id === "file-issue");
+  it("green is ONE predicate, used in both directions, and rejects every non-success state (AC-6)", () => {
+    // Whole-diff review R1 #1: the two branches were `contains(..., 'failure')`
+    // and its negation, which treats `cancelled` and `skipped` as GREEN -- so a
+    // non-green run could AUTO-CLOSE the standing tracking issue, the exact
+    // silence spec §3.5 exists to prevent.
+    //
+    // Two properties, both structural rather than pattern-matched. First, the
+    // branches read ONE variable in OPPOSITE directions, so they cannot come to
+    // disagree about what green means. Second, that variable's definition
+    // mentions every non-success conclusion GitHub can report -- a CLOSED set,
+    // so this is a derived cover rather than a list someone must remember to
+    // extend.
+    const notify = wf.jobs["notify"];
+    const green = notify?.env?.["ALL_GREEN"] ?? "";
+    expect(green, "notify declares no ALL_GREEN predicate").not.toBe("");
+    for (const state of ["failure", "cancelled", "skipped", "timed_out"]) {
+      expect(green, `ALL_GREEN treats ${state} as green`).toContain(state);
+    }
+    const steps = notify?.steps ?? [];
+    const filing = steps.find((x) => x.id === "file-issue");
+    const closing = steps.find((x) => x.id === "close-issue");
+    const cond = (s: Step | undefined) =>
+      ((s as { if?: string } | undefined)?.if ?? "").replace(/\s+/g, " ").trim();
+    expect(cond(filing)).toBe("${{ env.ALL_GREEN != 'true' }}");
+    expect(cond(closing)).toBe("${{ env.ALL_GREEN == 'true' }}");
+  });
+
+  it("the tracking issue names every LEG, not the family aggregate (AC-6)", () => {
+    // Whole-diff review R1 #2. `needs.<job>.result` is only ever the family
+    // aggregate, so an issue built from it says "parser-shards failed" and
+    // leaves a triager to open the run and read fifteen job names -- which is
+    // the cost that makes a non-required red job silent, i.e. the arc's whole
+    // legibility objective. The body must therefore derive per-leg conclusions
+    // from the run's own jobs, and the job must hold the permission that allows
+    // it.
+    const notify = wf.jobs["notify"] as
+      | (Job & { permissions?: Record<string, string> })
+      | undefined;
+    expect(notify?.permissions?.["actions"], "notify cannot read its own run's jobs").toBe("read");
+    const filing = (notify?.steps ?? []).filter((x) => x.id === "file-issue");
     expect(filing, "notify declares no step with id file-issue").toHaveLength(1);
     const body = filing[0]!.with!.script!;
-    for (const job of [...FAMILIES.map((f) => f.job), ...GATES.map((g) => g.job), "budget"]) {
-      expect(body, `the issue body never reports ${job}'s result`).toContain(`needs.${job}.result`);
-    }
+    expect(body, "the issue body does not enumerate the run's jobs").toContain(
+      "listJobsForWorkflowRun",
+    );
+    expect(body, "the issue body never reads a leg's conclusion").toContain("conclusion");
+    // The budget verdict's DETAIL -- which leg, how many seconds -- reaches the
+    // issue, and does so through the environment rather than `${{ }}` into the
+    // script body: leg names are derived from artifact directory names, which
+    // are not trusted input.
+    expect(body, "the budget verdict never reaches the issue body").toContain(
+      "process.env.BUDGET_REPORT",
+    );
+    expect((notify?.env ?? {})["BUDGET_REPORT"]).toBe("${{ needs.budget.outputs.report }}");
+    expect(
+      wf.jobs["budget"]?.outputs?.["report"],
+      "the budget job does not republish its verdict",
+    ).toBe("${{ steps.budget-check.outputs.report }}");
   });
 });

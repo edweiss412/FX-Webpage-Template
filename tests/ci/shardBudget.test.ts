@@ -77,6 +77,23 @@ describe("shard budget check", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("rejects a NEGATIVE elapsed reading rather than treating it as very fast", () => {
+    // Whole-diff review R1 #3 named the empty-record coercion; the class is
+    // wider than that one spelling. A negative elapsed is finite and below any
+    // budget, so it passes every comparison while meaning the stamp was wrong --
+    // exactly the "implausible reading reads as a fast leg" shape.
+    const r = checkBudget([rec(LEGS[0]!, -5), rec(LEGS[1]!, 1)], LEGS, BUDGET);
+    expect(r.ok).toBe(false);
+    expect(r.failures.join(" ")).toContain(LEGS[0]!);
+  });
+
+  it("accepts a ZERO elapsed reading, which is implausible but not malformed", () => {
+    // The boundary the rule above must not overshoot: 0 is a legal reading for a
+    // leg that started and finished inside the same second. Rejecting it would
+    // be a guard that reds on correct input.
+    expect(checkBudget([rec(LEGS[0]!, 0), rec(LEGS[1]!, 1)], LEGS, BUDGET).ok).toBe(true);
+  });
+
   it("rejects a non-finite budget rather than passing everything", () => {
     // A budget that failed to parse must not silently make every leg compliant.
     const r = checkBudget([rec(LEGS[0]!, 1), rec(LEGS[1]!, 1)], LEGS, NaN);
