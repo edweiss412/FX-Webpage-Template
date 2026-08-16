@@ -191,7 +191,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "so the array is never empty. The guard reads as belt-and-braces and is exactly that.",
       },
       {
-        siteId: "integer-literal:715:32:0>1",
+        siteId: "integer-literal:731:32:0>1",
         kind: "equivalent",
         reason:
           "`unresolved` is provably always empty, so `length > 0` and `> 1` are indistinguishable. " +
@@ -201,7 +201,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "is a TOCTOU race rather than an input an ordinary contributor writes (threat fence).",
       },
       {
-        siteId: "relational-boundary:849:28:<><=",
+        siteId: "relational-boundary:865:28:<><=",
         kind: "equivalent",
         reason:
           "The premise-placement test asks whether the premise call starts BEFORE the registration " +
