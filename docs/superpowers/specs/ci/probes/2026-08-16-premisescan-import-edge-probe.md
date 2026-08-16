@@ -1,14 +1,14 @@
 # Probe — which import and export forms does `premiseScan` actually follow, and where do they occur?
 
 **Run:** 2026-08-16 · **Feeds:** `docs/superpowers/specs/ci/2026-08-16-premisescan-import-edge-fidelity-design.md` §3
-**Target tree:** `origin/fix/scanner-scope-totality` (PR #827, commit `ac9a40cd8`) — the scanner as that PR landed it, not the copy on `main`.
+**Target tree:** `origin/fix/scanner-scope-totality` at **`4e40db2b3`** (PR #827, 1,000 lines) — the scanner as that PR currently stands, not the copy on `main`. **Re-pinned in round 3:** the branch advanced five commits during review (`ac9a40cd8` → `4e40db2b3`) and a round-2 draft cited two different trees at once. Every behavioural row below was re-run against `4e40db2b3`; all are unchanged. Where a row is dated to the earlier pin it says so.
 
 ## Resolved scope — do not relitigate
 
 | Decision | Why |
 | --- | --- |
 | The target is the **unmerged #827 tree**, obtained with `git show origin/fix/scanner-scope-totality:tests/mutation/source/premiseScan.ts`. Measuring `main`'s 446-line copy would measure a scanner nobody will ship. | Parent spec §7 |
-| The harnesses ran from a **gitignored `.claude/probe/` directory** in the branch worktree. They are draft-time measurements; nothing re-runs them and no gate depends on them. **What is reproduced here is stated per probe rather than claimed in general:** probes 1 and 2 give the runner plus the complete fixture table, which is enough to rebuild them; probe 3's AST walker is DESCRIBED, not reproduced, and its iteration completeness therefore cannot be checked from this document alone. A round-1 draft said the harnesses "are reproduced below" without that distinction — a claim wider than the artifact, corrected after cross-model review found the seed-filter defect below that such a claim would have hidden. | Same posture as the two 2026-08-04 probes beside this file |
+| The harnesses ran from a **gitignored `.claude/probe/` directory** in the branch worktree. They are draft-time measurements; nothing re-runs them and no gate depends on them. **What is reproduced here is stated per probe rather than claimed in general:** probes 1 and 2 give the runner plus the complete fixture table, which is enough to rebuild them; **probe 4's source is INLINED in full below**, because a gitignored path does not survive in a committed record (round-3 finding 1); probe 3's AST walker is DESCRIBED, not reproduced, and its iteration completeness therefore cannot be checked from this document alone. A round-1 draft said the harnesses "are reproduced below" without that distinction — a claim wider than the artifact, corrected after cross-model review found the seed-filter defect below that such a claim would have hidden. | Same posture as the two 2026-08-04 probes beside this file |
 | The measurement is a **draft-time input**. The parent spec's AC-1 re-derives the live-domain figure executably; the numbers here are not a gate. | Parent spec §6 |
 
 ## Question
@@ -259,21 +259,446 @@ Round-1 review could not reproduce the "117 named re-export specifiers" figure a
 
 Under that model `0 MISSES` is uninformative: the divergences make misses **less** likely, so the figure could not exclude the silent demotion the question is about.
 
-**Corrected method (probe 4).** `.claude/probe/acceptSetCover.ts`, gitignored, run against the same `ac9a40cd8` tree. It implements `resolveExport(abs, exportName, active, done)` as §2.2 E1-E6, §2.4's three-way extension split and §2.5's active/done pair specify — E5 and E6 FOLLOW to their target, E2 resolves through registration or the import map and rejects a namespace binding, `export =` / `export * as ns from` / `export namespace` return `unresolvable`, type-only returns pure, `export default function f()` yields `default` only, and `default` is never forwarded by a star. It then classifies every VALUE edge — named, default, **and `ns.member` / `ns["member"]`** — into the five outcomes. Seeds are filtered on the full language set, so the near-domain closure is the declared one.
+**Corrected method (probe 4) — and it was corrected TWICE.** The round-2 rewrite implemented `resolveExport` faithfully but still discovered only static `ImportDeclaration`s, pre-filtered targets through the language set (so `data` and `unresolvable` were structurally zero), and parsed everything as `ScriptKind.TS`. Round-3 review found all three; the harness now also walks literal dynamic-import edges, classifies non-language targets rather than skipping them, selects the script kind by extension, puts every VALUE branch ahead of `typeOnly` (declaration merging makes `export interface x {}` + `export const x` legal, and checking types first silently freed the value), and reports a name bound from a dynamic `import()` instead of returning an empty extent.
+
+**The source is INLINED below, not cited.** `.claude/probe/` is gitignored — `git ls-files --error-unmatch .claude/probe/acceptSetCover.ts` exits 1 — so a path reference would not survive in the committed record, which is the whole point of a probe record.
+
+Run against `origin/fix/scanner-scope-totality` at `4e40db2b3`:
 
 ```
-live domain (post-#827 registry):  90 modules,   230 value import edges checked
-  outcomes: {"extent":230,"data":0,"pure-bare":0,"noSuchExport":0,"unresolvable":0}
-  noSuchExport MISSES (silent-demotion risk): 0
+live domain (post-#827 registry):   90 modules,    233 value import edges
+  by kind:  named 230 · dynamic-destructured 3
+  outcomes: extent 233 · data 0 · pure-bare 0 · noSuchExport 0 · unresolvable 0
+  MISSES: none, of any kind
 
-near-domain (git ls-files tests): 3,221 modules, 9,536 value import edges checked
-  outcomes: {"extent":9499,"data":0,"pure-bare":37,"noSuchExport":0,"unresolvable":0}
-  noSuchExport MISSES (silent-demotion risk): 0
+near-domain (git ls-files tests): 3,265 modules, 10,935 value import edges
+  by kind:  named 9,554 · dynamic-destructured 1,071 · ns.member 270 · default 40
+  outcomes: extent 10,861 · data 5 · pure-bare 37 · noSuchExport 5 · unresolvable 27
+  MISSES by kind: ns.member 5 — and nothing else
 ```
 
-The near-domain module count is **3,221** (the round-2 draft's 3,207 dropped the `.jsx`/`.mjs` seeds) and the edge count **9,536** (up from 9,381 because namespace member edges are now checked). The 37 `pure-bare` are E2/E5 branches forwarding to a bare specifier — pure by L-2, not misses.
+The five `ns.member` misses are listed in full by the harness; two are attributable to its own scope-blind namespace map (a local `mod` in one `it` body attributed to a namespace bound in another, `tests/app/admin/showReviewModalLoader.test.tsx`), and none can be a silent demotion because a namespace member edge resolves to nothing on the unrepaired tree. The 27 `unresolvable` are the near-domain's `.mdx` edges; the 5 `data` are its `.json` edges.
 
-**Conclusion.** The accept-set covers every value import edge the corpus contains, at both scopes, under a resolver that implements §2.2 rather than approximating it. This is the derived cover the class-sweep rule asks for: the claim is checked against the corpus rather than argued from a list of remembered forms — and the round-2 version is recorded above so that no later reader re-derives a number from a method that could not support it.
+<details>
+<summary>Full source of probe 4 (<code>acceptSetCover.ts</code>)</summary>
+
+```ts
+/**
+ * CORRECTED §3.3b pre-flight — round-2 finding 2.
+ *
+ * The round-1 harness (noSuchExportPreflight.ts) computed a module's exported
+ * NAMES with a model that diverged from spec §2.2 in eight ways (it recorded E5
+ * forwards without following them, accepted `export * as ns from` and `export =`
+ * which §2.2 declines, added type-only declarations as value exports, recorded
+ * both `default` and `f` for `export default function f()`, never checked
+ * namespace member edges, and seeded/filtered on `.ts`/`.tsx` only). "0 MISSES"
+ * from that model therefore could not establish the claim §3.3b makes.
+ *
+ * This one implements resolveExport(facts, exportName, active, done) as §2.2
+ * E1-E6 + §2.4's three-way extension split + §2.5's active/done pair actually
+ * specify, and classifies every VALUE import edge into the four answers.
+ * A `noSuchExport` on a DIRECT request is the silent-demotion risk §3.3b is about.
+ */
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, extname, join, relative, resolve } from "node:path";
+import ts from "typescript";
+
+const ROOT = "/Users/ericweiss/FX-worktrees/premisescan-import-edges";
+
+// §2.4 answer 1. `.jsx` is HERE because it is analyzed today (spec §3.9).
+const LANGUAGE = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"]);
+// §2.4 answer 2, NARROWED by round-2 finding 1: `.mdx` is executable in this
+// repo (next.config.ts pageExtensions, @mdx-js/rollup in vitest), so it is no
+// longer pure data. Everything not in either set is answer 3: REPORTED.
+const DATA = new Set([".json"]);
+
+/** `resolveSpecifier`'s shipped candidate generation — deliberately unchanged. */
+function resolveSpecifier(fromFile: string, spec: string): string | null {
+  let base: string;
+  if (spec.startsWith("@/")) base = join(ROOT, spec.slice(2));
+  else if (spec.startsWith(".")) base = resolve(dirname(fromFile), spec);
+  else return null; // bare specifier -> node_modules -> pure (L-2)
+  for (const c of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts"), base]) {
+    if (existsSync(c) && !c.includes("node_modules")) return c;
+  }
+  return null;
+}
+
+const sfOf = (abs: string): ts.SourceFile =>
+  ts.createSourceFile(abs, readFileSync(abs, "utf8"), ts.ScriptTarget.ES2022, true,
+    /\.(tsx|jsx)$/.test(abs) ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+
+const mods = (n: ts.Node): readonly ts.Modifier[] =>
+  ts.canHaveModifiers(n) ? (ts.getModifiers(n) ?? []) : [];
+const hasMod = (n: ts.Node, k: ts.SyntaxKind): boolean => mods(n).some((m) => m.kind === k);
+
+type ImportFact = { spec: string; imported: string; namespace: boolean };
+
+type Facts = {
+  abs: string;
+  /** Module-scope declarations of the FOUR registered kinds, export modifier or not (E2 needs these). */
+  declared: Set<string>;
+  /** E1/E3/E4: exported name -> resolved locally. */
+  localExports: Set<string>;
+  /** E2: exported name -> local name. */
+  exportList: Map<string, string>;
+  /** E5: exported name -> [specifier, source name]. */
+  forwards: Map<string, [string, string]>;
+  /** E6 star targets. */
+  stars: string[];
+  /** Declined forms: exported name -> reason. */
+  declined: Map<string, string>;
+  /** Type-only exported names -> pure. */
+  typeOnly: Set<string>;
+  /** local name -> import fact. */
+  imports: Map<string, ImportFact>;
+  /**
+   * Module-scope names bound from `await import(<literal>)`. #827's moduleFacts
+   * files these in `scopedImports` and registers NO local extent, so E1/E2 would
+   * hand back an EMPTY extent and pass a reachable spawner as pure. They are
+   * reported instead — the narrowing direction (§1.2(e)).
+   */
+  dynamicBindings: Set<string>;
+};
+
+const factsCache = new Map<string, Facts>();
+
+function factsFor(abs: string): Facts {
+  const hit = factsCache.get(abs);
+  if (hit) return hit;
+  const sf = sfOf(abs);
+  const f: Facts = {
+    abs,
+    declared: new Set(),
+    localExports: new Set(),
+    exportList: new Map(),
+    forwards: new Map(),
+    stars: [],
+    declined: new Map(),
+    typeOnly: new Set(),
+    imports: new Map(),
+    dynamicBindings: new Set(),
+  };
+
+  // imports (needed by E2's forward branch and by the namespace rejection)
+  for (const s of sf.statements) {
+    if (!ts.isImportDeclaration(s) || !ts.isStringLiteral(s.moduleSpecifier)) continue;
+    const c = s.importClause;
+    if (!c || c.isTypeOnly) continue;
+    const spec = s.moduleSpecifier.text;
+    if (c.name) f.imports.set(c.name.text, { spec, imported: "default", namespace: false });
+    const b = c.namedBindings;
+    if (b && ts.isNamespaceImport(b)) f.imports.set(b.name.text, { spec, imported: "*", namespace: true });
+    if (b && ts.isNamedImports(b)) {
+      for (const e of b.elements) {
+        if (e.isTypeOnly) continue;
+        f.imports.set(e.name.text, { spec, imported: (e.propertyName ?? e.name).text, namespace: false });
+      }
+    }
+  }
+
+  const isDynamicImportInit = (init: ts.Expression | undefined): boolean => {
+    let e = init;
+    while (e && ts.isAwaitExpression(e)) e = e.expression;
+    return !!e && ts.isCallExpression(e) && e.expression.kind === ts.SyntaxKind.ImportKeyword;
+  };
+
+  const bindNames = (b: ts.BindingName, into: Set<string>): void => {
+    if (ts.isIdentifier(b)) into.add(b.text);
+    else for (const el of b.elements) if (!ts.isOmittedExpression(el)) bindNames(el.name, into);
+  };
+
+  for (const s of sf.statements) {
+    // --- the four registered declaration kinds, exported or not (E2 needs them)
+    if (ts.isVariableStatement(s)) {
+      for (const d of s.declarationList.declarations) {
+        bindNames(d.name, f.declared);
+        if (isDynamicImportInit(d.initializer)) bindNames(d.name, f.dynamicBindings);
+      }
+    } else if (ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s) || ts.isEnumDeclaration(s)) {
+      if (s.name) f.declared.add(s.name.text);
+    }
+
+    // --- E3: export default <expr>  /  declined: export = <expr>
+    if (ts.isExportAssignment(s)) {
+      if (s.isExportEquals) f.declined.set("default", "export = is not followed");
+      else f.localExports.add("default");
+      continue;
+    }
+
+    if (ts.isExportDeclaration(s)) {
+      if (s.isTypeOnly) {
+        // a type reaches nothing at runtime -> pure
+        if (s.exportClause && ts.isNamedExports(s.exportClause)) {
+          for (const e of s.exportClause.elements) f.typeOnly.add(e.name.text);
+        }
+        continue;
+      }
+      if (s.moduleSpecifier && ts.isStringLiteral(s.moduleSpecifier)) {
+        const spec = s.moduleSpecifier.text;
+        if (s.exportClause === undefined) { f.stars.push(spec); continue; }        // E6
+        if (ts.isNamespaceExport(s.exportClause)) {                                 // declined
+          f.declined.set(s.exportClause.name.text, "export * as ns from is not followed");
+          continue;
+        }
+        for (const e of s.exportClause.elements) {                                  // E5
+          if (e.isTypeOnly) { f.typeOnly.add(e.name.text); continue; }
+          f.forwards.set(e.name.text, [spec, (e.propertyName ?? e.name).text]);
+        }
+        continue;
+      }
+      if (s.exportClause && ts.isNamedExports(s.exportClause)) {                    // E2
+        for (const e of s.exportClause.elements) {
+          if (e.isTypeOnly) { f.typeOnly.add(e.name.text); continue; }
+          f.exportList.set(e.name.text, (e.propertyName ?? e.name).text);
+        }
+      }
+      continue;
+    }
+
+    if (!hasMod(s, ts.SyntaxKind.ExportKeyword)) continue;
+
+    // --- declined: export namespace / export module
+    if (ts.isModuleDeclaration(s)) {
+      const nm = ts.isIdentifier(s.name) ? s.name.text : s.name.text;
+      f.declined.set(nm, "export namespace is not followed");
+      continue;
+    }
+    // --- type-only declarations are pure, not value exports
+    if (ts.isTypeAliasDeclaration(s) || ts.isInterfaceDeclaration(s)) {
+      f.typeOnly.add(s.name.text);
+      continue;
+    }
+
+    const isDefault = hasMod(s, ts.SyntaxKind.DefaultKeyword);
+    if (ts.isVariableStatement(s)) {                                               // E1
+      const into = new Set<string>();
+      for (const d of s.declarationList.declarations) bindNames(d.name, into);
+      for (const n of into) f.localExports.add(n);
+    } else if (ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s) || ts.isEnumDeclaration(s)) {
+      // E4: `export default function f(){}` exports ONLY `default`; `f` is module-local.
+      if (isDefault) f.localExports.add("default");
+      else if (s.name) f.localExports.add(s.name.text);                             // E1
+    } else {
+      // any other exported syntax -> reported with the node's kind name
+      f.declined.set(`<${ts.SyntaxKind[s.kind]}>`, `unmodelled export syntax ${ts.SyntaxKind[s.kind]}`);
+    }
+  }
+
+  factsCache.set(abs, f);
+  return f;
+}
+
+type Res =
+  | { kind: "extent" }
+  | { kind: "data" }
+  | { kind: "pure-bare" }
+  | { kind: "noSuchExport" }
+  | { kind: "unresolvable"; reason: string };
+
+/** §2.4's three-way split, applied BEFORE any read. */
+function landing(abs: string): Res | null {
+  let isDir = false;
+  try { isDir = statSync(abs).isDirectory(); } catch { /* ignore */ }
+  const ext = extname(abs);
+  if (isDir) return { kind: "unresolvable", reason: `directory target ${relative(ROOT, abs)}` };
+  if (DATA.has(ext)) return { kind: "data" };
+  if (!LANGUAGE.has(ext)) return { kind: "unresolvable", reason: `unrecognized module shape ${ext || "<none>"}` };
+  return null; // language module: analyze
+}
+
+function resolveExport(
+  abs: string,
+  exportName: string,
+  active: Set<string>,
+  done: Map<string, Res>,
+): Res {
+  const key = `${abs}#${exportName}`;
+  const memo = done.get(key);
+  if (memo) return memo;                                    // §2.5 diamond
+  if (active.has(key)) return { kind: "unresolvable", reason: "re-export cycle" }; // §2.5 cycle
+  active.add(key);
+
+  const finish = (r: Res): Res => { active.delete(key); done.set(key, r); return r; };
+
+  const land = landing(abs);
+  if (land) return finish(land);
+
+  const f = factsFor(abs);
+
+  if (f.declined.has(exportName)) return finish({ kind: "unresolvable", reason: f.declined.get(exportName)! });
+  // F2: an exported name bound from a dynamic import has no extent to return.
+  if (f.dynamicBindings.has(exportName))
+    return finish({ kind: "unresolvable", reason: `export bound from a dynamic import() (${exportName})` });
+  // F3: VALUE BEATS TYPE. Declaration merging makes `export interface x {}` and
+  // `export const x = …` legal together; checking typeOnly first returns pure and
+  // silently frees the value. Every value branch is consulted before typeOnly.
+  if (f.localExports.has(exportName)) return finish({ kind: "extent" }); // E1/E3/E4
+
+  // E2 — the export map is consulted FIRST; extents are reached only through it.
+  const local = f.exportList.get(exportName);
+  if (local !== undefined) {
+    if (f.dynamicBindings.has(local))
+      return finish({ kind: "unresolvable", reason: `export { ${local} } bound from a dynamic import()` });
+    const imp = f.imports.get(local);
+    if (imp?.namespace) return finish({ kind: "unresolvable", reason: `export { ns } over a namespace import (${local})` });
+    if (imp) {
+      const t = resolveSpecifier(abs, imp.spec);
+      if (!t) return finish({ kind: "pure-bare" });
+      return finish(resolveExport(t, imp.imported, active, done));
+    }
+    // resolves to extent when the local name is one of the four REGISTERED
+    // declaration kinds at module scope — an export modifier is not required
+    // and requiring one is round-2 finding 4.
+    if (f.declared.has(local)) return finish({ kind: "extent" });
+    return finish({ kind: "noSuchExport" });
+  }
+
+  // E5
+  const fwd = f.forwards.get(exportName);
+  if (fwd) {
+    const t = resolveSpecifier(abs, fwd[0]);
+    if (!t) return finish({ kind: "pure-bare" });
+    return finish(resolveExport(t, fwd[1], active, done));
+  }
+
+  // E6 — `default` is never forwarded by a star export
+  if (exportName !== "default") {
+    for (const spec of f.stars) {
+      const t = resolveSpecifier(abs, spec);
+      if (!t) continue;
+      const r = resolveExport(t, exportName, active, done);
+      if (r.kind !== "noSuchExport") return finish(r); // a miss on a star branch is benign
+    }
+  }
+  // Only now, with every VALUE branch exhausted, does a type-only export answer.
+  if (f.typeOnly.has(exportName)) return finish({ kind: "data" }); // a type reaches nothing at runtime
+  return finish({ kind: "noSuchExport" });
+}
+
+// ---------------------------------------------------------------- census
+const registrySrc = readFileSync(
+  join(ROOT, process.env.REGISTRY_SRC ?? "tests/mutation/source/registry.ts"), "utf8");
+const seeds = process.env.WIDE
+  ? execFileSync("git", ["ls-files", "tests"], { cwd: ROOT, encoding: "utf8" })
+      .split("\n").filter((p) => LANGUAGE.has(extname(p)))   // seed defect fixed: all language exts
+  : [...new Set([...registrySrc.matchAll(/"(tests\/[^"]+\.test\.tsx?)"/g)].map((m) => m[1]!))].sort();
+
+const files = new Set<string>();
+const queue = seeds.map((p) => resolve(ROOT, p)).filter(existsSync);
+const tally: Record<string, number> = {
+  extent: 0, data: 0, "pure-bare": 0, noSuchExport: 0, unresolvable: 0,
+};
+const misses: string[] = [];
+const byKind: Record<string, number> = {};
+const edgeKinds: Record<string, number> = {};
+const reported: string[] = [];
+let edges = 0;
+
+const check = (fromAbs: string, targetAbs: string, name: string, how: string): void => {
+  edges++;
+  const r = resolveExport(targetAbs, name, new Set(), new Map());
+  tally[r.kind] = (tally[r.kind] ?? 0) + 1;
+  const where = `${relative(ROOT, fromAbs)} -> ${relative(ROOT, targetAbs)} : ${name} (${how})`;
+  if (r.kind === "noSuchExport") { misses.push(where); byKind[how] = (byKind[how] ?? 0) + 1; }
+  edgeKinds[how] = (edgeKinds[how] ?? 0) + 1;
+  if (r.kind === "unresolvable") reported.push(`${where} [${r.reason}]`);
+};
+
+while (queue.length) {
+  const abs = queue.pop()!;
+  if (files.has(abs)) continue;
+  files.add(abs);
+  const sf = sfOf(abs);
+  // namespace locals in this file, so ns.member edges can be checked (§2.3)
+  const nsLocals = new Map<string, string>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+      const t = resolveSpecifier(abs, n.moduleSpecifier.text);
+      if (t) {
+        if (!files.has(t)) queue.push(t);
+        const c = n.importClause;
+        if (c && !c.isTypeOnly) {
+          if (c.name) check(abs, t, "default", "default import");
+          const b = c.namedBindings;
+          if (b && ts.isNamespaceImport(b)) nsLocals.set(b.name.text, t);
+          if (b && ts.isNamedImports(b)) {
+            for (const e of b.elements) {
+              if (e.isTypeOnly) continue;
+              check(abs, t, (e.propertyName ?? e.name).text, "named import");
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+
+  // Literal dynamic-import edges — omitted by BOTH earlier harnesses, and the
+  // largest single gap round-3 review found (1,126 near-domain value edges).
+  // `const ns = await import("m")` is a namespace binding (§2.3); a destructured
+  // form is a set of named edges.
+  const walkDyn = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && n.initializer) {
+      let e: ts.Node = n.initializer;
+      while (ts.isAwaitExpression(e)) e = e.expression;
+      if (
+        ts.isCallExpression(e) &&
+        e.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        e.arguments[0] !== undefined &&
+        ts.isStringLiteral(e.arguments[0])
+      ) {
+        const t = resolveSpecifier(abs, (e.arguments[0] as ts.StringLiteral).text);
+        if (t) {
+          if (!files.has(t)) queue.push(t);
+          if (ts.isIdentifier(n.name)) {
+            nsLocals.set(n.name.text, t); // ns.member edges picked up by walk2
+          } else {
+            for (const el of n.name.elements) {
+              if (ts.isOmittedExpression(el) || !ts.isBindingElement(el)) continue;
+              const src = el.propertyName ?? el.name;
+              if (ts.isIdentifier(src)) check(abs, t, src.text, "dynamic destructured");
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, walkDyn);
+  };
+  walkDyn(sf);
+
+  // §2.3 namespace member edges — never checked by the round-1 harness
+  const walk2 = (n: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression)) {
+      const t = nsLocals.get(n.expression.text);
+      if (t) check(abs, t, n.name.text, "ns.member");
+    }
+    if (ts.isElementAccessExpression(n) && ts.isIdentifier(n.expression)
+        && n.argumentExpression && ts.isStringLiteral(n.argumentExpression)) {
+      const t = nsLocals.get(n.expression.text);
+      if (t) check(abs, t, n.argumentExpression.text, 'ns["member"]');
+    }
+    ts.forEachChild(n, walk2);
+  };
+  walk2(sf);
+}
+
+const scope = process.env.WIDE ? "near-domain (git ls-files tests)" : "live domain (enrolled)";
+console.log(`${scope}: ${files.size} modules, ${edges} value import edges checked`);
+console.log("  outcomes:", JSON.stringify(tally));
+console.log("  edges by kind:", JSON.stringify(edgeKinds));
+console.log("  MISSES by kind:", JSON.stringify(byKind));
+console.log(`  noSuchExport MISSES (silent-demotion risk): ${misses.length}`);
+for (const m of misses.slice(0, 20)) console.log("     ", m);
+console.log(`  REPORTED (loud, not a miss): ${reported.length}`);
+for (const r of reported.slice(0, 20)) console.log("     ", r);
+```
+
+</details>
+
+**Conclusion, at the grain it was measured.** No edge the corpus resolves TODAY stops resolving under E1-E6: zero misses among named, default and dynamic-destructured edges at both scopes. The only misses are `ns.member`, an edge class that resolves to nothing on the unrepaired tree and therefore has no verdict to demote. This is the derived cover the class-sweep rule asks for: the claim is checked against the corpus rather than argued from a list of remembered forms — and the round-2 version is recorded above so that no later reader re-derives a number from a method that could not support it.
 
 ## Round-2 addendum — two mechanical facts the plan rests on
 

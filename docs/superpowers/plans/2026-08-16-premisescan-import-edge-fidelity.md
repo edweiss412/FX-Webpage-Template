@@ -27,7 +27,7 @@
 
 **Mutation-family closure (writing-plans rule):** the operator families are fixed by the ratified registry row — `relational-boundary`, `equality-flip`, `integer-literal` over `tests/mutation/source/premiseScan.ts`, `scoreFloor: 0.95`. A reviewer-proposed NEW family is a registry change carrying its own before/after numbers, not a finding against this plan.
 
-**Probe evidence, authored AND run**, re-verified 2026-08-16 against `origin/fix/scanner-scope-totality` at `ac9a40cd8`:
+**Probe evidence, authored AND run**, re-verified 2026-08-16 against `origin/fix/scanner-scope-totality` at **`4e40db2b3`** — the branch advanced five commits during spec review and every row below was re-run against the new head UNCHANGED (spec §3.12). Task 0 Step 3 re-runs them once more against the merged tree:
 
 | task | probe rows | current verdict |
 | --- | --- | --- |
@@ -140,7 +140,7 @@ function resolveExport(
   facts: ModuleFacts,
   exportName: string,
   active: Set<string>,                 // pairs on the CURRENT path: a repeat is a cycle
-  done: Map<string, ExportResolution>, // COMPLETED pairs: a repeat is a diamond, reuse the answer
+  done: Map<string, ExportResolution>, // COMPLETED pairs: memoization (perf), NOT the cycle test
 ): ExportResolution;
 ```
 
@@ -534,7 +534,7 @@ git commit -m "fix(mutation): resolve cross-module EXPORTS, and carry traversal 
 
 Spec §2.2 rows E5 and E6, the `forward` branch Task 1 stubbed, and §2.5.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:291` why=`ANCHOR IS PRE-MERGE: :291 is the cross-module lookup on the tracked tree today (for (const ext of tf.extents.get(name) ?? [])), which reads local declarations only; Task 0 merges #827 and re-anchors. After Task 1 no ExportDeclaration carrying a moduleSpecifier is recorded at all, so a barrel re-exporting a spawning helper hits the forward stub and classifies unclassifiable instead of environment-touching; probe rows H1 reexport named/aliased/star/chain 2-deep/local reexport all measure environment-free on the unrepaired tree, and every touching case in this block reds until the forward branch follows the edge` ac=AC-5,AC-5b,AC-10 -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:291` why=`ANCHOR IS PRE-MERGE: :291 is the cross-module lookup on the tracked tree today (for (const ext of tf.extents.get(name) ?? [])), which reads local declarations only; Task 0 merges #827 and re-anchors. After Task 1 no ExportDeclaration carrying a moduleSpecifier is recorded at all, so a barrel re-exporting a spawning helper hits the forward stub and classifies unclassifiable instead of environment-touching; probe rows H1 reexport named/aliased/star/chain 2-deep/local reexport all measure environment-free on the unrepaired tree, and every touching case in this block reds until the forward branch follows the edge` ac=AC-5,AC-5b,AC-5c,AC-10 -->
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
@@ -671,6 +671,29 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     ).toBe("environment-touching");
   });
 
+  it.each([
+    ["export const ns = await import()", `export const ns = await import("__MODULE_helper__");`],
+    ["export const { spawner } = await import()", `export const { spawner } = await import("__MODULE_helper__");`],
+    ["const ns = await import(); export { ns }", `const ns = await import("__MODULE_helper__");\nexport { ns };`],
+    [
+      "const { spawner } = await import(); export { spawner }",
+      `const { spawner } = await import("__MODULE_helper__");\nexport { spawner };`,
+    ],
+  ])("an exported dynamic-import binding is REPORTED: %s (AC-5c)", (_label, barrel) => {
+    // #827's moduleFacts files a literal dynamic-import binding in scopedImports
+    // and registers NO local extent, so E1/E2 would hand back an EMPTY extent
+    // and pass a reachable spawner as pure. All four measure environment-free
+    // today (spec §3.12); population repo-wide is 0, so reporting costs nothing
+    // and is the narrowing direction §1.2(e) requires.
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel },
+        `import { ns, spawner } from "__MODULE_barrel__";
+         it("x", () => { void ns; void spawner; });`,
+      ),
+    ).toBe("unclassifiable");
+  });
+
   it("a re-exported PURE binding stays free", () => {
     // The foil: following the edge must not mark the target's whole closure.
     expect(
@@ -698,6 +721,12 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     ).toBe("environment-free");
   });
 
+  // NOTE what this pair can and cannot discriminate (spec §2.5, AC-10): it
+  // catches an `active` set that is never POPPED, which would report this legal
+  // barrel shape as a re-export cycle. It does NOT catch removing `done`, and no
+  // fixture here pretends to — the star branch returns on the first arm that is
+  // not noSuchExport, so the shared pair is never revisited inside one
+  // resolution. `done` is a performance structure; AC-14 is its bound.
   it("a PURE diamond resolves, and is not mistaken for a cycle", () => {
     // The shared target must be PURE or the repeat never happens: with a
     // touching target the first branch short-circuits on provenance and the
@@ -763,7 +792,7 @@ Expected: a non-zero FAILING count. **The red reason differs per case and the pl
 
   1. In `moduleFacts`, record every `ExportDeclaration` that HAS a `moduleSpecifier`: for `NamedExports`, exported `e.name.text` → `{ spec, sourceName: (e.propertyName ?? e.name).text }`; for no clause (`export *`), append `spec` to a `starExports: string[]` on `ModuleFacts`. Skip `isTypeOnly` on the declaration and on each specifier.
   2. In `resolveExport`, return `{ kind: "forward", spec, exportName: sourceName }` for a recorded forwarded name. For a name in neither the local nor the forwarded map, try each `starExports` entry in turn — skipping the star pass entirely when `exportName === "default"`, which a star export never forwards — and return `noSuchExport` if no branch carries it.
-  3. In `reaches`, follow a `forward`: resolve its `spec` against the CURRENT module's path, apply Task 1's three-way target classification, load the target's facts, and call `resolveExport` again, threading BOTH structures keyed `` `${targetPath}#${exportName}` ``. **`active` holds the pairs on the current path — re-entering one is a back edge and IS the cycle**, returning `{ kind: "unresolvable", reason: "re-export cycle" }`. **`done` holds completed pairs with their answers — re-reaching one is a DIAMOND, so the memoized answer is reused and the walk continues.** A single set cannot tell them apart: treat every repeat as a cycle and an ordinary diamond falsely reports; ignore every repeat and a true cycle falls through to `noSuchExport` purity. For a star fan-out, follow every candidate, treat `noSuchExport` as a benign miss, and stop at the first provenance.
+  3. In `reaches`, follow a `forward`: resolve its `spec` against the CURRENT module's path, apply Task 1's three-way target classification, load the target's facts, and call `resolveExport` again, threading BOTH structures keyed `` `${targetPath}#${exportName}` ``. **`active` holds the pairs on the current path, PUSHED on entry and POPPED on completion — re-entering one is a back edge and IS the cycle**, returning `{ kind: "unresolvable", reason: "re-export cycle" }`. **The popping is the whole mechanism**: by the time a diamond's second arm reaches the shared pair, the first arm has completed and removed it, so a properly popped `active` handles the diamond on its own. A set that is never popped is what reports an ordinary diamond as a cycle. **`done` is MEMOIZATION, not the cycle test** — spec §2.5 says so plainly, and round-3 review demonstrated that removing it leaves the pure diamond, the touching diamond and the cycle case all passing. Do not write a test that appears to pin it; its budget is AC-14's ratio. For a star fan-out, try every candidate in SOURCE ORDER, treat `noSuchExport` as a benign miss, and **return the first answer that is not `noSuchExport`** — "stop at the first provenance" is not decidable inside `resolveExport`, which returns an extent and cannot know what the traversal will make of it (spec §2.2).
   4. No depth counter, by design.
 
 - [ ] **Step 4: Run the tests to verify they pass.**
@@ -1242,39 +1271,21 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
 
   it("the top-level seed does NOT leak a nested hook to a sibling (AC-12b)", () => {
     // The criterion AC-11's pure-hook foil cannot catch. hookBodies walks with
-    // ts.forEachChild (premiseScan.ts:821-835), so a seed written as one
-    // recursive call over the SourceFile attaches EVERY hook in the file to
-    // EVERY test in it — turning this pure sibling environment-touching. That is
-    // a FALSE POSITIVE, the direction spec §0 forbids trading into. The seed
-    // must collect only hooks that are direct top-level statements.
+    // ts.forEachChild (premiseScan.ts:895), so a seed written as one recursive
+    // call over the SourceFile attaches EVERY hook in the file to EVERY test in
+    // it — turning this pure sibling environment-touching. A FALSE POSITIVE,
+    // the direction spec §0 forbids trading into.
     //
-    // NOTE the shared outer describe is deliberately ABSENT here: with one, the
+    // Read by NAME, not by first-classification: verdictWithModules returns the
+    // FIRST test (inA), which is environment-touching before the repair, after
+    // it, AND under the wrong recursive implementation — so a fixture written
+    // that way cannot fail for the reason it claims. inB is the discriminating
+    // assertion and it is only reachable through the full list.
+    //
+    // NOTE the shared outer describe is deliberately ABSENT: with one, the
     // pre-existing recursive collection in the describe branch already leaks
-    // (probe §3.11 row A, spec §4 limit 14) and this case would be red before
+    // (probe §3.11 row A, spec §4 limit 14) and inB would be touching before
     // and after, proving nothing about the seed.
-    expect(
-      verdictWithModules(
-        {
-          helper: `import { spawnSync } from "node:child_process";
-            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
-        },
-        `import { spawnHelper } from "__MODULE_helper__";
-         describe("A", () => {
-           beforeEach(() => { spawnHelper(); });
-           it("inA", () => { expect(1).toBe(1); });
-         });
-         describe("B", () => {
-           it("inB", () => { expect(1).toBe(1); });
-         });`,
-      ),
-    ).toBe("environment-touching"); // inA — the FIRST test is A's
-  });
-
-  it("AC-12b: the sibling's own verdict, extracted by name", () => {
-    // verdictWithModules returns the FIRST classification, so the case above
-    // cannot see inB at all — asserting it would be tautological. This one
-    // reads the sibling directly. Anti-tautology rule: scope the extraction so
-    // the thing under test cannot pass by accident.
     const all = classificationsWithModules(
       {
         helper: `import { spawnSync } from "node:child_process";
@@ -1555,6 +1566,7 @@ git commit -m "docs(backlog): graduate BL-PREMISESCAN-IMPORT-EDGE-FIDELITY"
 | AC-4b renamed default CLASS | Task 1, `a renamed default CLASS resolves` |
 | AC-5 every accepted export BRANCH | Task 1 (E1's four kinds separately — const incl. destructured, function, class, enum — plus E3/E4) + Task 2 (E5-E6, chain, import-then-export) with the MIXED-barrel foil |
 | AC-5b star-export ambiguity | Task 2, `the branch that HAS the name wins` + the benign-miss foil |
+| AC-5c exported dynamic-import binding REPORTED | Task 2, the four-spelling `it.each` + the ordinary-re-export foil |
 | AC-6 AC-10b direct | Task 4, `AC-10b stays quiet through a direct import` |
 | AC-7 AC-10b via namespace | Task 4, `AC-10b stays quiet through a namespace` |
 | AC-8 declined forms REPORTED | Task 3, five forms (incl. `export { ns }`) + a VALUE-position type-only foil; the unparseable form is out of scope (spec §4 limit 8), filed in Task 7 Step 1 |

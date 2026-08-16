@@ -127,13 +127,24 @@ export { x };     // …yet AC-5 requires this branch to resolve, and §3.9 meas
 
 Read literally, the round-2 wording reported that as `unresolvable`; read as AC-5 requires, it resolves. The two cannot both hold, and the normative rule is the one that must be unambiguous. So E2's local branch asks only **"does this name have a module-scope extent registered under one of the four kinds?"** — the same registration test E1 relies on, minus the modifier. This is not a widening: an `export` modifier is *sufficient* for a name to be exported, never *necessary*, because E2 is itself the construct that exports it.
 
+**An exported name bound from a dynamic `import()` is REPORTED, not resolved to an empty extent.** #827's `moduleFacts` files a literal dynamic-import binding in `scopedImports` and registers **no local extent** for it, so E1 accepting every exported `VariableStatement` — and E2 forwarding only when the local name is in `facts.imports` — hands back an empty extent and passes a reachable spawner as pure. All four spellings are legal TypeScript and all four measure `environment-free` today (§3.11):
+
+```
+export const ns = await import("./helper")
+export const { spawner } = await import("./helper")
+const ns = await import("./helper");        export { ns }
+const { spawner } = await import("./helper"); export { spawner }
+```
+
+So E1 and E2 both test the initializer: a module-scope name whose declaration is initialized from a dynamic `import()` resolves to `unresolvable`, naming the binding. Population repo-wide: **0** for both grains (§3.11), so this is the narrowing choice at zero cost — and narrowing is the direction §1.2(e) mandates on a same-axis recurrence, which this is. AC-5c is its fixture.
+
 **E1's predicate is the four registered declaration kinds, not "carries an `export` modifier".** `moduleFacts` registers extents for exactly `VariableDeclaration`, `FunctionDeclaration`, `ClassDeclaration` and `EnumDeclaration`; anything else with an `export` modifier has no extent to return, so a predicate written as "carries an `export` modifier" resolves it to an EMPTY extent and passes it as free. `export namespace NS { … }` is the measured instance (§3.7 probe B9), population 0 repo-wide. Narrowing the predicate to the four kinds sends it to `unresolvable` instead. **All four kinds must stay** — §3.9 measures an exported class, an exported enum and a destructured `export const` each `environment-touching` today, and the enrolled closure itself contains exported classes (`tests/mutation/source/runner.ts`, `tests/mutation/source/oracle.ts`), so dropping a kind is a live regression that no `one fixture per row` criterion would catch. AC-5 therefore pins each kind separately.
 
 **`export const` carries its modifiers on the `VariableStatement`, not on the `VariableDeclaration`** (§3.7). E1 reads the modifier from the statement and maps it to every identifier its declaration list binds. Read literally off the `VariableDeclaration`, E1 misses the commonest exported form in the repository (971 exported variable statements).
 
 Deliberately **not** accepted, each reporting `unresolvable` with its own reason string: `export * as ns from` (`NamespaceExport`, 0 repo-wide); `export = <expr>` (`ExportAssignment` with `isExportEquals`, 0 repo-wide); `export namespace` / `export module` (0 repo-wide); E2 over a namespace binding (0 repo-wide); and any other export syntax, reported with the node's kind name. A **type-only export** (`export type { … }`, or `isTypeOnly` on the declaration or specifier) is pure rather than reported: a type reaches nothing at runtime, exactly as `isReferenceIdentifier` and `isInTypePosition` already decide for references.
 
-**Ambiguity under multiple star exports.** If a name is sought through several `export * from` targets, every target is followed; a branch answering `noSuchExport` is a benign miss and the walk continues; the first branch yielding a provenance wins. AC-5b is its fixture — without one, this sentence is unpinned prose.
+**Ambiguity under multiple star exports.** If a name is sought through several `export * from` targets, every target is tried **in source order**; a branch answering `noSuchExport` is a benign miss and the walk continues to the next; **the first branch answering anything else wins, and that answer is returned**. A round-2 draft said "the first branch yielding a provenance wins", which `resolveExport` cannot decide: it returns an extent, and whether an extent yields provenance is the traversal's business one function boundary away. The rule above is decidable where it is stated. AC-5b is its fixture — without one, this sentence is unpinned prose.
 
 ### §2.3 Namespace bindings resolve member-precisely, and the traversal identity includes the member
 
@@ -174,10 +185,12 @@ The third answer is what keeps this a three-way split rather than a growing list
 
 Forward-following needs TWO structures, and collapsing them into one visited set is why the round-1 draft could not tell a cycle from a diamond:
 
-- **`active`** — the `(module, exportName)` pairs on the CURRENT resolution path. Re-entering one is a back edge, and that is a genuine cycle: it reports `unresolvable` with reason `re-export cycle`.
-- **`done`** — pairs whose resolution has COMPLETED, with their answers. Re-reaching one is a diamond: the memoized answer is reused and the walk continues.
+- **`active`** — the `(module, exportName)` pairs on the CURRENT resolution path, **pushed on entry and POPPED on completion**. Re-entering one is a back edge, and that is a genuine cycle: it reports `unresolvable` with reason `re-export cycle`.
+- **`done`** — pairs whose resolution has COMPLETED, with their answers. Re-reaching one reuses the memoized answer.
 
-A single set cannot distinguish them. The round-1 draft said "a repeat contributes nothing" while also saying "only a genuine cycle reports", and those are inconsistent: treating every repeat as a cycle falsely reports the ordinary diamond, and ignoring every repeat lets a true cycle fall through to `noSuchExport` purity.
+**The popping is the whole mechanism, and `done` is memoization — a round-2 draft claimed correctness for the wrong one of the two.** It said a single set "cannot distinguish" a cycle from a diamond. What cannot distinguish them is a set that is never POPPED: it reports the ordinary diamond as a cycle. A properly popped `active` set handles the diamond correctly on its own, because by the time the second arm reaches the shared pair the first arm has completed and removed it. Round-3 review demonstrated the consequence for the criteria: **removing `done` entirely leaves AC-10's pure diamond, its touching diamond and its cycle case all passing**, so no acceptance criterion pins it and none can.
+
+That is stated rather than patched over. `done` earns its place as a performance structure — it bounds re-resolution over `export *` fan-out — and its budget is AC-14's ratio, not a correctness fixture. Inventing an AC that appears to pin it would be a tautology of exactly the kind the anti-tautology rule forbids. AC-10 therefore pins what it can genuinely discriminate: that `active` is popped.
 
 **The diamond fixture must have a PURE shared target, or it never exercises the repeat.** §3.9 measures the round-1 draft's own shape: with a touching target, the first branch short-circuits on provenance and the second branch never reaches the shared module, so the alleged foil proves nothing. AC-10's diamond is therefore pure at the shared module, with a separate touching-diamond case for the short-circuit path.
 
@@ -229,7 +242,7 @@ The declaration-reference fixed point, scope-keyed extents, parameter shadows, t
 
 ## §3 Probe transcripts
 
-All probes run against `origin/fix/scanner-scope-totality` (PR #827, commit `ac9a40cd8`) — the code this arc extends. Full method, fixture tables and raw output: `docs/superpowers/specs/ci/probes/2026-08-16-premisescan-import-edge-probe.md`. Each case writes a fresh module tree under `mkdtempSync` and calls `classifyTests(root, "tests/probe.test.ts")`.
+All probes run against `origin/fix/scanner-scope-totality` at **commit `4e40db2b3`** (PR #827, 1,000 lines) — the code this arc extends. **That branch is a MOVING base and this pin is a measurement date, not a contract:** it advanced five commits during this spec's review (`2666a20f6`, `25f983cd2`, `596b1a980`, `0b15501fe`, `4e40db2b3`), and a round-2 draft pinned `ac9a40cd8` while simultaneously citing a comment added by a later commit — attributing two different trees to one target. Every behavioural row in §3.1, §3.2, §3.5, §3.9 and §3.11 was RE-RUN against `4e40db2b3` and **every row is unchanged**. Task 0 Step 3 re-runs them once more against the merged tree and re-derives the design on any row that has moved, which is the mechanism that makes a moving base safe rather than a mechanism this spec claims it does not need. Full method, fixture tables and raw output: `docs/superpowers/specs/ci/probes/2026-08-16-premisescan-import-edge-probe.md`. Each case writes a fresh module tree under `mkdtempSync` and calls `classifyTests(root, "tests/probe.test.ts")`.
 
 ### §3.1 Import forms — same helper, same call site, only the form varies
 
@@ -297,23 +310,39 @@ DOMAIN: enrolled (post-#827 registry)     seeds 31     modules reached 90
 
 So the accept-set was checked against the corpus directly. **The round-2 harness did not perform the check it claimed**, and round-2 review was right to say so: it computed a module's exported names with a model that diverged from §2.2 in eight ways — it recorded E5 forwards without following them to the target, accepted `export * as ns from` and `export =` which §2.2 declines, added `export namespace`, interfaces and type aliases as VALUE exports, recorded both `default` and `f` for `export default function f()`, never checked namespace member edges at all, and seeded and filtered on `.ts`/`.tsx` only, omitting `.jsx`. Under that model a *broken* E5 answers "resolves", so `0 MISSES` could not establish the claim below and could conceal exactly the silent `noSuchExport` demotion this section exists to exclude.
 
-The harness was rewritten to implement `resolveExport(facts, exportName, active, done)` as §2.2 E1-E6, §2.4's three-way split and §2.5's active/done pair actually specify, and to classify every VALUE edge — named, default, **and `ns.member` / `ns["member"]`** — into the four answers. Method and full source: probe record §Method — probe 4.
+The harness was rewritten to implement `resolveExport(facts, exportName, active, done)` as §2.2 E1-E6, §2.4's three-way split and §2.5's structures actually specify. **Round-3 review then found that rewrite still did not check what this section claimed** — it discovered only static `ImportDeclaration`s, pre-filtered targets through the language set (so the `data` and `unresolvable` counts were structurally zero and could not have been otherwise), and parsed every file as `ScriptKind.TS`. That is the round-2 finding recurring inside its own repair, and the claim was again wider than the artifact. The harness now also walks **literal dynamic-import edges**, classifies non-language targets instead of skipping them, and selects the script kind by extension. Method and full source: probe record §Method — probe 4, where the source is **inlined** rather than cited, because `.claude/probe/` is gitignored and a citation to it does not survive in the committed record.
 
 ```
-live domain (post-#827 registry):  90 modules,   230 value import edges checked
-  extent 230 · data 0 · pure-bare 0 · noSuchExport 0 · unresolvable 0
+live domain (post-#827 registry):   90 modules,    233 value import edges
+  by kind:  named 230 · dynamic-destructured 3
+  outcomes: extent 233 · data 0 · pure-bare 0 · noSuchExport 0 · unresolvable 0
+  MISSES: none, of any kind
 
-near-domain (git ls-files tests): 3,221 modules, 9,536 value import edges checked
-  extent 9,499 · data 0 · pure-bare 37 · noSuchExport 0 · unresolvable 0
+near-domain (git ls-files tests): 3,265 modules, 10,935 value import edges
+  by kind:  named 9,554 · dynamic-destructured 1,071 · ns.member 270 · default 40
+  outcomes: extent 10,861 · data 5 · pure-bare 37 · noSuchExport 5 · unresolvable 27
+  MISSES by kind: ns.member 5 — and NOTHING else
 ```
 
-The near-domain module count is **3,221, not the 3,207 a round-2 draft reported** — the difference is the `.jsx`/`.mjs` seeds the old seed filter dropped — and the edge count rises from 9,381 to 9,536 because namespace member edges are now checked. The 37 `pure-bare` are E2/E5 branches forwarding to a bare specifier, pure by L-2.
+**The claim this supports is narrower than the round-2 draft's, and the narrower one is the true one.** Every edge that resolves TODAY — named and default static imports — still resolves: **0 misses in 9,594 near-domain and 230 live edges**. Dynamic-destructured edges likewise, 1,071 near and 3 live, 0 misses. The five misses are all `ns.member`, and a `ns.member` miss **cannot be a silent demotion, because a namespace member edge resolves to nothing today** — that is the defect §0 half 1(a) exists to fix. There is no verdict to demote from. Two of the five are additionally artifacts of the harness rather than facts about the corpus: its namespace map is scope-blind, so a local named `mod` in one `it` body is attributed to a namespace bound in another (`tests/app/admin/showReviewModalLoader.test.tsx` reuses `mod` across cases). The real scanner is scope-aware — that is precisely what #827 landed — so it does not make that error.
 
-**Every live edge in the repository's test closure resolves under E1-E6, with zero `noSuchExport` misses at either scope.** That is what makes §2.2 a derived cover rather than an enumeration: it is not a list of forms someone thought of, it is a rule checked against every edge the corpus actually contains, by a resolver that implements the rule rather than approximating it. It is also the sharper half of AC-1's argument — the repair leaves the corpus alone not merely because the new forms are absent, but because the resolver still finds everything the old lookup found.
+The 27 `unresolvable` are every `.mdx` edge in the near-domain, which is §2.4 answer 3 firing exactly where finding 1 said it must, and the 5 `data` are the `.json` edges. Under the round-2 rule both sets were silently pure; both are now accounted for, one loudly and one by the inertness of the format.
+
+**So the derived cover holds, stated at the grain it was measured:** no edge the corpus resolves today stops resolving under E1-E6. That is what makes §2.2 a derived cover rather than an enumeration — it is checked against every value edge the corpus contains, by a resolver that implements the rule rather than approximating it, and the two earlier versions of this measurement are recorded in the probe record so that no later reader re-derives a number from a method that could not support it.
 
 ### §3.4 Population of the near-domain — why the repair is worth shipping
 
-Same walk seeded from `git ls-files tests` (2,326 seeds, 3,221 in-repo modules reached — the seed filter takes the full language set, not the `.ts`/`.tsx` subset a round-1 draft used; probe record §145). The last two rows come from a second walk whose closure also follows `export … from` and literal dynamic-import edges and therefore reaches 3,255 modules from the same seeds. **Import rows are per-specifier; export rows carry BOTH grains**, because round-1 review could not reproduce a bare "117" — `export { a, b, c } from "./m"` is one statement and three specifiers, and the two counts differ by nearly threefold here. The export rows are measured repo-wide over every tracked `.ts`/`.tsx` (3,271 files), a superset of this closure, so they reproduce independently of the seed set:
+Same walk seeded from `git ls-files tests` (2,326 seeds, 3,221 in-repo modules reached — the seed filter takes the full language set, not the `.ts`/`.tsx` subset a round-1 draft used; probe record §145). The last two rows come from a second walk whose closure also follows `export … from` and literal dynamic-import edges and therefore reaches 3,255 modules from the same seeds. **Import rows are per-specifier; export rows carry BOTH grains**, because round-1 review could not reproduce a bare "117" — `export { a, b, c } from "./m"` is one statement and three specifiers, and the two counts differ by nearly threefold here. The export rows are measured repo-wide over every tracked `.ts`/`.tsx` (3,271 files), a superset of this closure, so they reproduce independently of the seed set.
+
+**Three module counts appear in this spec and they are three different closures, not a contradiction** — the distinction is stated here because a bare pair of differing numbers is the commonest self-consistency finding:
+
+| count | closure | where |
+| --- | --- | --- |
+| 3,221 | static `import` edges only | §3.4, this section |
+| 3,255 | plus `export … from` and literal dynamic-import edges | §3.4, the last two rows |
+| 3,265 | the cover walk: static imports, literal dynamic imports, and namespace member targets | §3.3b |
+
+All three run from the same 2,326 seeds; they differ only in which edge kinds the walker follows, and each section states which it needed.
 
 | form (in-repo edges only) | count |
 | --- | --- |
@@ -336,7 +365,7 @@ The live combination of both defects already exists: `tests/setup.ts:2` does `im
 
 `computed member access on process` has **zero** instances repo-wide. It is propagated anyway because it is one of the two rules `unclassifiableWithin` already owns and propagation is a single mechanism for both; this arc adds no rule for it.
 
-### §3.5 Round-1 review probes, independently reproduced
+### §3.5 Self-review round-1 probes, independently reproduced
 
 Every row below was raised by round-1 review and then re-measured here against the same #827 tree, so the spec cites its own measurement rather than a relayed claim.
 
@@ -387,9 +416,9 @@ GARBAGE in-repo module (export function spawnHelper(: string { return)  ->  envi
 
 Three independent reasons, each checked: `moduleFacts` returns `null` if and only if `!existsSync(path)`; `resolveSpecifier` returns only candidates for which `existsSync` was already true, so that branch cannot fire through the traversal at all; and `ts.createSourceFile` is error-tolerant — it neither throws nor returns null on the garbage above, parsing it to a `SourceFile` carrying a `FunctionDeclaration`. The `unresolved.push("unparseable in-repo module")` site is therefore unreachable today, and this arc does not change that (§4 limit 8).
 
-### §3.9 Round-2 review probes, independently reproduced
+### §3.9 Cross-model SPEC ROUND 1 probes (7 claims), independently reproduced
 
-Cross-model review raised seven claims about current behaviour. Each was re-measured here against the same #827 tree rather than accepted as reported:
+Cross-model spec review round 1 raised seven claims about current behaviour. Each was re-measured here against the same #827 tree rather than accepted as reported:
 
 ```
 NS pure-then-spawn                             ->  environment-free
@@ -420,9 +449,9 @@ Five of these changed the design rather than confirming it:
 
 `tests/mutation/source/premiseScan.test.ts` on #827 (557 lines) has fixtures for two of the canonical spec's four unclassifiable forms — the cases named `a dynamic import whose specifier is not a literal` and `a computed member access on process`. There is **no fixture for an unfollowable re-export and none for an unparseable in-repo module**, so canonical **AC-8a** (`docs/superpowers/specs/2026-08-04-guard-premise-reachability-design.md:501`) **is satisfied 2/4** today. This arc closes the re-export form (AC-8) and leaves the unparseable form open and unreachable (§4 limit 8), taking AC-8a to 3 of 4. The suite's `namespace import` case uses `import * as cp from "node:child_process"` — a provenance module, so it is decided by `isProvenanceModule` before any member resolution and cannot fail for the reason §3.1 exposes. There is no assertion anywhere in that suite on the `detail` field, so every `detail` assertion this arc adds is new coverage.
 
-### §3.11 Round-2 review probes, independently reproduced
+### §3.11 Cross-model SPEC ROUND 2 probes (5 findings), independently reproduced
 
-Cross-model review round 2 raised five claims. Each was re-probed here against the same #827 tree before acceptance; all five reproduced, and all five are repaired.
+Cross-model spec review round 2 raised five findings. Each was re-probed here against the same #827 tree before acceptance; all five reproduced, and all five are repaired.
 
 **MDX is executable in this repository** (finding 1) — so §2.4 answer 2 could not hold it:
 
@@ -433,7 +462,7 @@ vitest.config.ts     compiles MDX with @mdx-js/rollup
 .mdx import edges from tests/**: 31 across 14 files;  enrolled: 0
 ```
 
-The one enrolled suite that mentions `.mdx` — `tests/help/_metaUiLabelCrosswalk.test.ts` — reaches it by a **filename walk** (`walk(helpRoot, (n) => n.endsWith(".mdx"))`, `:59`), not an import edge, so moving `.mdx` to answer 3 leaves the live domain untouched and AC-1 intact.
+The one enrolled suite that mentions `.mdx` — `tests/help/_metaUiLabelCrosswalk.test.ts` — reaches it by a **filename walk** (`walk(helpRoot, (n) => n.endsWith(".mdx"))`, `tests/help/_metaUiLabelCrosswalk.test.ts:59`), not an import edge, so moving `.mdx` to answer 3 leaves the live domain untouched and AC-1 intact.
 
 **The hook seed must not recurse** (finding 3). `hookBodies` walks its argument with `ts.forEachChild` (`premiseScan.ts:821-835`), and the consequence is executable today:
 
@@ -451,6 +480,27 @@ Row A is a **pre-existing** false positive that this arc does not introduce and 
 
 **The E2 contradiction** (finding 4) is confirmed by §3.9's `local declaration then export list -> environment-touching`: the construct resolves today, and the round-2 wording would have reported it.
 
+### §3.12 Cross-model SPEC ROUND 3 probes (6 findings), independently reproduced
+
+All six round-3 claims re-probed against the re-pinned `4e40db2b3` tree; all six reproduced.
+
+**Exported dynamic-import bindings (finding 2)** — every spelling free today, and the control shows they sit in the same pre-repair bucket as an ordinary re-export:
+
+```
+export const ns = await import(...)                      ->  environment-free
+export const { spawner } = await import(...)             ->  environment-free
+const ns = await import(...); export { ns }              ->  environment-free
+const { spawner } = await import(); export { spawner }   ->  environment-free
+CONTROL: export { spawner } from "./helper"              ->  environment-free   [the unrepaired re-export defect]
+
+population repo-wide:  export const … = await import(…)  ->  0
+                       export { x } where x = await import ->  0
+```
+
+**Base re-pin (finding 5).** `origin/fix/scanner-scope-totality` advanced from `ac9a40cd8` to `4e40db2b3` (843 → 1,000 lines) during review. Every behavioural row of §3.1, §3.2 and §3.11 was re-run against the new head and **every row is unchanged**; `hookBodies` is still recursive (`premiseScan.ts:895`), `ENVIRONMENT_SOURCES` is unchanged (`:31`), and the assignment-position comment is still present (`:687`). `parse()` now selects `ScriptKind.TSX` by extension (`:61`), which retracts §4 limit 9.
+
+**Cover-harness completeness (finding 1)** is §3.3b, measured above. **Value-over-type precedence (finding 3)** and **`active` versus `done` (finding 4)** are design corrections carrying no new measurement: the first is an ordering rule inside `resolveExport` (§2.2), the second is a claim withdrawn and an AC re-scoped (§2.5, AC-10).
+
 **The assignment-position dynamic import.** Not a review finding — surfaced by this round's own class sweep. `premiseScan.ts:634-637` carries a comment handing exactly this case to this backlog row: for `m = await import("./x")` in ASSIGNMENT rather than declaration position, the imported name is unknown. Population repo-wide: **0**. It is therefore filed as §4 limit 15 rather than designed for, because building a rule for zero measured instances is the widening direction §1.2(e) forbids.
 
 ## §4 Documented limits
@@ -463,7 +513,7 @@ Row A is a **pre-existing** false positive that this arc does not introduce and 
 6. **`export { ns }` where `ns` is a namespace import is reported, not forwarded** (§2.2 E2). Forwarding would ask the target for an export it does not have, and a direct `noSuchExport` is pure — a silent free. Population 0 repo-wide, so reporting costs nothing and keeps E2 consistent with the declined `export * as ns from`.
 7. **A propagated `unclassifiable` loses to a proven `environment-touching`** (§2.7). The reader is told the louder of two true things, and the module with the unresolvable corner is not named in `detail` for that test. Promoting it is a one-line lattice change; it is fenced here because it costs `reaches`'s provenance short-circuit. **The evidence for that cost is a measurement of a DIFFERENT mechanism and is stated as such:** the comment above `scopeCache` records that an unmemoized SCOPE WALK turned a 1.3 s corpus pass into 5.5 s. Nobody has measured the short-circuit's absence. A round-1 draft cited the scope-walk figure as though it measured the short-circuit; it does not, and the asymmetry rests on §2.7's design argument plus AC-14's ratio bound rather than on that number.
 8. **"Unparseable in-repo module" — canonical unclassifiable form 4 — remains UNREACHABLE, and this arc does not make it reachable.** Probed three ways (§3.8): `moduleFacts` returns `null` if and only if `!existsSync(path)`; `resolveSpecifier` returns only candidates for which `existsSync` was already true; and `ts.createSourceFile` neither throws nor returns null on garbage. So the `unresolved.push("unparseable in-repo module")` site is dead code today and stays dead. A round-1 draft claimed in §1.1 item 3 that this arc "makes forms 3 and 4 actually reachable"; **that claim was false for form 4 and is retracted.** Making it real would mean a new detection rule over `sf.parseDiagnostics`, recognizer growth on an axis with zero measured instances. **Task 7 Step 1 files it as `BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE`** — that row does not exist yet and this spec does not claim it does; canonical AC-8a stands at 3 of 4 after this arc rather than 4 of 4.
-9. **Every module is parsed with `ts.ScriptKind.TS`, so `.tsx` and `.jsx` targets are mis-parsed.** `moduleFacts`'s `parse()` passes a fixed script kind. JSX syntax read as TypeScript yields a wrong tree, which can lose references and therefore under-report. Pre-existing, untouched here, and stated because §2.4 keeps `.jsx` in the analyzed set: keeping it preserves today's behaviour (an explicit `.jsx` import measures `environment-touching`, §3.9) rather than improving it. No enrolled suite is `.tsx` today. Fixing it is a one-line script-kind selection, deliberately out of an arc already at its scope.
+9. **RETRACTED — no longer true of the target tree.** A round-2 draft said every module is parsed with a fixed `ts.ScriptKind.TS`, so `.tsx`/`.jsx` targets are mis-parsed. On `4e40db2b3` `moduleFacts`'s `parse()` selects the kind by extension — `path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS` (`premiseScan.ts:61`) — so the limit describes a tree that no longer exists. It is retracted rather than deleted so the numbering below stays stable and a reader of the round-2 text finds the correction. `.jsx` still parses as `.ts` under that ternary; that is a residual of the SAME shape, it is pre-existing, and §2.4 keeps `.jsx` analyzed to preserve today's measured behaviour (§3.9) rather than to improve it.
 10. **Block-grain scope is still function-grain** (predecessor spec §4 limit 1, inherited unchanged).
 11. **`node_modules` remains pure (L-2); undetected forms remain undetected (L-8).** Neither is widened or narrowed here.
 12. **Obfuscated import graphs are out of the fence** (§1). A computed re-export table, an `eval`, or a namespace laundered through an untyped indirection is not ordinary authoring; this arc makes no claim about them.
@@ -502,6 +552,7 @@ Each criterion names the failure mode it catches. Every positive fixture has a f
 - **AC-4 — a default export is named `default`.** `export default function spawnHelper(){…}` imported as `import runIt from …` classifies `environment-touching`, using the RENAMED form; the same-name form is a second case, never the only one.
 - **AC-4b — a renamed default CLASS resolves.** `export default class { go(){…spawnSync…} }` imported as `import K from …` classifies `environment-touching`. *Catches:* an E4 branch measured `environment-free` today (§3.9) that AC-4's default-FUNCTION fixture does not exercise.
 - **AC-5 — every accepted export form, by AST BRANCH rather than by table row.** E1 gets four separate fixtures — `export const` (including a destructured/multi-declarator case), `export function`, `export class` whose method spawns, `export enum` — because §3.9 measures class, enum and destructured-const each touching today and the enrolled closure itself contains exported classes, so dropping one kind is a live regression. E2 gets three — local declaration, local alias `export { x as y }`, and import-then-export. E4 gets function and class, named and anonymous. E5 gets `export { x } from`, `export { x as y } from`, `export { default as x } from`, `export { x as default } from`, and a 2-deep chain. E6 gets `export * from`. **The foil is a MIXED module, not a pure one:** a barrel re-exporting both a spawner and a pure name, with only the pure name imported, classifies `environment-free` — a pure-module foil cannot discriminate against a `forward` that falls back to the target's whole closure. *Catches:* an implementation that satisfies "one fixture per row" while omitting a branch, returns direct `noSuchExport`, and classifies pure. Mutation testing cannot discover a missing branch that has no fixture.
+- **AC-5c — an exported dynamic-import binding is REPORTED.** Each of the four spellings — `export const ns = await import(…)`, `export const { spawner } = await import(…)`, and each with the export in a separate `export { … }` statement — classifies `unclassifiable`, naming the binding. Foil: the same barrel re-exporting the same spawner by `export { spawner } from "./helper"` classifies `environment-touching`, so the pair differs in exactly the binding form. *Catches:* E1 accepting an exported `VariableStatement` whose extent #827's `moduleFacts` never registers (it files the binding in `scopedImports`), which returns an EMPTY extent and passes a reachable spawner as pure — all four measure `environment-free` today (§3.11). Population 0 repo-wide, so this criterion costs nothing and is the narrowing direction §1.2(e) requires.
 - **AC-5b — star-export ambiguity resolves the way §2.2 says.** Two `export * from` targets, the sought name in only one: `environment-touching`. Foil: the same shape with the name in neither, classifying `environment-free` rather than reporting.
 - **AC-6 — AC-10b stays quiet.** `reportEnvelope`'s parameter `res` beside `main()`'s `const res = spawnSync(...)` classifies `environment-free` when imported directly.
 - **AC-7 — AC-10b stays quiet through a namespace.** The same module as `import * as env from …; env.reportEnvelope({ ok: true })` classifies `environment-free`.
@@ -510,7 +561,7 @@ Each criterion names the failure mode it catches. Every positive fixture has a f
 - **AC-9b — a `.mjs` target stays ANALYZED**, and so does an explicit `.jsx` target. Both classify `environment-touching`. *Catches:* an extension allowlist that over-reaches — the live `tests/ci/phantomGapExecuted.test.ts` → `scripts/lib/phantomGapExecuted.mjs` edge, and the `.jsx` case §3.9 measures touching today, which an allowlist omitting `.jsx` would silently regress to pure. AC-9's foil.
 - **AC-9d — an `.mdx` target is REPORTED, not purified.** A test importing an `.mdx` module whose compiled body would reach the environment classifies `unclassifiable`, naming the specifier — with the SAME payload that AC-9 asserts is pure behind a `.json` extension, so the two differ in exactly the extension. *Catches:* the round-2 draft's `DATA = {.json, .mdx}`, which would have made this edge `environment-free` — a silent free introduced by this repair, on a format this repo executes (`next.config.ts:54`, §3.11). Its foil is AC-9: identical payload, `.json` extension, pure.
 - **AC-9c — an unrecognized resolution shape is REPORTED, not purified and not thrown.** A directory reached through the bare-`base` candidate — one whose only index file carries a `.tsx` extension, which `resolveSpecifier` does not generate a candidate for — classifies `unclassifiable`, naming the specifier. *Catches:* both halves of §2.4 answer 3 — today that input THROWS `EISDIR` and aborts the run (§3.9), and a guard that merely moved the extension test before the read without reporting would convert the crash into a silent pure.
-- **AC-10 — cycles terminate, and a completed diamond is not a cycle.** Two modules re-exporting a name from each other classify `unclassifiable` with reason `re-export cycle`. Its foil is a **PURE** diamond — a barrel star-exporting from two modules that both star-export from a third whose export is pure — classifying `environment-free` without reporting. **The shared target must be pure**, because §3.9 measures that with a TOUCHING target the first branch short-circuits on provenance and the second never reaches the shared module, so the repeat never happens and the foil proves nothing. A touching diamond is a third case, pinning the short-circuit. *Catches:* a single visited set, which cannot tell an active back-edge from a completed revisit (§2.5).
+- **AC-10 — cycles terminate, and a completed diamond is not a cycle.** Two modules re-exporting a name from each other classify `unclassifiable` with reason `re-export cycle`. Its foil is a **PURE** diamond — a barrel star-exporting from two modules that both star-export from a third whose export is pure — classifying `environment-free` without reporting. **The shared target must be pure**, because §3.9 measures that with a TOUCHING target the first branch short-circuits on provenance and the second never reaches the shared module, so the repeat never happens and the foil proves nothing. A touching diamond is a third case, pinning the short-circuit. *Catches:* an `active` set that is never POPPED — which reports this ordinary diamond as a `re-export cycle`, a false report on a legal barrel shape. **It does NOT catch the removal of `done`**, and that is stated rather than implied: round-3 review showed all three of this criterion's cases still pass without the memo, because the star-export branch returns on the first arm that does not answer `noSuchExport`, so the shared pair is never revisited within one resolution. `done` is a performance structure bounded by AC-14, not a correctness one (§2.5); an AC written to appear to pin it would be a tautology.
 - **AC-10c — resolution order: an export beats a same-named local.** A module holding a non-exported local `spawnHelper` AND `export { spawnHelper } from "./helper"` classifies `environment-touching` (probe B8, §3.7).
 - **AC-11 — the propagation cells report, from every position.** Module-scope helper × describe-scope helper × non-literal dynamic `import()` × computed `process` access, plus the cross-module cell, plus a `beforeEach` body, a `beforeAll` body, a `describe.each` producer, **and a TOP-LEVEL hook in each of the four registrar spellings** (`beforeEach`, `beforeAll`, `afterEach`, `afterAll` — §3.11 row D), each classify `unclassifiable` with `detail` naming the module holding the construct. Foils: the same helpers and hooks without the construct classify `environment-free`. *Catches:* §3.2 and §3.5 — the hook and producer paths, where `reaches`'s scalar return discarded every reason, and the top-level path, which had no hooks attached at all.
 - **AC-12 — precedence is pinned in every direction, including through hooks.** Own extent + provable touch → `unclassifiable` (shipped); construct reached only through a helper + provable touch → `environment-touching`; construct reached only through a NESTED hook → `unclassifiable`; **a TOP-LEVEL hook reaching provenance → `environment-touching`**, which §3.5 measures `environment-free` today and is the arc's only PROVENANCE silent free. **All four registrars get this case separately — `beforeEach`, `beforeAll`, `afterEach`, `afterAll`** — because §3.11 row D measures a top-level `afterAll` free today and a fixture pair covering only the `before*` forms would leave half the defect live while reading as complete.
