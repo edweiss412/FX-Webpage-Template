@@ -81,7 +81,7 @@ Declared delta for this arc: **the accepted set is RE-DERIVED, not edited.** `si
 
 **House convention this file already keeps:** the fixture-tree suite builds each universe with its local `tree({...})` helper and `rmSync`s it in a `finally`, and every case NAMES THE MUTANT IT KILLS in a comment. Each new case does both — the mutant a shadow case kills is the resolution step reverting to name equality.
 
-**Premise (executable, not prose):** each case asserts `premiseHolds("the constructed universe was scanned", scanRepo(root).sites.length > 0)` before its residual assertion, unconditionally relative to what it guards — a fixture root the walker never reached yields an empty `unclassified` and would satisfy every "no residual" row vacuously. That is the degenerate direction the quiet halves are exposed to.
+**Premise (executable, and proven on the case's OWN inputs).** A universe-wide `sites.length > 0` is satisfiable by the fixture's OTHER file — a case whose component landed outside `UNIVERSE_ROOTS` would still pass it while its own "no residual" assertion holds vacuously. Each case therefore asserts its own reference file was scanned: `premiseHolds("the case's own file is in the scan universe", universeFiles(root).includes(<that file>))`, immediately above the residual assertion. That is the control the quiet halves need, since their assertion is an absence.
 
 **Four pre-dispatch mutants, run and recorded in the commit message, for each fires case** (the string-presence discipline applied to the `name` assertions): (a) the shadow's initializer emptied to a numeric literal — the case must go quiet, proving the assertion tracks non-literal-ness and not the file's existence; (b) the shadow identifier suffixed (`COPY_FEEDBACK_RESET_MS2`) — the residual must still appear but under the new name, proving the assertion reads the site and not a constant; (c) the `setTimeout` call commented out — the residual must vanish, proving it comes from the call site rather than the declaration; (d) the covered export deleted from the scanned file — the residual must remain, proving the case does not depend on the covered row existing.
 
@@ -89,12 +89,12 @@ Declared delta for this arc: **the accepted set is RE-DERIVED, not edited.** `si
 
 1. `TimingSite` gains two absolute offsets: `readonly refPos?: number`, the reference identifier's start, recorded where the delay argument IS a bare identifier; and `readonly declPos?: number`, the declaration name node's start, recorded on every `named-constant` site. The covered set is keyed `${file}:${declPos}` — NOT by line, which aliases two bindings declared on one line and would suppress a real site (spec §2.1, probe P10).
 2. The delay branch's `ts.isIdentifier(delay) && TIMING_NAME.test(delay.text)` gate collapses into the generic identifier path: any bare-identifier delay records `name = delay.text` and `refPos`. Live effect zero (spec §2.3, probe P7).
-3. A new module-local `createBindingResolver(repoRoot, files)` builds one `ts.Program` with the spec §2.2 `RESOLVER_OPTIONS` and returns `(file, pos) => declarationKey | null`, where `declarationKey` is `${file}:${line}` of the resolved symbol's declaration name, alias-followed with a guarded `getAliasedSymbol`.
+3. A new module-local `createBindingResolver(repoRoot, sources)` takes the `(path, text)` pairs `scanRepo` ALREADY READ — not a path list — and serves them through a `ts.CompilerHost`, so the resolver never touches the filesystem. Two consequences the plan depends on: `refPos` offsets are guaranteed to index the same text the sites were computed from (spec §2.3), and the existing unreadable-file case (a universe file chmod'd `0o000`) keeps behaving exactly as today, because a file `scanRepo` could not read simply is not in the pairs. It returns `(file, pos) => declarationKey | null`, where `declarationKey` is `${file}:${startOffset}` of the resolved declaration's name node via `ts.getNameOfDeclaration(decl) ?? decl`, alias-followed with a guarded `getAliasedSymbol`, and `getShorthandAssignmentValueSymbol` on the shorthand path.
 4. `scanRepo` builds the covered DECLARATION-KEY set from its own `named-constant` sites' `declPos` and suppresses a delay site only when some declaration of the resolved symbol is in that set.
 
 **Two strict-tsconfig traps this repo's flags create, called out so they are not discovered at paste time:** `exactOptionalPropertyTypes: true` means an optional `refPos?: number` may not be assigned an explicit `undefined` — build the site object WITHOUT the key on the paths that have no reference, rather than with `refPos: undefined`. `noUncheckedIndexedAccess: true` means `symbol.declarations[0]` is `Declaration | undefined`; the resolution rule reads the declarations with `.some(...)` and never indexes.
 
-**Property sites keep the name filter in this task** — deliberately, so Task 2's RED is a real one rather than a case that passes the moment it is authored.
+**Property sites keep the name filter in this task, and the discriminator is stated so the shortcut is not available.** Task 1 records `refPos` on the DELAY paths only; the resolution step consults the covered-declaration set when a site carries a `refPos` and falls through to the surviving `coveredNames` filter when it does not. Route every `unclassified` site through resolution here instead and Task 2's fires case passes the moment it is authored — its `red-state=authored` marker would then name a red nobody can observe, which is invariant 1 failing silently rather than loudly.
 
 **Commit:** `fix(scripts): resolve a timer delay against its binding, not its spelling`
 
@@ -122,9 +122,11 @@ Declared delta for this arc: **the accepted set is RE-DERIVED, not edited.** `si
 
 Outside the marked region deliberately: this is a guard with no natural RED — the mapping it pins is already correct, so a marker claiming an observed red-then-green cycle would be false. It gets the mutant-red treatment instead.
 
-- Export the resolver's alias mapping as a named constant and assert it equals `compilerOptions.paths` read from `tsconfig.json`.
+- Export the resolver's alias mapping as a named constant and assert it equals `compilerOptions.paths` read from `tsconfig.json`. **Assert `baseUrl` is ABSENT there too**: the resolver pins `baseUrl: repoRoot`, and someone adding `"baseUrl": "./src"` to the tsconfig would mis-resolve every `@/…` specifier and push 17 live sites to `unclassified` — the exact failure this task names, and uncaught by a paths-only assertion (`tsconfig.json` has no `baseUrl` key today).
 - **Mutant-red probe, run and recorded in the commit:** flip the exported constant to `{"~/*": ["./*"]}` and confirm the test fails; flip `tsconfig.json`'s mapping in a scratch copy and confirm it fails from that side too. A guard that cannot be made to fail from either side is not pinning anything.
 - **Failure mode it catches:** the repo adopts a second alias (or renames `@/`), every `@/`-specified import silently stops resolving, and 17 live sites quietly become `unclassified` — a loud test instead of a mass re-disposition.
+
+- **The test lives in `tests/docs/interactionTimingScan.test.ts`**, not a new file: the registry row's `suitePaths` are the two named suites, and this plan declares the accepted set as the row's ONLY delta, so a new file would be either coverage outside the gate or an undeclared `suitePaths` change.
 
 **Commit:** `test(scripts): pin the timing resolver's alias assumption to tsconfig`
 
@@ -144,10 +146,10 @@ Outside the region: a gate run, not a red-then-green cycle.
 
 Outside the region: documentation and ledger movement.
 
-1. Rewrite the scanner header's "with one hole: an identifier delay resolves by NAME, not by binding …" paragraph and its `BL-TIMING-SCAN-NAME-VS-BINDING` pointer to state the closed contract, in the same commit as the behavior change if possible, and no later than this task (AC-9).
+1. The header rewrite is NOT here — spec AC-9 puts it in the same commit as the behavior change, and Task 2 lands it. This step only verifies it happened: `rg -U 'resolves by NAME' scripts/scan-interaction-timings.ts` must find nothing. **Why the ordering is load-bearing:** `siteId`s are `<operator>:<line>:<col>:…`, so ANY edit above an accepted row shifts it. Rewriting the header here would re-staleify the set Task 4 just re-derived, and the round-1 diff brief's `MUTATION SCORE` would be computed against an accepted set a later commit invalidates. **Task 4 is the LAST edit this arc makes to that file.**
 2. Record the measured cost (AC-10): the two suites' wall clock and the `mutation:guards` wall clock, before and after. If the suite delta exceeds 2 s locally, land the §2.4 memo fallback with its own measurement rather than a weaker resolver.
 3. Graduate `BL-TIMING-SCAN-NAME-VS-BINDING` to `BACKLOG-archive.md`, stripping the in-progress marker INSIDE the archiving move (invariant 12; archives categorically reject in-flight entries).
-4. Commit the arc's review-round corpus rows, and at four counted rounds on any stage the sibling markdown filing beside them in `docs/review-rounds/fix/timing-scan-scope-resolution/` (named for the arc's merge-base, per the corpus README).
+4. Commit the arc's review-round corpus rows. **Task 0's merge moves the merge-base, so this arc's rows split across two `<baseSha12>.jsonl` files** — `daa53759a953.jsonl` (authoring, already committed) and whatever the post-merge base is. `countedRounds` buckets per row-set and the filing requirement is per-`baseSha12`, so check BOTH files against the threshold and file beside whichever one reaches it.
 5. Closeout §12 with the impeccable-gate marker.
 
 **Commit:** `docs(backlog): graduate BL-TIMING-SCAN-NAME-VS-BINDING`
