@@ -51,13 +51,15 @@
  * and returns focus to the avatar. An outside pointer-down closes without
  * stealing focus.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { Check, Moon, UserRoundCog } from "lucide-react";
 
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { avatarColor } from "@/lib/crew/avatarColor";
 import { cn } from "@/lib/ui/cn";
 import { THEME_PERSIST_FAILED_NOTE, useAppliedTheme } from "@/components/layout/useAppliedTheme";
+import { messageFor } from "@/lib/messages/lookup";
+import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 
 /** The name substituted for a blank one, so the trigger is never unnamed. */
 export const CREW_MEMBER_FALLBACK = "Crew member";
@@ -82,9 +84,10 @@ type AvatarMenuProps = {
   /**
    * The `clearIdentity` server-action wrapper, declared by the Server Component
    * that renders this island. Passed rather than imported because a client
-   * module cannot declare one.
+   * module cannot declare one. It RETURNS its typed result: discarding it is
+   * what made a failed switch look like a successful one.
    */
-  clearAction: (formData: FormData) => void | Promise<void>;
+  clearAction: (formData: FormData) => Promise<ClearIdentityResult>;
 };
 
 /** The menu's items, in DOM order — the order arrow keys traverse. */
@@ -94,6 +97,33 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const { mounted, isDark, persistFailed, setTheme } = useAppliedTheme();
+
+  // THE FAILURE STATE IS LOCAL `useState`, NOT `useActionState`. React 19 gives
+  // `useActionState` no reset API, and `open=false` only HIDES the popover —
+  // this component stays mounted — so a `useActionState` error would survive the
+  // close and reappear on the next open, showing a stale failure for a clear the
+  // person has already moved on from. A plain state the menu resets when it
+  // opens is the shape that matches the lifecycle.
+  const [switchStatus, setSwitchStatus] = useState<"idle" | "error">("idle");
+  const [switchPending, startSwitch] = useTransition();
+
+  // React 19's form-action slot takes `void | Promise<void>`, so the returning
+  // `clearAction` cannot bind to it directly. This adapter is that binding AND
+  // the seam where the result finally gets read.
+  const onSwitchSubmit = (formData: FormData): void => {
+    // The pending item stays FOCUSABLE (aria-disabled, not native disabled), so
+    // re-entry is guarded here rather than by the DOM.
+    if (switchPending) return;
+    setSwitchStatus("idle"); // clear a prior error before the retry
+    startSwitch(async () => {
+      const result = await clearAction(formData);
+      // Any failure shows the same generic copy: the crew member cannot act on
+      // WHICH failure it was, and a cross-origin refusal must not tell a
+      // forger anything either. Success needs no branch — a cookie-only viewer
+      // unmounts this whole control via revalidatePath.
+      if (!result.ok) setSwitchStatus("error");
+    });
+  };
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -147,6 +177,11 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
   const openAt = (index: number): void => {
     pendingFocus.current = index;
     setActiveIndex(index);
+    // EVERY open resets the failure state, and this is the ONLY place the menu
+    // opens, so there is one site rather than one per entry point. Without it a
+    // clear that failed while the menu was closed would surface its alert on the
+    // next open, attached to a tap the person has already left behind.
+    setSwitchStatus("idle");
     setOpen(true);
   };
 
@@ -296,6 +331,33 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
             </div>
           ) : null}
 
+          {/*
+            SIBLING of the menu, never a child. `role="menu"` constrains the
+            elements it owns — the same ARIA required-owned-elements rule that
+            already forced `role="none"` onto the switch-person form, and the
+            same reason the switch-person alert sits outside it — and the popover
+            panel is used to hosting non-menuitem content (the identity header).
+
+            ABOVE the menu rather than below it: the switch-person alert holds
+            the slot immediately after the menu, pinned executably as the
+            popover's last child (its §4.3 placement contract). Two regions
+            cannot both be last, and that one is an ALERT about an action the
+            user just took, so it keeps the position closest to the control;
+            this is a polite status about the device.
+
+            Always mounted while the popover is open, with only the TEXT
+            conditional: a live region inserted together with its message
+            announces nothing. The theme row keeps the menu open on activation,
+            so the note is visible in place when the failed write happens.
+          */}
+          <div role="status" data-testid="theme-persist-note">
+            {persistFailed ? (
+              <p className="px-3 pb-1 text-xs/relaxed text-text-subtle">
+                {THEME_PERSIST_FAILED_NOTE}
+              </p>
+            ) : null}
+          </div>
+
           <div role="menu" data-testid="avatar-menu-items" {...menuNameProps}>
             <button
               // FOCUS IS THE SOURCE OF TRUTH for the roving index, not the
@@ -346,7 +408,7 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
             not an option — it IS the server-action boundary carrying the route
             inputs — so its role is removed and the submit stays the menu item.
           */}
-            <form action={clearAction} role="none">
+            <form action={onSwitchSubmit} role="none">
               <input type="hidden" name="slug" value={slug} />
               <input type="hidden" name="shareToken" value={shareToken} />
               <input type="hidden" name="showId" value={showId} />
@@ -361,7 +423,19 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 data-identity-chip-not-you=""
                 aria-label="Switch crew member"
                 tabIndex={activeIndex === 1 ? 0 : -1}
-                className={itemClass}
+                // `aria-disabled`, NEVER the native `disabled` attribute. Native
+                // disabled takes the item out of the focus order, and this menu's
+                // roving tabindex calls `.focus()` on a FIXED index — so a
+                // disabled switch row would swallow ArrowDown, the ArrowUp wrap,
+                // End, and reopen-with-ArrowUp, stranding focus outside the menu.
+                // The WAI-ARIA menu pattern keeps a disabled item focusable and
+                // skips it only for activation; re-entry is guarded in
+                // `onSwitchSubmit` instead.
+                aria-disabled={switchPending}
+                className={cn(
+                  itemClass,
+                  "aria-disabled:cursor-not-allowed aria-disabled:opacity-60",
+                )}
               >
                 <UserRoundCog aria-hidden="true" className="size-4" />
                 Not you? Switch person
@@ -370,24 +444,22 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
           </div>
 
           {/*
-            SIBLING of the menu, never a child. `role="menu"` constrains the
-            elements it owns — the same ARIA required-owned-elements rule that
-            already forced `role="none"` onto the form above — and the popover
-            panel is used to hosting non-menuitem content (the identity header).
-
-            Always mounted while the popover is open, with only the TEXT
-            conditional: a live region inserted together with its message
-            announces nothing. The theme row deliberately keeps the menu open on
-            activation, so the note appears in place, under the row that just
-            failed to save.
+            OUTSIDE the `role="menu"` element, for the same reason the identity
+            header is: an alert is not a menu item, and a non-item child of a
+            `menu` role is invalid ARIA. It is not focusable and takes no place
+            in the arrow traversal — it is a status, not a destination. The menu
+            deliberately stays OPEN behind it, so the retry is one tap away
+            rather than three.
           */}
-          <div role="status" data-testid="theme-persist-note">
-            {persistFailed ? (
-              <p className="px-3 pb-1 text-xs/relaxed text-text-subtle">
-                {THEME_PERSIST_FAILED_NOTE}
-              </p>
-            ) : null}
-          </div>
+          {switchStatus === "error" ? (
+            <div
+              role="alert"
+              data-testid="avatar-menu-switch-error"
+              className="mt-1 rounded-sm border border-border-strong bg-warning-bg px-3 py-2 text-xs/relaxed text-warning-text"
+            >
+              {messageFor("PICKER_SWITCH_FAILED").crewFacing}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

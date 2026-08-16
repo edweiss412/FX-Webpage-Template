@@ -161,12 +161,6 @@ The **nineteen** isolating mutants, as an operator list ready to enrol — every
 
 **First scheduled step:** add the registry row and run the gate, then triage survivors — the nineteen above should all be killed already, so any survivor is new information.
 
-## BL-SPECLINT-PROSE-COUNT-PARITY — numeric-sweep extension: prose cardinalities against executable declarations
-
-**Filed:** 2026-08-09 (round-economy followups-2, promotion P3; spec `docs/superpowers/specs/ci/2026-08-09-round-economy-followups-2.md` §3.2). **Severity:** LOW (docs drift; nothing renders differently). **Class:** review-round reduction (tooling). **Effort:** S. **Reachability:** PROBED via merged filings — classname delta arc: five findings across four rounds plus one CI cycle, all one class (`docs/review-rounds/refactor/classname-array-join-cn/b2aca7b02547.md`); wedge-remeasure: quantity drift across quoted disposition templates (spec §) and a stale cardinality over a grown sibling list (diff §) (`docs/review-rounds/chore/next-1630-wedge-remeasure/9bec2e11ab11.md`).
-
-Extend `lib/specLint/numerics.ts` beyond `NUMERIC_NOUN_MISMATCH` with the three measured shapes: (a) when a doc names a script that declares a count constant (the `EXPECTED_SITE_TOTAL` pattern in `scripts/verify-cn-operand-parity.mjs` — a module-local `const`, so the arm reads the declaration textually rather than importing it), compare the doc's PRESENT-TENSE prose cardinalities against the constant's live value — prose carrying the dated "at authoring time" qualifier, and dated historical records (probe transcripts, execution records: the filing's own boundary is that historical measurements are never corrected), are EXCLUDED from the comparison, not flagged; (b) count the sibling list items directly beneath an "N shapes/items" claim and compare; (c) compare quantities repeated across quoted disposition templates within one doc. Advisory-first is acceptable; the rule half binds immediately via the promoted spec-self-review numeric-sweep extension. Design and opt-in mechanics belong to the implementing arc.
-
 ## BL-MUTATION-HARNESS-PLAYWRIGHT-COMPONENT-MODE — Playwright/component-mutant runner mode for the source-mutation harness
 
 **Status:** OPEN · **Filed:** 2026-08-15 (round-economy win sweep, post-#791 reconciliation). **Severity:** LOW (tooling; no product surface). **Class:** review-round economy (extends the one convergence criterion measured to terminate — the mutation score — to the surface class that burns the most rounds). **Effort:** M-L (a harness mode, not a registry row; sized by the 2026-08-09 probe recorded in `BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT`'s probe block above). **Reachability:** PROBED — the three missing capabilities are measured against the shipped harness rather than argued (quick-wins-2 §2.4 probe, `docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md` §1.1.4; recorded verbatim under `BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT`).
@@ -454,17 +448,29 @@ gh api -X POST repos/edweiss412/FX-Webpage-Template/branches/main/protection/req
 Run it, confirm with `gh api repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks --jq '.contexts'`,
 then archive this entry. Nothing else is owed.
 
-## BL-SERVER-ACTION-ORIGIN-GATE — same-origin gate for the crew guest Server Action
+## BL-SERVER-ACTION-ORIGIN-GATE-SWEEP — gate the remaining destructive Server Actions on same-origin
 
-**Status:** OPEN · **Severity:** low (logout CSRF; no read, no escalation) · **Surfaced:** `fix/picker-flow-app-bugs` review rounds 1-3 (2026-07-25), descoped rather than guessed at · **Effort:** M
+**Status:** OPEN · **Severity:** low · **Surfaced:** `fix/auth-picker-hardening` spec/plan (2026-08-15) · **Effort:** M
 
-`clearIdentityAndSkip` (`lib/auth/picker/clearIdentity.ts`) is an exported Server Action that ends the Supabase session on the calling browser and deletes one picker entry from the `__Host-fxav_picker` envelope. It relies on Next's built-in Server Action origin validation, which rejects a mismatched `Origin` but **permits a request that carries no `Origin` header at all**. So a cross-site POST arriving without that header is not refused by anything the app adds.
+`fix/auth-picker-hardening` closes the crew picker's identity-clear actions (`clearIdentity` / `clearIdentityAndSkip` / `clearIdentityCore`) with `isSameOriginServerAction()` (`lib/auth/sameOriginServerAction.ts`), a proxy-independent Fetch-Metadata gate that never trusts `x-forwarded-host`/`host`. That helper reduces each peer destructive Server Action to a one-line guard, but the arc deliberately scoped itself to the picker surface (class-sweep disposition exception (c): a redesign spanning enough sites to blow the review scope).
 
-**The residual, sized.** An attacker who forces the call signs the victim's browser out of this app on that device and removes one supplied show id from their picker envelope. There is no response data returned to the caller, no privilege gained, and no cross-account effect — with `scope: "local"` it does not even touch the victim's other devices. It is logout CSRF, in an app whose sign-out is a visible button. That is why it was filed rather than treated as blocking.
+**Reachable surface (stated, not probed here):** `rg -n '"use server"' lib app` at authoring time returned 38 files; not all are destructive, and the exact destructive set is the first step of this entry. Each destructive exported action that mutates on a forced cross-site POST has the same logout/CSRF shape as the filed `BL-SERVER-ACTION-ORIGIN-GATE`, minus a demonstrated higher-impact payload.
 
-**Why it is not already fixed.** A hand-rolled gate was specified twice and failed review both times. The route-handler precedent (`app/auth/sign-out/route.ts:78-87`) reads `request.nextUrl.origin`, which a Server Action has no equivalent of, so the action must compose the expected origin from headers — `x-forwarded-proto`, `x-forwarded-host`, `host`. That is only sound behind a **trusted proxy** whose overwrite behavior this repo has never established; where a proxy forwards client-supplied values, a spoofed `Origin` plus `x-forwarded-host` pair passes the check. Three consecutive review rounds on one design-correctness vector triggered the prose cap in `docs/agents/spec-self-review.md`: descope, do not patch a fourth time.
+**Trigger / first step:** enumerate the destructive `"use server"` exports; gate each on `isSameOriginServerAction()` (admin actions behind a `require`-gate get it additively). Admin mutating routes under `app/api/admin/` are a separate transport (route handlers, not actions) and are out of this entry's scope.
 
-**Open decision, and the trigger:** establish the trusted-proxy policy (which headers are authoritative in each deployment, and whether the platform overwrites them), then gate every destructive Server Action on it — not just this one. Pick this up on the next auth security pass, or sooner if a Server Action lands whose forced invocation would do more than log someone out. Reasoning in `docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md` §4.3a.
+---
+
+## BL-SWITCH-PERSON-GOOGLE-LOOPBACK — menu "Switch person" is ineffective for a Google-authenticated viewer
+
+**Status:** OPEN · **Severity:** low · **Class:** UX correctness / product decision · **Surfaced:** `fix/auth-picker-hardening` spec R1-F1 (2026-08-15) · **Effort:** M
+
+For a viewer whose access derives from a live Google session (not a cookie-only picker identity), tapping "Not you? Switch person" clears the picker cookie entry but the next resolve re-mints the SAME identity via bootstrap, so the control appears to do nothing. This is pre-existing behavior, distinct from the silent-failure defect `fix/auth-picker-hardening` fixes, and out of that arc's scope (class-sweep disposition exception (a): needs a product decision).
+
+**Reachability: PROBED.** `lib/auth/picker/resolveShowPageAccess.ts:246` — a Google `success` with a missing or mismatched picker entry returns `needs_picker_bootstrap`, which re-mints the identity; clearing the cookie entry does not end the Google session, so the loop closes back to the same person.
+
+**Open decision:** whether menu switch-person should sign a Google viewer out (Supabase `scope: "local"`) as part of the clear, or whether the control should be hidden/relabelled for Google-authed viewers. Documented as a limit in the arc spec §4.7 / §7.
+
+**Trigger:** the next auth/picker UX pass, or a product call on Google-viewer switch semantics.
 
 ---
 
@@ -507,24 +513,6 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 **Heading caveat:** only the first two items (`BL-SCAN-SSE-BODY-NULL-CODE`, `BL-PICKER-TAMPER-ADMIN-ALERT`) actually came out of that batch. The rest accreted under this heading afterwards from unrelated 2026-07-04+ work (agenda visibility, quiet-link a11y, alert-link e2e, health-resolve lockdown, Step-3 impeccable) and are grouped here by filing date, not by subject. Read each item on its own; the heading is not a topic.
 
 **Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
-
-### BL-IDENTITY-CLEAR-FAILURE-IS-SILENT — a failed "switch person" reports success
-
-**Severity:** MEDIUM (the crew member believes they signed out of an identity they are still in) · **Class:** correctness / UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 2) · **Effort:** M
-
-**Probed, not theorized.** `clearIdentity` resolves a typed result, and the failure branch is reachable:
-
-```
-clearIdentity failure branch: {"ok":false,"code":"PICKER_RESOLVER_LOOKUP_FAILED"}
-```
-
-`clearIdentityFormAction` in `components/auth/IdentityChip.tsx` awaits it and returns `void`, so the avatar menu closes and the page proceeds as though the identity were cleared.
-
-**Why it is filed rather than fixed in this arc.** The fix is not the discard — it is that the menu has NO failure state to render into. That needs: where the message appears (inside the popover, which closes on submit; or a page-level region), what it says (a §12.4 catalog code, per the no-raw-codes contract), and whether the menu stays open on failure. Those are design decisions, not implementation details. Class-sweep disposition exception (a).
-
-**Note:** the code comment that previously called this "harmless to discard at the form boundary" has been corrected in place — the premise was false, and leaving it would have made the next reader believe the gap was considered and dismissed.
-
----
 
 ### BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal
 
@@ -816,16 +804,6 @@ Moving the four directories outside the repo and re-running takes the same suite
 
 **The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
 
-## BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a failing drift run can never refresh the cache that made it fail
-
-**Status:** OPEN · **Severity:** MEDIUM · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-14 from a live main-branch incident
-
-`screenshots-drift.yml` restores `.next-screenshots-help/cache` via `actions/cache` with a `restore-keys` prefix fallback, and `actions/cache` saves only in the post step of a SUCCESSFUL job. Those two facts compose into a trap: once every saved `Linux-nextcache-screenshots-*` cache predates a UI-changing merge, the nightly drift job restores a stale Next build cache, renders the OLD chrome, diffs against the CURRENT committed baselines, fails — and by failing, skips the cache save that would have replaced the stale cache. The failure self-perpetuates until a human deletes the caches.
-
-**Probe evidence (two-run, 2026-08-14).** Main-branch drift runs 31693276503 and 31748971797 failed on the same 6 `public/help/screenshots/crew-preview-*.webp` files (md5-verified as the only drifting set) while (a) the committed baselines were current — regenerated at `a5e1ee44d` AFTER the #779 UI change — and (b) the sanctioned `screenshots-regen.yml` on the same sha, same pinned image (`mcr.microsoft.com/playwright:v1.59.1-jammy`), same `pnpm screenshot:help` command committed NOTHING ("No baseline changes to commit") — the regen workflow has no cache step, so a fresh build reproduced the committed bytes exactly. All 12 saved caches predated #779. Deleting all 12 via `gh cache delete` and re-dispatching flipped the outcome: run 31749355724 SUCCESS with zero source change. Same sha, same image, same command; the only variable was the restored cache.
-
-**Repair directions (any one closes the class):** key the cache on a hash of the inputs that feed the build (so a stale restore is impossible, not merely unlucky); or split restore/save into explicit `actions/cache/restore` + `actions/cache/save` with `if: always()` so a failing run still refreshes its cache; or drop the `restore-keys` prefix fallback so a miss builds cold instead of restoring a wrong-generation cache. Whichever lands should note in the workflow why, citing this entry.
-
 ---
 
 ## Merged from the plans backlog (2026-08-02)
@@ -977,29 +955,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 **Why backlog, not deferred:** This is a likely-v2 product direction (a downloadable STANDARDIZED TEMPLATE), not committed v1 work. It requires (a) a template-design pass (what the downloadable sheet looks like, how Doug adopts it, migration from organic sheets), (b) a product decision about mandating a template vs tolerating organic sheets, and (c) parser changes to read any **genuinely-new** structured fields the template adds (labeled Call/Doors, hotel room-type/check-in-out time-of-day, discrete Wi-Fi SSID/PW, etc.). **NOTE:** the **AGENDA run-of-show parser is NOT part of this backlog** — it is scheduled v1 work (Phase-2 spec, see the corrected AGENDA bullet above); this entry covers only the TEMPLATE-standardization of the source + the fields that are genuinely absent today. The v1 Blend reconciliation ships without any of it; the design drops/empty-states the genuinely-unreliable fields and parses the AGENDA run-of-show where present. No spec/plan/milestone **for the template** (the AGENDA parser does have one — Phase 2).
 
 **Promotion prerequisite:** EITHER (a) owner decides to formalize the downloadable template as a real v2 feature (template design + adoption plan), OR (b) the v1 redesign ships and operator feedback shows the empty-state surfaces (timeline, wifi, flights, contacts) are a real friction point worth closing at the source. Promotion starts with a brainstorming session on the template shape + the parser contract for any new structured tabs (the AGENDA run-of-show grid contract is already partially mapped in the redesign milestone's deep-read notes).
-
-### BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 35 ids appear twice in BACKLOG-archive.md, and no gate notices
-
-**Severity:** LOW (the archive is a record, not a queue; nothing reads it for scheduling) · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, found while resolving an archive merge) · **Effort:** S
-
-**Probed, not theorized.** On `origin/main`, and on main BEFORE the quick-wins-2 mech branch merged (so this is not that arc's doing):
-
-```
-$ git show origin/main:BACKLOG-archive.md \
-    | grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' | sed -E 's/^#+ //' | sort | uniq -d | wc -l
-35
-$ git show ec06b825a^1:BACKLOG-archive.md | ... same pipeline ...
-35
-```
-
-**Why nothing caught it.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` asserts no id is both ACTIVE and ARCHIVED — a cross-file check. Nothing asserts an id appears at most once WITHIN the archive. A union-style merge resolution on the archive (the natural resolution, since two branches usually only append) silently duplicates any entry both sides carry, and every existing gate stays green.
-
-**Two traps for whoever picks this up**, both hit while resolving the merge that found it:
-
-- The active ledger uses `### ` headings and the archive uses `## `. A duplicate check anchored to one level reports clean while every collision hides in the other. Match `^#{2,3}`.
-- Archive PROSE cross-references entry ids, so a substring test (the bare id as a substring) reports an id as archived when only a mention is present. Anchor to the heading.
-
-**Fix:** de-duplicate the 35, then add the within-file uniqueness assertion to the graduation meta-test so the class cannot come back.
 
 ---
 
