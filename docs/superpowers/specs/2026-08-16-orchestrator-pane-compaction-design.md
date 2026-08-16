@@ -155,8 +155,8 @@ became unreachable. §5.2 now queues and waits.
 | --- | --- |
 | Agent name resolves to a branch in `git worktree list` | 10 of 12; the 2 that do not are `smalls-batch-orchestrator` and `bl-mediums-orchestrator`, which have no worktree because they dispatch arcs rather than being one (§4.1 `NOT-AN-ARC`) |
 | Marker readable cross-worktree | Yes — `heavy-orphan-reaper` `stage=plan`, `scanner-scope-totality` `stage=review`, `modal-wait-helper-adoption` `stage=implementation` |
-| Marker `sessionId` matches pane `agent_session.value` | 9 of 10; `chore/mutation-gate-sharding` reports **no** `agent_session` (status `done`) while its marker still names `bfea4e59` (§4.5 rule 4) |
-| `gh pr checks` with no PR | Exits **1**, empty stdout, stderr `no pull requests found for branch "…"` — the same exit code as auth failure, network error, and rate limit (§4.5 rule 5) |
+| Marker `sessionId` matches pane `agent_session.value` | 9 of 10; `chore/mutation-gate-sharding` reports **no** `agent_session` (status `done`) while its marker still names `bfea4e59` (§4.5 rule 5) |
+| `gh pr checks` with no PR | Exits **1**, empty stdout, stderr `no pull requests found for branch "…"` — the same exit code as auth failure, network error, and rate limit (§4.5 rule 6) |
 
 ---
 
@@ -206,16 +206,23 @@ Keyed on **structure**, never spelling:
 - `agent_session.value` — **optional**; absent is a valid observation, not a parse failure (§3.9).
 - A gauge parseable to `t` ∈ `0..10`.
 - Marker fields in the declared shape (`branch`, `stage`, `tasksRemaining`, `next`, `blockedOn`,
-  `cronJobId`, `sessionId`).
+  `cronJobId`, `sessionId`) **plus the optional `checkpointNonce`** (§5.2). Its presence is the
+  normal output of a checkpoint and must be accepted, or the protocol cannot progress past its own
+  first command; its absence is equally normal. Round 4 found it missing here while §5.2 added it.
 - Git state: porcelain status, commits ahead of `origin/main`, last commit timestamp.
-- A round-corpus row (`stage`, `round`, `status`, `verdict`, `findingCount`). **Absent is normal**
+- A round-corpus row (`stage`, `round`, `status`, `verdict`, `findingCount`, `endedAt`).
+  **"Newest" is the row with the greatest `endedAt` across every row in every corpus file for the
+  branch**; rows without a parsable `endedAt` — which includes every row whose `status` is not
+  `verdict` — are excluded from that selection rather than sorted arbitrarily. Ties are impossible
+  in practice and resolved by taking neither: a tie yields `UNDETERMINED`, naming it. **Absent is
+  normal**
   — an arc that never dispatched a review has no corpus file — and is read as `no review in
   flight`, not as a fault.
 - A `gh` outcome, **in any of its three forms** — a parsed check state, the recognized no-PR
   signature (non-zero exit **and** stderr matching `no pull requests found for branch`), or a
   fault. All three are *accepted observations*; the accept-set does not classify them. **Rule 5
   alone decides what a fault produces** (§4.5), so that rule stays reachable and independently
-  testable. Round 3 found the previous wording consuming faults here, which made rule 5 dead code.
+  testable. Round 3 found the previous wording consuming faults here, which made rule 6 dead code.
 
 Anything else yields `UNDETERMINED` **naming the offending field**. Terminal titles and pane labels
 are display strings, never parsed for meaning.
@@ -256,31 +263,41 @@ returns `FORCE` for `t >= 8` whatever the position cost, so at critical pressure
 alternative is not "no compaction", it is auto-compaction at a position nobody chose, which is
 strictly worse. Row 1 (CI green, PR unmerged) remains the one position that outranks `FORCE`,
 because there the correct action is to merge rather than to compact. Round 3 found the previous
-wording asserting an unqualified demote-only bound that rule 9 contradicts.
+wording asserting an unqualified demote-only bound that the old unconditional `FORCE` rule
+contradicted. §4.5 rule 11 now removes the contradiction at its source: `FORCE` does not fire at a
+High-cost position.
 
 ### 4.5 Precedence
 
 Ordered; first match wins. **Validation precedes banding**, so no pane reaches two terminal rules.
 
 1. Agent name resolves to no worktree branch → **NOT-AN-ARC**.
-2. Pane in no purview registry, or in more than one → **UNOWNED** (unowned / contested).
-3. Input outside the accept-set (§4.3) → **UNDETERMINED**, naming the field.
-4. Marker `sessionId` present and the pane's `agent_session.value` absent, or both present and
+2. **Two or more roster entries share this agent name** → **UNDETERMINED**, naming the collision.
+   The classifier cannot tell which pane a later command would reach, which is the same reason a
+   contested purview claim is not driven. Round 4 found this asserted in §7, the test matrix and
+   AC-21 while no rule implemented it, so two duplicate rows could reach banding.
+3. Pane in no purview registry, or in more than one → **UNOWNED** (unowned / contested).
+4. Input outside the accept-set (§4.3) → **UNDETERMINED**, naming the field.
+5. Marker `sessionId` present and the pane's `agent_session.value` absent, or both present and
    differing → **UNDETERMINED**, naming the mismatch.
-5. A `gh` outcome that is neither a parsed check state nor the recognized no-PR signature →
+6. A `gh` outcome that is neither a parsed check state nor the recognized no-PR signature →
    **UNDETERMINED**, naming `gh`.
-6. `agent_status` ∈ {`blocked`, `unknown`}, or the target's `blockedOn` is non-empty → **WAIT**.
-7. Position row 1 (CI green, PR unmerged) → **WAIT**, regardless of pressure.
-8. Pressure `t < 5` → **HOLD**.
-9. Pressure `t >= 8` → **FORCE**.
-10. Position cost Low or Lowest → **COMPACT**; otherwise → **WAIT**.
+7. `agent_status` ∈ {`blocked`, `unknown`}, or the target's `blockedOn` is non-empty → **WAIT**.
+8. Position row 1 (CI green, PR unmerged) → **WAIT**, regardless of pressure.
+9. Pressure `t < 5` → **HOLD**.
+10. Pressure `t >= 8` **and** position cost is not High → **FORCE**.
+11. Pressure `t >= 8` and position cost **is** High → **WAIT**. Round 4's F6: `FORCE` overriding an
+    expensive position is the behavior that made §7 limit 1 exceed §6's bound. It is fixed by
+    changing the behavior, not by rewording the limit — a critically-full pane at a High-cost
+    position is left to auto-compact, which is the conservative outcome §6 requires.
+12. Position cost Low or Lowest → **COMPACT**; otherwise → **WAIT**.
 
-Rule 2 sits above rule 3 deliberately: ownership resolves from `paneId` alone and needs no marker,
+Rule 3 sits above rule 4 deliberately: ownership resolves from `paneId` alone and needs no marker,
 so an unowned pane with a malformed marker is reported `UNOWNED` — which is what AC-5 requires, and
 what round 2 found the previous ordering contradicting.
 
 Rule 5 sits above every banding rule so a `gh` outage can never reach `COMPACT`/`FORCE`. Without
-it, a failed `gh` reads as "no PR", which matches row 8 at Low cost and silently bypasses rule 7 on
+it, a failed `gh` reads as "no PR", which matches row 8 at Low cost and silently bypasses rule 8 on
 exactly the panes most dangerous to compact.
 
 ---
@@ -316,17 +333,36 @@ panes:compact --checkpoint <target> --as <sessionId>
 panes:compact --compact <target> --as <sessionId>
   0. revalidate: same three conditions, fresh                            (closes F5)
   1. read the target's marker; require `checkpointNonce` == the recorded nonce
-     mismatch or absent -> exit 1, send NOTHING                          (closes F6)
-  2. send '/compact'; send $'\r'                                         [P5, P7]
-  -> exits 0 having SENT. No wait, no post-compact failure matrix.       (closes F7)
+     mismatch or absent -> exit 1, send NOTHING                          (closes r3 F6)
+  2. CONSUME the nonce record before sending, not after: a crash between
+     consume and send costs a re-checkpoint, whereas consuming after would
+     leave a replayable record on every failure path                     (closes r4 F2)
+  3. send '/compact'; send $'\r'                                         [P5, P7]
+  -> exits 0 having SENT. No wait, no post-compact failure matrix.       (closes r3 F7)
 
 panes:compact --resume <target> --as <sessionId>
+  0. revalidate against --resume's OWN predicate, NOT COMPACT|FORCE:
+       not NOT-AN-ARC, purview resolves to <sessionId> uncontested,
+       agent_status not in {blocked, unknown}, target's blockedOn empty,
+       marker sessionId still matches the pane's agent_session
+     any failure -> exit 1 naming it, send NOTHING                       (closes F1)
   1. send RESUME_TEXT; send $'\r'                                        [P6]
 ```
 
 The orchestrator sequences them, re-running the plain report between steps to see the target's
 state. **That re-run is the wait**, and it is the orchestrator's judgement rather than a timeout
 buried in a script — which is what makes each command's failure mode singular and testable.
+
+**`--resume` cannot reuse the `COMPACT`/`FORCE` predicate**, because a successful compaction is
+exactly what drops the target's pressure to `HOLD` — the predicate would be false precisely when
+`--resume` is correct. Its own predicate above asks the questions that still matter after a
+compaction: is this pane still mine, still an arc, still the session I checkpointed, and not
+blocked. Round 4 found the previous version sending unconditionally, which would let a superseded
+pane be restarted against a worktree another session now owns.
+
+**The nonce is single-use.** `--compact` consumes the record before sending, so a retry finds no
+record and exits 1 rather than issuing a second `/compact`. Equality alone was replayable: the same
+stale-but-equal nonce would satisfy every later invocation.
 
 **The nonce is what makes verification sound.** Round 3 showed that "marker mtime is newer and
 `next` is non-empty" passes on *any* concurrent marker write — a stage progression, a `blockedOn`
@@ -474,12 +510,14 @@ line.
 
 Each is conservative-plus-signaled — consistent with §6, not an exception to it.
 
-1. **Position is inferred and can be wrong.** In the eligible band §4.4's demote-only rule bounds
-   the consequence to a missed compaction. **In the critical band it does not**, and this limit
-   does not claim otherwise: rule 9 returns `FORCE` regardless of position cost, so a wrong
-   inference at `t >= 8` can compact at an expensive position. The bound that holds there is
-   weaker — at critical pressure the counterfactual is auto-compaction at an unchosen position, so
-   a deliberate compaction at a mis-inferred one is no worse. Only row 1 outranks `FORCE`.
+1. **Position is inferred and can be wrong, and the consequence is always a missed compaction.**
+   §4.4's demote-only rule takes the more expensive cost when two rows match, and §4.5 rule 11
+   turns a High cost at critical pressure into `WAIT` rather than `FORCE`. So a wrong inference
+   can only ever withhold a compaction, never place one badly — which is what §6 requires, and
+   what rounds 2, 3 and 4 each found this limit failing to deliver. The price is explicit: a
+   critically-full pane sitting at a High-cost position is left to auto-compact. That is worse
+   than compacting it well and better than compacting it badly, and it is the only one of the
+   three the classifier can guarantee.
 2. **A checkpoint can be issued and never followed by `--compact`.** The orchestrator may simply
    not run the second command. The consequence is a marker update the target performs at its own
    pace and no compaction — harmless, and visible in the next report because the recorded nonce
@@ -489,12 +527,13 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
    this is the target's own contract failure, identical to one that would have occurred under
    auto-compaction, and it is not made worse by compacting. Requiring the orchestrator to judge
    the *content* of another session's `next` is out of scope (§11).
-4. **Purview collision detection is a report, not a lock.** Two orchestrators reading before either
-   writes can both proceed. Consequence with the interrupt gone: two checkpoint prompts (the second
-   rewrites the same marker, invalidating the first nonce, so the first orchestrator's `--compact`
-   correctly refuses) and at most two `/compact` sends, the second landing on an already-compacted
-   session. Bounded, and observed rather than asserted — the probe pane's gauge read `ctx ░░░░░`
-   before and after its compaction.
+4. **Purview collision detection is a report, not a lock — but the nonce makes the outcome
+   conservative rather than merely bounded.** Two orchestrators reading before either writes can
+   both issue `--checkpoint`. The second prompt overwrites `checkpointNonce`, so the first
+   orchestrator's `--compact` reads a nonce that is not its own and **refuses without sending**.
+   At most **one** `/compact` is issued, by whichever orchestrator checkpointed last. The other is
+   told why. That is correct-or-signaled, not "no worse than"; round 4 was right that the previous
+   wording asserted a weaker bound than §6 permits.
 5. **`gh`'s no-PR signature is matched on human-readable stderr**, which is not a stability
    contract. A future reword demotes every pane to `UNDETERMINED` rather than mis-classifying.
 6. **An arc whose Stage 0 label was never set is indistinguishable from a non-arc pane.** Both
@@ -502,7 +541,7 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
 7. **A marker-less worktree is supported and classified from git and corpus signals alone.**
    Measured: 3 of 38 worktrees carry no marker, one of which (`ci-flake-ledger-correction`) is a
    genuine branch worktree. AGENTS.md's ship-gate has a soft tier for exactly this. Absence is
-   never read as mismatch — §4.5 rule 4 no-ops rather than firing.
+   never read as mismatch — §4.5 rule 5 no-ops rather than firing.
 8. **Agent-label uniqueness is a convention, not an invariant.** It holds on the live roster today
    and follows from branches being unique, but a hand-mislabeled pane could collide. Two roster
    entries sharing a name yield `UNDETERMINED` for both, naming the collision, for the same reason
@@ -523,15 +562,20 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
 | Demote-only | Two rows matching with uncertain ordering yields the more expensive cost. |
 | `RECENT_COMMIT_WINDOW` | Both sides of the 15-minute boundary. |
 | Hard `WAIT` | CI-green-unmerged at critical pressure. |
-| `gh` discrimination | No-PR signature → row 8; a non-zero exit with different stderr → `UNDETERMINED`, never `COMPACT`. Rule 5 is exercised **distinctly** from rule 3, proving it is not dead code. |
+| `gh` discrimination | No-PR signature → row 8; a non-zero exit with different stderr → `UNDETERMINED`, never `COMPACT`. Rule 6 is exercised **distinctly** from rule 4, proving it is not dead code. |
 | Session match | Marker `sessionId` matching, differing, and pane reporting none — three cases. |
 | Corpus | Absent corpus reads as "no review in flight", not a fault; non-APPROVE newest row with no commit since → row 4. |
 | Purview | Unowned reported; contested reported; registry read from every file in the directory. |
+| Nonce single-use | `--compact` twice in a row: the second exits 1 and sends nothing, because the record was consumed before the first send. |
+| `--resume` predicate | Refuses on each of: `NOT-AN-ARC`, unowned, contested, `blocked`, non-empty `blockedOn`, session mismatch. Asserted **not** to require `COMPACT`/`FORCE`, since a successful compaction makes that false. |
+| Duplicate agent names | Two roster entries sharing a name are both `UNDETERMINED` **before banding** — a fixture where both would otherwise be `COMPACT`. |
+| Corpus newest-selection | Multiple rows across multiple files: greatest `endedAt` wins; rows without a parsable `endedAt` are excluded, not sorted arbitrarily; a tie yields `UNDETERMINED`. |
+| `FORCE` respects High cost | `t >= 8` at a High-cost position yields `WAIT`, not `FORCE` — the §7 limit-1 behavior change, asserted rather than described. |
 | Nonce verification (§5.2) | Four cases: nonce matches → sends; nonce absent → exit 1, nothing sent; nonce differs → exit 1, nothing sent; **marker mtime newer and `next` non-empty but nonce stale** → exit 1, which is the concurrent-writer false positive round 3 found. |
 | Revalidation (§5.5) | Per command: fresh at report time, stale at command time → refuses, exits 1, sends nothing. |
 | `--as` required | Every sending mode without `--as` exits 1 and sends nothing. |
 | Target resolution | `agent_not_found` exits 1 naming the target; duplicate agent names yield `UNDETERMINED` for both. |
-| Marker-less pane | Classifies from git and corpus alone; rule 4 no-ops rather than firing. |
+| Marker-less pane | Classifies from git and corpus alone; rule 5 no-ops rather than firing. |
 | `--check` aggregation | Purview-only; `UNDETERMINED` outranks `COMPACT`; `NOT-AN-ARC`/`UNOWNED` excluded from the exit. |
 | CLI envelope | `--json` never capped (fixture larger than any plausible cap; the live roster is ~12 panes, too small to fail against the mutant it names). |
 | Keystroke sequence | Dry-run asserted byte-for-byte including both literal texts with `<NONCE>` substituted. **No `\x1b` byte** asserted on the dry-run path **and** on the live send path through a spy on the send surface — a dry-run-only assertion cannot see an Esc emitted conditionally by the live adapter, which round 3 named. |
@@ -548,11 +592,11 @@ on the case's own inputs.
 ## 9. Acceptance criteria
 
 - **AC-1** `pnpm panes:compact` reports every roster pane with a verdict and position evidence.
-- **AC-2** Pressure `t < 5` yields `HOLD`, provided §4.5 rules 1-7 did not fire.
+- **AC-2** Pressure `t < 5` yields `HOLD`, provided §4.5 rules 1-8 did not fire.
 - **AC-3** CI-green-with-PR-unmerged yields `WAIT` at every pressure including critical, provided
-  §4.5 rules 1-6 did not fire.
+  §4.5 rules 1-7 did not fire.
 - **AC-4** Input outside the §4.3 accept-set yields `UNDETERMINED` naming the field, provided §4.5
-  rules 1-2 did not fire — an unowned or non-arc pane is reported as such even when its marker is
+  rules 1-3 did not fire — an unowned or non-arc pane is reported as such even when its marker is
   malformed (AC-5, AC-16).
 - **AC-5** A pane in no purview registry is reported `UNOWNED`, **including when its marker is
   malformed**; a pane in two registries is reported `UNOWNED` contested. Neither is driven.
@@ -565,27 +609,34 @@ on the case's own inputs.
 - **AC-8** `--check` exits per §5.3 aggregation; exit 2 is never an all-clear.
 - **AC-9** The registry is read from the §5.6 purview path, never from a worktree.
 - **AC-10** Enrolled in the source-mutation registry with an empty unaccepted-survivor set.
-- **AC-11** Pressure `t >= 8` yields `FORCE` except under §4.5 rules 1-7.
+- **AC-11** Pressure `t >= 8` yields `FORCE` when position cost is not High, and `WAIT` when it
+  is (§4.5 rules 10-11), except under §4.5 rules 1-8.
 - **AC-12** The write-up and the AGENTS.md pointer exist; the §10 meta-test fails when either
   drifts.
 - **AC-13** `--checkpoint` and `--compact` each revalidate immediately before sending and refuse,
   exiting 1 without sending, when the fresh verdict is not `COMPACT`/`FORCE` or purview does not
-  resolve to `--as` uncontested.
+  resolve to `--as` uncontested. **`--resume` revalidates against its own predicate** (§5.2) and
+  refuses the same way; it does not reuse `COMPACT`/`FORCE`, which a successful compaction makes
+  false by design.
 - **AC-14** The checkpoint never instructs a commit, and the driver never commits.
 - **AC-15** A `gh` failure other than the recognized no-PR signature yields `UNDETERMINED`,
-  provided §4.5 rules 1-4 did not fire. The accept-set admits all three `gh` forms as observations
-  (§4.3); rule 5 alone classifies the fault, so this AC is exercised distinctly.
+  provided §4.5 rules 1-5 did not fire. The accept-set admits all three `gh` forms as observations
+  (§4.3); rule 6 alone classifies the fault, so this AC is exercised distinctly.
 - **AC-16** A pane whose agent name resolves to no worktree branch is `NOT-AN-ARC`, never
   `UNDETERMINED`, and never driven.
 - **AC-17** A pane whose marker `sessionId` does not match its live `agent_session.value` —
   including when the pane reports none — yields `UNDETERMINED` and is never driven, provided §4.5
-  rules 1-3 did not fire. An **absent** marker cannot mismatch: rule 4 no-ops (§4.3, AC-19).
+  rules 1-4 did not fire. An **absent** marker cannot mismatch: rule 5 no-ops (§4.3, AC-20).
 - **AC-18** No command emits an `\x1b` byte under any input, on the dry-run path **or** the live
   send path.
 - **AC-19** `--compact` sends nothing and exits 1 when the target's `checkpointNonce` is absent or
-  differs from the nonce `--checkpoint` recorded for that target.
+  differs from the nonce `--checkpoint` recorded for that target. The nonce is **single-use**:
+  `--compact` consumes the record before sending, so an immediate re-run exits 1 rather than
+  issuing a second `/compact`.
+- **AC-22** Two roster entries sharing an agent name are both `UNDETERMINED` via §4.5 rule 2,
+  before any banding rule can reach them.
 - **AC-20** A pane whose worktree has no marker is classified from git and corpus signals alone and
-  is never `UNDETERMINED` for that reason; §4.5 rule 4 no-ops rather than treating absent as
+  is never `UNDETERMINED` for that reason; §4.5 rule 5 no-ops rather than treating absent as
   mismatched.
 - **AC-21** An unresolvable target exits 1 naming it and sends nothing; two roster panes sharing an
   agent name are both `UNDETERMINED`, naming the collision.
