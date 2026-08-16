@@ -80,6 +80,21 @@ export type Surface = {
   nonceRead(sessionId: string, paneId: string): string | null;
   nonceWrite(sessionId: string, paneId: string, nonce: string): void;
   nonceConsume(sessionId: string, paneId: string): void;
+  /**
+   * `<target>` to a pane id, through herdr rather than through our own guess.
+   *
+   * Spec §5.3: resolution goes through `herdr agent get` and an `agent_not_found`
+   * CODE — not message text, and not a lookup we invent. Matching the roster
+   * ourselves would accept only pane ids and labels, while herdr also resolves
+   * terminal ids and agent names, so a legitimate target would have been told it
+   * does not exist.
+   *
+   * Three outcomes, because `herdr agent get` EXITS 0 for a missing target and
+   * puts the answer in `error.code` (probed 2026-08-16). An exit code cannot
+   * discriminate here, and collapsing a fault into "not found" would report a
+   * broken herdr as a typo.
+   */
+  resolveTarget(target: string): { paneId: string } | { notFound: true } | { fault: string };
 };
 
 /** §4.3's marker shape, plus the optional `checkpointNonce` §5.2 adds. */
@@ -344,9 +359,24 @@ export function main(argv: string[], s: Surface): number {
       s.out("refusing: name a single target; none was given");
       return 1;
     }
-    const pane = roster.find((r) => r.paneId === target || r.agentName === target);
-    if (pane === undefined) {
+    const resolved = s.resolveTarget(target);
+    if ("fault" in resolved) {
+      // A broken herdr is not a typo. Reporting it as "not found" would send an
+      // operator to check their spelling while the tool is what is wrong.
+      s.out(`refusing: could not resolve target ${target}: ${resolved.fault}`);
+      return 2;
+    }
+    if ("notFound" in resolved) {
       s.out(refuse({ kind: "unresolvable-target", target }).message);
+      return 1;
+    }
+    const pane = roster.find((r) => r.paneId === resolved.paneId);
+    if (pane === undefined) {
+      // herdr knows the target but it is absent from the roster we classified —
+      // a race with a closing pane. Not drivable, and said as its own condition.
+      s.out(
+        `refusing: target ${target} resolved to ${resolved.paneId}, which is not on the roster`,
+      );
       return 1;
     }
     return drive(opts, pane, roster, s);
@@ -462,6 +492,43 @@ function sh(cmd: string, args: string[], cwd?: string): GhInvocation {
   }
 }
 
+/**
+ * `herdr agent get`'s answer, as the three-way §5.3 asks for.
+ *
+ * PROBED 2026-08-16, and not what it looks like: a missing target exits **1**
+ * and writes its JSON to **stderr**, while a hit exits 0 and writes to stdout.
+ * So the structured body is the whole answer and it can arrive on either
+ * stream. Reading stdout alone turns every not-found into a parse failure,
+ * which is a fault, which is exit 2 — a real answer misreported as a broken
+ * tool. Only running it against live herdr showed that; the first version had
+ * the streams the other way round from a probe whose exit code was `head`'s.
+ *
+ * Split out from the surface so both streams are pinned by a test rather than
+ * by this comment.
+ */
+export function parseAgentGet(
+  run: GhInvocation,
+): { paneId: string } | { notFound: true } | { fault: string } {
+  const raw = run.stdout.trim() === "" ? run.stderr : run.stdout;
+  let body: {
+    result?: { agent?: { pane_id?: unknown } };
+    error?: { code?: unknown; message?: unknown };
+  };
+  try {
+    body = JSON.parse(raw) as typeof body;
+  } catch {
+    return { fault: `herdr agent get did not return JSON (exit ${run.exitCode})` };
+  }
+  const code = body.error?.code;
+  if (code === "agent_not_found") return { notFound: true };
+  if (typeof code === "string") return { fault: code };
+  const paneId = body.result?.agent?.pane_id;
+  if (typeof paneId !== "string" || paneId === "") {
+    return { fault: "herdr agent get returned no pane_id" };
+  }
+  return { paneId };
+}
+
 function readJson(path: string): unknown {
   if (!existsSync(path)) return null;
   try {
@@ -505,6 +572,7 @@ export function realSurface(): Surface {
       });
     },
     screen: (paneId) => sh("herdr", ["pane", "read", paneId, "--source", "visible"]).stdout,
+    resolveTarget: (target) => parseAgentGet(sh("herdr", ["agent", "get", target])),
     send: (target, text) => {
       sh("herdr", ["agent", "send", target, text]);
     },
