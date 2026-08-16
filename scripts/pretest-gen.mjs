@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// scripts/pretest-gen.mjs — content-hash cache for the four pre*-hook generators
+// scripts/pretest-gen.mjs — content-hash cache for the five pre*-hook generators
 // (spec §4.3). Skips a generator when sha256(inputs + current output) matches the
 // stamp; PRETEST_GEN_FORCE=1 bypasses. Output content is part of the hash, so a
 // hand-edited or clobbered generated file always regenerates. Manifest coverage
@@ -54,6 +54,17 @@ export const MANIFEST = [
       { dir: "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1", pattern: "^\\d{2}-.+\\.md$" },
     ],
     output: "docs/superpowers/plans/coverage.md",
+  },
+  {
+    name: "gen:execution-methods",
+    script: "scripts/generate-execution-methods.ts",
+    inputs: [
+      "scripts/generate-execution-methods.ts",
+      "scripts/execution-methods/lib.ts",
+      "node_modules/postgres/types/index.d.ts",
+      "node_modules/postgres/package.json",
+    ],
+    output: "tests/db/__generated__/postgresExecutionMethods.ts",
   },
 ];
 
