@@ -7,7 +7,10 @@
 // spec §4.2 table is frozen for triggerContext AND helpfulContext on EVERY
 // registry code (rows 1-42 back-filled by spec
 // 2026-08-01-card-copy-parity-sync-job-name; BL-CARD-COPY-HELPFULCONTEXT-PARITY
-// graduated), and for the six changed titles. The corpus oracle parses the
+// graduated), and for the changed titles (seven as of 2026-08-15) plus the
+// longExplanation bodies enrolled in EXPECTED_LONG_EXPLANATION — the two fields
+// no other gate governs (§12.4 parity compares four fields; §4.2 has no
+// longExplanation column). The corpus oracle parses the
 // committed fixture corpus and requires every emitted warn-severity code to be
 // registered, behavioral fails-by-default for corpus-exercised parser codes
 // (spec §3.5.4 scope: sync/enrichment producers rely on the AGENTS.md
@@ -23,11 +26,13 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { parseSheet } from "@/lib/parser";
 import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
 import { CORPUS_TEMP_PREFIX } from "../helpers/corpusTemp";
+import { premise } from "../_shared/premise";
 import {
   WARNING_CARD_COPY_CODES,
   EXPECTED_TRIGGER_CONTEXT,
   EXPECTED_TITLE_CHANGES,
   EXPECTED_HELPFUL_CONTEXT,
+  EXPECTED_LONG_EXPLANATION,
   EXPECTED_CORPUS_WARN_CODES,
   EXPECTED_CORPUS_FIXTURES,
 } from "./warningCardCopyRegistry";
@@ -126,6 +131,23 @@ describe("warning-card copy registry (spec 2026-07-20-warning-card-copy-restore 
     for (const [code, helpfulContext] of Object.entries(EXPECTED_HELPFUL_CONTEXT)) {
       expect(WARNING_CARD_COPY_CODES.has(code), `${code} registered`).toBe(true);
       expect(CATALOG[code]?.helpfulContext, `${code}.helpfulContext`).toBe(helpfulContext);
+    }
+  });
+
+  it("frozen copy fixture: enrolled longExplanation bodies match byte-for-byte", () => {
+    // The /help/errors body (app/help/errors/page.tsx:94) is outside BOTH parity
+    // gates: x1 compares four §12.4 fields and the §4.2 table has no
+    // longExplanation column. Enrolled codes are pinned here so a help-page body
+    // cannot silently drift. Premise: the map must be non-empty and every key a
+    // registered code, or this loop asserts over nothing and passes forever.
+    premise(
+      "EXPECTED_LONG_EXPLANATION enrolls at least one code",
+      Object.keys(EXPECTED_LONG_EXPLANATION).length,
+      0,
+    );
+    for (const [code, longExplanation] of Object.entries(EXPECTED_LONG_EXPLANATION)) {
+      expect(WARNING_CARD_COPY_CODES.has(code), `${code} registered`).toBe(true);
+      expect(CATALOG[code]?.longExplanation, `${code}.longExplanation`).toBe(longExplanation);
     }
   });
 

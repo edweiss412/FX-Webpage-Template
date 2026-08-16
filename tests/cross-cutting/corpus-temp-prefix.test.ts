@@ -65,14 +65,23 @@ describe("corpus temp-prefix contract", () => {
           ? (new RegExp(`\\b${ident}\\s*=([^;\n]*)`).exec(src)?.[1] ?? null)
           : null;
 
+        // A plain string literal that names some OTHER directory is resolved, not
+        // unresolvable, and resolving it is strictly more accurate than the
+        // file-level fallback below: a literal that DOES name the corpus is already
+        // caught by the first branch. Without this, `readdirSync("lib/parser/blocks")`
+        // in a file that merely READS a corpus fixture elsewhere was reported as an
+        // unfiltered corpus listing — a false positive the fallback cannot distinguish.
+        const literal = /^["'`]([^"'`]*)["'`]$/.exec(arg)?.[1] ?? null;
         const isCorpus = /fixtures\/shows/.test(arg)
           ? // Inline literal or template. A template under fixtures/shows can
             // resolve to raw at runtime, so it counts.
             arg.includes(CORPUS_DIR) || /fixtures\/shows\/\$\{/.test(arg)
-          : identPath !== null
-            ? identPath.includes(CORPUS_DIR)
-            : // Unresolvable (helper param): in scope iff the file names the corpus.
-              mentionsRaw;
+          : literal !== null
+            ? literal.includes(CORPUS_DIR)
+            : identPath !== null
+              ? identPath.includes(CORPUS_DIR)
+              : // Unresolvable (helper param): in scope iff the file names the corpus.
+                mentionsRaw;
         if (!isCorpus) continue;
 
         // The site's filter chain: from the call to the end of its statement.
@@ -108,9 +117,32 @@ describe("corpus temp-prefix contract", () => {
   });
 
   it("every corpus write site writes a prefix-derived name", () => {
+    // PER-SITE, like the listing arm: a file that READS a corpus fixture and writes
+    // somewhere else entirely is not a corpus writer. The old file-level conjunction
+    // (mentions the corpus ANYWHERE && calls writeFileSync ANYWHERE) reported
+    // `fieldNearMissBaseline.test.ts` — which reads `fixtures/shows/raw/...` and writes
+    // its committed baseline to `tests/parser/__fixtures__/` — as an unprefixed corpus
+    // write. A write whose target cannot be resolved still counts, so the conservative
+    // direction is preserved where it is actually needed.
+    const writesToCorpus = (src: string): boolean => {
+      for (const m of src.matchAll(/\bwriteFile(?:Sync)?\s*\(\s*([^,)]+)/g)) {
+        const arg = m[1]!.trim();
+        if (arg.includes(CORPUS_DIR)) return true;
+        const ident = /^[A-Za-z_$][\w$]*$/.test(arg) ? arg : null;
+        if (!ident) {
+          // A join(...) or template target: resolvable only by reading its parts, so
+          // treat it as in scope unless it plainly names another tree.
+          if (!/tests\/|scratch|tmp/.test(arg)) return true;
+          continue;
+        }
+        const bound = new RegExp(`\\b${ident}\\s*=([^;\n]*)`).exec(src)?.[1] ?? null;
+        if (bound === null || bound.includes(CORPUS_DIR)) return true;
+      }
+      return false;
+    };
     const writers = testFiles.filter((p) => {
       const src = readFileSync(p, "utf8");
-      return src.includes(CORPUS_DIR) && /\bwriteFile(Sync)?\s*\(/.test(src);
+      return src.includes(CORPUS_DIR) && writesToCorpus(src);
     });
     expect(writers.length).toBeGreaterThanOrEqual(1);
 

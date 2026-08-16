@@ -23,7 +23,7 @@
  */
 
 import type { ContactRow, ContactKind } from "../types";
-import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection, markConsumed } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
@@ -85,12 +85,26 @@ export function parseContacts(
   // "In House AV" rows are valid (different humans, same role label).
   const seenRowKeys = new Set<string>();
 
+  // Ledger key component (§3.3): the first-cell text of the row that OPENS the current
+  // pipe table. This parser scans every row in the document instead of slicing one matched
+  // section, so the opener is tracked as the scan crosses table boundaries — the same
+  // "section-opening row" the other block parsers take from their header match.
+  let blockOpener = "";
+  let inTable = false;
+
   // Scan all table rows for matching labels
   for (const line of markdown.split("\n")) {
     const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) continue;
+    if (!trimmed.startsWith("|")) {
+      inTable = false;
+      continue;
+    }
 
     const cells = splitRow(trimmed);
+    if (!inTable) {
+      inTable = true;
+      blockOpener = clean(cells[0] ?? "");
+    }
     if (cells.length < 2) continue;
 
     const col0 = clean(cells[0] ?? "");
@@ -100,6 +114,10 @@ export function parseContacts(
     // phone (not the name-only path) so prose placeholders ("Not Applicable") are rejected.
     if (ONSITE_AV_LABEL_RE.test(col0)) {
       labelMatched = true;
+      // Curated resolution (spec §3.3): the label regex IS the resolution, so the mark
+      // precedes the email/phone value filter below — a resolved row whose value is
+      // filtered out is still consumed.
+      markConsumed(agg, blockOpener, col0, clean(cells[1] ?? ""));
       const formAvValue = clean(cells[1] ?? "");
       if (formAvValue && (EMAIL_RE.test(formAvValue) || PHONE_RE.test(formAvValue))) {
         formAvContacts.push(...parseContactCell(formAvValue, "in_house_av"));
@@ -117,6 +135,10 @@ export function parseContacts(
 
     if (!kind) continue;
     labelMatched = true;
+    // Curated resolution (spec §3.3): VENUE_LABEL_RE / IN_HOUSE_AV_LABEL_RE resolved this
+    // label to a contact kind. Marked here, above the rawValue + hasContactSignal filters,
+    // so a resolved row rejected as form-table noise is still ledgered as consumed.
+    markConsumed(agg, blockOpener, col0, clean(cells[1] ?? ""));
 
     // Use only the immediately-following value cell (cells[1]) as the raw value.
     //

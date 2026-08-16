@@ -274,8 +274,22 @@ function resolveSpecifier(spec: string, fromRel: string): string | null {
   return null;
 }
 
-/** The only trees allowed to import from tests/ — see the header (r11). */
-const TESTS_IMPORT_EXEMPT = /^(?:tests|scripts)\//;
+/** The only trees allowed to import from tests/ — see the header (r11).
+ *
+ * The `docs/` half is the PROBES SUBTREE ONLY, not the tree: `docs/examples/demo.ts`
+ * importing from `tests/` is a planted negative in this file's own suite and must keep
+ * failing. Scoping it to `docs/**\/probes/**` was the difference between an exemption and a
+ * hole. Committed PROBES under
+ * `docs/superpowers/specs/**\/probes/` are review evidence, not shipped code, and reading the
+ * corpus through `tests/parser/mutation/fixtures` is the entire point of one — a probe that
+ * re-implemented fixture loading would be measuring its own copy rather than what the harness
+ * measures. They ship nothing: no route, component, or library imports them, and the rule this
+ * guard enforces is about a laundering CHANNEL into shipped code, which docs cannot be. Same
+ * reasoning the sole-emitter pin already records for the same tree
+ * (`tests/parser/fieldNearMiss.test.ts`: "probe and evidence scripts ... review artifacts, not
+ * shipped call sites").
+ */
+const TESTS_IMPORT_EXEMPT = /^(?:tests|scripts)\/|^docs\/.*\/probes\//;
 
 /** Unwrap parentheses and type-only wrappers around an expression (r15 for
  * callees — `(module.require as NodeRequire)(…)` is the same call as

@@ -17,9 +17,10 @@
  */
 
 import type { ShowRow } from "../types";
-import type { ParseAggregator } from "@/lib/parser/warnings";
+import { type ParseAggregator, markConsumed } from "@/lib/parser/warnings";
 import { resolveAliasScoped } from "@/lib/parser/aliases";
-import { clean, presence, splitRow } from "./_helpers";
+import { clean, presence } from "./_helpers";
+import { scanRowsWithOpener } from "./_rowScan";
 
 export type OpsResult = Pick<
   ShowRow,
@@ -78,13 +79,11 @@ export function parseOps(
     Record<keyof OpsResult, { rawLabel: string; value: string | null; canonical: string }>
   > = {};
 
-  for (const line of markdown.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) continue;
-
-    const cells = splitRow(trimmed);
+  // Rows carry their block opener because the consumption ledger is keyed on it (spec §3.3);
+  // `scanRowsWithOpener` applies the same pipe-line and alignment-row rules this loop already
+  // had, so the `cells.length < 2` guard below is the only filter that remains this file's own.
+  for (const { cells, opener } of scanRowsWithOpener(markdown)) {
     if (cells.length < 2) continue;
-    if (cells.every((c) => /^[\s:|*-]*$/.test(c))) continue; // separator
 
     const col0 = clean(cells[0] ?? "");
     const col1 = clean(cells[1] ?? "");
@@ -133,6 +132,12 @@ export function parseOps(
         const field = CANON_TO_FIELD[fuzzy.canonical];
         if (field && fuzzyCandidates[field] === undefined) {
           fuzzyCandidates[field] = { rawLabel: col0, value: val, canonical: fuzzy.canonical };
+          // Ledger the row that WON the candidate slot (spec §3.3): it is the one that goes
+          // on to populate the field, so leaving it unledgered makes the near-miss detector
+          // call a parsed row unrecognized (whole-diff r3 P1, probed with `Invoice-Notes`).
+          // A later same-field near-miss loses the slot, stays unresolved, and correctly
+          // remains a candidate.
+          markConsumed(agg, opener, col0, col1);
         }
       }
     }
