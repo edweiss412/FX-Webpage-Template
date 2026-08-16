@@ -44,17 +44,20 @@
 
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import ts from "typescript";
 
 import {
   collectSurfaceUnits,
   isLocallyRebound,
+  moduleHasUseServer,
   parse,
   scanBody,
   type SurfaceUnit,
 } from "../log/mutationSurface/enumerate";
+import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
+import { premiseHolds } from "../_shared/premise";
 import { ADMIN_SURFACE_EXEMPTIONS } from "../log/mutationSurface/exemptions";
 import { AUDITABLE_MUTATIONS } from "../log/_auditableMutations";
 
@@ -368,6 +371,140 @@ function checkExemptionSet(input: {
   return problems;
 }
 
+// ── the discovery tripwire: fail CLOSED on what the engine cannot classify ──
+
+/**
+ * DISCOVERY IS NOT TOTAL, AND THIS IS WHY THAT IS SAFE ANYWAY.
+ *
+ * `collectSurfaceUnits` models specific export and action forms
+ * (`tests/log/mutationSurface/enumerate.ts`). Diff review round 1 defeated the
+ * walk by probing forms it does NOT model — a paren-wrapped module export, an
+ * export aliased through an intermediate binding, an ANONYMOUS inline action
+ * passed straight to a JSX `action={...}` prop, an inline object method. Next
+ * registers all of them as Server Actions; the engine discovers none of them.
+ * Re-probed independently against the live engine: each returns ZERO units. So
+ * a destructive action written in one of those forms was invisible here, and
+ * `gated + exempted === discovered` still balanced — because the unit was never
+ * counted on either side.
+ *
+ * THE REPAIR IS NARROWING, NOT GRAMMAR GROWTH. Teaching the shared invariant-10
+ * engine eight more forms would grow a recognizer this arc does not own, and
+ * each widening is a bigger target for the next round (AGENTS.md repair-direction
+ * rule). Instead the walk DECLINES to pass on anything it cannot classify: the
+ * two counters below are deliberately dumb and TOTAL over their domain, and any
+ * surplus over what the engine discovered fails by name.
+ *
+ * The consequence bound is then satisfied in the only form that closes: a
+ * Server Action is gated, or exempt, or SIGNALLED — never silently ungated.
+ */
+
+/** Every function-like node in a file whose body opens with `"use server"`. Total over function-likes: it models no naming, no position, and no call shape, so an anonymous JSX action and an object method are counted exactly like a named one. */
+function inlineDirectiveBearingCount(sf: ts.SourceFile): number {
+  let n = 0;
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isArrowFunction(node) ||
+        ts.isMethodDeclaration(node)) &&
+      node.body &&
+      ts.isBlock(node.body)
+    ) {
+      const first = node.body.statements[0];
+      if (first && ts.isExpressionStatement(first) && ts.isStringLiteral(first.expression)) {
+        if (first.expression.text === "use server") n += 1;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return n;
+}
+
+/**
+ * Every VALUE name a module-level `"use server"` file exports.
+ *
+ * Total over export forms because it reads names, not initializers: a
+ * paren-wrapped arrow, a higher-order call, a conditional, and an alias chain
+ * all export a name, and the name is what this collects. Type-only exports are
+ * excluded — they are not addressable endpoints.
+ */
+function exportedValueNames(sf: ts.SourceFile): string[] {
+  const names: string[] = [];
+  for (const st of sf.statements) {
+    if (ts.isTypeAliasDeclaration(st) || ts.isInterfaceDeclaration(st)) continue;
+    if (ts.canHaveModifiers(st)) {
+      const mods = ts.getModifiers(st);
+      if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+        if (ts.isFunctionDeclaration(st) && st.name) names.push(st.name.text);
+        if (ts.isVariableStatement(st))
+          for (const d of st.declarationList.declarations)
+            if (ts.isIdentifier(d.name)) names.push(d.name.text);
+      }
+    }
+    if (
+      ts.isExportDeclaration(st) &&
+      !st.moduleSpecifier &&
+      st.exportClause &&
+      ts.isNamedExports(st.exportClause)
+    ) {
+      if (st.isTypeOnly) continue;
+      for (const el of st.exportClause.elements) {
+        if (el.isTypeOnly) continue;
+        names.push(el.name.text);
+      }
+    }
+  }
+  return names;
+}
+
+/** Files the engine walked, so the tripwire ranges over exactly the same corpus. */
+function walkedFiles(roots: string[]): string[] {
+  return walkSourceFiles(roots).filter(
+    (f) => !f.includes("/node_modules/") && !f.includes("/.next/") && !f.includes("/.git/"),
+  );
+}
+
+/**
+ * Every construct the engine could not turn into a unit. Returns one message per
+ * offender; empty means discovery was total over this tree.
+ */
+function undiscoverableConstructs(roots: string[], units: readonly SurfaceUnit[]): string[] {
+  const problems: string[] = [];
+  const byFile = new Map<string, SurfaceUnit[]>();
+  for (const u of units) byFile.set(u.file, [...(byFile.get(u.file) ?? []), u]);
+
+  for (const file of walkedFiles(roots)) {
+    if (basename(file) === "route.ts") continue;
+    const sf = parse(file);
+    const found = byFile.get(file) ?? [];
+
+    if (moduleHasUseServer(sf)) {
+      const exported = exportedValueNames(sf);
+      const discovered = new Set(found.map((u) => u.fn));
+      const missed = exported.filter((n) => !discovered.has(n));
+      if (missed.length > 0) {
+        problems.push(
+          `${file}: "use server" module exports [${missed.join(", ")}] that discovery produced NO unit for — ` +
+            `an addressable endpoint the origin walk cannot see, so it can neither be gated nor exempted`,
+        );
+      }
+      continue;
+    }
+
+    const inlineCount = inlineDirectiveBearingCount(sf);
+    const discoveredInline = found.filter((u) => u.kind === "inline-action").length;
+    if (inlineCount > discoveredInline) {
+      problems.push(
+        `${file}: holds ${inlineCount} function-scoped "use server" bodies but discovery produced ` +
+          `${discoveredInline} unit(s) — the remainder is an unnameable inline action (anonymous JSX prop, ` +
+          `object method, class method) that the origin walk cannot see`,
+      );
+    }
+  }
+  return problems;
+}
+
 // ── fixture plumbing ───────────────────────────────────────────────────────
 
 function makeFixture(relPath: string, contents: string): string {
@@ -428,6 +565,14 @@ describe("the live tree: every Server Action surface unit is gated or verifiably
       (r) => r.kind === "read-only" && r.fn === undefined,
     ).map((r) => r.file);
     expect(fileOnly).toEqual([]);
+  });
+
+  test("discovery is TOTAL over this tree, or the walk fails by name", () => {
+    // The round-1 finding, closed by NARROWING. The engine models specific
+    // export and action forms; anything it cannot classify is signalled here
+    // rather than silently dropping out of both sides of the reconciliation.
+    const problems = undiscoverableConstructs(["app", "lib", "components"], LIVE_UNITS);
+    expect(problems, problems.join("\n")).toEqual([]);
   });
 
   test("the exemption set is closed and cross-checked against two registries", () => {
@@ -834,6 +979,97 @@ describe("the read-only tripwire — fixture self-tests", () => {
       expect(unit, `${keyOf(row)} not discovered`).toBeDefined();
       expect(readOnlyTripwire(unit!)).toBeNull();
     }
+  });
+});
+
+describe("the discovery tripwire — fixture self-tests (the round-1 attack)", () => {
+  /** Runs BOTH halves the way the live assertion does: discover, then reconcile. */
+  const problemsFor = (rel: string, src: string): string[] => {
+    const root = makeFixture(rel, src);
+    const units = collectSurfaceUnits([root]).filter((u) => u.kind !== "route");
+    return undiscoverableConstructs([root], units);
+  };
+
+  // Each of these four is a form Next registers as a Server Action and the
+  // shared engine returns ZERO units for — verified against the live engine, not
+  // assumed. The premise below is what makes that verification part of the test.
+  const UNDISCOVERABLE: ReadonlyArray<readonly [string, string, string]> = [
+    [
+      "module export wrapped in parens",
+      "lib/x/a.ts",
+      '"use server";\nexport const doIt = async () => { await db.from("t").delete(); };\nexport const wrapped = (async () => { await db.from("t").delete(); });\n',
+    ],
+    [
+      "module export aliased through an intermediate binding",
+      "lib/x/b.ts",
+      '"use server";\nconst impl = async () => { await db.from("t").delete(); };\nconst alias = impl;\nexport { alias as doIt };\n',
+    ],
+    [
+      "ANONYMOUS inline action passed straight to a JSX action prop",
+      "components/x/F.tsx",
+      'export function F() {\n  return <form action={async () => { "use server"; await db.from("t").delete(); }} />;\n}\n',
+    ],
+    [
+      "inline action as an object method",
+      "components/x/G.tsx",
+      'export function G() {\n  const actions = { async doIt() { "use server"; await db.from("t").delete(); } };\n  return actions;\n}\n',
+    ],
+  ];
+
+  test.each(UNDISCOVERABLE)("%s is SIGNALLED, never silently dropped", (_label, rel, src) => {
+    // Premise: the engine must actually fail to discover this form. If a future
+    // engine change starts discovering it, this fixture stops exercising the
+    // tripwire and would pass for the wrong reason — so the premise reds instead.
+    const root = makeFixture(rel, src);
+    const units = collectSurfaceUnits([root]).filter((u) => u.kind !== "route");
+    const undiscovered =
+      rel.endsWith(".tsx") || !src.startsWith('"use server"')
+        ? units.filter((u) => u.kind === "inline-action").length === 0
+        : units.length < 2;
+    premiseHolds(
+      `the shared engine still fails to discover this form; if it now discovers it, this fixture no longer exercises the tripwire (${rel})`,
+      undiscovered,
+    );
+    expect(undiscoverableConstructs([root], units).length).toBeGreaterThan(0);
+  });
+
+  test("a fully discoverable module is QUIET — the tripwire is not a blanket failure", () => {
+    // The negative half. Without it, a tripwire that fired on everything would
+    // pass every case above while being useless.
+    expect(
+      problemsFor(
+        "lib/x/ok.ts",
+        MODULE_HEAD + action(`  await ${ASSERT_EXPORT}("mutate", "src");`),
+      ),
+    ).toEqual([]);
+  });
+
+  test("a type-only export does not trip it", () => {
+    // "use server" modules legitimately export types; they are not endpoints.
+    expect(
+      problemsFor(
+        "lib/x/types.ts",
+        MODULE_HEAD +
+          "export type Result = { ok: true };\n" +
+          action(`  await ${ASSERT_EXPORT}("mutate", "src");`),
+      ),
+    ).toEqual([]);
+  });
+
+  test("a named inline action IS discovered, so it reconciles quietly", () => {
+    expect(
+      problemsFor(
+        "components/x/H.tsx",
+        `import { ${CHECK_EXPORT}, rejectCrossOriginVoid } from "${GATE_MODULE}";\n` +
+          "export function H() {\n" +
+          "  const doIt = async () => {\n" +
+          '    "use server";\n' +
+          `    if (!(await ${CHECK_EXPORT}())) return rejectCrossOriginVoid("doIt");\n` +
+          "  };\n" +
+          "  return doIt;\n" +
+          "}\n",
+      ),
+    ).toEqual([]);
   });
 });
 
