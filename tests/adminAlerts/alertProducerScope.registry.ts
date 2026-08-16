@@ -40,7 +40,7 @@ export type ProducerScopeRow = {
 export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   // ── STATIC ──
   {
-    site: "lib/auth/picker/cleanupStaleEntry.ts:111",
+    site: "lib/auth/picker/cleanupStaleEntry.ts:117",
     contextKeys: ["show_id", "stale_crew_member_id", "stale_epoch"],
     code: "PICKER_SELECTION_RACE",
     scope: "per-show",
@@ -52,7 +52,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/auth/picker/selectIdentity.ts:74",
+    site: "lib/auth/picker/selectIdentity.ts:79",
     contextKeys: ["crew_member_id", "reason", "slug"],
     code: "PICKER_IDENTITY_CLAIMED_TAMPER",
     scope: "global",

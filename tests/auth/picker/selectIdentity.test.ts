@@ -7,7 +7,7 @@ import {
 import { selectIdentity, selectIdentityCore } from "@/lib/auth/picker/selectIdentity";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
@@ -17,7 +17,20 @@ vi.mock("next/navigation", () => ({
     throw error;
   },
 }));
-vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+// `headers` joins `cookies` here because the same-origin gate
+// (lib/auth/sameOriginServerAction.ts) reads Fetch Metadata off the request.
+// WITHOUT the export the gate's headers() call throws for want of it and lands
+// in the no-request-scope catch-allow, so a "cross-site" case here would be
+// ALLOWED rather than refused and would prove nothing. The default below is
+// same-origin, so every pre-existing case still passes the gate and keeps
+// exercising the real body. Same shape as tests/auth/picker/clearIdentity.test.ts.
+vi.mock("next/headers", () => ({ cookies: vi.fn(), headers: vi.fn() }));
+
+const headerMap = new Map<string, string>();
+const setHeaders = (h: Record<string, string>): void => {
+  headerMap.clear();
+  for (const [k, v] of Object.entries(h)) headerMap.set(k.toLowerCase(), v);
+};
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 const logMock = vi.hoisted(() => ({
   warn: vi.fn(),
@@ -61,6 +74,10 @@ function formData(input: Partial<{ slug: string; shareToken: string; crewMemberI
 beforeEach(() => {
   logMock.warn.mockClear();
   logMock.info.mockClear();
+  setHeaders({ "sec-fetch-site": "same-origin" });
+  vi.mocked(headers).mockResolvedValue({
+    get: (k: string) => headerMap.get(k.toLowerCase()) ?? null,
+  } as unknown as Awaited<ReturnType<typeof headers>>);
   process.env.PICKER_COOKIE_SIGNING_KEY = KEY;
   existingCookie = undefined;
   rpcError = null;
@@ -297,6 +314,73 @@ describe("selectIdentity FormData entry", () => {
     expect(logMock.error).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ code: "PICKER_ALERT_FAILED" }),
+    );
+  });
+});
+
+/**
+ * The class-B representative behavioral proof (origin-sweep spec §6B.2).
+ *
+ * Both cases run on the SAME spies. The baseline is not decoration: the suite's
+ * pre-existing wrapper case asserts only `{ ok: true }`, which an implementation
+ * that reached NEITHER mutation would also satisfy, so it cannot establish that
+ * the zero-call assertions below mean "never reached".
+ */
+describe("selectIdentity — the same-origin gate (class-B representative)", () => {
+  const validForm = () => formData({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID });
+
+  test("refuses a cross-site request before the cookie write and the RPC, and emits", async () => {
+    // `cross-site` is the truth table's own reject row, not an ad-hoc header set.
+    setHeaders({ "sec-fetch-site": "cross-site" });
+    const rpc = vi.fn();
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({ rpc } as never);
+
+    await expect(selectIdentity(validForm())).resolves.toEqual({
+      ok: false,
+      code: "PICKER_INVALID_INPUT",
+    });
+    expect(cookieSet).toHaveBeenCalledTimes(0);
+    expect(rpc).toHaveBeenCalledTimes(0);
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "cross-origin picker action refused",
+      expect.objectContaining({
+        code: "PICKER_ORIGIN_REJECTED",
+        source: "auth.picker.sameOriginGate",
+        action: "selectIdentity",
+      }),
+    );
+  });
+
+  test("same-origin baseline, same spies: the RPC runs AND the cookie is written", async () => {
+    setHeaders({ "sec-fetch-site": "same-origin" });
+    const rpc = vi.fn(() => ({
+      single: vi.fn(async () => ({ data: rpcRow, error: rpcError })),
+    }));
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({ rpc } as never);
+
+    await expect(selectIdentity(validForm())).resolves.toEqual({ ok: true });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(cookieSet).toHaveBeenCalledTimes(1);
+    expect(logMock.warn).not.toHaveBeenCalled();
+  });
+
+  test("the exported CORE carries its own gate, with its own action string", async () => {
+    // Deliberate duplication: the wrapper tail-delegates, so on a cross-origin
+    // request the wrapper refuses first and this gate never runs in that path.
+    // It is load-bearing anyway — every export of a "use server" module is an
+    // independently addressable endpoint, and the per-endpoint `action` is what
+    // makes deleting the wrapper's guard detectable.
+    setHeaders({ "sec-fetch-site": "cross-site" });
+    const rpc = vi.fn();
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({ rpc } as never);
+
+    await expect(
+      selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(rpc).toHaveBeenCalledTimes(0);
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "cross-origin picker action refused",
+      expect.objectContaining({ action: "selectIdentityCore" }),
     );
   });
 });

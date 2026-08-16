@@ -111,9 +111,6 @@ const PENDING_GATE: readonly string[] = [
   "app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx",
   "app/show/[slug]/unpublish/actions.ts",
   "components/auth/IdentityChip.tsx",
-  "lib/auth/picker/cleanupStaleEntry.ts",
-  "lib/auth/picker/clearIdentity.ts",
-  "lib/auth/picker/selectIdentity.ts",
 ];
 
 // ── AST predicates ─────────────────────────────────────────────────────────
