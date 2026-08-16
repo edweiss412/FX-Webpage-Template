@@ -20,9 +20,11 @@ Branch: `feat/theme-persistence-note` · Spec: `docs/superpowers/specs/2026-08-1
 - `tests/e2e/theme-persistence-note.spec.ts` — 4 cases, observed RED (missing note locator, both routes rendering) before implementation and GREEN after: `4 passed (4.0m)`, desktop-chromium.
 - Enrollment: `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` 15/15 (its executed-count check re-derives the threshold of 4 from live per-project resolution) and `tests/ci/_metaE2eWorkflowCoverage.test.ts` 97/97.
 
-## Deviation from the spec, recorded (not a silent fix)
+## Spec amendment: the avatar-menu placement conflict
 
 Spec §2.2 places the avatar-menu note "immediately AFTER the `role="menu"` element". While this branch was in flight, `origin/main` shipped the switch-person failure alert (`BL-IDENTITY-CLEAR-FAILURE-IS-SILENT`) into the same popover, and its §4.3 placement contract is pinned executably as BOTH the menu's immediate next sibling and the popover's last child (`tests/components/auth/avatarMenu.test.tsx`). Two regions cannot both be last. The note therefore sits immediately ABOVE the menu: an alert about the action the user just took keeps the slot nearest the control, and a polite device status yields it. AC-6 pins non-descendance from `role="menu"`, which is unchanged and still asserted.
+
+Because the spec is canonical (invariant 7), this is recorded as a dated AMENDMENT in spec §2.2 itself, not as a closeout-only note — a rationale living only here would leave the canonical artifact contradicting the shipped code (cross-model diff review R1 finding 1).
 
 ## §12 — impeccable dual gate (invariant 8)
 
@@ -32,14 +34,14 @@ Deterministic detector: `detect.mjs` over both component files returned `[]`, ex
 
 | # | Tier | Finding | Disposition |
 | --- | --- | --- | --- |
-| C1 | P1 | Critique: the bubble has no dismiss or expiry, so a permanently-blocked session keeps it overlaying whatever sits under the toggle for the rest of the visit. | **Ratified limit, filed.** Spec §4 limit 5 accepts exactly this trade (an out-of-flow note is the price of not displacing three differently-engineered consumer rows) and the plan states there is no auto-hide. A dismiss affordance is a product decision — it adds a control, its copy, its tap target and its own a11y contract — so it is filed as `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE` under disposition (a), not decided here. |
+| C1 | P1 | Critique: the bubble has no dismiss or expiry, so a permanently-blocked session keeps it overlaying whatever sits under the toggle for the rest of the visit. | **DEFERRED: `THEMENOTE-BUBBLE-DISMISS-1` in `DEFERRED.md`,** with the queue row `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE`. Spec §4 limit 5 ratified the trade before implementation and the plan states there is no auto-hide; a dismiss affordance is a product decision (a control, its copy, its tap target, its own a11y contract), disposition (a). |
 | C2 | P2 | Critique: `text-right` on copy the spec's own width math wraps to three lines at 320px; right-aligned multi-line body copy reads worse. | **Filed, not silently fixed.** `text-right` is in the spec §2.2 chrome class list, and invariant 7 makes the spec canonical — a class-level change to a ratified visual contract is not an implementer's call mid-arc. `BL-THEME-NOTE-BUBBLE-TEXT-ALIGN`. |
 | C3/A2 | P2 | Both halves: `text-text-subtle` on `bg-surface-raised` was an unpinned ground for body copy; AGENTS.md's pre-code checklist requires a contrast pin for a new pairing. | **FIXED in-branch.** DESIGN.md §1.2 gains the row (light 6.76:1, dark 5.97:1, both AA body) and `tests/styles/status-token-contrast.test.ts` pins both themes, so a retune of either token fails there. |
-| A1 | P1 | Audit: in the avatar menu the region unmounts with the popover, so a re-open mounts the container with its text already present and announces nothing to AT. | **Ratified limit, no change.** Spec §2.3 (compound row) and §4 limit 3 state this exact behavior and accept it: the user already heard it at failure time, sighted parity holds, and a screen-reader user re-opening the menu reads the menu contents anyway. Recorded here so a later reviewer does not re-derive it. |
-| C4 | P3 | Critique: the shipped avatar-menu placement contradicts spec §2.2's "immediately after". | **Recorded** in "Deviation from the spec" above, with the executable pin that forced it. |
+| A1 | P1 | Audit: in the avatar menu the region unmounts with the popover, so a re-open mounts the container with its text already present and announces nothing to AT. | **DEFERRED: `THEMENOTE-POPOVER-REANNOUNCE-1` in `DEFERRED.md`.** Spec §2.3 (compound row) and §4 limit 3 state this exact behavior and accept it — the user already heard it at failure time, sighted parity holds, and a screen-reader user re-opening the menu reads the menu contents anyway — so the deferral records reason (b) and the trigger that would un-defer it. |
+| C4 | P3 | Critique: the shipped avatar-menu placement contradicts spec §2.2's "immediately after". | **FIXED in the canonical artifact.** Spec §2.2 now carries the dated amendment recording the conflict, the executable pin that forced it, and the unchanged normative requirement (AC-6). See "Spec amendment" above. |
 | A3 | P3 | Audit: the two note implementations are near-identical but not shared (`<span className="block">` vs `<p>`). | **Accepted.** The two grounds differ (an anchored bubble with its own chrome vs an inset line inside a popover), so a shared component would carry both variants as props for two call sites. Noted for the next surface that needs one. |
 
-P0: none. P1: two, both ratified documented limits (one filed for a product decision). P1 fixed-or-deferred is satisfied; no `DEFERRED.md` entry was needed because both P1s are already spec-documented limits and the actionable half is a `BL-` row.
+P0: none. P1: two, both ratified documented limits and both carried as explicit `DEFERRED.md` entries — `THEMENOTE-BUBBLE-DISMISS-1` and `THEMENOTE-POPOVER-REANNOUNCE-1`, each with its un-defer trigger. A spec-documented limit is not a substitute for the entry the invariant asks for (cross-model diff review R1 findings 2 and 3); the invariant-8 fixed-or-deferred gate is satisfied by the entries, not by the spec text.
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
 

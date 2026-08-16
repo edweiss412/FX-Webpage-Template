@@ -8,6 +8,60 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### THEMENOTE-BUBBLE-DISMISS-1 — impeccable P1: the persist-failure bubble has no dismiss, so a permanently blocked device keeps it up all visit (2026-08-16)
+
+**Effort:** S
+
+Surfaced by the invariant-8 dual gate on branch `feat/theme-persistence-note` (critique P1).
+Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-15-theme-persistence-note/closeout.md`.
+
+**The finding.** The note clears only when a LATER persist write succeeds
+(`components/layout/useAppliedTheme.ts`, the `setTheme` try/catch). On a device where storage is
+blocked for the whole session — embedded webviews with storage partitioning, which is the
+reachability case the parent ledger entry probed — no later write can succeed, so the anchored
+bubble stays under the toggle until the page unloads, overlaying whatever sits beneath it.
+
+**Why deferred rather than repaired in-branch — reason (a), it needs a product decision.** A dismiss
+control needs its own copy, a 44px tap target inside a `max-w-36` bubble, an a11y contract (a button
+inside a `role="status"` region announces itself), and a rule for whether a dismissal survives a
+later failure. The spec ratified the current behavior as a bounded limit
+(`docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §4 limit 5) before
+implementation, so shipping without a dismiss is the ratified state, not a regression.
+
+**Un-defer trigger:** a product decision on whether the note is dismissible, or the first report of
+the bubble obscuring a control on a real device. Queue row: `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE`.
+
+---
+
+### THEMENOTE-POPOVER-REANNOUNCE-1 — impeccable P1: re-opening the avatar menu renders the note without announcing it (2026-08-16)
+
+**Effort:** M
+
+Surfaced by the invariant-8 dual gate on branch `feat/theme-persistence-note` (audit P1). Findings
+and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-15-theme-persistence-note/closeout.md`.
+
+**The finding.** In the avatar menu the `role="status"` region is a child of the popover's
+`{open ? … : null}` branch (`components/auth/AvatarMenu.tsx`), so it unmounts with the popover. Once
+`persistFailed` is true, every later re-open mounts the container WITH its text already present, and
+a polite live region does not announce content that is present at insertion. Consequence: only the
+first failed write in a session reliably reaches a screen-reader user through the live region;
+sighted parity holds, and the text is read normally when the user traverses the re-opened menu.
+
+**Why deferred rather than repaired in-branch — reason (b), a ratified scope decision already fences
+it.** The spec states this exact behavior and accepts it
+(`docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §2.3 compound row and §4 limit
+3): the user already heard it at failure time, and a screen-reader user re-opening the menu reads the
+menu contents anyway. Repairing it means hoisting a live region above the popover's conditional
+render — a structural change to a component this arc otherwise only adds a sibling to.
+
+**Un-defer trigger:** any future work that hoists avatar-menu status regions out of the `open`
+branch (the switch-person alert has the same shape), or a report from a screen-reader user that the
+repeated signal is missed.
+
+---
+
 ### HELPTOUR-CARD-GRID-MEASURE-1 — impeccable P1: the tour's card grids inherit the 70ch prose cap and render a 10.5-character measure (2026-08-11)
 
 **Effort:** M
