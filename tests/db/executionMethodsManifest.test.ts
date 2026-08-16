@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { deriveExecutionMethods } from "@/scripts/execution-methods/lib";
 
 import { premiseHolds } from "../_shared/premise";
+import { EXECUTION_METHODS } from "./_destructiveFileAnalysis";
 import {
   POSTGRES_EXECUTION_CORE,
   POSTGRES_PARAMETER_MEMBERS,
@@ -104,5 +105,26 @@ describe("generated execution-methods module (spec §2.4)", () => {
     );
     expect(POSTGRES_EXECUTION_CORE).toContain("unsafe");
     expect(POSTGRES_EXECUTION_CORE).toContain("file");
+  });
+
+  it("composition pin: the analyzer's exported set is exactly the shipped 10 members", () => {
+    expect([...EXECUTION_METHODS].sort()).toEqual([
+      "begin",
+      "cursor",
+      "end",
+      "file",
+      "listen",
+      "notify",
+      "reserve",
+      "savepoint",
+      "subscribe",
+      "unsafe",
+    ]);
+  });
+
+  it("disjointness covers the hand list too", () => {
+    for (const name of POSTGRES_PARAMETER_MEMBERS) {
+      expect(EXECUTION_METHODS.has(name)).toBe(false);
+    }
   });
 });
