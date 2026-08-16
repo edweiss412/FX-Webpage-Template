@@ -1540,9 +1540,9 @@ export const SPEC_CODES = {
   },
   "UNKNOWN_FIELD": {
     "crewFacing": null,
-    "dougFacing": "We found a row labeled _<key>_ in _<sheet-name>_ that doesn't match a section we recognize. We kept it as-is and nothing's broken. Want to flag it to us?",
-    "followUp": "Doug → optional Report",
-    "helpfulContext": "Your sheet has a row we didn't recognize; we kept it as-is and nothing on the crew page is affected. The Report button on this card flags it to us; Ignore hides this notice.",
+    "dougFacing": "We found a row labeled _<key>_ in _<sheet-name>_ that looks like it was meant to be a row we show (like 'Stage' for 'Stage Size'), so it isn't showing on the crew page. Rename the row in the sheet if it should show.",
+    "followUp": "Doug → rename the row in the sheet (or optional Report)",
+    "helpfulContext": "A row in your sheet looks like it was meant to be a row we show (like 'Stage' for 'Stage Size'), so it isn't showing on the crew page. Rename the row in the sheet if it should show, or use Report if we've guessed wrong.",
   },
   "UNKNOWN_ROLE_TOKEN": {
     "crewFacing": null,

@@ -99,7 +99,8 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
   STAGE_WORD_AUTOCORRECTED:
     "Appears when a work-phase word in a role cell is a letter or two off (Load In / Set / Show / Strike / Load Out).",
   UNKNOWN_DAY_RESTRICTION: "Appears when a name carries the '***' marker but no days are listed.",
-  UNKNOWN_FIELD: "Appears when a row's label doesn't match anything we know how to show.",
+  UNKNOWN_FIELD:
+    "Appears when a row's label nearly matches a row we know how to show, but doesn't match it exactly.",
   UNKNOWN_ROLE_TOKEN: "Appears when a role label in a crew cell isn't on the known-roles list.",
   UNKNOWN_SECTION_HEADER: "Appears when a header row doesn't match any section we know.",
   UNKNOWN_STAGE_RESTRICTION:
@@ -136,6 +137,27 @@ export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
   TRAVEL_FLIGHT_UNPARSEABLE: "Flight we couldn't read",
   AGENDA_FILE_INACCESSIBLE: "Can't open the agenda file",
   AGENDA_PDF_UNREADABLE: "No agenda schedule found",
+  // 2026-08-15 field-near-miss detector §5 (plan-r1 finding 6). UNKNOWN_FIELD's
+  // title was governed by NO live check before this row: the cap/banned-word
+  // sweeps accept any non-empty string, and only codes listed HERE are
+  // byte-compared. Retitled from "Unrecognized row in sheet", which the
+  // content-keyed detector made false - the row DOES nearly match a field.
+  UNKNOWN_FIELD: "Row label that looks misnamed",
+};
+
+/**
+ * Frozen `longExplanation` - the `/help/errors` body rendered at
+ * `app/help/errors/page.tsx:94`. PARTIAL by design, like EXPECTED_TITLE_CHANGES:
+ * the x1 parity gate pins only dougFacing/crewFacing/followUp/helpfulContext
+ * against §12.4, and the §4.2 table carries no longExplanation column, so a
+ * code absent from this map has its help-page body governed by nothing.
+ * UNKNOWN_FIELD is enrolled here with its near-miss rewrite (2026-08-15
+ * field-near-miss detector §5, plan-r1 finding 6) so the help body cannot drift
+ * back to the retired "doesn't match any section we read" framing unnoticed.
+ */
+export const EXPECTED_LONG_EXPLANATION: Readonly<Record<string, string>> = {
+  UNKNOWN_FIELD:
+    "A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page: a row labeled 'Stage' where we show 'Stage Size', for example. We don't rename it for you, because the row you meant would be a guess. Rename it in the sheet and it will show the next time this show checks its sheet. If our suggestion is wrong, use Report and we'll take a look.",
 };
 
 /**
@@ -230,7 +252,7 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
   UNKNOWN_DAY_RESTRICTION:
     "This crew member is marked day-restricted ('***' in the sheet) but the sheet doesn't say which days, so their schedule shows 'days unconfirmed'. Add the days to the name cell, like '(6/24 and 6/26 ONLY)'.",
   UNKNOWN_FIELD:
-    "Your sheet has a row we didn't recognize; we kept it as-is and nothing on the crew page is affected. The Report button on this card flags it to us; Ignore hides this notice.",
+    "A row in your sheet looks like it was meant to be a row we show (like 'Stage' for 'Stage Size'), so it isn't showing on the crew page. Rename the row in the sheet if it should show, or use Report if we've guessed wrong.",
   UNKNOWN_ROLE_TOKEN:
     "One of this crew member's role labels isn't one we recognize, so we left it off their page instead of guessing. If the label is correct, this card's controls let you add it as a real role.",
   UNKNOWN_SECTION_HEADER:
