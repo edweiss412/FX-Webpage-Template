@@ -87,6 +87,10 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // decided by the ambient one.
   "tests/reviewRounds/count.test.ts": 0,
   "tests/docs/_metaReviewRoundEconomy.test.ts": 0,
+  // Enrolled by reviewRoundFiling (enforcement-pair arc): parses literal
+  // markdown strings through remark and reaches no member of
+  // ENVIRONMENT_SOURCES.
+  "tests/reviewRounds/filing.test.ts": 0,
   // M-wave 2 W-GUARDS (2026-08-10): both guard-extractor suites are pure by
   // the same rule as the corpus suite — they read the live tree via node:fs
   // and walkSourceFiles, which is deliberately NOT provenance; neither touches

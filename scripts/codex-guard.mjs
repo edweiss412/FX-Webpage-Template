@@ -174,6 +174,7 @@ function buildConfig(flags) {
     usageError(`--brief unreadable: ${e.message}`);
   }
   if (cfg.briefText.length === 0) usageError(`--brief is empty`);
+  checkGuardSurfaceDeclarations(cfg);
   if (!existsSync(cfg.cwd) || !statSync(cfg.cwd).isDirectory())
     usageError(`--cwd is not a directory: ${cfg.cwd}`);
   // A detached HEAD is a LIVE arc whose identity cannot be determined; silently
@@ -483,6 +484,74 @@ function scanContainers(line, entering) {
     base = afterWs - markerEnd >= 5 ? markerEnd + 1 : afterWs;
     idx = j + m[1].length + m[2].length;
     col = afterWs;
+  }
+}
+
+/**
+ * The score arm's canonical anchored grammar (enforcement-pair spec §2.1):
+ * marker, fraction, and survivor phrase bound ADJACENTLY on one line. Adjacency
+ * is load-bearing — a floating fraction elsewhere ("last run 12/12") cannot
+ * satisfy the arm — and the survivor phrase is bound to the SAME declaring
+ * line, so a declared non-empty set ("1 unaccepted survivor") never passes.
+ */
+const MUTATION_SCORE_ARM =
+  /MUTATION SCORE:\s*(\d+)\s*\/\s*(\d+)\s*[,;—–-]?\s*(?:0|no)\s+unaccepted\s+survivors?\b/i;
+
+/**
+ * Enrolment precedes review (enforcement-pair spec §2.1): a round-1 diff brief
+ * that declares a `GUARD SURFACE:` line must carry, on that same line, either a
+ * canonical mutation score with an empty unaccepted-survivor set or a
+ * `CANNOT-EXPRESS:` probe citation. Per line, never brief-global — probed on
+ * this rule's own arc, a global check let one surface's CANNOT-EXPRESS absorb a
+ * deleted score line and one surface's score cover a second enrolled surface.
+ *
+ * Runs in the pre-dispatch validation phase alongside the other exit-2 usage
+ * guards: a rejected brief takes no lock, writes no result artifact, and
+ * appends no corpus row. Markers are matched over `stripCodeBlocks` output, so
+ * a brief QUOTING the marker in a fence neither triggers nor satisfies the
+ * gate (use-vs-mention), and a fenced conforming line satisfies nothing.
+ *
+ * The gate checks the declaration EXISTS in canonical form; it does not judge
+ * the declared value against the registry floor (documented limit §5.8 — a
+ * below-floor "0/1" is loud in the brief the reviewer reads) and does not
+ * infer undeclared guard surfaces (documented limit §5.1).
+ */
+function checkGuardSurfaceDeclarations(cfg) {
+  if (cfg.stage !== "diff" || cfg.round !== 1) return;
+  const lines = stripCodeBlocks(cfg.briefText).split("\n");
+  const bad = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = /^\s*GUARD SURFACE:(.*)$/.exec(line);
+    if (m === null) continue;
+    const remainder = m[1];
+    const score = MUTATION_SCORE_ARM.exec(remainder);
+    if (score !== null) {
+      const killed = Number(score[1]);
+      const total = Number(score[2]);
+      // The shipped authority's no-mutants and unaccounted-mutants conditions
+      // (tests/mutation/source/gate.ts): 0/0 and 2/1 are declarations of
+      // nothing, not evidence. SAFE integers required (diff R1 finding 1):
+      // past MAX_SAFE_INTEGER the operands round together and an impossible
+      // killed > total pair reads as equal.
+      if (
+        Number.isSafeInteger(killed) &&
+        Number.isSafeInteger(total) &&
+        total >= 1 &&
+        killed <= total
+      )
+        continue;
+    }
+    if (/CANNOT-EXPRESS:\s*\S/.test(remainder)) continue;
+    bad.push(`  line ${i + 1}: ${line.trim().slice(0, 80)}`);
+  }
+  if (bad.length > 0) {
+    usageError(
+      `round-1 diff brief declares guard surfaces without dispatchable evidence:\n${bad.join("\n")}\n` +
+        `each GUARD SURFACE: line in a round-1 diff brief must carry its own MUTATION SCORE ` +
+        `(<killed>/<total> plus "0 unaccepted survivors") or CANNOT-EXPRESS: <probe citation> — ` +
+        `see AGENTS.md convergence-criterion bullet 4`,
+    );
   }
 }
 
