@@ -295,7 +295,7 @@ A native checkbox or radio is normally targeted through its `<label>`, and the t
 
 ## BL-HEAVY-ORPHAN-WORKER-LIFETIME — the heavy semaphore bounds admission, and nothing bounds a worker's lifetime
 
-**Status:** OPEN · **Severity:** MEDIUM (a machine-wide stall that takes every concurrent arc down with it; the 2026-08-10 precedent cost ~2h across nine) · **Class:** local capacity / process hygiene · **Effort:** M · **Filed:** 2026-08-16 (`chore/heavy-orphan-lifetime`, from a live incident measured during the BL-mediums batch) · **Reachability: PROBED** — the numbers below are one real occurrence, not a projection.
+**Status:** IN PROGRESS · **Branch:** chore/heavy-orphan-reaper · **Severity:** MEDIUM (a machine-wide stall that takes every concurrent arc down with it; the 2026-08-10 precedent cost ~2h across nine) · **Class:** local capacity / process hygiene · **Effort:** M · **Filed:** 2026-08-16 (`chore/heavy-orphan-lifetime`, from a live incident measured during the BL-mediums batch) · **Reachability: PROBED** — the numbers below are one real occurrence, not a projection.
 
 `pnpm heavy` admits at most `slots` heavy phases and releases a slot when the wrapper process dies (`scripts/with-heavy-slot.py` `execvp`s, so the command IS the wrapper — a crash releases the slot with zero cleanup code). That is admission control, and it is correct. What no layer owns is a worker's LIFETIME once its parent is gone.
 
