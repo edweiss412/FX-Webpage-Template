@@ -435,6 +435,26 @@ an afterthought. Three triggers, in descending reliability:
    the codex-guard shim install is documented.
 3. **On demand:** `pnpm heavy:reap`.
 
+**Trigger 1 verified by probe, 2026-08-16 13:55Z**, in a throwaway package whose scripts mirror
+today's form and the proposed one. Three properties, all measured rather than argued:
+
+| Property | Probe | Result |
+| --- | --- | --- |
+| Argument transparency | `pnpm <script> pnpm mutation:guards` under both forms | wrapper argv `['--', 'pnpm', 'mutation:guards']` — BYTE-IDENTICAL; the reaper sees only `['--kill', '--quiet']` |
+| Explicit `--` still handled | `pnpm <script> -- node -e ...` | wrapper argv `['--', '--', 'node', '-e', ...]`, the doubled separator `split_argv` already drops (`scripts/with-heavy-slot.py:60-70`) |
+| Fails open | reaper file ABSENT; reaper exiting 3 | wrapper ran with identical argv in both cases |
+| Exit status still transparent | wrapper exits 42 behind a failing reaper | `pnpm` exits 42 |
+
+The ordering is load-bearing and is the whole reason this works: `pnpm` appends the caller's
+arguments to the END of the script body, so the wrapper must be the LAST command in it. A reaper
+placed after the wrapper would capture the caller's command instead.
+
+**The one failure mode `;` does NOT cover is a reaper that HANGS**, which would block admission
+rather than fail open. The reaper is bounded by construction — one `ps` invocation and one
+directory read — and carries its own hard self-timeout, after which it abandons the run and exits
+non-zero rather than waiting (AC-8). No other guard is needed, because a reaper that cannot finish
+a `ps` in seconds is on a machine with worse problems than orphans.
+
 The first review round's second finding is the reason trigger 1 exists. A design whose only
 automatic trigger was a `Stop` hook could not honestly claim to bound anything: a crash runs no
 Stop hook of its own, and there is no guarantee any other session ever ends a turn.
