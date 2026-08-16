@@ -1,3 +1,50 @@
+## BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 43 duplicate-id heading pairs repaired, and the class is now a CI failure — CLOSED 2026-08-15 (`chore/archive-duplicate-ids`, SHIPPED)
+
+**Severity (as filed):** LOW · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`) · **Effort (as shipped):** S, as estimated
+
+**The count reproduced; the mechanism did not.** The entry's own pipeline returns 35, exactly as filed. But the attribution — union-merge duplication — is refuted by measurement, and the correction changes the repair. A pairwise body diff of all 35 pairs found **zero verbatim or near-verbatim pairs** (best similarity ratio 0.12): every pair is one short section plus one full entry, never two copies of anything.
+
+The real mechanism is the archive's **own resolution convention**. Each duplicated id is one entry written in two parts — a terminal record heading (the id followed by `RESOLVED (…)`, or by a `DEMOTED` / `GRADUATED` preamble) followed by the preserved original entry carrying its own id-bearing heading. Both mint the same id, so every heading-extraction pipeline counts the entry twice. So the repair is a heading DEMOTION, not a deletion: no body text was removed anywhere in the arc. The union-merge RISK the entry describes is real, and the shipped guard catches that class too by construction — two identical headings collide exactly the way two convention headings do.
+
+**43 pairs, not 35.** A walker-grounded census (the ratified ledger grammar, run over every file `ledgerFiles()` discovers) found the filed 35 in `BACKLOG-archive.md` at the family's levels, plus **2 more** there visible only at an all-depth scan (a `###` terminal record against a `####` preserved original — the one-character depth typo, live in the corpus), plus **6** in `DEFERRED-archive.md`, four of which are invisible to that family's level-3 grammar because the stub sits at level 2. `BACKLOG.md` and `DEFERRED.md`: zero. Census transcript, all three passes: `docs/superpowers/plans/2026-08-15-archive-duplicate-ids/dup-census-2026-08-15.txt`.
+
+**Both of the entry's traps were real and both are handled.** The scan spans every heading depth rather than one level, and it anchors to headings rather than substrings — a prose cross-reference of an id mints nothing.
+
+**Why nothing caught it** (the entry's diagnosis, confirmed): `ledgerIds()` returns a `Set`, so within-file duplicates are invisible BY CONSTRUCTION to the graduation suite's cross-file checks.
+
+**The class defense.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` gained a within-file uniqueness lane. Two passes, and the split is the design: a DOMAIN pass at the family's ratified levels alone decides which ids are judged — so the live `## CI …` prose section headings in the null-prefix DEFERRED family can never false-positive — while a SCAN pass spans every mdast depth with the family's prefix rule, so a duplicate parked at ANY depth collides, including the `####` typo shape. Discovery runs through the registry (`ledgerFiles` + `optsFor`), so a newly registered family's file pair is covered by default rather than going dark. Executable plants pin five fire shapes and three stays-quiet shapes, each of the latter naming the pin it protects and carrying a `premise` so it cannot pass vacuously.
+
+**The convention going forward:** an archive record preserves the original entry's heading as a **bold paragraph line**, never as a second id-bearing heading. A bold paragraph mints nothing — heading lanes see headings only, and body-defined-id minting requires a bold LIST-ITEM lead. There is no prose reminder in AGENTS.md for this; a failing CI line naming the id is the reminder.
+
+**Documented limits carried forward** (spec §4, not defects): a null-prefix id duplicated ONLY at level 2 is out of domain, inheriting the DEFERRED grammar's ratified level-3 scope rather than minting a second grammar; and an id wrapped in formatting mints nothing to this lane, as to every other — the threat model is accidental authoring and merge artifacts, not render-equivalent obfuscation.
+
+**Spec:** `docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md` (spec-APPROVED, codex-guard R7) · **Plan:** `docs/superpowers/plans/2026-08-15-archive-duplicate-ids/plan.md` (plan-APPROVED, codex-guard R5).
+
+The original entry follows, its heading demoted to a bold line per the convention above, with its in-flight status marker removed on archiving per invariant 12 — archives categorically reject in-progress work.
+
+**BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 35 ids appear twice in BACKLOG-archive.md, and no gate notices**
+
+**Severity:** LOW (the archive is a record, not a queue; nothing reads it for scheduling) · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, found while resolving an archive merge) · **Effort:** S
+
+**Probed, not theorized.** On `origin/main`, and on main BEFORE the quick-wins-2 mech branch merged (so this is not that arc's doing):
+
+```
+$ git show origin/main:BACKLOG-archive.md \
+    | grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' | sed -E 's/^#+ //' | sort | uniq -d | wc -l
+35
+$ git show ec06b825a^1:BACKLOG-archive.md | ... same pipeline ...
+35
+```
+
+**Why nothing caught it.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` asserts no id is both ACTIVE and ARCHIVED — a cross-file check. Nothing asserts an id appears at most once WITHIN the archive. A union-style merge resolution on the archive (the natural resolution, since two branches usually only append) silently duplicates any entry both sides carry, and every existing gate stays green.
+
+**Two traps for whoever picks this up**, both hit while resolving the merge that found it:
+
+- The active ledger uses `### ` headings and the archive uses `## `. A duplicate check anchored to one level reports clean while every collision hides in the other. Match `^#{2,3}`.
+- Archive PROSE cross-references entry ids, so a substring test (the bare id as a substring) reports an id as archived when only a mention is present. Anchor to the heading.
+
+**Fix:** de-duplicate the 35, then add the within-file uniqueness assertion to the graduation meta-test so the class cannot come back.
+
 ## BL-HELP-REFANCHOR-A11Y-PASS — the `/help/errors` copy-link got its whole-surface a11y pass — CLOSED 2026-08-15 (`fix/help-refanchor-a11y`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-15 · **Severity (as filed):** low · **Class:** A11Y / HELP SURFACE · **Effort (as shipped):** S, as estimated — one shared component plus one page edit
