@@ -355,6 +355,24 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       !/noWaitAfter/.test(c.text),
   },
   {
+    id: "d/member-split-activation",
+    origin: "d-link-activation",
+    disposition: {
+      kind: "member",
+      shape: "N",
+      reason:
+        "a row-locator BINDING whose activation is split onto a later line — Enter on the focused row, or `trigger.click()` on the bound variable. Spec §2.1 makes origin (d) testid-keyed precisely because the call shape is NOT the invariant: grepping for the click misses these, which is why the testid reference stands in for the activation",
+    },
+    expectedCount: 2,
+    // interactions.spec.ts only. The other three bindings in origin (d) are
+    // count/geometry reads that are never activated at all
+    // (admin-layout-dimensions' row count, bell-panel-layout's caret rect,
+    // closeFreshness' toContainText row — its click is a separate site).
+    match: (c) =>
+      inFile(c, "published-review-modal.interactions.spec.ts") &&
+      /^const trigger = page\.locator\(/.test(c.text),
+  },
+  {
     id: "d/prefetch-request-counting",
     origin: "d-link-activation",
     disposition: {
@@ -394,11 +412,15 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a locator binding, count, geometry read, or focus assertion on the testid; it causes no load, so there is no wait for the helper to own",
     },
-    expectedCount: 25,
+    expectedCount: 23,
     match: (c) =>
       !/\.click\(/.test(c.text) &&
       !isProse(c) &&
-      !inFile(c, "published-review-modal.prefetch.spec.ts"),
+      !inFile(c, "published-review-modal.prefetch.spec.ts") &&
+      !(
+        inFile(c, "published-review-modal.interactions.spec.ts") &&
+        /^const trigger = page\.locator\(/.test(c.text)
+      ),
   },
 
   // ---------------------------------------------------------------- origin (e)
