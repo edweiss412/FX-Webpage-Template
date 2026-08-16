@@ -92,8 +92,8 @@ This is not a hypothetical concern about proxies: the machine-local hook ~/.clau
 log-freshness proxy that did not watch the path its target actually wrote, and killed 379 of 651
 Codex sessions (58 %) over six days
 (`docs/agents/codex-silent-death-2026-07-24.md` §1, §8). §4 therefore discriminates on process
-ancestry and slot membership — kernel facts and this repo's own recorded state — and never on an
-activity signal.
+process shape and parent liveness — kernel facts, read from one process-table sample — and never
+on an activity signal.
 
 ---
 
@@ -566,9 +566,11 @@ arguments to the END of the script body, so the wrapper must be the LAST command
 placed after the wrapper would capture the caller's command instead.
 
 **The one failure mode `;` does NOT cover is a reaper that HANGS**, which would block admission
-rather than fail open. The reaper is bounded by construction — one `ps` invocation and one
-directory read — and carries its own hard self-timeout, after which it abandons the run and exits
-non-zero rather than waiting (AC-8). No other guard is needed, because a reaper that cannot finish
+rather than fail open. The reaper is bounded by construction — one `ps` invocation, plus one
+cheap `ps -o lstart=` per KILL TARGET — and every one of those invocations carries an explicit
+subprocess timeout, after which the reaper abandons the run and exits non-zero rather than waiting
+(AC-8). A timeout on each child is what makes the `;` sequencing safe: `;` waits for the reaper to
+terminate, so an unbounded reaper would block admission even though it cannot fail it. No other guard is needed, because a reaper that cannot finish
 a `ps` in seconds is on a machine with worse problems than orphans.
 
 The first review round's second finding is the reason trigger 1 exists. A design whose only
@@ -605,7 +607,7 @@ the same edits applied by hand. Keeping the decision logic tracked means it is r
 testable, mutation-scored, and identical in every checkout; only trigger 2 stays machine-local,
 and trigger 1 is tracked because `package.json` is.
 
-Not wrapped in `pnpm heavy`: the CLI is one `ps` invocation and a directory read. Wrapping it
+Not wrapped in `pnpm heavy`: the CLI is one `ps` invocation plus one per kill target. Wrapping it
 would deadlock trigger 1 against the semaphore it runs in front of.
 
 ---
@@ -679,8 +681,8 @@ surfaced signal files here rather than as a review round.
 structural answer to the class three rounds kept finding (§4.4's preamble). Where a criterion needs
 to say something §4.4 does not, it says only that.
 
-- **AC-1** — A process matching a declared worker shape, with `ppid == 1`, no live slot-holder
-  ancestor, and age ≥ the ceiling is classified reapable.
+- **AC-1** — A process matching a declared worker shape, with `ppid == 1` and age ≥ the ceiling,
+  is classified reapable. There is no slot clause; §4.2 explains why.
 - **AC-2** — **A heavy phase that is structurally identifiable as live is never reapable, at any
   age.** Proved per row of §4.3's table: its workers have a live parent (clause b), and every
   non-worker process in it fails clause (a). Neither proof involves the ceiling, which is why AC-2
