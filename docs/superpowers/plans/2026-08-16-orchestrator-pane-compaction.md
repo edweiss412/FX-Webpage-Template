@@ -324,7 +324,17 @@ shared machine can never see exit 0 or 1 — round 2's F8.
 **AC-6** is the byte-for-byte dry-run assertion. `--dry-run` on each of `--checkpoint`, `--compact` and `--resume` sends nothing and prints that
 command's spec §5.2 bytes **byte-for-byte**, including `CHECKPOINT_TEXT` and `RESUME_TEXT` verbatim
 with `<NONCE>` substituted. Every sending mode rejects `--all`, requires a single named target, and
-requires `--as`; a missing `--as` exits 1 rather than inferring an orchestrator (AC-7). The
+requires `--as`; a missing `--as` exits 1 rather than inferring an orchestrator (AC-7).
+
+**Every refusal names its reason** — spec §6's third guarantee, alongside "not driven while an
+observation says stop" and "`FORCE` never at a High cost". Exit 1 plus nothing-sent is **not**
+sufficient: a silent exit satisfies both and leaves an operator with no idea which condition fired,
+on a surface whose entire value is that a human can overrule it. Each refusal path asserts its
+output **names the specific condition** — the missing `--as`, the unresolvable target, the `--all`
+rejection — not merely that output is non-empty. Plan round 5 caught this asserted nowhere across
+Tasks 7 and 8.
+
+The
 checkpoint text is asserted to instruct **against** committing (AC-14).
 
 **The no-interrupt pin (AC-18)** is asserted on **two** paths, not one. Round 3 correctly observed
@@ -399,6 +409,11 @@ the banding rules 9-12: a successful compaction drops pressure below eligibility
 immediately before sending and refuse, exiting 1 without sending, when the fresh verdict is not
 `COMPACT`/`FORCE` or purview does not resolve to `--as` uncontested. One case per condition, each
 safe at report time and unsafe at command time.
+
+**Every refusal names its reason (spec §6).** Each case here — nonce absent, nonce mismatched,
+verdict stale at drive time, purview contested at drive time — asserts the refusal output names
+*that* condition, so the four are distinguishable to an operator reading the terminal. Asserting
+only `exit 1` lets all four collapse into one silent failure that no one can act on.
 
 **Failure mode caught:** compacting a target whose checkpoint never landed — the exact context loss
 this feature exists to prevent — and compacting one that became `WAIT` between two commands.
