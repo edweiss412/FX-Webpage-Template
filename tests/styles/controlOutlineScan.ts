@@ -73,12 +73,16 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 604 },
   // spec §4.2 row 17
   { file: "components/admin/wizard/Step3ReviewModal.tsx", line: 688 },
-  // spec §4.2 row 18 — spec cites 4121; the live line is 4150 after the
-  // 2026-08-16 sibling merges. Line numbers are locators, the census is the
-  // contract (spec §4.2 closing note).
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4150 },
-  // spec §4.2 row 19 — spec cites 4178; live 4207, same reason as row 18
-  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4207 },
+  // spec §4.2 row 18 — spec cites 4121; the live line is 4151 after the
+  // 2026-08-16 sibling merges, the last of them #817 (`feat/mutation-section-order`,
+  // 11c4fb6ca), which added one net line above both rows. Line numbers are
+  // locators, the census is the contract (spec §4.2 closing note): the swap
+  // itself survived every one of those merges untouched, and what moved is
+  // where it sits. The suite RED that caught this drift is the pin working —
+  // `resolveCensus` returns `null` rather than dropping the row.
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4151 },
+  // spec §4.2 row 19 — spec cites 4178; live 4208, same reason as row 18
+  { file: "components/admin/wizard/step3ReviewSections.tsx", line: 4208 },
   // spec §4.2 row 20 — reset chip on `bg-surface-raised` (§4.3)
   { file: "components/diagrams/GalleryLightbox.tsx", line: 693 },
   // spec §4.2 row 21
