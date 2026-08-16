@@ -6,7 +6,7 @@
 
 The entry's second suggestion landed with it: `analyzeNaming` wraps EVERY per-file analyzer call in `collectPsqlUsage` — the scan, indirection and workflow passes alike — and rethrows carrying the repo-relative path, so the next unknown pathological file names itself instead of needing a bisect. Rethrow, never catch-and-continue; a swallowed scan error is the silent under-count the walk's `unreadable` ledger exists to prevent.
 
-**Reproduced before the fix, at the real repo root**, with two representative deep-AST bundles written into `.next-dev` and `.next-prod`: **19 failed | 726 passed (745)** — the exact split this entry reported. Same tree after the fix: **789 passed (789)** (745 pre-arc cases plus 44 new rows). Consequence bound now pinned by test: every file the walk reaches is analyzed or NAMED in a loud failure; the only silently-skipped roots are the derived set plus `docs`.
+**Reproduced before the fix, at the real repo root**, with two representative deep-AST bundles written into `.next-dev` and `.next-prod`: **19 failed | 726 passed (745)** — the exact split this entry reported. Same tree after the fix: **793 passed (793)** (745 pre-arc cases plus this arc's 48 new rows; re-derive with `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`). Consequence bound now pinned by test: every file the walk reaches is analyzed or NAMED in a loud failure; the only silently-skipped roots are the derived set plus `docs`.
 
 **Filed twice.** `BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS` is the same defect filed independently from a second triage session; both graduate here, and neither is a distinct piece of work.
 
