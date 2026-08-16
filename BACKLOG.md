@@ -8,6 +8,34 @@ Last reconciled: 2026-08-15 — `feat/spec-lint-intent-red` graduated `BL-SPEC-L
 
 ---
 
+## BL-PSQL-SCAN-MUTATION-ENROLMENT — the psql startup-file scanner is measurable now, and scores 0.354
+
+**Status:** OPEN · **Filed:** 2026-08-15 (`fix/local-harness-false-failures`, from that arc's own enrolment probe) · **Class:** guard coverage · **Effort:** M · **Class-sweep exception:** (a) — the disposition of 31 survivors is a judgment call the filing PR cannot settle, ratified by the user against repaying in-branch. · **Reachability:** PROBED — the numbers below are a real run, not an estimate.
+
+`tests/cross-cutting/psqlStartupFiles/scan.ts` is registry-expressible (an importable module with a deciding suite, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`) and is still NOT enrolled. The arc that would have enrolled it ran the probe instead, and the probe says enrolment is its own piece of work.
+
+**Two findings, one shipped and one filed here.**
+
+The surface was not measurable at all until a harness defect was repaired. `runSuite` (`tests/mutation/source/runner.ts`) and `childRun` (`tests/mutation/source/childRun.ts`) both piped the child's output into Node's 1 MB default `maxBuffer` and never read it — the exit status is the only signal either consumes. One mutant reds enough of this surface's 789-case suite that the failure dump alone overruns 1 MB, so Node SIGTERMed the child and the whole run died scoring nothing:
+
+```
+MutantRunInfraError: mutation run produced no exit status for
+relational-boundary:2250:59:>>>= [tests/cross-cutting/psqlStartupFileSuppression.test.ts]
+(signal=SIGTERM, code=ENOBUFS)
+```
+
+That is FIXED and shipped in the same arc (`9edf520d1`): the output is discarded, removing the cap outright instead of trading it for a bigger number to outgrow. Any high-output surface was unenrollable before it.
+
+**With measurement possible, the scoped subset scores 0.3542 — 17 of 48 killed, 31 unaccepted survivors** (27 `relational-boundary`, 4 `regex-quantifier-bound`; operators scoped to those two for wall clock — the full set is 987 sites ≈ 11 h, this subset 48 sites ≈ 20 min measured). The survivors are a genuine MIX, which is why they cannot be blessed in bulk:
+
+- `scan.ts:1749` `index > 0` → `>= 0` falls through to `basename(before[-1] ?? "")` — plausibly EQUIVALENT.
+- `scan.ts:523` `token.length > 1` → `>= 1` admits a bare `-` token into the flag-cluster branch — looks like a REAL coverage gap.
+- `scan.ts:1792` `/^-{1,2}[A-Za-z0-9]/` → `{1,3}` accepts `---x` as a flag; `scan.ts:581`'s `l < to.line && l < out.length` → `<=` is an off-by-one on a comment-range loop. Both need reading before either is called.
+
+**Why filed rather than repaired in the arc that found it — exception (a).** Dispositioning 31 sites is per-site analysis across a 2968-line scanner, each iteration costing a gate re-run, and the outcome is a judgment about what the suite SHOULD pin — not a mechanical repair the finding PR can settle. Enrolling anyway at a `scoreFloor` of 0.35 with 31 blessed `accepted-gap` rows was considered and REJECTED by the user: that is the symbolic enrolment AGENTS.md convergence bullet 4 forbids, since a floor that low asserts almost nothing while each blessed row is still a claim owing a reason.
+
+**First scheduled step:** read the 31 survivors, kill the real gaps with suite cases, mark the true equivalents with reasons, then enrol with `scoreFloor` at the achieved score. The full survivor list is in the arc's diff-review record; regenerate it with `pnpm heavy pnpm mutation:guards` after adding the row. Spec context: `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.3 re-disposition note.
+
 ## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
 
 **Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today.
@@ -182,46 +210,6 @@ The prose rule binds the author's memory; nothing gates the dispatch. The per-ma
 **Status:** OPEN · **Filed:** 2026-08-15 (round-economy win sweep, post-#791 reconciliation). **Severity:** LOW (docs gate; the leak loses mechanization candidates, not product behavior). **Class:** review-round reduction (tooling). **Effort:** S-M. **Reachability:** PROBED — `tests/docs/_metaReviewRoundEconomy.test.ts` asserts every `BL-`/`DEF-` id CITED in a filing resolves, but nothing requires a non-none `**Mechanizable:**` entry to cite one at all, and merged filings hold at least five candidates with no ledger row and no declared decline: the workflow `paths:`-coverage generalization (classname plan filing candidate 3, R4-F2 — per-workflow wiring tests exist for three workflows, the generic walk does not) and the plan filing's `testMatch` candidate 2 where not already covered by those wiring tests (`docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md`); the enumerated-accept-set calibration probe and the recorded-SHA-names-its-own-expiry rule (same file, delta-arc plan §); the post-repair forward-reference self-consistency arm and the BL-disposition closeout arm (`docs/review-rounds/chore/guard-completeness-wave/04f601134519.md` spec § items (a) and (c)).
 
 Two halves. **Gate:** extend `tests/docs/_metaReviewRoundEconomy.test.ts` so a filing's non-none `**Mechanizable:**` entry must contain a resolvable `BL-`/`DEF-` id OR an explicit decline marker with a reason (`declined: <reason>` — "belongs to whoever next touches X" is a decline and should say so in that form). Filings are immutable evidence (corpus contract), so the gate applies to filings authored AFTER it lands; the existing corpus is grandfathered as-is. **Backfill:** disposition the five candidates above — each gets a row (they carry probe evidence in their filings already) or a recorded decline in the disposing arc's ledger note; the implementing arc decides which, per the ledger filing bar. Enumeration here is the probe, not the cover — the gate half is what keeps the next candidate from leaking.
-
-## BL-TESTFAST-RACES-TRANSIENT-MUTANT-FILE — a probe writes a temp test file into the tree while the other project is globbing
-
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** test-harness race (local false failure). **Effort:** S. **Class-sweep exception:** (c) — a harness surface the filing PR does not otherwise touch. **Reachability:** PROBED — observed, with the writer named and the victims cleared standalone.
-
-`tests/cross-cutting/pgCronCiVacuity.test.ts:159` writes a real file into the repo — `tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts` — runs it as a mutant, and removes it. `scripts/test-fast.mjs` runs the SERIAL and PARALLEL projects concurrently (that concurrency is the whole point of `test:fast`), so the other project's file glob can pick the transient up mid-run and execute it outside its harness.
-
-Observed once, in a full `pnpm test:fast`:
-
-```
-FAIL tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts > INERT MECHANISM PROBE
-Error: live case "INERT MECHANISM PROBE" issued NO database query — it is not a live case.
-FAIL tests/cross-cutting/pg-cron-coverage.test.ts
-```
-
-The failure is maximally confusing: the named file **does not exist** by the time anyone looks, and `pg-cron-coverage.test.ts` passes 8/8 standalone immediately afterwards. Nothing in the output says "this was a temp file".
-
-**Not a CI problem** — CI runs the projects in separate jobs, so the glob never overlaps. It costs local runs only, which is why it can persist.
-
-**First scheduled step:** write the mutant outside the globbed tree (a temp dir passed to vitest) rather than into `tests/`, or give it an extension the projects' `include` patterns do not match. Either removes the race outright; excluding the basename by name would leave the next such probe exposed.
-
-## BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS — the psql startup-file guard parses local `.next-*` build output and blows its own stack
-
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** guard usability (local-only false failure). **Effort:** XS. **Class-sweep exception:** (c) — a guard surface the filing PR does not otherwise touch. **Reachability:** PROBED, with a bisect that named the cause.
-
-`tests/cross-cutting/psqlStartupFiles/scan.ts:315`'s `IGNORED_AT_ROOT` skips `.next`, but this repo's own Playwright config builds into `.next-dev`, `.next-prod`, `.next-prod-flip` and `.next-screenshots-help` (`playwright.config.ts` webServer entries). Those are not skipped, so the walk hands megabytes of generated bundle JS to the TypeScript AST scan and it dies:
-
-```
-RangeError: Maximum call stack size exceeded
- ❯ visit tests/cross-cutting/psqlStartupFiles/scan.ts:535:9
- ❯ forEachChildInBinaryExpression typescript.js:32647:12
-```
-
-**19 of the guard's 745 cases fail** — including its own structural cases ("the walk is not vacuous", "the walk read every directory"), which is the confusing part: the failures read like a real psql violation and name no file.
-
-**Probed by bisect, all four steps:** the same commit passes 745/745 in a freshly-created worktree that has never built; it fails in a worktree that has; clearing `test-results/` and `.next/` does NOT fix it; moving the four `.next-*` directories aside DOES (745/745). So the trigger is the directory set, not the diff and not the environment more broadly.
-
-**CI is unaffected** — a fresh checkout has no `.next-*` — which is exactly why this can sit here indefinitely and cost each developer the same half-hour bisect.
-
-**First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
 
 ## BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT — the "no action needed" pill now reads louder than the "needs you" one
 
@@ -805,24 +793,6 @@ that just called `apply()`.
 
 **Trigger:** profiling that shows ancestor-walk cost is material, or a refactor that already
 restructures the effect body. Micro-optimisation otherwise.
-
----
-
-## BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS — the psql startup-file scan walks `.next-*` build outputs and blows the stack
-
-**Status:** OPEN · **Severity:** MEDIUM (a whole guard suite is red locally for a reason unrelated to any change; the failure names a TypeScript internal, not the cause) · **Class:** guard robustness · **Effort:** S · **Filed:** 2026-08-11
-
-**Probed 2026-08-11 on `fix/help-tour-hydration`**, where the suite failed 19/745 with `RangeError: Maximum call stack size exceeded` inside `tests/cross-cutting/psqlStartupFiles/scan.ts:535`, on a tree whose only source changes were one MDX page and CI wiring. Bisecting by reverting each changed file to `origin/main` left it red; the cause was never in the diff.
-
-`IGNORED_AT_ROOT` (`tests/cross-cutting/psqlStartupFiles/scan.ts:315`) lists `.next` but not the sibling output directories this repo's own tooling writes: `playwright.config.ts` and the screenshot/flip scripts build into **`.next-dev`, `.next-prod`, `.next-prod-flip`, and `.next-screenshots-help`**. Those are walked. An AST-depth probe over the walk's own directory rules found 6516 files, of which twelve are ~12 MB webpack chunks the walk skips only by luck of the parse, and several bundled files reach an AST depth of 4342 — the recursive `visit` at `:535` overflows long before the guard reaches a psql call site.
-
-Moving the four directories outside the repo and re-running takes the same suite to **745 passed** with no other change. Same command, same tree.
-
-**Why it matters more than a local annoyance.** The failure mode is silent misattribution: the stack trace names `typescript.js` and the scan's own line 535, so the reader's first hypothesis is their own diff. That cost a bisect on this arc. Worse, the walk is the guard's completeness claim — a walk that dies partway through has not certified the tree, and 19 red tests are the only thing standing between that and a false green if the overflow were ever caught and swallowed.
-
-**Why it is filed rather than repaired in the arc that found it — exception (c).** The repair is on a guard surface this PR does not otherwise touch, and this particular guard's review history (its own test names run to "R40 escaping mutants") is precisely about enumerated recognizers not terminating. Adding four literals to an enumerated ignore list is the shape that invites the next round to ask for a derived one. It deserves its own arc, where the derivation question can be answered properly.
-
-**The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
 
 ---
 

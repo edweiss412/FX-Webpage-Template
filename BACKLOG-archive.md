@@ -1,3 +1,88 @@
+## BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS — the psql startup-file scan walks `.next-*` build outputs and blows the stack — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
+
+**Severity:** MEDIUM (a whole guard suite is red locally for a reason unrelated to any change; the failure names a TypeScript internal, not the cause) · **Class:** guard robustness · **Effort:** S · **Filed:** 2026-08-11
+
+**Resolution 2026-08-15.** Repaired exactly as this entry's own last paragraph proposed: the root skip is now DERIVED from the committed root `.gitignore` rather than enumerated. `rootSkipNamesFromGitignore` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) accepts a line iff it is a plain single-segment name — optional leading `/`, no glob metacharacter, no `!`, no interior `/`, optional trailing `/` — and `ROOT_SKIP_LITERALS` keeps only `docs`, the ratified root-relative exclusion no ignore file names. Rejection of everything else is the conservative direction by construction: the walk can only over-scan, never silently under-scan. A fifth, sixth or seventh build target needs no edit, which is the whole point — an enumerated list re-opens the moment someone adds a site.
+
+The entry's second suggestion landed with it: `analyzeNaming` wraps EVERY per-file analyzer call in `collectPsqlUsage` — the scan, indirection and workflow passes alike — and rethrows carrying the repo-relative path, so the next unknown pathological file names itself instead of needing a bisect. Rethrow, never catch-and-continue; a swallowed scan error is the silent under-count the walk's `unreadable` ledger exists to prevent.
+
+**Reproduced before the fix, at the real repo root**, with two representative deep-AST bundles written into `.next-dev` and `.next-prod`: **19 failed | 726 passed (745)** — the exact split this entry reported. Same tree after the fix: **793 passed (793)** (745 pre-arc cases plus this arc's 48 new rows; re-derive with `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`). Consequence bound now pinned by test: every file the walk reaches is analyzed or NAMED in a loud failure; the only silently-skipped roots are the derived set plus `docs`.
+
+**Filed twice.** `BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS` is the same defect filed independently from a second triage session; both graduate here, and neither is a distinct piece of work.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.1. Documented limits carried forward there: a root ignored only by a wildcard row (`.codex-companion*/`) stays walked (worst case is a loud named failure, not a silent skip), and a TRACKED root directory later named by a plain-name row would be newly skipped — fenced by a stays-quiet test pin asserting the derived set excludes every tracked source root.
+
+**Probed 2026-08-11 on `fix/help-tour-hydration`**, where the suite failed 19/745 with `RangeError: Maximum call stack size exceeded` inside `tests/cross-cutting/psqlStartupFiles/scan.ts:535`, on a tree whose only source changes were one MDX page and CI wiring. Bisecting by reverting each changed file to `origin/main` left it red; the cause was never in the diff.
+
+`IGNORED_AT_ROOT` (`tests/cross-cutting/psqlStartupFiles/scan.ts:315`) lists `.next` but not the sibling output directories this repo's own tooling writes: `playwright.config.ts` and the screenshot/flip scripts build into **`.next-dev`, `.next-prod`, `.next-prod-flip`, and `.next-screenshots-help`**. Those are walked. An AST-depth probe over the walk's own directory rules found 6516 files, of which twelve are ~12 MB webpack chunks the walk skips only by luck of the parse, and several bundled files reach an AST depth of 4342 — the recursive `visit` at `:535` overflows long before the guard reaches a psql call site.
+
+Moving the four directories outside the repo and re-running takes the same suite to **745 passed** with no other change. Same command, same tree.
+
+**Why it matters more than a local annoyance.** The failure mode is silent misattribution: the stack trace names `typescript.js` and the scan's own line 535, so the reader's first hypothesis is their own diff. That cost a bisect on this arc. Worse, the walk is the guard's completeness claim — a walk that dies partway through has not certified the tree, and 19 red tests are the only thing standing between that and a false green if the overflow were ever caught and swallowed.
+
+**Why it is filed rather than repaired in the arc that found it — exception (c).** The repair is on a guard surface this PR does not otherwise touch, and this particular guard's review history (its own test names run to "R40 escaping mutants") is precisely about enumerated recognizers not terminating. Adding four literals to an enumerated ignore list is the shape that invites the next round to ask for a derived one. It deserves its own arc, where the derivation question can be answered properly.
+
+**The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
+
+## BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS — the psql startup-file guard parses local `.next-*` build output and blows its own stack — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** guard usability (local-only false failure). **Effort:** XS. **Class-sweep exception:** (c) — a guard surface the filing PR does not otherwise touch. **Reachability:** PROBED, with a bisect that named the cause.
+
+**Resolution 2026-08-15.** DUPLICATE FILING of `BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS` — the same defect reached from a second triage session on the same day. Both graduate together in `fix/local-harness-false-failures`; the full resolution, probe numbers and documented limits live on that entry, immediately above this one. In short: the root skip is derived from the committed root `.gitignore` (not four, now seven, literals), and `analyzeNaming` makes any scan throw name the file it was reading. This entry's own "first scheduled step" — widen to the `.next*` prefix AND name the file on a throw — is what shipped, except that the derivation went one better than a prefix.
+
+The two filings are recorded as duplicates rather than merged silently, because two independent triage sessions reaching the same conclusion on the same day is itself the evidence that the failure mode was costing more than one person a bisect.
+
+`tests/cross-cutting/psqlStartupFiles/scan.ts:315`'s `IGNORED_AT_ROOT` skips `.next`, but this repo's own Playwright config builds into `.next-dev`, `.next-prod`, `.next-prod-flip` and `.next-screenshots-help` (`playwright.config.ts` webServer entries). Those are not skipped, so the walk hands megabytes of generated bundle JS to the TypeScript AST scan and it dies:
+
+```
+RangeError: Maximum call stack size exceeded
+ ❯ visit tests/cross-cutting/psqlStartupFiles/scan.ts:535:9
+ ❯ forEachChildInBinaryExpression typescript.js:32647:12
+```
+
+**19 of the guard's 745 cases fail** — including its own structural cases ("the walk is not vacuous", "the walk read every directory"), which is the confusing part: the failures read like a real psql violation and name no file.
+
+**Probed by bisect, all four steps:** the same commit passes 745/745 in a freshly-created worktree that has never built; it fails in a worktree that has; clearing `test-results/` and `.next/` does NOT fix it; moving the four `.next-*` directories aside DOES (745/745). So the trigger is the directory set, not the diff and not the environment more broadly.
+
+**CI is unaffected** — a fresh checkout has no `.next-*` — which is exactly why this can sit here indefinitely and cost each developer the same half-hour bisect.
+
+**First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
+
+## BL-TESTFAST-RACES-TRANSIENT-MUTANT-FILE — a probe writes a temp test file into the tree while the other project is globbing — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** test-harness race (local false failure). **Effort:** S. **Class-sweep exception:** (c) — a harness surface the filing PR does not otherwise touch. **Reachability:** PROBED — observed, with the writer named and the victims cleared standalone.
+
+**Resolution 2026-08-15 — and the mechanism below is CORRECTED, not merely closed.**
+
+This entry's OBSERVATION was exact and reproducible; its explanation was wrong, and the spec's R1 review disproved it by probe. The hypothesised cross-project glob race **cannot occur today**: `scripts/test-fast.mjs` does run the serial and parallel projects concurrently, but the parallel project admits only `PARALLEL_TEST_GLOBS`, none of which match the `tests/cross-cutting` tree (probed: serial membership true, parallel membership false). The transient file was only ever collectable by the SERIAL project — the same project already running it.
+
+The actual mechanism is **STDERR ECHO**. `runSuite` called `execFileSync` with only `encoding` set, and Node then BOTH captures the child's stderr on `err.stderr` AND passes it through to the parent's stderr (probed 2026-08-15 with a minimal repro; capture and passthrough are independent). Every child that file spawns fails INTENTIONALLY — the dead-DB probe and both mutant probes — so their vitest `FAIL` lines leaked verbatim onto the outer run's output, naming tree paths the outer run never failed on, one of which had already been unlinked. That is the entire observed symptom, including the "named file does not exist" part that made it so confusing. Measured on the identical command pair: **5 echoed `FAIL` lines before the repair, 0 after**, with the suite green both times.
+
+Both repairs shipped together, because the transient file carried two further probed hazards the entry did not name:
+
+- **The mutant never lands in the globbed tree.** `writeMutant` now writes the mutant TEXT to an `mkdtemp` scratch file outside the repo under a non-test extension and returns the path; the child runs the suite at its REAL path with that text served in memory by the shipped `load` hook (`tests/mutation/source/mutantOverlay.config.ts`). No path matched by any project glob exists at any instant, so the class is removed rather than narrowed — and a SIGKILL mid-probe can no longer leave a stray red test-suffixed file for the next serial collection to execute. The entry's first scheduled step fenced exactly this shape (out-of-tree or structurally unmatchable, never a basename exclusion), and that is what shipped.
+- **The write no longer pollutes the working tree** that invariant 11 keeps single-writer.
+
+`MUTANT_REL`, `MUTANT_ABS` and both `unlinkSync` finallys are gone; temp-dir removal replaces them. The exactly-once anchor validation is kept verbatim, and the probes' assertions are byte-identical — `git diff origin/main -- tests/cross-cutting/pgCronCiVacuity.test.ts | grep '^[-+]' | grep -c 'expect('` returns 0.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.2. Documented limit carried forward there: any OTHER suite writing transient test-shaped files into the globbed tree, or spawning intentionally-failing children with default `execFileSync` stdio, would recreate these hazards. The class sweep run at plan time found this file to be the only instance of each today; a future one is a review matter, fenced by that limit rather than by a new guard.
+
+`tests/cross-cutting/pgCronCiVacuity.test.ts:159` writes a real file into the repo — `tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts` — runs it as a mutant, and removes it. `scripts/test-fast.mjs` runs the SERIAL and PARALLEL projects concurrently (that concurrency is the whole point of `test:fast`), so the other project's file glob can pick the transient up mid-run and execute it outside its harness.
+
+Observed once, in a full `pnpm test:fast`:
+
+```
+FAIL tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts > INERT MECHANISM PROBE
+Error: live case "INERT MECHANISM PROBE" issued NO database query — it is not a live case.
+FAIL tests/cross-cutting/pg-cron-coverage.test.ts
+```
+
+The failure is maximally confusing: the named file **does not exist** by the time anyone looks, and `pg-cron-coverage.test.ts` passes 8/8 standalone immediately afterwards. Nothing in the output says "this was a temp file".
+
+**Not a CI problem** — CI runs the projects in separate jobs, so the glob never overlaps. It costs local runs only, which is why it can persist.
+
+**First scheduled step:** write the mutant outside the globbed tree (a temp dir passed to vitest) rather than into `tests/`, or give it an extension the projects' `include` patterns do not match. Either removes the race outright; excluding the basename by name would leave the next such probe exposed.
+
 ## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown — CLOSED 2026-08-16 (`feat/diagram-demote-notice`, SHIPPED)
 
 **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
