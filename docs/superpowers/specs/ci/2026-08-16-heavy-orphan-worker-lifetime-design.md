@@ -364,7 +364,34 @@ not carry most of this table, which is why the two sections are written against 
 anywhere in this document CITES the ID instead of paraphrasing — and "every other mention" includes
 the rows of OTHER tables (§4.1's unit table, §6.2's CLI table), the doc comments inside §5's code
 blocks, §7's limits and §8's criteria. Being a table row is not what makes a statement a source;
-being one of these three tables is.** That is a structural repair, not a formatting choice: three consecutive review rounds
+being one of these three tables is.**
+
+That rule is CHECKABLE, and it is checked this way rather than by re-reading — five consecutive
+review rounds each found one instance in a region the previous reading had not covered (§4.4's
+preamble, then a verb set built only from known paraphrases, then fenced code blocks, then a
+single-line JSDoc, then another table's rows):
+
+```
+python3 - <<'EOF'
+import re
+lines = open("docs/superpowers/specs/ci/2026-08-16-heavy-orphan-worker-lifetime-design.md").read().split("\n")
+src = {i for i, l in enumerate(lines) if re.match(r"^\| (C[1-8]|R[1-5]|K[1-5]) \|", l.strip())}
+verbs = re.compile(r"exit non-zero|non-zero.exit|reap(s|ing)? (nothing|NOTHING)|exit status|exits? 0"
+                   r"|unaffected|tolerated|never reaped|not reapable|stops the run|is blocked"
+                   r"|kills nothing|non-destructive|failed kill|partial kill|identity-changed"
+                   r"|already-gone|ESRCH|surviving pids")
+for i, l in enumerate(lines):
+    if i not in src and verbs.search(l):
+        print(f"{i+1}: {l.strip()[:120]}")
+EOF
+```
+
+Every hit it reports must be one of five things, and anything else is a defect: a CITATION of a row
+ID, a POINTER to the section that owns the behavior, a DEFINITION of a term the tables use, a
+HISTORICAL note recording a claim this spec corrected, or a claim OWNED by the section making it
+and described by no row (AC-8's trigger-1 properties and §9's consequence bound are the two of
+those). The scan does not decide which; it bounds where to look, which is the part that kept
+failing. That is a structural repair, not a formatting choice: three consecutive review rounds
 found a summary sentence contradicting the table it summarized (round 1 F1/F4, round 2 F2/F5,
 round 3 F1/F2). The class is "a normative claim restated in prose drifts from its source", and the
 defense that closes it is to have exactly one statement of each behavior and make every other
