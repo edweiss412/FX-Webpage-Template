@@ -1,6 +1,6 @@
 # serializeError structural non-Error branch — no diagnostic collapses to "[object Object]"
 
-**Date:** 2026-08-16 · **Branch:** `fix/serialize-error-structure` · **Status:** draft
+**Date:** 2026-08-16 · **Branch:** `fix/serialize-error-structure` · **Status:** spec-APPROVED (codex-guard R4, 2026-08-16; R1 four findings + R2 three + R3 three repaired in-branch)
 **Entry:** `BL-SERIALIZE-ERROR-NON-ERROR-BRANCH-STRINGIFIES` (BACKLOG.md, filed 2026-08-15) · **Effort:** M
 **Plan:** authored beside this spec in the plan directory docs/superpowers/plans/ under the same date-topic stem (same PR)
 
