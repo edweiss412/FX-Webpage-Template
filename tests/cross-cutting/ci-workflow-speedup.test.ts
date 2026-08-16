@@ -305,24 +305,33 @@ describe("screenshots-drift nextcache: exact input-hash key, no fallback, always
     expect(stepsUsing("actions/cache/restore@v4")).toHaveLength(1);
     expect(stepsUsing("actions/cache/save@v4")).toHaveLength(1);
 
-    // Stated as a CLOSED question over the path rather than a ban on one
-    // spelling (diff review R2). An earlier form prohibited the literal
-    // `actions/cache@v4`, which `actions/cache@v4.2.0` — a real supported ref
-    // that honors prefix `restore-keys` — walked straight past: the reviewer
-    // inserted such a step on this path, carrying the former fallback, and all
-    // nine assertions still passed while the spec §0 poison path was back.
+    // A CLOSED question over the JOB's cache steps, which deliberately does not
+    // consult the path at all.
     //
-    // Enumerating refs loses that race by construction, so the assertion asks
-    // instead: WHICH steps touch this path? Exactly two may, and they must be
-    // the sanctioned pair. Any third step, under any action at any ref, fails
-    // here by name. Other workflows' ~/.cache/ms-playwright combined steps are
-    // untouched — this is scoped to one path.
-    const onPath = STEPS.filter((s) => s.with?.path === CACHE_PATH);
+    // Two rounds took this assertion one input family at a time. R2: it banned
+    // the literal `actions/cache@v4`, and `actions/cache@v4.2.0` walked past.
+    // R3: it asked which steps had `path === CACHE_PATH`, and six equivalent
+    // spellings walked past that — trailing slash, `./` prefix, YAML literal
+    // block, multi-path block, an ancestor directory, and a covering glob (the
+    // action accepts all of them). Each repair invited the next escape, which
+    // is a recognizer ratcheting one representation per round.
+    //
+    // So this stops recognizing refs and stops normalizing paths. It asks the
+    // one question with a finite answer: WHICH cache-family steps does this job
+    // run? Exactly two, and they must be the sanctioned pair. A third — any
+    // ref, any path spelling, any glob, any ancestor — fails here by name,
+    // because the path is never consulted. Scope is this job only, so other
+    // workflows' ~/.cache/ms-playwright combined steps stay legal.
+    const cacheSteps = STEPS.filter(
+      (s) => typeof s.uses === "string" && s.uses.startsWith("actions/cache"),
+    ).map((s) => s.uses as string);
     expect(
-      onPath.map((s) => s.uses ?? `run-step: ${s.name ?? "<unnamed>"}`).sort(),
-      `only the restore/save pair may touch ${CACHE_PATH} — a combined actions/cache step ` +
-        `at ANY ref saves only on job success and can carry restore-keys, which is the ` +
-        `self-perpetuating failure this entry closes`,
+      cacheSteps.sort(),
+      "this job may run exactly two cache-family steps, the sanctioned restore/save pair. " +
+        "A combined actions/cache step at ANY ref saves only on job success and can carry " +
+        "restore-keys, so it could prefix-restore stale compiler bytes BEFORE the exact " +
+        "restore misses — the always-save would then archive those stale bytes under the " +
+        "new exact key, recreating the self-perpetuating lifecycle this entry closes.",
     ).toEqual(["actions/cache/restore@v4", "actions/cache/save@v4"]);
   });
 
