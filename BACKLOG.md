@@ -1098,6 +1098,28 @@ signature of a class that wants a rule.
 under class-sweep exception (c). May share one lint surface with
 `BL-PLANLINT-ACCEPT-SET-CALIBRATION-PROBE`; the implementing arc decides and records it.
 
+## BL-PLANLINT-RED-CLAIM-EXECUTION — a plan's declared red is executed, not just parsed
+
+**Status:** OPEN. · **Filed:** 2026-08-16, from
+`docs/review-rounds/fix/server-action-origin-sweep/119895a7c756.md` (plan §, Mechanizable arm 2) ·
+**Severity:** medium · **Class:** plan-lint arm (sibling of the resolved
+`BL-SPECLINT-RED-EXECUTABILITY-ARM`, which shipped the DECLARATION and stopped there) · **Effort:**
+M
+
+The `red-contract` arm parses every task marker and validates the `red-target` citation's grammar;
+what it never does is EXECUTE the claim. An arm that ran `vitest list` on each `red=` command and
+asserted the declared `red-target`'s file appears in the collected set would settle a whole family
+of plan defects mechanically — a `red=` that collects nothing, a declared RED that is a PASS, a RED
+cause that is vacuous over an empty array, a whole-suite green asserted on a branch where a guard is
+red by design.
+
+**Reachability:** PROBED in the originating filing — five findings across four plan rounds of one
+arc, each one a pass/fail state the branch could not produce, and each found by the reviewer running
+the declared command by hand. The collection case (R3 #1) is the sharpest: the declared `red=`
+command could not collect its own `red-target`, because that file lives only in a vitest project
+gated behind `VITEST_INCLUDE_MUTATION_HARNESS=1`. Filed under class-sweep exception (c): a lint
+surface of its own, in a tree this arc does not otherwise touch.
+
 ## BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP — a repair round stale-ifies forward references the term-grep cannot see
 
 **Status:** OPEN. · **Filed:** 2026-08-15, backfill from
