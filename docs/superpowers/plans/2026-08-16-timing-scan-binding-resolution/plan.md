@@ -17,7 +17,7 @@
 
 ## Pre-draft verification pass (run at plan time; no task re-derives these)
 
-- **The seven probes behind the spec** are recorded in full with transcripts at `docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md`. Load-bearing results: 311 universe files; 24 `named-constant` sites over 23 distinct names; 35 sites suppressed by the name filter (18 same-file, 17 cross-file imports, all 17 specifiers resolving to the declaring file); the pinned `noResolve`+`noLib` program costs 254-502 ms cold and 160-220 ms warm; zero delta against the name filter across 367 identifier references.
+- **The ten probes behind the spec** are recorded in full with transcripts at `docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md`. Load-bearing results: 311 universe files; 24 `named-constant` sites over 23 distinct names; 35 sites suppressed by the name filter (18 same-file, 17 cross-file imports, all 17 specifiers resolving to the declaring file); the pinned `noResolve`+`noLib` program costs 254-502 ms cold and 160-220 ms warm; zero delta against the name filter across 367 identifier references.
 - **Consumers of the scanner's exports** — the complete set, from `rg`: `scripts/scan-interaction-timings.cli.ts:14` (`inventoryRows`, `scanRepo`), `tests/docs/interactionTimingScan.test.ts:30`, `tests/docs/_metaInteractionTimingInventory.test.ts:25`. No other file imports the module, so the blast radius of a signature change is those three.
 - **Whole-repo `scanRepo` call count** (the §2.4 cost claim): six `scanRepo(REPO_ROOT)` in `tests/docs/_metaInteractionTimingInventory.test.ts`, one `scanRepo(process.cwd())` in `tests/docs/interactionTimingScan.test.ts`; the remaining calls in the latter take synthetic roots holding a handful of files.
 - **Mutation harness entry points:** `pnpm mutation:guards` = `VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/guardSurfaces.gate.test.ts` (package.json:55). The gate has NO env-based surface filter, so a scoped run goes through the gate's own code path: `runSurface(root, surface)` (`tests/mutation/source/runner.ts:230`) + `evaluateGate` (`tests/mutation/source/gate.ts:36`) + `score` (`tests/mutation/source/ledger.ts:79`). The overlay is in-memory (`tests/mutation/source/overlay.ts`), so a scoped run does not dirty the tree.
@@ -42,6 +42,7 @@ Every id below is the spec's; this table is the map, and no task invents one.
 | **AC-9** | the scanner header's documented hole is rewritten to the closed contract | Task 5 step 1 |
 | **AC-10** | before/after cost recorded; the memo fallback lands with its own measurement if the budget is exceeded | Task 0 (before) + Task 5 step 2 (after) |
 | **AC-11** | the ledger entry graduates with its marker stripped inside the archiving move; corpus rows committed | Task 5 steps 3-4 |
+| **AC-12** | a binding declared on the same line as a covered constant does not inherit its coverage | Task 1, the same-line-neighbour case |
 
 **Line anchors in the `red-target=` markers are pre-#827 locators** (`scripts/scan-interaction-timings.ts` as tracked on this branch's base: `coveredNames` at 445, the `resolved` filter at 449). Task 0's merge moves them; re-verify by SYMBOL, not by line, and update the two markers in the same commit as the merge.
 
@@ -53,7 +54,7 @@ Declared delta for this arc: **the accepted set is RE-DERIVED, not edited.** `si
 
 ## Meta-test inventory (declared)
 
-- **CREATES:** ten synthetic-universe assertions in `tests/docs/interactionTimingScan.test.ts`, derived from the Task 1 and Task 2 tables rather than counted by hand — **five FIRES** (an assertion that fails before the repair: module-level shadow, inner-scope shadow, parameter shadow, aliased import, and Task 2's property-value shadow) and **five STAYS-QUIET** (passes before and after: the unshadowed peer in the shadowing file, a legit same-file constant, a direct import, a barrel re-export, and Task 2's live-shaped `ttlMs` pass-through). The aliased import is a FIRES case rather than a quiet one because it reports `unclassified` under today's name filter and resolves after — the one place this arc removes a residual instead of adding one. One structural test pins the resolver's alias assumption against `tsconfig.json`.
+- **CREATES:** eleven synthetic-universe assertions in `tests/docs/interactionTimingScan.test.ts`, derived from the Task 1 and Task 2 tables rather than counted by hand — **six FIRES** (an assertion that fails before the repair, or against a line-keyed repair: module-level shadow, inner-scope shadow, parameter shadow, aliased import, the same-line neighbour, and Task 2's property-value shadow) and **five STAYS-QUIET** (passes before and after: the unshadowed peer in the shadowing file, a legit same-file constant, a direct import, a barrel re-export, and Task 2's live-shaped `ttlMs` pass-through). The aliased import is a FIRES case rather than a quiet one because it reports `unclassified` under today's name filter and resolves after — the one place this arc removes a residual instead of adding one. One structural test pins the resolver's alias assumption against `tsconfig.json`.
 - **EXTENDS:** `scripts/scan-interaction-timings.ts` (`TimingSite.refPos`, the resolver, `scanRepo`'s resolution step, the header paragraph documenting the hole); `tests/mutation/source/registry.ts` (`interactionTimingScan` accepted set, re-derived).
 - **NOT touched:** `DESIGN.md` (AC-6), `UNCLASSIFIED_DISPOSITIONS`, `EXPLICIT_INCLUDES`, `inventoryRows`, `scripts/scan-interaction-timings.cli.ts`. No invariant-9 registry (no Supabase call site), no invariant-10 mutation surface (tooling and test code only).
 
@@ -61,7 +62,7 @@ Declared delta for this arc: **the accepted set is RE-DERIVED, not edited.** `si
 
 ### Task 1 — a shadowed timer delay reports instead of vanishing
 
-<!-- task: red=`pnpm exec vitest run tests/docs/interactionTimingScan.test.ts` red-state=authored red-target=`scripts/scan-interaction-timings.ts:449` why=`each new fires case asserts that a shadowed delay appears in the scan result unclassified list; the name filter deletes it before the caller sees it, so the case fails until resolution is keyed on the declaration` ac=AC-1,AC-2,AC-3,AC-5 -->
+<!-- task: red=`pnpm exec vitest run tests/docs/interactionTimingScan.test.ts` red-state=authored red-target=`scripts/scan-interaction-timings.ts:449` why=`each new fires case asserts that a shadowed delay appears in the scan result unclassified list; the name filter deletes it before the caller sees it, so the case fails until resolution is keyed on the declaration` ac=AC-1,AC-2,AC-3,AC-5,AC-12 -->
 
 **What is red and why:** four new synthetic-universe cases assert sites that the global name filter currently removes. The production line whose behavior makes them fail is the `resolved` filter inside `scanRepo`; nothing test-local decides it.
 
@@ -76,6 +77,7 @@ Declared delta for this arc: **the accepted set is RE-DERIVED, not edited.** `si
 | direct import | covered constant imported and used | no residual | quiet |
 | aliased import | `import { OTHER_DELAY_MS as localAliasMs }` used as the delay | no residual — TODAY this reports `unclassified`, so this row is also a fires-to-quiet change | fires |
 | barrel re-export | covered constant imported through a re-exporting file | no residual | quiet |
+| same-line neighbour | `const CLOSE_DELAY_MS = 220, other = readConfig();` with `setTimeout(fn, other)` | `other` appears in `unclassified` | fires against a line-keyed repair (probe P10); quiet today |
 
 **House convention this file already keeps:** the fixture-tree suite builds each universe with its local `tree({...})` helper and `rmSync`s it in a `finally`, and every case NAMES THE MUTANT IT KILLS in a comment. Each new case does both — the mutant a shadow case kills is the resolution step reverting to name equality.
 
@@ -85,10 +87,10 @@ Declared delta for this arc: **the accepted set is RE-DERIVED, not edited.** `si
 
 **GREEN — implementation, delay path only:**
 
-1. `TimingSite` gains `readonly refPos?: number` — the absolute start of the reference identifier, recorded only where the delay argument IS a bare identifier.
+1. `TimingSite` gains two absolute offsets: `readonly refPos?: number`, the reference identifier's start, recorded where the delay argument IS a bare identifier; and `readonly declPos?: number`, the declaration name node's start, recorded on every `named-constant` site. The covered set is keyed `${file}:${declPos}` — NOT by line, which aliases two bindings declared on one line and would suppress a real site (spec §2.1, probe P10).
 2. The delay branch's `ts.isIdentifier(delay) && TIMING_NAME.test(delay.text)` gate collapses into the generic identifier path: any bare-identifier delay records `name = delay.text` and `refPos`. Live effect zero (spec §2.3, probe P7).
 3. A new module-local `createBindingResolver(repoRoot, files)` builds one `ts.Program` with the spec §2.2 `RESOLVER_OPTIONS` and returns `(file, pos) => declarationKey | null`, where `declarationKey` is `${file}:${line}` of the resolved symbol's declaration name, alias-followed with a guarded `getAliasedSymbol`.
-4. `scanRepo` builds the covered DECLARATION-KEY set from its own `named-constant` sites and suppresses a delay site only when some declaration of the resolved symbol is in that set.
+4. `scanRepo` builds the covered DECLARATION-KEY set from its own `named-constant` sites' `declPos` and suppresses a delay site only when some declaration of the resolved symbol is in that set.
 
 **Two strict-tsconfig traps this repo's flags create, called out so they are not discovered at paste time:** `exactOptionalPropertyTypes: true` means an optional `refPos?: number` may not be assigned an explicit `undefined` — build the site object WITHOUT the key on the paths that have no reference, rather than with `refPos: undefined`. `noUncheckedIndexedAccess: true` means `symbol.declarations[0]` is `Declaration | undefined`; the resolution rule reads the declarations with `.some(...)` and never indexes.
 

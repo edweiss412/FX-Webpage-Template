@@ -1196,3 +1196,95 @@ $ rg -n '^\s*let\s+[A-Za-z_]*([Mm]s|MS|[Dd]elay|[Dd]uration|[Tt]imeout|[Ss]econd
 
 - A `let` binding whose initializer is a numeric literal is a `named-constant` valued at that literal, and a later reassignment is not tracked; a delay referencing it resolves to that binding and is suppressed. The resolution is CORRECT (it is that binding); the VALUE §5.5 would carry is the initializer.
 - Live instances of the shape on this tree: **zero** (the `rg` above). So the arc ships with no live row affected, and the limit is recorded in the spec §4 plus a ledger row rather than fixed here — valuation is a different axis from resolution, and widening this arc into it is exactly the ratchet the round-economy rules forbid.
+## P10 — a line-keyed declaration set ALIASES two bindings declared on one line
+
+Run against the spec draft itself, hostile posture: the draft keyed the covered-declaration set by file plus LINE, and a key that can alias is not an identity. This probe is the counter-example, and it changed the design — §2.2 now keys on the declaration name node's START OFFSET.
+
+### Script — `probe/p10-same-line-key.ts`
+
+```ts
+/** P10 — does a `${file}:${line}` declaration key ALIAS two bindings declared on
+ *  one line? If so, a reference to the non-timing one resolves to a key the
+ *  covered set holds, and the site is suppressed — a binding resolving to a
+ *  DIFFERENT binding's row, which is the exact class the arc exists to close. */
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import ts from "typescript";
+
+import {
+  scanTimingSites,
+  universeFiles,
+  type TimingSite,
+} from "/Users/ericweiss/FX-worktrees/timing-scan-scope-resolution/probe-scanner-landed";
+
+const root = mkdtempSync(join(tmpdir(), "p10-"));
+mkdirSync(join(root, "components", "x"), { recursive: true });
+writeFileSync(
+  join(root, "components/x/SameLine.tsx"),
+  `declare function readConfig(): number;\n` +
+    `const CLOSE_DELAY_MS = 220, other = readConfig();\n` +
+    `export function A(fn: () => void) { setTimeout(fn, other); }\n`,
+  "utf8",
+);
+
+const files = universeFiles(root).filter((f) => existsSync(join(root, f)));
+const raw: TimingSite[] = [];
+for (const f of files) raw.push(...scanTimingSites(readFileSync(join(root, f), "utf8"), f));
+const lineKeys = new Set(
+  raw.filter((s) => s.kind === "named-constant").map((s) => `${s.file}:${s.line}`),
+);
+console.log("named-constant line keys:", [...lineKeys]);
+
+const program = ts.createProgram(
+  files.map((f) => join(root, f)),
+  {
+    noEmit: true, noResolve: true, noLib: true, types: [], allowJs: false,
+    target: ts.ScriptTarget.Latest, jsx: ts.JsxEmit.Preserve,
+    module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+    baseUrl: root, paths: { "@/*": ["./*"] },
+  },
+);
+const checker = program.getTypeChecker();
+for (const f of files) {
+  const sf = program.getSourceFile(join(root, f));
+  if (!sf) continue;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "setTimeout"
+    ) {
+      const d = node.arguments[1];
+      if (d && ts.isIdentifier(d)) {
+        const sym = checker.getSymbolAtLocation(d);
+        for (const decl of sym?.declarations ?? []) {
+          const dsf = decl.getSourceFile();
+          const nameNode = ts.isVariableDeclaration(decl) && decl.name ? decl.name : decl;
+          const line = dsf.getLineAndCharacterOfPosition(nameNode.getStart(dsf)).line + 1;
+          const key = `${relative(root, dsf.fileName)}:${line}`;
+          console.log(
+            `delay ${d.text} → decl ${key} (start offset ${nameNode.getStart(dsf)}) ; line key in covered set: ${lineKeys.has(key)}`,
+          );
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+}
+```
+
+### Transcript
+
+```
+named-constant line keys: [ 'components/x/SameLine.tsx:2' ]
+delay other → decl components/x/SameLine.tsx:2 (start offset 67) ; line key in covered set: true
+```
+
+### What it settles
+
+- `const CLOSE_DELAY_MS = 220, other = readConfig();` puts two bindings on one line. `other` is not a timing name and produces no site of its own, but its declaration shares the covered constant's LINE.
+- Under a line-keyed rule, `setTimeout(fn, other)` resolves to that line, the key is in the covered set, and the site is SUPPRESSED — one binding wearing another binding's coverage, which is the exact class this arc exists to close, reintroduced by the repair.
+- Under today's name filter that same site is correctly reported, so the line-keyed draft would have been a REGRESSION rather than merely a weaker fix.
+- The start offsets differ (the covered name at 6, `other` at 67), so keying on the declaration name node's start offset is the identity the rule needs, at the same cost and with no ambiguity.

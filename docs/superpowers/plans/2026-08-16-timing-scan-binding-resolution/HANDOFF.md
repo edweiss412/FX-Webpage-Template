@@ -19,7 +19,7 @@ You are the Opus implementer session for `fix/timing-scan-scope-resolution`. Thi
 ## What is already done (do not redo)
 
 - Spec + plan authored and adversarially reviewed to APPROVE, committed on this branch.
-- **Seven probes** recorded with full scripts and transcripts (plus the resolution-shape probe folded into the spec's §2.2 evidence). Load-bearing results: 311 universe files; 24 `named-constant` sites over 23 names; 35 sites suppressed by the name filter (18 same-file, 17 cross-file imports); the pinned `noResolve`+`noLib` program at 254-502 ms cold, 160-220 ms warm; **zero delta** against the name filter across 367 identifier references. Do not re-derive; re-verify only where a task says to.
+- **Ten probes** recorded with full scripts and transcripts, including the two that changed the design: P10 (a line is not a declaration identity) and P9 (valuation is a different axis, filed as its own ledger row). Load-bearing results: 311 universe files; 24 `named-constant` sites over 23 names; 35 sites suppressed by the name filter (18 same-file, 17 cross-file imports); the pinned `noResolve`+`noLib` program at 254-502 ms cold, 160-220 ms warm; **zero delta** against the name filter across 367 identifier references. Do not re-derive; re-verify only where a task says to.
 - **Scope fences you must NOT cross:** no new recognized form, key predicate, universe root, or fence (spec §1.1 item 2); no `TIMING_NAME` / `isBoundaryTimingKey` change; no expression EVALUATION (only reference resolution); NO `DESIGN.md` edit of any kind — §5.5 stays byte-identical, and editing it flips the invariant-8 UI gate.
 
 ## Codex is unavailable
