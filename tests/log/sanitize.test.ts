@@ -48,4 +48,13 @@ describe("sanitizeContext", () => {
     expect(context.a).toEqual({ v: 1 });
     expect(context.b).toEqual({ v: 1 });
   });
+  test("object KEYS are email-redacted like values (spec R1 F1)", () => {
+    const { context } = sanitizeContext("", { error: { "alice@example.com": "failed" } });
+    expect(JSON.stringify(context)).toBe('{"error":{"[email-redacted]":"failed"}}');
+  });
+  test("an own __proto__ key survives sanitization (spec R3 F3)", () => {
+    const hostile: unknown = JSON.parse('{"__proto__":{"message":"kept"}}');
+    const { context } = sanitizeContext("", { error: hostile as Record<string, unknown> });
+    expect(JSON.stringify(context)).toBe('{"error":{"__proto__":{"message":"kept"}}}');
+  });
 });

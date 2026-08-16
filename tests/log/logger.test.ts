@@ -60,6 +60,16 @@ describe("logger", () => {
     expect(err.details).toBe("Key (email)=([email-redacted]) exists");
   });
 
+  test("email-bearing KEY inside a structural error is redacted through the logger (AC-7)", async () => {
+    const calls = capture();
+    await log.error("keyed failure", {
+      source: "s",
+      error: { "alice@example.com": "failed" },
+    });
+    const err = calls[0]!.record.context.error as Record<string, unknown>;
+    expect(err).toEqual({ "[email-redacted]": "failed" });
+  });
+
   test("threshold: error/warn always persist; debug never; info only with code/persist", async () => {
     const calls = capture();
     await log.error("a", { source: "s" });
