@@ -178,12 +178,39 @@ signal.
 the border-shaped choice. The `-faint`/`-subtle` text pair is the sanctioned
 hairline ramp.
 
-**The rule extends to CONTROL OUTLINES (2026-08-14).** An outline drawn around
-a control whose fill is the near-ground (`bg-bg` on a `bg-surface` card, or on
-the `bg-surface-sunken` attention plate) is a standalone stroke by the same
-argument: the fill it encloses carries no visual weight of its own, so the
-stroke IS the control's boundary. Worked example — the one secondary action
-treatment (`lib/ui/actionClass.ts`, `SECONDARY_ACTION_CLASS`, 8 call sites):
+**The rule extends to CONTROL OUTLINES (2026-08-14; predicate widened
+2026-08-16).** An outline drawn around a control whose **fill carries no visual
+weight against what it stands on** is a standalone stroke by the same argument:
+the fill it encloses carries no visual weight of its own, so the stroke IS the
+control's boundary and takes the text ramp. In practice that is any control
+filled with one of the four neutral ground tokens (`--color-bg`,
+`--color-surface`, `--color-surface-sunken`, `--color-surface-raised`) or left
+unfilled. Every neutral fill/container pairing in the app measures **≤1.13:1**
+(measured 2026-08-16; the full table is in
+`docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §3),
+so in all of them the fill is invisible against its container and the stroke is
+the only boundary there is.
+
+**Two families are OUT, and they are out by decision rather than by omission.**
+A control with a **weight-bearing fill** — the accent-filled primary action — is
+not a standalone stroke and keeps its own treatment. The **switch tracks** (five
+render paths) keep their existing recipe in both states (`border-accent-edge
+bg-accent` ON, `border-border-strong bg-surface-sunken` OFF): the toggle's
+ON/OFF boundary is a deliberately tuned relationship, and lifting only the OFF
+ring would make the OFF state read heavier while the ON state stood still. The
+OFF ring's **1.43:1** light / **1.75:1** dark against its own track fill is a
+documented limit of that decision, recorded here so it cannot drift into looking
+like an oversight (ruled 2026-08-16). The ON boundary — `accent-edge` vs
+`accent`, 3.61:1 light — is the load-bearing SC 1.4.11 pair and is untouched.
+The five paths are `components/admin/PublishedToggle.tsx:305`,
+`components/admin/settings/AutoPublishToggle.tsx:136`,
+`components/admin/settings/NotifyToggle.tsx:144`,
+`components/admin/telemetry/AutoRefreshControl.tsx:106` and
+`components/admin/settings/DeveloperToggleButton.tsx:97`; the last two paint the
+track on a nested `<span>`, which is why an element-level census reported three.
+
+Worked example — the one secondary action treatment (`lib/ui/actionClass.ts`,
+`SECONDARY_ACTION_CLASS`, 8 call sites):
 
 | Boundary | Token | Light vs `--color-surface` | Dark vs `--color-surface` |
 | --- | --- | --- | --- |
@@ -233,9 +260,14 @@ edges, hover borders, focus-adjacent chrome, and the status-emphasis outline on
 non-interactive chrome (the flagged pill, the judgment chip). A card is not a
 control, and its edge is read against the fill beside it rather than as a
 standalone stroke. Controls whose fill is a SURFACE rather than the page ground
-are the open question — 23 of them still carry the border token, tracked as
-`BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with the predicate decision
-that has to come first.
+WERE the open question. **That question is closed: ruled 2026-08-16**, and the
+predicate above is the ruling — fill-equals-container, not page-ground-only.
+Twenty-one button and link controls standing on card and panel fills moved to
+`--color-text-faint` on that date; the switch tracks were ruled OUT and their
+OFF ring is the documented limit above.
+`BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` is archived, and the
+outlines the element-level census cannot see — text-entry fields, and outlines
+painted on a nested child — are filed separately with their probe transcripts.
 
 Six such controls DID move on 2026-08-14, for one reason applied at three
 distances: leaving a control at the old outline while a control it renders WITH
