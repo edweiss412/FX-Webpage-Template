@@ -32,7 +32,10 @@ spec's §2.1 tables, and land the within-file id-uniqueness lane in
 
 All probes ran at spec time; scripts + raw output are committed at
 `docs/superpowers/plans/2026-08-15-archive-duplicate-ids/` (`dup-census-2026-08-15.txt`
-and the four scripts beside it). Facts this plan RELIES on, so no task re-derives them:
+and the probe scripts — `scripts/ledger-dup-census.mts` for the walker census (it
+imports the tests/ walker, and only `tests/` and `scripts/` may — the
+sheetIconLinkContainment tests-import boundary), the rest beside the transcript).
+Facts this plan RELIES on, so no task re-derives them:
 
 - 43 duplicate-id pairs in the guard's honest domain: 37 in `BACKLOG-archive.md`
   (35 at the family's levels [2,3] plus the two `###`/`####` pairs the all-depth scan

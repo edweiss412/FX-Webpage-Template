@@ -267,3 +267,10 @@ FAIL: 86 survivor-verification failures
 # (text-keyed rows are drift-proof by design). NOT_A_CITATION rows added for the BL-X
 # plant examples in the spec and plan (referential-integrity guard, full docs suite now
 # green: 22 files / 515 tests).
+
+## Note (2026-08-15, post-PR): the two walker-importing census scripts named in the pass
+# headers above (dup-census.mts, dup-census-widened.mts) were RELOCATED to one flag-switched
+# script, scripts/ledger-dup-census.mts (family mode / --all-depth), because the
+# sheetIconLinkContainment tests-import boundary allows only tests/ and scripts/ to import
+# from tests/ (CI caught the violation on PR #805). Both modes re-verified: family 35+2,
+# all-depth 37+7 dup ids — identical to the recorded passes.

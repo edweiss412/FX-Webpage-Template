@@ -11,7 +11,7 @@ heading-grammar normalization.
 
 **Probe (2026-08-15, branch base `fafa354ac`, transcript committed at
 `docs/superpowers/plans/2026-08-15-archive-duplicate-ids/dup-census-2026-08-15.txt`).**
-Three passes, all committed with the script beside the transcript:
+Three passes, all committed (the walker census script lives at `scripts/ledger-dup-census.mts` — the tests-import boundary allows only `tests/` and `scripts/` to import the walker; the other probe scripts sit beside the transcript):
 
 1. The entry's own pipeline (`grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md |
    sed -E 's/^#+ //' | sort | uniq -d | wc -l`) → **35**, matching the filing.
