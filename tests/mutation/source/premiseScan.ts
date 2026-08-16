@@ -73,13 +73,17 @@ function registrarRoot(callee: ts.Expression): string | null {
  * flipped when the two references swapped places (whole-diff R1 #1). Dedup
  * happens downstream, keyed by the BINDING a reference resolves to.
  */
+const referenceCache = new WeakMap<ts.Node, ts.Identifier[]>();
 function referencedIdentifiers(node: ts.Node): ts.Identifier[] {
+  const memo = referenceCache.get(node);
+  if (memo !== undefined) return memo;
   const out: ts.Identifier[] = [];
   const walk = (n: ts.Node): void => {
     if (ts.isIdentifier(n) && isReferenceIdentifier(n)) out.push(n);
     ts.forEachChild(n, walk);
   };
   walk(node);
+  referenceCache.set(node, out);
   return out;
 }
 
@@ -160,24 +164,45 @@ function isScopeNode(node: ts.Node): boolean {
   );
 }
 
+// Both walks are pure over the AST and both run once per identifier REFERENCE
+// now that resolution is per-occurrence, which is where the cost went: measured
+// over the 29 enrolled suites, an unmemoized scope walk turned a 1.3 s corpus
+// pass into 5.5 s and timed the contract's 30 s budget out on CI.
+const scopeCache = new WeakMap<ts.Node, Scope | null>();
+const functionScopeCache = new WeakMap<ts.Node, Scope | null>();
+
 /** The nearest enclosing scope of `node` — where a block-scoped binding declared at `node` lives. */
 function scopeOf(node: ts.Node): Scope | null {
+  const memo = scopeCache.get(node);
+  if (memo !== undefined) return memo;
   let p: ts.Node | undefined = node.parent;
+  let found: Scope | null = null;
   while (p) {
-    if (isScopeNode(p)) return p;
+    if (isScopeNode(p)) {
+      found = p;
+      break;
+    }
     p = p.parent;
   }
-  return null;
+  scopeCache.set(node, found);
+  return found;
 }
 
 /** The nearest enclosing FUNCTION scope — where `var` and hoisted names live. */
 function functionScopeOf(node: ts.Node): Scope | null {
+  const memo = functionScopeCache.get(node);
+  if (memo !== undefined) return memo;
   let p: ts.Node | undefined = node.parent;
+  let found: Scope | null = null;
   while (p) {
-    if (ts.isSourceFile(p) || isFunctionLike(p)) return p;
+    if (ts.isSourceFile(p) || isFunctionLike(p)) {
+      found = p;
+      break;
+    }
     p = p.parent;
   }
-  return null;
+  functionScopeCache.set(node, found);
+  return found;
 }
 
 function isFunctionLike(node: ts.Node): boolean {
@@ -240,6 +265,10 @@ type ModuleFacts = {
    * it would resurrect the collision this design exists to prevent.
    */
   shadows: Map<Scope, Set<string>>;
+  /** Memo for `resolveBinding`, keyed (scope, name) — see there for why that is the identity. */
+  resolved: Map<Scope, Map<string, Binding>>;
+  /** Memo for `extentIsProvenance`, per node of THIS file. */
+  provenance: WeakMap<ts.Node, boolean>;
 };
 
 /**
@@ -258,7 +287,20 @@ type Binding =
   | { kind: "unbound" };
 
 function resolveBinding(facts: ModuleFacts, name: string, from: ts.Node): Binding {
-  let scope: Scope | null = scopeOf(from) ?? facts.sf;
+  // Resolution depends on the reference's SCOPE and the name, never on the
+  // reference itself, so one answer per (scope, name) serves every occurrence.
+  const start: Scope = scopeOf(from) ?? facts.sf;
+  const byName = facts.resolved.get(start);
+  const memo = byName?.get(name);
+  if (memo !== undefined) return memo;
+  const answer = resolveUncached(facts, name, start);
+  if (byName === undefined) facts.resolved.set(start, new Map([[name, answer]]));
+  else byName.set(name, answer);
+  return answer;
+}
+
+function resolveUncached(facts: ModuleFacts, name: string, start: Scope): Binding {
+  let scope: Scope | null = start;
   while (scope) {
     const here = facts.extents.get(scope)?.get(name);
     if (here && here.length > 0) return { kind: "local", scope, extent: here };
@@ -458,7 +500,14 @@ function moduleFacts(path: string): ModuleFacts | null {
     extents.set(scope, byName);
   }
 
-  return { sf, imports, extents, shadows };
+  return {
+    sf,
+    imports,
+    extents,
+    shadows,
+    resolved: new Map<Scope, Map<string, Binding>>(),
+    provenance: new WeakMap<ts.Node, boolean>(),
+  };
 }
 
 /** Strip parentheses and `as` casts, which otherwise hide the real callee. */
@@ -486,6 +535,8 @@ function resolveSpecifier(root: string, fromFile: string, spec: string): string 
 
 /** True when this node's own text reaches `process.env` or a provenance local. */
 function extentIsProvenance(node: ts.Node, facts: ModuleFacts): boolean {
+  const memo = facts.provenance.get(node);
+  if (memo !== undefined) return memo;
   let hit = false;
   const walk = (n: ts.Node): void => {
     if (hit) return;
@@ -512,6 +563,7 @@ function extentIsProvenance(node: ts.Node, facts: ModuleFacts): boolean {
     ts.forEachChild(n, walk);
   };
   walk(node);
+  facts.provenance.set(node, hit);
   return hit;
 }
 
