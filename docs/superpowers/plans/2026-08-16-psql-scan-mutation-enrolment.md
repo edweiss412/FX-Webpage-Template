@@ -288,11 +288,11 @@ In `tests/mutation/guardSurfaces.gate.test.ts`, the `EXPECTED_LEDGER_KINDS` row'
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerInProgress.test.ts:1` why=`the archive categorically rejects in-flight entries: moving the entry to BACKLOG-archive.md WITH its IN PROGRESS marker still on (Step 1) reds this suite; stripping the marker in the same edit session (Step 2) greens the same command - the observed cycle proves the marker actually came off` ac=AC-6 -->
 
-- [ ] **Step 1: Move the entry and observe the red** — relocate `BL-PSQL-SCAN-MUTATION-ENROLMENT` from `BACKLOG.md` to `BACKLOG-archive.md` wholesale (marker still on), appending the terminal state: achieved score, kill/equivalent/accepted-gap counts, the enrolled floor, and corrections to the entry's own starters (528:47 was a coverage gap with the original CORRECT — spec review R2 probe — not a source defect; the 1754-family resolution). Run the marker's command: RED (archive holds an in-flight entry).
-- [ ] **Step 2: Strip the `IN PROGRESS · Branch:` marker from the archived entry; add the reconciliation-log segment** at the top of `BACKLOG.md` per the file's convention. Marker command now GREEN. (Invariant 12: this graduation commit is the PR's LAST commit, so the marker never reaches main.)
-- [ ] **Step 3: Review-round economy check** — count this arc's counted rounds per stage in `docs/review-rounds/test/psql-scan-mutation-enrolment/`; at 4+ counted rounds on any stage a filing markdown is owed (spec stage closed at 3 rounds; plan and diff stages count their own). `pnpm vitest run tests/docs/` green.
-- [ ] **Step 4: spec:lint the spec + this plan**, both clean of hard findings.
-- [ ] **Step 5: Commit** `docs(backlog): graduate BL-PSQL-SCAN-MUTATION-ENROLMENT - scanner enrolled at <floor>, <k>/31 survivors killed`.
+- [x] **Step 1: Move the entry and observe the red** — relocate `BL-PSQL-SCAN-MUTATION-ENROLMENT` from `BACKLOG.md` to `BACKLOG-archive.md` wholesale (marker still on), appending the terminal state: achieved score, kill/equivalent/accepted-gap counts, the enrolled floor, and corrections to the entry's own starters (528:47 was a coverage gap with the original CORRECT — spec review R2 probe — not a source defect; the 1754-family resolution). Run the marker's command: RED (archive holds an in-flight entry).
+- [x] **Step 2: Strip the `IN PROGRESS · Branch:` marker from the archived entry; add the reconciliation-log segment** at the top of `BACKLOG.md` per the file's convention. Marker command now GREEN. (Invariant 12: this graduation commit is the PR's LAST commit, so the marker never reaches main.)
+- [x] **Step 3: Review-round economy check** — count this arc's counted rounds per stage in `docs/review-rounds/test/psql-scan-mutation-enrolment/`; at 4+ counted rounds on any stage a filing markdown is owed (spec stage closed at 3 rounds; plan and diff stages count their own). `pnpm vitest run tests/docs/` green.
+- [x] **Step 4: spec:lint the spec + this plan**, both clean of hard findings.
+- [x] **Step 5: Commit** `docs(backlog): graduate BL-PSQL-SCAN-MUTATION-ENROLMENT - scanner enrolled at <floor>, <k>/31 survivors killed`.
 
 <!-- tasks: end -->
 
