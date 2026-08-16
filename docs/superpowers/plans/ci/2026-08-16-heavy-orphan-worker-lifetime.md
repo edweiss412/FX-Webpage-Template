@@ -639,9 +639,11 @@ describe("collect: AC-7, all three spellings of C1", () => {
 
 describe("collect: AC-10 live smoke against an INDEPENDENT ps read", () => {
   it("agrees with a direct ps -o read for a process the test spawned", async () => {
-    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 8000)"]);
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 20000)"]);
     try {
-      await new Promise((r) => setTimeout(r, 1200));
+      // Old enough to DISCRIMINATE: at ~1 s the gap between a correct 1 and a wrong 0 sits inside
+      // any tolerance, so a collector that zeroed every sub-day age would agree with the check.
+      await new Promise((r) => setTimeout(r, 4200));
       const result = collect();
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -657,9 +659,14 @@ describe("collect: AC-10 live smoke against an INDEPENDENT ps read", () => {
 
       expect(found).toMatchObject({ kind: "parsed", ppid: Number(directPpid) });
       const collected = found?.kind === "parsed" ? (found.etimeSeconds ?? -1) : -1;
-      const independent = parseEtime(directEtime ?? "") ?? -1;
-      expect(collected).toBeGreaterThanOrEqual(0);
-      expect(Math.abs(collected - independent)).toBeLessThanOrEqual(3);
+      // Parsed HERE, not by the production parser. Converting the "independent" observation with
+      // `parseEtime` compares the collector against itself, and a collector that zeroed every
+      // sub-day age would agree with it.
+      const mmss = /^(\d+):(\d+)$/.exec(directEtime ?? "");
+      premiseHolds("the child's age is in the MM:SS form this assertion parses", mmss !== null);
+      const independent = Number(mmss?.[1] ?? 0) * 60 + Number(mmss?.[2] ?? 0);
+      premiseHolds("the child is old enough that a zeroing collector is distinguishable", independent >= 3);
+      expect(Math.abs(collected - independent)).toBeLessThanOrEqual(1);
     } finally {
       child.kill("SIGKILL");
     }
