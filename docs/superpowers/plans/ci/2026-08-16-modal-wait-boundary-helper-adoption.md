@@ -628,8 +628,9 @@ An earlier revision of this document recorded that outage as the surface's termi
 so plainly: "the repairs to surface A are not cross-model reviewed … weaker than a cross-model
 APPROVE and should be read that way." **That is no longer the case, and the honest correction is
 recorded here rather than by silently deleting the admission.** Dispatch resumed once credits
-allowed, and the surface ran rounds 4 through 10 to an APPROVE. Every finding in that span was
-correct and was repaired against the reviewer's own probe; nothing was refuted.
+allowed, and the surface ran rounds 4 through 11 to an APPROVE. Every finding in that span was
+correct; each was either repaired against the reviewer's own probe or explicitly fenced as a
+documented limit with its cost stated. Nothing was refuted.
 
 The rounds after the outage, in one line each:
 
