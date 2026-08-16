@@ -75,6 +75,18 @@ Two effects separate sites from edits, pulling opposite ways: `published-review-
 
 `phantom-gap-e2e.yml` runs `admin-layout-dimensions.spec.ts` in THREE `-g`-filtered steps, not one; each needs its own `PLAYWRIGHT_JSON_OUTPUT_NAME` or they overwrite each other's report. Probed: no `if: always()` step exists in any of the five member workflows today.
 
+**Marker-command project sweep** (run 2026-08-16, after plan review R3/R4 both landed on this):
+every `red=` command in this plan was checked against `vitest.projects.ts` for project
+restriction, and each resolves under the DEFAULT projects — `openShowReviewModal.unit.test.ts`,
+`_metaModalWaitHelper.test.ts`, `_metaPremiseContract.test.ts`, `printInfraRecoveries.test.ts`,
+`_metaE2eWorkflowCoverage.test.ts`. The only mutation-project-only suite this plan touches is
+`tests/mutation/guardSurfaces.gate.test.ts` (`vitest.projects.ts:87`, `vitest.projects.ts:91`),
+and it appears in NO marker — it is verified by its own
+`VITEST_INCLUDE_MUTATION_HARNESS=1 … --project mutation` command in Task 8's body. Collection
+was confirmed by running two of them: the helper unit suite collects 3 tests and
+`tests/ci/appE2eAnnotationPrint.test.ts` collects 1, so the `tests/e2e/**` and `tests/ci/**`
+paths are both live under vitest.
+
 **Other verified facts.**
 
 - `collectInfraRecoveries` is ALREADY exported (`scripts/check-app-e2e-executed.mjs:75`); its print is inline at `scripts/check-app-e2e-executed.mjs:201-203`. Task 8 moves an existing export plus an inline loop into a shared module — it does not write a collector from nothing.
@@ -259,7 +271,7 @@ closure criterion while enumerating nothing.
 
 Run `pnpm heavy pnpm mutation:guards`; record the score and the unaccepted-survivor set (must be empty) in the commit message and the closeout, **before the first diff-review dispatch**.
 
-<!-- task: red=`pnpm vitest run tests/mutation/guardSurfaces.gate.test.ts tests/mutation/_metaPremiseContract.test.ts` red-state=authored red-target=`tests/mutation/guardSurfaces.gate.test.ts:150` why=`EXPECTED_LEDGER_KINDS at :150 and EXPECTED_ENV_TOUCHING assert exact key equality against GUARD_SURFACES; adding this task's registry row reds both until each declares its key, which is the observable red the opt-in registry suite could never provide` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/mutation/_metaPremiseContract.test.ts` red-state=authored red-target=`tests/mutation/_metaPremiseContract.test.ts:141` why=`EXPECTED_ENV_TOUCHING at :141 asserts exact key equality against the suites GUARD_SURFACES enrols, so adding this task's registry row reds it until the new suite declares its key; the ledger-kinds arm is mutation-project-only and is verified by its own command in the task body, never by this one` ac=AC-3 -->
 
 ### Task 9: Shared collector, thin printer, and the print-before-gate repair in BOTH oracles
 
