@@ -1,3 +1,28 @@
+## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3 — CLOSED 2026-08-16 (`feat/admin-ui-surfaces`, SHIPPED)
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
+
+Step 3 reviews a staged parse through its own section cards, not through the surface the crew will actually see. A C-style full preview would render `CrewShell` from the staged `parse_result`, which needs a `parse_result → ShowForViewer` adapter. Verified 2026-08-02: no such adapter exists.
+
+The adapter is the substance of the work, not the rendering — `getShowForViewer` builds its projection from persisted rows, and a staged parse is neither persisted nor viewer-scoped, so the adapter has to decide what a preview means for viewer name aliases, per-viewer visibility filters, and the admin-preview branch before any of it renders. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+---
+
+**Shipped 2026-08-16 (PR #812).** The entry's own read of the work was right: the adapter was the substance, not the rendering.
+
+`lib/data/stagedShowForViewer.ts` reproduces, for staged data, every viewer-dependent transform `readShowDataForViewer` applies between the raw rows and the projection, reusing the live helpers rather than hand-rolling variants (`normalizeDateRestriction`, `effectiveViewerDateRestriction`, `hotelVisibleToViewer`, `resolveTransportOwners`, `aggregateDays`, `financialsVisible`). The three questions this entry said the adapter had to settle before anything could render were settled as: viewer identity is a minted surrogate roster (`staged-crew-<index>`) the adapter resolves itself, so the projection's fail-closed `UnmatchedViewerError` is never reached; per-viewer visibility filters run exactly as the live projection runs them, including the hotel alias filter and the three-way run-of-show intersection; and the admin-preview branch is the viewer kind the route passes, so the budget gate follows the PREVIEWED member's flags.
+
+Two things the entry did not anticipate, both of which became the arc's real work:
+
+- **`asParseResult` validates CONTAINERS only** (`lib/db/coerceJsonbObject.ts:133`), so every nested field is untrusted on arrival. The adapter normalizes each family to the projection's runtime grain, and cross-model review round 1 then found the sharper half of that rule: a wrong-typed union DISCRIMINANT may never be defaulted to another VALID member (a corrupt `RoomKind` silently hid the General Session room). It drops its owning entry instead. The module header states the rule and its two ratified exceptions.
+- **A throw inside a descendant Server Component's render never passes through the page function's try/catch**, so the segment ships its own `error.tsx`. That is the structural guarantee that no malformed staged row can reach the generic admin error boundary, and it is proved by a real-server e2e arm because jsdom cannot exercise Next's segment routing at all.
+
+`CrewShell` gained a `staticPreview` posture suppressing all five emission surfaces (alert write, both `after()` registrations, the realtime bridge, the footer report affordance, every card report trigger); the prop is absent everywhere else, so both existing callers are byte-identical in behavior.
+
+Spec: `docs/superpowers/specs/step3-onboarding/2026-08-15-step3-crew-preview-and-opslog-disposition-design.md` (APPROVED R4). Plan: `docs/superpowers/plans/step3-onboarding/2026-08-15-step3-crew-preview.md` (APPROVED R6, closeout §12). Invariant-8 gate: `critique=RAN-DEGRADED audit=RAN p0=0 p1=2 dispositions=recorded`.
+
+**Deliberately NOT shipped, and still true as scope:** the preview is wizard-scoped (step-3 staged rows). Generalizing it to the admin show-review staged modal is a non-goal (spec §5); the same adapter would serve it.
+
 ## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader — CLOSED 2026-08-15 (`feat/admin-ui-surfaces`, RESOLVED — WON'T BUILD)
 
 **Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
