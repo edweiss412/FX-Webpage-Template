@@ -1,0 +1,75 @@
+name: mutation-browser
+# Browser-mutant gate (spec docs/superpowers/specs/ci/2026-08-15-mutation-browser-mode.md).
+#
+# Mutates PROGRAM TEXT of real components and runs a standalone-harness Playwright
+# spec — plus its companion vitest suite — once per mutant, serving each mutant from
+# memory through the esbuild/Vite overlay. Nineteen mutants on the first enrolled
+# surface at ~20-30 min wall-clock (spec §4, measured), so it runs OFF the merge path
+# like its vitest-mode sibling and is EXCLUDED from the default discovered suite; the
+# job opts back IN via VITEST_INCLUDE_MUTATION_HARNESS=1 through `pnpm mutation:browser`.
+#
+# NOT a required check: a survivor or a drifted anchor fails this run and is triaged,
+# it does not gate every PR.
+on:
+  schedule:
+    - cron: "17 8 * * *" # 08:17 UTC nightly, offset from mutation-harness.yml's 07:00 so the two never contend
+  workflow_dispatch: {}
+  # workflow_dispatch on a NEW workflow only works once the file is on the default
+  # branch, so it cannot validate the PR that introduces it. A path-filtered
+  # pull_request trigger runs the workflow AS IT EXISTS ON THE PR HEAD — real-Actions
+  # proof before merge — while staying out of branch-protection required checks.
+  #
+  # The filter watches every surface whose edit can change a verdict. The per-file
+  # component entries are the enrolled mutants' targets; they are an enumeration that
+  # would rot as the registry grows, so tests/cross-cutting/mutation-browser-ci-wiring.test.ts
+  # pins the DERIVED cover — every distinct `edits[].file` across BROWSER_SURFACES must
+  # appear below. Without these, an ordinary PR could move a mutant anchor or a scoring
+  # function and merge silently, surfacing only on a later nightly run.
+  pull_request:
+    paths:
+      - ".github/workflows/mutation-browser.yml"
+      # Class-level, following mutation-harness.yml's precedent: covers the browser
+      # mode AND the shared verdict machinery it imports (source/gate.ts,
+      # source/ledger.ts, source/overlay.ts, source/runner.ts).
+      - "tests/mutation/**"
+      - "tests/e2e/_tapTargetFloorBundle.mjs"
+      - "tests/e2e/tap-target-floor.layout.spec.ts"
+      - "tests/e2e/standalone.config.ts"
+      - "tests/components/admin/wizard/Step3Review.test.tsx"
+      - "vitest.projects.ts"
+      - "package.json"
+      # Mutant + control targets of the tapTargetFloor surface.
+      - "components/admin/OnboardingWizard.tsx"
+      - "components/admin/HelpTooltip.tsx"
+      - "components/admin/HelpSheet.tsx"
+      - "components/admin/HelpAffordance.tsx"
+      - "components/admin/nav/AdminNav.tsx"
+      - "components/admin/settings/AdministratorsSection.tsx"
+      - "components/admin/wizard/Step3Review.tsx"
+      - "components/messages/ErrorExplainer.tsx"
+      - "components/crew/primitives/RunOfShowList.tsx"
+      - "app/me/meShowSections.tsx"
+# PR-only cancel: re-pushing a PR cancels its superseded run, but scheduled nightly
+# runs never cancel each other.
+concurrency:
+  group: mutation-browser-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  mutation-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Runs UNTRUSTED code (pnpm install + real component bundles) on PR runs, so it
+    # holds read only — same least-privilege posture as the parser harness job.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      # Chromium ONLY: the enrolled surface runs in the standalone-chromium project,
+      # and the standalone-webkit-a11y project matches a different spec entirely.
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
+      # NO supabase/psql bootstrap: the standalone harness boots its own http server
+      # and the render is network-free.
+      - name: Run the browser-mutant gate (nightly, ~20-30 min)
+        run: pnpm mutation:browser
