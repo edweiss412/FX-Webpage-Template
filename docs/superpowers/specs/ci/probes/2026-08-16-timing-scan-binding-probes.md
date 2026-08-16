@@ -1452,3 +1452,80 @@ property plainMs: node.start=38 nameOfDeclaration=Identifier name.start=38
 - `ts.getNameOfDeclaration` returns the STRING LITERAL for form 2d, and its start equals the property node start here — but only because the property carries no modifier or decorator. `static "ttlMs" = 17000` moves the node start and leaves the name start where it is.
 - So `declPos` is recorded from the NAME node on every form, and the resolver reads `getNameOfDeclaration(decl) ?? decl`. Agreement by coincidence in a fixture is what this probe exists to refuse.
 - Class members are reached by member access, which this arc does not resolve (§4 item 4), so no live site depends on it today; the key still has to be right where it is defined.
+## P14 — the CompilerHost repair, end to end
+
+Round 1 found that `refPos` rested on an unstated text identity: the program re-read each file from disk while the offsets came from the scan. The repair serves the already-read pairs through a `ts.CompilerHost`. Probed here rather than assumed, because it has to keep TWO properties at once — alias resolution across files, and no filesystem access.
+
+### Script — `probe/p14-host.ts`
+
+```ts
+/** P14 — the repair says the resolver serves the already-read (path, text) pairs
+ *  through a CompilerHost so it never touches the filesystem. Does a program
+ *  built that way still resolve a cross-file `@/`-aliased import under
+ *  noResolve, and does it work when the file is NOT on disk at all? */
+import ts from "typescript";
+import { join } from "node:path";
+
+const ROOT = "/virtual/root";
+const sources = new Map<string, string>([
+  [join(ROOT, "lib/ui/copyFeedback.ts"), "export const COPY_FEEDBACK_RESET_MS = 1600;\n"],
+  [
+    join(ROOT, "components/Use.tsx"),
+    'import { COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";\nexport function A(fn: () => void) { setTimeout(fn, COPY_FEEDBACK_RESET_MS); }\n',
+  ],
+]);
+const options: ts.CompilerOptions = {
+  noEmit: true, noResolve: true, noLib: true, types: [], allowJs: false,
+  target: ts.ScriptTarget.Latest, jsx: ts.JsxEmit.Preserve,
+  module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+  baseUrl: ROOT, paths: { "@/*": ["./*"] },
+};
+const host: ts.CompilerHost = {
+  fileExists: (f) => sources.has(f),
+  readFile: (f) => sources.get(f),
+  getSourceFile: (f, langVersion) => {
+    const text = sources.get(f);
+    return text === undefined ? undefined : ts.createSourceFile(f, text, langVersion, true, f.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  },
+  getDefaultLibFileName: () => "lib.d.ts",
+  writeFile: () => undefined,
+  getCurrentDirectory: () => ROOT,
+  getCanonicalFileName: (f) => f,
+  useCaseSensitiveFileNames: () => true,
+  getNewLine: () => "\n",
+};
+const program = ts.createProgram([...sources.keys()], options, host);
+const checker = program.getTypeChecker();
+const sf = program.getSourceFile(join(ROOT, "components/Use.tsx"))!;
+const visit = (node: ts.Node): void => {
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "setTimeout") {
+    const d = node.arguments[1];
+    if (d && ts.isIdentifier(d)) {
+      let sym = checker.getSymbolAtLocation(d);
+      const alias = !!(sym && sym.flags & ts.SymbolFlags.Alias);
+      if (alias) { try { sym = checker.getAliasedSymbol(sym!); } catch {} }
+      const decls = sym?.declarations ?? [];
+      console.log(`alias=${alias} decls=${decls.length} → ${decls.map((x) => {
+        const s2 = x.getSourceFile();
+        const n = ts.getNameOfDeclaration(x) ?? x;
+        return `${s2.fileName}@${n.getStart(s2)}`;
+      }).join(", ") || "none"}`);
+    }
+  }
+  ts.forEachChild(node, visit);
+};
+visit(sf);
+console.log(`sourceFiles=${program.getSourceFiles().length} (filesystem never read: paths are virtual)`);
+```
+
+### Transcript
+
+```
+alias=true decls=1 → /virtual/root/lib/ui/copyFeedback.ts@13
+sourceFiles=2 (filesystem never read: paths are virtual)
+```
+
+### What it settles
+
+- A program built from a host over in-memory pairs still follows a `@/`-aliased cross-file import under `noResolve`, and lands on the declaration name node (offset 13).
+- Every path in this probe is virtual (`/virtual/root/...`) and nothing exists on disk, so the resolution demonstrably used the supplied text and never the filesystem. That is what guarantees `refPos` indexes the same bytes the sites were computed from, and what makes the unreadable-file case behave as it does today: a file the scan could not read is simply absent from the pairs.
