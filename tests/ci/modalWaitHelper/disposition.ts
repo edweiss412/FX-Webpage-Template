@@ -95,7 +95,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       kind: "exclusion",
       reason: "comment or JSDoc mention of the route; navigates nothing",
     },
-    expectedCount: 16,
+    expectedCount: 17,
     match: (c) => isProse(c.text),
   },
   {

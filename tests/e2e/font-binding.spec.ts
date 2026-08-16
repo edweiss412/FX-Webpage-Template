@@ -29,6 +29,7 @@ import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { signInAs } from "./helpers/signInAs";
+import { openShowReviewModal } from "./helpers/openShowReviewModal";
 
 /** The label `BL-HEADER-FONT-FALLBACK-WRAP` measured wrapping under a wide
  *  fallback. Reused here so the probe measures the product's own worst string,
@@ -460,16 +461,12 @@ test.describe("font binding — the measured row", () => {
     // at tests/e2e/section-header-layout.layout.spec.ts:72-76, not produced by
     // any viewport).
     await page.setViewportSize({ width: 320, height: 844 });
-    await page.goto(`/admin?show=${seeded.slug}`);
     // The Suspense SKELETON shares the shell testid and both frames transiently
     // coexist during the streaming swap, so wait on the LOADED frame (the
     // skeleton renders no title node) rather than a selector both match — the
     // established contract at tests/e2e/published-review-modal.interactions.spec.ts:53-60.
     // Waiting on the shared one is a strict-mode violation ~half the time.
-    const loadedModal = page.locator(
-      '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])',
-    );
-    await expect(loadedModal).toBeVisible({ timeout: 30_000 });
+    const loadedModal = await openShowReviewModal(page, seeded.slug, { timeoutMs: 30_000 });
     await expect(page.locator('[data-testid="published-show-review-modal"]')).toHaveCount(1);
     await page.evaluate(() => document.fonts.ready);
 
