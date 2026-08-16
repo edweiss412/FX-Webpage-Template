@@ -64,9 +64,23 @@ function passingTest(projectId: string): ReportTest {
   };
 }
 
+/**
+ * The two oracles' live REQUIRED tables, imported statically.
+ *
+ * NOT a dynamic `import(\`../../scripts/${script}\`)`: a fully-variable specifier
+ * defeats vite's import analysis and warns on every run. Static entries keep the
+ * anti-tautology property that matters — each fixture is still generated FROM the
+ * live table, so a row added there changes the fixture and never this file.
+ */
+const REQUIRED_BY_SCRIPT: Record<string, () => Promise<{ REQUIRED: Record<string, number> }>> = {
+  "check-app-e2e-executed.mjs": () => import("../../scripts/check-app-e2e-executed.mjs"),
+  "check-crew-e2e-executed.mjs": () => import("../../scripts/check-crew-e2e-executed.mjs"),
+};
+
 async function loadRequired(script: string): Promise<Record<string, number>> {
-  const mod = (await import(`../../scripts/${script}`)) as { REQUIRED: Record<string, number> };
-  return mod.REQUIRED;
+  const load = REQUIRED_BY_SCRIPT[script];
+  if (!load) throw new Error(`no REQUIRED loader registered for ${script}`);
+  return (await load()).REQUIRED;
 }
 
 /** A report satisfying every floor in `required`, nested one describe level deep. */

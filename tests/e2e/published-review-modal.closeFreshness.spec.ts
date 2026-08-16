@@ -25,7 +25,8 @@ import { awaitReviewModalOrRecover } from "./helpers/openShowReviewModal";
 
 const BASE = "published-show-review";
 const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
-const MODAL = `${MODAL_ANY}:has([data-testid="${BASE}-title"])`;
+// The LOADED-frame selector lives in tests/e2e/helpers/openShowReviewModal.ts, which
+// awaitLoadedModal now delegates to; MODAL_ANY survives for the absence checks below.
 const CLOSE = `[data-testid="${BASE}-close"]`;
 
 const RENAMED = "Renamed While The Modal Was Open";

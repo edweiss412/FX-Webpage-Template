@@ -19,10 +19,11 @@ import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/s
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { openShowReviewModal } from "./helpers/openShowReviewModal";
 
-const BASE = "published-show-review";
-const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
-// The LOADED-frame selector lives in tests/e2e/helpers/openShowReviewModal.ts,
-// which both opens here now route through; MODAL_ANY survives for the count below.
+// No modal selector is declared here any more: both opens route through
+// tests/e2e/helpers/openShowReviewModal.ts, which is now the single place the
+// LOADED-frame selector and its Suspense-skeleton-twin rationale live. Removing
+// MODAL orphaned MODAL_ANY, which orphaned BASE — the dead-constant class
+// cascades, so it is swept to a FIXED POINT rather than one instance per round.
 
 const SEED_TITLE = "Warning Panel Polish E2E Show";
 

@@ -69,7 +69,14 @@ const REFUSED_STEP_KEYS = ["shell", "working-directory"] as const;
  */
 function stepIfIsProvablyAlways(raw: unknown): boolean {
   if (raw === undefined) return true;
-  const text = String(raw).trim();
+  // SCALAR ONLY. `String(raw)` on a one-element sequence yields the element's own
+  // text, so `if: [always()]` and its block form stringified to exactly "always()"
+  // and were admitted — diff-review round 1 probed all four spellings (flow/block ×
+  // bare/wrapped) against the shipped function and every one passed. A sequence is
+  // not the scalar this exception was measured on, and GitHub's own semantics for
+  // one are not something this file models.
+  if (typeof raw !== "string") return false;
+  const text = raw.trim();
   const inner = /^\$\{\{(.*)\}\}$/.exec(text)?.[1] ?? text;
   return inner.trim() === "always()";
 }

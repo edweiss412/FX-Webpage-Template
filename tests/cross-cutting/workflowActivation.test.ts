@@ -67,6 +67,19 @@ describe("activatedRunScalars — the always() exception", () => {
     expect(runsOf(extra)).toEqual([]);
   });
 
+  test.each([
+    ["flow sequence, bare", "if: [always()]"],
+    ["flow sequence, wrapped", 'if: ["${{ always() }}"]'],
+    ["block sequence, bare", "if:\n  - always()"],
+    ["block sequence, wrapped", 'if:\n  - "${{ always() }}"'],
+  ])("a non-scalar if: is REFUSED even when it stringifies to always() (%s)", (_label, extra) => {
+    // Diff-review round 1 finding 1. `String(raw)` on a one-element sequence yields
+    // the element's own text, so all four of these spellings were admitted by the
+    // first version of the exception — one ordinary edit from the live
+    // `if: always()` in crew-e2e.yml, inside the probe domain and the fence.
+    expect(runsOf(extra)).toEqual([]);
+  });
+
   test("a JOB-level if: always() is still refused — the exception is step-level only", () => {
     // A job-level condition governs the whole job, and the guards that consume
     // this function reason about steps. Widening there was not measured, so it

@@ -798,16 +798,19 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       },
       {
         text: "test-results/lifecycle-layout-e2e-report.json",
-        // lifecycle-layout-e2e.yml is UNfiltered pull_request, so this derives real
-        // governance for the one spec its step names — the same shape as the
+        // The ONLY one of the seven that derives governance: lifecycle-layout-e2e.yml is
+        // UNfiltered pull_request and its step names one spec — the same shape as the
         // tap-target value above.
         governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
       },
       {
         text: "test-results/lifecycle-transitions-e2e-report.json",
-        // Same job, its own step and its own path. Both playwright invocations in that
-        // step's inline shell write here; they are alternatives (REPEATS=1 vs the
-        // measurement loop), never concurrent.
+        // Empty, and NOT for its trigger — that job is unfiltered too. Its step's run
+        // block is an if/fi shell construct, which `UNMODELLED_SHELL_RE` refuses
+        // outright, so the scanner attributes nothing to it. Both playwright
+        // invocations inside write here; they are alternatives (REPEATS=1 vs the
+        // measurement loop), never concurrent. (2026-08-16 diff review, finding 2:
+        // this row previously implied the empty/non-empty split was by trigger alone.)
         governs: [],
       },
       {
@@ -824,13 +827,18 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       },
     ],
     reason:
-      "Destination for a Playwright run's own json report, which that job's post-run " +
-      "executed-count oracle (scripts/check-crew-e2e-executed.mjs, " +
+      "Destination for a Playwright run's own json report. Inert with respect to what runs: it " +
+      "names a Playwright OUTPUT path only — it cannot select, skip or redirect a test. " +
+      "TWO CONSUMER CLASSES, with DIFFERENT failure behavior, and the distinction is recorded " +
+      "because an earlier version of this text claimed the first for all of them (2026-08-16 " +
+      "diff review, finding 2). (1) ORACLE-CONSUMED — the four original paths, read by a " +
+      "post-run executed-count oracle (scripts/check-crew-e2e-executed.mjs, " +
       "scripts/check-app-e2e-executed.mjs, scripts/check-lifecycle-layout-executed.mjs, " +
-      "scripts/check-phantom-gap-executed.mjs) reads. " +
-      "Inert with respect to what runs: it " +
-      "names a Playwright OUTPUT path only — it cannot select, skip or redirect a test, and a " +
-      "wrong value makes the oracle fail closed on a missing report rather than pass.",
+      "scripts/check-phantom-gap-executed.mjs); a wrong value makes the oracle fail CLOSED on a " +
+      "missing report rather than pass. (2) PRINTER-CONSUMED — the seven paths the modal-wait " +
+      "adoption arc added, read only by scripts/print-infra-recoveries.mjs, which always exits 0; " +
+      "a wrong value fails OPEN, losing that step's infra-recovery print while the run's verdict " +
+      "is unchanged. Neither class can alter what executes, which is what this allowlist gates.",
   },
   SUPABASE_URL: {
     values: [
