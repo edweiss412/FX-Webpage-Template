@@ -426,7 +426,8 @@ then archive this entry. Nothing else is owed.
 
 ## BL-SERVER-ACTION-ORIGIN-GATE-SWEEP — gate the remaining destructive Server Actions on same-origin
 
-**Status:** OPEN · **Severity:** low · **Surfaced:** `fix/auth-picker-hardening` spec/plan (2026-08-15) · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** fix/server-action-origin-sweep
+**Severity:** low · **Surfaced:** `fix/auth-picker-hardening` spec/plan (2026-08-15) · **Effort:** M
 
 `fix/auth-picker-hardening` closes the crew picker's identity-clear actions (`clearIdentity` / `clearIdentityAndSkip` / `clearIdentityCore`) with `isSameOriginServerAction()` (`lib/auth/sameOriginServerAction.ts`), a proxy-independent Fetch-Metadata gate that never trusts `x-forwarded-host`/`host`. That helper reduces each peer destructive Server Action to a one-line guard, but the arc deliberately scoped itself to the picker surface (class-sweep disposition exception (c): a redesign spanning enough sites to blow the review scope).
 
