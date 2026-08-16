@@ -278,3 +278,14 @@ No zombie flags: every row has all four columns live.
 - Same-`--out` mid-run races and wrapper-SIGKILL orphans: accepted limitations, documented (§2, §3).
 - Soft cap overrun by ≤ poll + grace + reap (§5): accepted, documented.
 - Advisory (not correctness-critical) cache lock; two-breaker residual races AND the release owner-check→rmdir TOCTOU (reachable only under ≥stale-threshold suspension) benign by idempotence (§6): accepted, documented, untested by design.
+
+## 14. Guard-surface dispatch gate (2026-08-15 amendment — cross-reference only)
+
+The input-guard family (§7) gained a pre-dispatch check: a round-1 `--stage diff`
+brief that declares a `GUARD SURFACE:` line must carry, on that same line, a
+canonical `MUTATION SCORE:` declaration with an empty unaccepted-survivor set or
+a `CANNOT-EXPRESS:` probe citation — else exit 2 before lock, dispatch, result
+artifact, or corpus row. Canonical text, grammar, accept-set, and documented
+limits live in `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md`
+§2 (no restatement here — two copies drift). Tests:
+`tests/codexGuard/guardSurfaceGate.test.ts`.

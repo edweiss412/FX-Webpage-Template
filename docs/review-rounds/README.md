@@ -38,6 +38,8 @@ The filing is one `##` section per triggered stage:
 
 `**Mechanizable:** none` is legal and expected. Mechanization work items are ordinary `BL-` rows in `BACKLOG.md` — no third ledger.
 
+**Ledger parity (filings authored after 2026-08-15).** A non-none `**Mechanizable:**` entry either cites the `BL-`/`DEF-` row it filed, or declines in the form `declined: <reason>` (on the marker line or as a block paragraph/list item) — "belongs to whoever next touches X" is a decline and is written in that form. The entry's citation must sit INSIDE the Mechanizable block (from the marker to the next bold field or heading): an id in a following `**Judgment:**` paragraph does not satisfy it. The analysis is AST-derived, so fenced examples, HTML comments, and struck-through text (`~~declined: …~~`) satisfy nothing, and the field must be a top-level paragraph — nested under a list item it is rejected. Pre-existing filings are frozen in `lib/reviewRounds/mechanizableGrandfather.ts` and exempt. Canonical contract: `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md` §3.
+
 ## The gate
 
 [`tests/docs/_metaReviewRoundEconomy.test.ts`](../../tests/docs/_metaReviewRoundEconomy.test.ts) walks this directory **from disk**, recursively, over both extensions, so a new arc's files are covered by default and can never be silently exempt. It asserts schema and stage validity, contiguous `round` runs, the filing's existence and its per-stage sections once the threshold is crossed, that every `BL-`/`DEF-` id cited in a filing resolves against the live ledgers, that each row's `branch` and `baseSha` match its containing path, and that no filing is an orphan. It deliberately does **not** judge prose quality or whether a disposition is *correct* (spec §7.2).
