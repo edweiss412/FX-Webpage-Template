@@ -49,10 +49,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       # NO supabase/setup-cli, psql, or bootstrap: the harness is pure-parser / DB-free.
+      # EXPLICIT subjects, not the whole project. The `mutation` project's include
+      # list also holds the browser-mutant gate (mutation-browser spec §3.6), which
+      # spawns a real Playwright child per mutant and has its OWN workflow with a
+      # chromium install; a bare `--project mutation` run would sweep it in here,
+      # where no browser is installed, and red the nightly PARSER harness for a gate
+      # this job does not own. Pinned by
+      # tests/cross-cutting/mutation-browser-ci-wiring.test.ts.
       - name: Run sharded mutation harness (nightly, ~60-75 min at 3 workers)
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
-        run: pnpm exec vitest run --project mutation
+        run: pnpm exec vitest run --project mutation tests/parser/mutationHarness tests/mutation/guardSurfaces.gate.test.ts
 
   # Surface a scheduled red run as ONE deduped tracking issue (otherwise invisible: a non-required
   # check with no notification anyone reads). SEPARATE job so issues:write never reaches the

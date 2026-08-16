@@ -101,6 +101,35 @@ describe("mutation-browser workflow — the path filter", () => {
   });
 });
 
+describe("the parser harness workflow does not inherit this gate", () => {
+  // Adding the browser gate to the `mutation` vitest project (spec §3.6) put it
+  // inside `mutation-harness.yml`'s whole-project sweep — a job that installs no
+  // browser, so every playwright child would fail to launch and red the NIGHTLY
+  // PARSER harness for a gate that has its own workflow. Its run step therefore
+  // names its subjects explicitly, and this pins that.
+  const HARNESS = ".github/workflows/mutation-harness.yml";
+  const harness = parseYaml(readFileSync(join(ROOT, HARNESS), "utf8")) as Workflow;
+  const harnessRuns = Object.values(harness.jobs ?? {})
+    .flatMap((j) => j.steps ?? [])
+    .map((s) => s.run)
+    .filter((r): r is string => typeof r === "string");
+
+  it("runs the mutation project with explicit filters, never the whole project", () => {
+    const projectRuns = harnessRuns.filter((r) => r.includes("--project mutation"));
+    premiseHolds("the parser harness runs the mutation project at all", projectRuns.length > 0);
+    for (const run of projectRuns) {
+      expect(run, "a bare --project mutation run sweeps in the browser gate").not.toMatch(
+        /--project mutation\s*$/,
+      );
+      expect(run).toMatch(/tests\/mutation\/guardSurfaces\.gate\.test\.ts/);
+      expect(run).toMatch(/mutationHarness/);
+      expect(run, "the browser gate belongs to its own workflow").not.toMatch(
+        /tests\/mutation\/browser/,
+      );
+    }
+  });
+});
+
 describe("mutation-browser workflow — the job", () => {
   it("runs the gate through its own command", () => {
     const gate = runSteps.filter((s) => s.run!.includes(COMMAND));
