@@ -773,7 +773,39 @@ exit=0
 AC-1 satisfied: version 3.4.9, core exactly the four-member sorted list, parameterMembers exactly the two-member sorted list, `--check` 0 on a fresh tree and 1 on a stale one.
 
 - Task 5 step 2: hand-edit probe (exit 0 with the regeneration explanation).
+
+```text
+$ printf '\n// hand-edit mutant\n' >> tests/db/__generated__/postgresExecutionMethods.ts
+$ pnpm gen:execution-methods
+$ git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts; echo "exit=$?"
+exit=0
+$ git status --short
+ M .github/workflows/x-audits.yml
+```
+
+Exit 0 is the correct expectation for THIS input: `pnpm gen:execution-methods` regenerates over the working-tree hand-edit, so the tree matches HEAD again and the gate passes. Regeneration repairs a hand-edit; the diff artifact captures nothing. The gate's real failing input is a stale COMMIT, below.
+
 - Task 5 step 4: stale-commit mutant probe (exit 1) — the AC-7 mutant-red evidence.
+
+```text
+$ sed -i '' 's/"unsafe"/"unsafe-mutant"/' tests/db/__generated__/postgresExecutionMethods.ts
+$ git add tests/db/__generated__/postgresExecutionMethods.ts && git commit --no-verify -m "tmp: gate mutant (revert immediately)"
+$ pnpm gen:execution-methods
+$ git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts; echo "exit=$?"
+diff --git a/tests/db/__generated__/postgresExecutionMethods.ts b/tests/db/__generated__/postgresExecutionMethods.ts
+-export const POSTGRES_EXECUTION_CORE: readonly string[] = ["file","listen","notify","unsafe-mutant"];
++export const POSTGRES_EXECUTION_CORE: readonly string[] = ["file","listen","notify","unsafe"];
+exit=1
+$ git reset --hard HEAD^
+$ git status --short
+$ pnpm gen:execution-methods --check; echo "check-exit=$?"
+check-exit=0
+```
+
+AC-7 satisfied: the gate is red on exactly the silent-merge shape from spec review R1 finding 1 (a committed module that no longer matches the installed driver's derivation), and green on a clean tree. `git status --short` prints nothing after the reset, so the mutant commit left no residue.
+
+A second, related gate hazard was found and fixed during Task 2 rather than by probe design: the pre-commit lint-staged prettier pass reflowed the generated module's array literals, which would have made BOTH `--check` and this CI step permanently red. `tests/db/__generated__/` now sits in `.prettierignore` alongside the repo's other raw-emitted generated TS, and the `--check` probe was re-run through a real commit to confirm the bytes survive it.
+
 - Task 6 step 5: measured mutation score, survivor dispositions, run duration.
 - Task 7 step 1: AC-6 red observation (exit 1), clean pass (exit 0), and the node_modules sweep with per-hit dispositions.
 
