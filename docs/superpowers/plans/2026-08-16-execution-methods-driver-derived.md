@@ -369,7 +369,7 @@ Expected: `exit=1` with the stale message, then the final regeneration rewrites 
 Run: `pnpm typecheck`
 
 ```bash
-git add scripts/generate-execution-methods.ts tests/db/__generated__/postgresExecutionMethods.ts tests/db/executionMethodsManifest.test.ts package.json
+git add scripts/generate-execution-methods.ts tests/db/__generated__/postgresExecutionMethods.ts tests/db/executionMethodsManifest.test.ts package.json docs/superpowers/plans/2026-08-16-execution-methods-driver-derived.md
 git commit -m "infra: generator + committed derived execution-methods module"
 ```
 
@@ -599,7 +599,16 @@ git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts; echo "e
 git reset --hard HEAD^
 ```
 
-Expected: `exit=1` — the regenerated working tree differs from the mutant commit, so the gate goes red on exactly the stale-commit shape. After `git reset --hard HEAD^`, confirm `git status --short` prints nothing and `pnpm gen:execution-methods --check` exits 0. Record both probe transcripts (Step 2's exit=0 and this step's exit=1) in this plan's "Execution evidence" section.
+Expected: `exit=1` — the regenerated working tree differs from the mutant commit, so the gate goes red on exactly the stale-commit shape. After `git reset --hard HEAD^`, confirm `git status --short` prints nothing and `pnpm gen:execution-methods --check` exits 0.
+
+- [ ] **Step 5: Append and commit the evidence**
+
+Only NOW — after the reset, so the reset cannot erase it — append both probe transcripts (Step 2's exit=0 and Step 4's exit=1) to this plan's "Execution evidence" section, and commit:
+
+```bash
+git add docs/superpowers/plans/2026-08-16-execution-methods-driver-derived.md
+git commit -m "infra: record freshness-gate probe evidence"
+```
 
 ### Task 6: Mutation enrolment
 
@@ -645,7 +654,7 @@ Following the analyzer row's shape (`tests/mutation/source/registry.ts:533-541`)
 
 Enrolment touches TWO more hand-keyed registries, and each reds until its row lands — observe both reds after Step 1, then add the rows:
 
-- `tests/mutation/_metaPremiseContract.test.ts` — `EXPECTED_ENV_TOUCHING` must declare a count for every enrolled suitePath (asserted at `tests/mutation/_metaPremiseContract.test.ts:137-142`). Add `"tests/db/executionMethodsManifest.test.ts": 1` — the version sentinel is the suite's one environment-touching test (it reads the driver package.json from disk); every other test is a pure fixture call. If the classifier counts differently, reconcile by reading its verdicts, not by bumping the number blind. The sentinel test itself must then carry its premise (the `premiseHolds` line is already in the Task 2 snippet) or a reasoned exemption per the contract.
+- `tests/mutation/_metaPremiseContract.test.ts` — `EXPECTED_ENV_TOUCHING` must declare a count for every enrolled suitePath (asserted at `tests/mutation/_metaPremiseContract.test.ts:137-142`). Add `"tests/db/executionMethodsManifest.test.ts": 0` — the classifier's provenance set counts `node:child_process`, ledger-git, and `process.env` reads as environment-touching (`tests/mutation/source/premiseScan.ts:28`, `:211`); a bare `node:fs` read is pure to it, so the version sentinel classifies environment-free and the suite's declared count is ZERO (plan review R3 finding 1, probe-verified against the exact sentinel snippet). The sentinel keeps its `premiseHolds` line regardless — it states the read's premise for the human reader even though the classifier does not demand it. If the classifier's verdicts differ at implementation time, reconcile by reading them, not by bumping the number blind.
 - `tests/mutation/guardSurfaces.gate.test.ts` — `EXPECTED_LEDGER_KINDS` must declare a kind-count row for every `GuardSurface.id` (asserted at `tests/mutation/guardSurfaces.gate.test.ts:150-155`). Add `executionMethodsDerivation: {}` (the row starts with `accepted: []`; update the kind counts in the same commit as any survivor disposition so the two stay in lockstep).
 
 Run: `pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts tests/mutation/_metaPremiseContract.test.ts`
@@ -663,7 +672,7 @@ Set `scoreFloor` to measured-minus-0.05. Re-run `pnpm heavy mutation:guards`; ex
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/mutation/source/registry.ts tests/mutation/_metaPremiseContract.test.ts tests/mutation/guardSurfaces.gate.test.ts tests/db/executionMethodsManifest.test.ts
+git add tests/mutation/source/registry.ts tests/mutation/_metaPremiseContract.test.ts tests/mutation/guardSurfaces.gate.test.ts tests/db/executionMethodsManifest.test.ts docs/superpowers/plans/2026-08-16-execution-methods-driver-derived.md
 git commit -m "test(db): enrol executionMethodsDerivation in the mutation gate"
 ```
 
@@ -705,19 +714,23 @@ pnpm heavy test:fast
 
 Expected: all green. (`pnpm heavy test:fast` is the full-suite leg and MUST run under the heavy wrapper per AGENTS.md.)
 
-- [ ] **Step 3: Graduate the ledger entry**
+- [ ] **Step 3: Cross-model diff review to APPROVE (marker still on)**
 
-Move the whole `BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES` entry from `BACKLOG.md` to `BACKLOG-archive.md` with provenance (branch, spec path, this plan path, what shipped, the spec §1 equality correction, and ALL THREE re-open triggers — the two from spec §4, a postgres.js version bump or a first live largeObject use, PLUS the entry's own original trigger preserved by spec §4's closing line: a second omission found by review rather than by this guard; plan review R1 finding 5). Remove the `**Status:** IN PROGRESS · **Branch:** ...` marker line in the SAME commit (archives reject in-flight entries; the marker must never reach main). This is the PR's last commit, per invariant 12.
+Commit the Task 7 step-1 evidence appends first (`git add docs/superpowers/plans/2026-08-16-execution-methods-driver-derived.md && git commit -m "docs(plan): record closeout sweep evidence"`). Then whole-diff codex review to APPROVE via codex-guard (`--stage diff`), with the round-1 brief stating: consequence bound, PROBE DOMAIN, threat fence (copy from spec §7), the measured mutation score + survivor set from Task 6, and REVIEWER ONLY. The in-progress ledger marker is STILL PRESENT during review — it comes off only in the step-4 graduation commit (plan review R3 finding 3: graduating before a review that can spawn repair commits leaves the ledger claiming no work in flight while work is in flight). The brief DECLARES the upcoming graduation commit and its exact content (entry moved to archive, marker line removed, nothing else) so the reviewer approves the merged diff's final shape — the review-covers-what-merges accommodation for a pre-declared docs-only tail (docs/agents/writing-plans.md, lint shape (i)). Any repair commit the review produces returns to the start of this step; graduation happens only after an APPROVE with no further repairs.
 
-- [ ] **Step 4: Cross-model diff review, CI, merge**
+- [ ] **Step 4: Graduate the ledger entry — the PR's actual last commit**
 
-Whole-diff codex review to APPROVE via codex-guard (`--stage diff`), with the round-1 brief stating: consequence bound, PROBE DOMAIN, threat fence (copy from spec §7), the measured mutation score + survivor set from Task 6, and REVIEWER ONLY. Then push, real CI green, `gh pr merge --merge`, fast-forward main, confirm `git rev-list --left-right --count main...origin/main` reports `0  0`.
+Move the whole `BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES` entry from `BACKLOG.md` to `BACKLOG-archive.md` with provenance (branch, spec path, this plan path, what shipped, the spec §1 equality correction, and ALL THREE re-open triggers — the two from spec §4, a postgres.js version bump or a first live largeObject use, PLUS the entry's own original trigger preserved by spec §4's closing line: a second omission found by review rather than by this guard; plan review R1 finding 5). Remove the `**Status:** IN PROGRESS · **Branch:** ...` marker line in the SAME commit (archives reject in-flight entries; the marker must never reach main). Nothing but the ledger move and marker removal is in this commit — it must match what the step-3 brief declared. This is the PR's last commit, per invariant 12.
+
+- [ ] **Step 5: CI, merge, sync**
+
+Push, real CI green, `gh pr merge --merge`, fast-forward main, confirm `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
 <!-- tasks: end -->
 
 ## Execution evidence
 
-Appended by the implementation session as each named step completes; a step that names this section is not done until its transcript is here. Required rows (each a fenced transcript with the command, its output tail, and the exit code):
+Appended by the implementation session as each named step completes, and COMMITTED IN THAT TASK'S OWN COMMIT — every task whose step records evidence here stages this plan file alongside its code (plan review R3 finding 2; batching the evidence into Task 7 would violate commit-per-task, and leaving it unstaged puts it in the path of Task 5's `git reset --hard`, which is why Task 5 appends its evidence only AFTER the reset completes). A step that names this section is not done until its transcript is here. Required rows (each a fenced transcript with the command, its output tail, and the exit code):
 
 - Task 2 step 5: check-mode both-ways probe (exit 0 fresh, exit 1 stale).
 - Task 5 step 2: hand-edit probe (exit 0 with the regeneration explanation).
