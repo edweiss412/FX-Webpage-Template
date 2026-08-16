@@ -510,7 +510,7 @@ export type CollectResult =
 // scripts/heavy-reap.ts
 export type KillOutcome = {
   pid: number;
-  result: "killed" | "already-gone" | "failed" | "partial" | "identity-changed";
+  result: "killed" | "already-gone" | "failed" | "partial" | "identity-changed" | "identity-unreadable"; // K6
   detail?: string;
 };
 
@@ -570,8 +570,9 @@ placed after the wrapper would capture the caller's command instead.
 rather than fail open. The reaper is bounded by construction, and the count is exact: ONE bulk
 `ps` read, plus TWO `ps -o lstart=` reads per KILL TARGET — once at classification and once
 immediately before the signal, which is what K2 requires. K4's verification re-scan spawns nothing
-(it is `kill(pid, 0)`). **Every one of those invocations carries an explicit subprocess timeout,** after which the reaper abandons the run and exits non-zero rather than waiting
-(AC-8). A timeout on each child is what makes the `;` sequencing safe: `;` waits for the reaper to
+(it is `kill(pid, 0)`). **Every one of those invocations carries an explicit subprocess timeout**,
+and what a timeout COSTS is whichever row that read belongs to, not a blanket abort: the bulk read
+is C1, and an identity read is K6 (AC-8). A timeout on each child is what makes the `;` sequencing safe: `;` waits for the reaper to
 terminate, so an unbounded reaper would block admission even though it cannot fail it. No other guard is needed, because a reaper that cannot finish
 a `ps` in seconds is on a machine with worse problems than orphans.
 
