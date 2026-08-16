@@ -25,20 +25,31 @@ pressure is only the trigger. A design that ranks by pressure alone has inverted
 
 ### 1.1 Resolved scope — do not relitigate
 
-Each row was settled during brainstorming or by the probe in §3. Verify the citation; do not
-re-derive.
+Each row was settled during brainstorming, by the probe in §3, or by spec round 1. Verify the
+citation; do not re-derive.
 
 | Decision | Ratification |
 | --- | --- |
-| A session cannot compact **itself**; `/compact` is human-typed and auto-compaction is threshold-driven. Self-compaction is not a design option. | §2.1, probe-independent (documentation review) |
-| The audience is **orchestrator sessions driving other panes**, not arc sessions disciplining themselves. Session-side "keep the marker current" guidance is explicitly OUT of scope. | User decision, 2026-08-16 |
-| Purview is a **registry file the orchestrator writes at dispatch time**, not derived from `pnpm ledger:claims`. Ledger derivation misses arcs with no `BL-`/`DEF-` row, which AGENTS.md invariant 12 declares legitimate ("A run that finds no matching ledger entry does nothing"). | User decision, 2026-08-16 |
+| A session cannot compact **itself**; `/compact` is human-typed and auto-compaction is threshold-driven. Self-compaction is not a design option. | §2.1 |
+| The audience is **orchestrator sessions driving other panes**, not arc sessions disciplining themselves. Session-side "keep the marker current" guidance is out of scope. | §11, user decision 2026-08-16 |
+| Purview is a **registry file** written at dispatch time, not derived from `pnpm ledger:claims` (`scripts/ledger-claims.ts:10-14`). Ledger derivation misses arcs with no `BL-`/`DEF-` row, which AGENTS.md invariant 12 declares legitimate. | §5.4, user decision 2026-08-16 |
 | `agent_status: working` is the **compliant** steady state for an arc, not a hazard. AGENTS.md forbids ending a turn mid-pipeline, so gating on `idle` would select only arcs that are blocked, finished, or stalled. | `AGENTS.md` § "Never end your turn mid-pipeline" |
-| The driver **never fires without an explicit flag**. Report is the default mode. | §5.3 |
-| Ranking is two-factor — pressure gates eligibility, position selects the moment. Neither alone. | §4 |
-| `PreCompact` hook blocking is **undetermined** and the design does not depend on it. | §2.1 |
-| This spec ships **no UI**. Nothing under `app/` or `components/`, no tokens, no CSS. AGENTS.md invariant 8's impeccable dual-gate does not apply. | §7 |
-| No DB, no migrations, no advisory locks. | §7 |
+| The driver **never fires without an explicit flag**, and never on a stale verdict. | §5.3, §5.5 |
+| Ranking is two-factor — pressure gates eligibility, position selects the moment. | §4 |
+| `PreCompact` hook blocking is **undetermined**; the design does not depend on it. | §2.1 |
+| Bands are integers in tenths, not a float fraction. A float weight is unattackable by every declared mutation operator (`tests/mutation/source/operators.ts:17`), which would put the band constants outside the closure set. | §4.2 |
+| **Waiting on `idle` after compaction is correct, and P6's `done` does not contradict it.** `herdr agent wait --status done` is refused by the tool itself: `"done is a UI attention state; use idle for CLI agent completion waits"`. Recorded so a later round does not re-derive it. | §3, §5.2 |
+| This spec ships **no UI** — nothing under `app/` or `components/`, no tokens, no CSS — so AGENTS.md invariant 8's impeccable dual-gate does not apply. No DB, no migrations, no advisory locks. | §9 scope statement below |
+
+**Scope statement (referenced by the row above).** The complete file manifest is §5.1 and §10. No
+entry falls under the UI tree (`app/` excluding `app/api/`, or `components/`), the design-token
+files, `supabase/migrations/`, or any `pg_advisory*` call site.
+
+<!-- spec-lint: not-ui — the UI paths named above appear only in this no-UI scope statement; the §5.1 and §10 manifests contain no UI file. -->
+
+The UI paths are named here because the scope statement has to identify what it excludes. That
+citation is what trips automatic UI-spec detection (`lib/specLint/sections.ts:17-20`), hence the
+waiver directly above it.
 
 ---
 
@@ -53,138 +64,173 @@ re-derive.
 | `PreCompact` hook exists, matchers `manual` \| `auto` | Documented |
 | `PreCompact` can **block** a compaction | **Not documented** — design must not rely on it |
 | `SessionStart` accepts a `compact` matcher; its stdout is injected into the fresh post-compact context | Documented |
-| Model can detect that a compaction occurred, or read its own distance to the threshold | **Not documented** |
+| Model can detect a compaction occurred, or read its own distance to the threshold | **Not documented** |
 | `/autocompact` command exists ("set automatic compaction thresholds") | Documented; details not documented |
 
-Two consequences carried into the design: the orchestrator cannot prevent an auto-compaction on a
-target, only preempt it; and the target cannot self-report its own pressure, so pressure must be
-read from outside (§3.7).
+Two consequences: the orchestrator cannot prevent an auto-compaction, only preempt it; and the
+target cannot self-report its pressure, so pressure is read from outside (§3.7).
 
 ### 2.2 herdr primitives
 
-Verified against the installed CLI at `/Users/ericweiss/.local/bin/herdr`:
+Measured against the installed CLI (`herdr <subcommand> --help`, 2026-08-16). herdr is an external
+binary, not repo state, so these are command citations rather than `file:line`.
 
-- `herdr agent list` — the roster. Arc sessions are already labeled with their branch name by
-  AGENTS.md's mandatory pane + agent naming rule, so branch identity comes for free.
-- `herdr agent get <target>` — includes `agent_status` and `pane_id`.
-- `herdr agent read <target> --source visible --lines N` — the rendered screen.
-- `herdr agent wait <target> --status <idle|working|blocked|unknown> --timeout MS`.
-- `herdr agent send <target> <text>` — writes **literal** text, no submit.
-- `herdr pane close <pane_id>`.
+| Command | Contract |
+| --- | --- |
+| `herdr agent list` | The roster. Arc panes carry their branch as the agent `name` (AGENTS.md's mandatory pane + agent naming rule). |
+| `herdr agent get <target>` | Includes `agent_status` and `pane_id`. |
+| `herdr agent read <target> --source visible --lines N` | Rendered screen text. |
+| `herdr agent wait <target> --status <idle\|working\|blocked\|unknown> --timeout MS` | **`done` is rejected**: `"done is a UI attention state; use idle for CLI agent completion waits"`. |
+| `herdr agent send <target> <text>` | Writes **literal** text; no submit. |
+| `herdr pane close <pane_id>` | Closes a pane. |
 
-`\r` submits in the Claude TUI; `\n` inserts a newline into the input box and does not submit.
+`agent_status` observed on the live roster additionally includes `done`, which `agent list` emits
+but `agent wait` will not accept as a target. `\r` submits in the Claude TUI; `\n` inserts a
+newline and does not submit.
 
 ---
 
 ## 3. Probe findings (empirical, 2026-08-16)
 
-Per the mandatory empirical-spike rule in `docs/agents/spec-self-review.md:21`, the input/interrupt
-semantics below were **measured, not reasoned about**. The environment was constructed rather than
-interrogated: a throwaway `claude` pane started with `herdr agent start compact-probe --cwd
-<scratch> --no-focus -- claude`, driven through a 300-400 second `bash` loop so that every
-interrupt landed **mid-tool-call** — the risky case. No live arc was touched. Probe pane closed at
-the end of the run.
+Per the mandatory empirical-spike rule in `docs/agents/spec-self-review.md:21`, the input and
+interrupt semantics below were **measured, not reasoned about**. The environment was constructed
+rather than interrogated: a throwaway `claude` pane started with `herdr agent start compact-probe
+--cwd <scratch> --no-focus -- claude`, driven through 300-400 second `bash` loops so every
+interrupt landed **mid-tool-call** — the risky case. No live arc was touched; the probe pane was
+closed at the end of the run.
 
-| ID | Finding | Evidence (rendered pane text) |
-| --- | --- | --- |
-| **P1** | Input sent to a `working` pane **queues**. It does not execute mid-turn, and `agent_status` stays `working`. | `❯ QUEUED-PROBE-A` above `❯ Press up to edit queued messages`; `status: working` |
-| **P2** | With vim mode enabled (this machine's configuration), the **first Esc is consumed leaving INSERT mode** and does nothing else. The tool call kept running and the queue survived. | `-- INSERT --` disappears; `tick-18` still advancing; `status: working` |
-| **P3** | The **second Esc interrupts**, killing the in-flight tool call. | `⎿ Interrupted · What should Claude do instead?` and `⏺ Command rejected. Stopped.` |
-| **P4** | A message queued **before** the interrupt fires **immediately** as the next turn. Queue-then-interrupt is effectively atomic — there is no idle window between them. | `❯ QUEUED-PROBE-A` consumed and answered in the same screen as the interrupt |
-| **P5** | A queued **slash command** survives that path and executes as a command, not as prose. | `✻ Compacting conversation… (7s · ↑ 127 tokens)` → `❯ /compact ⎿ Compacted (ctrl+o to see full summary)` |
-| **P6** | After compaction the session does **not** auto-resume. It settles at `agent_status: done` with no live child process and stays there. | `status: done` stable across 20s; `pgrep -fl 'echo beat-'` empty |
+| ID | Finding | Measured under | Evidence |
+| --- | --- | --- | --- |
+| **P1** | Input sent to a `working` pane **queues**; it does not execute mid-turn, and status stays `working`. | `agent_status: working`, mid-tool-call | `❯ QUEUED-PROBE-A` above `❯ Press up to edit queued messages`; `status: working` |
+| **P2** | With vim mode on, the **first Esc is consumed leaving INSERT mode** and does nothing else. | vim mode enabled | `-- INSERT --` clears; `tick-18` still advancing; `status: working` |
+| **P3** | The **next Esc interrupts**, killing the in-flight tool call. | vim mode enabled, mid-tool-call | `⎿ Interrupted · What should Claude do instead?`; `⏺ Command rejected. Stopped.` |
+| **P4** | A message queued **before** the interrupt fires **immediately** as the next turn. | queue present at interrupt | `❯ QUEUED-PROBE-A` consumed and answered in the same screen as the interrupt |
+| **P5** | A queued **slash command** survives that path and executes as a command. | queue present at interrupt | `✻ Compacting conversation… (7s · ↑ 127 tokens)` → `⎿ Compacted` |
+| **P6** | After compaction the session does **not** auto-resume; it settles at `agent_status: done`. | post-compaction | `status: done` stable 20s+; `pgrep -fl 'echo beat-'` empty |
+
+**What P2 does and does not establish.** It was measured with vim mode **on**. The behavior with
+vim mode off was not probed, and the spec makes no claim about it. §5.2 therefore does not assume a
+fixed Esc count: it sends one Esc, re-reads status, and sends another only if the target is still
+`working`. That removes the unprobed claim from the design rather than documenting around it.
 
 ### 3.7 Context pressure is externally readable
 
-The context gauge renders on every pane and parses out of `herdr agent read`:
+The gauge renders on every pane and parses out of `herdr agent read`. Four gauges observed on the
+live roster:
 
 ```
-chore/heavy-orphan-reaper        Opus 5 ctx ███░░   (2h39m single turn, 353.1k tokens)
+chore/heavy-orphan-reaper        Opus 5 ctx ███░░    (2h39m single turn, 353.1k tokens)
 fix/scanner-scope-totality       Opus 5 ctx █▓░░░
 bl-mediums-orchestrator          Opus 5 ctx ██░░░
 smalls-batch-orchestrator        Opus 5 ctx █░░░░
 ```
 
-This is a **direct readout**, unlike arc position, which is inferred (§4.2). It is the crisp signal
-and it answers the weaker question, which is exactly why it is the trigger and not the selector.
+This is a **direct readout**, unlike arc position, which is inferred (§4.4). It is the crisp signal
+answering the weaker question, which is why it is the trigger and not the selector.
 
 ### 3.8 What the probe changed
 
 The pre-probe protocol was `Esc → checkpoint → /compact → resume`. P4 makes that wrong: after an
 interrupt with nothing queued, the target sits at "What should Claude do instead?" — an extra
-round-trip, and a window in which the target's own cron nudge could fire and start work the
-orchestrator is about to interrupt again. The corrected protocol queues the checkpoint **first**
-and uses the interrupt to detonate it (§5.2).
+round-trip, and a window in which the target's own cron nudge could start work the orchestrator is
+about to interrupt again. The corrected protocol queues the checkpoint **first** and uses the
+interrupt to detonate it (§5.2).
 
 ---
 
-## 4. Classification model
+## 4. Classification
+
+The classifier is a **total function** from an observed pane to exactly one verdict. Totality and
+mutual exclusion come from an ordered rule list evaluated top to bottom, first match wins (§4.5) —
+not from the tables in §4.2 and §4.4, which are inputs to that list rather than a classification in
+themselves.
 
 ### 4.1 Verdicts
 
-Two factors with distinct jobs. Pressure decides **whether**; position decides **when**.
+| Verdict | Meaning |
+| --- | --- |
+| **UNDETERMINED** | Safety could not be established. Never an implicit all-clear, never drivable. |
+| **HOLD** | Do nothing; pressure is below the eligibility band. |
+| **WAIT** | Eligible, but at an expensive position — or a precondition is unmet. Carries its reason. |
+| **COMPACT** | Eligible and at a cheap position. Drivable. |
+| **FORCE** | Critical pressure; take the best position available now. Drivable. |
 
-| Verdict | Meaning | Condition |
+`FORCE` exists only because auto-compaction is the competitor: without it the classifier would sit
+on `WAIT` while the threshold fired underneath it. A deliberate compaction at a mediocre position
+still beats an automatic one at a random position, because the checkpoint happens either way.
+
+### 4.2 Pressure bands, in tenths
+
+The gauge renders five cells, each full (`█`), half (`▓`), or empty (`░`) — readable resolution
+10%. Pressure is the **integer** `t = 2 × full + half`, in `0..10`.
+
+| Band | Range | Meaning |
 | --- | --- | --- |
-| **HOLD** | Do nothing. Position is irrelevant. | Pressure below the eligibility band. Compacting here destroys live context and buys nothing. |
-| **WAIT** | Eligible, but currently at an expensive position. | Pressure at or above the band, position cost high. Report what it is waiting for. |
-| **COMPACT** | Fire the protocol. | Pressure at or above the band, position cost low. |
-| **FORCE** | Fire at the best position available now. | Pressure critical — auto-compaction imminent. A deliberate compaction at a mediocre position still beats an automatic one at a random position, because the checkpoint step happens either way. |
-| **UNDETERMINED** | Cannot establish safety. Never an implicit all-clear. | Marker older than the newest commit, unresolvable worktree, unparseable gauge, unlabeled pane. |
+| Below eligibility | `t < 5` | position is not consulted |
+| Eligible | `5 <= t < 8` | position decides |
+| Critical | `t >= 8` | `FORCE`, subject to §4.5 precedence |
 
-`FORCE` exists only because auto-compaction is the competitor. Without it the classifier would sit
-on `WAIT` while the threshold fired underneath it.
+Integers deliberately: every band constant is then an `integer-literal` site and every comparison a
+`relational-boundary` site, both inside the declared mutation operator set
+(`tests/mutation/source/operators.ts:17`). A float weight would sit outside every declared
+operator, so the thresholds could not be attacked at all.
 
-**The bands.** The gauge renders five cells, each of which can be full (`█`), half (`▓`), or empty
-(`░`) — so the readable resolution is 10%, not 20%. Filled fraction `f` is
-`(full + 0.5 × half) / 5`.
-
-| Band | Range | Effect |
-| --- | --- | --- |
-| Below eligibility | `f < 0.5` | `HOLD` — position is not consulted at all |
-| Eligible | `0.5 ≤ f < 0.8` | `WAIT` or `COMPACT`, decided by position |
-| Critical | `f ≥ 0.8` | `FORCE`, except the hard-`WAIT` row of §4.2 |
-
-These are the thresholds the classifier ships with, stated here so a change to them is a spec
-change rather than a constant edit. All three observed gauges in §3.7 fall below eligibility except
-`███░░` (`f = 0.6`, eligible), which is the pane the design was calibrated against.
-
-### 4.2 Position cost is a gradient, not a boolean
-
-Position is **inferred**, from: the marker's `stage`; whether the tree is dirty; the age of the
-last commit; `gh pr checks` state; and what the pane is currently rendering. Because it is the
-fuzzier of the two signals, the report **shows its evidence per pane** rather than asserting a
-tier, so an operator can overrule it.
-
-Ordered cheapest to most expensive:
-
-| Position | Cost | Signal |
-| --- | --- | --- |
-| Between TDD tasks, tree clean, commit just landed | Lowest | clean tree, recent commit, marker `stage` unchanged |
-| Post-Stage-0, pre-spec | Low | clean tree, no commits ahead |
-| Polling CI after push | Low | PR open, checks pending |
-| Spec/plan committed, review verdict recorded in the round corpus | Low | clean tree, `docs/review-rounds/**` row present |
-| Findings returned, triage not yet written | High | review out-dir newer than any doc commit |
-| Mid class-sweep | High | dirty tree, no commit since sweep start |
-| Mid-TDD task, tree dirty | High | dirty tree, marker `stage` = implementation |
-| **CI green, PR unmerged** | Highest — never | `gh pr checks` all green, PR open |
-
-The last row is a hard `WAIT` at any pressure including critical: AGENTS.md makes merge the same-turn
-successor of CI-green, and PR #482 sat `CLEAN` and unmerged for five hours on exactly this gap.
+Of the four gauges in §3.7, three are below eligibility and one (`███░░`, `t = 6`) is eligible.
 
 ### 4.3 Accept-set
 
 The classifier keys on **structure**, never on spelling. It accepts:
 
 - `agent_status` ∈ {`idle`, `working`, `blocked`, `done`, `unknown`} — the enum `herdr` emits.
-- A parsed gauge: filled-block count over total-block count.
-- Marker fields present in AGENTS.md's declared shape (`branch`, `stage`, `tasksRemaining`, `next`,
+- A gauge parseable to `t` ∈ `0..10`.
+- Marker fields in AGENTS.md's declared shape (`branch`, `stage`, `tasksRemaining`, `next`,
   `blockedOn`, `cronJobId`, `sessionId`).
 - Git state: porcelain status, commits ahead of `origin/main`, last commit timestamp.
+- `gh pr checks` state for the branch, or a determinate "no PR".
 
-Everything outside the accept-set is **reported by name** as `UNDETERMINED`, never silently
-bucketed. Terminal titles and pane labels are display strings and are never parsed for meaning; the
-branch comes from the agent `name` field matched against `git worktree list`.
+Anything outside the accept-set yields `UNDETERMINED` **naming the offending field**. Terminal
+titles and pane labels are display strings, never parsed for meaning; the branch comes from the
+agent `name` matched against `git worktree list`.
+
+### 4.4 Position cost
+
+Position is **inferred**, so the report shows its evidence per pane rather than asserting a tier,
+and an operator can overrule it. Evaluated as an ordered list, first match wins, so it is total
+over every pane that reaches it and no pane matches two rows.
+
+| # | Position | Predicate | Cost |
+| --- | --- | --- | --- |
+| 1 | CI green, PR unmerged | PR open ∧ all checks green | **Hard `WAIT`** |
+| 2 | Mid-task, tree dirty | working tree not clean | High |
+| 3 | Triage pending | review out-dir mtime newer than newest commit | High |
+| 4 | Polling CI | PR open ∧ any check pending | Low |
+| 5 | Review verdict recorded | clean ∧ a `docs/review-rounds/**` row newer than the previous commit | Low |
+| 6 | Task boundary | clean ∧ newest commit within the recency window | Lowest |
+| 7 | **Fallback: quiescent** | clean, no PR, commit older than the window | Low |
+
+Row 7 is the totality guarantee: a clean old worktree with no PR — the state round 1 identified as
+matching no row — lands here rather than falling through. "Mid class-sweep" was **removed**: it had
+no observable signal in the accept-set, so it could never have been evaluated.
+
+Row 1 is a hard `WAIT` at every pressure including critical. AGENTS.md makes merge the same-turn
+successor of CI-green, and PR #482 sat `CLEAN` and unmerged for five hours on exactly this gap.
+
+### 4.5 Precedence
+
+Ordered; first match wins. This resolves the round-1 conflict where a below-band pane with a
+missing marker field satisfied both "always `HOLD`" and "always `UNDETERMINED`".
+
+1. Input outside the accept-set (§4.3) → **UNDETERMINED**, naming the field.
+2. Pane claimed by more than one purview registry (§5.4) → **UNDETERMINED**, contested.
+3. Pane not in this orchestrator's purview → **UNDETERMINED**, unowned.
+4. `agent_status` ∈ {`blocked`, `unknown`}, or the target's `blockedOn` is non-empty → **WAIT**.
+5. Position row 1 (CI green, PR unmerged) → **WAIT**, regardless of pressure.
+6. Mid-tool-call not positively excluded (§5.5) → **WAIT**.
+7. Pressure `t < 5` → **HOLD**.
+8. Pressure `t >= 8` → **FORCE**.
+9. Position cost Low or Lowest → **COMPACT**; otherwise → **WAIT**.
+
+**Validation precedes banding**, so no pane can satisfy two terminal rules.
 
 ---
 
@@ -192,91 +238,139 @@ branch comes from the agent `name` field matched against `git worktree list`.
 
 ### 5.1 Module and CLI shape
 
-Following the `ledger:claims` precedent exactly (`scripts/ledger-claims.ts` +
+Following the `ledger:claims` precedent (`scripts/ledger-claims.ts`,
 `scripts/lib/ledger-claims-core.ts`):
 
 ```
 scripts/lib/pane-compaction-core.ts   # NEW: importable classifier, pure over an injected surface
-                                      #      (roster, git, gh, filesystem, clock) — testable
-                                      #      without a live herdr
+                                      #      (roster, git, gh, filesystem, clock)
 scripts/pane-compaction.ts            # NEW: thin CLI adapter
 package.json                          # + "panes:compact" alias
 ```
 
-The module/adapter split is **required, not stylistic**: AGENTS.md's convergence criterion states
-that a guard or detector surface is enrolled in the source-mutation registry
-(`tests/mutation/source/registry.ts`) before its first review dispatch, and the runner overlays a
-target only when a Vitest suite imports it. A terminal CLI script cannot be enrolled. Enrolment
-lands with the implementation and the score is stated in the round-1 diff brief.
+The module/adapter split is **required, not stylistic**: AGENTS.md's convergence criterion requires
+a detector surface to be enrolled in the source-mutation registry
+(`tests/mutation/source/registry.ts:12-38`) before its first review dispatch, and the runner
+overlays a target only when a Vitest suite imports it. A terminal CLI script cannot be enrolled.
 
 ### 5.2 The protocol
 
-Probe-corrected ordering. Every step cites the finding that justifies it.
+Preconditions are **per `agent_status`**, because P1 measured queueing only for `working`. Each
+step cites the finding that justifies it, or states that it rests on none.
+
+**Precondition.** The target's verdict, recomputed at drive time (§5.5), is `COMPACT` or `FORCE`.
+`agent_status` is `working`, `idle`, or `done`; `blocked` and `unknown` never reach here (§4.5
+rule 4).
 
 ```
-0. Read the pane.  Skip if mid-tool-call is unsafe for THIS target (§6).
-1. Queue the checkpoint prompt:
-     herdr agent send <t> '<checkpoint text>'
-     herdr agent send <t> $'\r'                    # queues, does not execute      [P1]
-2. Interrupt:
-     herdr agent send <t> $'\x1b'                  # consumed leaving INSERT       [P2]
-     herdr agent send <t> $'\x1b'                  # actual interrupt              [P3]
-   -> the queued checkpoint detonates immediately                                  [P4]
-3. herdr agent wait <t> --status idle
-4. Compact:
-     herdr agent send <t> '/compact'
-     herdr agent send <t> $'\r'                                                    [P5]
-5. herdr agent wait <t> --status idle
-6. Send the resume prompt explicitly.                                              [P6]
+A. working — queue, then detonate
+   1. send <CHECKPOINT_TEXT>; send $'\r'        # queues, does not execute        [P1]
+   2. send $'\x1b'                              # may only leave INSERT mode      [P2]
+   3. re-read status; if still `working`, send $'\x1b' again  # interrupt         [P3]
+      repeat at most 3 times, then give up and report WAIT
+   -> the queued checkpoint detonates immediately                                [P4]
+
+B. idle | done — no interrupt needed, nothing to detonate
+   1. send <CHECKPOINT_TEXT>; send $'\r'        # executes directly; no queueing claim
+
+Both paths then:
+   4. wait --status idle                        # `done` is rejected by the tool  (§2.2)
+   5. send '/compact'; send $'\r'                                                 [P5]
+   6. wait --status idle
+   7. send <RESUME_TEXT>; send $'\r'                                              [P6]
 ```
+
+Step 3 makes the Esc count **adaptive**, so the design carries no claim about vim-mode-off
+behavior. Steps 4 and 6 wait on `idle` rather than `done` because `herdr agent wait` refuses `done`
+outright (§2.2) — P6's terminal `done` is a UI attention state, not a competing completion signal.
 
 **Step 1 is the load-bearing step.** Post-interrupt is definitionally mid-task, so the summary is
-generated from a conversation that ends mid-action and "what I was about to do next" is precisely
-what is least represented in it. The checkpoint moves that intent to disk *before* the summarizer
-runs. Its text instructs the target to update its ship-state marker — `stage`, and `next` as a
-literal resume command — commit WIP, then stop.
+generated from a conversation ending mid-action, and "what I was about to do next" is exactly what
+is least represented. The checkpoint moves that intent to disk *before* the summarizer runs.
 
-**Step 6 does not delegate to the target's cron nudge.** Those jobs live in session memory and no
-external observer can verify that Stage 0 ever registered one. Sending the resume explicitly costs
-one call and removes the dependency on unverifiable state.
+**The checkpoint does NOT commit.** AGENTS.md invariant 1 permits a task commit only after the
+minimal implementation passes its test, and an interrupted target is by construction mid-task. The
+checkpoint writes the marker only — which is gitignored, so it dirties nothing — and leaves the
+working tree exactly as the interrupt found it. A dirty tree survives compaction perfectly well;
+it is on disk. No exception to invariant 1 is requested or required.
 
-**Two Esc keystrokes, always.** P2 is a machine-local configuration fact (vim mode), so the driver
-sends the first Esc unconditionally and treats it as a no-op where vim mode is off — a redundant
-Esc at an input prompt is harmless, whereas a missing one silently skips the interrupt entirely.
+**The literal texts**, so AC-6's byte-for-byte assertion has an authoritative expected value:
+
+```
+CHECKPOINT_TEXT:
+Checkpoint before compaction. Do not commit. Update .claude/ship-state.json in your worktree:
+set `stage` to where you actually are, and set `next` to the literal command or action that
+resumes this work. Leave the working tree exactly as it is. Then stop and say CHECKPOINT WRITTEN.
+
+RESUME_TEXT:
+Run `date` first; the shell clock is the only source of truth. Discard any stale blocked or
+standing-down framing. Re-read .claude/ship-state.json in your worktree and resume its `next`
+action immediately, in this turn. You were compacted by the orchestrator; approval already
+given, do not re-ask.
+```
+
+**Step 7 does not delegate to the target's cron nudge.** Those jobs live in session memory and no
+external observer can verify Stage 0 ever registered one. Sending the resume explicitly removes the
+dependency on unverifiable state.
 
 ### 5.3 Modes
 
 | Invocation | Behavior | Exit |
 | --- | --- | --- |
-| `pnpm panes:compact` | Report table: pane, branch, gauge, verdict, position evidence. | 0 |
+| `pnpm panes:compact` | Report: pane, branch, `t`, verdict, position evidence. | 0 |
 | `pnpm panes:compact --json` | Envelope `{status, degraded, panes}`. Never capped. | 0 |
 | `pnpm panes:compact --check` | 0 = nothing to do · 1 = at least one COMPACT/FORCE · 2 = untrusted | 0/1/2 |
-| `pnpm panes:compact --drive <target>` | **Dry run by default** — prints the exact keystroke sequence without sending. | 0 |
-| `pnpm panes:compact --drive <target> --fire` | Executes §5.2 against one named target. | 0/1 |
+| `pnpm panes:compact --drive <target>` | **Dry run by default** — prints the §5.2 keystrokes, sends nothing. | 0 |
+| `pnpm panes:compact --drive <target> --fire` | Executes §5.2 subject to §5.5. | 0/1 |
 
-`--fire` never accepts `--all`. One target per invocation, named explicitly. Exit 2 means the check
-could not establish safety, and is never read as an all-clear — the same convention that
-`ledger:claims --check` already establishes.
+`--fire` never accepts `--all`; one named target per invocation. Exit 2 means the check could not
+establish safety and is never read as an all-clear — the convention `ledger:claims --check` already
+establishes (`scripts/ledger-claims.ts:10-14`).
 
-### 5.4 Purview registry
+### 5.4 Purview
 
-Written by the orchestrator at dispatch time; one row per pane it dispatched (`paneId`,
-`agentName`, `branch`, `dispatchedAt`).
+Written at dispatch time; one row per pane the orchestrator dispatched (`paneId`, `agentName`,
+`branch`, `dispatchedAt`).
 
 ```
-~/.claude/pane-purview/<orchestratorSessionId>.json    # NEW: per-orchestrator, outside any worktree
+~/.claude/pane-purview/<orchestratorSessionId>.json   # NEW: per-orchestrator, outside any worktree
 ```
 
-**Outside the worktree, deliberately.** AGENTS.md records that the ship-gate's state file was
-originally kept in `<worktree>/.claude/` and dirtied the very tree it was measuring, resetting the
-counter every run so the gate could never stand down. Purview state has the same shape and takes
-the same placement.
+**Outside the worktree, deliberately.** AGENTS.md records the ship-gate's state file dirtying the
+very tree it was measuring, resetting the counter every run so the gate could never stand down.
+Purview state has the same shape and takes the same placement.
 
 **Disk-backed, deliberately.** The orchestrator is itself subject to compaction, and an in-context
 list of "panes I dispatched" is exactly what a compaction eats.
 
-A pane not in the registry is reported as **unowned**, never silently omitted (§6) and never
-driven. A registry row whose pane is gone from the roster is reported as **stale**.
+**Ownership is detected, not enforced.** Nothing stops two orchestrators writing the same `paneId`
+into their own session-named files. The classifier therefore reads **every** file in
+`~/.claude/pane-purview/`, and a pane claimed by more than one yields `UNDETERMINED` (contested,
+§4.5 rule 2) — reported to both orchestrators rather than driven by either. This is a collision
+*report*, not a lock: two orchestrators reading simultaneously before either writes can still both
+proceed. That residual race is §7 limit 7, and it is why `--fire` revalidates (§5.5) instead of
+trusting classification.
+
+A pane absent from every registry is reported unowned and is never driven. A registry row whose
+pane is gone from the roster is reported stale.
+
+### 5.5 Drive-time revalidation
+
+Classification can be arbitrarily stale by the time `--fire` runs: panes change state continuously.
+So `--fire` **recomputes the full verdict immediately before step 1** and refuses unless:
+
+1. the fresh verdict is `COMPACT` or `FORCE`;
+2. purview still resolves to this orchestrator, uncontested;
+3. the visible screen positively establishes the target is **not** mid-tool-call.
+
+Condition 3 is stated as a **positive** requirement on purpose. Round 1 correctly observed that a
+heuristic which interrupts unless it recognizes a file-writing shape converts an unrecognized write
+into a truncated file — silent corruption, contradicting §6. Inverted, an unrecognized screen is a
+failure to establish condition 3, which demotes to `WAIT` with a surfaced reason. The worst case is
+then a pane that never gets compacted by the orchestrator and auto-compacts on its own schedule,
+which is the pre-existing behavior, not a regression.
+
+A refusal at any condition exits 1 naming the condition, and sends nothing.
 
 ---
 
@@ -284,49 +378,49 @@ driven. A registry row whose pane is gone from the roster is reported as **stale
 
 Per AGENTS.md, a detector brief states all three or the dispatch is blocked at round 1.
 
-**Consequence bound.** Every pane is classified correctly or reported as `UNDETERMINED`, never
-silently driven on a wrong verdict. A conservative demote to `WAIT` or `UNDETERMINED` plus a
-surfaced reason is a **documented limit**, not a finding.
+**Consequence bound.** Every pane is classified correct or signaled — never silently wrong. A pane
+is classified correctly, or reported `UNDETERMINED`/`WAIT` with the reason named; it is never
+driven on a verdict the classifier could not establish. A worst case of conservative demotion plus
+a surfaced reason is a **documented limit**, not a finding.
 
-**Probe domain.** Admissible probes are drawn from: the live `herdr agent list` roster on this
-machine, and the committed fixture corpus at `tests/paneCompaction/fixtures/`. A constructed roster
-more than one ordinary edit away from an input in that set files to §7, not to a round.
+**Probe domain.** Admissible probes come from the live `herdr agent list` roster on this machine
+and the fixture corpus at `tests/paneCompaction/fixtures/`. A constructed roster outside that set,
+or more than one ordinary edit from an input in it, files to §7.
 
 **Threat-model fence.** The classifier defends against an orchestrator misreading its own pane
 roster in ordinary operation. A forged marker, a hostile agent label, or a pane deliberately
-rendering a fake context gauge is **out of scope** and files to §7.
+rendering a fake gauge is out of scope and files to §7.
 
-**Score.** The surface is enrolled in `tests/mutation/source/registry.ts` before the first review
-dispatch; the round-1 diff brief states the mutation score plus an empty unaccepted-survivor set,
-per the `GUARD SURFACE:` line the codex-guard wrapper requires.
+**Score.** Enrolled in `tests/mutation/source/registry.ts` before the first diff dispatch; the
+round-1 diff brief carries the score and an empty unaccepted-survivor set on its `GUARD SURFACE:`
+line.
 
 ---
 
 ## 7. Documented limits
 
-Carried from round 0. Each is a deliberate boundary, not an open defect.
+Each is a deliberate boundary whose worst case is conservative behavior plus a surfaced signal —
+consistent with §6, not an exception to it.
 
-1. **Mid-tool-call interrupts can truncate a file the target was writing.** P3 kills the in-flight
-   call. A target running a script that rewrites files in place — `python3 - <<'PYEOF'` over a spec
-   document, observed live on `chore/heavy-orphan-reaper` during this design — can be left with a
-   half-written file. Mitigation is the §5.2 step 0 read, which demotes to `WAIT` when the visible
-   screen shows a running tool call whose command matches a file-writing shape. This is a
-   heuristic over a display string and is **explicitly not** a guarantee; it is why `--fire`
-   requires a named target and never accepts `--all`.
+1. **A pane whose screen cannot be positively classified is never driven.** §5.5 condition 3 fails
+   closed, so the cost is a missed compaction, not a truncated file. The orchestrator surfaces the
+   reason; the pane auto-compacts on its own schedule as it does today.
 2. **Position is inferred and can be wrong.** The report shows evidence so an operator can
-   overrule; the classifier never claims certainty it does not have.
-3. **The gauge is a five-cell glyph with half-cell resolution.** The finest distinction available
-   is 10% (§4.1). It supports the three bands and nothing finer; a threshold expressed to a
-   percentage point is not representable and must not be specified.
+   overrule; the classifier never claims certainty it lacks.
+3. **The gauge resolution floor is 10%** (§4.2). Thresholds finer than one half-cell are not
+   representable and must not be specified.
 4. **Auto-compaction cannot be prevented, only preempted.** `PreCompact` blocking is undocumented
-   (§2.1). A target can auto-compact between classification and drive; the protocol is idempotent
-   enough to survive it (the checkpoint is still useful, the `/compact` becomes a near no-op).
+   (§2.1). A target can auto-compact between classification and drive; §5.5's revalidation bounds
+   the consequence to a wasted invocation.
 5. **A pane whose Stage 0 agent label was never set is invisible to the roster.** Reported as
-   unlabeled, never silently omitted — but it cannot be driven.
-6. **Vim-mode detection is not attempted.** The unconditional double-Esc (§5.2) makes it
-   unnecessary and removes a configuration read that could itself be wrong.
-7. **Cross-account panes.** The roster spans workspaces, so an orchestrator in one account can see
-   and drive a pane in another. Purview ownership is the only thing preventing that; there is no
+   unlabeled, never silently omitted, but not drivable.
+6. **Vim-mode state is never read.** §5.2 step 3 adapts instead, so no configuration claim is made.
+7. **Purview collision detection is a report, not a lock.** Two orchestrators that both read before
+   either writes can both proceed (§5.4). §5.5's revalidation narrows but does not close the
+   window. Closing it needs an atomic claim, which is deferred — the failure mode is two
+   checkpoint prompts and two compactions on one pane, both of which the target tolerates.
+8. **Cross-account panes.** The roster spans workspaces, so an orchestrator in one account can see
+   panes in another. Purview reporting is the only thing separating them; there is no
    account-level enforcement.
 
 ---
@@ -335,68 +429,73 @@ Carried from round 0. Each is a deliberate boundary, not an open defect.
 
 | Surface | Mechanism |
 | --- | --- |
-| Classifier verdicts | Unit tests over injected roster/git/gh fixtures at `tests/paneCompaction/`. Every verdict in §4.1 including `UNDETERMINED`. |
-| Position gradient | One case per row of §4.2, expected value derived from the fixture, never hardcoded. |
-| CI-green-unmerged hard `WAIT` | Explicit case at critical pressure, proving pressure cannot override it. |
-| Accept-set rejection | Unknown `agent_status`, unparseable gauge, marker missing a declared field — each reported by name. |
-| Purview | Unowned pane reported not omitted; stale row reported; registry read from disk, not context. |
-| CLI envelope | `--json` never capped; `--check` exit codes 0/1/2. |
-| Keystroke sequence | `--drive` dry-run output asserted byte-for-byte against §5.2, including both Esc sends. |
-| Prose pinning | `tests/docs/` meta-test pinning the AGENTS.md contract text, following `tests/docs/_metaAgentsMarkerContract.test.ts`. |
-| Mutation | Enrolled in `tests/mutation/source/registry.ts`; `pnpm mutation:guards` score stated in the round-1 diff brief. |
+| Precedence order (§4.5) | One case per rule, plus the round-1 conflict case: below-band pane with a missing marker field must yield `UNDETERMINED`, not `HOLD`. |
+| Bands (§4.2) | Both boundaries (`t = 5`, `t = 8`) asserted at the `>=` sense, plus all four §3.7 gauges. |
+| Position totality (§4.4) | One case per row **and** a case for row 7, proving no accepted pane falls through. A property test asserts exactly one row matches. |
+| Hard `WAIT` | CI-green-unmerged at critical pressure, proving pressure cannot override. |
+| Accept-set | Unknown status, unparseable gauge, marker missing a declared field — each reported by name. |
+| Purview | Unowned reported not omitted; stale reported; **contested pane yields `UNDETERMINED`**. |
+| Revalidation (§5.5) | Verdict fresh at classification but stale at drive → refuses, exits 1, sends nothing. |
+| CLI envelope | `--json` never capped (fixture larger than any plausible cap; the live roster is ~12 panes, too small to fail against the mutant it names); `--check` exit codes 0/1/2. |
+| Keystroke sequence | Dry-run output asserted byte-for-byte against §5.2 including `CHECKPOINT_TEXT` and `RESUME_TEXT`; the adaptive-Esc loop asserted for 1, 2, and give-up cases. |
+| No-commit contract | The checkpoint text is asserted to instruct against committing — the invariant-1 conflict round 1 found. |
+| Prose pinning | `tests/docs/` meta-test following `tests/docs/_metaAgentsMarkerContract.test.ts`. |
+| Mutation | `tests/mutation/source/registry.ts`; score in the round-1 diff brief. |
 
-Every guard states its premise executably with `premise` / `premiseHolds` from
-`tests/_shared/premise.ts` — a fixture roster large enough to exercise the band it names, and a
-no-defect baseline for every probe.
+Every guard states its premise executably with `premise` (`tests/_shared/premise.ts:26`) or
+`premiseHolds` (`tests/_shared/premise.ts:36`), unconditionally relative to what it guards, and
+proven on the case's own inputs.
 
 ---
 
 ## 9. Acceptance criteria
 
-- **AC-1** `pnpm panes:compact` reports every pane on the live roster with a verdict from §4.1 and
-  its position evidence.
-- **AC-2** Pressure below the band yields `HOLD` regardless of position.
+- **AC-1** `pnpm panes:compact` reports every roster pane with a verdict and its position evidence.
+- **AC-2** Pressure `t < 5` yields `HOLD`, **provided validation (§4.5 rules 1-6) passed**.
 - **AC-3** CI-green-with-PR-unmerged yields `WAIT` at every pressure including critical.
-- **AC-4** An input outside the §4.3 accept-set yields `UNDETERMINED` naming the offending field.
-- **AC-5** A pane absent from the purview registry is reported unowned and is never driven.
+- **AC-4** Input outside the §4.3 accept-set yields `UNDETERMINED` naming the field, and this
+  precedes banding, so AC-2 and AC-4 cannot both claim the same pane.
+- **AC-5** A pane absent from every purview registry is reported unowned and never driven; a pane
+  in two registries yields `UNDETERMINED` contested.
 - **AC-6** `--drive` without `--fire` sends nothing and prints the §5.2 sequence verbatim.
 - **AC-7** `--fire` rejects `--all` and requires a named target.
-- **AC-8** `--check` exits 0 / 1 / 2 per §5.3, and exit 2 is never emitted as an all-clear.
-- **AC-9** The purview registry is read from `~/.claude/pane-purview/`, never from the worktree.
-- **AC-10** The classifier is enrolled in the source-mutation registry with an empty
-  unaccepted-survivor set.
-- **AC-11** A pane in the critical band (§4.1) yields `FORCE` at every position except the hard
-  `WAIT` row of §4.2, and a pane below eligibility yields `HOLD` without position being consulted.
-- **AC-12** The `docs/agents/` write-up and the AGENTS.md pointer exist, and the meta-test in §10
-  fails when either drifts from the other.
+- **AC-8** `--check` exits 0 / 1 / 2 per §5.3; exit 2 is never emitted as an all-clear.
+- **AC-9** The registry is read from `~/.claude/pane-purview/`, never from a worktree.
+- **AC-10** Enrolled in the source-mutation registry with an empty unaccepted-survivor set.
+- **AC-11** Pressure `t >= 8` yields `FORCE` except under §4.5 rules 1-6.
+- **AC-12** The `docs/agents/` write-up and the AGENTS.md pointer exist and the §10 meta-test fails
+  when either drifts.
+- **AC-13** `--fire` recomputes the verdict immediately before sending and refuses, exiting 1
+  without sending, when any §5.5 condition fails.
+- **AC-14** The checkpoint never instructs a commit, and the driver itself never commits.
 
 ---
 
 ## 10. Documentation deliverable
 
-The durable contract is repo-tracked, cross-CLI, and split the way this project already splits its
-process rules — the full write-up loads on demand, AGENTS.md carries only a pointer, and neither
-restates the other, because two copies drift.
+The durable contract is repo-tracked and cross-CLI, split the way this project already splits its
+process rules — the write-up loads on demand, AGENTS.md carries a pointer, and neither restates the
+other, because two copies drift.
 
 ```
-docs/agents/orchestrator-pane-compaction.md   # NEW: the protocol, the bands, the probe findings
-AGENTS.md                                     # + short pointer under cross-cutting discipline
-tests/docs/                                   # + meta-test pinning the pointer against the write-up
+docs/agents/orchestrator-pane-compaction.md   # NEW: protocol, bands, probe findings
+AGENTS.md                                     # + pointer under cross-cutting discipline
+tests/docs/                                   # + meta-test pinning pointer against write-up
 ```
 
-The meta-test follows `tests/docs/_metaAgentsMarkerContract.test.ts`: literal, narrow assertions
-that pin the specific sentences which can drift, one per edit — not a model of the prose. It
-asserts the AGENTS.md pointer names the write-up path, that the write-up states the double-Esc
-requirement (P2 is the finding most likely to be "simplified" away by a later editor), and that
-neither document states a band value contradicting §4.1.
+Following `tests/docs/_metaAgentsMarkerContract.test.ts`: literal, narrow assertions pinning the
+sentences that can drift, one per edit. It asserts the pointer names the write-up path, that the
+write-up states the **adaptive** Esc loop (§5.2 step 3 — the step most likely to be "simplified"
+into a fixed count by a later editor), that the checkpoint's no-commit contract is stated, and that
+neither document carries a band value contradicting §4.2.
 
 ---
 
 ## 11. Out of scope
 
-- Session-side compaction discipline (arc sessions keeping their own marker current). Explicitly
-  deferred by user decision; this spec is orchestrator-side only.
-- Any `PreCompact` or `SessionStart[compact]` hook. Both are per-machine `~/.claude/` config, not
-  repo state, and §2.1 leaves `PreCompact` blocking undetermined.
+- Session-side compaction discipline (arc sessions keeping their own markers current).
+- Any `PreCompact` or `SessionStart[compact]` hook — per-machine `~/.claude/` config, not repo
+  state, and `PreCompact` blocking is undetermined (§2.1).
 - Changing the auto-compaction threshold via `/autocompact`.
 - Compacting the orchestrator itself.
+- An atomic purview claim (§7 limit 7).
