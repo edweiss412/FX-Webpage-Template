@@ -1010,37 +1010,55 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [
       // ---- equivalent: cannot change observable behavior ------------------
+      // Re-derived after the diff R1/R2 repairs reshaped the walkers: label
+      // collection is PARAGRAPH-scoped (line-opening strong children), and
+      // fieldName/beginsWithDecline fire only on paragraph nodes - so every
+      // guard flip below descends into subtrees those recognizers are inert
+      // over. Site ids re-keyed to the post-repair lines.
       {
-        siteId: "logical-connector:68:28:||>&&",
+        siteId: "logical-connector:69:28:||>&&",
         kind: "equivalent",
         reason:
-          'visibleText\'s code/html guard: both node types are mdast LITERALS (a value, no children), so they fail every typed branch below and land on the final `return ""` either way - the guard is clarity, not behavior',
+          'visibleText\'s code/html guard: both node types are mdast LITERALS (a value, no children), so they fail every typed branch below and land on the final `return ""` either way',
       },
       {
         siteId: "logical-connector:117:30:||>&&",
         kind: "equivalent",
         reason:
-          "the inner flip leaves `|| delete` intact, so only code/html stop being skipped - and both are childless literals renderedFieldLabels can extract nothing from (not strong, no children to recurse into)",
+          "renderedFieldLabels' inner flip leaves `|| delete` intact; only code/html stop being skipped, and both are childless literals that are not paragraphs, so the paragraph-scoped collector extracts nothing",
       },
       {
-        siteId: "logical-connector:131:30:||>&&",
+        siteId: "logical-connector:117:54:||>&&",
         kind: "equivalent",
         reason:
-          "same shape in hasNestedMechanizable: code/html are childless literals with no listItem or field paragraph beneath them, so descending finds nothing",
+          "the outer flip lets `delete` descend, but its children are phrasing nodes and collection happens only under a `paragraph` branch - a struck label is skipped as a non-strong paragraph CHILD before the guard is ever consulted (pinned by the struck-label test)",
       },
       {
-        siteId: "statement-removal:191:9:break;>(removed)",
+        siteId: "logical-connector:149:30:||>&&",
         kind: "equivalent",
         reason:
-          "the decline loop's body only ever assigns hasDecline = true; iterating past the first hit can only re-assign the same value",
+          "hasNestedMechanizable's inner flip: code/html are childless literals and fieldName answers null for every non-paragraph node, so descending finds nothing",
       },
       {
-        siteId: "statement-removal:196:11:break;>(removed)",
+        siteId: "logical-connector:149:54:||>&&",
         kind: "equivalent",
-        reason: "same loop, list arm: further iterations can only re-assign true",
+        reason:
+          "the outer flip lets `delete` descend; a delete's children are phrasing nodes, never paragraphs, so fieldName stays null throughout",
       },
       {
-        siteId: "statement-removal:233:5:current = null;>(removed)",
+        siteId: "logical-connector:166:30:||>&&",
+        kind: "equivalent",
+        reason:
+          "declinesAnywhere's inner flip: code/html are childless literals and beginsWithDecline answers false for every non-paragraph node",
+      },
+      {
+        siteId: "logical-connector:166:54:||>&&",
+        kind: "equivalent",
+        reason:
+          "the outer flip lets `delete` descend; its phrasing children are never paragraphs, so beginsWithDecline stays false throughout - the struck-decline fixtures stay green",
+      },
+      {
+        siteId: "statement-removal:258:5:current = null;>(removed)",
         kind: "equivalent",
         reason:
           "both heading branches reassign `current` immediately after their close() call, and after the final close() nothing reads it - the null is hygiene against a future reader, not reachable state",

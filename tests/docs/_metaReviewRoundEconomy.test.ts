@@ -392,6 +392,21 @@ describe("review-round economy gate (spec §7.1)", () => {
     );
   });
 
+  // Diff R2 finding 2: the two conjunction witnesses must not come from
+  // UNRELATED occurrences - a fenced field example (raw anchor) plus a prose
+  // mention (formerly a rendered label) assembled both duties with no rendered
+  // field paragraph anywhere. Line-opening label semantics closes it.
+  it("FAILS a fenced field example paired with a prose mention", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      {
+        path: `${ARC}.md`,
+        body: `## diff — ${ROUND_THRESHOLD} rounds\n\n\`\`\`\n**Examined:** fenced example\n**Mechanizable:** fenced example\n\`\`\`\n\nA live sentence merely mentioning **Examined:** and **Mechanizable:** as labels.\n`,
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+  });
+
   // The compact soft-broken form stays legal under the conjunction: the raw
   // anchor and the rendered label both hold on `**Examined:** a\n**Infra:** b`.
   it("PASSES the compact soft-broken field form", () => {

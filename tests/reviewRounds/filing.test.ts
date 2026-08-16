@@ -245,6 +245,23 @@ describe("mechanizable block analysis (spec §3.1)", () => {
     expect(s?.astExamined).toBe(false);
   });
 
+  // Diff R2 finding 2: a strong run MID-SENTENCE is a mention, never a field -
+  // only a line-opening label witnesses a rendered field line.
+  it("does not read a mid-sentence strong mention as a field label", () => {
+    const s = section(
+      "A paragraph that merely mentions **Examined:** and **Judgment:** as examples.\n\n**Mechanizable:** none\n",
+    );
+    expect(s?.astExamined).toBe(false);
+    expect(s?.astDispositions).toEqual(["Mechanizable"]);
+  });
+
+  // The compact soft-broken form is line-opening and stays a rendered field.
+  it("reads a soft-break line-opening label as a field", () => {
+    const s = section("**Examined:** a\n**Infra:** b\n\n**Mechanizable:** none\n");
+    expect(s?.astExamined).toBe(true);
+    expect(s?.astDispositions).toEqual(["Mechanizable", "Infra"]);
+  });
+
   // A struck-through field is a retraction for the label sets too (kills
   // logical-connector:117:54, under which the walk descends into `delete`).
   it("does not count a struck-through field label", () => {
@@ -314,6 +331,25 @@ describe("mechanizable block analysis (spec §3.1)", () => {
     expect(section(`**Mechanizable:** one candidate\n\n${body}`)?.mechanizable?.hasDecline).toBe(
       true,
     );
+  });
+
+  // Kills equality-flip on beginsWithDecline's paragraph test: skipping the
+  // paragraph level and recursing to its children would read the SECOND text
+  // run of `*not* declined: …` in isolation and declare a negated mention.
+  it("an emphasized negation before declined: still does not declare", () => {
+    expect(
+      section("**Mechanizable:** one candidate\n\n*not* declined: emphasized negation\n")
+        ?.mechanizable?.hasDecline,
+    ).toBe(false);
+  });
+
+  // Kills the removal of renderedFieldLabels' recursion: a field label inside
+  // a rendered container (a blockquote) is still a rendered label. The gate's
+  // raw anchor keeps it from satisfying the duty alone; the parse contract
+  // still reports what renders.
+  it("collects a line-opening label inside a blockquote", () => {
+    const s = section("> **Examined:** quoted but rendered\n\n**Mechanizable:** none\n");
+    expect(s?.astExamined).toBe(true);
   });
 
   // The mention protections survive the recursive walk: struck-through and

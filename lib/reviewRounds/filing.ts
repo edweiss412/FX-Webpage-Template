@@ -29,12 +29,13 @@ export type FilingSection = {
    *  renders for the reader while marker discovery sees nothing, so the corpus
    *  gate rejects it loudly for non-grandfathered filings. */
   nestedMechanizable: boolean;
-  /** Disposition field names RENDERED anywhere in the body (spec R9): a strong
-   *  `**<name>:**` label outside code/html/delete content. The raw-scan
-   *  booleans above are satisfied by fenced/indented/HTML lines the reader
-   *  never sees rendered; these are not. Deliberately wider than the marker
-   *  rule (any rendered position, not only paragraph-initial): the R9 defect is
-   *  non-rendered-ONLY fields, and a field on a soft-broken line is rendered. */
+  /** Disposition field names carried by LINE-OPENING rendered strong labels
+   *  (spec R9; diff R2 finding 2): paragraph-initial, after a soft line break,
+   *  or after a hard break - never mid-sentence, never in code/html/delete
+   *  content. The raw-scan booleans above are satisfied by fenced/indented/
+   *  HTML lines the reader never sees rendered; these witness a real rendered
+   *  field line, so the corpus gate's raw+rendered conjunction cannot be
+   *  assembled from two unrelated occurrences. */
   astDispositions: string[];
   astExamined: boolean;
 };
@@ -102,17 +103,32 @@ function beginsWithDecline(node: RootContent): boolean {
 }
 
 /**
- * Every `**<name>:**` label rendered anywhere in the tree - a strong node whose
- * text ends in a colon, outside code/html/delete content (spec R9). Feeds
- * `astDispositions`/`astExamined`, which the corpus gate uses to reject a
- * NON-grandfathered filing whose only field lines live in non-rendered content.
+ * Every LINE-OPENING `**<name>:**` label in rendered paragraphs (spec R9; diff
+ * R2 finding 2). A strong label counts only when it OPENS a line - it is its
+ * paragraph's first child, or the previous sibling ends with a newline (the
+ * compact soft-broken form), or follows a hard break. A strong run
+ * mid-sentence is a MENTION and never a field, so a fenced example plus a
+ * prose mention can no longer assemble a duty from two unrelated occurrences:
+ * this set alone witnesses a real rendered field line. Fenced, indented, HTML,
+ * and struck-through content stays invisible.
  */
 function renderedFieldLabels(nodes: RootContent[], out: Set<string>): void {
   for (const node of nodes) {
     if (node.type === "code" || node.type === "html" || node.type === "delete") continue;
-    if (node.type === "strong") {
-      const label = visibleText(node as unknown as RootContent, true).trim();
-      if (label.endsWith(":")) out.add(label.slice(0, -1));
+    if (node.type === "paragraph") {
+      const children = node.children;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i]!;
+        if (child.type !== "strong") continue;
+        const prev = i === 0 ? null : children[i - 1]!;
+        const opensLine =
+          prev === null ||
+          prev.type === "break" ||
+          visibleText(prev as RootContent, true).endsWith("\n");
+        if (!opensLine) continue;
+        const label = visibleText(child as unknown as RootContent, true).trim();
+        if (label.endsWith(":")) out.add(label.slice(0, -1));
+      }
     }
     if ("children" in node) {
       renderedFieldLabels((node as Parent).children as RootContent[], out);
