@@ -107,7 +107,7 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The directory runs **126 cases** (28 classify + 24 collect + 63 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 126 are green. Both states observed, both edits reverted.
+- The directory runs **140 cases** (28 classify + 24 collect + 77 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 140 are green. Both states observed, both edits reverted.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
 - Fourteen cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
@@ -861,6 +861,7 @@ import {
   planTargets,
   readCeiling,
   selfAncestry,
+  shouldPrintOutcome,
   stillAlive,
 } from "../../scripts/heavy-reap";
 
@@ -991,6 +992,25 @@ describe("executeKills: AC-5, AC-5b", () => {
     const r = readIdentity(process.pid);
     expect(r.state).toBe("read");
     if (r.state === "read") expect(Object.keys(r.identity).sort()).toEqual(["command", "pid", "startedAt"]);
+  });
+
+  it("K2: an identity differing ONLY in command is not signalled", () => {
+    // startedAt is identical here, so deleting the command comparison makes this the only failing
+    // case - every other K2 case varies startedAt (plan round 13).
+    const signalled: number[] = [];
+    const out = executeKills([10], {
+      identityAtPlan: planned(10),
+      readIdentity: (pid) => ({
+        state: "read",
+        identity: { ...ident(pid), command: "node SOMETHING-ELSE" },
+      }),
+      kill: (pid) => {
+        signalled.push(pid);
+      },
+      stillAlive: () => false,
+    });
+    expect(signalled).toEqual([]);
+    expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "identity-changed" }]);
   });
 
   it("K1: a pid gone BEFORE the identity read is already-gone", () => {
@@ -1145,6 +1165,37 @@ describe("stillAlive: K4's settle, on the production function", () => {
     // makes this fail, which no injected-stub case could detect.
     expect(stillAlive(pid, 8, 50)).toBe(false);
   }, 30_000);
+});
+
+describe("shouldPrintOutcome: §6.2's reporting matrix, every cell", () => {
+  const ALL = [
+    "killed",
+    "already-gone",
+    "failed",
+    "partial",
+    "identity-changed",
+    "identity-unreadable",
+  ] as const;
+
+  it.each(ALL)("without --quiet, %s prints", (result) => {
+    expect(shouldPrintOutcome(result, false)).toBe(true);
+  });
+
+  it.each([
+    ["killed", false],
+    ["already-gone", false],
+    ["failed", true],
+    ["partial", true],
+    ["identity-changed", true],
+    ["identity-unreadable", true],
+  ] as const)("with --quiet, %s prints: %s", (result, printed) => {
+    expect(shouldPrintOutcome(result, true)).toBe(printed);
+  });
+
+  it("suppresses exactly the two plain successes and nothing else", () => {
+    const suppressed = ALL.filter((r) => !shouldPrintOutcome(r, true));
+    expect([...suppressed].sort()).toEqual(["already-gone", "killed"]);
+  });
 });
 
 describe("exitStatus: §6.2", () => {
@@ -1687,6 +1738,19 @@ export function executeKills(targets: readonly number[], deps: KillDeps): KillOu
   return outcomes.sort((a, b) => targets.indexOf(a.pid) - targets.indexOf(b.pid));
 }
 
+/**
+ * §6.2's reporting rule for one kill outcome, as a function so the whole matrix is observable.
+ *
+ * Inline in `main` it was reachable only through cases that could FORCE each outcome end to end,
+ * and K3, K4 and K6 cannot be forced without breaking a real `kill` - so an implementation that
+ * suppressed one of them passed every case (plan round 13). `--quiet` drops the two plain
+ * successes and nothing else.
+ */
+export function shouldPrintOutcome(result: KillOutcome["result"], quiet: boolean): boolean {
+  if (!quiet) return true;
+  return result !== "killed" && result !== "already-gone";
+}
+
 export function exitStatus(state: {
   collectFailed: boolean;
   ceilingRejected: boolean;
@@ -1853,9 +1917,8 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv): number {
   });
   // §6.2: `--kill` reports one KillOutcome line per target. `--quiet` keeps only what an operator
   // must act on - K2, K3, K4, K6 - and drops BOTH plain successes, `killed` and `already-gone`.
-  const plainSuccess = (r: KillOutcome["result"]): boolean => r === "killed" || r === "already-gone";
   for (const o of outcomes) {
-    if (flags.quiet && plainSuccess(o.result)) continue;
+    if (!shouldPrintOutcome(o.result, flags.quiet)) continue;
     say(`heavy-reap: ${o.result} pid=${o.pid}${o.detail ? ` (${o.detail})` : ""}`);
   }
   return exitStatus({ collectFailed: false, ceilingRejected: false, outcomes });
