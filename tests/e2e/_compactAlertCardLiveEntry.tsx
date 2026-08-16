@@ -59,7 +59,7 @@ function ResolveButton() {
     <button
       type="button"
       data-testid="harness-resolve"
-      className="inline-flex min-h-tap-min items-center rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong"
+      className="inline-flex min-h-tap-min items-center rounded-sm border border-text-faint bg-surface px-3 text-sm font-medium text-text-strong"
     >
       {resolveActionLabels(harnessCode()).idle}
     </button>

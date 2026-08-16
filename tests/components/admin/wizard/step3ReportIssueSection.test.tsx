@@ -422,7 +422,7 @@ describe("ReportIssueSection — form mechanics (spec §D3)", () => {
     expect(submitClasses).not.toContain("bg-accent");
     expect(submitClasses).not.toContain("text-accent-text");
     expect(submitClasses).toContain("border");
-    expect(submitClasses).toContain("border-border-strong");
+    expect(submitClasses).toContain("border-text-faint");
     expect(submitClasses).toContain("bg-surface");
     expect(submitClasses).toContain("hover:bg-surface-sunken");
     // Ring-offset color present so the focus halo isn't white in dark mode.
