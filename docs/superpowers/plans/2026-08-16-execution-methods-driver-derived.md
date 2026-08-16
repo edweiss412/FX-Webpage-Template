@@ -49,7 +49,7 @@ The operator families for the new surface are the registry's declared set — `o
 - Create: tests/db/\_\_generated\_\_/postgresExecutionMethods.ts — committed generated module (generator output; never hand-edited).
 - Create: tests/db/executionMethodsManifest.test.ts — guard suite + derivation fixtures.
 - Modify: `tests/db/_destructiveFileAnalysis.ts:541` region — composition + export.
-- Modify: `tests/db/destructiveFileAnalysis.test.ts` — one new fixture (cf), array-on-a-non-client.
+- Modify: `tests/db/destructiveFileAnalysis.test.ts` — one new fixture (cg), array-on-a-non-client.
 - Modify: `package.json` scripts (gen:execution-methods), `scripts/pretest-gen.mjs` MANIFEST, `.github/workflows/x-audits.yml` (freshness step + upload path), `tests/mutation/source/registry.ts` (one row), `BACKLOG.md` / `BACKLOG-archive.md` (closeout).
 
 New test files land in the SERIAL vitest project by default (`vitest.projects.ts:34` BASE_INCLUDE covers tests/db; tests/db is deliberately absent from PARALLEL_TEST_GLOBS) — no partition edit, and the vitest-projects-partition meta-test needs no change.
@@ -384,7 +384,7 @@ git commit -m "infra: generator + committed derived execution-methods module"
 
 **Files:**
 - Modify: `tests/db/_destructiveFileAnalysis.ts` (the `EXECUTION_METHODS` declaration region at `tests/db/_destructiveFileAnalysis.ts:525-543`, plus one import line at the top)
-- Test: tests/db/executionMethodsManifest.test.ts (composition-pin arm), `tests/db/destructiveFileAnalysis.test.ts` (fixture (cf))
+- Test: tests/db/executionMethodsManifest.test.ts (composition-pin arm), `tests/db/destructiveFileAnalysis.test.ts` (fixture (cg))
 
 **Interfaces:**
 - Consumes: `POSTGRES_EXECUTION_CORE` from Task 2.
@@ -422,7 +422,7 @@ In `tests/db/destructiveFileAnalysis.test.ts`, add directly after fixture `(cb)`
 <!-- plan-fences: ignore MANGLED_TEMPLATE — the escaped backticks are correct nesting, not mangling: `sql\`...\`` sits inside the outer `const src = \`...\`` template, so escaping is required. Verified byte-identical against the shipped fixture at tests/db/destructiveFileAnalysis.test.ts:1190. -->
 
 ```ts
-  it("(cf) keeps `.array()` OUT of the execution set -- the behavioral twin of (cb)'s json case", () => {
+  it("(cg) keeps `.array()` OUT of the execution set -- the behavioral twin of (cb)'s json case", () => {
     // Spec 2026-08-16 §2.5: fixture (cb)'s title promises array coverage its body
     // never exercised (spec review R3 finding 3). A discovered file calling
     // `.array()` on a non-client must still pass; if `array` ever entered the
@@ -442,7 +442,7 @@ await sql\`select public.prune_sync_log()\`;`;
 - [ ] **Step 2: Run both suites to verify the new cases fail**
 
 Run: `pnpm vitest run tests/db/executionMethodsManifest.test.ts tests/db/destructiveFileAnalysis.test.ts`
-Expected: the composition-pin arm FAILS (no `EXECUTION_METHODS` export exists at `tests/db/_destructiveFileAnalysis.ts:541` — it is module-private). Fixture (cf) passes already (array was never in the set); it is a regression pin, and its `red` is carried by the arm in the same command.
+Expected: the composition-pin arm FAILS (no `EXECUTION_METHODS` export exists at `tests/db/_destructiveFileAnalysis.ts:541` — it is module-private). Fixture (cg) passes already (array was never in the set); it is a regression pin, and its `red` is carried by the arm in the same command.
 
 - [ ] **Step 3: Compose the set in the analyzer**
 
@@ -476,7 +476,7 @@ export const EXECUTION_METHODS = new Set<string>([
 - [ ] **Step 4: Run both suites plus the full serial-adjacent neighbors to verify green**
 
 Run: `pnpm vitest run tests/db/executionMethodsManifest.test.ts tests/db/destructiveFileAnalysis.test.ts tests/db/_metaDestructiveDbTargetGuard.test.ts`
-Expected: PASS — every pre-existing analyzer fixture unmodified and green (AC-2), the composition pin green, (cf) green.
+Expected: PASS — every pre-existing analyzer fixture unmodified and green (AC-2), the composition pin green, (cg) green.
 
 - [ ] **Step 5: Typecheck and commit**
 

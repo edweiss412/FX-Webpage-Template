@@ -1177,7 +1177,7 @@ await sql\`select public.prune_sync_log()\`;`;
     expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
   });
 
-  it("(cf) keeps `.array()` OUT of the execution set -- the behavioral twin of (cb)'s json case", () => {
+  it("(cg) keeps `.array()` OUT of the execution set -- the behavioral twin of (cb)'s json case", () => {
     // Spec 2026-08-16 §2.5: fixture (cb)'s title promises array coverage its body
     // never exercised (spec review R3 finding 3). A discovered file calling
     // `.array()` on a non-client must still pass; if `array` ever entered the

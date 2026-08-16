@@ -138,6 +138,19 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // deciding suite for any enrolled surface and is therefore not scanned here.
   "tests/mutation/browser/registry.test.ts": 0,
   "tests/mutation/browser/mutate.test.ts": 0,
+  // The execution-methods derivation suite, enrolled by this branch
+  // (BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES). It declares 0, and the
+  // declaration was PROBED rather than guessed: the classifier reported zero
+  // environment-touching tests for this suite before the row existed, which is
+  // why the row reads 0 and not 1. The suite's one read under node_modules is
+  // the version sentinel's `node_modules/postgres/package.json` JSON read, and
+  // a bare `node:fs` read is not provenance to this classifier — the same rule
+  // the browser suites above and the corpus suite are declared 0 under. Every
+  // other arm drives literal type-declaration source strings through a pure AST
+  // function. The sentinel keeps its `premiseHolds` line regardless: it states
+  // the read's premise for the human reader even though the classifier does not
+  // demand it.
+  "tests/db/executionMethodsManifest.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

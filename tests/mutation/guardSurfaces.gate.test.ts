@@ -167,6 +167,13 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repay rather than a number to bump.
   browserRegistry: {},
   browserMutate: { equivalent: 1 },
+  // The execution-methods derivation, enrolled by this branch. EMPTY, and that is
+  // the claim: the first run's single unaccepted survivor
+  // (logical-connector:44:43) was repaid with a fixture rather than blessed, and
+  // the two survivors predicted from reading the source were killed by fixtures
+  // already present. A row appearing here later is a coverage regression to
+  // repair, not a number to update.
+  executionMethodsDerivation: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

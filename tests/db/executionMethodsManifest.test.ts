@@ -77,6 +77,21 @@ describe("deriveExecutionMethods (spec 2026-08-16 §2.1/§2.5)", () => {
     const src = `type JSONValue = string | { toJSON(): PendingQuery<Row[]> };`;
     expect(deriveExecutionMethods(src).core).toEqual([]);
   });
+
+  it("does not collect a PROPERTY signature annotated with a core return type", () => {
+    // Repays the one unaccepted survivor of the first enrolment run,
+    // logical-connector:44:43 (`||` -> `&&` in the member guard). Under that
+    // mutant a PropertySignature no longer short-circuits: `!isMethodSignature`
+    // is true but `!isIdentifier` is false, so the guard stops skipping and
+    // `pending` is collected as an execution method.
+    //
+    // The existing `typed` arm cannot reach this: its annotation is a
+    // FunctionType, so `headIdentifier` returns null and the walk falls through
+    // harmlessly whether or not the guard fired. Only a property whose
+    // annotation is ITSELF a core head discriminates the two.
+    const src = `interface ISql { pending: PendingQuery<Row[]>; }`;
+    expect(deriveExecutionMethods(src).core).toEqual([]);
+  });
 });
 
 describe("generated execution-methods module (spec §2.4)", () => {
@@ -93,6 +108,14 @@ describe("generated execution-methods module (spec §2.4)", () => {
   });
 
   it("disjointness: no parameter member is in either half of the composition", () => {
+    // Without this the arm is a loop over a possibly-empty array: an empty
+    // POSTGRES_PARAMETER_MEMBERS makes it pass vacuously, and forever. Spec §2.4
+    // arm 4 reasons about vacuity but closes only the empty-CORE vector; it
+    // makes no claim about this array (BL-GUARD-PREMISE-REACHABILITY).
+    premiseHolds(
+      "the derivation produced parameter members to test disjointness against",
+      POSTGRES_PARAMETER_MEMBERS.length > 0,
+    );
     for (const name of POSTGRES_PARAMETER_MEMBERS) {
       expect(POSTGRES_EXECUTION_CORE).not.toContain(name);
     }
@@ -123,6 +146,12 @@ describe("generated execution-methods module (spec §2.4)", () => {
   });
 
   it("disjointness covers the hand list too", () => {
+    // Same vacuity vector as the arm above: an empty POSTGRES_PARAMETER_MEMBERS
+    // would make this loop assert nothing while still reporting green.
+    premiseHolds(
+      "the derivation produced parameter members to test the hand list against",
+      POSTGRES_PARAMETER_MEMBERS.length > 0,
+    );
     for (const name of POSTGRES_PARAMETER_MEMBERS) {
       expect(EXECUTION_METHODS.has(name)).toBe(false);
     }
