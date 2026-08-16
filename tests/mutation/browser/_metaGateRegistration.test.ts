@@ -30,6 +30,22 @@ const ROOT = process.cwd();
 const GATE = "tests/mutation/browser/browserSurfaces.gate.test.ts";
 const source = readFileSync(join(ROOT, GATE), "utf8");
 
+/**
+ * The gate's EXECUTABLE text: comments and test titles removed.
+ *
+ * Every scan below runs against this rather than the raw file, and that is the
+ * class-level repair for a defect round 3 found in ONE of them — a check whose
+ * pattern the surrounding prose could satisfy on its own. The same weakness sat
+ * in the sibling scans for `runBrowserSurface(` and `runBrowserControl(`, where
+ * a comment naming the call would have kept them green after the call was
+ * deleted. Prose is not a predicate; strip it once, centrally, so a future scan
+ * added here inherits the property instead of re-deriving it.
+ */
+const code = source
+  .replace(/\/\*[\s\S]*?\*\//g, " ")
+  .replace(/(^|[^:])\/\/[^\n]*/g, "$1")
+  .replace(/(it|describe)\((["'`])[\s\S]*?\2/g, "$1(<title>");
+
 describe("the browser gate still registers the work it claims to run", () => {
   it("reads a non-trivial gate file (anti-vacuity for every scan below)", () => {
     // A missing or emptied file would make every `toMatch` below fail loudly
@@ -51,10 +67,10 @@ describe("the browser gate still registers the work it claims to run", () => {
       "the registry has surfaces to iterate; an empty one would make this vacuous",
       BROWSER_SURFACES.length > 0,
     );
-    expect(source, "the gate must fan out over BROWSER_SURFACES").toMatch(
+    expect(code, "the gate must fan out over BROWSER_SURFACES").toMatch(
       /describe\.each\(\s*BROWSER_SURFACES/,
     );
-    expect(source, "the per-surface block must actually run the surface").toMatch(
+    expect(code, "the per-surface block must actually run the surface").toMatch(
       /runBrowserSurface\(/,
     );
   });
@@ -64,16 +80,33 @@ describe("the browser gate still registers the work it claims to run", () => {
     // the control never runs; drop the assertion inside it and the case passes
     // having asserted nothing. A dead overlay is then indistinguishable from a
     // perfect run, which is the failure the control exists to make impossible.
-    expect(source, "the control must be invoked").toMatch(/runBrowserControl\(/);
-    expect(source, "and its result must be asserted KILLED, not merely computed").toMatch(
+    expect(code, "the control must be invoked").toMatch(/runBrowserControl\(/);
+    expect(code, "and its result must be asserted KILLED, not merely computed").toMatch(
       /expect\([\s\S]{0,200}runBrowserControl\([\s\S]{0,200}\)[\s\S]{0,200}\.toBe\("KILLED"\)/,
     );
   });
 
-  it("asserts the run left every mutant target byte-identical", () => {
+  it("asserts the run left every mutant target byte-identical — the CALL, not the wording", () => {
     // The overlay serves mutant text from memory; a rewrite that patched files
     // in place would pass every scoring assertion while a crash could strand a
     // mutant on disk. Deleting this check is silent by construction.
-    expect(source).toMatch(/byte-identical|\.equals\(/);
+    //
+    // This case was itself vacuous for one round (diff review round 3). It read
+    // `/byte-identical|\.equals\(/` — an ALTERNATION, so the phrase
+    // "byte-identical" in the surrounding test TITLE satisfied it while the
+    // executable assertion underneath was deleted. Prose is not a predicate: the
+    // pin has to be the call that does the comparing, and the title is now
+    // explicitly disqualified from carrying it.
+    premiseHolds(
+      "the executable view kept the code and dropped the prose",
+      code.includes("readFileSync") && !code.includes("byte-identical"),
+    );
+    expect(
+      code,
+      "the byte check must be an .equals() comparison of the file against its captured bytes",
+    ).toMatch(/expect\(\s*readFileSync\([^)]*\)\.equals\(/);
+    expect(code, "and its result must be asserted true").toMatch(
+      /\.equals\([\s\S]{0,200}\.toBe\(true\)/,
+    );
   });
 });
