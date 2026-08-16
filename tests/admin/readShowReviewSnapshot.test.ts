@@ -114,10 +114,14 @@ describe("readShowReviewSnapshot", () => {
     if (!call) throw new Error("expected a log.error call");
     const fields = call[1] as Record<string, unknown>;
     expect(fields.source).toBe("admin.showReview.snapshot");
-    // The fatal path's own error must be READABLE: passing the raw PostgREST
-    // object here renders as '[object Object]' (lib/log/serializeError.ts's
-    // non-Error arm), which is exactly what made the CI 502 undiagnosable —
+    // The fatal path's own error must be READABLE. Passing the raw PostgREST
+    // object here USED to render as '[object Object]' (lib/log/serializeError.ts's
+    // old non-Error arm), which is exactly what made the CI 502 undiagnosable —
     // spec docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md §2.4.
+    // That arm is structural since fix/serialize-error-structure, so this pin now
+    // holds a RETAINED site-local extraction choice (spec
+    // docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md §1.1.6):
+    // it asserts `fields.error` BEFORE serialization, so it is untouched either way.
     expect(fields.error).toBe("permission denied");
     expect(fields.pgrstCode).toBe("42501");
     expect(fields.pgrstDetails).toBe("fixture details");
