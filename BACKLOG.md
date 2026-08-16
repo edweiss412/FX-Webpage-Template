@@ -62,23 +62,34 @@ The under-count is recorded at its declaration site rather than hidden: the `EXP
 
 ## BL-SHELL-BINDING-MIXED-QUOTED-VALUE — an assignment whose value mixes a quoted segment with a bare one is not read as a binding
 
-**Status:** OPEN · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the mutation-enrolment disposition of `relational-boundary:2167:54`). **Severity:** LOW (guard recall; the miss needs a value spelled as two adjacent segments). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair redesigns the assignment-binding pattern family, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — command and output below.
+**Status:** OPEN · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the mutation-enrolment disposition of `relational-boundary:2167:54`; corrected the same day after cross-model review r2). **Severity:** LOW (guard recall; the miss needs a value spelled as two adjacent segments). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair redesigns the assignment-binding pattern family, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — command and output below.
 
-`scanShellIndirection`'s binding patterns (`ASSIGNED_VALUE_QUOTED`, `ASSIGNED_WHOLE_QUOTED`, `tests/cross-cutting/psqlStartupFiles/scan.ts`) model an assignment value as EITHER wholly quoted or wholly bare: the value alternation is `(["']?)` + `PSQL_VALUE` + the same delimiter + `(?:[\s;|&)]|$)`, and `PSQL_VALUE` is `[^\s"';|&]*`, a class that excludes both quote characters. A shell value spelled as adjacent segments — `PG='psql'x`, `PG=p'sql'`, `export 'PG=psql'\` — is one word to the shell and unreadable to those patterns, so the binding is missed:
+`scanShellIndirection`'s binding patterns (`ASSIGNED_VALUE_QUOTED`, `ASSIGNED_WHOLE_QUOTED`, `tests/cross-cutting/psqlStartupFiles/scan.ts`) model an assignment value as EITHER wholly quoted or wholly bare: the value alternation is `(["']?)` + `PSQL_VALUE` + the same delimiter + `(?:[\s;|&)]|$)`, and `PSQL_VALUE` is `[^\s"';|&]*`, a class that excludes both quote characters. A value spelled as adjacent segments is ONE WORD to the shell and unreadable to those patterns, so a binding whose reassembled value IS the psql command goes unreported:
 
 ```
-$ pnpm exec tsx probe-2167.ts
-{"label":"quoted value, no backslash","text":"PG='psql'","hits":1}
-{"label":"mixed quoting, no backslash (same class)","text":"PG='psql'x","hits":0}
-{"label":"quoted value, dangling backslash at EOF","text":"PG='psql'\","hits":0}
-{"label":"whole-arg quoted, dangling backslash at EOF","text":"export 'PG=psql'\","hits":0}
+$ pnpm exec tsx probe-mixed.ts
+{"label":"bare value, the baseline","text":"PG=psql","shellValue":"psql","hits":1}
+{"label":"wholly quoted value","text":"PG='psql'","shellValue":"psql","hits":1}
+{"label":"quoted then bare, reassembles to psql","text":"PG=p'sql'","shellValue":"psql","hits":0}
+{"label":"bare then quoted, reassembles to psql","text":"PG='p'sql","shellValue":"psql","hits":0}
+{"label":"double-quoted split, reassembles to psql","text":"PG=\"ps\"ql","shellValue":"psql","hits":0}
+{"label":"quoted path prefix, reassembles to a psql path","text":"PG='/usr/bin/'psql","shellValue":"/usr/bin/psql","hits":0}
 ```
 
-Real bash disagrees with all three misses — `printf "PG='psql'\\" > f; . ./f` leaves `PG=psql\`, and `bash -n f` reports no syntax error — so each is a binding the guard does not report.
+Bash confirms each reassembly, so each zero above is a binding the guard does not report:
 
-Surfaced while dispositioning the mutation survivor `relational-boundary:2167:54` (the `spliced` backslash-continuation bound). That mutant is distinguishable from the original ONLY on inputs of this shape, which is why it is enrolled as the surface's single `accepted-gap` row rather than an equivalence: a case that reds it would be pinning THIS gap, not that bound. Closing this row makes that mutant genuinely equivalent, at which point its ledger row is regraded rather than deleted.
+```
+$ for v in "PG=p'sql'" "PG='p'sql" 'PG="ps"ql' "PG='/usr/bin/'psql"; do
+    printf '%s\n' "$v" > f; bash -c ". ./f; printf '<%s>\n' \"\$PG\""; done
+<psql>
+<psql>
+<psql>
+</usr/bin/psql>
+```
 
-**What would close it:** read an assignment value as a CONCATENATION of quoted and bare segments (the same shape `lexShellWords` already implements for command words) instead of as one delimiter-matched span, and pin the three spellings above plus `PG=p'sql'` in the deciding suite. The lexer is the natural source of truth — the patterns exist because the binding rules run per line before words exist, so the alternative is routing them through the lexer rather than widening the regex family one spelling at a time.
+**What is NOT this gap, recorded because the first version of this entry got it wrong.** `PG='psql'x` and `PG='psql'\` are also missed, and both misses are CORRECT: the shell reads those values as `psqlx` and `psql\`, neither of which is the psql command. The entry originally listed them as instances and cited them to justify enrolling `relational-boundary:2167:54` as the surface's single `accepted-gap` row — the argument being that any case reddening that mutant would pin this gap instead of that bound. Cross-model review refuted it: the trailing-backslash-at-EOF case is decided by the SHELL, not by these patterns, so a zero there is contract-derived and kills the mutant honestly. That mutant is killed by a test, the surface carries no accepted gap, and this row now stands on its own recall evidence.
+
+**What would close it:** read an assignment value as a CONCATENATION of quoted and bare segments (the same shape `lexShellWords` already implements for command words) instead of as one delimiter-matched span, and pin all four reassembling spellings above in the deciding suite — together with the two whose zero must SURVIVE the repair (`PG='psql'x`, `PG='psql'\`), since a fix that reports those has traded a recall gap for a false positive. The lexer is the natural source of truth — the patterns exist because the binding rules run per line before words exist, so the alternative is routing them through the lexer rather than widening the regex family one spelling at a time.
 
 ## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
 

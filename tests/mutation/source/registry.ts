@@ -1414,11 +1414,15 @@ export const GUARD_SURFACES: GuardSurface[] = [
     sourcePath: "tests/cross-cutting/psqlStartupFiles/scan.ts",
     suitePaths: ["tests/cross-cutting/psqlStartupFileSuppression.test.ts"],
     operators: ["relational-boundary", "regex-quantifier-bound"],
-    // Achieved 29/30 counted (48 mutants, 18 equivalent, 1 accepted-gap) after
-    // the 2026-08-16 disposition arc, rounded DOWN to two decimals. The floor is
-    // a FLOOR, not a snapshot: the ratchet against silent regression is the
-    // empty unaccepted set plus the declared kind counts, not this number.
-    scoreFloor: 0.96,
+    // Achieved 30/30 counted (48 mutants, 18 equivalent, NO accepted gap) after
+    // the 2026-08-16 disposition arc. The last accepted-gap row came off during
+    // cross-model review, which refuted its argument with a separating input the
+    // shell decides — so the surface declares 1, matching the other surfaces
+    // whose ledgers carry no counted survivor. The floor is a FLOOR, not a
+    // snapshot: the ratchet against silent regression is the empty unaccepted
+    // set plus the declared kind counts, and at 1 a future accepted gap must
+    // move this number rather than hide under headroom.
+    scoreFloor: 1,
     // `--no-psqlrc` recognition: the suite pins [["--no-psqlrc"], true]
     // directly, so a flipped verdict is unmissable. The bare string occurs four
     // times in the file, so the anchor is the whole guard expression, which
@@ -1551,14 +1555,16 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason:
           "`range` is the run VALUE node's range and `keyRange` its own key's, and equality between them is unreachable: in a block mapping the key's characters and the ':' separator occupy the offsets before the value, so a non-alias value starts strictly after its key, while an alias resolves to an anchor defined elsewhere in the document - never at the byte offset this pair's key scalar occupies. The `?? 0` fallback cannot produce equality either, because a pair produced by parseDocument always carries a key range; it is defensive against the optional chain, not a reachable state (scan.ts, symbol scanWorkflowIndirection, the alias anchor comparison). Boundary pin: 'an aliased run body resolves, and its site is pinned to the run key'.",
       },
-      // ---- accepted-gap: the surface's only one (spec §2.3 exception (c)) --
-      {
-        siteId: "relational-boundary:2167:54:<><=",
-        kind: "accepted-gap",
-        reason:
-          "Distinguishable, but only on inputs that also exercise a separate pre-existing limitation. The extra iteration is reachable only when the final element of `lines` ends with a backslash, and all it does is delete that backslash. Where the assignment value is BARE, the patterns read it identically with or without that trailing backslash (probed: one hit each), so the only separating inputs put the backslash immediately after a value's CLOSING QUOTE - and there ASSIGNED_VALUE_QUOTED and ASSIGNED_WHOLE_QUOTED fail because their value alternation models a value as wholly quoted OR wholly bare. That failure has nothing to do with this bound: a quoted value followed by one bare character, carrying no backslash and no continuation at all, is missed identically (probed: zero hits). A case that reds this mutant would pin THAT gap rather than this bound, and closing it redesigns the assignment-binding pattern family, a surface this arc does not otherwise touch (scan.ts, symbol scanShellIndirection). The four concrete spellings are enumerated in the ledger entry, which is markdown and therefore outside the scanner's own walk - writing them here made this file a reported binding. Boundary pin: 'a single-word quoted binding is detected'.",
-        ref: "BL-SHELL-BINDING-MIXED-QUOTED-VALUE",
-      },
+      // The surface carries NO accepted gap. It carried one - the `spliced`
+      // continuation bound at relational-boundary:2167:54 - and cross-model
+      // review refuted the argument: the arc reasoned that every separating
+      // input also exercises the assignment patterns' wholly-quoted-or-wholly-
+      // bare limitation, but the expected value is the SHELL's, not the
+      // patterns'. A backslash at end of input escapes nothing and stays
+      // literal, so that assignment binds a value which is not the psql command
+      // and no site is correct; the mutant deletes the backslash and reports one.
+      // It is killed by a test now. A row appearing here later is a new family
+      // owing its own filing and its own floor edit, not a number to bump.
     ],
   },
 ];

@@ -4583,12 +4583,29 @@ describe("enrolment survivors - batch D", () => {
     expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Boundary pin for the relational-boundary:2167:54 ACCEPTED-GAP row (the
-  // `spliced` continuation join). Every input that separates the mutant from
-  // the original puts a bare backslash immediately after a closing quote, which
-  // the assignment patterns cannot read for an independent reason. The pin is
-  // the ordinary spelling those patterns DO read.
-  test("a single-word quoted binding is detected", () => {
+  // Kills relational-boundary:2167:54 (`k + 1 < lines.length` widened to `<=` in
+  // the `spliced` continuation join). Found by cross-model review r2, which
+  // refuted the accepted-gap row this arc first wrote for the site: the arc
+  // argued that every separating input also exercises the assignment patterns'
+  // wholly-quoted-or-wholly-bare limitation, so a case that reds the mutant
+  // would pin THAT gap instead. It does not, because the expected value here is
+  // derived from the shell rather than from what the patterns happen to read.
+  //
+  // A backslash escapes the character that follows it, and at end of input there
+  // IS no following character — so it stays literal. `PG='psql'\` with no
+  // trailing newline assigns the value `psql\`, which is not the psql command:
+  // nothing is bound and no site is correct. The widened bound takes one more
+  // iteration at `k + 1 === lines.length`, appends the empty string and DELETES
+  // that trailing backslash, leaving `PG='psql'` — so the mutant reports a
+  // binding the shell never makes. A future repair of the quoting limitation has
+  // to keep these zeros for the same reason, which is what makes them a contract
+  // and not a snapshot.
+  test("a trailing backslash at end of input is literal, so it binds nothing", () => {
+    expect(scanShellIndirection("PG='psql'\\", "x.sh")).toHaveLength(0);
+    expect(scanShellIndirection("export 'PG=psql'\\", "x.sh")).toHaveLength(0);
+    // The premise, and the old row's boundary pin: the same assignment WITHOUT
+    // the trailing backslash IS read, so the zeros above are attributable to the
+    // backslash rather than to a fixture family that never reaches the patterns.
     expect(scanShellIndirection("PG='psql'\n", "x.sh").length).toBeGreaterThan(0);
   });
 
