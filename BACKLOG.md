@@ -8,6 +8,34 @@ Last reconciled: 2026-08-15 — `feat/spec-lint-intent-red` graduated `BL-SPEC-L
 
 ---
 
+## BL-PSQL-SCAN-MUTATION-ENROLMENT — the psql startup-file scanner is measurable now, and scores 0.354
+
+**Status:** OPEN · **Filed:** 2026-08-15 (`fix/local-harness-false-failures`, from that arc's own enrolment probe) · **Class:** guard coverage · **Effort:** M · **Class-sweep exception:** (a) — the disposition of 31 survivors is a judgment call the filing PR cannot settle, ratified by the user against repaying in-branch. · **Reachability:** PROBED — the numbers below are a real run, not an estimate.
+
+`tests/cross-cutting/psqlStartupFiles/scan.ts` is registry-expressible (an importable module with a deciding suite, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`) and is still NOT enrolled. The arc that would have enrolled it ran the probe instead, and the probe says enrolment is its own piece of work.
+
+**Two findings, one shipped and one filed here.**
+
+The surface was not measurable at all until a harness defect was repaired. `runSuite` (`tests/mutation/source/runner.ts`) and `childRun` (`tests/mutation/source/childRun.ts`) both piped the child's output into Node's 1 MB default `maxBuffer` and never read it — the exit status is the only signal either consumes. One mutant reds enough of this surface's 789-case suite that the failure dump alone overruns 1 MB, so Node SIGTERMed the child and the whole run died scoring nothing:
+
+```
+MutantRunInfraError: mutation run produced no exit status for
+relational-boundary:2250:59:>>>= [tests/cross-cutting/psqlStartupFileSuppression.test.ts]
+(signal=SIGTERM, code=ENOBUFS)
+```
+
+That is FIXED and shipped in the same arc (`9edf520d1`): the output is discarded, removing the cap outright instead of trading it for a bigger number to outgrow. Any high-output surface was unenrollable before it.
+
+**With measurement possible, the scoped subset scores 0.3542 — 17 of 48 killed, 31 unaccepted survivors** (27 `relational-boundary`, 4 `regex-quantifier-bound`; operators scoped to those two for wall clock — the full set is 987 sites ≈ 11 h, this subset 48 sites ≈ 20 min measured). The survivors are a genuine MIX, which is why they cannot be blessed in bulk:
+
+- `scan.ts:1749` `index > 0` → `>= 0` falls through to `basename(before[-1] ?? "")` — plausibly EQUIVALENT.
+- `scan.ts:523` `token.length > 1` → `>= 1` admits a bare `-` token into the flag-cluster branch — looks like a REAL coverage gap.
+- `scan.ts:1792` `/^-{1,2}[A-Za-z0-9]/` → `{1,3}` accepts `---x` as a flag; `scan.ts:581`'s `l < to.line && l < out.length` → `<=` is an off-by-one on a comment-range loop. Both need reading before either is called.
+
+**Why filed rather than repaired in the arc that found it — exception (a).** Dispositioning 31 sites is per-site analysis across a 2968-line scanner, each iteration costing a gate re-run, and the outcome is a judgment about what the suite SHOULD pin — not a mechanical repair the finding PR can settle. Enrolling anyway at a `scoreFloor` of 0.35 with 31 blessed `accepted-gap` rows was considered and REJECTED by the user: that is the symbolic enrolment AGENTS.md convergence bullet 4 forbids, since a floor that low asserts almost nothing while each blessed row is still a claim owing a reason.
+
+**First scheduled step:** read the 31 survivors, kill the real gaps with suite cases, mark the true equivalents with reasons, then enrol with `scoreFloor` at the achieved score. The full survivor list is in the arc's diff-review record; regenerate it with `pnpm heavy pnpm mutation:guards` after adding the row. Spec context: `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.3 re-disposition note.
+
 ## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
 
 **Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today.
@@ -490,22 +518,29 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/observ
 
 **Sweep status (2026-07-24/25).** Every item below was re-verified against live code, and citations that had rotted were corrected in place — several were badly stale (`AlertBanner.tsx` deleted, `PerShowAlertSection.tsx` deleted, a 9-code registry that is now 20, line numbers shifted). One item closed as obsolete (`BL-WATCH-ERROR-MESSAGE-RAW-DIAGNOSTIC`, since graduated to `BACKLOG-archive.md`). **Four** cross-model review rounds then caught further errors in the sweep itself, so treat the corrected text as verified but not sacred. The misses: a `grep -l` that matched a comment instead of a consumer; a nonexistent `shows.last_error_message`; a literal-attribute census that undercounted a dynamically-spread family by four; a "no live render exists" claim contradicted by an existing seeded e2e path; several citations pointing at an import, comment, JSDoc, or projection string rather than the executable binding; a component path copied from a review without resolving its directory; and a route prescription naming three renderers where the same section had already established four. **When picking up any item here, re-verify its citations before acting on them** — that is the whole lesson of this section. Working order for the rest: ~~PR2 `BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y`~~ (CLOSED, PR #592), ~~PR3 `BL-AGENDA-PERDAY-VIEWER-FILTER`~~ (CLOSED, PR #610), ~~PR4 `BL-SCAN-SSE-BODY-NULL-CODE`~~ (CLOSED, PR #621), ~~PR5 `BL-PICKER-TAMPER-ADMIN-ALERT`~~ (CLOSED, PR #623), ~~PR6 `BL-ALERT-ACTION-LINKS-E2E`~~ (CLOSED, PR #624 — the residual-sweep working order is COMPLETE). `BL-HEALTH-RESOLVE-DB-LOCKDOWN` stays an accepted risk, deliberately and not by omission. `BL-STEP3-IMPECCABLE-LIVE-RENDER` was unscheduled here and SHIPPED 2026-08-02 on `test/step3-live-render-cluster` (graduated to `BACKLOG-archive.md`).
 
-### BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal
+### BL-THEME-NOTE-NO-DISMISS-AFFORDANCE — the persist-failure note cannot be dismissed, and a permanently-blocked device keeps it up all visit
 
-**Severity:** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S
+**Status:** OPEN · **Severity:** LOW · **Class:** UX signal · **Filed:** 2026-08-16 (`feat/theme-persistence-note`, impeccable critique P1) · **Effort:** S
 
-**Probed, not theorized.** With `localStorage.setItem` throwing (restrictive in-app browser, private mode, third-party-storage block):
+**Probed at implementation time, not theorized.** The note renders whenever `persistFailed` is true and clears only when a later write SUCCEEDS (`components/layout/useAppliedTheme.ts`). On a device where storage is blocked for the whole session — the entry that produced this feature named embedded webviews with storage partitioning — no later write can succeed, so the anchored bubble stays under the toggle until the page unloads, overlaying whatever sits beneath it.
 
-```
-after-toggle-with-storage-blocked: dark:dark  stored null
-next-load/os-light:                light
-```
+Spec `docs/superpowers/specs/2026-08-15-theme-persistence-note-design.md` §4 limit 5 accepts the overlay as the price of not displacing three differently-engineered consumer rows, and bounds it (it appears only after the user taps the control directly above it, is at most three short lines, and clears on recovery). What it does not answer is whether the note should be dismissible.
 
-The user picks dark, the page turns dark, and the next load is light again with nothing said.
+**Why it is filed rather than fixed here.** A dismiss control is a product decision, not an implementation detail: it needs its own copy, a 44px tap target inside a `max-w-36` bubble, an a11y contract (a close button inside a `role="status"` region announces itself), and a rule for whether dismissal survives a later failure. Class-sweep disposition exception (a): needs a product decision.
 
-**Why it is filed rather than fixed here.** `components/layout/useAppliedTheme.ts` absorbs the write failure deliberately — throwing would take the whole control down over a preference, and the fallback (follow the OS) is the conservative answer. What is missing is the SIGNAL, and what the signal should say is a product-copy decision this arc cannot settle: a toast is heavy for a preference, an inline note next to a toggle inside a popover has nowhere to live, and "your browser will not remember this" is the kind of technical explanation `PRODUCT.md` §5 rules out of the UI. Class-sweep disposition exception (a): needs a product decision.
+**Reachability:** PROBED — same reachability as the parent entry (any storage-partitioned webview).
 
-**Reachability:** PROBED — the failure mode is reachable in any embedded webview with storage partitioning, which is exactly where crew open a link from a group thread.
+---
+
+### BL-THEME-NOTE-BUBBLE-TEXT-ALIGN — the note bubble right-aligns copy the width math wraps to three lines
+
+**Status:** OPEN · **Severity:** LOW · **Class:** UX polish · **Filed:** 2026-08-16 (`feat/theme-persistence-note`, impeccable critique P2) · **Effort:** XS
+
+The bubble's chrome carries `text-right` (spec §2.2 class list, shipped verbatim in `components/layout/ThemeToggle.tsx`). The same spec section derives `max-w-36` from the tightest consumer and states the copy wraps to three short lines at 320px. Right-aligned multi-line body copy gives every line a different starting x, which is the readability case against it — and it lands hardest exactly where the width was engineered tightest.
+
+**Why it is filed rather than fixed here.** `text-right` is part of a ratified spec class list, and invariant 7 makes the spec canonical: changing a ratified visual contract mid-arc is not the implementer's call. The fix is one class (`text-right` to `text-left`, or dropping it) plus the spec §2.2 edit that ratifies it.
+
+**Reachability:** PROBED — the wrap is the spec's own width derivation; the alignment is visible on any failed persist at 320px.
 
 ---
 
@@ -789,24 +824,6 @@ restructures the effect body. Micro-optimisation otherwise.
 
 ---
 
-## BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS — the psql startup-file scan walks `.next-*` build outputs and blows the stack
-
-**Status:** OPEN · **Severity:** MEDIUM (a whole guard suite is red locally for a reason unrelated to any change; the failure names a TypeScript internal, not the cause) · **Class:** guard robustness · **Effort:** S · **Filed:** 2026-08-11
-
-**Probed 2026-08-11 on `fix/help-tour-hydration`**, where the suite failed 19/745 with `RangeError: Maximum call stack size exceeded` inside `tests/cross-cutting/psqlStartupFiles/scan.ts:535`, on a tree whose only source changes were one MDX page and CI wiring. Bisecting by reverting each changed file to `origin/main` left it red; the cause was never in the diff.
-
-`IGNORED_AT_ROOT` (`tests/cross-cutting/psqlStartupFiles/scan.ts:315`) lists `.next` but not the sibling output directories this repo's own tooling writes: `playwright.config.ts` and the screenshot/flip scripts build into **`.next-dev`, `.next-prod`, `.next-prod-flip`, and `.next-screenshots-help`**. Those are walked. An AST-depth probe over the walk's own directory rules found 6516 files, of which twelve are ~12 MB webpack chunks the walk skips only by luck of the parse, and several bundled files reach an AST depth of 4342 — the recursive `visit` at `:535` overflows long before the guard reaches a psql call site.
-
-Moving the four directories outside the repo and re-running takes the same suite to **745 passed** with no other change. Same command, same tree.
-
-**Why it matters more than a local annoyance.** The failure mode is silent misattribution: the stack trace names `typescript.js` and the scan's own line 535, so the reader's first hypothesis is their own diff. That cost a bisect on this arc. Worse, the walk is the guard's completeness claim — a walk that dies partway through has not certified the tree, and 19 red tests are the only thing standing between that and a false green if the overflow were ever caught and swallowed.
-
-**Why it is filed rather than repaired in the arc that found it — exception (c).** The repair is on a guard surface this PR does not otherwise touch, and this particular guard's review history (its own test names run to "R40 escaping mutants") is precisely about enumerated recognizers not terminating. Adding four literals to an enumerated ignore list is the shape that invites the next round to ask for a derived one. It deserves its own arc, where the derivation question can be answered properly.
-
-**The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
-
----
-
 ## Merged from the plans backlog (2026-08-02)
 
 `docs/superpowers/plans/BACKLOG.md` was a second, disjoint `BL-` registry: 53 entries under
@@ -995,27 +1012,6 @@ override on the shared harness would do it), or a decision about obstacle 2. Unt
 docblock states the gap rather than papering over it.
 
 ---
-
-## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown
-
-**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
-
-The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
-back to the clamped tier rather than showing "Image unavailable"
-(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
-The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
-nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
-again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
-backwards from the usual one.
-
-**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
-`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
-keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
-entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
-shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
-the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
-(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
-up first — one decision covers both.
 
 ## BL-DIAGRAMS-ANNOUNCE-CHANNEL-TTL — two crew announce channels ship without the pruning their own module prescribes
 

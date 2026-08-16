@@ -141,6 +141,7 @@ affordance is a fill or a border keep it as-is.
 | `--color-text-faint` as OUTLINE vs `--color-surface`  | 3.35:1 | 3.76:1 | ≥3:1 non-text (SC 1.4.11) — the secondary action button's boundary on a card fill (§1.2a control-outline rule); pinned by tests/styles/secondary-action-contrast.test.ts |
 | `--color-text-faint` as OUTLINE vs `--color-surface-sunken` | 3.02:1 | 4.11:1 | ≥3:1 non-text — same button on the attention plate; light clears with a thin margin, so any `text-faint` or `surface-sunken` retune re-checks this row |
 | `--color-text-faint` as OUTLINE vs `--color-bg`       | 3.21:1 | 4.00:1 | ≥3:1 non-text — same button on the page ground |
+| `--color-text-subtle` on `--color-surface-raised`  | 6.76:1 | 5.97:1 | AA body (≥4.5:1) — the theme persist-failure note bubble (spec 2026-08-15-theme-persistence-note §2.2) and any other raised-surface caption; pinned in `tests/styles/status-token-contrast.test.ts` |
 | `--color-text-faint` as OUTLINE vs `--color-surface-raised` | 3.35:1 | 3.53:1 | ≥3:1 non-text — popover and modal surfaces, pinned so a raised-surface control is not an unmeasured fourth ground |
 
 **Method note (D6):** ratios use the standard WCAG 2.x relative-luminance formula. The two `--color-text-subtle` rows above were recomputed against that formula (the previous light-on-bg `7.8:1` was a mistranscription — the same-method recompute of the neighbouring `--color-text`/`--color-text-strong` rows reproduces their published figures to within 0.1). The dark-mode figures elsewhere in this table carry a small historical calc offset (~0.3–0.4 more conservative than a fresh standard-formula recompute); a full-table recompute is tracked separately and is not load-bearing (every row already clears its stated floor with margin).
@@ -500,6 +501,7 @@ realtime reconnect backoff.
 | `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
 | `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
+| `DEMOTE_CHIP_VISIBLE_MS` | 6000 | `components/diagrams/GalleryLightbox.tsx` |
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |
 | `duration(0.22)` | 0.22 | `components/layout/PageTransition.tsx` |
 | `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |

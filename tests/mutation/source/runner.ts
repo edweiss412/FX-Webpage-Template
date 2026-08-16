@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { type StdioOptions, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -161,8 +161,18 @@ function spawnChild(
 ): { result: ReturnType<typeof spawnSync>; ownGroup: boolean } {
   const options = {
     cwd: root,
-    stdio: "pipe" as const,
-    encoding: "utf8" as const,
+    // DISCARDED, not captured. Nothing here ever reads the child's output —
+    // `runSuite` consumes only `status`, `signal` and `error.code` — and piping
+    // it buffers against Node's 1 MB `maxBuffer` default, which is a cap on how
+    // LOUDLY a mutant may fail rather than on anything meaningful. Probing the
+    // psql startup-file scanner reached it: one mutant reds enough of that
+    // surface's 789-case suite that the failure dump alone overruns 1 MB, the
+    // child dies with no exit status, and the run aborts through the infra-error
+    // path below (`signal=SIGTERM, code=ENOBUFS`) having scored NO mutant —
+    // making any high-output surface unenrollable. Discarding removes the cap
+    // outright instead of trading it for a bigger number to outgrow later, and
+    // costs nothing observable because the output was already invisible.
+    stdio: ["ignore", "ignore", "ignore"] as StdioOptions,
     timeout: MUTANT_TIMEOUT_MS,
     // SIGTERM is what vitest's own watchdogs and this machine's idle-process
     // reaper use, and a vitest child can trap it; SIGKILL cannot be trapped,
