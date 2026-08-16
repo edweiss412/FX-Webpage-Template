@@ -107,11 +107,11 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The whole directory runs **107 cases**. Before Tasks 3-4's edits to package.json, exactly FOUR are red — Task 4's three plus Task 3's `heavy:reap` wiring case — and after them all 107 are green. Both states were observed and the edits reverted.
-- Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 6 passed (9)`, and GREEN (`9 passed`) once package.json:56 is edited.
-- Nine cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
+- The directory runs **116 cases** (27 classify + 20 collect + 58 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 116 are green. Both states observed, both edits reverted.
+- Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
+- Eleven cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
-- Five cases drive `readIdentity` against a real `ps` at its K1/K6 boundary, including the two status-1 spellings and a hanging read bounded by its timeout.
+- Seven cases drive `readIdentity` against a real `ps` at its K1/K6 boundary, including both status-1 spellings (stdout and stderr diagnostics) and a hanging read bounded by its timeout. One further case drives the production `stillAlive` against a process that exits mid-window, which is the only way K4's settle is observable.
 
 This pass earned its cost repeatedly. It found the SPEC defect this plan is written against — executing Task 1's clause-(c) case is how the unreachable slot clause was discovered (spec §4.2) — and it found plan defects that plan review round 1 then confirmed and extended: a Step 2 claiming the wrong red count, a mutation control the suite adapted to, missing subprocess timeouts, and a CLI whose `main()` no case executed.
 
@@ -777,6 +777,7 @@ import {
   planTargets,
   readCeiling,
   selfAncestry,
+  stillAlive,
 } from "../../scripts/heavy-reap";
 
 const reap = (pid: number): Decision => ({ pid, reap: true, shape: "forks.js", ageSeconds: 99_999 });
@@ -947,30 +948,57 @@ describe("executeKills: AC-5, AC-5b", () => {
   it.each([
     ["a later successful read", { state: "read", identity: ident(10) } as IdentityRead],
     ["a later gone", { state: "gone" } as IdentityRead],
-  ])("K6: a PLAN-TIME unreadable stays unreadable, despite %s", (_label, second) => {
+  ])("K6: a PLAN-TIME unreadable stays unreadable, and is NOT re-read, despite %s", (_label, second) => {
     const signalled: number[] = [];
+    const reads: number[] = [];
     const out = executeKills([10], {
       identityAtPlan: new Map<number, IdentityRead>([
         [10, { state: "unreadable", detail: "EPERM" }],
       ]),
-      readIdentity: () => second,
+      readIdentity: (pid) => {
+        reads.push(pid);
+        return second;
+      },
       kill: (pid) => {
         signalled.push(pid);
       },
       stillAlive: () => false,
     });
     expect(signalled).toEqual([]);
+    // Spec §6.1: a target whose classification read failed is K6 on that evidence alone, so the
+    // second read is not taken. Counting the reads is what makes this case non-vacuous - the
+    // injected `second` value is deliberately one that WOULD change the outcome if it were read.
+    expect(reads).toEqual([]);
     expect(out[0]).toMatchObject({ pid: 10, result: "identity-unreadable" });
   });
 
-  it("K1: a PLAN-TIME gone stays already-gone", () => {
+  it("K1: a PLAN-TIME gone stays already-gone, and is NOT re-read", () => {
+    const reads: number[] = [];
     const out = executeKills([10], {
       identityAtPlan: new Map<number, IdentityRead>([[10, { state: "gone" }]]),
-      readIdentity: read,
+      readIdentity: (pid) => {
+        reads.push(pid);
+        return read(pid);
+      },
       kill: () => undefined,
       stillAlive: () => false,
     });
+    expect(reads).toEqual([]);
     expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "already-gone" }]);
+  });
+
+  it("a target WITH a usable plan-time identity IS read a second time", () => {
+    const reads: number[] = [];
+    executeKills([10], {
+      identityAtPlan: planned(10),
+      readIdentity: (pid) => {
+        reads.push(pid);
+        return read(pid);
+      },
+      kill: () => undefined,
+      stillAlive: () => false,
+    });
+    expect(reads).toEqual([10]); // exactly one SECOND read, per spec §6.1's "at most two"
   });
 
   it("K3: a failing kill is reported per pid and does not stop the run", () => {
@@ -997,6 +1025,23 @@ describe("executeKills: AC-5, AC-5b", () => {
     });
     expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "partial" }]);
   });
+});
+
+describe("stillAlive: K4's settle, on the production function", () => {
+  it("a process that exits DURING the window is reported gone, and without the settle is not", () => {
+    const pid = Number(
+      execFileSync(
+        "sh",
+        ["-c", `${process.execPath} -e 'setTimeout(() => {}, 150)' >/dev/null 2>&1 & echo $!`],
+        { encoding: "utf8" },
+      ).trim(),
+    );
+    // One attempt is the no-settle implementation: it sees the process still up.
+    expect(stillAlive(pid, 1, 0)).toBe(true);
+    // Four 50 ms attempts outlast the exit, which is exactly what K4 requires. Deleting the retry
+    // makes this fail, which no injected-stub case could detect.
+    expect(stillAlive(pid, 8, 50)).toBe(false);
+  }, 30_000);
 });
 
 describe("exitStatus: §6.2", () => {
@@ -1603,7 +1648,14 @@ if (process.argv[1] !== undefined && process.argv[1] === fileURLToPath(import.me
 }
 ```
 
-**Note for the implementer:** the `main()` wiring — read `process.argv.slice(2)`, `readCeiling(process.env.FX_REAP_MIN_AGE_S)`, `collect()`, `classify(...)`, print the report per §6.2's table, and under `--kill` build `identityAtPlan` from `readIdentity` BEFORE planning — goes at the bottom of the file behind an `import.meta.url` main-module check, so importing it in the test spawns nothing. `--quiet` suppresses only the DECLINE lines; every `KillOutcome` that is not `killed`, plus every config note, always prints. `stillAlive` in production is `process.kill(pid, 0)` with `EPERM` counted as alive (an `EPERM` process EXISTS; counting it dead would report a false `killed`).
+**Note for the implementer.** `main()` goes at the bottom of the file behind an `import.meta.url`
+main-module check, so importing it in a test spawns nothing. Its order is
+`readCeiling` → `collect` → `classify` → report → (under `--kill`) `planTargets` → read each
+target's identity → `executeKills`: identities are read for the TARGETS, so planning necessarily
+comes first. `--quiet` suppresses the DECLINE lines and BOTH plain successes (`killed` and
+`already-gone`); K2, K3, K4, K6 and every config note always print, per §6.2. `stillAlive` counts an
+`EPERM` process as ALIVE, because such a process exists and belongs to another user, and counting it
+dead would report a `killed` that never happened.
 
 - [ ] **Step 4: Run tests.** Run: `pnpm vitest run tests/heavyReap/cli.test.ts`. Expected: every
       case passes EXCEPT `package wiring > exposes heavy:reap`, which stays RED until Step 5 adds
@@ -1794,9 +1846,9 @@ describe("AC-8 fail-open, executed against real pnpm", () => {
 - [ ] **Step 2: Run test to verify it fails.**
 
 Run: `pnpm vitest run tests/heavyReap/triggerFailOpen.test.ts`
-Expected: **FAIL, `3 failed | 6 passed (9)`** — the three failing cases are `invokes the reaper
-through tsx, by path`, `invokes it in DESTRUCTIVE mode`, and `invokes it quietly`, because
-`scripts.heavy` has ONE segment today and it is the wrapper.
+Expected: **FAIL, `3 failed | 8 passed (11)`** — the three failing cases are `invokes the reaper
+through tsx, by path, as the command itself`, `invokes it in DESTRUCTIVE mode`, and `invokes it
+quietly`, because `scripts.heavy` has ONE segment today and it is the wrapper.
 
 **Which cases are red, and which are invariants — stated because running this at plan time showed
 the obvious guess is wrong.** The three named above go red. `makes the WRAPPER the last segment`
@@ -1810,7 +1862,7 @@ segment, because an unanchored match is satisfied by `echo tsx scripts/heavy-rea
 finding 5 and 4 respectively. Two cases assert that escape is rejected, rather than trusting it. The four `AC-8 fail-open` cases likewise pass before and after, because each
 builds its own throwaway package and never reads package.json:56 — they pin `pnpm`'s argument
 forwarding, which the edit relies on but does not change. So the red-to-green transition on this
-command is carried by those three cases, and the remaining six are regression guards. Do not
+command is carried by those three cases, and the remaining eight are regression guards. Do not
 "strengthen" them
 into red cases by making them read the repo's script; that would couple every invariant to one
 edit and lose the distinction.

@@ -568,8 +568,11 @@ placed after the wrapper would capture the caller's command instead.
 
 **The one failure mode `;` does NOT cover is a reaper that HANGS**, which would block admission
 rather than fail open. The reaper is bounded by construction, and the count is exact: ONE bulk
-`ps` read, plus TWO `ps -o lstart=` reads per KILL TARGET — once at classification and once
-immediately before the signal, which is what K2 requires. K4's verification re-scan spawns nothing
+`ps` read, plus AT MOST TWO `ps -o lstart=` reads per KILL TARGET — once at classification and,
+for a target that yielded a usable identity, once immediately before the signal, which is what K2
+requires. A target whose classification read FAILED or reported the pid gone is K6 or K1 on that
+evidence alone and is NOT read again: there is no identity to compare it against, and a second read
+could only overturn a verdict the first one already settled. K4's verification re-scan spawns nothing
 (it is `kill(pid, 0)`). **Every one of those invocations carries an explicit subprocess timeout**,
 and what a timeout COSTS is whichever row that read belongs to, not a blanket abort: the bulk read
 is C1, and an identity read is K6 (AC-8). A timeout on each child is what makes the `;` sequencing safe: `;` waits for the reaper to
@@ -610,7 +613,7 @@ the same edits applied by hand. Keeping the decision logic tracked means it is r
 testable, mutation-scored, and identical in every checkout; only trigger 2 stays machine-local,
 and trigger 1 is tracked because `package.json` is.
 
-Not wrapped in `pnpm heavy`: the CLI is one bulk `ps` read plus two per kill target. Wrapping it
+Not wrapped in `pnpm heavy`: the CLI is one bulk `ps` read plus at most two per kill target. Wrapping it
 would deadlock trigger 1 against the semaphore it runs in front of.
 
 ---
