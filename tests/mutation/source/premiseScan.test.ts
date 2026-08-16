@@ -208,6 +208,75 @@ describe("`process` is a BINDING, not the six characters before `.env` (whole-di
   });
 });
 
+describe("every applicable default, not only the deepest (whole-diff R3 #2)", () => {
+  // `own ?? el.initializer` kept the INNER default and dropped the outer one,
+  // so a binding whose provenance is the outer default lost it silently.
+  //
+  // The pattern is at MODULE scope in every case here, deliberately: inside a
+  // test body the walk covers the pattern's own text and reaches the default
+  // whether or not the binding recorded it, which hides the defect instead of
+  // exposing it. At module scope the binding's registered extent is the only
+  // route, so these fixtures discriminate.
+  const spawner = `import { spawnSync } from "node:child_process";
+    const mk = () => { spawnSync("git", []); return { b: 0 }; };
+    const mkArr = () => { spawnSync("git", []); return [0]; };`;
+
+  it("object nested in object", () => {
+    expect(
+      verdict(`${spawner}
+        const { a: { b = 0 } = mk() } = {} as never;
+        it("x", () => { void b; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("array nested in object", () => {
+    expect(
+      verdict(`${spawner}
+        const { a: [b = 0] = mkArr() } = {} as never;
+        it("x", () => { void b; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("object nested in array", () => {
+    expect(
+      verdict(`${spawner}
+        const [{ b = 0 } = mk()] = [] as never;
+        it("x", () => { void b; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("array nested in array", () => {
+    expect(
+      verdict(`${spawner}
+        const [[b = 0] = mkArr()] = [] as never;
+        it("x", () => { void b; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("the inner default is still reached when it is the spawning one", () => {
+    // The pair to the four above: keeping the OUTER default must not become
+    // dropping the inner one.
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        const inner = () => spawnSync("git", []);
+        const { a: { b = inner } = { b: undefined } } = {} as never;
+        it("x", () => { void b; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a PARAMETER's default is reachable code too", () => {
+    // Same shape, different binding form: parameters registered as bare shadows
+    // with no extent, so a spawning default on one was lost exactly as the
+    // nested case above lost the outer default.
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        const spawning = () => spawnSync("git", []);
+        function run(helper = spawning) { return helper(); }
+        it("x", () => { run(); });`),
+    ).toBe("environment-touching");
+  });
+});
+
 describe("unclassifiable — recognized but unresolvable, and it reds", () => {
   it("a dynamic import whose specifier is not a literal", () => {
     expect(

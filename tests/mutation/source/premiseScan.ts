@@ -305,14 +305,19 @@ function bindingIdentifiers(name: ts.BindingName): ts.Identifier[] {
  * declaration's right-hand side lost it silently. Nested patterns carry their
  * own defaults at every level, so this walks rather than reading one.
  */
-function boundNames(name: ts.BindingName): Array<[ts.Identifier, ts.Expression | undefined]> {
-  if (ts.isIdentifier(name)) return [[name, undefined]];
-  const out: Array<[ts.Identifier, ts.Expression | undefined]> = [];
+function boundNames(name: ts.BindingName): Array<[ts.Identifier, ts.Expression[]]> {
+  if (ts.isIdentifier(name)) return [[name, []]];
+  const out: Array<[ts.Identifier, ts.Expression[]]> = [];
   for (const el of name.elements) {
     if (ts.isOmittedExpression(el)) continue;
     const inner = boundNames(el.name);
-    // A default on a PATTERN element applies to every name inside it.
-    for (const [id, own] of inner) out.push([id, own ?? el.initializer]);
+    // A default on a PATTERN element applies to every name inside it, and it
+    // does NOT replace the defaults already found within. `own ?? el.initializer`
+    // kept only the deepest, so `const { a: { b = 0 } = mk() } = {}` lost `mk()`
+    // — the expression that actually runs when the source has no `a` at all
+    // (whole-diff R3 #2). Both are reachable, so a name keeps both.
+    for (const [id, own] of inner)
+      out.push([id, el.initializer === undefined ? own : [...own, el.initializer]]);
   }
   return out;
 }
@@ -562,15 +567,15 @@ function moduleFacts(path: string): ModuleFacts | null {
       // import(...)` expression, which names no provenance by itself and has no
       // module edge to follow.
       if (!isDynamicImportInitializer(node.initializer)) {
-        for (const [id, fallback] of boundNames(node.name)) {
+        for (const [id, fallbacks] of boundNames(node.name)) {
           // A declaration with NO initializer still BINDS the name here, so a
           // later write inside a nested function attaches to this binding rather
           // than falling through to a same-named outer one.
           if (node.initializer) addExtentIn(home, id.text, node.initializer);
-          else if (fallback === undefined) addShadowIn(home, id.text);
-          // The default is part of the extent wherever one exists, because it
-          // is what runs when the source supplies nothing.
-          if (fallback !== undefined) addExtentIn(home, id.text, fallback);
+          else if (fallbacks.length === 0) addShadowIn(home, id.text);
+          // EVERY default is part of the extent, because each is what runs when
+          // the source supplies nothing at its own level of the pattern.
+          for (const fallback of fallbacks) addExtentIn(home, id.text, fallback);
         }
       }
     }
