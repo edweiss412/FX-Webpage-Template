@@ -1143,3 +1143,56 @@ components/x/MergedDecl.tsx TTL_MS: alias=false decls=2 → components/x/MergedD
 - A type-only import beside a value import does not disturb the value resolution.
 - A namespace member assigned to a local (`const DELAY_MS = C.COPY_FEEDBACK_RESET_MS`) resolves to that LOCAL binding, which is not a covered row, so the site REPORTS. Conservative and correct: the local is an indirection the scan cannot value.
 - **A declaration merge yields ONE symbol with TWO declarations** — a `VariableDeclaration` (the covered numeric constant) and a `TypeAliasDeclaration`. That is the direct evidence for §2.2's SOME-declaration rule: an exactly-one-declaration rule would report a covered constant as unclassified on this ordinary shape.
+## P9 — a reassigned `let` is valued by its initializer (the VALUATION axis, not this arcs)
+
+Asked because the strongest possible finding against a resolution repair is a site that resolves correctly and is then valued wrongly. It is pre-existing form-2 behaviour, unchanged by this arc, and recorded so nobody has to re-derive it.
+
+### Script — `probe/p9-let-reassign.ts`
+
+```ts
+/** P9 — does a `let` binding with a literal initializer that is later REASSIGNED
+ *  become a covered named-constant, and does a delay referencing it suppress?
+ *  Valuation axis, not resolution: measured to disposition it honestly. */
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { scanRepo } from "/Users/ericweiss/FX-worktrees/timing-scan-scope-resolution/probe-scanner-landed";
+
+const root = mkdtempSync(join(tmpdir(), "p9-"));
+mkdirSync(join(root, "components", "x"), { recursive: true });
+writeFileSync(
+  join(root, "components/x/LetReassign.tsx"),
+  `declare function readConfig(): number;\n` +
+    `let RETRY_MS = 100;\n` +
+    `export function init() { RETRY_MS = readConfig(); }\n` +
+    `export function A(fn: () => void) { setTimeout(fn, RETRY_MS); }\n`,
+  "utf8",
+);
+const r = scanRepo(root);
+console.log("sites:", JSON.stringify(r.sites, null, 1));
+console.log("unclassified:", JSON.stringify(r.unclassified));
+```
+
+### Transcript
+
+```
+sites: [
+ {
+  "file": "components/x/LetReassign.tsx",
+  "line": 2,
+  "kind": "named-constant",
+  "name": "RETRY_MS",
+  "value": 100
+ }
+]
+unclassified: []
+
+$ rg -n '^\s*let\s+[A-Za-z_]*([Mm]s|MS|[Dd]elay|[Dd]uration|[Tt]imeout|[Ss]econds)\s*=\s*-?[0-9]' app components lib/ui lib/admin --glob '!app/api/**'
+(no matches — zero live instances on this tree)
+```
+
+### What it settles
+
+- A `let` binding whose initializer is a numeric literal is a `named-constant` valued at that literal, and a later reassignment is not tracked; a delay referencing it resolves to that binding and is suppressed. The resolution is CORRECT (it is that binding); the VALUE §5.5 would carry is the initializer.
+- Live instances of the shape on this tree: **zero** (the `rg` above). So the arc ships with no live row affected, and the limit is recorded in the spec §4 plus a ledger row rather than fixed here — valuation is a different axis from resolution, and widening this arc into it is exactly the ratchet the round-economy rules forbid.
