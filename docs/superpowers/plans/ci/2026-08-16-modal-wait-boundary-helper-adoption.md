@@ -51,14 +51,14 @@ Tasks 3-7 therefore declare `red-state=authored` (Task 2 authored the failing ca
 
 | task | sites | edits |
 | --- | --- | --- |
-| 3 — published-modal family | 16 | 15 |
+| 3 — published-modal family | 16 | 14 |
 | 4 — lifecycle-layout family | 17 | 17 |
 | 5 — crew-e2e family | 5 | 5 |
 | 6 — admin-layout + phantom-gap | 6 | 6 |
 | 7 — UNSEEN family | 7 | 7 |
 | **total** | **51** | **49** |
 
-Two effects separate sites from edits, pulling opposite ways: `published-review-modal.reopen.spec.ts`'s four row clicks all reach one wait wrapper (one edit, four sites, −3), and `published-review-modal.interactions.spec.ts:506` (`openGated`) is ONE click site whose loaded-modal wait lives in BOTH callers after `release()`, at line 529 and line 550 — its own wait at line 508 is the skeleton panel while the gate is still held, so it is not the wait to replace (+1).
+Two effects separate sites from edits, pulling opposite ways: `published-review-modal.reopen.spec.ts`'s four row clicks all reach one wait wrapper (one edit, four sites, −3), and `published-review-modal.interactions.spec.ts:506` (`openGated`) is ONE click site whose loaded-modal wait lives in BOTH callers after `release()`, at line 529 and line 550 — its own wait at line 508 is the skeleton panel while the gate is still held, so it is not the wait to replace (+1). Both effects fall inside Task 3, which is why that task alone diverges: 16 − 3 + 1 = **14 edits**, and 14 + 17 + 5 + 6 + 7 = **49**, matching the spec's total. Plan review R1 finding 2 caught this row reading 15, which made the column sum to 50 against a stated 49 — the arithmetic is spelled out here so the two cannot drift apart again.
 
 **Workflow reporter state.** Larger than the spec's illustrative list; the spec deferred the exact enumeration here.
 
@@ -123,7 +123,11 @@ Two effects separate sites from edits, pulling opposite ways: `published-review-
 
 **Files:**
 
-- Create: the predicate module (importable; exports the route-pattern constant, the violation scan, and the candidate enumeration)
+<!-- spec-lint: ignore — tests/ci/modalWaitHelper/scan.ts is created by this plan -->
+- Create: `tests/ci/modalWaitHelper/scan.ts` — the predicate module (importable; exports the
+  route-pattern constant, the violation scan, and the candidate enumeration). The path is named
+  here, not left to the executor, because Task 8's registry row cites it as `sourcePath` and
+  plan review R1 finding 4 caught that dependency dangling.
 <!-- spec-lint: ignore — tests/ci/_metaModalWaitHelper.test.ts is created by this plan -->
 - Create: `tests/ci/_metaModalWaitHelper.test.ts`
 
@@ -143,7 +147,7 @@ Two effects separate sites from edits, pulling opposite ways: `published-review-
 
 <!-- task: red=`pnpm vitest run tests/ci/_metaModalWaitHelper.test.ts` red-state=authored red-target=`tests/e2e/published-review-modal.interactions.spec.ts:389` why=`the corpus assertion flags every naked goto of the modal route; :389 is one of the live ones, and specifically the site spec-review R1 finding 2 used to refute the file-level import predicate` ac=AC-2b,AC-2b-pattern,AC-3 -->
 
-### Task 3: Adopt — `published-modal-e2e` family (6 files, 16 sites, 15 edits)
+### Task 3: Adopt — `published-modal-e2e` family (6 files, 16 sites, 14 edits)
 
 **Files:** `published-review-modal.crew-actions.spec.ts` (1), `tests/e2e/published-review-modal.deeplink.spec.ts` (3: 120, 239, 257), `tests/e2e/published-review-modal.interactions.spec.ts` (5: 103, 389, 255, 355, 506), `tests/e2e/published-review-modal.realtime.spec.ts` (2: 321, 789), `tests/e2e/published-review-modal.reopen.spec.ts` (4 click sites, 1 edit at its wrapper line 65), `tests/e2e/published-review-modal.closeFreshness.spec.ts` (1 click site, 1 edit at its wrapper line 54).
 
@@ -151,7 +155,10 @@ Two effects separate sites from edits, pulling opposite ways: `published-review-
 
 **`openGated` takes TWO edits for ONE site:** its loaded wait lives in both callers after `release()`, at line 529 and line 550. Its own line 508 wait is the skeleton panel while the gate is held — not the wait to replace.
 
-**Two sites here are deliberately NOT adopted.** `deeplink:344` and `realtime:913` wait on `MODAL_ANY`, which the skeleton also matches, so the helper would return on the skeleton and hide the fault (spec §2.5, limit 3b, `BL-MODAL-WAIT-SKELETON-TOLERANT-SITES`). Leave both byte-unchanged; `deeplink:344` needs its `// modal-wait-exempt:` comment in this commit.
+**Two sites here are deliberately NOT adopted.** `deeplink:344` and `realtime:913` wait on `MODAL_ANY`, which the skeleton also matches, so the helper would return on the skeleton and hide the fault (spec §2.5, limit 3b, `BL-MODAL-WAIT-SKELETON-TOLERANT-SITES`). Leave both byte-unchanged. **BOTH pinned exemption comments land in this commit** — line 344
+(the skeleton-tolerant member) AND line 298 (the unknown-slug non-member, which is a naked
+`goto` of the route and is flagged by the guard exactly like any other). Task 7's zero-violation
+claim is false without both, and no later task touches this file.
 
 **Verify:** `pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.realtime.spec.ts tests/e2e/published-review-modal.reopen.spec.ts tests/e2e/published-review-modal.closeFreshness.spec.ts`
 
@@ -205,13 +212,35 @@ Shape G here is a mechanical one-for-one replacement of goto-plus-loaded-const-w
 
 **Files:** Modify `tests/mutation/source/registry.ts` (one `GuardSurface` row).
 
-Row fields per `tests/mutation/source/registry.ts:12-38`. `control: { from, to }` is a deliberately behavior-changing edit this surface's own suite MUST notice — per-surface, never a literal borrowed from another row.
+Row fields per `tests/mutation/source/registry.ts:12-38`:
+
+- `id`: `modal-wait-helper-scan`
+<!-- spec-lint: ignore — tests/ci/modalWaitHelper/scan.ts is created by this plan -->
+- `sourcePath`: `tests/ci/modalWaitHelper/scan.ts` (created in Task 2)
+- `suitePaths`: a one-element array naming the Task 2 suite
+- `operators`: **all six declared families** — `relational-boundary`, `equality-flip`,
+  `logical-connector`, `integer-literal`, `regex-quantifier-bound`, `statement-removal`
+  (`tests/mutation/source/operators.ts:17-24`). Every one is live on this surface: the scan
+  compares line indices and counts, tests equality on exemption reasons, ands/ors its guard
+  conditions, carries the ±1 line-above exemption window, and its route pattern is a regex
+  with quantifiers. Taking the full set is also the honest default — a narrowed subset is a
+  claim about which mutations cannot escape, and this surface has no evidence for one.
+- `scoreFloor`: set from the first real run, never guessed.
+- `control: { from, to }`: a deliberately behavior-changing edit this surface's own suite MUST
+  notice — per-surface, never a literal borrowed from another row (the registry header at
+  `tests/mutation/source/registry.ts:22-36` records why: an earlier version hardcoded a literal
+  that existed in only one file, so enrolling a second surface redded the gate).
+- `accepted`: `[]` at authoring; any row added later carries its backlog ref.
+
+**Mutation-family closure is therefore declared UP FRONT, per `docs/agents/writing-plans.md:30`**
+— plan review R1 finding 4 caught the earlier draft claiming an enumerated operator set as the
+closure criterion while enumerating nothing.
 
 **Mutation-family closure:** the enumerated operator set in this row IS the closure set the diff review converges against. A reviewer-proposed NEW family is admissible only with a live escaping mutant demonstrated against the shipped guard.
 
 Run `pnpm heavy pnpm mutation:guards`; record the score and the unaccepted-survivor set (must be empty) in the commit message and the closeout, **before the first diff-review dispatch**.
 
-<!-- task: red=`pnpm vitest run tests/mutation/source/registry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:1` why=`the registry has no row for the modal-wait predicate module, so the harness never overlays it and the surface has no score` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:151` why=`GUARD_SURFACES at :151 has no row for the modal-wait predicate module, so the harness never overlays it and the surface has no score` ac=AC-3 -->
 
 ### Task 9: Shared collector, thin printer, and the print-before-gate repair in BOTH oracles
 
@@ -232,31 +261,44 @@ Run `pnpm heavy pnpm mutation:guards`; record the score and the unaccepted-survi
 
 ### Task 10: Wire the print duty into every member workflow step
 
-**Files:** `.github/workflows/published-modal-e2e.yml`, `admin-layout-e2e.yml`, `phantom-gap-e2e.yml`, `lifecycle-layout-e2e.yml`.
+**Files:** `.github/workflows/published-modal-e2e.yml`, `.github/workflows/admin-layout-e2e.yml`, `.github/workflows/phantom-gap-e2e.yml`, `.github/workflows/lifecycle-layout-e2e.yml`, `.github/workflows/crew-e2e.yml`, and `tests/ci/_workflowCoverageScan.ts`.
 
-Apply the transcript table. Every added print step carries `if: always()` — without it the step is prerequisite-gated and a run that recovered then failed downstream skips the print entirely. The three `phantom-gap-e2e.yml` steps get three distinct report paths. `crew-e2e.yml` needs no new step: its oracle gained the duty in Task 9.
+Apply the transcript table. Every added print step carries `if: always()` — without it the step is prerequisite-gated and a run that recovered then failed downstream skips the print entirely. The three `phantom-gap-e2e.yml` steps get three distinct report paths.
+
+**`crew-e2e.yml` DOES need an edit** (plan review R1 finding 6). Task 9 moves the print above the oracle's INTERNAL gate, which is necessary but not sufficient: the oracle step itself (`.github/workflows/crew-e2e.yml:194-195`) has no `if: always()`, so on a recovered-then-failed run GitHub skips the step entirely and the internal ordering never executes. Add `if: always()` to that step. Its `run:` line, its file list, and its gating semantics are untouched — the oracle still exits 1 on a floor shortfall, which is why this does not convert a red run green.
+
+**The env-key registry must move with the workflows** (plan review R1 finding 5). New `PLAYWRIGHT_JSON_OUTPUT_NAME` values are gated by `ENV_KEY_ALLOWLIST` (`tests/ci/_workflowCoverageScan.ts:724`), and `tests/ci/_metaE2eWorkflowCoverage.test.ts` rejects every unreviewed live pair. Each new report path added above is registered there in THIS commit with its one-line rationale, or the meta-test reds for unreviewed environment values and the task's own command can never return green.
 
 **Gate-command discipline — probe, do not assert:** run the printer against a report with zero recoveries and confirm exit 0; against a malformed report and confirm exit 0 with a surfaced message. Confirm `if: always()` cannot convert a red run green (the printer's exit is always 0, and the Playwright step's own status remains the job verdict).
 
-<!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`.github/workflows/published-modal-e2e.yml:149` why=`the step emits --reporter=list with no json, so no report exists for a print step to read` ac=AC-4,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`.github/workflows/published-modal-e2e.yml:149` why=`the step emits --reporter=list with no json, so no report exists for a print step to read; the same suite also reds on the new PLAYWRIGHT_JSON_OUTPUT_NAME values until they are registered in ENV_KEY_ALLOWLIST, which is why the registry edit is in this task` ac=AC-4,AC-5 -->
 
-## Task 11: Ledger graduation, README row, closeout
+### Task 11: Ledger graduation, README row, closeout
 
 - `BACKLOG.md` → `BACKLOG-archive.md` for `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION`, recording the census correction (the open-site derivation is the durable form, and closing it as CODE is what four spec rounds bought) and both exclusion classes.
 - `BL-MODAL-WAIT-SKELETON-TOLERANT-SITES` stays OPEN — it is this arc's filed peer, not its debt.
 - The `**Status:** IN PROGRESS · **Branch:** …` marker comes off in the PR's LAST commit, before the merge (AGENTS.md invariant 12) — never in a post-merge turn.
 - `docs/superpowers/specs/ci/README.md` index row: already present, verify only. Add the plan's own README row if `docs/superpowers/plans/ci/README.md` indexes plans.
-**Discharges AC-6** (ledger graduation + README index row + review-rounds corpus rows). It is
-the only AC not named by any `ac=` field, because it is the only one whose task carries no
-marker — recorded here so the coverage is complete by statement rather than by omission.
+**Discharges AC-6.**
 
-**No task marker, deliberately.** This task is bookkeeping with no red available, and a
-fabricated one is worse than none: `tests/docs/_metaInvariant8Closeout.test.ts` already passes
-(probed — the plan's inline `impeccable-gate:` line satisfies it), and
-`tests/docs/_metaLedgerInProgress.test.ts` passes both before AND after by design, since an
-entry that declares nothing is untouched by it. Verify both green after the edits instead.
+**This task DOES have a red, and plan review R1 finding 7 is why it is here.** The earlier
+draft declared no red available, having probed only the invariant-8 and in-progress gates —
+both of which pass on either side, the first because the plan's inline `impeccable-gate:` line
+already satisfies it and the second because an entry that declares nothing is untouched by it.
+Neither establishes graduation. `tests/docs/_metaDeferralLedgerGraduation.test.ts` carries a
+`BACKLOG_GRADUATED` registry (`tests/docs/_metaDeferralLedgerGraduation.test.ts:99`) that
+asserts every registered id is archive-only, and without a row there the graduation contract is
+bypassed while AC-6 reads complete. Add the row — id
+`BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION`, provenance `test/modal-wait-helper-adoption`, with
+the comment recording what the arc actually settled (the census closed as code, not the
+two-grep sweep the entry proposed) — in the SAME commit as the archive move.
 
 - Closeout carries `impeccable-gate: N/A — no UI surface`, the mutation score from Task 8, and the review-round corpus rows.
+- Verify green after the edits: `tests/docs/_metaDeferralLedgerGraduation.test.ts`,
+  `tests/docs/_metaLedgerInProgress.test.ts`, `tests/docs/_metaInvariant8Closeout.test.ts`,
+  `tests/docs/_metaReviewRoundEconomy.test.ts`.
+
+<!-- task: red=`pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:99` why=`BACKLOG_GRADUATED at :99 has no row for BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION, so the entry can be archived with the graduation contract bypassed; the row plus the archive move is what turns it green` ac=AC-6 -->
 
 
 ## Task 12: Adversarial review (cross-model)
