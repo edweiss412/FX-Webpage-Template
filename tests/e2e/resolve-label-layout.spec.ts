@@ -21,7 +21,8 @@
  *     twice.
  *
  * The label travels the production code -> intent -> label path: the harness
- * imports resolveActionLabels rather than hardcoding strings. The real
+ * imports resolveActionLabels rather than hardcoding strings.
+ *
  * The harness renders a local stand-in rather than <PerShowAlertResolveButton>,
  * and NOT because the component cannot mount: this spec aliases
  * `next/navigation` to `_nextNavigationStub.ts`, so `useRouter` resolves and the

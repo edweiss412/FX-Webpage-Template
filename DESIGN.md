@@ -245,10 +245,13 @@ The four neutral ground pairings are pinned as §1.2 rows above (`surface`,
 `tests/styles/secondary-action-contrast.test.ts`, which also pins that the
 constant still wears the token the ratios are about.
 
-**What the outline is measured against, and where it does not clear 3:1.** The
-button paints its own `bg-bg` fill, so the outline has two neighbours: the fill
-INSIDE it (3.21:1 light / 4.00:1 dark, every instance) and whatever the button
-stands on OUTSIDE it. On the four neutral grounds above, both sides clear. On a
+**What the outline is measured against, and where it does not clear 3:1.** An
+outlined control has two neighbours: the fill INSIDE it and whatever it stands
+on OUTSIDE. The inner figure depends on the control's own fill, and the
+population below carries three of them: `bg-bg` gives 3.21:1 light / 4.00:1
+dark, `bg-surface` gives 3.35:1 / 3.76:1, and a `bg-transparent` control has no
+inner fill at all — its inner neighbour IS the plate, which is why the
+`StagedPreviewBanner` picker link is the one row under 3:1 on BOTH edges. On the four neutral grounds above, both sides clear. On a
 TINTED plate they do not, and the measured numbers are recorded here rather than
 implied away — `warning-bg` 3.04 light / **2.79** dark, `info-bg` **2.87** light
 / 3.48 dark, `danger-bg` **2.88** light / 3.19 dark. Fourteen shipped controls stand on such a plate, across thirteen sites (the data-quality card, the maintenance and reap actions, the
