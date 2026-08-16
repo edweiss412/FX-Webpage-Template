@@ -833,7 +833,7 @@ Moving the four directories outside the repo and re-running takes the same suite
 
 ## BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a failing drift run can never refresh the cache that made it fail
 
-**Status:** OPEN — filed 2026-08-14 from a live main-branch incident · **Severity:** MEDIUM · **Class:** CI-INFRA · **Effort:** S
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-14 from a live main-branch incident
 
 `screenshots-drift.yml` restores `.next-screenshots-help/cache` via `actions/cache` with a `restore-keys` prefix fallback, and `actions/cache` saves only in the post step of a SUCCESSFUL job. Those two facts compose into a trap: once every saved `Linux-nextcache-screenshots-*` cache predates a UI-changing merge, the nightly drift job restores a stale Next build cache, renders the OLD chrome, diffs against the CURRENT committed baselines, fails — and by failing, skips the cache save that would have replaced the stale cache. The failure self-perpetuates until a human deletes the caches.
 
