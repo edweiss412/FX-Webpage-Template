@@ -43,8 +43,16 @@ const UNBROKEN_TOKEN = "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
  * the string under measurement travels the real code -> intent -> label path
  * rather than being typed into the harness.
  *
- * The real <PerShowAlertResolveButton> cannot mount here: this bundle has no
- * Next runtime, and that component calls useRouter. Its class list is a
+ * This harness renders a LOCAL <ResolveButton> stand-in rather than the real
+ * <PerShowAlertResolveButton>. The reason is NOT that the component cannot
+ * mount — whole-diff R7 probed that claim false (2026-08-16): both this spec and
+ * compact-alert-card-layout.spec.ts alias `next/navigation` to
+ * `tests/e2e/_nextNavigationStub.ts`, so `useRouter` resolves, and an esbuild
+ * probe finds the stub, AttentionBanner AND PerShowAlertResolveButton in the
+ * bundle. The stand-in exists so the button's LABEL is driven straight off
+ * `resolveActionLabels(?code=)` with no server data, action wiring or router
+ * behaviour in the way, which is what makes the measurement a label
+ * measurement. Its class list is a
  * MEASUREMENT-RELEVANT SUBSET of that component's, not a verbatim mirror — the
  * claim was "verbatim" until whole-diff R5 probed it false (2026-08-16). The
  * harness carries the utilities that set the label's box (`inline-flex`,

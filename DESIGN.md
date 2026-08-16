@@ -261,12 +261,13 @@ plate, never both. Second, R5 above is the standing frame: the outline is an
 upgrade over a label that already carried the affordance, so a boundary that is
 strong against its own fill and slightly under 3:1 against a tinted plate is a
 weaker version of the upgrade, not a regression against the prior state (which
-was 1.59:1 against everything). Whether tinted plates should get their own
+was 1.59:1 on `surface` — and 1.52/1.70 on `bg`, 1.44/1.19 on `warning-bg`; recomputed 2026-08-16 after whole-diff R7 caught "against everything" as a false universal). Whether tinted plates should get their own
 treatment — a darker token, or a plate-matched outline — is a design decision
 this policy did not make, filed as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.
 
-**This was a design upgrade, not a compliance repair.** The 1.59:1 boundary
-was not a WCAG failure: the button's LABEL carried the affordance at 18.35:1,
+**This was a design upgrade, not a compliance repair.** The prior boundary —
+1.59:1 on `surface`, the figure this section quotes throughout — was not a WCAG
+failure: the button's LABEL carried the affordance at 18.35:1,
 and SC 1.4.11 asks for a perceivable control boundary, which a legible label
 inside a padded, focusable target supplies. What was missing was a written-down
 posture, and the upgrade is that the outline now carries its own weight rather
