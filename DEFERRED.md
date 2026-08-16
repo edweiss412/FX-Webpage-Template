@@ -55,7 +55,7 @@ Findings and dispositions are in §12 of
 `docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (F3).
 
 **The finding.** DESIGN.md §1.2a now reads: a control filled with one of the four neutral ground
-tokens takes the text ramp. The swap moved every such control carrying `border-border-strong`.
+tokens takes the text ramp. The swap moved every such control carrying `border-border-strong` that the element-level cover could see — the enumerated 21; text-entry fields with the same token are outside that cover and filed separately.
 Controls carrying `border-border` — a different token, one rung quieter at **1.27:1** on
 `bg-surface`, and spanning **1.15-1.38:1** across the four neutral grounds — were never in the cover, and the predicate as written describes them. The sharpest
 instances are the confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
@@ -64,7 +64,7 @@ instances are the confirm-row Cancels at `components/admin/ArchiveShowButton.tsx
 faintest element on screen.
 
 **Probed 2026-08-16** with the derived cover in the queue row (a query, not a list): **30**
-elements against a universe of 362, **nine of them crew-facing** —
+elements against a universe of 362, **thirteen of them crew-facing**, counted by render chain rather than by directory —
 `app/me/meShowSections.tsx:174`, `:213`, `:258`;
 `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233`;
 `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103`, `:121`;
