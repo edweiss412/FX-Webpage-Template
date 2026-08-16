@@ -150,6 +150,29 @@ export function validateSurface(surface: GuardSurface): string[] {
  */
 export const GUARD_SURFACES: GuardSurface[] = [
   {
+    // The modal-wait guard's predicate module (2026-08-16 adoption arc §4.4,
+    // AC-3). Authored as an importable module with a referring suite from the
+    // start, so enrolment is a registry row rather than a restructuring.
+    id: "modal-wait-helper-scan",
+    sourcePath: "tests/ci/modalWaitHelper/scan.ts",
+    suitePaths: ["tests/ci/_metaModalWaitHelper.test.ts"],
+    // All six declared families. A narrowed subset is a CLAIM about which
+    // mutations cannot escape, and this surface has no evidence for one. That
+    // is emphatically NOT a claim all six are exercised here: the gate checks
+    // only that the surface produces some mutants, never one per family, so
+    // every family yielding zero sites is recorded in the plan's closeout as
+    // not-exercised. Probed at plan time: `regex-quantifier-bound` recognizes
+    // bounded `{m,n}` syntax only, and this module's regexes use `*`, so it
+    // yields zero sites here.
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Drops the empty-reason arm of the exemption check, so a
+    // `// modal-wait-exempt:` with nothing after it silently becomes a valid
+    // exemption. The premise proof's empty-reason case is what notices.
+    control: { from: 'reason === null || reason === ""', to: "reason === null" },
+    accepted: [],
+  },
+  {
     // The citation-intent classifier (2026-08-15 arms spec §3, §7). Its three
     // suites split the surface deliberately: the unit suite pins the matching
     // discipline per consumer, the wiring suite pins the two-pass relocation

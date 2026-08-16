@@ -167,6 +167,11 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repay rather than a number to bump.
   browserRegistry: {},
   browserMutate: { equivalent: 1 },
+  // The modal-wait guard (2026-08-16), enrolled before this arc's first review
+  // dispatch. Declares an EMPTY ledger: every survivor of the first run is a
+  // coverage gap to repay with a case, and a row appearing here later is a
+  // regression to argue rather than a number to bump.
+  "modal-wait-helper-scan": {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
