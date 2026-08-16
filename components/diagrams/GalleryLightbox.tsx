@@ -684,9 +684,9 @@ export function GalleryLightbox({
           would slide the user's pinched-detail out from under their
           fingers. Absolute-positioning inside the image container
           keeps the figure dimensions stable. `border-text-faint`
-          gives the chip slight visual primacy over the chevrons when active (critique MED-5,
-          STRENGTHENED not overturned by the 2026-08-16 control-outline swap: 1.59/1.50 -> 3.35/3.53
-          on `surface-raised`). Keyboard-focusable; included in dialog focus trap via DOM order.
+          gives the chip clear primacy over the borderless chevrons when active. Critique MED-5's
+          intent, strengthened rather than overturned: the 2026-08-16 outline swap took the ring
+          from 1.59/1.50 to 3.35/3.53 on `surface-raised`. Keyboard-focusable; in the focus trap.
         */}
         {zoomed ? (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-dropdown flex justify-center px-4">

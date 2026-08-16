@@ -2,15 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-<!--
-The `impeccable-gate:` marker line is written by Task 5, in the SAME commit that runs the gate,
-together with the verbatim names of both halves. It is deliberately absent here, and that is the
-guard's intended lifecycle rather than a dodge: `tests/docs/_metaInvariant8Closeout.test.ts`
-admits exactly three marker forms — RAN, `N/A — no UI surface`, and a template form — and at
-plan-authoring time NONE of them is true. This diff has a UI surface, so N/A would be a lie, and
-the gate has not run, so RAN would be a lie. A unit that names both halves must record their
-OUTCOME; this plan has no outcome yet. Task 5 writes the marker and the names together.
--->
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
 
 **Goal:** Ship the Option B ruling. DESIGN.md §1.2a's control-outline predicate becomes fill-equals-container; the 21 button/link elements standing on card and panel fills swap `border-border-strong` → `border-text-faint`; the switch tracks — **five render paths, not three** (spec §3.1) — keep their recipe unchanged in both states.
 
@@ -281,4 +273,61 @@ The gap between the 22 target edits and the 51 textual occurrences is what Task 
 
 ## 12. Invariant-8 gate findings and dispositions
 
-<!-- filled by Task 5, together with the marker line at the top of this file -->
+**Both halves of the dual gate were run on the affected diff on 2026-08-16: `/impeccable critique` and `/impeccable audit`.** Naming them verbatim is what makes this unit declare the gate; the marker line at the top of this file records their outcome.
+
+**Setup gates (impeccable v3, canonical):** `context.mjs` context load (PRODUCT.md + DESIGN.md) → register reference read. Register is **product** (`reference/product.md`) by first match on the surface in focus: every touched file is admin app UI, where design SERVES the product and the bar is earned familiarity. `reference/critique.md` and `reference/audit.md` were each read before their half ran. Platform is `web`, so no native variant applies.
+
+**Method.** `critique` ran **dual-agent**: Assessment A (design review) and Assessment B (detector + mechanical evidence) as two isolated sub-agents that never saw each other's output, synthesized here. `audit` ran as its own isolated agent. Not degraded — no half ran inline in the parent context. One harness note recorded because it would otherwise look like a silent skip: all three agents completed their reports but their return path went idle without delivering (the known shape recorded for PR #809), so each report was recovered verbatim from its own transcript. The assessments themselves are unaffected — they ran isolated, as the command requires.
+
+**Browser pass: SKIPPED, with its reason.** Every surface in the diff is behind an authenticated admin session against a seeded local DB, so no live server was started and no overlay was injected. No claim of a user-visible overlay is made anywhere in this section.
+
+### 12.1 Scores
+
+| Half | Score | Band |
+| --- | --- | --- |
+| critique — Nielsen 10 | **35/40** | strong; weakest axis is #4 Consistency at 2/4, which is what the two P1s below are |
+| audit — 5 dimensions | **19/20** | Excellent. A11y 3, Performance 4, Theming 4, Responsive 4, Anti-patterns 4 |
+
+Anti-patterns verdict from both halves: **PASS, no tells.** Every swap is a 1px all-side `border` with widths untouched; no side stripe, no gradient text, no glassmorphism, no hero metric, no card grid, no eyebrow, no numbered scaffolding, no nested card, no bounce easing, and no card introduced.
+
+### 12.2 Findings and dispositions
+
+Severity is the HIGHER of the two halves where they overlap, deliberately: F1 and F2 are one shape that critique rated P1 and audit rated P2, and taking the reviewer's higher call rather than my own lower one is the honest default.
+
+| # | Finding | Severity | Disposition |
+| --- | --- | --- | --- |
+| F1 | `components/diagrams/GalleryLightbox.tsx:773` — the `aria-hidden` demote chip keeps `border-border-strong` while the Reset chip it matches (`:708`, census row 20) moved. Same pill, same `bg-surface-raised`, same shadow; both can be up in one frame at opposite ends of the image | **P1** | **DEFERRED — ledger `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`**, class-sweep exception (b)+(a). Non-interactive chrome keeping the border token IS §1.2a's scope paragraph, so moving it would be moving an element the ruling did not cover. Also recorded as a DESIGN.md §1.2a documented limit in the same commit |
+| F2 | `components/admin/StagedPreviewBanner.tsx:65` — the `aria-current` chip keeps `border-border-strong` while its picker-link siblings at `:75` moved, so the entry marked current has the weakest boundary in its own row | **P1** | **DEFERRED — same ledger entry.** Spec §4.4 ratifies this site verbatim ("non-interactive chrome: outside the census, keeps its token"), so it is exception (b) outright. Recorded rather than dismissed: the 2026-08-14 rationale for moving six controls now points the other way, at chrome, and no rule covers that |
+| F3 | Confirm-row Cancels are now a full step lighter than the trigger that summoned them — `components/admin/ArchiveShowButton.tsx:344` and `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`, `border-border` at 1.15:1, are the in-place morph targets of controls this arc took to 3.35:1 | **P2** | **DEFERRED — ledger `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`**, exception (b)+(a)+(c). Spec §2.1/§6 fence widening to `border-border` in both directions. The derived cover was run rather than the two named sites patched: **28** controls repo-wide carry `border-border` on a neutral fill, seven of them on CREW surfaces the admin-scoped mockup never showed the user |
+| F4 | `components/admin/showpage/ShareHub.tsx:800-801` — `max-sm:border-border` overrides the swap below 640px, so the venue-floor phone case does not get the stronger boundary | **P2** | **NO ACTION — already a ratified documented limit** (spec §6, 1.27:1 both themes, both ternary arms). Recorded here because the critique's twist is fair: the delta the comment describes grew from 1.59→1.15 to 3.35→1.15. That is a bigger step, not a new defect, and the limit already states the number |
+| F5 | `DESIGN.md` — "Every neutral fill/container pairing in the app measures ≤1.13:1" is a false universal. The unenumerated `surface-raised`/`surface-sunken` pair measures **1.163:1** dark | **P3** | **FIXED in this commit.** Recomputed all six pairings from `app/globals.css`; the sentence now states the true bound (≤1.17:1, widest is 1.163:1 dark) AND keeps ≤1.13:1 scoped to the five pairings the app renders. This is exactly the false-universal class this arc filed as `BL-SPECLINT-ENUMERATED-UNIVERSAL-PARITY`, caught inside the arc that filed it |
+| F6 | `components/diagrams/GalleryLightbox.tsx` chip comment still said the outline gives "slight" primacy over the chevrons — calibrated to 1.59:1, and the chevrons carry no border at all | **P3** | **FIXED in this commit.** Now reads "clear primacy over the borderless chevrons", with MED-5's intent recorded as strengthened rather than overturned. Edited at constant line count so census row 20 stays at `:693` |
+| F7 | detector `broken-image` ×7 — `step3ReviewSections.tsx:3733`, `:3764`; `GalleryLightbox.tsx:14`, `:271`, `:1039`, `:1086`, `:1090` | — | **FALSE POSITIVE ×7, refuted by probe, not by argument.** Every hit is the literal text `<img>` inside a source comment. `grep -nE '<img[[:space:]]'` over both files returns nothing — there is not one `<img` opening tag with attributes in either file, so the rule cannot be describing a real element. None of the seven lines falls inside a changed hunk either. Not suppressed with an ignore rule, because the finding is the detector's to fix, not this diff's to hide |
+| F8 | critique minor: `components/admin/wizard/step3ReviewSections.tsx:1415-1425` may argue from the superseded page-ground-only rule | — | **REFUTED against the live tree.** That comment argues FOR `border-text-faint` over `border-border` on a `bg-surface-sunken` ground and cites §1.2a — it is consistent with the WIDENED predicate, not with the superseded one. Recorded so a later round does not re-derive it |
+
+**P0 = 0. P1 = 2, both deferred with a ledger entry each and a DESIGN.md documented limit.** That is what `dispositions=recorded` in the marker asserts, and the guard cross-checks the pair.
+
+### 12.3 Pre-code mechanical checklist (step 5.5), re-verified post-swap
+
+Run over ADDED lines in `app/**` and `components/**` only:
+
+| Check | Result |
+| --- | --- |
+| em-dash in user-visible copy | **none.** (7 hits in added `DESIGN.md` prose — a design doc, not user-visible copy, and exempt) |
+| straight-apostrophe literals | **none** |
+| 44px tap targets untouched | `min-h-tap-min` −20/+20, `min-w-tap-min` −3/+3, `min-h-confirm-box` −1/+1 — every multiset equal |
+| canonical type/token classes | **none** of `text-[`, `shadow-[`, `border-(--`, or a raw hex. The one bracket value, `min-w-[18rem]`, is present identically on both sides |
+| no new colour token | `git diff origin/main...HEAD -- app/globals.css` is EMPTY |
+| added `border-text-faint` | **23** = 22 class-attribute edits + 1 prose mention in the `GalleryLightbox` comment, which is the comment repair itself |
+
+**Copy: no user-visible string changed anywhere in the diff**, so invariant 5 is N/A rather than passed. The only prose edited is a source comment.
+
+### 12.4 What the gate confirmed rather than found
+
+Recorded because a gate that only lists problems reads as if nothing was verified:
+
+- All 21 swapped controls keep `focus-visible:ring-2 focus-visible:ring-focus-ring`, and the new border does not collide with it — the ring is orange (`#e06000` light / `rgba(255,160,71,.65)` dark) against a gray stroke.
+- `hover:border-status-warn` on `components/admin/ArchiveShowButton.tsx:371-372` does not collide either: `#b26a16` / `#e9a23a` are separated from `text-faint` in both hue and value, so the one control whose hover moves the OUTLINE still lands somewhere unambiguous.
+- `max-sm:border-border` survives on both `ShareHub` ternary arms — and the file carries a third occurrence at `:825` that the diff never touched, so adjacent-token survival holds one site wider than the plan's check assumed.
+- Every contrast figure quoted in the brief and in the `GalleryLightbox` comment reproduces exactly from `app/globals.css`.
+- Tokenising every changed line and normalising the swap yields an IDENTICAL multiset on both sides — the only deltas are prose words in the one comment. That single check proves at once that no focus ring, `dark:` variant, width, breakpoint or tap-target utility moved.

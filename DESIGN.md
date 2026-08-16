@@ -185,11 +185,13 @@ the fill it encloses carries no visual weight of its own, so the stroke IS the
 control's boundary and takes the text ramp. In practice that is any control
 filled with one of the four neutral ground tokens (`--color-bg`,
 `--color-surface`, `--color-surface-sunken`, `--color-surface-raised`) or left
-unfilled. Every neutral fill/container pairing in the app measures **≤1.13:1**
-(measured 2026-08-16; the full table is in
-`docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §3),
-so in all of them the fill is invisible against its container and the stroke is
-the only boundary there is.
+unfilled. Pair any two of those four tokens and the widest result is **1.17:1**
+— `surface-raised` on `surface-sunken`, 1.163:1 dark; the five pairings the app
+actually renders are all **≤1.13:1** (measured 2026-08-16; that table is in
+`docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §3).
+Both numbers are stated because the second is the evidence and the first is the
+bound: in every one of them the fill is invisible against its container, so the
+stroke is the only boundary there is.
 
 **Two families are OUT, and they are out by decision rather than by omission.**
 A control with a **weight-bearing fill** — the accent-filled primary action — is
@@ -208,6 +210,27 @@ The five paths are `components/admin/PublishedToggle.tsx:305`,
 `components/admin/telemetry/AutoRefreshControl.tsx:106` and
 `components/admin/settings/DeveloperToggleButton.tsx:97`; the last two paint the
 track on a nested `<span>`, which is why an element-level census reported three.
+
+**What did not move with the 21, and now reads lighter beside it** (2026-08-16
+invariant-8 gate). Two elements share a recipe with a swapped control and stayed
+put, so each is now the quieter half of a visible pair: the lightbox's
+`aria-hidden` demote chip (`components/diagrams/GalleryLightbox.tsx:773`, same
+`rounded-pill bg-surface-raised` as the Reset chip it can share a frame with) and
+the staged-preview banner's `aria-current` chip
+(`components/admin/StagedPreviewBanner.tsx:65`, standing in a row of picker links
+that moved). Both are non-interactive chrome and both are therefore CORRECT under
+the scope paragraph below — recorded here rather than implied away, because the
+2026-08-14 rationale for moving six controls was that a control they render WITH
+had already moved, and that reason now points the other way. Whether chrome that visually
+pairs with a control should follow it is `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
+
+Separately: a control with a neutral fill but a `border-border` outline — the
+confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
+`app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`, both **1.15:1** — falls
+inside this predicate's words and outside the 2026-08-16 swap, which moved only
+`border-border-strong`. Widening to `border-border` is a separate design decision
+this ruling did not make, filed as
+`BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`.
 
 Worked example — the one secondary action treatment (`lib/ui/actionClass.ts`,
 `SECONDARY_ACTION_CLASS`, 8 call sites):
