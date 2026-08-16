@@ -1,7 +1,7 @@
 import { checkCitations } from "./citations";
 import { checkCopy } from "./copyRules";
-import { checkNumerics } from "./numerics";
-import { parseDoc } from "./parse";
+import { ambiguousBasenames, basenameOf, checkNumerics, scriptMentionMatcher } from "./numerics";
+import { parseDoc, type DocModel } from "./parse";
 import {
   checkRedContract,
   planExecutions,
@@ -34,6 +34,37 @@ const waiverAdvisory = (line: number, message: string): Finding => ({
   message,
 });
 
+/**
+ * Script texts for SCRIPT_CONSTANT_PARITY (spec §2).
+ *
+ * The I/O boundary stays here: `numerics.ts` performs none, and this resolves the
+ * `scripts/` paths the doc names — by path OR basename, using the same
+ * `scriptMentionMatcher` the arm's association uses, so the resolver and the
+ * arm can never disagree about what a mention is. A path the resolver cannot
+ * serve contributes nothing and is skipped silently (tripwire posture).
+ */
+function resolveScriptTexts(
+  model: DocModel,
+  resolver: FileResolver,
+): { texts: Record<string, string>; ambiguous: ReadonlySet<string> } {
+  const texts: Record<string, string> = {};
+  const lines = model.lines.filter((_, i) => model.fencedInfo[i] === undefined);
+  const scripts = resolver.listTrackedFiles().filter((p) => p.startsWith("scripts/"));
+  // A basename shared by two scripts identifies neither, so those resolve by path only.
+  // Returned alongside the texts because it is a fact about the TRACKED UNIVERSE: the arm
+  // cannot recompute it from what resolved here, since resolving narrows the universe.
+  const ambiguous = ambiguousBasenames(scripts);
+  for (const path of scripts) {
+    // Compiled once per script, then tested against every non-fenced line.
+    const mentions = scriptMentionMatcher(path, !ambiguous.has(basenameOf(path)));
+    if (!lines.some((line) => mentions.test(line))) continue;
+    const text = resolver.readFileLines(path);
+    if (text === null) continue;
+    texts[path] = text.join("\n");
+  }
+  return { texts, ambiguous };
+}
+
 export function runLint(
   doc: LintDoc,
   resolver: FileResolver,
@@ -45,7 +76,8 @@ export function runLint(
   // red-contract module never runs, so those spans keep today's behavior.
   const excludedSpans = doc.kind === "plan" ? redTargetSpans(model) : new Set<string>();
   const citations = checkCitations(model, resolver, excludedSpans);
-  const numerics = checkNumerics(model, citations.candidateSpans);
+  const scripts = resolveScriptTexts(model, resolver);
+  const numerics = checkNumerics(model, citations.candidateSpans, scripts.texts, scripts.ambiguous);
   const copy = checkCopy(model);
   const sections = checkSections(model, doc.kind, citations.resolvedPaths);
   const taskContract = checkTaskContract(model, doc.kind);
