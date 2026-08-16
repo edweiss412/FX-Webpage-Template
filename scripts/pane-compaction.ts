@@ -102,6 +102,14 @@ const STATUSES = new Set(["idle", "working", "blocked", "done", "unknown"]);
  * Returns the offending field, or null when every observation is admissible.
  * "Anything else yields UNDETERMINED naming the offending field" is the whole
  * clause, so a rejection that could not say which field would not satisfy it.
+ *
+ * It lives HERE rather than in the core, and that is the observation/decision
+ * boundary rather than an exception to it: admitting an input requires knowing
+ * the raw shapes the surface produces — herdr's status strings, the marker's
+ * JSON keys — which is surface knowledge. The core takes the VERDICT as an
+ * observation (`ObservedPane.rejectedField`) and decides what it means, which
+ * is rule 4. Moving this inward would drag those shapes into a module whose
+ * whole property is that it is pure over them.
  */
 export function rejectedFieldOf(opts: {
   status: string;
