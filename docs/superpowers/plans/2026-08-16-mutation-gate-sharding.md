@@ -603,7 +603,7 @@ import { SHARD_COUNT } from "../parser/mutation/shardPartition";
 import { SOURCE_SHARD_COUNT } from "./source/shardPartition";
 
 const ROOT = join(__dirname, "..", "..");
-type Step = { run?: string; with?: { script?: string } };
+type Step = { id?: string; run?: string; env?: Record<string, string>; with?: { script?: string } };
 type Job = {
   strategy?: { matrix?: Record<string, unknown>; "fail-fast"?: boolean };
   needs?: string[];
@@ -780,11 +780,20 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     // 1,200 s of setup plus a 3,000 s test is a 3,000 s record on a 4,200 s job,
     // which passes a 3,600 s budget. Complete, finite, plausible, and wrong --
     // so the POSITION is asserted rather than described.
+    // Substring `SHARD_START=` is not enough: a step 0 writing an EMPTY
+    // `SHARD_START=` satisfies it while the real capture happens after setup,
+    // and the record then excludes setup exactly as before. Pin the id AND the
+    // whole command.
+    const STAMP = 'echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"';
     for (const f of FAMILIES) {
       const steps = wf.jobs[f.job]?.steps ?? [];
-      expect(steps[0]?.run ?? "", `${f.job} does not stamp its start first`).toContain(
-        "SHARD_START=",
-      );
+      expect(steps[0]?.id, `${f.job}'s first step is not the start stamp`).toBe("stamp-start");
+      expect(steps[0]?.run?.trim(), `${f.job}'s stamp does not capture a timestamp`).toBe(STAMP);
+      // And nowhere else, or a later write silently replaces the first.
+      expect(
+        steps.filter((x) => (x.run ?? "").includes("SHARD_START=")),
+        `${f.job} writes SHARD_START more than once`,
+      ).toHaveLength(1);
     }
   });
 
@@ -818,14 +827,13 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     // an `if:` condition, satisfies a whole-object substring search while the
     // body itself reports nothing -- the sibling-contamination shape the
     // anti-tautology rule exists to stop.
-    // The FILING step alone. `notify` has two github-script steps -- the one
-    // that opens/comments the issue and the one that auto-closes on green --
-    // and joining them lets the auto-close body satisfy a check about the issue
-    // body. That is the same sibling contamination one level up.
-    const filing = (wf.jobs["notify"]?.steps ?? []).filter(
-      (s) => (s.with?.script ?? "").includes("issues.create"),
-    );
-    expect(filing, "notify has no issue-filing github-script step").toHaveLength(1);
+    // Selected by DECLARED ID, not by matching text in the body. `notify` has
+    // two github-script steps, and `issues.createComment` -- which BOTH bodies
+    // call -- contains the substring `issues.create`, so a body-text selector
+    // matches the auto-close step too and lets its text satisfy a claim about
+    // the issue body. An `id` is exact, unique per job, and workflow-controlled.
+    const filing = (wf.jobs["notify"]?.steps ?? []).filter((x) => x.id === "file-issue");
+    expect(filing, "notify declares no step with id file-issue").toHaveLength(1);
     const body = filing[0]!.with!.script!;
     for (const job of [...FAMILIES.map((f) => f.job), ...GATES.map((g) => g.job), "budget"]) {
       expect(body, `the issue body never reports ${job}'s result`).toContain(
@@ -855,6 +863,7 @@ Replace the single job with four families plus `budget` (Task 5 supplies the bud
       # outside the workspace, so the value survives checkout. Nothing may be
       # inserted above this step -- the integrity meta-test asserts index 0.
       - name: Stamp job start
+        id: stamp-start
         run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -930,7 +939,7 @@ AC-6c and AC-7 are behavioural claims about a script, so the script gets a test 
 - Produces, from **lib/ci/shardBudget.ts**: `export function checkBudget(records: {leg: string, seconds: number}[], expectedLegs: string[], budgetSeconds: number): {ok: boolean, failures: string[], warnings: string[]}` and `export function expectedLegNames(parserShards: number, sourceShards: number): string[]`.
 
 **The logic and the CLI are SEPARATE FILES, and this is not a style choice.** The registry records what happens otherwise: `phantomGapExecuted` was "enrolled as one file with its CLI main block inline it scored 0.27, 18 of 19 survivors sitting in code the referring suite can never execute through an import" (`tests/mutation/source/registry.ts:993-1008`). A guard with an inline main is not enrollable, and this budget checker IS a guard. So **lib/ci/shardBudget.ts** holds every decision and **scripts/check-shard-budget.ts** holds only argument parsing, a call, and `process.exit` — thin enough that nothing in it needs mutation coverage.
-- Consumes at RUNTIME, from the workflow's arguments rather than from constants of its own: `--budget-seconds`, `--parser-shards`, `--source-shards`, `--dir`. The script derives `expectedLegs` from the two counts. Step 5 pins those arguments to the TypeScript constants in the integrity meta-test, so the script cannot become a second copy of either number.
+- Consumes at RUNTIME, from the step's `env:` mapping rather than from constants of its own: `SHARD_BUDGET_SECONDS`, `PARSER_SHARD_COUNT`, `SOURCE_SHARD_COUNT`, `ELAPSED_DIR`. The script derives `expectedLegs` from the two counts. Step 5 pins those values to the TypeScript constants in the integrity meta-test, so the script cannot become a second copy of either number.
 
 <!-- task: red=`pnpm vitest run tests/ci/shardBudget.test.ts` red-state=authored red-target=`lib/ci/shardBudget.ts` why=`the module does not exist, so the suite's import fails to resolve` ac=AC-6c,AC-7 -->
 
@@ -1030,7 +1039,9 @@ Expected: FAIL — cannot resolve **lib/ci/shardBudget.ts**, verified absent on 
 
 - [ ] **Step 3: Write the script**
 
-**lib/ci/shardBudget.ts** holds `checkBudget` and `expectedLegNames`, and nothing else — no `process`, no I/O, no exit. **scripts/check-shard-budget.ts** parses `--dir`, `--budget-seconds`, `--parser-shards` and `--source-shards`, reads the artifact directory into records, calls `expectedLegNames` then `checkBudget`, prints a **::warning::** annotation per warning, and exits non-zero when `ok` is false. Every decision lives in the module; the script decides nothing.
+**lib/ci/shardBudget.ts** holds `checkBudget` and `expectedLegNames`, and nothing else — no `process`, no I/O, no exit. **scripts/check-shard-budget.ts** reads `ELAPSED_DIR`, `SHARD_BUDGET_SECONDS`, `PARSER_SHARD_COUNT` and `SOURCE_SHARD_COUNT` from the ENVIRONMENT, reads the artifact directory into records, calls `expectedLegNames` then `checkBudget`, prints a **::warning::** annotation per warning, and exits non-zero when `ok` is false. Every decision lives in the module; the script decides nothing.
+
+**Environment rather than argv**, because the meta-test that pins these values to the TypeScript constants then reads a YAML mapping instead of parsing a command line — see the note under Step 5. A missing or non-numeric variable is a usage error and a non-zero exit; the script declares no defaults, since a default is how it would become a second copy of a constant that lives elsewhere.
 
 Completeness is checked **before** any maximum is taken: an absent or duplicated leg is a failure naming the leg, never a smaller maximum. A record that does not parse as a finite number is a failure, not a zero. **The script declares no default for any of the four arguments** — a missing one is a usage error and a non-zero exit, because a default is how it would silently become a second copy of a constant that lives elsewhere.
 
@@ -1051,37 +1062,41 @@ Expected: PASS, 11 tests.
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { pattern: elapsed-*, path: elapsed }
-      - run: >
-          pnpm tsx scripts/check-shard-budget.ts
-          --dir elapsed
-          --budget-seconds 3600
-          --parser-shards 8
-          --source-shards 4
+      - name: Enforce the per-shard budget
+        id: budget-check
+        env:
+          ELAPSED_DIR: elapsed
+          SHARD_BUDGET_SECONDS: "3600"
+          PARSER_SHARD_COUNT: "8"
+          SOURCE_SHARD_COUNT: "4"
+        run: pnpm tsx scripts/check-shard-budget.ts
 ```
+
+**Environment, not argv — and this is the class-level repair for three rounds of the same defect.** Rounds 4, 5 and 6 each found the argv guard accepting a spelling it had not modelled: `36000` under a substring check, `3600.5` under a digit-boundary regex, a duplicate flag under first-match tokenising, and `--budget-seconds=3600.5` under exact-token counting. Every repair widened the recognizer, and a wider recognizer is a bigger target for the next round.
+
+So the recognizer is deleted rather than widened. A step's `env:` is a YAML **mapping**: keys are unique by construction, values are strings the meta-test reads directly, and there is no `=` form, no duplicate form, no quoting form and no ordering to model. The assertion becomes `toBe`, on structured data, and the entire class of "a spelling the parser missed" stops existing.
 
 **Why arguments and not constants baked into the script.** The script is `.mjs` under `.github/scripts/` and the constants are TypeScript in the test tree; it cannot import them. Left to invent its own numbers it becomes a fourth copy of the shard count and a second copy of the budget, free to drift the moment either changes — and every one of Task 5's tests would still pass, because they supply their own fixtures. So the workflow passes them, and **the integrity meta-test pins the workflow's arguments to the TypeScript constants**, the same mechanism §3.4.1 uses for the matrices. Add to **tests/mutation/_metaSourceShardIntegrity.test.ts**:
 
 ```ts
   it("the budget job is invoked with the canonical constants (AC-7)", () => {
-    const run = runsOf("budget").find((r) => r.includes("check-shard-budget")) ?? "";
-    expect(run, "the budget job runs no budget script").not.toBe("");
+    // Selected by its declared `id`, an exact equality on a field the workflow
+    // controls -- not by matching text in its command.
+    const step = (wf.jobs["budget"]?.steps ?? []).find((x) => x.id === "budget-check");
+    expect(step, "the budget job declares no step with id budget-check").toBeDefined();
     // WHOLE-TOKEN equality, not a substring and not a digit-boundary regex.
     // `toContain("3600")` accepts `36000`; a `(?![0-9])` lookahead still accepts
     // `3600.5`, which the CLI parses as a finite budget differing from the
     // constant. Take the token after the flag and compare it exactly.
-    const tokens = run.split(/\s+/);
-    const argValue = (flag: string): string | undefined => {
-      // EXACTLY ONE occurrence. `indexOf` reads the first, while Node's
-      // `util.parseArgs` resolves a repeated flag to the LAST -- so
-      // `--budget-seconds 3600 … --budget-seconds 3600.5` would satisfy a
-      // first-match guard while the CLI ran with 3600.5.
-      const hits = tokens.filter((t) => t === flag).length;
-      expect(hits, `${flag} must appear exactly once, found ${hits}`).toBe(1);
-      return tokens[tokens.indexOf(flag) + 1];
-    };
-    expect(argValue("--budget-seconds")).toBe(String(SHARD_BUDGET_SECONDS));
-    expect(argValue("--parser-shards")).toBe(String(SHARD_COUNT));
-    expect(argValue("--source-shards")).toBe(String(SOURCE_SHARD_COUNT));
+    // Read from the step's `env:` MAPPING, not from its command text. YAML
+    // mapping keys are unique by construction, so there is no duplicate form,
+    // no `--flag=value` form and no ordering to model -- the three spellings
+    // that defeated three successive argv guards. This is `toBe` on structured
+    // data, and the recognizer is gone rather than widened.
+    const env = step.env ?? {};
+    expect(env["SHARD_BUDGET_SECONDS"]).toBe(String(SHARD_BUDGET_SECONDS));
+    expect(env["PARSER_SHARD_COUNT"]).toBe(String(SHARD_COUNT));
+    expect(env["SOURCE_SHARD_COUNT"]).toBe(String(SOURCE_SHARD_COUNT));
   });
 ```
 
@@ -1096,7 +1111,7 @@ with `SHARD_BUDGET_SECONDS` added to the import from **tests/mutation/source/sha
 .github/workflows/mutation-harness.yml:133  needs.mutation-harness.result == 'success'
 ```
 
-A dangling `needs.<job>` does not error — it evaluates to empty. So the failure branch would never fire and the success branch could auto-close a standing issue on a red run: the tracking issue goes silent exactly when it is needed, and every structural assertion about `needs` still passes. Replace both with an expression over the five real jobs, e.g. failure when `contains(needs.*.result, 'failure')` and success when it does not, and extend the issue body to name each family's result plus the budget outcome so a triager knows which of fourteen legs to look at. The two integrity cases added above are what hold this: one rejects any `needs.<job>` naming a job the workflow does not define, the other requires every job name to appear in the notify steps.
+A dangling `needs.<job>` does not error — it evaluates to empty. So the failure branch would never fire and the success branch could auto-close a standing issue on a red run: the tracking issue goes silent exactly when it is needed, and every structural assertion about `needs` still passes. Replace both with an expression over the five real jobs, e.g. failure when `contains(needs.*.result, 'failure')` and success when it does not, and extend the issue body to name each family's result plus the budget outcome so a triager knows which of fourteen legs to look at. **Give the filing step `id: file-issue`** and the auto-close step a different id: the integrity guard selects the filing step by that id, because `issues.createComment` appears in BOTH bodies and any body-text selector matches both. The two integrity cases added above are what hold this: one rejects any `needs.<job>` naming a job the workflow does not define, the other requires every job name to appear in the notify steps.
 
 - [ ] **Step 6: Probe the CLI end-to-end against a constructed input**
 
@@ -1106,9 +1121,9 @@ Build a scratch directory holding one record per leg, then:
 - one record duplicated → expected non-zero exit naming the duplicate;
 - all records at `100` → expected exit 0, and **no** **::warning::** on stdout;
 - one record at `2881` (80 % of 3600) → expected exit **0** with a **::warning::** naming that leg. Without this probe, deleting the annotation entirely leaves every other check green;
-- `--budget-seconds` omitted → expected non-zero **usage** exit, naming the missing argument. Without this probe, a hard-coded default silently reinstates the second copy of the constant that repair #4 removed;
-- `--parser-shards` omitted → same;
-- `--budget-seconds 36000` against a record of `3601` → expected exit 0, confirming the script actually READS the argument rather than ignoring it in favour of an internal value.
+- `SHARD_BUDGET_SECONDS` unset → expected non-zero **usage** exit naming the missing variable. Without this probe, a hard-coded default silently reinstates the second copy of the constant;
+- `PARSER_SHARD_COUNT` unset → same;
+- `SHARD_BUDGET_SECONDS=36000` against a record of `3601` → expected exit 0, confirming the script actually READS the variable rather than ignoring it in favour of an internal value.
 
 A budget check never observed failing is not known to fail, and an annotation never observed emitting is not known to emit. Record all eight in the commit.
 
@@ -1356,6 +1371,14 @@ Registry-count reconciliation, also run now: `GUARD_SURFACES` holds **18** rows 
 **Spec coverage.** AC-1/AC-2 → Task 1 (union, disjointness, determinism, optimal makespan) and the gates file's partition block. AC-3 → Task 2 Step 8, the case-count parity check. AC-4 → Task 4's template-equality and registration-shape cases, mutants (f) and (g). AC-5 → Task 2 (assertion moved once, corpus-wide) and Task 7 (fail-by-default demonstrated). AC-6 → Task 4's dangling-`needs` and result-reporting cases, plus Task 5's condition rewrite. AC-6a → Task 4's index-list and file-set cases, mutants (b) and (c). AC-6b → Task 4's interpolation, gates-leg and union cases, mutants (a), (d), (e). AC-6c → Task 5's absent-leg and duplicate-leg cases plus the `needs` case in Task 4. AC-7 → Task 5's boundary, warn-band and no-warn cases, the argument-pinning case in Task 4, and the eight CLI probes at Task 5 Step 6. AC-8 → Task 4 Step 3 (permissions preserved verbatim). AC-9/AC-9b → Task 8 Steps 1-2, against the twelve transcribed merge-base signatures. AC-9a → Task 2 Step 5 and Task 3, with the direct `--project parallel` check at Task 3 Step 4. AC-10 → Task 2 Step 6 and Task 4's `mutation:guards` case. No AC is unclaimed.
 
 **Placeholder scan.** None.
+
+**The class-level repair, round 6.** Three consecutive rounds found the same shape: a guard that RECOGNISES TEXT, and a spelling it had not modelled — `36000`, then `3600.5`, then a duplicate flag, then `--flag=value`; `issues.create` matching `issues.createComment`; `SHARD_START=` matching an empty assignment. Each repair widened the recogniser, and a wider recogniser is a bigger target for the next round. So the recognisers are **deleted, not widened**: the constants move to the step's `env:` mapping (unique keys by construction, no `=` form, no duplicate form, no ordering), and both step selectors move to a declared `id:`. Every one of those assertions is now `toBe` on structured data. This is the narrowing repair `AGENTS.md` prescribes under same-axis recurrence, taken at the third occurrence rather than the tenth.
+
+```
+#1 id selector: hits=1; auto-close text satisfies issue-body claim -> False
+#2 env mapping: canonical 3600 -> True; 3600.5 -> False; duplicate key impossible
+#3 stamp: id + whole-command + single-write -> True; empty stamp with later real one -> False
+```
 
 **Falsified at plan time, against the reviewer's own counterexamples.** Round 5's three repairs, each re-probed rather than asserted:
 
