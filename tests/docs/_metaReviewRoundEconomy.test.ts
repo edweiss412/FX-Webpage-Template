@@ -6,6 +6,8 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
 import { checkCorpus, readArcs, type Problem } from "../../lib/reviewRounds/corpus";
+import { MECHANIZABLE_GRANDFATHERED } from "../../lib/reviewRounds/mechanizableGrandfather";
+import { premiseHolds } from "../_shared/premise";
 import { ledgerIds, type ExtractOpts } from "./_ledgerMdast";
 
 const ROOT = join(__dirname, "..", "..");
@@ -351,9 +353,72 @@ describe("review-round economy gate (spec §7.1)", () => {
     // The message names the FILING, not the corpus: the author has to open the
     // .md to fix it. Failure caught: `filingPath` never recorded, which reports
     // every filing problem against "null" while the kinds stay right.
-    expect(problems.find((p) => p.kind === "filing_malformed")?.message).toContain(
-      `docs/review-rounds/${ARC}.md`,
+    const message = problems.find((p) => p.kind === "filing_malformed")?.message;
+    expect(message).toContain(`docs/review-rounds/${ARC}.md`);
+    // A field that is MISSING gets the base message, never the non-rendered
+    // one - the two send the author to different repairs (Task-4 mutation
+    // repairs: kills the &&>|| flips at corpus.ts:301/:302 and the rawOnly
+    // length boundary at :306, each of which mislabels an absent field as a
+    // non-rendered one).
+    expect(message).toContain("needs an **Examined:** line and at least one disposition line");
+    expect(message).not.toContain("non-rendered");
+  });
+
+  it("uses the base message when the DISPOSITION is missing entirely", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      { path: `${ARC}.md`, body: `## diff — ${ROUND_THRESHOLD} rounds\n\n**Examined:** a\n` },
+    ]);
+    const message = problems.find((p) => p.kind === "filing_malformed")?.message;
+    expect(message).toContain("needs an **Examined:** line and at least one disposition line");
+    expect(message).not.toContain("non-rendered");
+  });
+
+  // Diff R1 finding 2: a prose MENTION of a field label - a strong run
+  // mid-sentence - is rendered but does not open a field paragraph, so it must
+  // not satisfy the Examined or disposition duties. The duties need BOTH the
+  // raw line anchor AND a rendered label.
+  it("FAILS a filing whose only field labels are mid-sentence mentions", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      {
+        path: `${ARC}.md`,
+        body: `## diff — ${ROUND_THRESHOLD} rounds\n\nThis paragraph merely mentions **Examined:** and **Judgment:** as examples.\n`,
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+    expect(problems[0]!.message).toContain(
+      "needs an **Examined:** line and at least one disposition line",
     );
+  });
+
+  // Diff R2 finding 2: the two conjunction witnesses must not come from
+  // UNRELATED occurrences - a fenced field example (raw anchor) plus a prose
+  // mention (formerly a rendered label) assembled both duties with no rendered
+  // field paragraph anywhere. Line-opening label semantics closes it.
+  it("FAILS a fenced field example paired with a prose mention", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      {
+        path: `${ARC}.md`,
+        body: `## diff — ${ROUND_THRESHOLD} rounds\n\n\`\`\`\n**Examined:** fenced example\n**Mechanizable:** fenced example\n\`\`\`\n\nA live sentence merely mentioning **Examined:** and **Mechanizable:** as labels.\n`,
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+  });
+
+  // The compact soft-broken form stays legal under the conjunction: the raw
+  // anchor and the rendered label both hold on `**Examined:** a\n**Infra:** b`.
+  it("PASSES the compact soft-broken field form", () => {
+    expect(
+      check([
+        { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+        {
+          path: `${ARC}.md`,
+          body: `## diff — ${ROUND_THRESHOLD} rounds\n\n**Examined:** R1-R${ROUND_THRESHOLD}.\n**Mechanizable:** none\n`,
+        },
+      ]),
+    ).toEqual([]);
   });
 
   // Failure caught: a malformed BODY reported and the section checked anyway.
@@ -549,6 +614,316 @@ describe("review-round economy gate (spec §7.1)", () => {
       },
     ]);
     expect(problems.map((p) => p.kind)).toContain("missing_filing");
+  });
+});
+
+describe("mechanizable ledger parity (enforcement-pair spec §3)", () => {
+  /** An obliged arc plus a filing whose body is Examined + the given tail. */
+  const filing = (tail: string): string =>
+    `## diff — ${ROUND_THRESHOLD} rounds\n\n**Examined:** R1-R${ROUND_THRESHOLD}.\n\n${tail}\n`;
+  const gate = (tail: string): Problem[] =>
+    check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      { path: `${ARC}.md`, body: filing(tail) },
+    ]);
+
+  it("FAILS a non-none entry with no id and no decline - the core parity assertion", () => {
+    const problems = gate("**Mechanizable:** promising lint arm, nobody filed it");
+    expect(problems.map((p) => p.kind)).toEqual(["mechanizable_untracked"]);
+    // The message names the filing, the stage, and both missing arms (spec §3.2).
+    const message = problems[0]!.message;
+    expect(message).toContain(`docs/review-rounds/${ARC}.md`);
+    expect(message).toContain("stage diff");
+    expect(message).toContain("cites no BL-/DEF- id");
+    expect(message).toContain('declined: <reason>');
+  });
+
+  it("PASSES an id cited in a block paragraph below the marker", () => {
+    expect(gate("**Mechanizable:** one candidate\n\nFiled as BL-REAL.")).toEqual([]);
+  });
+
+  // Block-scoped on purpose: a Judgment paragraph citing a BL- row must not
+  // satisfy the Mechanizable entry's duty (spec §3.1).
+  it("FAILS when the only id sits OUTSIDE the block, in a following field", () => {
+    expect(gate("**Mechanizable:** one candidate\n\n**Judgment:** cites BL-REAL").map((p) => p.kind)).toEqual([
+      "mechanizable_untracked",
+    ]);
+  });
+
+  // R5 finding 2: the block closes at ANY field paragraph, derived - not an
+  // enumerated closer list that re-opens per noncanonical spelling.
+  it("FAILS when the only id sits under a noncanonical trailing field", () => {
+    expect(
+      gate("**Mechanizable:** uncited candidate\n\n**Carry-forward:** unrelated note cites BL-REAL").map(
+        (p) => p.kind,
+      ),
+    ).toEqual(["mechanizable_untracked"]);
+  });
+
+  it("PASSES a structural declined: line in the block", () => {
+    expect(gate("**Mechanizable:** one candidate\n\ndeclined: no owner until the M14 window")).toEqual([]);
+  });
+
+  // R7 finding 1: 79 of 88 live canonical markers carry their value on the line.
+  it("PASSES a marker-line declined: declaration", () => {
+    expect(gate("**Mechanizable:** declined: waiting on the product call")).toEqual([]);
+  });
+
+  it("PASSES none, with and without trailing prose", () => {
+    expect(gate("**Mechanizable:** none")).toEqual([]);
+    expect(gate("**Mechanizable:** none — all judgment-shaped")).toEqual([]);
+  });
+
+  // R7 finding 2, the ACCEPTING direction of documented limit §5.7: isNone reads
+  // only the marker-line remainder, so content later added below a stale none
+  // passes. Rejecting it was probed against the live corpus and would
+  // false-reject the dominant idiom (prose under none. markers).
+  it("PASSES a stale none followed by candidate lines - documented limit §5.7", () => {
+    expect(gate("**Mechanizable:** none\n\nActually, here is a candidate nobody filed.")).toEqual([]);
+  });
+
+  // R5 finding 1: begins-with, never contains.
+  it("FAILS 'not declined:' - negation is not a declaration", () => {
+    expect(gate("**Mechanizable:** not declined: no owner has accepted this").map((p) => p.kind)).toEqual([
+      "mechanizable_untracked",
+    ]);
+  });
+
+  it("FAILS a mid-sentence prose MENTION of the declined: form", () => {
+    expect(
+      gate(
+        "**Mechanizable:** one candidate\n\nWe should use declined: <reason> only after a decision.",
+      ).map((p) => p.kind),
+    ).toEqual(["mechanizable_untracked"]);
+  });
+
+  // R8 finding 2: every CommonMark list-marker form declares; the two exotic
+  // forms are pinned at gate level (all five are pinned at parse level).
+  it.each(["+", "1)"])("PASSES a %s list-item declined: declaration", (m) => {
+    expect(gate(`**Mechanizable:** one candidate\n\n${m} declined: no owner until M14`)).toEqual([]);
+  });
+
+  // R6: two markers have no defined aggregation - both orderings are malformed.
+  it("FAILS two canonical markers, tracked-then-uncited", () => {
+    const problems = gate("**Mechanizable:** BL-REAL\n\n**Mechanizable:** stray uncited second entry");
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+    expect(problems[0]!.message).toContain("2");
+  });
+
+  it("FAILS two canonical markers, uncited-then-tracked", () => {
+    expect(
+      gate("**Mechanizable:** stray uncited entry\n\n**Mechanizable:** BL-REAL").map((p) => p.kind),
+    ).toEqual(["filing_malformed"]);
+  });
+
+  // R10: remark decodes backslash escapes and character references before
+  // CITED_ID runs, so an id the raw scan never saw must still RESOLVE - without
+  // this, the decoded spelling satisfies parity while resolution sees nothing.
+  it.each([
+    ["backslash-escaped BL-", "BL\\-NO-SUCH-ROW", "BL-NO-SUCH-ROW"],
+    ["character-reference BL-", "BL&#45;NO-SUCH-ROW", "BL-NO-SUCH-ROW"],
+    ["backslash-escaped DEF-", "DEF\\-NO-SUCH-ROW", "DEF-NO-SUCH-ROW"],
+    ["character-reference DEF-", "DEF&#45;NO-SUCH-ROW", "DEF-NO-SUCH-ROW"],
+  ])("FAILS an AST-decoded unresolvable id (%s) as unresolved_id", (_name, spelled, decoded) => {
+    const problems = gate(`**Mechanizable:** ${spelled}`);
+    expect(problems.map((p) => p.kind)).toEqual(["unresolved_id"]);
+    expect(problems[0]!.message).toContain(decoded);
+  });
+
+  // R11: struck-through content is a visible RETRACTION and satisfies nothing.
+  it("FAILS ~~none~~ - a struck none is not none", () => {
+    expect(gate("**Mechanizable:** ~~none~~ candidates remain").map((p) => p.kind)).toEqual([
+      "mechanizable_untracked",
+    ]);
+  });
+
+  it("FAILS a struck marker-line decline", () => {
+    expect(gate("**Mechanizable:** ~~declined: no owner~~").map((p) => p.kind)).toEqual([
+      "mechanizable_untracked",
+    ]);
+  });
+
+  it("FAILS a struck block-item decline", () => {
+    expect(gate("**Mechanizable:** one candidate\n\n- ~~declined: struck~~").map((p) => p.kind)).toEqual([
+      "mechanizable_untracked",
+    ]);
+  });
+
+  it("FAILS a struck citation - the entry stays untracked", () => {
+    expect(gate("**Mechanizable:** ~~BL-REAL~~ retracted").map((p) => p.kind)).toEqual([
+      "mechanizable_untracked",
+    ]);
+  });
+
+  // R9 finding 2: a heading closes the block (the live corpus lays out
+  // `### Judgment, not mechanizable` subsections), so ids and declines in prose
+  // under it never leak in.
+  it("FAILS when the only id sits under a following subsection heading", () => {
+    expect(
+      gate(
+        "**Mechanizable:** one candidate\n\n### Judgment, not mechanizable\n\nBL-REAL is judgment prose.",
+      ).map((p) => p.kind),
+    ).toEqual(["mechanizable_untracked"]);
+  });
+
+  it("FAILS when the only declined: sits under a following subsection heading", () => {
+    expect(
+      gate(
+        "**Mechanizable:** one candidate\n\n### Judgment, not mechanizable\n\ndeclined: judgment prose",
+      ).map((p) => p.kind),
+    ).toEqual(["mechanizable_untracked"]);
+  });
+
+  // R8 finding 1: content CommonMark does not render as prose is structurally
+  // invisible - one fixture per matrix cell, per non-rendered form.
+  const NON_RENDERED: readonly [string, (inner: string) => string][] = [
+    ["a fenced block", (s) => `\`\`\`\n${s}\n\`\`\``],
+    [
+      "an indented code block",
+      (s) =>
+        s
+          .split("\n")
+          .map((l) => `    ${l}`)
+          .join("\n"),
+    ],
+    ["an HTML comment", (s) => `<!--\n${s}\n-->`],
+  ] as const;
+
+  it.each(NON_RENDERED)("does not count a marker inside %s - no phantom duplicate", (_n, wrap) => {
+    expect(gate(`**Mechanizable:** BL-REAL\n\n${wrap("**Mechanizable:** phantom")}`)).toEqual([]);
+  });
+
+  it.each(NON_RENDERED)("does not accept a declined: example inside %s", (_n, wrap) => {
+    expect(
+      gate(`**Mechanizable:** one candidate\n\n${wrap("declined: example only")}`).map((p) => p.kind),
+    ).toEqual(["mechanizable_untracked"]);
+  });
+
+  it.each(NON_RENDERED)("does not collect an id inside %s", (_n, wrap) => {
+    expect(gate(`**Mechanizable:** one candidate\n\n${wrap("BL-REAL")}`).map((p) => p.kind)).toEqual([
+      "mechanizable_untracked",
+    ]);
+  });
+
+  it.each(NON_RENDERED)("an example bold field inside %s does not close the block", (_n, wrap) => {
+    expect(
+      gate(`**Mechanizable:** one candidate\n\n${wrap("**Judgment:** example")}\n\nFiled as BL-REAL.`),
+    ).toEqual([]);
+  });
+
+  // R9 finding 1: a filing whose only disposition (or Examined) lines live in
+  // non-rendered content satisfied the raw line scan while the AST saw nothing,
+  // and parity was never consulted - the whole-gate silent accept.
+  const RAW_ONLY_FORMS: readonly [string, (inner: string) => string][] = [
+    ...NON_RENDERED,
+    ["an HTML block", (s) => `<div>\n${s}\n</div>`],
+  ] as const;
+
+  it.each(RAW_ONLY_FORMS)("FAILS a filing whose only disposition line sits in %s", (_n, wrap) => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      {
+        path: `${ARC}.md`,
+        body: `## diff — ${ROUND_THRESHOLD} rounds\n\n**Examined:** R1-R${ROUND_THRESHOLD}.\n\n${wrap("**Mechanizable:** none")}\n`,
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+    expect(problems[0]!.message).toContain("non-rendered");
+  });
+
+  it.each(RAW_ONLY_FORMS)("FAILS a filing whose only Examined line sits in %s", (_n, wrap) => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      {
+        path: `${ARC}.md`,
+        body: `## diff — ${ROUND_THRESHOLD} rounds\n\n${wrap("**Examined:** R1-R4.")}\n\n**Mechanizable:** none\n`,
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+    expect(problems[0]!.message).toContain("non-rendered");
+  });
+
+  // R12: a rendered field nested under a listItem renders for the reader while
+  // marker discovery sees nothing - rejected loudly, all five marker forms.
+  it.each(["-", "*", "+", "1.", "1)"])("FAILS a %s list-nested Mechanizable field", (m) => {
+    const problems = gate(`**Judgment:** the real disposition\n\n${m} **Mechanizable:** nested candidate`);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+    expect(problems[0]!.message).toMatch(/nest/);
+  });
+
+  // Diff R1 finding 3, gate level: a rendered Mechanizable field nested under
+  // a blockquote inside a list item (and a bare top-level blockquote) is
+  // rejected, not silently admitted beside a conforming Judgment.
+  it.each([
+    ["a blockquote inside a list item", "- > **Mechanizable:** nested candidate"],
+    ["a bare top-level blockquote", "> **Mechanizable:** quoted candidate"],
+  ])("FAILS a rendered Mechanizable field in %s", (_n, body) => {
+    const problems = gate(`**Judgment:** the real disposition\n\n${body}`);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+    expect(problems[0]!.message).toMatch(/top-level/);
+  });
+
+  // Diff R1 finding 4, gate level: a decline declared in a sub-list item or a
+  // blockquote paragraph inside the block is a declaration - the gate must not
+  // reject a conforming filing over its nesting depth.
+  it.each([
+    ["a sub-list item", "- one candidate\n  - declined: owner decision"],
+    ["a blockquote paragraph", "> declined: quoted owner decision"],
+  ])("PASSES a decline declared in %s", (_n, body) => {
+    expect(gate(`**Mechanizable:** one candidate\n\n${body}`)).toEqual([]);
+  });
+
+  // §3.3: the grandfather exemption, pinned on a REAL frozen path whose fixture
+  // content violates all four grandfather-exempt families at once - a raw-only
+  // Examined, duplicate markers, an untracked non-none entry, and a nested
+  // field - so every exemption branch is executably covered.
+  it("PASSES violating content on a grandfathered path, and FAILS it on a new one", () => {
+    const gfPath = "refactor/classname-array-join-cn/61281c23e8ce";
+    premiseHolds(
+      "the planted path is in the frozen grandfather set",
+      MECHANIZABLE_GRANDFATHERED.has(`docs/review-rounds/${gfPath}.md`),
+    );
+    premiseHolds(
+      "the fixture arc path is NOT grandfathered, so new-filing checks bind",
+      !MECHANIZABLE_GRANDFATHERED.has(`docs/review-rounds/${ARC}.md`),
+    );
+    const violating = [
+      `## diff — ${ROUND_THRESHOLD} rounds`,
+      "",
+      "```",
+      `**Examined:** R1-R${ROUND_THRESHOLD} raw-only in a fence`,
+      "```",
+      "",
+      "**Mechanizable:** first uncited candidate",
+      "",
+      "**Mechanizable:** second duplicate marker",
+      "",
+      "- **Mechanizable:** nested under a list item",
+      "",
+    ].join("\n");
+    expect(
+      check([
+        {
+          path: `${gfPath}.jsonl`,
+          body: rows(
+            ...OBLIGING.map((o) => ({
+              ...o,
+              branch: "refactor/classname-array-join-cn",
+              baseSha: "61281c23e8ce",
+            })),
+          ),
+        },
+        { path: `${gfPath}.md`, body: violating },
+      ]),
+    ).toEqual([]);
+    // The same body on a non-grandfathered path is rejected - the exemption is
+    // the only thing letting it pass, not the content being legal.
+    expect(
+      check([
+        { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+        { path: `${ARC}.md`, body: violating },
+      ]),
+    ).not.toEqual([]);
   });
 });
 
