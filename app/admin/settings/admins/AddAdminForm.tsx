@@ -132,7 +132,7 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
               type="button"
               onClick={onReset}
               data-testid="admin-allowlist-re-add-cancel"
-              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text underline-offset-2 hover:text-text-strong"
             >
               Cancel
             </button>

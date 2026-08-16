@@ -130,6 +130,21 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
   // first, needing its own backlog entry.
   specLintNumerics: { equivalent: 50 },
+  // The interactive-scan surfaces, enrolled 2026-08-15. `tapTargetScan` carries
+  // NO blessed survivor: its whole body is one map over the shared core's
+  // verdicts, and the census suite kills its single mutant, so a row appearing
+  // here later is a coverage regression to repair rather than a number to bump.
+  tapTargetScan: {},
+  // The shared core is this arc's mutation-relevant surface: the in-scope
+  // predicate, the resolver and both token grammars live here, and three suites
+  // decide its verdicts. Its eleven blessed survivors are all ONE shape — a
+  // mutation whose only effect is on a value no consumer can distinguish: an
+  // empty string added to a token list nothing counts, a loop's off-the-end read
+  // of `undefined`, a 2px shift against a 24px gap, a consistent relabelling
+  // under a symmetric `min`. Across two rounds SIXTY-SEVEN other survivors were
+  // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
+  // repay rather than a number to bump.
+  interactiveScanCore: { equivalent: 11 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

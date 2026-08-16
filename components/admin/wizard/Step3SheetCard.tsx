@@ -122,7 +122,7 @@ export function PublishCheckbox({
         aria-hidden="true"
         data-testid={`wizard-step3-card-${driveFileId}-checkbox-box`}
         className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface ${
-          checked ? "border-accent bg-accent text-accent-text" : "border-border-strong bg-bg"
+          checked ? "border-accent bg-accent text-accent-text" : "border-text-faint bg-bg"
         }`}
       >
         <Check
@@ -581,7 +581,7 @@ export function Step3SheetCard({
   // The modal trigger — the SAME self-managed modal in every variant, and now
   // the SAME treatment too (STEP3-GALLERY-TAP-TARGETS-1 item d). "View" used to
   // be a bare-text ghost in `text-text-subtle`, which DESIGN.md §1.1 documents as
-  // "Never used for action targets", and which put two vocabularies side by side
+  // "never the resting color of an action target, except the three carve-out families in §1.1a" (amended 2026-08-14; it read "Never used for action targets" when this comment was written), and which put two vocabularies side by side
   // in one row slot. The label still carries the difference between a clean row
   // and a needs-a-look one; the chrome no longer does. Neither is accent — that
   // budget is the bar's Publish CTA + the checked boxes.

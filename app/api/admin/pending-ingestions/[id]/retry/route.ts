@@ -39,7 +39,6 @@ import { log } from "@/lib/log";
 import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
 import { emitRoleFlagsNotice, ROLE_FLAGS_EMIT_SOURCE } from "@/lib/sync/emitRoleFlagsNotice";
-import { serializeError } from "@/lib/log/serializeError";
 import type { RoleFlagsNotice } from "@/lib/sync/phase2";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 import { emitDiagramVariantFailures } from "@/lib/log/emitDiagramVariantFailures";
@@ -483,7 +482,7 @@ export async function handleLivePendingIngestionRetry(
               source: "api.admin.pending-ingestions.retry",
               code: "SYNC_LOG_EMIT_FAILED",
               driveFileId: row.drive_file_id,
-              error: serializeError(sinkError),
+              error: sinkError,
             });
             // Invariant 10 (prod diff review R1 P0): this catch runs inside the held
             // withRowTryLock, and an app_events emit must never extend that window.
@@ -584,7 +583,7 @@ export async function handleLivePendingIngestionRetry(
             source: "api.admin.pending-ingestions.retry",
             code: "SYNC_LOG_EMIT_FAILED",
             driveFileId: row.drive_file_id,
-            error: serializeError(sinkError),
+            error: sinkError,
           });
           // Invariant 10 (prod diff review R1 P0): in-lock, so fire-and-forget rather than
           // awaited — an app_events emit must never extend the held-lock window.
@@ -655,7 +654,7 @@ export async function handleLivePendingIngestionRetry(
           code: "PENDING_INGESTION_RETRY_REVALIDATE_FAILED",
           showId: revalidatedShowId,
           driveFileId,
-          error: serializeError(error),
+          error: error,
         });
         await escalation.catch(() => {
           /* best-effort: the escalation itself must never change the route's outcome */
@@ -695,7 +694,7 @@ export async function handleLivePendingIngestionRetry(
           code: "IDENTITY_LINK_RENAME_UNLANDED_EMIT_FAILED",
           showId: unlandedRef.showId,
           driveFileId: unlandedRef.driveFileId,
-          error: serializeError(error),
+          error: error,
         });
         await escalation.catch(() => {
           /* best-effort: the escalation itself must never change the route's outcome */
@@ -717,7 +716,7 @@ export async function handleLivePendingIngestionRetry(
           source: "api.admin.pending-ingestions.retry",
           code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
           showId: variantRef.showId,
-          error: serializeError(error),
+          error: error,
         });
         await escalation.catch(() => {
           /* best-effort: the escalation itself must never change the route's outcome */
@@ -748,7 +747,7 @@ export async function handleLivePendingIngestionRetry(
           code: "ROLE_FLAGS_NOTICE_EMIT_FAILED",
           showId: noticeRef.showId,
           driveFileId,
-          error: serializeError(error),
+          error: error,
         });
         await escalation.catch(() => {
           /* best-effort: the escalation itself must never change the route's outcome */

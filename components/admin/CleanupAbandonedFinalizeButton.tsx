@@ -80,7 +80,7 @@ export function CleanupAbandonedFinalizeButton({ sessionId }: Props) {
         disabled={state.kind === "running"}
         aria-haspopup="dialog"
         aria-expanded={state.kind === "confirming"}
-        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
         {state.kind === "running" ? "Discarding…" : "Discard this setup and start over"}
       </button>
@@ -193,7 +193,7 @@ function DiscardConfirmPopover({
           type="button"
           data-testid="cleanup-abandoned-finalize-confirm-cancel"
           onClick={onCancel}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
+          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
         >
           Cancel
         </button>

@@ -289,6 +289,20 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  // Admin-log-only (§12.4 "Admin-log-only codes"): a sync_log write failed while the operation it
+  // observes continued. Never rendered to Doug or crew, so every facing field is null (the
+  // STALE_WRITE_ABORTED shape) and invariant 5 is untouched.
+  SYNC_LOG_EMIT_FAILED: {
+    code: "SYNC_LOG_EMIT_FAILED",
+    warningClass: "general",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   WIZARD_SESSION_SUPERSEDED: {
     code: "WIZARD_SESSION_SUPERSEDED",
     warningClass: "general",

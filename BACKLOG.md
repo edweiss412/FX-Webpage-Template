@@ -80,91 +80,6 @@ The terminating framing is the same one that closed acquisition: stop asking how
 
 ---
 
-## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button is not perceivable as a box at the non-text floor
-
-**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system
-contrast. **Effort:** M — it is a token decision affecting every surface that renders the button, not
-a patch. **Class-sweep exception:** (c). **Reachability: PROBED.**
-
-The shared secondary treatment (`SECONDARY_ACTION_CLASS`, `lib/ui/actionClass.ts`) draws a
-`border-border-strong` outline over a `bg-bg` fill, on cards that are `bg-surface`. Measured with the
-standard WCAG relative-luminance formula against the runtime tokens:
-
-```
-border-strong on surface   1.59:1 light   1.60:1 dark     (3:1 non-text floor)
-bg fill      on surface     1.04:1 light   1.06:1 dark
-label text   on the fill   16.47:1 light  15.23:1 dark
-```
-
-So neither the outline nor the fill is perceivable at the floor: what identifies the control is its
-label, not its box.
-
-**This is NOT a strict AA failure and NOT a regression.** WCAG 1.4.11 does not require the boundary
-to reach 3:1 when the component is identifiable by other means, and the label clears every floor
-with margin. It is also pre-existing: this is the class `RescanSheetButton` has shipped for months,
-promoted verbatim into the constant precisely so its eight other call sites would not move. The
-retired ghost "View" had no border at all, so nothing got worse.
-
-**Why it is still worth a row.** DESIGN.md §1.2a already records the same shape one layer down —
-tokens tuned to sit BESIDE a filled surface do not carry contrast when they must stand on their own.
-The border tokens are tuned as tile edges, and a button outline asks them to do a different job. A
-deliberate decision would either give the secondary button a boundary that reads (a stronger token,
-or a fill with real separation) or state explicitly that the label is the affordance and the box is
-decorative — which is a legitimate answer, just not one anyone has written down.
-
-## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on interactive elements is a 32-site class, not a four-site list
-
-**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, task U4). **Class:** design-system conformance
-(`DESIGN.md` §1.1 documents `--color-text-subtle` as "Labels, captions, 'as of …' timestamps. Never
-used for action targets."). **Effort:** M. **Class-sweep exception:** (c) — it spans 19 files this
-PR does not otherwise touch, and several members are genuine design questions rather than mechanical
-swaps. **Reachability: PROBED.**
-
-**Why this is filed at all: the previous cover was an enumeration, and enumerations of this shape
-keep coming up short.** `SHEETLINK-SUBTLE-ACTION-CLASS-1` named four sites. U4 found a fifth while
-implementing (the HelpSheet `?` trigger's painted span). A SIXTH —
-`components/admin/FinalizeButton.tsx:818`, the finalize-blocker dismiss — surfaced only because the
-z-index sweep happened to touch its line, which is luck, not method. That sixth is repaired in this
-branch with the other five. The rest are filed here **with the derivation instead of a list**, so
-the next pass does not re-enumerate and come up short a third time.
-
-**The probe** (AST over `app/**` + `components/**` `.tsx`, JSX opening elements whose tag is
-`button` / `a` / `summary` and whose STATIC `className` — string, template, conditional branches,
-`cn()`/`clsx()` arguments — contains the bare token `text-text-subtle`):
-
-```
-total: 32 interactive elements
-components/admin/dev/SwitcherControls.tsx:142        <button>
-components/admin/nav/NotifBell.tsx:76                <button>
-components/admin/nav/OnboardingTopBar.tsx:84         <button>
-components/admin/nav/UserMenu.tsx:51                 <button>
-components/admin/settings/AdministratorsSection.tsx:150  <summary>
-components/admin/showpage/sectionWarningExtras.tsx:272    <summary>
-components/admin/telemetry/ActiveFilterChips.tsx:90, :101 <button>
-components/admin/telemetry/AutoRefreshControl.tsx:119     <button>
-components/admin/wizard/Step3ReviewModal.tsx:475          <button>
-components/admin/wizard/step3ReviewSections.tsx:1410, :1419  <a>
-components/admin/wizard/step3ReviewSections.tsx:1595       <summary>
-components/admin/wizard/step3ReviewSections.tsx:2590        <button>
-components/agenda/AgendaPdfViewer.tsx:165                  <button>
-components/crew/AgendaScheduleBlock.tsx:107                <summary>
-components/crew/primitives/KeyTimesStrip.tsx:191           <summary>
-components/layout/ThemeToggle.tsx:81                       <button>
-components/shared/ReportModal.tsx:579                      <button>
-(tail truncated in this listing; the scan is the authority, not this excerpt)
-```
-
-**Worst case is cosmetic, which is why it is a backlog row and not a deferral with a trigger.** The
-control renders and is operable; it renders quieter at rest than DESIGN.md intends, which reads as
-de-emphasis where none was meant. Nothing is unreachable and no state is carried by colour alone.
-
-**Fix when prioritized — and the fix is a guard, not 32 edits.** Land the scan above as a structural
-meta-test with a reasons-required registry (the `zIndexExemptions.ts` shape), so every new
-interactive element is covered by default and the remaining debt is declared and countable rather
-than rediscovered. Some members need a decision first, not a swap: a dismissable filter chip and a
-`<summary>` disclosure are arguably caption-like, and DESIGN.md should say so explicitly in the same
-pass rather than being read as absolute and then quietly excepted.
-
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
 **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
@@ -308,13 +223,109 @@ RangeError: Maximum call stack size exceeded
 
 **First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
 
-## BL-TAP-TARGET-STRUCTURAL-GUARD — repo-wide tap-target guard blocked on the non-literal-className policy
+## BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT — the "no action needed" pill now reads louder than the "needs you" one
 
-**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §5 + §9.1). **Class:** structural defense (fail-by-default coverage for NEW small targets). **Effort:** M-L. **Class-sweep exception:** (c) — spans surfaces the filing PR does not otherwise touch. **Reachability:** PROBED — the full detector procedure and its output are in the spec's §2.6 (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
+**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique P2). **Class:** visual hierarchy. **Effort:** S. **Class-sweep exception:** (a) — the repair is a product decision this PR cannot settle. **Reachability:** PROBED — both branches are in `components/admin/showpage/PublishedReviewModal.tsx` at the alert pill (`data-testid` suffix `-alert-pill`), and the arithmetic is on the shipped class strings.
 
-The mandated pre-draft detector pass ran a TypeScript-AST walk over every `.tsx` under `app/**` and `components/**`: **340** in-scope interactive elements, **139** the recogniser cannot clear, of which **94 carry a non-literal `className`** (template literal, ternary, named constant, `.join()`, or no `className` prop at all with the floor living in a child component's base string). A guard honouring the consequence bound — every element checked or reported by name, never silently passed — must report all 94 as UNCLASSIFIED, so it cannot go green until they are dispositioned. Shipping it weakened (passing constructs it cannot read) would have missed `components/admin/HelpSheet.tsx:139`, a real 36px defect the corpus pass caught.
+The alert pill has two branches. Monitoring-only ("clearing on their own, no action needed") is `border border-border bg-surface-sunken` and, since the subtle-on-interactive swap, rests at `text-text` — roughly 15:1 on its own fill. The needs-you branch is `text-warning-text` on `bg-warning-bg`, 9.5:1. The QUIET state now carries more contrast than the URGENT one.
 
-**First scheduled step is the policy decision, not the recogniser:** resolve named class constants, require literal classNames on interactive elements, or accept a standing UNCLASSIFIED census. The recogniser cannot be finished before that call. Until then, the filing branch's defence is its real-browser assertions pinning the thirteen repaired sites (regression coverage, not discovery coverage — spec §4 documents the limit).
+**Why it was not repaired on this branch.** The site is dispositioned SWAP in the ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §4.3), and the exemption side is pinned executably — the registry's 14 rows, plus the NEGATIVE guarantee that no other in-scope element carries a bare `text-text-subtle` — by `tests/styles/_metaSubtleOnInteractive.test.ts`. Moving it to a Family D carve-out would edit a user-ratified table, which is the user's call, not the implementer's. The pair is NOT indistinguishable meanwhile: the fills differ (`bg-surface-sunken` vs `bg-warning-bg`) and the dot differs in shape (hollow positive-tone vs filled review-tone), so the §1 colour-blind floor holds either way.
+
+**First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
+
+## BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS — 23 control outlines still at 1.4-1.8:1 on non-ground fills
+
+**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** visual boundary / DESIGN scope. **Effort:** M. **Class-sweep exception:** (a) — the repair needs a DESIGN.md scope decision this PR cannot settle. **Reachability:** PROBED, with a DERIVED cover (below).
+
+This arc moved the secondary-action outline to `border-text-faint` (3.35:1 on `bg-surface`) at the shared constant, at the 25 sites that carry the same recipe inline over a `bg-bg` fill, and at six further controls whose fill is a SURFACE rather than the page ground — because leaving each at the old outline while a sibling it renders with had moved would have shipped a split treatment inside one view. Two are DIRECT pairs (`Step2Verify`'s re-scan beside its folder input, `DriveConnectionPanel`'s two actions); two are connected through a shared row rather than adjacency (`RecentAutoAppliedStrip`, whose near-ground control is in its confirmation row, and the `AcceptChangeButton`/`UndoChangeButton` pair `ChangeFeedEntry.tsx:135` renders); one inherits `Step2Verify`'s file-local `SECONDARY_BUTTON`. Twenty-three in-scope CONTROLS still carry `border border-border-strong` over `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` or `bg-transparent` fills — at the per-ground ratios in the paragraph below, all of them far under the 3:1 non-text floor.
+
+**The 1.59:1 / 1.60:1 figures are `bg-surface`'s, not every fill's** (whole-diff R4 F4). Measured 2026-08-15 against the runtime tokens, `border-strong` sits at 1.59 light / 1.60 dark on `surface`, **1.43 / 1.75** on `surface-sunken`, **1.59 / 1.50** on `surface-raised` and 1.52 / 1.70 on `bg`; a `bg-transparent` control takes whatever its rendered ground is, which no static measurement can supply. All of them are far under the 3:1 non-text floor, which is the entry's point — but the entry should not quote one ground's number for twenty-three controls that do not share it.
+
+**Derived cover** (re-run it rather than trusting this list — it is a query, not an enumeration):
+
+```ts
+scanInteractiveElements(process.cwd()).filter((e) =>
+  allStrings(e).some((s) => /(^|\s)border-border-strong(\s|$)/.test(s)),
+);
+```
+
+from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 elements; six were repaired on the filing branch because THIS diff created their inconsistency — two beside a swapped sibling (`Step2Verify.tsx:126`, `settings/DriveConnectionPanel.tsx:284`), two connected through a shared row (`RecentAutoAppliedStrip.tsx:516`, and the `AcceptChangeButton`/`UndoChangeButton` pair rendered by `ChangeFeedEntry.tsx:135`), and one by inheritance of `Step2Verify`'s file-local constant. That leaves 23, none of them co-visible with a swapped peer.
+
+**Why the sweep stopped there, and what has to be decided first.** DESIGN.md §1.2a's predicate is a control "whose fill is the near-ground". A `bg-surface` button ON a `bg-surface` card measures 1.00:1 against its container, so extending the rule to it is defensible — but that extension REWRITES the predicate from "the fill is the page ground" to "the fill equals its container", and the wider predicate then also captures the three switch TRACKS in the set (`PublishedToggle.tsx:292`, `settings/AutoPublishToggle.tsx:123`, `settings/NotifyToggle.tsx:131`), whose OFF-state boundary is pinned separately in §1.2 against `--color-accent-edge` as the load-bearing 1.4.11 pair. A blanket swap would silently retune that pinned pair. The text-level cover is also NOT safe to apply mechanically: of the 69 lines carrying `border border-border-strong` as of 2026-08-15 (74 when the entry was filed; the difference is this arc's own swaps), most are cards, chips, tiles and popover surfaces that must keep the border token.
+
+**First scheduled step:** settle §1.2a's predicate — "near-ground" as page-ground only, or as fill-equals-container — and state explicitly whether switch tracks are in or out. The swap itself is one token per site once that is written down.
+
+## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
+
+**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** colour policy completeness. **Effort:** S-M. **Class-sweep exception:** (a) — whether a control may rest at the faint rung is a design decision, and the census this arc shipped was ratified around one token. **Reachability:** PROBED — all four sites read from the live tree.
+
+DESIGN §1.1a now says `--color-text-subtle` is never the resting colour of an action target outside three carve-out families. These four controls rest at `--color-text-faint`, which is one rung QUIETER (3.02:1 on `bg-surface-sunken`, vs subtle's 6.09:1) and which §1.1 already describes as "never used for crew-actionable copy":
+
+- `components/crew/primitives/SourceLink.tsx` — crew-facing "In sheet" deep link (sunlit-readability surface).
+- `components/shared/CardReportTrigger.tsx` — crew-facing card report flag.
+- `components/admin/BellPanel.tsx` — bell-row affordance.
+- `components/admin/HoverHelp.tsx` — help trigger glyph.
+
+**Why it was not repaired here.** The ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §2.3/§4.3) defines a hit as the BARE token `text-text-subtle`, and the exemption side is pinned executably: 14 registry rows plus the negative guarantee that no other in-scope element rests at a bare `text-text-subtle`. What is NOT pinned is each swapped site's exact token — a site moved from `text-text` to `text-text-faint` would pass, which is what `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR` is about — nor the 41-site swap tally, nor hover, which was a one-shot verification at implementation time. Policing a second token is a guard-contract change plus a new census, and the sites are deliberately recessive by their own documented design — two of them are crew surfaces whose quietness was an explicit choice. That is a decision to make, not an omission to patch. The `token` field already exists on `SubtleHit` and on the exemption registry rows precisely so a second policed token cannot alias the first's rows.
+
+**First scheduled step:** decide whether `text-faint` is admissible as a resting colour for a deliberately recessive control (and if so, name the condition in §1.1a — e.g. only where a non-colour affordance carries the control), or add it to the policed set and re-census.
+
+## BL-RUNOFSHOW-SUMMARY-NO-MARKER — the one Family S site with no visible fold affordance
+
+**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R2 F3). **Class:** design-system policy / crew UX. **Effort:** S. **Class-sweep exception:** (a) — restoring a cue or reclassifying the site is a crew-surface design decision the policy arc did not make. **Reachability:** PROBED — the class string is read out below and the site is one of the seven Family S rows in `tests/styles/subtleInteractiveExemptions.ts`.
+
+DESIGN §1.1a's Family S sanctions a resting `text-text-subtle` on a `<summary>` because "the fold affordance is carried by the marker/chevron and the interaction, not by label weight". `components/crew/primitives/RunOfShowList.tsx:82` carries `list-none [&::-webkit-details-marker]:hidden` and renders no replacement, so on the mobile-first crew surface the only hint that the truncated title expands is its trailing ellipsis. It is the only one of the seven Family S sites in that position.
+
+**Why it was not repaired here.** Two defensible answers and no ratification for either: render a chevron (a visual change to a crew row whose density was designed deliberately), or move the site out of Family S and rest it at `text-text` (which changes the row's tone, the thing the dimness was chosen for). The registry row carries the caveat so the exemption's claim is not silently false while the question is open.
+
+**First scheduled step:** decide between a rendered fold cue and a reclassification, and if Family S keeps the site, amend §1.1a to say what counts as the affordance when the marker is suppressed.
+
+## BL-CONTROL-OUTLINE-ON-TINTED-PLATES — the secondary outline dips under 3:1 against warning, info and danger cards
+
+**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R1 F1). **Class:** design-system contrast. **Effort:** S at the token, M across the plates. **Class-sweep exception:** (a) — which treatment a tinted plate should get is a design decision this policy did not make. **Reachability:** PROBED — ratios computed from the runtime tokens in `app/globals.css` and pinned in `tests/styles/secondary-action-contrast.test.ts`.
+
+The secondary action paints its own `bg-bg` fill, so its outline has two neighbours: the fill inside it (3.21:1 light / 4.00:1 dark) and whatever it stands on outside. On the four neutral grounds DESIGN §1.2 pins, both sides clear 3:1. On a tinted plate the outer edge does not, in exactly one theme per plate: `warning-bg` **2.79** dark (3.04 light), `info-bg` **2.87** light (3.48 dark), `danger-bg` **2.88** light (3.19 dark).
+
+Eleven shipped controls stand on such a plate, across ten sites: `components/admin/DataQualityWarningControls.tsx:21`, `MaintenanceResetButtons.tsx:308` and `:328`, `PerShowAlertResolveButton.tsx:94`, `ReapStaleSessionsButton.tsx:146`, `RecentAutoAppliedStrip.tsx:551`, `ReSyncButton.tsx:286`, `ShowRowActions.tsx:932`, `wizard/step3ReviewSections.tsx:2682`, and `wizard/archivedTabOffer.tsx:140` (both its accept and revoke controls).
+
+**Why it is recorded rather than repaired here.** `BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE` was explicit that the prior 1.59:1 boundary was NOT a WCAG failure — the label carried the affordance — and this arc shipped the upgrade under that frame (spec §1.1 R5). A boundary that is strong against its own fill and 2.79-2.88:1 against a tinted plate is a weaker instance of the upgrade, not a regression against the state before it. Choosing the treatment — a darker token used only on tinted plates, a plate-matched outline, or accepting the current numbers — is a design decision, and picking one silently inside a policy arc is what the ledger exists to prevent.
+
+**First scheduled step:** decide whether tinted plates get their own outline token. If yes, the shape is a per-plate `border-*` in the same recipe rather than a new global token, because the neutral grounds already clear and moving the shared token would push them the other way.
+
+## BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR — three native-input rows are targeted through a label that carries no floor
+
+**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R1 F5). **Class:** accessibility / tap target. **Effort:** S per site, M as a class. **Class-sweep exception:** (a) — the repair needs a decision the current PR cannot settle, stated per site below. **Reachability:** PROBED — the markup is read out in each census row, and the guard now names all three as `under-floor-filed`.
+
+A native checkbox or radio is normally targeted through its `<label>`, and the tap-height census carries that as an exemption family. In three places the mechanism holds and the FLOOR does not:
+
+- `app/admin/settings/roles/RoleMappingRow.tsx:266` and `components/admin/RoleRecognizeControl.tsx:343` — the FINANCIALS checkbox is not label-wrapped like its A1/V1/L1 siblings. It sits in a `div` carrying `min-h-tap-min` with the `<label htmlFor>` as a SIBLING, and a `div` does not toggle a checkbox. The real target is the 20px input plus a label whose own box is one text line.
+- `components/admin/StagedReviewCard.tsx:580` — the radio IS label-wrapped, but the label is `flex cursor-pointer items-center gap-2 text-sm`: no minimum height, no padding, so the target is a single 20px line.
+
+**Why not repaired here.** The FINANCIALS structure is deliberate: the caution copy is bound with `aria-describedby` precisely so it stays out of the checkbox's accessible name (the comment at `RoleRecognizeControl.tsx:337` says so). Wrapping the row in a `<label>` to gain the floor folds that caution back into the name, so the fix trades one a11y property for another and needs a decision, not a patch. The staged-review radio sits in a dense per-item list where adding 24px per row is a layout decision on a surface this branch does not otherwise touch.
+
+**First scheduled step:** decide the FINANCIALS shape — either a `<label>` wrapping only the checkbox and its short caption with the caution outside it, or padding on the existing sibling label — then apply the same answer to both files, and settle the staged-review list separately.
+
+## BL-MUTATION-HARNESS-WALLCLOCK-CEILING — the nightly job's wall clock grows with every enrolled surface and nothing bounds it
+
+**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, Task 5 enrolment). **Class:** CI capacity. **Effort:** M. **Class-sweep exception:** (c) — the repair is a redesign of the harness's execution model (sharding) on a surface this branch only enrols into. **Reachability:** PROBED — three measured runs, below.
+
+`mutation-harness` runs `vitest run --project mutation`: 8 LPT-balanced parser shard files plus `tests/mutation/guardSurfaces.gate.test.ts`, which runs EVERY registered source-mutation surface serially, one `vitest` child per mutant (`tests/mutation/source/runner.ts`; serial execution is ratified in the harness spec as R6 / limit L-4). The gates file therefore grows monotonically as surfaces enrol, and no layer bounds it.
+
+Measured 2026-08-15: 138 min on `main` (run 31871859884, 07:24:20Z..09:42:08Z) at 519 gate mutants; **180m15s on this arc's PR head, which had enrolled nothing** (run 31876214966, step cancelled at the `timeout-minutes: 180` ceiling); 146 min and red on a concurrent sibling arc (run 31877020683). The headroom was gone to runner variance ALONE, before any new surface. This branch enrols `interactiveScanCore` (207 mutants, +40% on the gates file) and raises `timeout-minutes` to 300 with those run ids in the workflow comment — headroom, not a fix.
+
+**Why it is not merely a bigger number.** The job is non-gating by design, so a timeout is silent to everyone except whoever reads the nightly. The failure mode is that enrolment — the thing the round-economy rule in `AGENTS.md` asks arcs to do BEFORE their first review dispatch — is exactly what pushes the job over, so the incentive runs toward not enrolling.
+
+**First scheduled step:** lift the parser harness's existing sharding (`tests/parser/mutation/shardPartition.ts:11`) to the gates file so surfaces partition across workers instead of accumulating on one. The harness spec already files serial execution as a deferred limit with that mechanism named; this entry is its trigger.
+
+## BL-ADMIN-DEV-PANEL-TAP-FLOOR — the two dev-panel buttons are ~28px, and their classes are not even compiled
+
+**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, found by the shipped tap-height scanner's first run). **Class:** accessibility / dev-only surface. **Effort:** S. **Class-sweep exception:** (c) — the repair is a build-scope decision about a surface this branch does not otherwise touch. **Reachability:** PROBED — `pnpm vitest run tests/styles/_metaTapTargetFloor.test.ts` against an empty census names both sites.
+
+Both buttons are `className="border px-3 py-1 bg-{blue,yellow}-600 text-white"` — the materialize action at `app/admin/dev/page.tsx:151` is blue, the schema reset at `:168` is yellow: 4px of vertical padding around a single line, roughly 28px, against the 44px `--spacing-tap-min` floor.
+
+**Why a class-level repair does not work here, which is the whole entry.** `app/globals.css:33` excludes this exact file from Tailwind's source detection, because the dev panel is build-gated out of production (`ADMIN_DEV_PANEL_ENABLED`). None of those classes is compiled — `bg-blue-600` renders nothing today. Adding `min-h-tap-min` would emit no CSS while making the static guard report a floor the browser never applies, which is strictly worse than the honest census row it carries now (`tests/styles/tapTargetCensus.ts`, category `under-floor-filed`).
+
+**First scheduled step:** decide whether the dev panel should be styled at all — either narrow the `@source not` exclusion so the surface compiles and can carry the floor, or ratify it as an unstyled developer tool and move the two census rows to a documented-limit record.
 
 ## BL-TAP-TITLE-LINK-META-LINE-BLEED — the sheet-title link's 44px hit box covers ~8px of the meta line beneath it
 
@@ -581,20 +592,6 @@ viewer reports seeing the whole show expanded when they expected their day marke
 
 alert-audience-split (spec §6.7) makes health-alert resolution developer-gated at every PRODUCT surface (the dev-gated `resolveHealthAlertFormAction` plus HEALTH_CODES rejects on the three legacy user-facing resolve surfaces: `resolveAdminAlertFormAction`, `app/api/admin/admin-alerts/[id]/resolve`, `app/api/admin/show/[slug]/alerts/[id]/resolve`). This is app-surface defense-in-depth + UI coherence, NOT a DB-enforced trust boundary: `admin_alerts` still GRANTs UPDATE to `authenticated` and its RLS policy allows any `public.is_admin()` caller to update rows (`supabase/migrations/20260501002000_rls_policies.sql`), so a non-developer admin could in principle `PATCH admin_alerts.resolved_at` directly through PostgREST, bypassing the app layer. We ACCEPT this (Doug is the trusted business owner, not an adversary; role filtering is UX not security). **Fix (when prioritized):** revoke direct `admin_alerts` UPDATE from `authenticated`/`anon` and route ALL resolution — doug alerts included — through `SECURITY DEFINER` RPCs with an `is_developer()` check for health codes. Materially larger, whole-resolve-path change; deferred as a cross-reference of the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` admin_alerts-class DML lockdown item.
 
-### BL-HELP-REFANCHOR-A11Y-PASS — the `/help/errors` copy-link needs one whole-surface a11y pass, not 200+ per-entry patches
-
-**Status:** OPEN (2026-08-09, filed from the invariant-8 dual gate on `feat/mutation-merged-cell`; the first two findings surfaced on `feat/mutation-ref-sub` and were recorded in the wave closeout §12 without a ledger row) · **Severity:** low · **Class:** A11Y / HELP SURFACE · **Effort:** S
-
-`RefAnchor` (`app/help/_components/RefAnchor.tsx`) renders the copy-link beside every catalog entry on `/help/errors`. It is ONE shared component rendered ~217 times, so each finding below is a single repair, applied once:
-
-1. **All copy-links share one accessible name.** A screen-reader user tabbing the page hears the same label 217 times, with nothing saying which code each one copies. Fix: an `aria-label` composed from the entry's code.
-2. **The copy has no perceivable confirmation.** `writeText` succeeds silently; sighted users get the visual state change, screen-reader users get nothing. The repo already ships the pattern this wants (`role="status" aria-live="polite"`, e.g. `components/admin/FinalizeButton.tsx:549`).
-3. **217 tab stops precede the footer CTA.** Keyboard-only users traverse every copy-link to reach the report link.
-
-**Why deferred rather than swept in-branch** (AGENTS.md class-sweep disposition, exception (c)): the repair is a redesign of a shared component this branch does not otherwise touch, and item 3 is not a local edit at all but a question about whether the copy-links belong in the tab order. Two consecutive branches have now incremented the count without being the right place to answer it. **This entry is the named owner: a later branch adding a help-family row cites it instead of re-deriving the findings.**
-
-**Reachability:** PROBED. `pnpm exec vitest run tests/help` (642 tests, green) asserts none of the three, so the suite passing is not evidence against them. Findings 1 and 3 were measured on branch 2 (closeout §12); finding 2 by reading `RefAnchor.tsx:65-72` against the project's own `aria-live` pattern.
-
 ### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
 
 **Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
@@ -815,7 +812,7 @@ Moving the four directories outside the repo and re-running takes the same suite
 
 ## BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a failing drift run can never refresh the cache that made it fail
 
-**Status:** OPEN — filed 2026-08-14 from a live main-branch incident · **Severity:** MEDIUM · **Class:** CI-INFRA · **Effort:** S
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-14 from a live main-branch incident
 
 `screenshots-drift.yml` restores `.next-screenshots-help/cache` via `actions/cache` with a `restore-keys` prefix fallback, and `actions/cache` saves only in the post step of a SUCCESSFUL job. Those two facts compose into a trap: once every saved `Linux-nextcache-screenshots-*` cache predates a UI-changing merge, the nightly drift job restores a stale Next build cache, renders the OLD chrome, diffs against the CURRENT committed baselines, fails — and by failing, skips the cache save that would have replaced the stale cache. The failure self-perpetuates until a human deletes the caches.
 
@@ -840,22 +837,31 @@ plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then l
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
 
-### BL-SYNC-LOG-EMIT-UNGUARDED — a failed observability write can fail the sync it observes
+### BL-SERIALIZE-ERROR-NON-ERROR-BRANCH-STRINGIFIES — a plain-object error still persists as "[object Object]"
 
-**Status:** OPEN · **Severity:** MEDIUM (availability of manual sync under a transient DB fault) · **Class:** error handling · **Effort:** S · **Filed:** 2026-08-10
+**Status:** OPEN · **Severity:** MEDIUM (diagnostic loss on every non-`Error` value logged) · **Class:** observability · **Effort:** M · **Filed:** 2026-08-15 (`fix/sync-log-emit-guard` PR #808, diff review R3)
 
-**Probe evidence.** `lib/sync/runScheduledCronSync.ts:2273` is `await deps.logSync?.(entry);` — no try/catch. `logSync` is called from inside the lock callback at `lib/sync/runScheduledCronSync.ts:3339` and `lib/sync/runScheduledCronSync.ts:3346` (both in `processOneFile_unlocked`, which `withShowLock` invokes), and the installed sink is `writeSyncLog`, which opens its OWN postgres connection (`lib/sync/syncLog.ts:51`). A transient connection fault at emit time therefore throws out of the lock callback and rolls the sync transaction back: **the log write can fail the thing it exists to observe.**
+**Probe evidence.** `lib/log/serializeError.ts` is `error instanceof Error ? { name, message, stack } : String(error)`. The non-`Error` branch is `String(value)`, so any plain object collapses to the literal `"[object Object]"`. Supabase/PostgREST returned-errors are exactly that shape — plain parsed-JSON objects, never `Error` instances (`PostgrestBuilder.ts` returns them from the parsed body), and several call sites forward them straight to `log.*`:
 
-**Why it is filed now.** The behavior predates this work, but `fix/sync-log-show-id-duration` widened its blast radius from two entry points to ten — every manual re-sync path now installs the sink. Surfaced by the invariant-8 critique on that branch.
+```
+lib/auth/picker/resolvePickerSelection.ts:56    ...(detail === undefined ? {} : { error: detail })
+lib/auth/picker/resolveShowPageAccess.ts:75     ...(detail === undefined ? {} : { error: detail })
+lib/log/emitIdentityLinkRenameUnlanded.ts:65    error: result.error
+lib/log/emitLeadRoleApplied.ts:76               error: result.error
+```
 
-**Why NOT fixed in that branch (disposition reason (a) — needs a product decision the PR cannot settle).** Both dispositions are defensible and the choice is not the implementer's:
+Reproducing `serializeError` against a Supabase returned-error `{ message: "gateway 502", code: "PGRST301", … }`:
 
-- **Guard the emit** (`try { await deps.logSync?.(entry) } catch { /* observability must not break the observed action */ }`) — a sync never fails because logging failed, but an observability outage becomes invisible, which is the exact failure mode the whole sync-log attribution arc exists to eliminate.
-- **Leave it loud** — a DB fault stops syncs, which is arguably correct since a sync that cannot record itself is a sync nobody can audit.
+```
+plain object (Supabase)   ->  "[object Object]"
+Error instance            ->  {"name":"Error","message":"boom","stack":"…"}
+```
 
-A middle option exists (guard, but emit a `log.error` with a durable code so the gap is itself observable) and is probably right — but it needs a §12.4 code and therefore its own scoped change.
+**This is NOT a regression from PR #808, and the distinction is the reason the row exists rather than a fix.** That PR removed a double-`serializeError` wrapper at 18 sites. Measured before and after at the same four sites: a plain object produced `"[object Object]"` BOTH ways (identical, unchanged), while an `Error` went from `"[object Object]"` to a full `{name, message, stack}`. The repair is strictly non-regressive and strictly better for `Error` values; what it did was make an INDEPENDENT pre-existing defect visible, namely that the helper's own non-`Error` branch discards structure.
 
-**Related, same emit path (fold into whichever fix lands):** each emit opens and closes a dedicated postgres connection while the per-show advisory lock is held, lengthening lock hold on every manual sync. Cheap to fix by reusing the transaction's connection for the sink, but that changes the sink's isolation semantics — the row would then roll back with a failed sync rather than recording the failure, which is a behavior decision, not a refactor.
+**Why filed rather than fixed in that PR (disposition reason (c) — a redesign of a surface the PR does not otherwise touch, spanning far more sites than its review scope).** `serializeError` is the single canonical error-shaping helper; changing its non-`Error` branch changes the shape of `context.error` for EVERY non-`Error` value logged anywhere in the app, which touches the `app_events.context` payload shape, the redaction pass in `sanitizeContext`, and `tests/log/serializeError.test.ts`, which pins the current contract deliberately. That is its own arc with its own review, not a rider on an emit-guard PR whose spec explicitly holds the helper's behavior constant (`docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md` §2.2 treats `serializeError`'s behavior as given).
+
+**The shape of the fix, when scheduled.** Preserve structure for non-`Error` values rather than stringifying: a plain object should serialize to its own enumerable fields (bounded depth, same truncation posture as the existing `stack` slice), with `String(value)` kept only for primitives. Sweep for the class, not these four sites: the defect is in the HELPER, so every `log.*` call that can receive a non-`Error` is an instance. Derive the site set rather than enumerating it — `tests/log/noDoubleSerializedLogError.test.ts` already walks `lib/`, `app/`, and `components/` for `log.*` call sites and is the natural place to hang a companion assertion.
 
 ### BL-SYNC-LOG-ATTRIBUTION-METATEST — structural guard that every sync_log writer names its show
 
@@ -880,6 +886,8 @@ A working draft exists in the shipping session's scratchpad; the design above is
 
 - **The signature-keyed accept-set is not yet decidable.** If "carries `logSync`" means a DIRECT property it excludes real entry points whose sink is nested — `runManualSyncForShow`/`_unlocked` via `processDeps.logSync` (`lib/sync/runManualSyncForShow.ts:48-72`), `applyStaged`/`_unlocked`/`applyStagedParse` via `firstPublishedTailDeps.logSync` (`lib/sync/applyStaged.ts:369`, `:950`, `:1152`, `:1940`, `:2073`). If nested properties count, a checker probe admitted five non-runners — `evaluateQualityRegression_unlocked` (`lib/sync/runScheduledCronSync.ts:316-381`), `runPhase1_unlocked` (`:2543-2549`), `runPhase2_unlocked` (`:2551-2557`), `prepareProcessOneFile` (`:2858`), `prepareOnboardingFiles` (`lib/sync/runOnboardingScan.ts:1194-1204`) — plus `runOnboardingScan`, whose production caller passes only `{ onProgress }` (`app/api/admin/onboarding/scan/route.ts:282-284`) while the callee opens its own logging transaction, leaving no truthful disposition.
 - **The three markers are not disjoint in the current tree.** Every run-level seed also reaches no per-file attempt, so `run-level-sync-log` and `sync-log-no-attempt` are both defensible at all eight seeds (`lib/sync/runScheduledCronSync.ts:3780`, `:3796`; the four `lib/onboarding/sessionLifecycle.ts` sites; `lib/sync/runOnboardingScan.ts:1134`; `app/api/drive/webhook/route.ts:224`). Either collapse them or find a predicate that separates them.
+
+**Scope addition (2026-08-15, `fix/sync-log-emit-guard` / PR #808).** When this walker is built it ALSO asserts GUARD-PRESENCE alongside attribution: every derived `sync_log` sink invocation must sit inside a try/catch that escalates under `SYNC_LOG_EMIT_FAILED`, not merely name its show. The emit-guard arc repaired every unguarded site on the live tree but deliberately shipped NO completeness recognizer for FUTURE sites (`docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md` §4 limit 6, ship-and-fence): a second ad-hoc walker would fork the writer-set definition designed here, which is the two-copies-drift shape. The two dimensions share one writer-set derivation, so they belong in one guard. The regression accepted in the meantime is bounded — a new unguarded site regresses to the pre-arc LOUD behavior (the sink throw propagates and fails the observed operation), never a silent one.
 
 **Promotion prerequisite:** none for scheduling, but the two questions above are the first work, not an afterthought — they are why this was descoped.
 
@@ -1081,6 +1089,37 @@ the active-slide transition.
 than by role precisely because they are all present. `aria-hidden={!isActive}` is a one-attribute
 change, deferred only because it moves several existing role-based queries and belongs with the
 current-slide announcement decision rather than ahead of it.
+
+### BL-PREMISESCAN-IMPORT-EDGE-FIDELITY — ordinary import forms and helper-body unclassifiable constructs silently lose environment reach
+
+**Status:** OPEN · **Severity:** MEDIUM (both halves are false NEGATIVES — the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-15 (`docs/scanner-scope-totality-spec`, spec review R1 findings 2 and 3 — reviewer-probed, transcripts below) · **Effort:** M
+
+Two probed reachability gaps in `tests/mutation/source/premiseScan.ts`, distinct from the scope-resolution axis `BL-PREMISESCAN-NESTED-HELPER-SCOPE`'s arc repairs (that arc also fixes the ALIAS row below, the one case inside the lookup it already rewrites; the rest is this row).
+
+**Half 1 — import forms.** Cross-module extent lookup resolves by the LOCAL name against the target module, and import facts keep only local-name → specifier, so ordinary repository-local refactors lose a reachable spawning helper. Reviewer probe (same helper, same call site, only the import form varied):
+
+```
+direct          -> environment-touching
+named_alias     -> environment-free      (fixed by the scope arc: propertyName-aware lookup)
+namespace       -> environment-free
+default_renamed -> environment-free
+reexport        -> environment-free
+```
+
+Namespace imports, renamed defaults, and re-export chains need tracking structures the scanner does not have (namespace member edges; re-export following — the canonical premise design additionally wants an unfollowable re-export to report `unclassifiable`, not pass clean).
+
+**Half 2 — unclassifiable constructs do not propagate through reachable helpers.** `moduleFacts` records non-literal dynamic `import()` and computed `process` access wherever they occur, but final classification consults them only lexically within the test's own extent (`unclassifiableWithin` filters the module-level list to "unparseable" entries). Reviewer probe:
+
+```
+module_dynamic    -> environment-free
+describe_dynamic  -> environment-free
+module_computed   -> environment-free
+describe_computed -> environment-free
+```
+
+A helper whose body holds a construct the recognizer explicitly refuses to resolve should surface `unclassifiable` to its callers; today it reads as free.
+
+**Scope if promoted:** thread importedName (`propertyName`) through every lookup (the scope arc lands this), add namespace-member and re-export edges with an unfollowable-edge → `unclassifiable` posture, and propagate helper-extent unclassifiable reasons into the caller's verdict. Regression cases: the five-form import table and the four-cell propagation table above, plus the AC-10b collision fixture (must stay quiet).
 
 ### BL-PREMISESCAN-NESTED-HELPER-SCOPE — a helper declared inside `describe` hides its environment reach from the recognizer
 
