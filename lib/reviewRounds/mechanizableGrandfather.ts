@@ -6,9 +6,9 @@
  * Filings are immutable evidence (review-round-economy corpus contract), so
  * the rule binds only filings authored after it — this list IS that boundary,
  * materialized. A path is NEVER added (a new filing complies instead) and is
- * removed only if its filing file is deleted. 55 paths at freeze, derived by
+ * removed only if its filing file is deleted. 72 paths at freeze (re-derived 2026-08-16 after reconciling the advanced origin/main - sibling filings merged between the 2026-08-15 derivation and this arc's landing predate the rule and joined the set; the spec's own dated 55 keeps its at-authoring-time qualifier), derived by
  * `find docs/review-rounds -name '*.md' ! -name README.md` at merge base
- * fafa354accf0; the arc's own filing is deliberately NOT here — it is the
+ * fafa354accf0 and re-run at 9e949297f51d; the arc's own filing is deliberately NOT here — it is the
  * rule's first customer.
  */
 export const MECHANIZABLE_GRANDFATHERED: ReadonlySet<string> = new Set([
@@ -19,16 +19,24 @@ export const MECHANIZABLE_GRANDFATHERED: ReadonlySet<string> = new Set([
   "docs/review-rounds/docs/arc-a-spec/a0e41551c059.md",
   "docs/review-rounds/docs/arc-b-spec/a0e41551c059.md",
   "docs/review-rounds/docs/arc-c-spec/a0e41551c059.md",
+  "docs/review-rounds/docs/archive-dup-ids-spec/fafa354accf0.md",
+  "docs/review-rounds/docs/diagram-demote-notice-spec/33c70ba1fdf2.md",
+  "docs/review-rounds/docs/help-refanchor-a11y-spec/fafa354accf0.md",
   "docs/review-rounds/docs/l-wave-spec/a8b3a4128a10.md",
   "docs/review-rounds/docs/m-wave-2-spec/d2a31e4aa021.md",
   "docs/review-rounds/docs/mutation-wave-retro-fixes/9bd0a8456151.md",
   "docs/review-rounds/docs/quick-wins-2-specs/97e179d831aa.md",
   "docs/review-rounds/docs/round-economy-followups-2-specs/d2a31e4aa021.md",
+  "docs/review-rounds/docs/screenshots-drift-cache-spec/33c70ba1fdf2.md",
+  "docs/review-rounds/docs/step3-tap-cluster-spec/33c70ba1fdf2.md",
+  "docs/review-rounds/docs/sync-log-emit-guard-spec/fafa354accf0.md",
+  "docs/review-rounds/docs/theme-persistence-note-spec/fafa354accf0.md",
   "docs/review-rounds/feat/a11y-privacy-cluster/3c12f7cc5849.md",
   "docs/review-rounds/feat/admin-dashboard-row-actions/4a3be8baed76.md",
   "docs/review-rounds/feat/admin-dashboard-row-actions/7e04cd6f04e9.md",
   "docs/review-rounds/feat/admin-dashboard-row-actions/ec06b825aba8.md",
   "docs/review-rounds/feat/admin-nav-badge-suspense/7e04cd6f04e9.md",
+  "docs/review-rounds/feat/admin-ui-surfaces/50a803371712.md",
   "docs/review-rounds/feat/backlog-quick-wins/59cdc8407814.md",
   "docs/review-rounds/feat/crew-field-enrichment/196334d5ef61.md",
   "docs/review-rounds/feat/crew-field-enrichment/4a3be8baed76.md",
@@ -47,18 +55,27 @@ export const MECHANIZABLE_GRANDFATHERED: ReadonlySet<string> = new Set([
   "docs/review-rounds/feat/review-infra-gates/61281c23e8ce.md",
   "docs/review-rounds/feat/review-round-economy/48b280b949cc.md",
   "docs/review-rounds/feat/round-economy-followups/22795d2b56c5.md",
+  "docs/review-rounds/feat/spec-lint-intent-red/ecbddfa1aac4.md",
+  "docs/review-rounds/feat/speclint-prose-count-parity/a7393880ae6d.md",
   "docs/review-rounds/feat/task-enrollment-multi-region/d8cc5c96839b.md",
   "docs/review-rounds/feat/wifi-password-legibility/1e503d714b6e.md",
   "docs/review-rounds/feat/wifi-password-legibility/a7393880ae6d.md",
+  "docs/review-rounds/fix/auth-picker-hardening/33c70ba1fdf2.md",
+  "docs/review-rounds/fix/changes-feed-batch-flake/6e297799e6a0.md",
   "docs/review-rounds/fix/help-tour-hydration/876cbd06c156.md",
   "docs/review-rounds/fix/help-tour-hydration/a7393880ae6d.md",
   "docs/review-rounds/fix/promote-identity-validation/a7393880ae6d.md",
   "docs/review-rounds/fix/quick-wins-2-mech/d2a31e4aa021.md",
+  "docs/review-rounds/fix/screenshots-drift-cache/b2ee5cb37240.md",
   "docs/review-rounds/fix/step3-a11y-cluster/61281c23e8ce.md",
   "docs/review-rounds/fix/storage-asset-integrity/1e503d714b6e.md",
+  "docs/review-rounds/fix/sync-log-emit-guard/ae430ff1616c.md",
   "docs/review-rounds/fix/sync-log-show-id-duration/d2a31e4aa021.md",
   "docs/review-rounds/fix/sync-observability-gaps/04f601134519.md",
   "docs/review-rounds/fix/tap-target-inline-controls/a7393880ae6d.md",
+  "docs/review-rounds/fix/ui-interactive-token-policy/04f601134519.md",
+  "docs/review-rounds/fix/ui-interactive-token-policy/0595c8fbbf7b.md",
+  "docs/review-rounds/fix/ui-interactive-token-policy/1e503d714b6e.md",
   "docs/review-rounds/fix/watch-promotion-activation-race/d8cc5c96839b.md",
   "docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md",
   "docs/review-rounds/refactor/classname-array-join-cn/9bd0a8456151.md",
