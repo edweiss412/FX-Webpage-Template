@@ -1354,3 +1354,63 @@ global+options diagnostics (ignored by the design): 10
 - `ts.createProgram` does NOT throw on a missing root: it records a diagnostic and the program simply lacks that source file. The design reads no diagnostics, so the ten reported here are inert.
 - The fixture-tree suite therefore needs no special handling, and the cost of a synthetic universe is ~10 ms rather than the live tree's ~250 ms.
 - Failure direction if a real universe file goes missing: no source file, so no reference in it is resolved and nothing is suppressed on its behalf — the conservative direction, matching §2.5.
+## P12 — the shorthand property needs a different checker call (round-1 finding, re-probed here)
+
+Round 1's discipline reviewer found that `{ duration }` does not resolve through `getSymbolAtLocation`. Re-run independently rather than taken on assertion, because §2.3 now specifies an API on the strength of it.
+
+### Script — `probe/p12-shorthand.ts`
+
+```ts
+/** P12 — confirm the shorthand claim: getSymbolAtLocation on `{ duration }`
+ *  returns the PROPERTY's symbol; getShorthandAssignmentValueSymbol returns the
+ *  value binding. If true, deleting the name filter without the second call
+ *  turns a resolving shorthand into a permanent residual. */
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import ts from "typescript";
+
+const root = mkdtempSync(join(tmpdir(), "p12-"));
+mkdirSync(join(root, "components", "x"), { recursive: true });
+const f = "components/x/Shorthand.tsx";
+writeFileSync(
+  join(root, f),
+  "const duration = 0.22;\nexport const motion = { duration };\n",
+  "utf8",
+);
+const program = ts.createProgram([join(root, f)], {
+  noEmit: true, noResolve: true, noLib: true, types: [], allowJs: false,
+  target: ts.ScriptTarget.Latest, jsx: ts.JsxEmit.Preserve,
+  module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+  baseUrl: root, paths: { "@/*": ["./*"] },
+});
+const checker = program.getTypeChecker();
+const sf = program.getSourceFile(join(root, f))!;
+const show = (label: string, sym: ts.Symbol | undefined) => {
+  const d = sym?.declarations ?? [];
+  console.log(
+    `${label}: ${d.map((x) => `${relative(root, x.getSourceFile().fileName)}:${x.getSourceFile().getLineAndCharacterOfPosition(x.getStart(x.getSourceFile())).line + 1}[${ts.SyntaxKind[x.kind]}]`).join(", ") || "none"}`,
+  );
+};
+const visit = (node: ts.Node): void => {
+  if (ts.isShorthandPropertyAssignment(node)) {
+    show("getSymbolAtLocation(name)          ", checker.getSymbolAtLocation(node.name));
+    show("getShorthandAssignmentValueSymbol  ", checker.getShorthandAssignmentValueSymbol(node));
+  }
+  ts.forEachChild(node, visit);
+};
+visit(sf);
+```
+
+### Transcript
+
+```
+getSymbolAtLocation(name)          : components/x/Shorthand.tsx:2[ShorthandPropertyAssignment]
+getShorthandAssignmentValueSymbol  : components/x/Shorthand.tsx:1[VariableDeclaration]
+```
+
+### What it settles
+
+- `getSymbolAtLocation(node.name)` on a `ShorthandPropertyAssignment` returns the PROPERTY's own symbol, declared at the property itself — never a covered key, so the site would report forever.
+- `getShorthandAssignmentValueSymbol(node)` returns the value binding (`VariableDeclaration` at line 1), which is the declaration the covered set holds.
+- The 2026-08-15 arc made shorthand an unclassified-producing form and leaned on the covered-names filter to auto-resolve it. Deleting that filter without this call converts a resolving shorthand into a permanent residual — conservative in direction, but a live-adjacent regression: `components/crew/CrewSectionTransition.tsx` carries a `{ duration }` one rename from the shape.
