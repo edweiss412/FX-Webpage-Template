@@ -217,6 +217,30 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 
 **First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
 
+## BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS — 23 control outlines still at 1.4-1.8:1 on non-ground fills
+
+**Status:** IN PROGRESS · **Branch:** fix/control-outline-surface-fills
+
+**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** visual boundary / DESIGN scope. **Effort:** M. **Class-sweep exception:** (a) — the repair needs a DESIGN.md scope decision this PR cannot settle. **Reachability:** PROBED, with a DERIVED cover (below).
+
+This arc moved the secondary-action outline to `border-text-faint` (3.35:1 on `bg-surface`) at the shared constant, at the 25 sites that carry the same recipe inline over a `bg-bg` fill, and at six further controls whose fill is a SURFACE rather than the page ground — because leaving each at the old outline while a sibling it renders with had moved would have shipped a split treatment inside one view. Two are DIRECT pairs (`Step2Verify`'s re-scan beside its folder input, `DriveConnectionPanel`'s two actions); two are connected through a shared row rather than adjacency (`RecentAutoAppliedStrip`, whose near-ground control is in its confirmation row, and the `AcceptChangeButton`/`UndoChangeButton` pair `ChangeFeedEntry.tsx:135` renders); one inherits `Step2Verify`'s file-local `SECONDARY_BUTTON`. Twenty-three in-scope CONTROLS still carry `border border-border-strong` over `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` or `bg-transparent` fills — at the per-ground ratios in the paragraph below, all of them far under the 3:1 non-text floor.
+
+**The 1.59:1 / 1.60:1 figures are `bg-surface`'s, not every fill's** (whole-diff R4 F4). Measured 2026-08-15 against the runtime tokens, `border-strong` sits at 1.59 light / 1.60 dark on `surface`, **1.43 / 1.75** on `surface-sunken`, **1.59 / 1.50** on `surface-raised` and 1.52 / 1.70 on `bg`; a `bg-transparent` control takes whatever its rendered ground is, which no static measurement can supply. All of them are far under the 3:1 non-text floor, which is the entry's point — but the entry should not quote one ground's number for twenty-three controls that do not share it.
+
+**Derived cover** (re-run it rather than trusting this list — it is a query, not an enumeration):
+
+```ts
+scanInteractiveElements(process.cwd()).filter((e) =>
+  allStrings(e).some((s) => /(^|\s)border-border-strong(\s|$)/.test(s)),
+);
+```
+
+from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 elements; six were repaired on the filing branch because THIS diff created their inconsistency — two beside a swapped sibling (`Step2Verify.tsx:126`, `settings/DriveConnectionPanel.tsx:284`), two connected through a shared row (`RecentAutoAppliedStrip.tsx:516`, and the `AcceptChangeButton`/`UndoChangeButton` pair rendered by `ChangeFeedEntry.tsx:135`), and one by inheritance of `Step2Verify`'s file-local constant. That leaves 23, none of them co-visible with a swapped peer.
+
+**Why the sweep stopped there, and what has to be decided first.** DESIGN.md §1.2a's predicate is a control "whose fill is the near-ground". A `bg-surface` button ON a `bg-surface` card measures 1.00:1 against its container, so extending the rule to it is defensible — but that extension REWRITES the predicate from "the fill is the page ground" to "the fill equals its container", and the wider predicate then also captures the three switch TRACKS in the set (`PublishedToggle.tsx:292`, `settings/AutoPublishToggle.tsx:123`, `settings/NotifyToggle.tsx:131`), whose OFF-state boundary is pinned separately in §1.2 against `--color-accent-edge` as the load-bearing 1.4.11 pair. A blanket swap would silently retune that pinned pair. The text-level cover is also NOT safe to apply mechanically: of the 69 lines carrying `border border-border-strong` as of 2026-08-15 (74 when the entry was filed; the difference is this arc's own swaps), most are cards, chips, tiles and popover surfaces that must keep the border token.
+
+**First scheduled step:** settle §1.2a's predicate — "near-ground" as page-ground only, or as fill-equals-container — and state explicitly whether switch tracks are in or out. The swap itself is one token per site once that is written down.
+
 ## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** colour policy completeness. **Effort:** S-M. **Class-sweep exception:** (a) — whether a control may rest at the faint rung is a design decision, and the census this arc shipped was ratified around one token. **Reachability:** PROBED — all four sites read from the live tree.
