@@ -53,7 +53,6 @@ import {
   emitSuccessfulPhase2Tail,
 } from "@/lib/sync/runScheduledCronSync";
 import { writeSyncLog } from "@/lib/sync/syncLog";
-import { serializeError } from "@/lib/log/serializeError";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { revalidateShow } from "@/lib/data/showCacheTag";
@@ -2013,7 +2012,7 @@ export async function applyStaged(
           source: "sync.applyStaged",
           code: "SYNC_LOG_EMIT_FAILED",
           driveFileId: args.driveFileId,
-          error: serializeError(sinkError),
+          error: sinkError,
         });
         await escalation.catch(() => {
           /* best-effort: a recording failure must never displace the failure it was recording */
@@ -2065,7 +2064,7 @@ export async function applyStaged(
           code: "SYNC_LOG_EMIT_FAILED",
           driveFileId: args.driveFileId,
           showId: result.showId,
-          error: serializeError(error),
+          error: error,
         });
         await escalation.catch(() => {
           /* best-effort: the escalation must never change the apply outcome */
