@@ -165,6 +165,12 @@ export function parseEventDetails(
   let openersByDocLine: string[] | null = null;
   const headerDocLine = markdown.slice(0, headerMatch.index).split("\n").length - 1;
   const openerForOffset = (offset: number): string => {
+    // The no-aggregator early return is what makes this lazy IN PRACTICE. A call site
+    // evaluates its arguments before `markConsumed` can no-op, so deferring the scan behind
+    // `??=` alone still paid for it on every caller that keeps no ledger — measured, not
+    // reasoned: a runtime probe counted the whole-document split happening with the
+    // aggregator omitted (whole-diff r6 P2). With no ledger the key is unused by definition.
+    if (!agg) return "";
     openersByDocLine ??= openerByLine(markdown);
     return openersByDocLine[headerDocLine + offset] ?? "";
   };

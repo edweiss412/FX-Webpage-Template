@@ -216,6 +216,9 @@ function parseV4Transport(
   }
   let openersByDocLine: string[] | null = null;
   const openerAt = (i: number): string => {
+    // No ledger, no key: arguments evaluate before `markConsumed` no-ops, so without this
+    // the deferred scan still ran for every aggregator-less caller (whole-diff r6 P2).
+    if (!agg) return "";
     openersByDocLine ??= openerByLine(markdown);
     return openersByDocLine[tableDocLines[i] ?? tableDocLines[0] ?? 0] ?? "";
   };
@@ -405,6 +408,9 @@ function parseV2Transport(
   }
   let openersByDocLine: string[] | null = null;
   const openerAt = (i: number): string => {
+    // No ledger, no key: arguments evaluate before `markConsumed` no-ops, so without this
+    // the deferred scan still ran for every aggregator-less caller (whole-diff r6 P2).
+    if (!agg) return "";
     openersByDocLine ??= openerByLine(markdown);
     return openersByDocLine[tableDocLines[i] ?? tableDocLines[0] ?? 0] ?? "";
   };

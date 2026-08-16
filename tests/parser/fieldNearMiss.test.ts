@@ -540,7 +540,9 @@ function emitCallSiteLines(src: string): number[] {
   // than guessed: a renaming import is ordinary TypeScript, not obfuscation, and the threat
   // model is an authoring mistake by a contributor who did not know this pin existed.
   const aliases = new Set<string>(["emitUnknownField"]);
+  const namesFor = (name: ts.BindingName): string[] => (ts.isIdentifier(name) ? [name.text] : []);
   const collectAliases = (n: ts.Node): void => {
+    // Import alias: `import { emitUnknownField as emitUF } from ...`
     if (ts.isImportDeclaration(n)) {
       const named = n.importClause?.namedBindings;
       if (named && ts.isNamedImports(named)) {
@@ -549,8 +551,31 @@ function emitCallSiteLines(src: string): number[] {
         }
       }
     }
+    // Local alias: `const emitUF = emitUnknownField;` / `= warnings.emitUnknownField;`
+    // and renamed destructuring: `const { emitUnknownField: emitUF } = warnings;`
+    // All three are ordinary TypeScript a contributor could write without knowing this pin
+    // exists, which is the threat model — an AST probe showed the import case counted and
+    // both of these missed (whole-diff r6 P2).
+    if (ts.isVariableDeclaration(n) && n.initializer) {
+      const init = n.initializer;
+      const initNamesEmitter =
+        (ts.isIdentifier(init) && aliases.has(init.text)) ||
+        (ts.isPropertyAccessExpression(init) && init.name.text === "emitUnknownField");
+      if (initNamesEmitter) for (const nm of namesFor(n.name)) aliases.add(nm);
+      if (ts.isObjectBindingPattern(n.name)) {
+        for (const el of n.name.elements) {
+          const source = (el.propertyName ?? el.name) as ts.Node;
+          const sourceText = ts.isIdentifier(source) ? source.text : null;
+          if (sourceText === "emitUnknownField")
+            for (const nm of namesFor(el.name)) aliases.add(nm);
+        }
+      }
+    }
     ts.forEachChild(n, collectAliases);
   };
+  // Two passes: an alias may be declared after the alias it is built from, and the walk is
+  // over a single file's AST, so a second pass is cheap and removes the ordering dependency.
+  collectAliases(sf);
   collectAliases(sf);
 
   const visit = (n: ts.Node): void => {
@@ -744,6 +769,18 @@ describe("the detector is enrolled in the source-mutation guard registry (AC-N7)
         "renaming import",
         'import { emitUnknownField as emitUF } from "@/lib/parser/warnings";\nemitUF(agg, o);',
       ],
+      [
+        "local alias",
+        'import { emitUnknownField } from "@/lib/parser/warnings";\nconst emitUF = emitUnknownField;\nemitUF(agg, o);',
+      ],
+      [
+        "local alias of a property access",
+        'import * as warnings from "@/lib/parser/warnings";\nconst emitUF = warnings.emitUnknownField;\nemitUF(agg, o);',
+      ],
+      [
+        "renamed destructuring",
+        'import * as warnings from "@/lib/parser/warnings";\nconst { emitUnknownField: emitUF } = warnings;\nemitUF(agg, o);',
+      ],
     ];
     for (const [shape, src] of positives) {
       expect(emitCallSiteLines(src), `${shape} must be counted`).toHaveLength(1);
@@ -753,6 +790,8 @@ describe("the detector is enrolled in the source-mutation guard registry (AC-N7)
       ["comment", "// emitUnknownField(agg, o);"],
       ["string literal", 'const s = "emitUnknownField(agg, o)";'],
       ["unrelated alias target", 'import { other as emitUF } from "x";\nemitUF(agg, o);'],
+      ["unrelated local alias", "const emitUF = somethingElse;\nemitUF(agg, o);"],
+      ["unrelated destructuring", "const { other: emitUF } = warnings;\nemitUF(agg, o);"],
     ];
     for (const [shape, src] of negatives) {
       expect(emitCallSiteLines(src), `${shape} must NOT be counted`).toEqual([]);
