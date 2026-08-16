@@ -1128,7 +1128,7 @@ current-slide announcement decision rather than ahead of it.
 
 ### BL-PREMISESCAN-IMPORT-EDGE-FIDELITY — ordinary import forms and helper-body unclassifiable constructs silently lose environment reach
 
-**Status:** OPEN · **Severity:** MEDIUM (both halves are false NEGATIVES — the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-15 (`docs/scanner-scope-totality-spec`, spec review R1 findings 2 and 3 — reviewer-probed, transcripts below) · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** fix/premisescan-import-edges · **Severity:** MEDIUM (both halves are false NEGATIVES — the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-15 (`docs/scanner-scope-totality-spec`, spec review R1 findings 2 and 3 — reviewer-probed, transcripts below) · **Effort:** M
 
 Two probed reachability gaps in `tests/mutation/source/premiseScan.ts`, distinct from the scope-resolution axis `BL-PREMISESCAN-NESTED-HELPER-SCOPE`'s arc repairs (that arc also fixes the ALIAS row below, the one case inside the lookup it already rewrites; the rest is this row).
 
