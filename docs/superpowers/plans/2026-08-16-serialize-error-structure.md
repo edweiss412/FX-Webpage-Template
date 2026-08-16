@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (strict, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Vitest, ts-morph (scanner), source-mutation registry.
 
-**Spec:** `docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md` (spec-APPROVED, codex-guard R4 2026-08-16). The spec is canonical for the contract table (§2.1), bounds (§2.2), Error branch (§2.3), redaction posture (§2.4), blast surface + comment sweep (§2.5), companion guard (§2.6), and enrolment (§2.8).
+**Spec:** `docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md` (spec-APPROVED, codex-guard R4 2026-08-16). **Plan status:** plan-APPROVED (codex-guard plan R3, 2026-08-16; plan R1 five findings + R2 one repaired in-branch with executed mutant-kill transcripts). The spec is canonical for the contract table (§2.1), bounds (§2.2), Error branch (§2.3), redaction posture (§2.4), blast surface + comment sweep (§2.5), companion guard (§2.6), and enrolment (§2.8).
 
 ## Global Constraints
 
