@@ -1646,3 +1646,35 @@ AC-12 assertion (other reports) holds TODAY: true
 - The assertion AC-12 makes is TRUE TODAY: the name filter has no notion of lines, so `other` is already reported. The case is a REGRESSION PIN, not a RED.
 - It is still worth keeping — it is the only assertion that fails if someone re-adopts a key that aliases — but counting it among the task's RED evidence would be exactly the tautology the anti-tautology rule forbids: a test that passes the moment it is authored proves nothing about the implementation it supposedly drove.
 - The plan's case table, the AC-coverage row, and spec §5's inventory all say so now: five fires, one regression pin, five stays-quiet.
+
+## P17 — do the declared eleven assertions pin the resolver's shorthand branch?
+
+Asked at implementation time, before Task 1 wrote a line, while PR #827 held the base gate closed. The spec enrols `scripts/scan-interaction-timings.ts` in the source-mutation registry and makes the diff-stage convergence criterion a mutation score, so the question is not "are the eleven assertions reasonable" but "which mutants do they kill". The resolver is NEW code: the landed suite knows nothing about it, and the accepted set was derived against a scanner that had no resolver at all.
+
+### Method
+
+The registry's own runner spawns a Vitest process per mutant, which needs a heavy slot; the machine was at load 7.3 with 2 slots and 13 waiters, so a gate-shaped run would have queued behind arcs on their critical path. Instead the mutants were applied in ONE process: `generateMutants` from `tests/mutation/source/generate.ts` over the sites `enumerateSites` reports for the resolver region, each mutant written to a temp module and pulled in with a dynamic `import()`, then the declared assertions plus a live-tree scan run against it. A mutant the assertions still pass is a SURVIVOR.
+
+This is a LOWER BOUND on kills, and the distinction is load-bearing: the real gate runs both full suites, this probe ran only the arc's own fixture cases plus one live scan. Its survivor count is a ceiling, never a measurement.
+
+### Transcript — resolver region, 27 mutants
+
+```
+with the ELEVEN declared assertions:      18 killed,  9 SURVIVED
+adding ONE shorthand-resolves fixture:    21 killed,  6 SURVIVED
+```
+
+The two mutants the new fixture kills, both on the shorthand branch of the resolution rule (`equality-flip:775:14:!==>===` and `equality-flip:775:87:===>!==` in the probe's copy):
+
+```ts
+parent !== undefined && ts.isShorthandPropertyAssignment(parent) && parent.name === found
+  ? checker.getShorthandAssignmentValueSymbol(parent)
+  : checker.getSymbolAtLocation(found);
+```
+
+### What it settles
+
+- **The eleven do not pin the shorthand branch, and neither does the live tree.** The live `{ duration }` at `components/crew/CrewSectionTransition.tsx` did NOT kill these mutants — they survived the live-tree assertion. So the API choice P12 established by probe is, as declared, untested.
+- **A twelfth assertion is therefore REQUIRED, not optional:** a shorthand-resolves case (`const duration = 300; const opts = { duration };` asserting no residual). It is a stays-quiet case whose discriminator is the BINDING, and it kills the mutants that revert the shorthand path to `getSymbolAtLocation`.
+- It widens no recognizer: `ShorthandPropertyAssignment` is already a recognized form (3c) and already a declared `refPos` producer in §2.3, so this is inside §1.1 item 2's fence — it pins an existing contract rather than adding one.
+- The remaining six survivors are all EQUIVALENT within the reachable domain (a memoization `set`, two range-guard mutants in the token walk, the §2.5 mis-anchor guard which the scanner never emits a failing `refPos` for, the shorthand test's third conjunct, and an alias-flag `0 -> 1` on a power-of-two bitmask). They are expected to become accepted rows with reasons, which the plan already anticipates.
