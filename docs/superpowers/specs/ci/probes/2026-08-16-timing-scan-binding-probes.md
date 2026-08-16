@@ -1414,3 +1414,41 @@ getShorthandAssignmentValueSymbol  : components/x/Shorthand.tsx:1[VariableDeclar
 - `getSymbolAtLocation(node.name)` on a `ShorthandPropertyAssignment` returns the PROPERTY's own symbol, declared at the property itself — never a covered key, so the site would report forever.
 - `getShorthandAssignmentValueSymbol(node)` returns the value binding (`VariableDeclaration` at line 1), which is the declaration the covered set holds.
 - The 2026-08-15 arc made shorthand an unclassified-producing form and leaned on the covered-names filter to auto-resolve it. Deleting that filter without this call converts a resolving shorthand into a permanent residual — conservative in direction, but a live-adjacent regression: `components/crew/CrewSectionTransition.tsx` carries a `{ duration }` one rename from the shape.
+## P13 — form 2d position identity
+
+The scanner pushes form 2d (a string-literal-named class property) with its LINE taken from the property node, while the resolver reads the declaration NAME. If those two disagree the covered key never matches and a covered constant reports.
+
+### Script — `probe/p13-form2d.ts`
+
+```ts
+/** P13 — for form 2d (`class C { "ttlMs" = 17000 }`), does
+ *  ts.getNameOfDeclaration return the string-literal NAME node? The scanner
+ *  records that site's LINE from the property node, so declPos must come from
+ *  the name on both sides or the key never matches. */
+import ts from "typescript";
+const src = `export class C {\n  "ttlMs" = 17000;\n  plainMs = 200;\n}\n`;
+const sf = ts.createSourceFile("C.ts", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const visit = (node: ts.Node): void => {
+  if (ts.isPropertyDeclaration(node)) {
+    const name = ts.getNameOfDeclaration(node);
+    console.log(
+      `property ${node.name.getText(sf)}: node.start=${node.getStart(sf)} nameOfDeclaration=${name ? ts.SyntaxKind[name.kind] : "undefined"} name.start=${name ? name.getStart(sf) : "-"}`,
+    );
+  }
+  ts.forEachChild(node, visit);
+};
+visit(sf);
+```
+
+### Transcript
+
+```
+property "ttlMs": node.start=19 nameOfDeclaration=StringLiteral name.start=19
+property plainMs: node.start=38 nameOfDeclaration=Identifier name.start=38
+```
+
+### What it settles
+
+- `ts.getNameOfDeclaration` returns the STRING LITERAL for form 2d, and its start equals the property node start here — but only because the property carries no modifier or decorator. `static "ttlMs" = 17000` moves the node start and leaves the name start where it is.
+- So `declPos` is recorded from the NAME node on every form, and the resolver reads `getNameOfDeclaration(decl) ?? decl`. Agreement by coincidence in a fixture is what this probe exists to refuse.
+- Class members are reached by member access, which this arc does not resolve (§4 item 4), so no live site depends on it today; the key still has to be right where it is defined.
