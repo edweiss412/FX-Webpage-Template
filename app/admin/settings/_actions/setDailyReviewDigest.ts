@@ -19,12 +19,14 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type SetDailyReviewDigestResult = { ok: true } | { ok: false };
 
 export async function setDailyReviewDigest(next: boolean): Promise<SetDailyReviewDigestResult> {
   // Defense-in-depth gate. AdminInfraError propagates to the catalog 500 boundary
   // (invariant 9); a non-admin identity throws here before any write.
+  await assertSameOriginServerAction("setDailyReviewDigest", "admin.settings.dailyReviewDigest");
   await requireAdmin();
   // Actor identity resolved BEFORE the mutation (cached; invariant 10, §5.1).
   const { email } = await requireAdminIdentity();

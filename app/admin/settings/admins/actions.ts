@@ -42,6 +42,7 @@ import { requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
 import { addAdminEmail, revokeAdminEmail, AdminEmailsInfraError } from "@/lib/data/adminEmails";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 /**
  * Discriminated outcome the page reads back through the React 19
@@ -78,6 +79,7 @@ export async function addAdminAction(
   // propagates to Next's error boundary (cataloged 500 path) — invariant 9:
   // infra faults are never swallowed into a benign action result. Captured
   // so the invariant-10 success emit can attribute the grant to the actor.
+  await assertSameOriginServerAction("addAdminAction", "admin.settings.admins.grant");
   const identity = await requireDeveloperIdentity();
 
   const rawEmail = formData.get("email");
@@ -166,6 +168,7 @@ export async function revokeAdminAction(
   // propagates per invariant 9 (see addAdminAction docstring). Capture the
   // identity so the self-revoke guard below compares against the AUTHENTICATED
   // actor, never a client-supplied field.
+  await assertSameOriginServerAction("revokeAdminAction", "admin.settings.admins.revoke");
   const identity = await requireDeveloperIdentity();
 
   const rawEmail = formData.get("email");
