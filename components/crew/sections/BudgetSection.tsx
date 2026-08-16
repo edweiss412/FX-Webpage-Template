@@ -51,7 +51,7 @@ export function BudgetSection({
   showId: string;
   /** Per-request tile ledger, threaded from _CrewShell. */
   ledger: TileRenderLedger;
-  cardReport?: CardReportContext;
+  cardReport?: CardReportContext | null;
 }): JSX.Element {
   // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The Budget
   // surface reads data.financials, gated by financialsVisible(viewerFlags,
