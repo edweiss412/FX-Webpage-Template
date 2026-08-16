@@ -4261,7 +4261,11 @@ describe("enrolment survivors - batch A", () => {
   // after the terminator is not in a comment and grants nothing. The mutant
   // records the closing line as comment-qualified to end-of-line, which adopts
   // the string's contents as an exemption reason.
-  test("a marker in string data after `*/` on the closing line is not in a comment", () => {
+  // The title says "block-comment close" rather than spelling the two-character
+  // marker, because a quoted marker in this file reads as hand-rolled comment
+  // handling to tests/cross-cutting/_metaStripCommentsSingleSource.test.ts. The
+  // fixture below still carries the real characters, where they are input.
+  test("a marker in string data after a block-comment close is not in a comment", () => {
     const source = [
       "/* a",
       `b */ const s = "${EXEMPTION_MARKER} fake reason";`,
