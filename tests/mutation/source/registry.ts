@@ -183,7 +183,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [
       {
-        siteId: "relational-boundary:144:29:>>>=",
+        siteId: "relational-boundary:264:29:>>>=",
         kind: "equivalent",
         reason:
           "`here.length > 0` versus `>= 0` agree on every reachable input: an extents entry is " +
@@ -191,7 +191,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "so the array is never empty. The guard reads as belt-and-braces and is exactly that.",
       },
       {
-        siteId: "integer-literal:416:32:0>1",
+        siteId: "integer-literal:580:32:0>1",
         kind: "equivalent",
         reason:
           "`unresolved` is provably always empty, so `length > 0` and `> 1` are indistinguishable. " +
@@ -201,7 +201,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "is a TOCTOU race rather than an input an ordinary contributor writes (threat fence).",
       },
       {
-        siteId: "relational-boundary:550:28:<><=",
+        siteId: "relational-boundary:714:28:<><=",
         kind: "equivalent",
         reason:
           "The premise-placement test asks whether the premise call starts BEFORE the registration " +
@@ -210,7 +210,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "node, and the walk never compares a node against itself.",
       },
       {
-        siteId: "integer-literal:326:59:2>3",
+        siteId: "integer-literal:478:59:2>3",
         kind: "accepted-gap",
         ref: "BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED",
         reason:
@@ -1242,9 +1242,11 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // 188/333/393/408 — same columns, same operators, same reasons.)
     // Re-derived again 2026-08-16 after the property-totality edit
     // (BL-TIMING-SCAN-PROPERTY-TOTALITY): 208/393/453/468 -> 293/520/580/595,
-    // same columns, same operators, same reasons. A stale row here is not
-    // cosmetic — it is what left `logical-connector:&&>||` reported as an
-    // unaccepted survivor on main's nightly (run 31933821808).
+    // and ONCE MORE after the whole-diff R1 repair moved every line again:
+    // 293/520/580/595 -> 340/581/644/659, same columns, same operators, same
+    // reasons. A stale row here is not cosmetic — it is what left
+    // `logical-connector:&&>||` reported as an unaccepted survivor on main's
+    // nightly (run 31933821808).
     accepted: [
       // The JSX initializer narrowing is NOT equivalent, and the argument that
       // said it was rested on a false claim about the TypeScript API: probed,
@@ -1260,46 +1262,46 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // differ and `<=` cannot decide anything `<` did not. Same class
       // taskContract carries four of.
       {
-        siteId: "relational-boundary:293:14:<><=",
+        siteId: "relational-boundary:340:14:<><=",
         kind: "equivalent",
         reason:
           "universeFiles' comparator reaches this `<` only when the two entry names differ, so `<=` cannot change the ordering",
       },
       {
-        siteId: "integer-literal:293:26:1>2",
+        siteId: "integer-literal:340:26:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — Array.sort consumes the sign only",
       },
       {
-        siteId: "integer-literal:293:30:1>2",
+        siteId: "integer-literal:340:30:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       {
-        siteId: "relational-boundary:580:50:<><=",
+        siteId: "relational-boundary:644:50:<><=",
         kind: "equivalent",
         reason:
           "the site comparator reaches this `<` only when the files differ, because `a.file === b.file` is tested first",
       },
       {
-        siteId: "integer-literal:580:62:1>2",
+        siteId: "integer-literal:644:62:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — sign only",
       },
       {
-        siteId: "integer-literal:580:66:1>2",
+        siteId: "integer-literal:644:66:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       // ---- equivalent: the flip cannot change which branch is taken -------
       {
-        siteId: "logical-connector:520:43:&&>||",
+        siteId: "logical-connector:581:43:&&>||",
         kind: "equivalent",
         reason:
           "both arms yield the SAME name for every input that reaches them: for an identifier `delay.text` equals `delay.getText(sf)` (no whitespace, far under the 60-char slice), and for a non-identifier `delay.text` is undefined so the `||` arm is false anyway",
       },
       {
-        siteId: "logical-connector:595:38:||>&&",
+        siteId: "logical-connector:659:38:||>&&",
         kind: "equivalent",
         reason:
           "the operands are never independently true: a site is `unclassified` if and only if its value is null, because the push sites guarantee it — so `||` and `&&` select the same rows",
