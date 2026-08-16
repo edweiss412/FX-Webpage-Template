@@ -23,7 +23,7 @@
 - **No bound expressed as a NUMBER.** Termination comes from the finite `(modulePath, exportName)` visited set (spec §2.5), never a depth counter.
 - impeccable-gate: N/A — no UI surface. No file under `app/`, `components/`, `app/globals.css`, `tailwind.config.*` or `DESIGN.md` is touched.
 
-**Meta-test inventory (writing-plans rule):** **EXTENDS** `tests/mutation/source/premiseScan.test.ts` (new fixture groups and two module-scope helpers); **EXTENDS** `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array — re-keyed where the reasoning survives, one row RETIRED); **EXTENDS** `tests/mutation/guardSurfaces.gate.test.ts` (`EXPECTED_LEDGER_KINDS.premiseScan` is `{ equivalent: 3, "accepted-gap": 1 }` asserted with `toEqual`, so retiring a row reds it — this file was missing from the round-1 plan, and its omission is the exact fan-out class this inventory exists to catch); **EXTENDS COMMENTS ONLY** in `tests/mutation/_metaPremiseContract.test.ts`. **CREATES** no new meta-test — `_metaPremiseContract.test.ts` already walks the enrolled suites from the registry and already asserts the unclassifiable set is empty. No Supabase call boundary, no `admin_alerts` row, no tile sentinel, no advisory lock, no §12.4 row, no migration.
+**Meta-test inventory (writing-plans rule):** **EXTENDS** `tests/mutation/source/premiseScan.test.ts` (new fixture groups and three module-scope helpers); **EXTENDS** `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array — re-keyed where the reasoning survives, one row RETIRED); **EXTENDS** `tests/mutation/guardSurfaces.gate.test.ts` (`EXPECTED_LEDGER_KINDS.premiseScan` is `{ equivalent: 3, "accepted-gap": 1 }` asserted with `toEqual`, so retiring a row reds it — this file was missing from the round-1 plan, and its omission is the exact fan-out class this inventory exists to catch); **EXTENDS COMMENTS ONLY** in `tests/mutation/_metaPremiseContract.test.ts`. **CREATES** no new meta-test — `_metaPremiseContract.test.ts` already walks the enrolled suites from the registry and already asserts the unclassifiable set is empty. No Supabase call boundary, no `admin_alerts` row, no tile sentinel, no advisory lock, no §12.4 row, no migration.
 
 **Mutation-family closure (writing-plans rule):** the operator families are fixed by the ratified registry row — `relational-boundary`, `equality-flip`, `integer-literal` over `tests/mutation/source/premiseScan.ts`, `scoreFloor: 0.95`. A reviewer-proposed NEW family is a registry change carrying its own before/after numbers, not a finding against this plan.
 
@@ -105,7 +105,7 @@ git merge-base origin/main HEAD | cut -c1-12
 
 Spec §2.1, §2.2 rows E1-E4, §2.4, and §2.6 items 1 and 3. The structural task.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:111` why=`ANCHOR IS PRE-MERGE: :111 is the default-import registration on the tracked tree today (imports.set(clause.name.text, spec)); Task 0 merges #827 and re-anchors before this task runs. The defect is identical in both versions - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-4b,AC-5,AC-9,AC-9b,AC-9c,AC-10c -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:111` why=`ANCHOR IS PRE-MERGE: :111 is the default-import registration on the tracked tree today (imports.set(clause.name.text, spec)); Task 0 merges #827 and re-anchors before this task runs. The defect is identical in both versions - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-4b,AC-5,AC-9,AC-9b,AC-9c,AC-9d,AC-10c -->
 
 **Files:**
 
@@ -129,8 +129,12 @@ type Reach = { verdict: Verdict; reasons: string[] };
 // §2.4's three answers. `.jsx` is HERE because it is analyzed today (probe §3.9);
 // omitting it would make this repair introduce a silent free.
 const LANGUAGE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"] as const;
-const DATA_EXTENSIONS = [".json", ".mdx"] as const;
-// Every other shape resolveSpecifier lands on, a directory included, is REPORTED.
+// `.json` ONLY. `.mdx` is NOT data: this repo executes MDX (next.config.ts:54
+// pageExtensions, @mdx-js/rollup in vitest.config.ts), so purifying it is a
+// silent free — spec §2.4 answer 2, §3.11, §4 limit 13. It falls to answer 3.
+const DATA_EXTENSIONS = [".json"] as const;
+// Every other shape resolveSpecifier lands on — `.mdx` and a directory
+// included — is REPORTED.
 
 function resolveExport(
   facts: ModuleFacts,
@@ -142,7 +146,7 @@ function resolveExport(
 
   `reaches` changes from `=> Verdict` to `=> Reach`. `moduleScopeExtent` is deleted.
 
-- Produces, in `premiseScan.test.ts`, two MODULE-SCOPE helpers. The shipped `verdictWithModule` is block-scoped inside `scope-aware extent resolution` and cannot be called from a new block, and it writes one module only; it is left exactly as it is so no shipped case changes spelling.
+- Produces, in `premiseScan.test.ts`, three MODULE-SCOPE helpers. The shipped `verdictWithModule` is block-scoped inside `scope-aware extent resolution` and cannot be called from a new block, and it writes one module only; it is left exactly as it is so no shipped case changes spelling.
 
 ```ts
 /**
@@ -153,11 +157,18 @@ function resolveExport(
  * extension included when it is not `.ts`, because `resolveSpecifier` only
  * reaches a non-TS file when the specifier spells it out.
  * split/join, not `replace`, so a module referenced twice substitutes twice.
+ *
+ * A key containing a SLASH ("d/index.tsx") builds a directory and registers its
+ * placeholder under the FIRST segment, pointing at the DIRECTORY itself, which
+ * is what AC-9c needs: resolveSpecifier reaches a directory only through its
+ * bare-base candidate. Both halves were probed. Without the mkdir the write
+ * throws ENOENT; without the first-segment rule `__MODULE_d__` substitutes
+ * nothing and the fixture silently tests an unresolved bare specifier instead.
  */
-function classificationWithModules(
+function classificationsWithModules(
   modules: Record<string, string>,
   testSrc: string,
-): TestClassification | undefined {
+): TestClassification[] {
   const id = n++;
   const parse = (key: string): { base: string; ext: string } => {
     const dot = key.lastIndexOf(".");
@@ -168,7 +179,9 @@ function classificationWithModules(
   const spec: Record<string, string> = {};
   for (const key of Object.keys(modules)) {
     const { base, ext } = parse(key);
-    spec[base] = ext === ".ts" ? `./mod${id}_${base}` : `./mod${id}_${base}${ext}`;
+    const slash = base.indexOf("/");
+    if (slash !== -1) spec[base.slice(0, slash)] = `./mod${id}_${base.slice(0, slash)}`;
+    else spec[base] = ext === ".ts" ? `./mod${id}_${base}` : `./mod${id}_${base}${ext}`;
   }
   const subst = (text: string): string => {
     let out = text;
@@ -177,12 +190,26 @@ function classificationWithModules(
   };
   for (const [key, src] of Object.entries(modules)) {
     const { base, ext } = parse(key);
-    writeFileSync(join(scratch, `mod${id}_${base}${ext}`), subst(src), "utf8");
+    const abs = join(scratch, `mod${id}_${base}${ext}`);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, subst(src), "utf8");
   }
   const p = join(scratch, `case${id}-user.ts`);
   writeFileSync(p, subst(testSrc), "utf8");
-  const [first] = classifyTests(ROOT, p);
-  return first;
+  return classifyTests(ROOT, p);
+}
+
+/**
+ * The FIRST classification. Most cases build a single test, so this is the
+ * ergonomic form — but a case asserting about a SIBLING test must use
+ * `classificationsWithModules` and select by `testName`, or it asserts about a
+ * test it never meant (AC-12b).
+ */
+function classificationWithModules(
+  modules: Record<string, string>,
+  testSrc: string,
+): TestClassification | undefined {
+  return classificationsWithModules(modules, testSrc)[0];
 }
 
 function verdictWithModules(modules: Record<string, string>, testSrc: string): string {
@@ -192,7 +219,7 @@ function verdictWithModules(modules: Record<string, string>, testSrc: string): s
 
 - Consumes: `ModuleFacts`, `resolveSpecifier`, `bindingIdentifiers`, `unclassifiableWithin`, all already in `premiseScan.ts`.
 
-- [ ] **Step 1: Add the two module-scope helpers**, beside the existing module-scope `verdict` (`tests/mutation/source/premiseScan.test.ts:15`) and the `scratch` / `n` state they close over. Add `TestClassification` to the file's type import from `./premiseScan`. Run BOTH suites before writing any new case:
+- [ ] **Step 1: Add the three module-scope helpers**, beside the existing module-scope `verdict` (`tests/mutation/source/premiseScan.test.ts:15`) and the `scratch` / `n` state they close over. Add `TestClassification` to the file's type import from `./premiseScan`. Run BOTH suites before writing any new case:
 
 ```bash
 npx vitest run tests/mutation/source/premiseScan.test.ts
@@ -338,6 +365,24 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
     ).toBe("environment-free");
   });
 
+  it("an `.mdx` target is REPORTED, not purified (AC-9d)", () => {
+    // AC-9's discriminating twin: byte-identical payload, only the extension
+    // differs. MDX is EXECUTABLE in this repo (next.config.ts:54 pageExtensions,
+    // @mdx-js/rollup in vitest.config.ts), so answer 2 would be a silent free
+    // introduced by this repair — spec §2.4, §3.11, §4 limit 13. 31 .mdx import
+    // edges live in the near-domain across 14 files; 0 are enrolled, so AC-1 holds.
+    expect(
+      verdictWithModules(
+        {
+          "page.mdx": `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_page__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("unclassifiable");
+  });
+
   it("a renamed default CLASS resolves (AC-4b)", () => {
     // An E4 branch AC-4's default-FUNCTION fixture never reaches. Probe §3.9
     // measures this environment-free today.
@@ -397,9 +442,14 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
   });
 
   it("an unrecognized module shape is REPORTED, not purified (AC-9c)", () => {
-    // A directory reached through resolveSpecifier's bare-base candidate. This
-    // THROWS EISDIR today (probe §3.9); a guard that only moved the extension
-    // test before the read would turn the crash into a silent pure instead.
+    // A directory reached through resolveSpecifier's bare-base candidate.
+    // NOTE THE RED'S SHAPE: today this case THROWS EISDIR rather than returning
+    // a wrong verdict (probe §3.9), so Step 3 sees an ERROR, not a mismatch.
+    // That is a valid red (the test fails, and greens on the same command) but
+    // an implementer who expects a wrong verdict may read the exception as a
+    // broken fixture and repair the test instead of the scanner.
+    // A guard that only moved the extension test before the read would turn the
+    // crash into a silent pure, which is why the third answer must REPORT.
     expect(
       verdictWithModules(
         { "d/index.tsx": `export const x = 1;` },
@@ -448,7 +498,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"
 ```
 
-Expected: a non-zero FAILING count (never `skipped`). Red: `a renamed default import resolves`, `a default export that is an EXPRESSION resolves`, `export { x as y }` (the lookup asks the target for `runIt`), and `an EXPORT beats a same-named non-exported local`. Also red: `a data import is PURE` — a `.json` target is parsed as TypeScript today, so the fixture measures `environment-touching` until the extension guard lands. Already green, as foils: `a same-named default import` (name coincidence), `a pure default export stays free` — which passes by lookup MISS, not by purity, so record that rather than letting it read as evidence — `export { x }` local, the exported `const`, and the `.mjs` case. Record which cases were red.
+Expected: a non-zero FAILING count (never `skipped`). Red: `a renamed default import resolves`, `a default export that is an EXPRESSION resolves`, `export { x as y }` (the lookup asks the target for `runIt`), `an EXPORT beats a same-named non-exported local`, `a renamed default CLASS resolves`, and `an unrecognized module shape is REPORTED` — that last one fails by THROWING `EISDIR`, not by returning a wrong verdict. Also red: `a data import is PURE` — a `.json` target is parsed as TypeScript today, so the fixture measures `environment-touching` until the extension guard lands. Also red: `an .mdx target is REPORTED` — an `.mdx` target is likewise parsed as TypeScript today and measures `environment-touching`, so it reds against the expected `unclassifiable` until answer 3 lands; it is the twin of the `.json` case and the two differ in exactly the extension, which is what makes each discriminating. Already green, as foils: `a same-named default import` (name coincidence), `a pure default export stays free` — which passes by lookup MISS, not by purity, so record that rather than letting it read as evidence — `export { x }` local, the exported `const`, and the `.mjs` case. Record which cases were red.
 
 - [ ] **Step 4: Implement.** In `premiseScan.ts`:
 
@@ -1053,7 +1103,7 @@ git commit -m "fix(mutation): resolve namespace imports member-precisely, report
 
 Spec §2.6 items 2-3 and §2.7 — Half 2. Task 1 built the channel; this task fills it.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "unclassifiable propagation"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:341` why=`ANCHOR IS PRE-MERGE: :341 is the single ownUnresolved call on the tracked tree today; Task 0 merges #827 and re-anchors. unclassifiableWithin is evaluated on exactly one node, the test's own call expression, so a construct in a reachable helper, a hook body or a describe.each producer is never seen; probe rows H2 module_dynamic, describe_dynamic, module_computed, describe_computed, cross-module dynamic and C1-C3 all measure environment-free, and every case here reds until the two rules run at each node the traversal visits` ac=AC-11,AC-12 -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "unclassifiable propagation"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:341` why=`ANCHOR IS PRE-MERGE: :341 is the single ownUnresolved call on the tracked tree today; Task 0 merges #827 and re-anchors. unclassifiableWithin is evaluated on exactly one node, the test's own call expression, so a construct in a reachable helper, a hook body or a describe.each producer is never seen; probe rows H2 module_dynamic, describe_dynamic, module_computed, describe_computed, cross-module dynamic and C1-C3 all measure environment-free, and every case here reds until the two rules run at each node the traversal visits` ac=AC-11,AC-12,AC-12b -->
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
@@ -1167,6 +1217,80 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
         beforeEach(() => { pure(); });
         it("x", () => { expect(1).toBe(1); });`),
     ).toBe("environment-free");
+  });
+
+  it.each(["beforeEach", "beforeAll", "afterEach", "afterAll"])(
+    "a TOP-LEVEL %s reaching provenance classifies touching (AC-12)",
+    (hook) => {
+      // Probe §3.11 row D measures a top-level afterAll environment-free today,
+      // exactly as beforeEach is. Pinning only the two before* forms would leave
+      // half the defect live while the block read as complete. The shipped
+      // registrar regex already covers all four (premiseScan.ts:827).
+      expect(
+        verdictWithModules(
+          {
+            helper: `import { spawnSync } from "node:child_process";
+              export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+          },
+          `import { spawnHelper } from "__MODULE_helper__";
+           ${hook}(() => { spawnHelper(); });
+           it("x", () => { expect(1).toBe(1); });`,
+        ),
+      ).toBe("environment-touching");
+    },
+  );
+
+  it("the top-level seed does NOT leak a nested hook to a sibling (AC-12b)", () => {
+    // The criterion AC-11's pure-hook foil cannot catch. hookBodies walks with
+    // ts.forEachChild (premiseScan.ts:821-835), so a seed written as one
+    // recursive call over the SourceFile attaches EVERY hook in the file to
+    // EVERY test in it — turning this pure sibling environment-touching. That is
+    // a FALSE POSITIVE, the direction spec §0 forbids trading into. The seed
+    // must collect only hooks that are direct top-level statements.
+    //
+    // NOTE the shared outer describe is deliberately ABSENT here: with one, the
+    // pre-existing recursive collection in the describe branch already leaks
+    // (probe §3.11 row A, spec §4 limit 14) and this case would be red before
+    // and after, proving nothing about the seed.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         describe("A", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("inA", () => { expect(1).toBe(1); });
+         });
+         describe("B", () => {
+           it("inB", () => { expect(1).toBe(1); });
+         });`,
+      ),
+    ).toBe("environment-touching"); // inA — the FIRST test is A's
+  });
+
+  it("AC-12b: the sibling's own verdict, extracted by name", () => {
+    // verdictWithModules returns the FIRST classification, so the case above
+    // cannot see inB at all — asserting it would be tautological. This one
+    // reads the sibling directly. Anti-tautology rule: scope the extraction so
+    // the thing under test cannot pass by accident.
+    const all = classificationsWithModules(
+      {
+        helper: `import { spawnSync } from "node:child_process";
+          export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+      },
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("A", () => {
+         beforeEach(() => { spawnHelper(); });
+         it("inA", () => { expect(1).toBe(1); });
+       });
+       describe("B", () => {
+         it("inB", () => { expect(1).toBe(1); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
   });
 
   it("a hook reaching PROVENANCE still classifies touching (C6 foil)", () => {
@@ -1382,7 +1506,11 @@ git commit -m "test(infra): re-derive the premiseScan ledger and retire the acce
 
 **Interfaces:** Consumes Task 6's score. Produces a merged, archived row, a clean ledger, and the filed limit.
 
-- [ ] **Step 1: File the new backlog row** `BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE`, carrying spec §3.8's probe as its evidence: `moduleFacts` returns null iff `!existsSync`; `resolveSpecifier` already `existsSync`-checked; `ts.createSourceFile` parses garbage without throwing, so the fixture classifies `environment-free`. State that canonical AC-8a stands at 3 of 4 after this arc, and that closing it means a `sf.parseDiagnostics` rule — recognizer growth on an axis with zero measured instances, which is why it is filed rather than built.
+- [ ] **Step 1: File THREE backlog rows** (spec §5). Each carries probe evidence or an explicit `**Reachability:** INFERRED, NOT PROBED` field, per the AGENTS.md ledger filing bar. Each also names which class-sweep exception (a), (b) or (c) justifies deferring it rather than repairing it in this PR — "same defect, different file" is never sufficient.
+
+  1. **`BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE`** — spec §3.8's probe as evidence: `moduleFacts` returns null iff `!existsSync`; `resolveSpecifier` already `existsSync`-checked; `ts.createSourceFile` parses garbage without throwing, so the fixture classifies `environment-free`. State that canonical AC-8a stands at 3 of 4 after this arc, and that closing it means a `sf.parseDiagnostics` rule — recognizer growth on an axis with zero measured instances. **Exception (c):** a new detection rule on a surface this PR does not otherwise touch.
+  2. **`BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK`** — spec §4 limit 14, carrying probe §3.11 row A: under a shared outer `describe`, a spawning hook in branch A marks a pure test in sibling branch B `environment-touching`. A FALSE POSITIVE, pre-existing, not introduced here. **Exception (c):** repairing `hookBodies`'s recursion moves live verdicts and would break AC-1's verdict-neutrality, which is this arc's headline constraint — it cannot ship in the same PR by construction.
+  3. **`BL-PREMISESCAN-ASSIGNMENT-DYNAMIC-IMPORT`** — spec §4 limit 15. `m = await import("./x")` in assignment rather than declaration position is not resolved member-precisely; `premiseScan.ts:634-637` carries the comment handing it to this row. Population repo-wide: **0**, probed. **Exception (c):** designing a rule for zero measured instances is the widening direction spec §1.2(e) forbids.
 
 - [ ] **Step 2: Move the entry to the archive WITH its marker still attached, and observe the red.**
 
@@ -1433,10 +1561,12 @@ git commit -m "docs(backlog): graduate BL-PREMISESCAN-IMPORT-EDGE-FIDELITY"
 | AC-9 non-language targets pure | Task 1, `a data import is PURE, and the specifier carries the extension` |
 | AC-9b `.mjs` and `.jsx` stay analyzed | Task 1, `a .mjs target stays ANALYZED` and `an explicit .jsx target stays ANALYZED` — AC-9's foils |
 | AC-9c unrecognized shape REPORTED | Task 1, `an unrecognized module shape is REPORTED, not purified` |
+| AC-9d `.mdx` REPORTED, not purified | Task 1, `an .mdx target is REPORTED, not purified` — AC-9's twin, same payload, extension the only difference |
 | AC-10 cycles terminate, diamonds do not | Task 2, the cycle case (asserting the REASON) + the PURE diamond foil + the touching-diamond short-circuit pin |
 | AC-10c export beats same-named local | Task 1, `an EXPORT beats a same-named non-exported local` |
 | AC-11 propagation from every position | Task 5, four helper positions + three nested hook/producer cases + a TOP-LEVEL hook + cross-module, with the C6, top-level-pure and no-construct foils |
-| AC-12 precedence every direction | Task 5, own-extent and helper branches plus the TOP-LEVEL hook reaching provenance — the arc's only provenance silent free |
+| AC-12 precedence every direction | Task 5, own-extent and helper branches plus the TOP-LEVEL hook reaching provenance, in all four registrar spellings — the arc's only provenance silent free |
+| AC-12b top-level seed does not leak a nested hook | Task 5, the sibling-describe pair read by `testName` (not by first-classification) |
 | AC-13 provenance-module precedence | Task 4, both `node:child_process` namespace cases |
 | AC-14 performance, ratio-bounded | Task 6 Step 1 against Task 0 Step 4 |
 | AC-15 mutation gate, acceptance retired | Task 6 Steps 2-5 |

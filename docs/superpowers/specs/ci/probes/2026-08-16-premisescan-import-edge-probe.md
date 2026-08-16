@@ -142,7 +142,7 @@ git ls-files tests                                    2498
   filtered to the language set (§2.4)                  2326
 ```
 
-The round-1 figure was the `.ts`/`.tsx` subset, so it silently omitted **12 `.js`/`.mjs` files that §2.4 itself calls language modules** — `tests/codexGuard/fixtures/fake-codex.mjs`, four `tests/cross-cutting/redirect-guard-probes/*.mjs`, `tests/drive/pin15ExportProbe.mjs`, three `tests/e2e/*.mjs` bundles, `tests/e2e/helpers/useServerDirectivePlugin.mjs`, and three `tests/styles/__fixtures__/font-escapes/**` `.js` files. Re-measured over the full 2,326-seed set, the closure grows from 3,207 to 3,221 modules and **every in-repo count below is unchanged** — namespace 22, default 40, named re-export 117, local export list 28, `export *` 1, aliased named import 133, namespace-in-non-member-position 41. Only two bare-specifier counts move (`named:bare` 9,215 → 9,223, `namespace:bare` 24 → 27), and bare specifiers are pure by L-2. The conclusion survives; the declared domain and the measured domain now match.
+The round-1 figure was the `.ts`/`.tsx` subset, so it silently omitted **12 `.js`/`.mjs` files that §2.4 itself calls language modules** — `tests/codexGuard/fixtures/fake-codex.mjs`, **three** `tests/cross-cutting/redirect-guard-probes/*.mjs` (`mutant-corpus.mjs`, `probe1-residual-escapes.mjs`, `red-harness.mjs` — a round-2 draft said "four", which made the categories sum to 13 against a total of 12 and defeated the claim that the omitted inventory is fully named), `tests/drive/pin15ExportProbe.mjs`, three `tests/e2e/*.mjs` bundles, `tests/e2e/helpers/useServerDirectivePlugin.mjs`, and three `tests/styles/__fixtures__/font-escapes/**` `.js` files — **1 + 3 + 1 + 3 + 1 + 3 = 12**, reproducible with `git ls-tree -r --name-only ac9a40cd8 tests | grep -E '\.(js|mjs)$'`. Re-measured over the full 2,326-seed set, the closure grows from 3,207 to 3,221 modules and **every in-repo count below is unchanged** — namespace 22, default 40, named re-export 117, local export list 28, `export *` 1, aliased named import 133, namespace-in-non-member-position 41. Only two bare-specifier counts move (`named:bare` 9,215 → 9,223, `namespace:bare` 24 → 27), and bare specifiers are pure by L-2. The conclusion survives; the declared domain and the measured domain now match.
 
 **Probe correction (v1 → v2).** The first run parsed every file with `ts.ScriptKind.TS`, including `.tsx`. TSX content parsed as TS yields a garbage tree, and it inflated the "namespace used in a non-member position" figure from the true **41** to **68** — `COPY.EDIT_SAVED_CONFIRM` in a JSX expression was mis-read as a non-member use. Every figure below is from the corrected run, which selects `ts.ScriptKind.TSX` by extension. The import and export counts were unaffected (declarations parse identically either way); only the namespace-position figure moved. Worth recording because `premiseScan` itself parses with a fixed `ts.ScriptKind.TS` — no enrolled suite is `.tsx` today, so it is a latent limit rather than a live defect, and it is outside this arc's scope.
 
@@ -244,17 +244,36 @@ Round-1 review could not reproduce the "117 named re-export specifiers" figure a
 
 **Question.** Under the spec's E1-E6 export rules, does every import edge that resolves TODAY still resolve? A name the new resolver cannot find answers `noSuchExport`, which is pure — so a miss would be a silent demotion that moves no declared count and emits no reason.
 
-**Method.** An independent AST walk, not the scanner. For each module in the closure, compute the exported names under E1-E6 — the four registered declaration kinds carrying an `export` modifier (reading the modifier from the `VariableStatement` for the variable case), local and forwarded `NamedExports`, both `ExportAssignment` forms, and `NamespaceExport` — then follow `export *` targets against a `(module, name)` visited set. For each named or default import edge whose specifier resolves in-repo to a language module, look the imported name up. Type-only declarations and specifiers are skipped, as the spec skips them.
+**The round-2 method did not perform this check, and round-2 review was right to refuse it.** Its `exportsOf` computed a NAME SET rather than resolving an export, and diverged from §2.2 in eight ways, every one in the permissive direction:
+
+| # | divergence | consequence |
+| --- | --- | --- |
+| 1 | E5 named forwards recorded as exported names **without following the target** | a broken `export { x } from "./gone"` answers "resolves" |
+| 2 | E2 local export lists recorded without checking local extent, imported binding, or the namespace rejection | `export { x }` with no `x` anywhere answers "resolves" |
+| 3 | `NamespaceExport` accepted, though §2.2 declines it | a declined form counted as covered |
+| 4 | BOTH `ExportAssignment` forms accepted as `default`, though `export =` is declined | same |
+| 5 | `export namespace`, `interface`, `type` added as VALUE exports | type-only and declined forms counted as covered |
+| 6 | `export default function f()` recorded both `default` **and** `f` | a name ES does not export counted as covered |
+| 7 | namespace and dynamic-namespace member edges not checked at all | §2.3's whole surface unmeasured |
+| 8 | seeds and `LANG` filtered to `.ts`/`.tsx`, omitting `.jsx` | 14 modules outside the measured closure |
+
+Under that model `0 MISSES` is uninformative: the divergences make misses **less** likely, so the figure could not exclude the silent demotion the question is about.
+
+**Corrected method (probe 4).** `.claude/probe/acceptSetCover.ts`, gitignored, run against the same `ac9a40cd8` tree. It implements `resolveExport(abs, exportName, active, done)` as §2.2 E1-E6, §2.4's three-way extension split and §2.5's active/done pair specify — E5 and E6 FOLLOW to their target, E2 resolves through registration or the import map and rejects a namespace binding, `export =` / `export * as ns from` / `export namespace` return `unresolvable`, type-only returns pure, `export default function f()` yields `default` only, and `default` is never forwarded by a star. It then classifies every VALUE edge — named, default, **and `ns.member` / `ns["member"]`** — into the five outcomes. Seeds are filtered on the full language set, so the near-domain closure is the declared one.
 
 ```
-live domain (post-#827 registry): 90 modules, 230 named/default import edges checked
-  noSuchExport MISSES: 0
+live domain (post-#827 registry):  90 modules,   230 value import edges checked
+  outcomes: {"extent":230,"data":0,"pure-bare":0,"noSuchExport":0,"unresolvable":0}
+  noSuchExport MISSES (silent-demotion risk): 0
 
-near-domain (git ls-files tests):  3,207 modules, 9,381 named/default import edges checked
-  noSuchExport MISSES: 0
+near-domain (git ls-files tests): 3,221 modules, 9,536 value import edges checked
+  outcomes: {"extent":9499,"data":0,"pure-bare":37,"noSuchExport":0,"unresolvable":0}
+  noSuchExport MISSES (silent-demotion risk): 0
 ```
 
-**Conclusion.** The accept-set covers every import edge the corpus contains, at both scopes. This is the derived cover the class-sweep rule asks for: the claim is checked against the corpus rather than argued from a list of remembered forms.
+The near-domain module count is **3,221** (the round-2 draft's 3,207 dropped the `.jsx`/`.mjs` seeds) and the edge count **9,536** (up from 9,381 because namespace member edges are now checked). The 37 `pure-bare` are E2/E5 branches forwarding to a bare specifier — pure by L-2, not misses.
+
+**Conclusion.** The accept-set covers every value import edge the corpus contains, at both scopes, under a resolver that implements §2.2 rather than approximating it. This is the derived cover the class-sweep rule asks for: the claim is checked against the corpus rather than argued from a list of remembered forms — and the round-2 version is recorded above so that no later reader re-derives a number from a method that could not support it.
 
 ## Round-2 addendum — two mechanical facts the plan rests on
 
