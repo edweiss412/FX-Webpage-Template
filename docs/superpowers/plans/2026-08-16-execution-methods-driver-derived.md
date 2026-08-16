@@ -1,0 +1,703 @@
+# Execution Methods Derived From Driver Types — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Derive the query-submitting core of `EXECUTION_METHODS` in `tests/db/_destructiveFileAnalysis.ts:541` from the installed postgres.js driver's own type declarations via a committed generated module, so a driver upgrade that adds a query-submitting method becomes a visible diff instead of a silent guard gap.
+
+**Architecture:** A pure derivation module (TypeScript AST over a type-declaration source string) feeds a generator that writes a committed generated module; the analyzer composes its execution set from that module's derived core plus a hand-justified client-capability list; a guard suite pins version freshness, composition, disjointness, and the derivation's floor; pretest-gen and an x-audits CI step keep the committed module fresh with no silent path; the derivation module is enrolled in the source-mutation registry before the first diff-review round.
+
+**Tech Stack:** TypeScript compiler API (already a dependency), vitest, tsx generators, pretest-gen manifest, x-audits workflow, source-mutation gate.
+
+**Spec:** docs/superpowers/specs/2026-08-16-execution-methods-driver-derived-design.md — the plan argues from the spec; executors read both. Spec section numbers (§N) below refer to that file. The spec's §1 probe table and §4 census are load-bearing context for every task.
+
+## Global Constraints
+
+- Invariant 1 (AGENTS.md): TDD per task — failing test, minimal implementation, passing test, commit. Commit per task, conventional-commits style.
+- Invariant 11: all work in the isolated worktree /Users/ericweiss/FX-worktrees/execution-methods-driver-derived on branch test/execution-methods-driver-derived; the main checkout is read-only.
+- Heavy-phase rule (AGENTS.md): `pnpm mutation:guards` runs wrapped — `pnpm heavy mutation:guards`. Scoped vitest runs with an explicit file list stay unwrapped.
+- Behavior freeze: the composed execution set stays exactly the shipped 10 members (spec §1.1). Any diff that changes the set's membership is out of scope.
+- Rejected shape (spec §1.1): no vitest suite parses node_modules type-declaration text. The only test-time node_modules read is the version sentinel's package.json read.
+- No em-dash in user-visible copy or generated-code comments (pre-code mechanical gate, AGENTS.md); generated headers use `--` or prose without dashes.
+- The composed-set members, sorted, are: begin, cursor, end, file, listen, notify, reserve, savepoint, subscribe, unsafe (10). The derived core, sorted, is: file, listen, notify, unsafe (4). The parameter members, sorted, are: array, json (2). Tasks reference these lists; do not retype variants.
+
+## Acceptance criteria (verbatim ids from spec §6)
+
+AC-1 (generator output + check mode), AC-2 (composition unchanged + corpus green + array fixture), AC-3 (guard-suite arms + derivation fixtures), AC-4 (pretest-gen registration), AC-5 (mutation enrolment green), AC-6 (no test-time driver-types parse), AC-7 (CI freshness step + upload wiring + mutant-red probe). Each task's marker cites the ids it discharges.
+
+## Meta-test inventory (mandatory declaration)
+
+- CREATES: tests/db/executionMethodsManifest.test.ts (guard suite + derivation fixture corpus).
+- EXTENDS: `scripts/pretest-gen.mjs` `MANIFEST` (new row; `tests/cross-cutting/pretest-gen-manifest.test.ts` covers the row automatically — it walks the imported MANIFEST, so no test-file edit is expected; Task 4 verifies).
+- EXTENDS: `tests/mutation/source/registry.ts` (one new `GuardSurface` row; see reconciliation below).
+- None of the candidate registries in docs/agents/writing-plans.md (Supabase call boundaries, sentinel hiding, admin-alert catalog, advisory-lock topology, email normalization) applies: this change touches no auth path, no DB write, no alert, no tile, no lock. Declared explicitly per the rule.
+
+## Registry count reconciliation (authored AND run at plan time)
+
+`grep -c 'sourcePath: "' tests/mutation/source/registry.ts` on the plan-time tree returns 16 registry rows (grep -n output pasted: lines 159, 179, 238, 419, 460, 535, 612, 640, 651, 967, 1007, 1025, 1054, 1068, 1153, 1258). Task 6 adds exactly one row (`executionMethodsDerivation`), taking the count to 17. No row is removed.
+
+## Mutation-family closure (guard-surface work)
+
+The operator families for the new surface are the registry's declared set — `operators: [...OPERATOR_NAMES]` (`tests/mutation/source/registry.ts:3` imports it from `./operators`). That enumeration is the closure set diff review converges against; a reviewer-proposed NEW family is admissible only with a live escaping mutant against the shipped guard (docs/agents/writing-plans.md, mutation-family closure rule).
+
+## File map
+
+- Create: scripts/execution-methods/lib.ts — pure derivation module (one responsibility: type-declaration source string in, derived name sets out).
+- Create: scripts/generate-execution-methods.ts — generator CLI (read installed driver files, call lib, write/check the generated module).
+- Create: tests/db/\_\_generated\_\_/postgresExecutionMethods.ts — committed generated module (generator output; never hand-edited).
+- Create: tests/db/executionMethodsManifest.test.ts — guard suite + derivation fixtures.
+- Modify: `tests/db/_destructiveFileAnalysis.ts:541` region — composition + export.
+- Modify: `tests/db/destructiveFileAnalysis.test.ts` — one new fixture (cf), array-on-a-non-client.
+- Modify: `package.json` scripts (gen:execution-methods), `scripts/pretest-gen.mjs` MANIFEST, `.github/workflows/x-audits.yml` (freshness step + upload path), `tests/mutation/source/registry.ts` (one row), `BACKLOG.md` / `BACKLOG-archive.md` (closeout).
+
+New test files land in the SERIAL vitest project by default (`vitest.projects.ts:34` BASE_INCLUDE covers tests/db; tests/db is deliberately absent from PARALLEL_TEST_GLOBS) — no partition edit, and the vitest-projects-partition meta-test needs no change.
+
+<!-- tasks: depth=3 red-contract -->
+
+### Task 1: Derivation module + fixture corpus
+
+<!-- task: red=`pnpm vitest run tests/db/executionMethodsManifest.test.ts` red-state=authored red-target=`scripts/execution-methods/lib.ts` why=`the derivation module does not exist, so the suite's import of deriveExecutionMethods fails to resolve` ac=AC-3 -->
+
+**Files:**
+- Create: scripts/execution-methods/lib.ts
+- Test: tests/db/executionMethodsManifest.test.ts (derivation-fixture half; the generated-module arms arrive in Task 2)
+
+**Interfaces:**
+- Produces: `deriveExecutionMethods(dtsSource: string): ExecutionMethodDerivation` where `ExecutionMethodDerivation = { core: string[]; parameterMembers: string[] }`, both sorted and deduplicated. Consumed by Task 2's generator and by this suite.
+
+- [ ] **Step 1: Write the failing derivation-fixture tests**
+
+Create tests/db/executionMethodsManifest.test.ts:
+
+```ts
+import { describe, expect, it } from "vitest";
+
+import { deriveExecutionMethods } from "@/scripts/execution-methods/lib";
+
+describe("deriveExecutionMethods (spec 2026-08-16 §2.1/§2.5)", () => {
+  it("collects methods returning PendingQuery, deduplicating overloads", () => {
+    const src = `
+      interface ISql {
+        unsafe(query: string): PendingQuery<Row[]>;
+        file(path: string): PendingQuery<Row[]>;
+        file(path: string, args: unknown[]): PendingQuery<Row[]>;
+      }`;
+    expect(deriveExecutionMethods(src).core).toEqual(["file", "unsafe"]);
+  });
+
+  it("collects PendingRequest and ListenRequest returners", () => {
+    const src = `
+      interface Sql {
+        notify(channel: string, payload: string): PendingRequest;
+        listen(channel: string, fn: (v: string) => void): ListenRequest;
+      }`;
+    expect(deriveExecutionMethods(src).core).toEqual(["listen", "notify"]);
+  });
+
+  it("does not collect a method returning a Promise (the begin shape)", () => {
+    const src = `interface Sql { begin<T>(cb: (sql: unknown) => T): Promise<T>; }`;
+    expect(deriveExecutionMethods(src)).toEqual({ core: [], parameterMembers: [] });
+  });
+
+  it("routes Parameter and ArrayParameter returners to parameterMembers", () => {
+    const src = `
+      interface ISql {
+        json(value: unknown): Parameter;
+        array(value: unknown[]): ArrayParameter<unknown[]>;
+      }`;
+    const out = deriveExecutionMethods(src);
+    expect(out.core).toEqual([]);
+    expect(out.parameterMembers).toEqual(["array", "json"]);
+  });
+
+  it("ignores property signatures whose type is a function returning Parameter (the typed shape)", () => {
+    const src = `interface ISql { typed: (value: unknown, oid: number) => Parameter; }`;
+    expect(deriveExecutionMethods(src)).toEqual({ core: [], parameterMembers: [] });
+  });
+
+  it("collects a qualified return reference (postgres.PendingQuery)", () => {
+    const src = `interface ISql { unsafe(q: string): postgres.PendingQuery<Row[]>; }`;
+    expect(deriveExecutionMethods(src).core).toEqual(["unsafe"]);
+  });
+
+  it("ignores a method with no return annotation", () => {
+    const src = `interface ISql { unsafe(q: string); }`;
+    expect(deriveExecutionMethods(src).core).toEqual([]);
+  });
+
+  it("walks interfaces inside a declare-namespace block (the real driver file's shape)", () => {
+    const src = `
+      declare namespace postgres {
+        interface ISql { unsafe(q: string): PendingQuery<Row[]>; }
+      }`;
+    expect(deriveExecutionMethods(src).core).toEqual(["unsafe"]);
+  });
+
+  it("does not collect a method signature inside a type literal (the toJSON shape, spec §4)", () => {
+    const src = `type JSONValue = string | { toJSON(): PendingQuery<Row[]> };`;
+    expect(deriveExecutionMethods(src).core).toEqual([]);
+  });
+});
+```
+
+Every fixture derives its expectation from its own declared members (anti-tautology rule) — none reads the live driver. The toJSON fixture deliberately returns PendingQuery from inside a type literal: it fails if the walk domain ever widens past interface declarations, which is the concrete failure mode it catches.
+
+- [ ] **Step 2: Run the suite to verify it fails**
+
+Run: `pnpm vitest run tests/db/executionMethodsManifest.test.ts`
+Expected: FAIL — cannot resolve `@/scripts/execution-methods/lib` (module absent).
+
+- [ ] **Step 3: Write the derivation module**
+
+Create scripts/execution-methods/lib.ts:
+
+```ts
+/**
+ * scripts/execution-methods/lib.ts
+ *
+ * Pure derivation of postgres.js execution methods from a type-declaration
+ * SOURCE STRING (spec docs/superpowers/specs/2026-08-16-execution-methods-driver-derived-design.md §2.1).
+ * Walk domain: interface declarations only -- a method signature inside a type
+ * literal (the driver's toJSON node) is deliberately never a candidate.
+ * Consumers: scripts/generate-execution-methods.ts and the guard suite.
+ * Enrolled in tests/mutation/source/registry.ts (executionMethodsDerivation).
+ */
+import ts from "typescript";
+
+export type ExecutionMethodDerivation = {
+  /** Method members whose declared return-type head is PendingQuery | PendingRequest | ListenRequest. */
+  core: string[];
+  /** Method members whose declared return-type head is Parameter | ArrayParameter. */
+  parameterMembers: string[];
+};
+
+const CORE_HEADS = new Set(["PendingQuery", "PendingRequest", "ListenRequest"]);
+const PARAMETER_HEADS = new Set(["Parameter", "ArrayParameter"]);
+
+/** Rightmost identifier of a type reference's name; null for any other annotation shape. */
+function headIdentifier(type: ts.TypeNode | undefined): string | null {
+  if (type === undefined || !ts.isTypeReferenceNode(type)) return null;
+  let name: ts.EntityName = type.typeName;
+  while (ts.isQualifiedName(name)) name = name.right;
+  return name.text;
+}
+
+export function deriveExecutionMethods(dtsSource: string): ExecutionMethodDerivation {
+  const sf = ts.createSourceFile(
+    "driver.d.ts",
+    dtsSource,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const core = new Set<string>();
+  const parameterMembers = new Set<string>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isInterfaceDeclaration(n)) {
+      for (const member of n.members) {
+        if (!ts.isMethodSignature(member) || !ts.isIdentifier(member.name)) continue;
+        const head = headIdentifier(member.type);
+        if (head === null) continue;
+        if (CORE_HEADS.has(head)) core.add(member.name.text);
+        else if (PARAMETER_HEADS.has(head)) parameterMembers.add(member.name.text);
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  ts.forEachChild(sf, walk);
+  return { core: [...core].sort(), parameterMembers: [...parameterMembers].sort() };
+}
+```
+
+(`member.name` on a `MethodSignature` is a `PropertyName`, so `ts.isIdentifier(member.name)` both narrows and filters computed/string names; no separate undefined check is needed — the property is non-optional.)
+
+- [ ] **Step 4: Run the suite to verify it passes**
+
+Run: `pnpm vitest run tests/db/executionMethodsManifest.test.ts`
+Expected: PASS (9 tests).
+
+- [ ] **Step 5: Typecheck and commit**
+
+Run: `pnpm typecheck`
+Expected: clean.
+
+```bash
+git add scripts/execution-methods/lib.ts tests/db/executionMethodsManifest.test.ts
+git commit -m "test(db): derivation module for postgres execution methods"
+```
+
+### Task 2: Generator, committed generated module, and freshness arms
+
+<!-- task: red=`pnpm vitest run tests/db/executionMethodsManifest.test.ts` red-state=authored red-target=`scripts/generate-execution-methods.ts` why=`the generator and its committed output do not exist, so the new sentinel/premise/disjointness arms fail on an unresolvable import of the generated module` ac=AC-1,AC-3 -->
+
+**Files:**
+- Create: scripts/generate-execution-methods.ts
+- Create: tests/db/__generated__/postgresExecutionMethods.ts (by running the generator; committed)
+- Modify: `package.json` (one script line)
+- Test: tests/db/executionMethodsManifest.test.ts (add the generated-module arms)
+
+**Interfaces:**
+- Consumes: `deriveExecutionMethods` from Task 1.
+- Produces: generated module exporting `POSTGRES_TYPES_VERSION: string`, `POSTGRES_EXECUTION_CORE: readonly string[]`, `POSTGRES_PARAMETER_MEMBERS: readonly string[]`; generator constants `DRIVER_TYPES_PATH`, `DRIVER_PACKAGE_JSON_PATH`, `OUT_PATH`. Task 3 imports `POSTGRES_EXECUTION_CORE`; Task 4 registers the paths.
+
+- [ ] **Step 1: Add the failing arms to the suite**
+
+Append to tests/db/executionMethodsManifest.test.ts:
+
+```ts
+import { readFileSync } from "node:fs";
+
+import { premiseHolds } from "../_shared/premise";
+import {
+  POSTGRES_EXECUTION_CORE,
+  POSTGRES_PARAMETER_MEMBERS,
+  POSTGRES_TYPES_VERSION,
+} from "./__generated__/postgresExecutionMethods";
+
+const DRIVER_PACKAGE_JSON = "node_modules/postgres/package.json";
+
+describe("generated execution-methods module (spec §2.4)", () => {
+  it("version sentinel: the committed module matches the installed driver", () => {
+    const raw = readFileSync(DRIVER_PACKAGE_JSON, "utf8");
+    const installed = (JSON.parse(raw) as { version: string }).version;
+    expect(
+      POSTGRES_TYPES_VERSION,
+      "stale generated module -- run: pnpm gen:execution-methods",
+    ).toBe(installed);
+  });
+
+  it("disjointness: no parameter member is in either half of the composition", () => {
+    for (const name of POSTGRES_PARAMETER_MEMBERS) {
+      expect(POSTGRES_EXECUTION_CORE).not.toContain(name);
+    }
+  });
+
+  it("premise guard: the derivation floor members are present (spec §2.4 arm 4)", () => {
+    premiseHolds(
+      "the derivation produced a non-collapsed core",
+      POSTGRES_EXECUTION_CORE.length > 0,
+    );
+    expect(POSTGRES_EXECUTION_CORE).toContain("unsafe");
+    expect(POSTGRES_EXECUTION_CORE).toContain("file");
+  });
+});
+```
+
+(Consolidate the `readFileSync` import with any existing node:fs import if one exists; imports live at the top of the file.)
+
+- [ ] **Step 2: Run the suite to verify it fails**
+
+Run: `pnpm vitest run tests/db/executionMethodsManifest.test.ts`
+Expected: FAIL — cannot resolve `./__generated__/postgresExecutionMethods`.
+
+- [ ] **Step 3: Write the generator**
+
+Create scripts/generate-execution-methods.ts:
+
+```ts
+/**
+ * scripts/generate-execution-methods.ts  (pnpm gen:execution-methods)
+ *
+ * Reads the installed postgres.js driver's type declarations and version, and
+ * writes tests/db/__generated__/postgresExecutionMethods.ts -- the committed
+ * derived core of the destructive-file analyzer's execution set (spec
+ * docs/superpowers/specs/2026-08-16-execution-methods-driver-derived-design.md §2.2).
+ *
+ * Usage:
+ *   pnpm gen:execution-methods          # write the generated module
+ *   pnpm gen:execution-methods --check  # write nothing; exit 1 if it would change
+ */
+import { readFileSync, writeFileSync } from "node:fs";
+
+import { deriveExecutionMethods } from "./execution-methods/lib";
+
+export const DRIVER_TYPES_PATH = "node_modules/postgres/types/index.d.ts";
+export const DRIVER_PACKAGE_JSON_PATH = "node_modules/postgres/package.json";
+export const OUT_PATH = "tests/db/__generated__/postgresExecutionMethods.ts";
+
+function render(): string {
+  const pkg = JSON.parse(readFileSync(DRIVER_PACKAGE_JSON_PATH, "utf8")) as { version: string };
+  const derived = deriveExecutionMethods(readFileSync(DRIVER_TYPES_PATH, "utf8"));
+  return [
+    "// @generated by scripts/generate-execution-methods.ts; do not edit. Regenerate: pnpm gen:execution-methods",
+    `// Source: ${DRIVER_TYPES_PATH} (postgres ${pkg.version}).`,
+    `export const POSTGRES_TYPES_VERSION = ${JSON.stringify(pkg.version)};`,
+    `export const POSTGRES_EXECUTION_CORE: readonly string[] = ${JSON.stringify(derived.core)};`,
+    `export const POSTGRES_PARAMETER_MEMBERS: readonly string[] = ${JSON.stringify(derived.parameterMembers)};`,
+    "",
+  ].join("\n");
+}
+
+const next = render();
+if (process.argv.includes("--check")) {
+  const current = readFileSync(OUT_PATH, "utf8");
+  if (current !== next) {
+    console.error(`${OUT_PATH} is stale; run pnpm gen:execution-methods`);
+    process.exit(1);
+  }
+} else {
+  writeFileSync(OUT_PATH, next);
+}
+```
+
+Add to `package.json` scripts, directly after the `gen:schema-manifest` line:
+
+```json
+    "gen:execution-methods": "tsx scripts/generate-execution-methods.ts",
+```
+
+- [ ] **Step 4: Run the generator; inspect the committed output**
+
+Run: `mkdir -p tests/db/__generated__ && pnpm gen:execution-methods && cat tests/db/__generated__/postgresExecutionMethods.ts`
+Expected content (AC-1): version `3.4.9`; core exactly `["file","listen","notify","unsafe"]`; parameterMembers exactly `["array","json"]`. If either list differs, STOP — the derivation disagrees with the spec §1 probe table; do not adjust the expectation, find the walker defect.
+
+- [ ] **Step 5: Run the suite to verify it passes; probe check mode both ways**
+
+Run: `pnpm vitest run tests/db/executionMethodsManifest.test.ts`
+Expected: PASS.
+
+Run: `pnpm gen:execution-methods --check; echo "exit=$?"`
+Expected: `exit=0`.
+
+Run (mutant-red for check mode, restore after): `echo "// stale" >> tests/db/__generated__/postgresExecutionMethods.ts && pnpm gen:execution-methods --check; echo "exit=$?"; git checkout -- tests/db/__generated__/postgresExecutionMethods.ts`
+Expected: `exit=1` with the stale message.
+
+- [ ] **Step 6: Typecheck and commit**
+
+Run: `pnpm typecheck`
+
+```bash
+git add scripts/generate-execution-methods.ts tests/db/__generated__/postgresExecutionMethods.ts tests/db/executionMethodsManifest.test.ts package.json
+git commit -m "infra: generator + committed derived execution-methods module"
+```
+
+### Task 3: Analyzer composition + composition pin + array fixture
+
+<!-- task: red=`pnpm vitest run tests/db/executionMethodsManifest.test.ts tests/db/destructiveFileAnalysis.test.ts` red-state=authored red-target=`tests/db/_destructiveFileAnalysis.ts:541` why=`the analyzer still holds a module-private hand-typed set with no export and no derived-core import, so the new composition-pin arm cannot import EXECUTION_METHODS` ac=AC-2,AC-3 -->
+
+**Files:**
+- Modify: `tests/db/_destructiveFileAnalysis.ts` (the `EXECUTION_METHODS` declaration region at `tests/db/_destructiveFileAnalysis.ts:525-543`, plus one import line at the top)
+- Test: tests/db/executionMethodsManifest.test.ts (composition-pin arm), `tests/db/destructiveFileAnalysis.test.ts` (fixture (cf))
+
+**Interfaces:**
+- Consumes: `POSTGRES_EXECUTION_CORE` from Task 2.
+- Produces: `export const EXECUTION_METHODS: Set<string>` from `tests/db/_destructiveFileAnalysis.ts` (test-only consumer; no production caller).
+
+- [ ] **Step 1: Add the failing composition-pin arm and the array fixture**
+
+Append to the `describe` block added in Task 2 in tests/db/executionMethodsManifest.test.ts:
+
+```ts
+  it("composition pin: the analyzer's exported set is exactly the shipped 10 members", () => {
+    expect([...EXECUTION_METHODS].sort()).toEqual([
+      "begin", "cursor", "end", "file", "listen",
+      "notify", "reserve", "savepoint", "subscribe", "unsafe",
+    ]);
+  });
+
+  it("disjointness covers the hand list too", () => {
+    for (const name of POSTGRES_PARAMETER_MEMBERS) {
+      expect(EXECUTION_METHODS.has(name)).toBe(false);
+    }
+  });
+```
+
+with the import added at the top:
+
+```ts
+import { EXECUTION_METHODS } from "./_destructiveFileAnalysis";
+```
+
+This asserts the analyzer's OWN exported object, not a test-side recomputation (spec §2.4 arm 2 anti-tautology requirement). Failure mode caught: the analyzer composing a different set than the module the suite recomputes from.
+
+In `tests/db/destructiveFileAnalysis.test.ts`, add directly after fixture `(cb)` (`tests/db/destructiveFileAnalysis.test.ts:1166`), reusing that fixture's local conventions (`IMPORT`, `P`, `analyseDestructiveFile` are already in scope in that file):
+
+```ts
+  it("(cf) keeps `.array()` OUT of the execution set -- the behavioral twin of (cb)'s json case", () => {
+    // Spec 2026-08-16 §2.5: fixture (cb)'s title promises array coverage its body
+    // never exercised (spec review R3 finding 3). A discovered file calling
+    // `.array()` on a non-client must still pass; if `array` ever entered the
+    // execution set, this rejects with an unchecked-execution error.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+const parts = new Float32Array(4);
+const halves = parts.array();
+await sql\`select public.prune_sync_log()\`;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+```
+
+(The receiver shape is what matters, not runtime validity: the analyzer sees a property call named `array` on a non-client identifier. The fixture never executes this source.)
+
+- [ ] **Step 2: Run both suites to verify the new cases fail**
+
+Run: `pnpm vitest run tests/db/executionMethodsManifest.test.ts tests/db/destructiveFileAnalysis.test.ts`
+Expected: the composition-pin arm FAILS (no `EXECUTION_METHODS` export exists at `tests/db/_destructiveFileAnalysis.ts:541` — it is module-private). Fixture (cf) passes already (array was never in the set); it is a regression pin, and its `red` is carried by the arm in the same command.
+
+- [ ] **Step 3: Compose the set in the analyzer**
+
+In `tests/db/_destructiveFileAnalysis.ts`, add to the import block at the top (after the `./_destructiveStatements` import at `tests/db/_destructiveFileAnalysis.ts:58`):
+
+```ts
+import { POSTGRES_EXECUTION_CORE } from "./__generated__/postgresExecutionMethods";
+```
+
+Replace the declaration at `tests/db/_destructiveFileAnalysis.ts:541-543` (`const EXECUTION_METHODS = new Set(...)` and its string literal), keeping the existing doc comments above it and updating their `file was missing` paragraph's final sentence to note the derivation:
+
+```ts
+/** Client-capability members the derivation deliberately does not produce (spec
+ *  2026-08-16-execution-methods-driver-derived-design.md §2.3): each hands out or
+ *  manages client capability rather than returning a pending query. Cited to the
+ *  postgres 3.4.9 driver types: begin (line 717) and savepoint (line 724) hand a
+ *  TransactionSql to a callback; end (line 709) and reserve (line 720) are session
+ *  lifecycle; subscribe (line 713) opens a replication subscription; cursor
+ *  (line 617) is the result-iteration member, kept for shipped behavior. */
+const CLIENT_CAPABILITY_METHODS = [
+  "begin", "end", "reserve", "savepoint", "subscribe", "cursor",
+] as const;
+
+/** Exported for the composition pin in executionMethodsManifest.test.ts only. */
+export const EXECUTION_METHODS = new Set<string>([
+  ...POSTGRES_EXECUTION_CORE,
+  ...CLIENT_CAPABILITY_METHODS,
+]);
+```
+
+- [ ] **Step 4: Run both suites plus the full serial-adjacent neighbors to verify green**
+
+Run: `pnpm vitest run tests/db/executionMethodsManifest.test.ts tests/db/destructiveFileAnalysis.test.ts tests/db/_metaDestructiveDbTargetGuard.test.ts`
+Expected: PASS — every pre-existing analyzer fixture unmodified and green (AC-2), the composition pin green, (cf) green.
+
+- [ ] **Step 5: Typecheck and commit**
+
+Run: `pnpm typecheck`
+
+```bash
+git add tests/db/_destructiveFileAnalysis.ts tests/db/executionMethodsManifest.test.ts tests/db/destructiveFileAnalysis.test.ts
+git commit -m "test(db): compose EXECUTION_METHODS from the derived core"
+```
+
+### Task 4: pretest-gen registration
+
+<!-- task: red=`pnpm vitest run tests/cross-cutting/pretest-gen-manifest.test.ts` red-state=authored red-target=`scripts/pretest-gen.mjs:16` why=`the MANIFEST array holds no row for the new generator; the row is added first with deliberately incomplete inputs so arm coverage failures are OBSERVED, then completed` ac=AC-4 -->
+
+**Files:**
+- Modify: `scripts/pretest-gen.mjs` (`MANIFEST` array, `scripts/pretest-gen.mjs:16`)
+- Test: `tests/cross-cutting/pretest-gen-manifest.test.ts` (no edit expected — it walks the imported `MANIFEST`)
+
+- [ ] **Step 1: Add the row with script-only inputs (deliberate red)**
+
+Append to `MANIFEST` in `scripts/pretest-gen.mjs`:
+
+```js
+  {
+    name: "gen:execution-methods",
+    script: "scripts/generate-execution-methods.ts",
+    inputs: ["scripts/generate-execution-methods.ts"],
+    output: "tests/db/__generated__/postgresExecutionMethods.ts",
+  },
+```
+
+- [ ] **Step 2: Run the manifest meta-test and OBSERVE the coverage failure**
+
+Run: `pnpm vitest run tests/cross-cutting/pretest-gen-manifest.test.ts`
+Expected: FAIL — the import-closure arm reports scripts/execution-methods/lib.ts missing from inputs, and/or the read-call arm reports the driver-types and driver-package reads uncovered. This red proves the meta-test actually guards the new row.
+
+- [ ] **Step 3: Complete the inputs**
+
+```js
+    inputs: [
+      "scripts/generate-execution-methods.ts",
+      "scripts/execution-methods/lib.ts",
+      "node_modules/postgres/types/index.d.ts",
+      "node_modules/postgres/package.json",
+    ],
+```
+
+If the read-call arm additionally flags the `--check` branch's `OUT_PATH` read, it is an in-file-resolved UPPER_SNAKE const, which the arm's own contract accepts (`tests/cross-cutting/pretest-gen-manifest.test.ts` header, arm b); do not add the output path to inputs.
+
+- [ ] **Step 4: Verify green and prove the cache regenerates on driver change**
+
+Run: `pnpm vitest run tests/cross-cutting/pretest-gen-manifest.test.ts`
+Expected: PASS.
+
+Run: `node scripts/pretest-gen.mjs && node scripts/pretest-gen.mjs`
+Expected: second run skips gen:execution-methods (stamp hit). Then hand-append a comment line to the generated module, run `node scripts/pretest-gen.mjs` again, and confirm it regenerates the file back to canonical content (output content is part of the hash; this is the row's premise probe).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/pretest-gen.mjs
+git commit -m "infra: register gen:execution-methods in the pretest-gen manifest"
+```
+
+<!-- tasks: end -->
+
+<!-- tasks: depth=3 -->
+
+### Task 5: CI freshness gate in x-audits
+
+<!-- task: red=`git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts` ac=AC-7 -->
+
+The marker's `red=` is the gate's own oracle command: it is OBSERVED failing in Step 2 while the mutant edit is applied, and passes after restore — the mutant-red treatment the gate-command rule requires (docs/agents/writing-plans.md).
+
+**Files:**
+- Modify: `.github/workflows/x-audits.yml` — one step in the `traceability-audit` job after the existing "Verify generated ... is fresh" steps (pattern at `.github/workflows/x-audits.yml:31-36`), plus one line in the upload path list (`.github/workflows/x-audits.yml:60-71`).
+
+- [ ] **Step 1: Add the step and the upload path**
+
+After the "Verify traceability coverage matrix is fresh" step:
+
+```yaml
+      - name: Verify generated execution-methods module is fresh
+        if: github.event_name != 'schedule'
+        run: |
+          pnpm gen:execution-methods
+          git diff -- tests/db/__generated__/postgresExecutionMethods.ts > traceability-execution-methods-generated.diff
+          git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts
+```
+
+In the "Upload X.6 traceability audit artifact" step's `path:` list, add:
+
+```yaml
+            traceability-execution-methods-generated.diff
+```
+
+- [ ] **Step 2: Mutant-red probe of the gate, locally (AC-7 evidence)**
+
+Run, and record the transcript in the task's commit message body or the handoff notes:
+
+```bash
+printf '\n// hand-edit mutant\n' >> tests/db/__generated__/postgresExecutionMethods.ts
+pnpm gen:execution-methods
+git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts; echo "exit=$?"
+```
+
+Expected: `exit=0` — WRONG expectation? No: `pnpm gen:execution-methods` regenerates over the mutant, so the tree matches HEAD again and the gate passes. That is exactly the CI behavior for a hand-edited module (regeneration repairs it; the diff artifact captures nothing). The gate's REAL failing input is a stale COMMIT, simulated by mutating the committed baseline instead:
+
+```bash
+git stash -u 2>/dev/null || true
+sed -i '' 's/"unsafe"/"unsafe-mutant"/' tests/db/__generated__/postgresExecutionMethods.ts
+git add tests/db/__generated__/postgresExecutionMethods.ts && git commit -m "tmp: gate mutant (revert immediately)"
+pnpm gen:execution-methods
+git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts; echo "exit=$?"
+git reset --hard HEAD^
+```
+
+Expected: `exit=1` — the regenerated working tree differs from the mutant commit, so the gate goes red on exactly the silent-merge shape from spec review R1 finding 1. Record both probe outcomes.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add .github/workflows/x-audits.yml
+git commit -m "infra: x-audits freshness gate for the execution-methods module"
+```
+
+### Task 6: Mutation enrolment
+
+<!-- task: red=`pnpm heavy mutation:guards` ac=AC-5 -->
+
+The marker's `red=` is the enrolment gate itself: it is red whenever the new surface's score is under its floor or an unaccepted survivor exists, and the task is not done until it is green — enrolment precedes the first diff-review dispatch (AGENTS.md convergence bullet 4; spec §5).
+
+**Files:**
+- Modify: `tests/mutation/source/registry.ts` (one `GuardSurface` row)
+- Possibly modify: tests/db/executionMethodsManifest.test.ts (fixtures added to kill survivors)
+
+- [ ] **Step 1: Add the registry row**
+
+Following the analyzer row's shape (`tests/mutation/source/registry.ts:533-541`):
+
+```ts
+  /**
+   * Derivation of the destructive-file analyzer's execution-method core from the
+   * driver's type declarations (BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES).
+   * Pure AST over a source string, DB-free, fixture-corpus suite -- enrolled
+   * before the arc's first diff-review round per the AGENTS.md contract.
+   */
+  {
+    id: "executionMethodsDerivation",
+    sourcePath: "scripts/execution-methods/lib.ts",
+    suitePaths: ["tests/db/executionMethodsManifest.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // Placeholder until the first run; tighten to measured-minus-0.05 (the
+    // analyzer row's convention at registry.ts:538-541) in this same task.
+    scoreFloor: 0.8,
+    // Inverting core classification collects every annotated return type into
+    // core; the Promise-shape and Parameter-routing fixtures reject it.
+    control: {
+      from: "if (CORE_HEADS.has(head)) core.add(member.name.text);",
+      to: "if (!CORE_HEADS.has(head)) core.add(member.name.text);",
+    },
+    accepted: [],
+  },
+```
+
+- [ ] **Step 2: Run the registry meta-test, then the gate**
+
+Run: `pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts tests/mutation/_metaPremiseContract.test.ts`
+Expected: PASS (row well-formed; the suite's premise usage satisfies the premise contract — if the premise-contract test demands a different helper form for any arm, repair the suite to comply, not the meta-test).
+
+Run: `pnpm heavy mutation:guards`
+Expected: the new surface reports a score and a survivor list. For each unaccepted survivor: kill it with a new derivation fixture where it exposes a real gap, or add an `accepted` row with a reachability argument where it is equivalent (registry conventions; deletion of dead code beats blessing it). Iterate until zero unaccepted survivors.
+
+- [ ] **Step 3: Tighten the floor and re-run**
+
+Set `scoreFloor` to measured-minus-0.05. Re-run `pnpm heavy mutation:guards`; expected green. Record the measured score, the survivor dispositions, and the run duration — the diff-review round-1 brief must state them (spec §5).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/mutation/source/registry.ts tests/db/executionMethodsManifest.test.ts
+git commit -m "test(db): enrol executionMethodsDerivation in the mutation gate"
+```
+
+### Task 7: Closeout sweeps, ledger graduation, handoff evidence
+
+<!-- task: red=`rg -n "types/index.d.ts" tests/ --glob '!tests/db/__generated__/**'` ac=AC-6 -->
+
+The marker's `red=` is the AC-6 negative sweep in inverted form: it must return NO hits in any vitest suite (rg exits 1 on zero matches — the command "failing" with hits is the defect signal; it is observed with hits if any suite references the driver types file, and exits 1, clean, at closeout). Interpret exit 1 as PASS and exit 0 (hits found) as FAIL; record the transcript.
+
+**Files:**
+- Modify: `BACKLOG.md`, `BACKLOG-archive.md` (graduate the entry), this plan file (execution-evidence notes), `docs/review-rounds/test/execution-methods-driver-derived/119895a7c756.md` (extend if diff rounds reach threshold)
+
+- [ ] **Step 1: AC-6 sweeps, authored and run**
+
+```bash
+rg -n "types/index.d.ts" tests/ --glob '!tests/db/__generated__/**'; echo "exit=$?"
+rg -n "node_modules/postgres" tests/; echo "exit=$?"
+```
+
+Expected: first exits 1 (no suite touches the driver types file). Second returns exactly the version sentinel's node_modules/postgres/package.json read (and the generated module's provenance comment if the glob catches it) — every hit dispositioned in the handoff notes; any OTHER hit is an AC-6 violation to repair.
+
+- [ ] **Step 2: Full verification battery**
+
+```bash
+pnpm typecheck && pnpm exec eslint scripts/execution-methods scripts/generate-execution-methods.ts tests/db/executionMethodsManifest.test.ts
+pnpm vitest run tests/db/executionMethodsManifest.test.ts tests/db/destructiveFileAnalysis.test.ts tests/db/_metaDestructiveDbTargetGuard.test.ts tests/cross-cutting/pretest-gen-manifest.test.ts tests/mutation/_metaGuardSurfaceRegistry.test.ts
+pnpm heavy test:fast
+```
+
+Expected: all green. (`pnpm heavy test:fast` is the full-suite leg and MUST run under the heavy wrapper per AGENTS.md.)
+
+- [ ] **Step 3: Graduate the ledger entry**
+
+Move the whole `BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES` entry from `BACKLOG.md` to `BACKLOG-archive.md` with provenance (branch, spec path, this plan path, what shipped, the spec §1 equality correction, and the re-open triggers from spec §4 — a postgres.js version bump or a first live largeObject use). Remove the `**Status:** IN PROGRESS · **Branch:** ...` marker line in the SAME commit (archives reject in-flight entries; the marker must never reach main). This is the PR's last commit, per invariant 12.
+
+- [ ] **Step 4: Cross-model diff review, CI, merge**
+
+Whole-diff codex review to APPROVE via codex-guard (`--stage diff`), with the round-1 brief stating: consequence bound, PROBE DOMAIN, threat fence (copy from spec §7), the measured mutation score + survivor set from Task 6, and REVIEWER ONLY. Then push, real CI green, `gh pr merge --merge`, fast-forward main, confirm `git rev-list --left-right --count main...origin/main` reports `0  0`.
+
+<!-- tasks: end -->
+
+## 12 Closeout
+
+impeccable-gate: N/A — no UI surface
+
+This plan touches only tests/, scripts/, package.json, one workflow file, and ledger docs — no file under app/ or components/, no globals.css token, no DESIGN.md change (invariant 8 definition of UI surface).
+
+## Self-review notes (writing-plans checklist, run at authoring time)
+
+- Spec coverage: AC-1 → Task 2; AC-2 → Task 3; AC-3 → Tasks 1-3; AC-4 → Task 4; AC-5 → Task 6; AC-6 → Task 7; AC-7 → Task 5. §2.1 → Task 1; §2.2 → Tasks 2, 4, 5; §2.3 → Task 3; §2.4 → Tasks 2-3; §2.5 → Tasks 1, 3; §5 → Task 6; §4 census → context only (no code); §1.1 fences → Global Constraints.
+- Type consistency: `deriveExecutionMethods`, `ExecutionMethodDerivation`, `POSTGRES_EXECUTION_CORE`, `POSTGRES_PARAMETER_MEMBERS`, `POSTGRES_TYPES_VERSION`, `EXECUTION_METHODS`, `CLIENT_CAPABILITY_METHODS` are spelled identically across Tasks 1-6 and match spec §2.
+- RED validity: every authored red names its production surface via `red-target=`; Task 5 and Task 7 carry command-oracle reds with their observation procedure inline; no red derives from a test-local fixture alone.
+- Snippet typecheck: snippets use guarded index access and explicit types; `member.name` narrowing via `ts.isIdentifier` is the one subtle point and is noted inline in Task 1.
