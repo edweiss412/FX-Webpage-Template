@@ -144,7 +144,7 @@ git ls-files tests                                    2498
 
 The round-1 figure was the `.ts`/`.tsx` subset, so it silently omitted **12 `.js`/`.mjs` files that §2.4 itself calls language modules** — `tests/codexGuard/fixtures/fake-codex.mjs`, **three** `tests/cross-cutting/redirect-guard-probes/*.mjs` (`mutant-corpus.mjs`, `probe1-residual-escapes.mjs`, `red-harness.mjs` — a round-2 draft said "four", which made the categories sum to 13 against a total of 12 and defeated the claim that the omitted inventory is fully named), `tests/drive/pin15ExportProbe.mjs`, three `tests/e2e/*.mjs` bundles, `tests/e2e/helpers/useServerDirectivePlugin.mjs`, and three `tests/styles/__fixtures__/font-escapes/**` `.js` files — **1 + 3 + 1 + 3 + 1 + 3 = 12**, reproducible with `git ls-tree -r --name-only ac9a40cd8 tests | grep -E '\.(js|mjs)$'`. Re-measured over the full 2,326-seed set, the closure grows from 3,207 to 3,221 modules and **every in-repo count below is unchanged** — namespace 22, default 40, named re-export 117, local export list 28, `export *` 1, aliased named import 133, namespace-in-non-member-position 41. Only two bare-specifier counts move (`named:bare` 9,215 → 9,223, `namespace:bare` 24 → 27), and bare specifiers are pure by L-2. The conclusion survives; the declared domain and the measured domain now match.
 
-**Probe correction (v1 → v2).** The first run parsed every file with `ts.ScriptKind.TS`, including `.tsx`. TSX content parsed as TS yields a garbage tree, and it inflated the "namespace used in a non-member position" figure from the true **41** to **68** — `COPY.EDIT_SAVED_CONFIRM` in a JSX expression was mis-read as a non-member use. Every figure below is from the corrected run, which selects `ts.ScriptKind.TSX` by extension. The import and export counts were unaffected (declarations parse identically either way); only the namespace-position figure moved. Worth recording because `premiseScan` itself parses with a fixed `ts.ScriptKind.TS` — no enrolled suite is `.tsx` today, so it is a latent limit rather than a live defect, and it is outside this arc's scope.
+**Probe correction (v1 → v2).** The first run parsed every file with `ts.ScriptKind.TS`, including `.tsx`. TSX content parsed as TS yields a garbage tree, and it inflated the "namespace used in a non-member position" figure from the true **41** to **68** — `COPY.EDIT_SAVED_CONFIRM` in a JSX expression was mis-read as a non-member use. Every figure below is from the corrected run, which selects `ts.ScriptKind.TSX` by extension. The import and export counts were unaffected (declarations parse identically either way); only the namespace-position figure moved. Worth recording because of what the TARGET does, which changed under this spec's feet: on `ac9a40cd8` `premiseScan` parsed every module with a fixed `ts.ScriptKind.TS`; on the re-pinned `4e40db2b3` its `parse()` selects by extension — `path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS` (`tests/mutation/source/premiseScan.ts:61`). So `.tsx` is no longer mis-parsed and spec §4 limit 9 is RETRACTED; `.jsx` still parses as TS, which is the residual that limit now records. No enrolled suite is `.tsx` today either way.
 
 ## Results — probe 3: population
 
@@ -262,6 +262,21 @@ Under that model `0 MISSES` is uninformative: the divergences make misses **less
 **Corrected method (probe 4) — and it was corrected TWICE.** The round-2 rewrite implemented `resolveExport` faithfully but still discovered only static `ImportDeclaration`s, pre-filtered targets through the language set (so `data` and `unresolvable` were structurally zero), and parsed everything as `ScriptKind.TS`. Round-3 review found all three; the harness now also walks literal dynamic-import edges, classifies non-language targets rather than skipping them, selects the script kind by extension, puts every VALUE branch ahead of `typeOnly` (declaration merging makes `export interface x {}` + `export const x` legal, and checking types first silently freed the value), and reports a name bound from a dynamic `import()` instead of returning an empty extent.
 
 **The source is INLINED below, not cited.** `.claude/probe/` is gitignored — `git ls-files --error-unmatch .claude/probe/acceptSetCover.ts` exits 1 — so a path reference would not survive in the committed record, which is the whole point of a probe record.
+
+**What this harness covers, stated as exactly what the code walks.** Round-4 review found the round-3 description ("walks literal dynamic-import edges") wider than the artifact for the third consecutive round, so the scope is now enumerated against the source rather than summarised:
+
+| edge class | covered? |
+| --- | --- |
+| static named / default / namespace-member | YES |
+| literal `import()` in a DIRECT variable-declaration initializer | YES |
+| literal `import()` embedded in a larger expression | **NO** — 30 in-repo sites |
+| literal `import()` outside any variable declaration | **NO** — 18 in-repo sites |
+| static side-effect `import "./x"` (no import clause) | **NO** — 7 in-repo sites |
+| a target that does not resolve | **NO** — both walkers call `check` only inside `if (t)` |
+
+Two consequences follow and both are stated rather than left to be re-derived. The `.mdx` total is **31** edges — 2 static, 25 direct-variable dynamic, 4 embedded — and this harness reports **27**, the first two groups; the four it misses are `tests/help/help-catalog-tables.test.tsx:116,132,145,154`. And the harness parses `.jsx` as `ScriptKind.TSX` while the target scanner parses it as TS (`tests/mutation/source/premiseScan.ts:61`), so its `.jsx` rows measure a different parser than the implementation contract — which is spec §4 limit 9's residual, not a fact about the corpus.
+
+**So the zero-miss conclusion is scoped to the classes marked YES**, which is the claim spec §3.3b now makes. The classes marked NO are exactly what spec §2.4b's single rule REPORTS, and their populations are measured independently by probe 5 below — so nothing in this table is an unmeasured gap.
 
 Run against `origin/fix/scanner-scope-totality` at `4e40db2b3`:
 
@@ -694,6 +709,148 @@ console.log(`  noSuchExport MISSES (silent-demotion risk): ${misses.length}`);
 for (const m of misses.slice(0, 20)) console.log("     ", m);
 console.log(`  REPORTED (loud, not a miss): ${reported.length}`);
 for (const r of reported.slice(0, 20)) console.log("     ", r);
+```
+
+</details>
+
+## Round-4 addendum — probe 5: how many unmodelled runtime-import shapes exist?
+
+**Question.** Spec §2.4b reports every module reference the resolver cannot bind member-precisely. Is that affordable — i.e. is the LIVE-domain population zero, so AC-1's verdict-neutrality survives?
+
+**Method.** An AST walk over each domain's closure, classifying every `import()` call by what encloses it and every static import by whether it has a clause and whether its specifier resolves. Source inlined below.
+
+```
+LIVE DOMAIN (31 enrolled suites + closure, 90 modules)
+  NONE — zero unmodelled runtime-import shapes, of any row
+
+NEAR DOMAIN (git ls-files tests + closure, 3,269 modules)
+  48  import() embedded in a larger expression
+   9  in-repo static side-effect import
+   5  in-repo specifier that does not resolve
+   1  bare side-effect dynamic import
+   0  import() in assignment position
+  ---
+  63  total
+```
+
+**A first run reported 819 unresolved specifiers and that figure was WRONG.** Its in-repo test was `/^[.@]/`, which counts every scoped npm package (`@supabase/ssr`, `@supabase/supabase-js`) as a repo path; only `./`, `../` and `@/` are in-repo. The corrected count is 5. Recorded because this arc has been caught three times by a claim wider than its harness, and this instance was caught before it reached the spec rather than after — which is the only difference that matters between this and the three findings.
+
+**Conclusion.** The live population is zero at every row, so §2.4b's rule moves no declared count and AC-1 holds. The near-domain cost is 63 sites — the same order as §4 limit 3's 41 namespace sites — payable as an explicit `// no-premise:` when such a suite is enrolled.
+
+<details>
+<summary>Full source of probe 5 (<code>runtimeImportShapes.ts</code>)</summary>
+
+```ts
+/**
+ * Round-4 finding 1: how many RUNTIME-IMPORT shapes the resolver does not model
+ * exist in the LIVE domain (enrolled suites + closure) vs the near-domain?
+ *
+ * If the live count is 0, a single narrowing rule ("any import() the resolver
+ * cannot bind member-precisely REPORTS") is verdict-neutral and free.
+ * If it is > 0, that rule breaks AC-1 and the bound must be re-scoped instead.
+ */
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, extname, join, relative, resolve } from "node:path";
+import ts from "typescript";
+
+const ROOT = "/Users/ericweiss/FX-worktrees/premisescan-import-edges";
+const LANG = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"]);
+
+function resolveSpecifier(fromFile: string, spec: string): string | null {
+  let base: string;
+  if (spec.startsWith("@/")) base = join(ROOT, spec.slice(2));
+  else if (spec.startsWith(".")) base = resolve(dirname(fromFile), spec);
+  else return null;
+  for (const c of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts"), base]) {
+    if (existsSync(c) && !c.includes("node_modules")) return c;
+  }
+  return null;
+}
+const sfOf = (abs: string): ts.SourceFile =>
+  ts.createSourceFile(abs, readFileSync(abs, "utf8"), ts.ScriptTarget.ES2022, true,
+    abs.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+
+type Row = { kind: string; where: string };
+
+function scan(seeds: string[], label: string): void {
+  const files = new Set<string>();
+  const queue = seeds.map((p) => resolve(ROOT, p)).filter(existsSync);
+  const rows: Row[] = [];
+
+  while (queue.length) {
+    const abs = queue.pop()!;
+    if (files.has(abs)) continue;
+    files.add(abs);
+    if (!LANG.has(extname(abs))) continue;
+    const sf = sfOf(abs);
+    const at = (n: ts.Node): string =>
+      `${relative(ROOT, abs)}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+
+    const walk = (n: ts.Node): void => {
+      // enqueue static targets so the closure matches the other probes
+      if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+        const t = resolveSpecifier(abs, n.moduleSpecifier.text);
+        if (t) {
+          if (!files.has(t)) queue.push(t);
+          // side-effect import: no clause at all
+          if (!n.importClause) rows.push({ kind: "static side-effect import", where: at(n) });
+        } else if (/^\.|^@\//.test(n.moduleSpecifier.text)) {
+          rows.push({ kind: "unresolved relative specifier (extensionless?)", where: at(n) });
+        }
+      }
+
+      if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        const arg = n.arguments[0];
+        const lit = arg && ts.isStringLiteral(arg) ? arg.text : null;
+        const t = lit ? resolveSpecifier(abs, lit) : null;
+        if (t && !files.has(t)) queue.push(t);
+        const inRepo = !!t;
+
+        // classify the SHAPE by what encloses the import() call
+        let p: ts.Node = n;
+        while (p.parent && ts.isAwaitExpression(p.parent)) p = p.parent;
+        const par = p.parent;
+        let kind: string;
+        if (par && ts.isVariableDeclaration(par) && par.initializer && (par.initializer === p)) {
+          kind = "direct variable declaration (MODELLED)";
+        } else if (par && ts.isBinaryExpression(par) && par.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+          kind = "assignment position";
+        } else if (!lit) {
+          kind = "non-literal specifier (already unclassifiable)";
+        } else if (par && ts.isExpressionStatement(par)) {
+          kind = "bare side-effect dynamic import";
+        } else {
+          kind = "embedded in a larger expression";
+        }
+        if (inRepo && kind !== "direct variable declaration (MODELLED)"
+            && kind !== "non-literal specifier (already unclassifiable)") {
+          rows.push({ kind, where: at(n) });
+        }
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
+  }
+
+  const by: Record<string, Row[]> = {};
+  for (const r of rows) (by[r.kind] ??= []).push(r);
+  console.log(`\n=== ${label}: ${files.size} modules ===`);
+  for (const [k, v] of Object.entries(by).sort((a, b) => b[1].length - a[1].length)) {
+    console.log(`  ${String(v.length).padStart(4)}  ${k}`);
+    for (const r of v.slice(0, 4)) console.log(`         ${r.where}`);
+    if (v.length > 4) console.log(`         … +${v.length - 4} more`);
+  }
+  if (!rows.length) console.log("  NONE — zero unmodelled runtime-import shapes");
+}
+
+const registrySrc = readFileSync(join(ROOT, ".claude/probe/registry827.ts"), "utf8");
+const enrolled = [...new Set([...registrySrc.matchAll(/"(tests\/[^"]+\.test\.tsx?)"/g)].map((m) => m[1]!))].sort();
+scan(enrolled, "LIVE DOMAIN (enrolled suites + closure)");
+
+const wide = execFileSync("git", ["ls-files", "tests"], { cwd: ROOT, encoding: "utf8" })
+  .split("\n").filter((p) => LANG.has(extname(p)));
+scan(wide, "NEAR DOMAIN (git ls-files tests + closure)");
 ```
 
 </details>

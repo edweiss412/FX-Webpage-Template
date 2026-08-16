@@ -105,7 +105,7 @@ git merge-base origin/main HEAD | cut -c1-12
 
 Spec §2.1, §2.2 rows E1-E4, §2.4, and §2.6 items 1 and 3. The structural task.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:111` why=`ANCHOR IS PRE-MERGE: :111 is the default-import registration on the tracked tree today (imports.set(clause.name.text, spec)); Task 0 merges #827 and re-anchors before this task runs. The defect is identical in both versions - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-4b,AC-5,AC-9,AC-9b,AC-9c,AC-9d,AC-10c -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:111` why=`ANCHOR IS PRE-MERGE: :111 is the default-import registration on the tracked tree today (imports.set(clause.name.text, spec)); Task 0 merges #827 and re-anchors before this task runs. The defect is identical in both versions - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-4b,AC-5,AC-5d,AC-9,AC-9b,AC-9c,AC-9d,AC-10c -->
 
 **Files:**
 
@@ -237,6 +237,14 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
       return String(spawnSync("echo", ["x"]).stdout);
     }`;
 
+  // A NON-default spawning declaration, for the AC-5d branch cases that need a
+  // local to re-export or merge with. Kept separate from SPAWNER_DEFAULT so no
+  // case accidentally passes through E4 when it means to exercise E1 or E3.
+  const SPAWNER_NAMED = `import { spawnSync } from "node:child_process";
+    function spawnHelper(): string {
+      return String(spawnSync("echo", ["x"]).stdout);
+    }`;
+
   it("a renamed default import resolves", () => {
     expect(
       verdictWithModules(
@@ -361,6 +369,67 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
         },
         `import { spawnHelper } from "__MODULE_data__";
          it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("E3: `export default <expr>` resolves under a renamed default (AC-5d)", () => {
+    // E3 has NO fixture in the round-3 plan and probes environment-free TODAY
+    // (spec §3.13). AC-4 covers E4's `export default function`; an implementation
+    // can omit E3 entirely and satisfy every other criterion.
+    expect(
+      verdictWithModules(
+        { helper: `${SPAWNER_NAMED}\nexport default spawnHelper;` },
+        `import runIt from "__MODULE_helper__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E1: an ARRAY binding pattern binds every identifier (AC-5d)", () => {
+    expect(
+      verdictWithModules(
+        { helper: `${SPAWNER_NAMED}\nexport const [ , second ] = [null, spawnHelper];` },
+        `import { second } from "__MODULE_helper__";
+         it("x", () => { second(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E1: MULTIPLE declarators in one statement each bind (AC-5d)", () => {
+    // `export const a = …, b = …` — the modifier is on the VariableStatement and
+    // must map to every declarator, not just the first.
+    expect(
+      verdictWithModules(
+        { helper: `${SPAWNER_NAMED}\nexport const first = 1, second = spawnHelper;` },
+        `import { second } from "__MODULE_helper__";
+         it("x", () => { second(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("value BEATS type when both export the same name (AC-5d)", () => {
+    // Declaration merging is legal. A resolver checking typeOnly first returns
+    // pure and silently frees the value, with every other AC still green.
+    expect(
+      verdictWithModules(
+        {
+          helper: `${SPAWNER_NAMED}\nexport interface thing { k: string }\nexport const thing = spawnHelper;`,
+        },
+        `import { thing } from "__MODULE_helper__";
+         it("x", () => { thing(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a DIRECT noSuchExport is pure, not reported (AC-5d)", () => {
+    // A guard is not a type checker: inventing a diagnostic here would fire on
+    // every mid-edit tree. AC-5b covers only the star-fan-out miss.
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER_NAMED },
+        `import { absent } from "__MODULE_helper__";
+         it("x", () => { void absent; });`,
       ),
     ).toBe("environment-free");
   });
@@ -534,7 +603,7 @@ git commit -m "fix(mutation): resolve cross-module EXPORTS, and carry traversal 
 
 Spec §2.2 rows E5 and E6, the `forward` branch Task 1 stubbed, and §2.5.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:291` why=`ANCHOR IS PRE-MERGE: :291 is the cross-module lookup on the tracked tree today (for (const ext of tf.extents.get(name) ?? [])), which reads local declarations only; Task 0 merges #827 and re-anchors. After Task 1 no ExportDeclaration carrying a moduleSpecifier is recorded at all, so a barrel re-exporting a spawning helper hits the forward stub and classifies unclassifiable instead of environment-touching; probe rows H1 reexport named/aliased/star/chain 2-deep/local reexport all measure environment-free on the unrepaired tree, and every touching case in this block reds until the forward branch follows the edge` ac=AC-5,AC-5b,AC-5c,AC-10 -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:291` why=`ANCHOR IS PRE-MERGE: :291 is the cross-module lookup on the tracked tree today (for (const ext of tf.extents.get(name) ?? [])), which reads local declarations only; Task 0 merges #827 and re-anchors. After Task 1 no ExportDeclaration carrying a moduleSpecifier is recorded at all, so a barrel re-exporting a spawning helper hits the forward stub and classifies unclassifiable instead of environment-touching; probe rows H1 reexport named/aliased/star/chain 2-deep/local reexport all measure environment-free on the unrepaired tree, and every touching case in this block reds until the forward branch follows the edge` ac=AC-5,AC-5b,AC-10 -->
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
@@ -671,29 +740,6 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     ).toBe("environment-touching");
   });
 
-  it.each([
-    ["export const ns = await import()", `export const ns = await import("__MODULE_helper__");`],
-    ["export const { spawner } = await import()", `export const { spawner } = await import("__MODULE_helper__");`],
-    ["const ns = await import(); export { ns }", `const ns = await import("__MODULE_helper__");\nexport { ns };`],
-    [
-      "const { spawner } = await import(); export { spawner }",
-      `const { spawner } = await import("__MODULE_helper__");\nexport { spawner };`,
-    ],
-  ])("an exported dynamic-import binding is REPORTED: %s (AC-5c)", (_label, barrel) => {
-    // #827's moduleFacts files a literal dynamic-import binding in scopedImports
-    // and registers NO local extent, so E1/E2 would hand back an EMPTY extent
-    // and pass a reachable spawner as pure. All four measure environment-free
-    // today (spec §3.12); population repo-wide is 0, so reporting costs nothing
-    // and is the narrowing direction §1.2(e) requires.
-    expect(
-      verdictWithModules(
-        { helper: SPAWNER, barrel },
-        `import { ns, spawner } from "__MODULE_barrel__";
-         it("x", () => { void ns; void spawner; });`,
-      ),
-    ).toBe("unclassifiable");
-  });
-
   it("a re-exported PURE binding stays free", () => {
     // The foil: following the edge must not mark the target's whole closure.
     expect(
@@ -816,9 +862,84 @@ git commit -m "fix(mutation): follow forwarded exports across module boundaries"
 
 ### Task 3: The declined forms are REPORTED, not passed
 
+**Spec §2.4b is this task's centre of gravity.** It replaced the round-3 enumeration of four accepted dynamic spellings with ONE rule — a module reference the resolver cannot bind to a member-precise in-repo edge is REPORTED — after round-4 review listed six more shapes the enumeration missed. Write the cases as one `it.each` over §2.4b's table so a seventh shape lands in the rule rather than needing a seventh fixture:
+
+```ts
+const SPAWNS = `import { spawnSync } from "node:child_process";
+  export function spawner(): string { return String(spawnSync("echo", ["x"]).stdout); }`;
+
+describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", () => {
+  it.each([
+    ["assignment position", `let m: any; m = await import("__MODULE_helper__"); it("x", async () => { (await m).spawner(); });`],
+    ["embedded: awaited member call", `it("x", async () => { (await import("__MODULE_helper__")).spawner(); });`],
+    ["embedded: .then destructure", `it("x", () => { void import("__MODULE_helper__").then(({ spawner }) => spawner()); });`],
+    ["bare side-effect dynamic", `it("x", async () => { await import("__MODULE_helper__"); });`],
+  ])("an unmodelled runtime reference REPORTS: %s", (_label, testSrc) => {
+    expect(verdictWithModules({ helper: SPAWNS }, testSrc)).toBe("unclassifiable");
+  });
+
+  it("an EXPORTED embedded dynamic import REPORTS through the importer", () => {
+    expect(
+      verdictWithModules(
+        { helper: SPAWNS, barrel: `export const run = (await import("__MODULE_helper__")).spawner;` },
+        `import { run } from "__MODULE_barrel__";\n it("x", () => { run(); });`,
+      ),
+    ).toBe("unclassifiable");
+  });
+
+  it("an in-repo STATIC side-effect import REPORTS", () => {
+    // `import "./side"` has no importClause at all, so every clause-driven
+    // branch skips it and the module's spawn is never seen. 9 near-domain sites.
+    expect(
+      verdictWithModules(
+        { side: `import { spawnSync } from "node:child_process";\n spawnSync("echo", []);` },
+        `import "__MODULE_side__";\n it("x", () => { expect(1).toBe(1); });`,
+      ),
+    ).toBe("unclassifiable");
+  });
+
+  it("an in-repo specifier that does NOT resolve REPORTS", () => {
+    // Extensionless `./h` for a `.mjs` sibling. resolveSpecifier's candidates are
+    // NOT widened (spec §2.4b) — the miss is reported instead of passed as pure.
+    expect(
+      verdictWithModules(
+        { "helper.mjs": SPAWNS },
+        `import { spawner } from "./mod_MISSING_helper";\n it("x", () => { spawner(); });`,
+      ),
+    ).toBe("unclassifiable");
+  });
+
+  it("a BARE unresolved specifier stays FREE — L-2 is unchanged", () => {
+    // The foil that stops the rule swallowing node_modules. Without it, §2.4b
+    // would report every third-party import in the corpus.
+    expect(
+      verdictWithModules({}, `import { thing } from "some-npm-package";\n it("x", () => { thing(); });`),
+    ).toBe("environment-free");
+  });
+
+  it.each([
+    ["export const ns = await import()", `export const ns = await import("__MODULE_helper__");`, "ns"],
+    ["export const { spawner } = await import()", `export const { spawner } = await import("__MODULE_helper__");`, "spawner"],
+    ["const ns = await import(); export { ns }", `const ns = await import("__MODULE_helper__");\nexport { ns };`, "ns"],
+    ["const { spawner } = await import(); export { spawner }", `const { spawner } = await import("__MODULE_helper__");\nexport { spawner };`, "spawner"],
+  ])("a DIRECT variable-declaration dynamic binding resolves: %s", (_l, barrel, name) => {
+    // AC-5c's foil: the four spellings the resolver DOES model. Each imports the
+    // name its own barrel exports — a fixture importing a name the barrel lacks
+    // would be pure for a test-local reason and could never go green.
+    expect(
+      verdictWithModules(
+        { helper: SPAWNS, barrel },
+        `import { ${name} } from "__MODULE_barrel__";\n it("x", () => { void ${name}; });`,
+      ),
+    ).toBe("environment-touching");
+  });
+});
+```
+
+
 Spec §2.2's declined list and §4 limits 1, 2 and 4. **Scope note:** the canonical "unparseable in-repo module" form is NOT in this task. It is dead code — `moduleFacts` returns null only when `!existsSync`, `resolveSpecifier` already `existsSync`-checked, and `ts.createSourceFile` never throws on garbage (spec §3.8) — so a fixture for it can never go green. Spec §4 limit 8 files it and Task 7 Step 1 opens the row; this task does not attempt it.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export forms"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:291` why=`ANCHOR IS PRE-MERGE: :291 is the cross-module lookup on the tracked tree today; Task 0 merges #827 and re-anchors. An unfollowable re-export, an export * as ns from, an export = and an export namespace all resolve to nothing after Task 2 and answer noSuchExport, which is pure, so the traversal stops and each test reads environment-free; probe rows H1 unfollowable reexport and B9 export namespace measure exactly that. Each case reds until moduleFacts records those forms explicitly and resolveExport returns unresolvable with its own reason` ac=AC-8 -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export forms"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:291` why=`ANCHOR IS PRE-MERGE: :291 is the cross-module lookup on the tracked tree today; Task 0 merges #827 and re-anchors. An unfollowable re-export, an export * as ns from, an export = and an export namespace all resolve to nothing after Task 2 and answer noSuchExport, which is pure, so the traversal stops and each test reads environment-free; probe rows H1 unfollowable reexport and B9 export namespace measure exactly that. Each case reds until moduleFacts records those forms explicitly and resolveExport returns unresolvable with its own reason` ac=AC-8,AC-5c -->
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
@@ -1517,11 +1638,10 @@ git commit -m "test(infra): re-derive the premiseScan ledger and retire the acce
 
 **Interfaces:** Consumes Task 6's score. Produces a merged, archived row, a clean ledger, and the filed limit.
 
-- [ ] **Step 1: File THREE backlog rows** (spec §5). Each carries probe evidence or an explicit `**Reachability:** INFERRED, NOT PROBED` field, per the AGENTS.md ledger filing bar. Each also names which class-sweep exception (a), (b) or (c) justifies deferring it rather than repairing it in this PR — "same defect, different file" is never sufficient.
+- [ ] **Step 1: File TWO backlog rows** (spec §5). A round-3 draft listed three; spec §4 limit 15 is now CLOSED by §2.4b's rule, so `BL-PREMISESCAN-ASSIGNMENT-DYNAMIC-IMPORT` is NOT filed — the arc fixes it instead of deferring it. Each carries probe evidence or an explicit `**Reachability:** INFERRED, NOT PROBED` field, per the AGENTS.md ledger filing bar. Each also names which class-sweep exception (a), (b) or (c) justifies deferring it rather than repairing it in this PR — "same defect, different file" is never sufficient.
 
   1. **`BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE`** — spec §3.8's probe as evidence: `moduleFacts` returns null iff `!existsSync`; `resolveSpecifier` already `existsSync`-checked; `ts.createSourceFile` parses garbage without throwing, so the fixture classifies `environment-free`. State that canonical AC-8a stands at 3 of 4 after this arc, and that closing it means a `sf.parseDiagnostics` rule — recognizer growth on an axis with zero measured instances. **Exception (c):** a new detection rule on a surface this PR does not otherwise touch.
   2. **`BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK`** — spec §4 limit 14, carrying probe §3.11 row A: under a shared outer `describe`, a spawning hook in branch A marks a pure test in sibling branch B `environment-touching`. A FALSE POSITIVE, pre-existing, not introduced here. **Exception (c):** repairing `hookBodies`'s recursion moves live verdicts and would break AC-1's verdict-neutrality, which is this arc's headline constraint — it cannot ship in the same PR by construction.
-  3. **`BL-PREMISESCAN-ASSIGNMENT-DYNAMIC-IMPORT`** — spec §4 limit 15. `m = await import("./x")` in assignment rather than declaration position is not resolved member-precisely; `premiseScan.ts:634-637` carries the comment handing it to this row. Population repo-wide: **0**, probed. **Exception (c):** designing a rule for zero measured instances is the widening direction spec §1.2(e) forbids.
 
 - [ ] **Step 2: Move the entry to the archive WITH its marker still attached, and observe the red.**
 
@@ -1566,7 +1686,8 @@ git commit -m "docs(backlog): graduate BL-PREMISESCAN-IMPORT-EDGE-FIDELITY"
 | AC-4b renamed default CLASS | Task 1, `a renamed default CLASS resolves` |
 | AC-5 every accepted export BRANCH | Task 1 (E1's four kinds separately — const incl. destructured, function, class, enum — plus E3/E4) + Task 2 (E5-E6, chain, import-then-export) with the MIXED-barrel foil |
 | AC-5b star-export ambiguity | Task 2, `the branch that HAS the name wins` + the benign-miss foil |
-| AC-5c exported dynamic-import binding REPORTED | Task 2, the four-spelling `it.each` + the ordinary-re-export foil |
+| AC-5c unmodelled runtime references REPORT, by rule | Task 3, one `it.each` over §2.4b's table + the four modelled-spelling foils + the BARE-specifier foil that keeps L-2 intact |
+| AC-5d the branches AC-5 named but did not pin | Task 1, E3 (`export default <expr>`, free today), E1 array-binding and multi-declarator separately, E2 by imported-name (aliased + default), value-over-type precedence, E6's `default` negative, and the direct `noSuchExport` cell |
 | AC-6 AC-10b direct | Task 4, `AC-10b stays quiet through a direct import` |
 | AC-7 AC-10b via namespace | Task 4, `AC-10b stays quiet through a namespace` |
 | AC-8 declined forms REPORTED | Task 3, five forms (incl. `export { ns }`) + a VALUE-position type-only foil; the unparseable form is out of scope (spec §4 limit 8), filed in Task 7 Step 1 |
