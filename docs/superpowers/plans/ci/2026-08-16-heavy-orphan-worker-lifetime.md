@@ -107,7 +107,7 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The directory runs **116 cases** (27 classify + 20 collect + 58 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 116 are green. Both states observed, both edits reverted.
+- The directory runs **117 cases** (27 classify + 20 collect + 59 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 117 are green. Both states observed, both edits reverted.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
 - Eleven cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
@@ -999,6 +999,25 @@ describe("executeKills: AC-5, AC-5b", () => {
       stillAlive: () => false,
     });
     expect(reads).toEqual([10]); // exactly one SECOND read, per spec §6.1's "at most two"
+  });
+
+  it("AC-5: the ROOT is signalled first, then its descendants, in plan order", () => {
+    const order: number[] = [];
+    executeKills([10, 11, 12], {
+      identityAtPlan: new Map<number, IdentityRead>([
+        [10, read(10)],
+        [11, read(11)],
+        [12, read(12)],
+      ]),
+      readIdentity: read,
+      kill: (pid) => {
+        order.push(pid);
+      },
+      stillAlive: () => false,
+    });
+    // Observed on the KILLER's call sequence. The outcomes are sorted back into target order
+    // before they are returned, so asserting on them cannot see a reversed loop (round 6 F1).
+    expect(order).toEqual([10, 11, 12]);
   });
 
   it("K3: a failing kill is reported per pid and does not stop the run", () => {
@@ -1953,10 +1972,24 @@ necessarily trips the pin, and the fixture update is the green.
       "the rule's text differs from tests/docs/fixtures/agents-heavy-phase-rule.md".
 - [ ] **Step 2 (GREEN):** copy the edited bullet into `tests/docs/fixtures/agents-heavy-phase-rule.md`
       so the two agree. Re-run the SAME command — GREEN.
-- [ ] **Step 3:** add the `Stop`-hook install one-liner to AGENTS.md, in the same posture as the
-      codex-guard shim install, because the hook is per-machine config this repo cannot install.
-      Note explicitly that the hook is a SECOND trigger and that trigger 1 already covers the
-      contended case, so a machine without the hook is degraded rather than unprotected.
+- [ ] **Step 3:** add the `Stop`-hook install text to AGENTS.md, in the same posture and place as
+      the codex-guard shim install one-liner (`AGENTS.md:190-191`), because the hook is per-machine
+      config this repo cannot install. Supply it literally, not as a description:
+
+      ```
+      mkdir -p ~/.claude/hooks && printf '#!/bin/sh\nexec pnpm --dir "$HOME/FX-Webpage-Template" heavy:reap --kill --quiet\n' > ~/.claude/hooks/heavy-reap.sh && chmod +x ~/.claude/hooks/heavy-reap.sh
+      ```
+
+      Then register it as a `Stop` hook in `$CLAUDE_CONFIG_DIR/settings.json`, the same file and key
+      the codex reaper uses. `pnpm --dir` is load-bearing: the hook runs with an arbitrary cwd, and
+      `tsx` resolves out of the repo's own `node_modules`, so a bare `pnpm heavy:reap` finds neither
+      the script nor the interpreter. **This machine has four Claude config dirs** (the default one plus three
+      per-account siblings, per AGENTS.md's cross-account section), so the registration is
+      repeated per config dir or the hook is live in only one account.
+
+      In the same edit, state plainly that this hook is trigger 2 and that trigger 1 already covers
+      the contended case, so a machine without the hook is DEGRADED rather than unprotected — which
+      is the difference from the codex reaper, whose absence leaves nothing at all.
 - [ ] **Step 4:** VERIFY the index rows, do not add them. Both landed with their own commits —
       the plan's at `docs/superpowers/plans/ci/README.md:16` and the spec's in
       `docs/superpowers/specs/ci/README.md`. This step exists because adding a duplicate row is

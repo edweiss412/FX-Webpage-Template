@@ -445,9 +445,11 @@ recorded descendants. Killing the root first stops it spawning, and because `ppi
 the identity tuple, the reparenting that kill causes cannot invalidate any pending target.
 
 Identity is read per TARGET, not for the whole table: `ps -o lstart=,command= -p <pid>` at
-classification and again immediately before the signal. That keeps `lstart` — whose value contains
-spaces and would complicate whitespace-splitting the bulk `ps` output — out of the collection
-parser entirely, and costs one cheap read per target rather than per process.
+classification, and again immediately before the signal FOR A TARGET THAT YIELDED ONE — a target
+whose classification read failed is K6, and one that reported the pid gone is K1, both decided on
+that evidence alone (§6.1's "at most two"). That keeps `lstart` — whose value contains spaces and
+would complicate whitespace-splitting the bulk `ps` output — out of the collection parser entirely,
+and costs one cheap read per target rather than per process.
 
 ---
 
