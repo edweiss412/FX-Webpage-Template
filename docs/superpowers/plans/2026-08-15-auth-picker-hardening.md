@@ -304,7 +304,7 @@ PICKER_SWITCH_FAILED: {
 - Consumes: `clearIdentity` + `ClearIdentityResult` (Task 2), `messageFor` (`lib/messages/lookup.ts:100`).
 - Produces: `IdentityChip`'s wrapper stays named `clearIdentityFormAction` (role-chip contract, `tests/components/_metaPickerRoleChipContract.test.ts:21`) with return type widened to `Promise<ClearIdentityResult>`. `AvatarMenu`'s `clearAction` prop type widens to `(formData: FormData) => Promise<ClearIdentityResult>`.
 
-<!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx tests/components/IdentityChip.test.tsx tests/components/identityChipSrSeparator.test.tsx tests/components/_metaPickerRoleChipContract.test.ts` ac=AC-5 -->
 
 - [ ] **Step 1: Write failing tests** — extend `tests/components/auth/avatarMenu.test.tsx`. The file already imports `it`, `act`, `fireEvent`, `render`, `screen`, `waitFor` (add `waitFor` + `vi` to the `@testing-library/react` / `vitest` import lines), `jest-dom/vitest`, and provides `ROUTE`, `renderMenu`, and `openMenu` (`tests/components/auth/avatarMenu.test.tsx:23-45`). Add two local helpers (`closeMenu`, `deferred`) and import the result type; do NOT reference a `baseProps` — render with `ROUTE` spread, matching the file's own `renderMenu`:
 
@@ -334,13 +334,14 @@ it("EXPECTED copy is a non-empty catalog string (kills the empty-copy tautology)
 });
 
 it("passes the route inputs (slug/shareToken/showId) to the clear action (F3)", async () => {
-  const action = vi.fn(async () => ({ ok: true as const }));
+  // R3-F1: type the mock param so `.mock.calls[0]![0]` indexes tuple `[FormData]`, not `[]` (TS2493/TS2352).
+  const action = vi.fn(async (_formData: FormData) => ({ ok: true as const }));
   renderWith(action);
   openMenu();
   // submit the FORM so React builds FormData from the hidden inputs (AvatarMenu.tsx:350-352)
   act(() => { fireEvent.submit(screen.getByTestId("avatar-menu-switch-person").closest("form")!); });
   await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
-  const received = action.mock.calls[0]![0] as FormData;
+  const received = action.mock.calls[0]![0]; // typed FormData (no cast needed)
   expect(received.get("slug")).toBe(ROUTE.slug);        // mutant clearAction(new FormData()) fails here
   expect(received.get("shareToken")).toBe(ROUTE.shareToken);
   expect(received.get("showId")).toBe(ROUTE.showId);
@@ -355,11 +356,13 @@ it("renders an in-menu alert on failure, as a sibling of role=menu, and keeps th
   expect(alert.textContent?.trim()).toBe(EXPECTED); // EXACT match: a rendered suffix fails (not substring)
   const menuEl = screen.getByRole("menu");
   const popover = screen.getByTestId("avatar-menu-popover");
-  // R2-F5: `contains === false` alone lets a before-menu or outside-popover mutant survive.
-  // Pin the full placement: inside the popover, NOT inside role=menu, and FOLLOWING the menu in DOM order.
-  expect(menuEl.contains(alert)).toBe(false);   // not a child of role=menu (avatar-menu-items)
-  expect(popover.contains(alert)).toBe(true);   // but inside the popover (an outside-popover mutant fails)
-  expect(menuEl.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // sibling AFTER the menu (a before-menu mutant fails)
+  // R3-F3: pin the EXACT spec §4.3 contract; the alert is the DIRECT next sibling of role=menu
+  // AND the popover's last child. `contains`/`compareDocumentPosition` alone let a wrapped-alert
+  // or an alert-followed-by-another-child mutant survive.
+  expect(menuEl.contains(alert)).toBe(false);        // not a child of role=menu (avatar-menu-items)
+  expect(popover.contains(alert)).toBe(true);        // inside the popover (an outside-popover mutant fails)
+  expect(menuEl.nextElementSibling).toBe(alert);     // IMMEDIATELY after the menu (a wrapped or non-adjacent mutant fails)
+  expect(popover.lastElementChild).toBe(alert);      // and the popover's LAST child (a trailing-sibling mutant fails)
   expect(popover).toBeInTheDocument(); // stayed open
 });
 
@@ -421,14 +424,21 @@ it("keyboard reaches the pending switch item by all four commands (aria-disabled
   expect(submit.getAttribute("aria-disabled")).toBe("true");
   expect((submit as HTMLButtonElement).disabled).toBe(false); // NOT native disabled (native disabled would strand focus)
   // All FOUR R4-F1 commands (ArrowDown, in-menu ArrowUp-wrap, End, reopen-with-ArrowUp) must reach the pending item.
-  // (a) ArrowDown from the theme item lands focus on the pending switch item…
-  act(() => { screen.getByTestId("avatar-menu-theme").focus(); fireEvent.keyDown(menu, { key: "ArrowDown" }); });
+  // R3-F2: `theme.focus()` fires onFocus→setActiveIndex(0); that state MUST commit before the key handler
+  // reads activeIndex, so focus and the keyDown go in SEPARATE act() calls (same-act batches them and the
+  // handler sees the stale index). Helper: focus the first item, flush, then send one key, flush.
+  const fromFirst = (key: string): void => {
+    act(() => { screen.getByTestId("avatar-menu-theme").focus(); }); // commit setActiveIndex(0)
+    act(() => { fireEvent.keyDown(menu, { key }); });                 // handler now reads index 0
+  };
+  // (a) ArrowDown from the first item lands focus on the pending switch item…
+  fromFirst("ArrowDown");
   expect(document.activeElement).toBe(submit);
   // (b) in-menu ArrowUp from the FIRST item wraps to the last (pending switch item); R2-F6 (was missing)…
-  act(() => { screen.getByTestId("avatar-menu-theme").focus(); fireEvent.keyDown(menu, { key: "ArrowUp" }); });
+  fromFirst("ArrowUp");
   expect(document.activeElement).toBe(submit);
   // (c) End also lands on it (last item)…
-  act(() => { screen.getByTestId("avatar-menu-theme").focus(); fireEvent.keyDown(menu, { key: "End" }); });
+  fromFirst("End");
   expect(document.activeElement).toBe(submit);
   // (d) reopen-with-ArrowUp opens the menu at the last item…
   closeMenu();
@@ -443,76 +453,77 @@ it("keyboard reaches the pending switch item by all four commands (aria-disabled
 
 Anti-tautology + mutant-to-layer mapping (F4). `EXPECTED` is derived from `messageFor`, so a wrong-code or copy-drift render fails; the alert assertion uses **exact** equality on `textContent` (not `toHaveTextContent`'s substring match), so a rendered suffix fails at the component layer. The four string-presence mutants are killed at the layer that actually observes them, NOT all claimed against one assertion:
 - **(a) empty crew copy** and **(b) suffixed crew copy** at the SOURCE are killed by `x1-catalog-parity` (Task 3): the catalog copy must equal the §12.4 prose, so emptying/suffixing the catalog reds `tests/cross-cutting/codes.test.ts`. The `EXPECTED.length > 0` test above is a second, component-suite guard against an emptied copy (it would otherwise make `expect("").toBe("")` a tautology here).
-- **(c) placement** (copy rendered in a `title` attribute, or inside `role="menu"`) is killed by the scoped `getByRole("alert")` + the `menu.contains(alert) === false` sibling assertion.
+- **(c) placement** (copy in a `title` attribute, inside `role="menu"`, wrapped in another element, before the menu, or not the last popover child) is killed by the scoped `getByRole("alert")` + the full placement pins: `menu.contains(alert)===false`, `popover.contains(alert)===true`, `menu.nextElementSibling===alert`, `popover.lastElementChild===alert` (R3-F3).
 - **(d) rendered suffix** (component appends to the rendered text) is killed by the exact-equality assertion (`textContent.trim() === EXPECTED`).
 - **ok true↔false** is killed by the success case (no alert) vs the failure case (alert present).
 
-RED premise (production line): `AvatarMenu` currently types `clearAction` as `() => void | Promise<void>` and wires `<form action={clearAction}>` directly with no local switch state and no alert node (`components/auth/AvatarMenu.tsx:87`, `components/auth/AvatarMenu.tsx:349`), so `findByRole("alert")` throws, the FormData-seam test still passes only because the form already forwards inputs (that test guards the Step-3 refactor from regressing it), and the reset-on-open/pending paths do not exist. Each failure traces to missing production behavior Step 3 adds, not to test scaffolding.
+RED premise (production line): after Step 2 widens the prop TYPE (so the suite compiles under strict tsconfig — R3-F1/F4), `AvatarMenu` still wires `<form action={clearAction}>` directly with no local switch state and no alert node (`components/auth/AvatarMenu.tsx:349`), so at Step 3 `findByRole("alert")` throws, and the reset-on-open/pending paths do not exist. The FormData-seam test passes even at RED because the form already forwards inputs (it guards the Step-4 refactor from regressing that). Every RED failure traces to missing production BEHAVIOR that Step 4 adds — never to an unresolved import or type error (those are all resolved in Step 2).
 
-- [ ] **Step 2: Run tests, verify they fail** — Run `pnpm vitest run tests/components/auth/avatarMenu.test.tsx` (scoped file list → NOT a heavy phase, no `pnpm heavy` wrapper); expected FAIL (no alert node; widened-type mismatch until Step 3/4).
+- [ ] **Step 2: Make the suite compile (TYPES only, no behavior — R3-F4 so RED and GREEN run the identical command).** These are the compile prerequisites for the Step-1 tests; they add no runtime behavior, so the behavior tests still fail at Step 3:
+  - In `IdentityChip.tsx`, keep the wrapper name, widen ONLY its return type:
+    ```ts
+    import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 
-- [ ] **Step 3: Implement.** In `IdentityChip.tsx`, keep the wrapper name, widen its return type:
+    async function clearIdentityFormAction(formData: FormData): Promise<ClearIdentityResult> {
+      "use server";
+      // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker clearIdentity,
+      // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
+      return clearIdentity(formData);
+    }
+    ```
+  - In `AvatarMenu.tsx`, widen ONLY the prop type: `clearAction: (formData: FormData) => Promise<ClearIdentityResult>` (`import type { ClearIdentityResult }`). Do not add state or the alert yet.
+  - Fix the 3 void mocks (`tests/components/auth/avatarMenu.test.tsx:37`, `tests/components/IdentityChip.test.tsx:42`, `tests/components/identityChipSrSeparator.test.tsx:34`): change `clearAction: (): void => {}` to an async mock returning `{ ok: true as const }` so each typechecks against the widened prop.
+  - Run `pnpm typecheck` — expected PASS (the suite compiles; `_metaPickerRoleChipContract.test.ts:21` still matches `clearAction={clearIdentityFormAction}`, name preserved).
 
-```ts
-import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
+- [ ] **Step 3: Run tests, verify they fail (RED)** — Run `pnpm vitest run tests/components/auth/avatarMenu.test.tsx tests/components/IdentityChip.test.tsx tests/components/identityChipSrSeparator.test.tsx tests/components/_metaPickerRoleChipContract.test.ts` (scoped file list → NOT a heavy phase, no `pnpm heavy`). Expected: the new `AvatarMenu` behavior tests FAIL (no alert node, no pending state, no reset-on-open); existing tests + the FormData-seam test + the 3 fixed void-mock files PASS. This is the SAME command Step 5 reruns green (R3-F4).
 
-async function clearIdentityFormAction(formData: FormData): Promise<ClearIdentityResult> {
-  "use server";
-  // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker clearIdentity,
-  // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
-  return clearIdentity(formData);
-}
-```
+- [ ] **Step 4: Implement the behavior** in `AvatarMenu.tsx` (add `useTransition` to the existing `react` import at `components/auth/AvatarMenu.tsx:54`, and `import { messageFor } from "@/lib/messages/lookup"`):
+  - add local state and a transition:
+    ```tsx
+    const [switchStatus, setSwitchStatus] = useState<"idle" | "error">("idle");
+    const [switchPending, startSwitch] = useTransition();
+    const onSwitchSubmit = (formData: FormData): void => {
+      if (switchPending) return; // R4-F1: aria-disabled item stays focusable; guard re-entry here
+      setSwitchStatus("idle");
+      startSwitch(async () => {
+        const result = await clearAction(formData);
+        if (!result.ok) setSwitchStatus("error");
+      });
+    };
+    ```
+  - reset on open: add `setSwitchStatus("idle")` in `openAt(...)` and the trigger's open branch;
+  - bind the form `action={onSwitchSubmit}` (keep the hidden `slug`/`shareToken`/`showId` inputs); set the submit `aria-disabled={switchPending}` (NOT native `disabled`, R4-F1 — native disabled removes the item from focus and breaks the roving-tabindex `.focus()` at `AvatarMenu.tsx:106-109`) plus `aria-disabled:opacity-60 aria-disabled:cursor-not-allowed` for the visual; the `onSwitchSubmit` guard above prevents the re-entrant submit that native `disabled` would otherwise have blocked;
+  - render the alert as the LAST child of the popover, a SIBLING placed immediately AFTER the `role="menu"` element (NOT inside it, NOT after `</form>`), when `switchStatus === "error"`, using the repo's canonical inline-error idiom (verbatim from `components/admin/ShowRowActions.tsx:859` — `warning-*` tokens; `text-danger`/`border-danger` do NOT exist, R3-F2):
+    ```tsx
+    <div role="menu" ...>{/* theme item + form */}</div>
+    {switchStatus === "error" ? (
+      <div
+        role="alert"
+        data-testid="avatar-menu-switch-error"
+        className="mt-1 rounded-sm border border-border-strong bg-warning-bg px-3 py-2 text-xs/relaxed text-warning-text"
+      >
+        {messageFor("PICKER_SWITCH_FAILED").crewFacing}
+      </div>
+    ) : null}
+    ```
+  The alert is NOT a `menuitem` (not focusable, not in arrow traversal), mirroring the identity header (`components/auth/AvatarMenu.tsx:271-297`). It is the popover's last child and the menu's direct next sibling (pinned by the Step-1 placement test, R3-F3).
 
-In `AvatarMenu.tsx`:
-- widen the `clearAction` prop type to `(formData: FormData) => Promise<ClearIdentityResult>` (use `import type { ClearIdentityResult }`);
-- add local state and a transition:
-  ```tsx
-  const [switchStatus, setSwitchStatus] = useState<"idle" | "error">("idle");
-  const [switchPending, startSwitch] = useTransition();
-  const onSwitchSubmit = (formData: FormData): void => {
-    if (switchPending) return; // R4-F1: aria-disabled item stays focusable; guard re-entry here
-    setSwitchStatus("idle");
-    startSwitch(async () => {
-      const result = await clearAction(formData);
-      if (!result.ok) setSwitchStatus("error");
-    });
-  };
-  ```
-- reset on open: add `setSwitchStatus("idle")` in `openAt(...)` and the trigger's open branch;
-- bind the form `action={onSwitchSubmit}` (keep the hidden `slug`/`shareToken`/`showId` inputs); set the submit `aria-disabled={switchPending}` (NOT native `disabled`, R4-F1 — native disabled removes the item from focus and breaks the roving-tabindex `.focus()` at `AvatarMenu.tsx:106-109`) plus `aria-disabled:opacity-60 aria-disabled:cursor-not-allowed` for the visual; the `onSwitchSubmit` guard above prevents the re-entrant submit that native `disabled` would otherwise have blocked;
-- render the alert as the LAST child of the popover, a SIBLING placed immediately AFTER the `role="menu"` element (NOT inside it, NOT after `</form>`), when `switchStatus === "error"`, using the repo's canonical inline-error idiom (verbatim from `components/admin/ShowRowActions.tsx:859` — `warning-*` tokens; `text-danger`/`border-danger` do NOT exist, R3-F2):
-  ```tsx
-  <div role="menu" ...>{/* theme item + form */}</div>
-  {switchStatus === "error" ? (
-    <div
-      role="alert"
-      data-testid="avatar-menu-switch-error"
-      className="mt-1 rounded-sm border border-border-strong bg-warning-bg px-3 py-2 text-xs/relaxed text-warning-text"
-    >
-      {messageFor("PICKER_SWITCH_FAILED").crewFacing}
-    </div>
-  ) : null}
-  ```
+- [ ] **Step 5: Run tests, verify they pass (GREEN)** — Run the SAME command as Step 3: `pnpm vitest run tests/components/auth/avatarMenu.test.tsx tests/components/IdentityChip.test.tsx tests/components/identityChipSrSeparator.test.tsx tests/components/_metaPickerRoleChipContract.test.ts`; expected PASS. Then `pnpm typecheck` — PASS.
 
-The alert is NOT a `menuitem` (not focusable, not in arrow traversal), mirroring the identity header (`components/auth/AvatarMenu.tsx:271-297`).
-
-- [ ] **Step 4: Fix the widened-prop void mocks (R1-F7)** — in `tests/components/auth/avatarMenu.test.tsx:37`, `tests/components/IdentityChip.test.tsx:42`, and `tests/components/identityChipSrSeparator.test.tsx:34`, change `clearAction: (): void => {}` to an async mock returning `{ ok: true }` so it typechecks against the widened prop. Run `pnpm typecheck` to confirm no other caller breaks; confirm `tests/components/_metaPickerRoleChipContract.test.ts:21` still matches `clearAction={clearIdentityFormAction}` (name preserved).
-
-- [ ] **Step 5: Run tests, verify they pass** — Run `pnpm vitest run tests/components/auth/avatarMenu.test.tsx tests/components/IdentityChip.test.tsx tests/components/identityChipSrSeparator.test.tsx tests/components/_metaPickerRoleChipContract.test.ts` (scoped file list → NOT a heavy phase); expected PASS.
-
-- [ ] **Step 6: Transition audit (writing-plans transition-inventory rule — enumerate EVERY conditional render in `AvatarMenu`, not only the new ones).** Confirm each against spec §4.6 with an explicit disposition:
+- [ ] **Step 6: Transition audit (writing-plans transition-inventory rule — enumerate EVERY conditional render/attribute in `AvatarMenu`, not only the new ones).** Confirm each against spec §4.6 with an explicit disposition:
   1. `{open ? (<popover/>) : null}` (`AvatarMenu.tsx:248`) — mount/unmount on open toggle; instant (no `AnimatePresence`), pre-existing, unchanged.
   2. `{hasIdentity ? (<identity header/>) : null}` (`AvatarMenu.tsx:271`) — pre-existing, unchanged; instant.
-  3. `{name.trim() !== "" && role.trim() !== "" && (<sr-separator/>)}` (`AvatarMenu.tsx:285`) — the SR name/role separator; pre-existing, unchanged; instant. (Named per F7 — previously omitted.)
-  4. `{name.trim() !== "" && role.trim() !== "" && (<role suffix/>)}` (`AvatarMenu.tsx:290`) — the visible role suffix; pre-existing, unchanged; instant. (Named per F7.)
-  5. `mounted && isDark ? "visible" : "invisible"` on the theme check (`AvatarMenu.tsx:336`) — a className visibility TOGGLE (not a mount), `suppressHydrationWarning`; pre-existing, unchanged; instant. (Named per F7 — the mounted/dark-theme ternary.)
+  3. `{name.trim() !== "" && role.trim() !== "" && (<sr-separator/>)}` (`AvatarMenu.tsx:285`) — the SR name/role separator; pre-existing, unchanged; instant. (R1-F7.)
+  4. `{name.trim() !== "" && role.trim() !== "" && (<role suffix/>)}` (`AvatarMenu.tsx:290`) — the visible role suffix; pre-existing, unchanged; instant. (R1-F7.)
+  5. `mounted && isDark ? "visible" : "invisible"` on the theme check (`AvatarMenu.tsx:336`) — a className visibility TOGGLE (not a mount), `suppressHydrationWarning`; pre-existing, unchanged; instant. (R1-F7.)
   6. **NEW** `aria-disabled={switchPending}` on the switch submit — an attribute toggle (not a mount), instant; keyboard-focusable throughout (R4-F1).
-  7. **NEW** `{switchStatus === "error" ? (<alert/>) : null}` — the alert node, sibling of `role="menu"`, instant (`role="alert"`), reset to idle on open.
-  8. `{...menuNameProps}` naming ternary on the `role="menu"` element (`AvatarMenu.tsx:207` computed, spread at `AvatarMenu.tsx:299`) — an aria-name attribute selection; pre-existing, unchanged; non-visual. (Named per R2-F7.)
-  9. `tabIndex={activeIndex === 0 ? 0 : -1}` on the theme item (`AvatarMenu.tsx:315`) — roving-tabindex attribute toggle; pre-existing, unchanged; non-visual. (Named per R2-F7.)
-  10. `tabIndex={activeIndex === 1 ? 0 : -1}` on the switch item (`AvatarMenu.tsx:363`) — roving-tabindex attribute toggle; pre-existing, unchanged; non-visual. (Named per R2-F7.)
-  Confirm the compound "close mid-pending then reopen" shows no stale error (the R2-F2 / R3-F1 tests in Step 1 cover it). Items 1-5 and 8-10 are pre-existing and change no behavior; items 6-7 are the only new states, both instant, matching the "instant, no animation needed" entries in §4.6.
+  7. **NEW** `{switchStatus === "error" ? (<alert/>) : null}` — the alert node, direct next sibling of `role="menu"` + popover last child, instant (`role="alert"`), reset to idle on open.
+  8. `{...menuNameProps}` naming ternary on the `role="menu"` element (`AvatarMenu.tsx:207` computed, spread at `AvatarMenu.tsx:299`) — an aria-name attribute selection; pre-existing, unchanged; non-visual. (R2-F7.)
+  9. `tabIndex={activeIndex === 0 ? 0 : -1}` on the theme item (`AvatarMenu.tsx:315`) — roving-tabindex attribute toggle; pre-existing, unchanged; non-visual. (R2-F7.)
+  10. `tabIndex={activeIndex === 1 ? 0 : -1}` on the switch item (`AvatarMenu.tsx:363`) — roving-tabindex attribute toggle; pre-existing, unchanged; non-visual. (R2-F7.)
+  11. `aria-expanded={open}` on the trigger (`AvatarMenu.tsx:230`) — state-dependent rendered attribute; pre-existing, unchanged; non-visual. (Named per R3-F5.)
+  12. `aria-checked={isDark}` on the theme item (`AvatarMenu.tsx:313`) — state-dependent rendered attribute; pre-existing, unchanged; non-visual. (Named per R3-F5.)
+  This is the complete set (grep `AvatarMenu.tsx` for `? `, `&&`, and every `aria-*={`/`tabIndex={` attribute to confirm none is omitted). Confirm the compound "close mid-pending then reopen" shows no stale error (the R2-F2 / R3-F1 tests in Step 1 cover it). Items 1-5 and 8-12 are pre-existing and change no behavior; items 6-7 are the only new states, both instant, matching the "instant, no animation needed" entries in §4.6.
 
 - [ ] **Step 7: Commit** — `git add components/auth/IdentityChip.tsx components/auth/AvatarMenu.tsx tests/components/auth/avatarMenu.test.tsx tests/components/IdentityChip.test.tsx tests/components/identityChipSrSeparator.test.tsx && git commit -m "feat(crew-page): legible in-menu failure for switch person"`
 
@@ -544,10 +555,10 @@ Ordered; each item gates the next. All of Closeout runs in the IMPLEMENTATION ar
 - [ ] **Placeholder scan:** no TBD/TODO; every code step has real content.
 - [ ] **Type consistency:** `ClearIdentityResult`, `isSameOriginServerAction`, `rejectCrossOrigin`, `clearIdentityFormAction` (name preserved), `PICKER_ORIGIN_REJECTED` (log-borne), `PICKER_INVALID_INPUT` (returned), `PICKER_SWITCH_FAILED` spelled identically across tasks.
 - [ ] **Anti-tautology:** Task 2 asserts no-mutation-on-reject AND the forensic emit, independently per all three endpoints (F2); Task 4 derives copy from `messageFor`, asserts the alert by EXACT `textContent` equality (not substring) scoped to `role="alert"`, proves the FormData route inputs reach the action (F3), awaits the transition before asserting success-has-no-alert (F5), and drives the pending re-entry guard by real form activation (F6); the four string-presence mutants are mapped to the layer that observes each (empty/suffix → `x1-catalog-parity`; placement → scoped `role="alert"` + sibling; rendered-suffix → exact match; ok true/false → success vs failure case) (F4).
-- [ ] **RED validity:** every `red=` names the production line whose absence makes it fail (Tasks 1-4); Task 2/4 test scaffolding (helpers, imports, mocks) is all supplied in-step so each RED is a production-behavior red, not a scaffolding red (R1-F1); backlog reconciliation is NOT a TDD task (no production RED) so it carries no `red=` marker (R2-F2). Every pasted test typechecks under strict tsconfig (`EXPECTED` coalesces `string | null`, R2-F3).
-- [ ] **Transition inventory:** Task 4 Step 6 enumerates ALL ten `AvatarMenu` conditional renders/attributes (open, hasIdentity, two name/role separators, mounted/dark check, aria-disabled, alert, menuNameProps, two tabIndex) with a disposition each (R1-F7 + R2-F7).
+- [ ] **RED validity + same-command cycle:** every `red=` names the production line whose absence makes it fail (Tasks 1-4); Task 4 widens TYPES in Step 2 so the suite compiles, RED (Step 3) and GREEN (Step 5) run the IDENTICAL multi-file command, and every RED is a behavioral red, not a scaffolding/type red (R1-F1, R3-F1, R3-F4); backlog reconciliation is NOT a TDD task so it carries no `red=` (R2-F2). Every pasted test typechecks under strict tsconfig (`EXPECTED` coalesces `string | null` R2-F3; the seam mock's param is typed so `.mock.calls[0]![0]` indexes `[FormData]` R3-F1).
+- [ ] **Transition inventory:** Task 4 Step 6 enumerates ALL twelve `AvatarMenu` conditional renders/attributes (open, hasIdentity, two name/role separators, mounted/dark check, aria-disabled, alert, menuNameProps, two tabIndex, aria-expanded, aria-checked) with a disposition each (R1-F7 + R2-F7 + R3-F5), and states the grep that confirms completeness.
 - [ ] **Per-endpoint independence:** Task 2 clears `logMock.warn` in beforeEach so each of the three endpoints' emit assertions is independent (R2-F4); the truth table pins precedence both directions (R2-F8).
-- [ ] **Placement + keyboard rigor:** the alert is pinned inside-popover, not-inside-menu, and following-the-menu (R2-F5); all four R4-F1 keyboard commands (ArrowDown, in-menu ArrowUp-wrap, End, reopen-ArrowUp) are exercised while pending, and success is asserted only after the transition settles (R2-F6, R1-F5).
+- [ ] **Placement + keyboard rigor:** the alert is pinned inside-popover, not-inside-menu, DIRECT next sibling of the menu, AND the popover's last child (R2-F5 + R3-F3); all four R4-F1 keyboard commands (ArrowDown, in-menu ArrowUp-wrap, End, reopen-ArrowUp) are exercised while pending with focus committed in a separate `act()` before each key so the handler reads the fresh index (R2-F6 + R3-F2), and success is asserted only after the transition settles (R1-F5).
 - [ ] **Invariant 12 + review-covers-what-merges:** the marker is filled BEFORE the whole-diff review (Closeout step 2), the archive + marker removal is the PR's LAST and ONLY post-review commit carrying only ledger-status changes (Closeout step 5), so reviewed code == merged code (R2-F1, R1-F9); entries stay IN PROGRESS until then.
 - [ ] **Invariant 8 marker:** deferred to the implementation arc's closeout (the gate cannot run before UI code; no fabricated `RAN`, per the closeout design HONEST CEILING); `_metaInvariant8Closeout` reds on this unmerged branch by design (R1-F8). AC-7 covers backlog reconciliation traceability (R1-F10).
 
