@@ -251,7 +251,7 @@ INSIDE it (3.21:1 light / 4.00:1 dark, every instance) and whatever the button
 stands on OUTSIDE it. On the four neutral grounds above, both sides clear. On a
 TINTED plate they do not, and the measured numbers are recorded here rather than
 implied away — `warning-bg` 3.04 light / **2.79** dark, `info-bg` **2.87** light
-/ 3.48 dark, `danger-bg` **2.88** light / 3.19 dark. Eleven shipped controls stand on such a plate, across ten sites (the data-quality card, the maintenance and reap actions, the
+/ 3.48 dark, `danger-bg` **2.88** light / 3.19 dark. Twelve shipped controls stand on such a plate, across eleven sites (the data-quality card, the maintenance and reap actions, the
 per-show alert resolve, the re-sync and show-row actions, the step-3 review and
 archived-tab offers).
 

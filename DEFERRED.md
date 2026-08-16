@@ -8,6 +8,82 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1 — impeccable P1: two non-interactive chips now read lighter than the control they sit beside (2026-08-16)
+
+**Effort:** S per site, M as a rule
+
+Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P1,
+audit P2 — recorded at the higher call). Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (F1 and F2).
+
+**The finding.** The 2026-08-16 ruling moved 21 CONTROLS to `border-text-faint`. DESIGN.md §1.2a
+keeps `--color-border-strong` for non-interactive chrome, so two elements that share a recipe with
+a swapped control correctly stayed put — and each is now the quieter half of a pair a reader sees
+at once:
+
+- `components/diagrams/GalleryLightbox.tsx:773`, the `aria-hidden` demote chip, against the Reset
+  chip at `:708` it matches (same `rounded-pill bg-surface-raised px-4`, same shadow; `bottom-2`
+  and `top-2` of the same image). 1.59/1.50 versus 3.35/3.53.
+- `components/admin/StagedPreviewBanner.tsx:65`, the `aria-current` chip, standing in a row of
+  picker links at `:75` that moved. The entry marked current carries the weakest boundary in its
+  own row.
+
+**Why deferred rather than repaired in-branch — reason (b) plus (a).** Spec
+`docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §4.4 ratifies the
+second site verbatim ("non-interactive chrome: outside the census, keeps its token") and §1.2a's
+scope paragraph ratifies the first, so moving either would move an element under a ruling the user
+took against a mockup of BUTTONS resting on cards. The general question is a design decision:
+should chrome that visually PAIRS with a control follow that control's outline weight, or does
+chrome follow chrome? Neither site is a contrast finding — both are non-interactive, so SC 1.4.11
+does not reach them, and both carry their state programmatically.
+
+Both are recorded as documented limits in DESIGN.md §1.2a so the predicate and the tree do not
+disagree while this sits open.
+
+**Un-defer trigger:** a decision on whether §1.2a gains a pairing clause or an explicit "chrome
+follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
+Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
+
+---
+
+### CONTROLOUTLINE-BORDER-TOKEN-NEUTRAL-FILL-1 — impeccable P2: 30 controls with a neutral fill rest at `border-border`, inside the new predicate's words and outside its swap (2026-08-16)
+
+**Effort:** M-L
+
+Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P2).
+Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (F3).
+
+**The finding.** DESIGN.md §1.2a now reads: a control filled with one of the four neutral ground
+tokens takes the text ramp. The swap moved every such control carrying `border-border-strong`.
+Controls carrying `border-border` — a different token, one rung quieter at **1.15:1** on
+`bg-surface` — were never in the cover, and the predicate as written describes them. The sharpest
+instances are the confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
+`app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`: the user taps a control this arc took to
+3.35:1, it morphs in place, and the escape route beside the filled destructive confirm is the
+faintest element on screen.
+
+**Probed 2026-08-16** with the derived cover in the queue row (a query, not a list): **30**
+elements against a universe of 362, **nine of them crew-facing** —
+`app/me/meShowSections.tsx:174`, `:213`, `:258`;
+`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233`;
+`app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103`, `:121`;
+`components/crew/SectionChipLink.tsx:48`; `components/crew/primitives/PersonRow.tsx:196`, `:213`.
+
+**Why deferred rather than swept — reason (b), plus (a) and (c).** Spec §2.1 and §6 fence it in
+both directions, verbatim: _"Widening the swap to `border-border` is NOT the repair. `border-border`
+is a different token doing a different job — DESIGN.md §1.2a explicitly preserves the border tokens
+for tile edges, card edges, dividers and hover chrome — and moving it is a design decision this
+ruling did not make."_ The cover also reaches crew surfaces the admin-scoped 2026-08-16 mockup
+never showed the user, which is (a) a second time.
+
+**Un-defer trigger:** the narrower question put to the user with a rendered mockup — does a control
+whose only outline is `border-border` on a neutral fill take the text ramp too, or is
+`border-border` a deliberate third weight for quiet controls? Start with the five confirm-row
+Cancels. Queue row: `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`.
+
+---
+
 ### THEMENOTE-BUBBLE-DISMISS-1 — impeccable P1: the persist-failure bubble has no dismiss, so a permanently blocked device keeps it up all visit (2026-08-16)
 
 **Effort:** S
