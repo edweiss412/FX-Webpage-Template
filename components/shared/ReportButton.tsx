@@ -25,9 +25,10 @@
  *
  * Restrained accent palette — reuses the same Submit-button shape as
  * `components/admin/AlertBanner.tsx` (`bg-accent`, `text-accent-text`,
- * `hover:bg-accent-hover`, 44px tap target). The trigger button is
- * understated (text-only, underline) on the crew footer; the admin
- * surface uses the more prominent accent fill.
+ * `hover:bg-accent-hover`, 44px tap target). The trigger button is secondary
+ * (text-only, underline) on the crew footer and rests at `text-text` like any
+ * other action target (DESIGN §1.1a, 2026-08-14); the admin surface uses the
+ * more prominent accent fill.
  */
 import { useState } from "react";
 
@@ -114,7 +115,7 @@ export function ReportButton(props: ReportButtonProps) {
   const offsetClass =
     RING_OFFSET_CLASS[ringOffset ?? (effectiveVariant === "accent" ? "surface" : "bg")];
 
-  // Text variant is the quiet footer affordance — keeps the crew page's
+  // Text variant is the footer affordance — keeps the crew page's
   // primary hierarchy intact while remaining discoverable. Accent
   // variant is the admin-side prominent CTA — Doug should see it as a
   // first-class control on the staged-review card.
@@ -133,8 +134,8 @@ export function ReportButton(props: ReportButtonProps) {
     effectiveVariant === "accent"
       ? `inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 text-sm font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`
       : effectiveVariant === "icon"
-        ? `inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm border border-border bg-surface text-text-subtle transition-colors duration-fast hover:border-border-strong hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`
-        : `inline-flex min-h-tap-min items-center rounded-sm px-3 py-2 text-sm font-medium text-text-subtle underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:no-underline focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`;
+        ? `inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm border border-border bg-surface text-text transition-colors duration-fast hover:border-border-strong hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`
+        : `inline-flex min-h-tap-min items-center rounded-sm px-3 py-2 text-sm font-medium text-text underline underline-offset-2 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:no-underline focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`;
 
   return (
     <>

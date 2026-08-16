@@ -9,6 +9,7 @@ import {
   runManualSyncForShow,
   runManualSyncForShow_unlocked,
 } from "@/lib/sync/runManualSyncForShow";
+import { readyPrepared } from "@/tests/_shared/preparedProcessOneFile";
 import {
   SHEET_UNAVAILABLE,
   STAGED_PARSE_SOURCE_GONE,
@@ -207,6 +208,7 @@ describe("runManualSyncForShow", () => {
       appliedRoleMappings: [],
     }));
 
+    const prepared = readyPrepared();
     const result = await runManualSyncForShow_unlocked(
       tx,
       "drive-file-1",
@@ -216,6 +218,7 @@ describe("runManualSyncForShow", () => {
         fetchDriveFileMetadata,
         processOneFile_unlocked,
       },
+      prepared,
     );
 
     expect(result).toEqual({
@@ -231,6 +234,9 @@ describe("runManualSyncForShow", () => {
       "manual",
       fileMeta("drive-file-1"),
       expect.any(Object),
+      // Sixth argument (spec 2026-08-14 §3.1): its ABSENCE is what made every existing-show
+      // pending-ingestion retry throw SyncInfraError before doing any sync work.
+      prepared,
     );
     expect(tx.queryOneCalls.some(({ sql }) => /pg_(?:try_)?advisory_xact_lock/i.test(sql))).toBe(
       false,
@@ -241,14 +247,21 @@ describe("runManualSyncForShow", () => {
     const tx = fakeTx(false) as unknown as LockedShowTx<FakeTx>;
 
     await expect(
-      runManualSyncForShow_unlocked(tx, "drive-file-1", "manual", fileMeta("drive-file-1"), {
-        processOneFile_unlocked: async () => ({
-          outcome: "applied",
-          showId: "show-1",
-          parseWarnings: [],
-          appliedRoleMappings: [],
-        }),
-      }),
+      runManualSyncForShow_unlocked(
+        tx,
+        "drive-file-1",
+        "manual",
+        fileMeta("drive-file-1"),
+        {
+          processOneFile_unlocked: async () => ({
+            outcome: "applied",
+            showId: "show-1",
+            parseWarnings: [],
+            appliedRoleMappings: [],
+          }),
+        },
+        readyPrepared(),
+      ),
     ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
   });
 
@@ -686,8 +699,17 @@ describe("runManualSyncForShow", () => {
     const rawTx = fakeTx(true);
 
     function compileOnly() {
-      // @ts-expect-error TS2345: callers must obtain LockedShowTx from withShowLock.
-      void runManualSyncForShow_unlocked(rawTx, "drive-file-1", "manual", fileMeta("drive-file-1"));
+      // Six arguments deliberately (spec 2026-08-14 §3.1): a five-argument call would satisfy the
+      // expect-error vacuously with TS2554 (missing `prepared`), and stop pinning the tx type.
+      void runManualSyncForShow_unlocked(
+        // @ts-expect-error TS2379: callers must obtain LockedShowTx from withShowLock.
+        rawTx,
+        "drive-file-1",
+        "manual",
+        fileMeta("drive-file-1"),
+        {},
+        readyPrepared(),
+      );
     }
 
     expect(compileOnly).toBeTypeOf("function");

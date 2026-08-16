@@ -170,11 +170,32 @@ describe("checkCitations — symbol proximity (spec §4)", () => {
     expect(r.findings).toEqual([]);
   });
 
-  it("identifier not found → advisory with first cited line in detail", () => {
+  // The shipped "identifier not found" case split in two when the intent arm
+  // landed (2026-08-15 spec §3.3): a miss is now two tiers, and THIS fixture's
+  // identifier is absent from the whole file, which is tier 4 by construction.
+  it("identifier absent from the whole cited file → ABSENT advisory (tier 4)", () => {
     const r = run("see `nopeSym` at `lib/p.ts:3`\n", { "lib/p.ts": FILE });
+    expect(codes(r)).toEqual(["CITATION_SYMBOL_ABSENT"]);
+    expect(r.findings[0]!.severity).toBe("advisory");
+    expect(r.findings[0]!.detail).toBe(
+      "enclosing: fooBar · identifiers: nopeSym · found in: none of the doc's other cited files",
+    );
+  });
+
+  it("identifier present elsewhere in the file → UNMATCHED advisory, cited line + enclosing", () => {
+    const FAR = [
+      "line one",
+      "line two",
+      "export function fooBar() {",
+      ...Array.from({ length: 16 }, () => "  // padding"),
+      "  nopeSym();",
+    ].join("\n");
+    const r = run("see `nopeSym` at `lib/p.ts:3`\n", { "lib/p.ts": FAR });
     expect(codes(r)).toEqual(["CITATION_SYMBOL_UNMATCHED"]);
     expect(r.findings[0]!.severity).toBe("advisory");
-    expect(r.findings[0]!.detail).toContain("export function fooBar() {");
+    expect(r.findings[0]!.detail).toBe(
+      "cited line: export function fooBar() { · enclosing: fooBar",
+    );
   });
 
   it("window clamps at head (start=1) and tail (end=len)", () => {

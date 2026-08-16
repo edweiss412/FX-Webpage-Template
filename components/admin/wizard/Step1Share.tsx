@@ -22,8 +22,10 @@
  * Contract highlights:
  *   §9.0 step-1 four prompts rendered verbatim; the advance affordance
  *   reads "I've shared the folder." No raw error codes (invariant 5).
- *   Every interactive control ≥44px (DESIGN.md:185); text-text-subtle is
- *   never a summary label (DESIGN.md:27). Curly apostrophes throughout.
+ *   Every interactive control ≥44px (DESIGN.md:185); text-text-subtle rests on
+ *   no action target here, and DESIGN §1.1a's Family S carve-out (a `<summary>`
+ *   disclosure header MAY rest subtle) is not claimed by this file. Curly
+ *   apostrophes throughout.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -35,7 +37,19 @@ type Step1ShareProps = {
   serviceAccountEmail: string;
 };
 
-const COPY_FEEDBACK_RESET_MS = 2200;
+/**
+ * This step's own confirmation window, deliberately NOT the shared
+ * `COPY_FEEDBACK_RESET_MS` from `lib/ui/copyFeedback.ts` (2000). The wizard's
+ * confirmation sits beside a longer instruction the reader is mid-way through,
+ * and retuning it would be a behavior change in a surface the consolidation
+ * that created the shared constant does not touch (DEFERRED.md
+ * SHARELINK-CONSTANTS-INVENTORY-1 records it as the un-migrated peer).
+ *
+ * Prefixed rather than left bare: two different values under one identifier is
+ * how a later edit "shares" this one by importing the other and silently
+ * changes 2200 to 2000.
+ */
+const WIZARD_COPY_FEEDBACK_RESET_MS = 2200;
 
 export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
   const [copied, setCopied] = useState(false);
@@ -52,7 +66,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
       await navigator.clipboard.writeText(serviceAccountEmail);
       setCopied(true);
       if (resetTimer.current) clearTimeout(resetTimer.current);
-      resetTimer.current = setTimeout(() => setCopied(false), COPY_FEEDBACK_RESET_MS);
+      resetTimer.current = setTimeout(() => setCopied(false), WIZARD_COPY_FEEDBACK_RESET_MS);
     } catch {
       // Clipboard refusal is benign here — Doug can still select-and-copy by
       // hand. Don't surface a raw error; the email is already visible.
@@ -177,7 +191,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
                 data-testid="wizard-step1-copy-email-button"
                 onClick={handleCopy}
                 aria-label={`Copy ${serviceAccountEmail} to clipboard`}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 {copied ? "Copied" : "Copy"}
               </button>

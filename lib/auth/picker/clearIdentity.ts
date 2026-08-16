@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth/picker/cookieEnvelope";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { isValidClearIdentityInput } from "@/lib/auth/picker/validateClearIdentityInput";
+import { isSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
@@ -32,7 +33,35 @@ export type ClearIdentityInput = {
   s?: string | undefined;
 };
 
-type ClearIdentityResult = { ok: true } | { ok: false; code: string };
+export type ClearIdentityResult = { ok: true } | { ok: false; code: string };
+
+/**
+ * The same-origin refusal, shared by all three exported actions.
+ *
+ * EVERY exported function in a module-level `"use server"` file is an
+ * independently addressable endpoint — a forged POST reaches it whether or not
+ * the app wires it to a form — so the gate goes on all three, not only the
+ * form-wired ones. Gating `clearIdentity` alone would leave `clearIdentityCore`
+ * as an ungated deletion endpoint.
+ *
+ * The RETURNED code is the catalogued `PICKER_INVALID_INPUT`: a `code:` literal
+ * in a returned object reads as a §12.4 producer to the scanner, and an
+ * uncatalogued one fails x1. The distinguishing forensic code rides the
+ * `log.warn` span instead, where `stripLogEmissionCalls` exempts it — the same
+ * shape `AUTH_SIGNOUT_FAILED` uses below.
+ *
+ * `action` is not decoration: it is what makes each wrapper's own guard
+ * load-bearing. Deleting a wrapper's guard makes it fall through to the core's,
+ * which emits a different `action`, so the per-endpoint tests catch it.
+ */
+function rejectCrossOrigin(action: string): ClearIdentityResult {
+  log.warn("cross-origin picker action refused", {
+    source: "auth.picker.sameOriginGate",
+    code: "PICKER_ORIGIN_REJECTED",
+    action,
+  });
+  return { ok: false, code: "PICKER_INVALID_INPUT" };
+}
 
 function parseFormData(formData: FormData): ClearIdentityInput | null {
   const slug = formData.get("slug");
@@ -47,6 +76,9 @@ function parseFormData(formData: FormData): ClearIdentityInput | null {
 
 export async function clearIdentity(formData: FormData): Promise<ClearIdentityResult> {
   // no-telemetry: FormData-parse wrapper; PICKER_IDENTITY_CLEARED emit fires in clearIdentityCoreImpl
+  // Refuse BEFORE any validation or mutation, mirroring the sign-out route's
+  // "refuse before any teardown" ordering.
+  if (!(await isSameOriginServerAction())) return rejectCrossOrigin("clearIdentity");
   const input = parseFormData(formData);
   if (!input) return { ok: false, code: "PICKER_INVALID_INPUT" };
   return clearIdentityCore(input);
@@ -72,6 +104,7 @@ export async function clearIdentityAndSkip(formData: FormData): Promise<ClearIde
   // no-telemetry: FormData-parse + skip redirect; PICKER_IDENTITY_CLEARED emit fires in
   // clearIdentityCoreImpl, and the AUTH_SIGNOUT_FAILED emit below covers this function's
   // own failure branch.
+  if (!(await isSameOriginServerAction())) return rejectCrossOrigin("clearIdentityAndSkip");
   const input = parseFormData(formData);
   if (!input) return { ok: false, code: "PICKER_INVALID_INPUT" };
   // Validate before anything destructive, not inside the core: a malformed direct
@@ -175,6 +208,7 @@ async function signOutThisDevice(showId: string): Promise<ClearIdentityResult> {
 
 export async function clearIdentityCore(input: ClearIdentityInput): Promise<ClearIdentityResult> {
   // no-telemetry: try/catch wrapper; PICKER_IDENTITY_CLEARED emit fires at the mutation boundary in clearIdentityCoreImpl
+  if (!(await isSameOriginServerAction())) return rejectCrossOrigin("clearIdentityCore");
   try {
     return await clearIdentityCoreImpl(input);
   } catch {

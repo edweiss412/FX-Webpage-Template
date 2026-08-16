@@ -42,3 +42,4 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-17-psat1-durable-override-dto/`](./2026-07-17-psat1-durable-override-dto/) | 2026-07-17 |
 | [`2026-07-17-s3c-review-a11y.md`](./2026-07-17-s3c-review-a11y.md) | 2026-07-17 |
 | [`2026-07-17-wizard-blocker-modal.md`](./2026-07-17-wizard-blocker-modal.md) | 2026-07-17 |
+| [`2026-08-15-step3-crew-preview.md`](./2026-08-15-step3-crew-preview.md) | 2026-08-15 |

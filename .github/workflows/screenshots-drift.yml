@@ -71,27 +71,43 @@ jobs:
         # mechanism comments are in the script.
         run: bash scripts/ci/supabase-local-bootstrap.sh
       # Restore the Next compiler cache for the :3004 screenshots-help webServer
-      # build (playwright.screenshots.config.ts:128/144 runs `pnpm build` with
-      # NEXT_DIST_DIR=.next-screenshots-help → next.config distDir), so a warm
+      # build (playwright.screenshots.config.ts runs `pnpm build` with
+      # NEXT_DIST_DIR=.next-screenshots-help -> next.config distDir), so a warm
       # build skips recompiling unchanged modules (~30s). Caches ONLY
       # <distDir>/cache (the compiler cache, NOT build output). Separate key
       # namespace from help-affordances' `nextcache-help`: this build carries a
       # different env (ADMIN_DEV_PANEL_ENABLED, screenshot fixtures) so the two
-      # jobs must not share compilation artifacts. `github.sha` in the key makes
-      # each run save a fresh immutable entry; restore-keys falls back to the
-      # most recent prefix. Byte-safety (this IS the byte-comparison drift gate,
-      # unlike the host-side walker): the compiler cache stores compiled module
-      # output keyed by content hash — a warm build reuses identical compilation,
-      # so rendered pixels are unchanged. Warm/cold byte-identity is proven on CI
-      # (D11 trigger) before this lands; a drift is caught by the gate itself.
+      # jobs must not share compilation artifacts.
+      #
+      # EXACT INPUT-HASH KEY, NO FALLBACK
+      # (BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING). The previous
+      # key was suffixed with `github.sha` and carried two prefix `restore-keys`,
+      # so a run whose inputs had moved still prefix-restored an older cache. An
+      # earlier comment here claimed a warm build reuses identical compilation so
+      # rendered pixels are unchanged; that was REFUTED live on 2026-08-14 — two
+      # same-sha drift runs rendered old chrome from a restored cache while the
+      # no-cache regen workflow reproduced the committed bytes exactly.
+      #
+      # So the key now hashes the render inputs themselves and has NO fallback: a
+      # hit means the cached compilation was built from byte-identical inputs, so
+      # reuse is sound BY KEY CONSTRUCTION rather than by trusting Next's
+      # invalidation. A miss builds cold (~30s), the correct price for changed
+      # inputs. The census is this workflow's own `pull_request.paths` filter
+      # MINUS `public/help/screenshots/**` (the capture step mutates those bytes
+      # mid-run and they are the comparison TARGET, not a compiler input) PLUS
+      # three compiler inputs that are not PR-filter entries. One derivation:
+      # tests/cross-cutting/ci-workflow-speedup.test.ts asserts key-globs ==
+      # filter-globs - baselines + extras, so the two cannot drift apart.
+      #
+      # The `-v2-` namespace makes every pre-existing (including poisoned)
+      # `Linux-nextcache-screenshots-*` entry unreachable by construction,
+      # without anyone running `gh cache delete`.
       - name: Restore Next build cache (screenshots-help :3004 build)
-        uses: actions/cache@v4
+        id: nextcache-restore
+        uses: actions/cache/restore@v4
         with:
           path: .next-screenshots-help/cache
-          key: ${{ runner.os }}-nextcache-screenshots-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-nextcache-screenshots-${{ hashFiles('pnpm-lock.yaml') }}-
-            ${{ runner.os }}-nextcache-screenshots-
+          key: ${{ runner.os }}-nextcache-screenshots-v2-${{ hashFiles('app/**', 'components/**', 'lib/data/**', 'lib/audit/**', 'lib/admin/**', 'lib/messages/**', 'lib/parser/**', 'fixtures/shows/**', 'supabase/seed.ts', 'supabase/seedWalkerFixtures.ts', 'supabase/migrations/**', 'public/fonts/**', 'scripts/capture-core.ts', 'scripts/help-screenshots.ts', 'scripts/help-screenshots.manifest.ts', 'scripts/help-screenshots-fixture-range.ts', 'scripts/capture-launch-args.ts', 'scripts/ci/**', 'playwright.screenshots.config.ts', 'tests/e2e/helpers/**', '.github/workflows/screenshots-drift.yml', 'pnpm-lock.yaml', 'next.config.ts', 'package.json') }}
       - name: Capture screenshots in pinned Playwright image
         run: |
           docker run --rm --platform linux/amd64 --network host \
@@ -101,17 +117,56 @@ jobs:
             mcr.microsoft.com/playwright:v1.59.1-jammy \
             bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"
       # The Docker build ran as root, so .next-screenshots-help/cache is now
-      # root-owned; the `actions/cache` post-step saves as the runner user and
-      # cannot read root-owned files. Reclaim ownership before that save (and
-      # `if: always()` so a drift failure still leaves a saveable cache for the
-      # next run). ubuntu-latest grants passwordless sudo.
+      # root-owned; the explicit save step below runs as the runner user and
+      # cannot read root-owned files. Reclaim ownership before it, `if: always()`
+      # so a drift failure still leaves a saveable cache. ubuntu-latest grants
+      # passwordless sudo.
       - name: Reclaim Next cache ownership (Docker built it as root)
         if: always()
         run: sudo chown -R "$(id -u):$(id -g)" .next-screenshots-help/cache 2>/dev/null || true
+      # ONE aggregated check. Both name lists are computed FIRST with
+      # name-listing commands (no early exit), every name from both is printed,
+      # and the script exits once at the end. The previous form hid untracked
+      # capture filenames behind `test -z "$(git ls-files --others ...)"` (probed:
+      # status=1, zero bytes of output), and its fail-fast `git diff --exit-code`
+      # exited before any later branch ran — so with both kinds of drift present
+      # only the tracked name was ever printed.
       - name: Check screenshot drift
         run: |
-          git diff --exit-code public/help/screenshots/
-          test -z "$(git ls-files --others --exclude-standard public/help/screenshots/)"
+          tracked=$(git diff --name-only public/help/screenshots/)
+          untracked=$(git ls-files --others --exclude-standard public/help/screenshots/)
+          if [ -n "$tracked" ]; then
+            echo "Drifted (tracked) screenshots:"
+            echo "$tracked"
+            git --no-pager diff --stat public/help/screenshots/
+          fi
+          if [ -n "$untracked" ]; then
+            echo "New (untracked) captures:"
+            echo "$untracked"
+          fi
+          if [ -n "$tracked" ] || [ -n "$untracked" ]; then
+            exit 1
+          fi
+      # Save the compiler cache under the key computed ONCE at restore time and
+      # reused here BY REFERENCE. Never re-evaluate a content-derived key after
+      # the job has mutated the tree: `hashFiles` would re-run at save time and a
+      # drifting run would save under a phantom key no checkout ever requests.
+      #
+      # `if: always()` is the warmth half of
+      # BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING: the FIRST run at
+      # any input set must save even when the byte gate fails, so a UI-change
+      # commit whose drift run fails on stale baselines still leaves the next
+      # same-input run warm. With the exact-input key this is warmth, not
+      # convergence — a same-key restore is input-identical by construction, and
+      # a later run at an already-saved key simply has its save skipped
+      # (immutable entries). Ordered after the chown (it reads files the Docker
+      # build left root-owned) and after the drift check.
+      - name: Save Next build cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .next-screenshots-help/cache
+          key: ${{ steps.nextcache-restore.outputs.cache-primary-key }}
       # On drift, upload the freshly-captured bytes so the diff is inspectable
       # (PR #22 burned multiple round-trips diagnosing a one-file drift blind).
       - name: Upload drifted captures (diagnosis artifact)

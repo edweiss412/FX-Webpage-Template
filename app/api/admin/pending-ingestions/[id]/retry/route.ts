@@ -26,14 +26,19 @@ import {
   runManualSyncForShow_unlocked as defaultRunManualSyncForShowUnlocked,
   type ManualSyncResult,
 } from "@/lib/sync/runManualSyncForShow";
-import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import {
+  classifySyncFailure,
+  errorPayload,
+  prepareProcessOneFile as defaultPrepareProcessOneFile,
+  withPostgresSyncPipelineLock,
+  type PreparedProcessOneFile,
+} from "@/lib/sync/runScheduledCronSync";
 import { readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { log } from "@/lib/log";
 import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
 import { emitRoleFlagsNotice, ROLE_FLAGS_EMIT_SOURCE } from "@/lib/sync/emitRoleFlagsNotice";
-import { serializeError } from "@/lib/log/serializeError";
 import type { RoleFlagsNotice } from "@/lib/sync/phase2";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 import { emitDiagramVariantFailures } from "@/lib/log/emitDiagramVariantFailures";
@@ -56,13 +61,23 @@ export type LivePendingIngestionRouteDeps = {
     driveFileId: string,
     deps?: Parameters<typeof defaultRunManualStageForFirstSeen>[2],
   ) => Promise<RunManualStageForFirstSeenResult>;
+  // Sixth parameter REQUIRED (spec 2026-08-14 §3.1) — its absence is the whole defect: the runner
+  // forwarded five arguments and processOneFile_unlocked throws SyncInfraError without `prepared`.
+  // TS1016 forces the fifth parameter to drop its optional marker alongside it.
   runManualSyncForShowUnlocked?: (
     tx: LivePendingIngestionRouteTx,
     driveFileId: string,
     mode: "manual",
     fileMeta: DriveListedFile,
-    deps?: Parameters<typeof defaultRunManualSyncForShowUnlocked>[4],
+    deps: Parameters<typeof defaultRunManualSyncForShowUnlocked>[4] | undefined,
+    prepared: PreparedProcessOneFile,
   ) => Promise<ManualSyncResult>;
+  // The route prepares INSIDE its own held row lock (spec §3.1) rather than switching to the
+  // locked entry point, which would put a second holder on the same hashkey (invariant 2).
+  prepareProcessOneFile?: typeof defaultPrepareProcessOneFile;
+  // Both route-body catch emissions write through this seam. A hardcoded module call would force
+  // every route test onto the real DB (spec §3.1 R7 F2).
+  logSyncSink?: typeof writeSyncLog;
   readFinalizeOwnershipGuardUnlocked?: (
     tx: LivePendingIngestionRouteTx,
     driveFileId: string,
@@ -227,6 +242,8 @@ function depsWithDefaults(deps: LivePendingIngestionRouteDeps) {
         LivePendingIngestionRouteDeps["readFinalizeOwnershipGuardUnlocked"]
       >),
     prepareFirstSeenStage: deps.prepareFirstSeenStage ?? defaultPrepareFirstSeenStage,
+    prepareProcessOneFile: deps.prepareProcessOneFile ?? defaultPrepareProcessOneFile,
+    logSyncSink: deps.logSyncSink ?? writeSyncLog,
   };
 }
 
@@ -432,6 +449,53 @@ export async function handleLivePendingIngestionRetry(
         if (!watchedFolderId || !metadata.parents.includes(watchedFolderId)) {
           return errorResponse(409, "SHEET_UNAVAILABLE");
         }
+        // Spec §3.1: prepare HERE, inside the row lock this route already holds, and thread the
+        // result through. Switching to the locked `runManualSyncForShow` entry point was rejected —
+        // it re-acquires the same hashkey on separate connections, the nested-holder deadlock
+        // invariant 2 prohibits. Manual mode takes no watermark skip and no revision-race cooldown
+        // inside prepareProcessOneFile, so preparation cannot spuriously skip a manual retry.
+        const processDeps = { logSync: writeSyncLog };
+        let prepared: PreparedProcessOneFile;
+        try {
+          prepared = await deps.prepareProcessOneFile(
+            row.drive_file_id,
+            "manual",
+            metadata,
+            processDeps,
+          );
+        } catch (error) {
+          // prepareProcessOneFile converts fetch/binding failures into kind: "fetch_failure", but
+          // its later preparation work (XLSX anchor extraction, the discard-and-rerun reconcile)
+          // sits outside those catches and can throw. Relocated into the route, such a throw would
+          // reach only the outer guard and write no row — re-creating the silence this arc closes.
+          // No dedupe sentinel is needed: prepareProcessOneFile writes no sync_log rows itself.
+          try {
+            await deps.logSyncSink({
+              driveFileId: row.drive_file_id,
+              outcome: "parse_error",
+              code: classifySyncFailure(error),
+              payload: errorPayload(error),
+            });
+          } catch (sinkError) {
+            // Unchained for the same stripLogEmissionCalls reason as the escalations below.
+            const escalation = log.error("pending-ingestion retry prepare emit failed", {
+              source: "api.admin.pending-ingestions.retry",
+              code: "SYNC_LOG_EMIT_FAILED",
+              driveFileId: row.drive_file_id,
+              error: sinkError,
+            });
+            // Invariant 10 (prod diff review R1 P0): this catch runs inside the held
+            // withRowTryLock, and an app_events emit must never extend that window.
+            // Fire-and-forget rather than awaited; the sync_log write above is the
+            // ratified in-lock channel, this escalation is not.
+            void escalation.catch(() => {
+              /* best-effort: the escalation must never displace the original failure */
+            });
+          }
+          // Rethrow the ORIGINAL error: the outer PENDING_INGESTION_RETRY_FAILED guard preserves
+          // the existing 500 byte-for-byte.
+          throw error;
+        }
         const syncResult = await deps.runManualSyncForShowUnlocked(
           tx,
           row.drive_file_id,
@@ -440,7 +504,8 @@ export async function handleLivePendingIngestionRetry(
           // NESTED: the 5th parameter is RunManualSyncForShowDeps, which exposes
           // processDeps?: ProcessOneFileDeps - a top-level logSync typechecks against
           // nothing and would silently write no row.
-          { processDeps: { logSync: writeSyncLog } },
+          { processDeps },
+          prepared,
         );
         // nav-perf tag-caching (whole-diff R2): capture ANY showId-carrying outcome —
         // applied AND the parse_error/source_gone recovery outcomes (which now carry
@@ -498,6 +563,34 @@ export async function handleLivePendingIngestionRetry(
       } catch (error) {
         const code =
           error instanceof FirstSeenStagePrepareError ? error.code : "DRIVE_FETCH_FAILED";
+        // Spec §3.1 R4 F1: prepareFirstSeenStage IS this branch's core sync preparation (sheet
+        // export, parse, Drive enrichment) — the same class as the existing-show prepare above, and
+        // its typed failures previously terminated the attempt with no row. Only the recording is
+        // new; the typed 502/409 responses are unchanged, and a sink failure is fail-open because
+        // the response contract outranks the recording.
+        try {
+          await deps.logSyncSink({
+            driveFileId: row.drive_file_id,
+            outcome: "parse_error",
+            code,
+            payload: errorPayload(
+              error instanceof FirstSeenStagePrepareError ? (error.cause ?? error) : error,
+            ),
+          });
+        } catch (sinkError) {
+          // Unchained for the same stripLogEmissionCalls reason as the escalations below.
+          const escalation = log.error("pending-ingestion retry first-seen prepare emit failed", {
+            source: "api.admin.pending-ingestions.retry",
+            code: "SYNC_LOG_EMIT_FAILED",
+            driveFileId: row.drive_file_id,
+            error: sinkError,
+          });
+          // Invariant 10 (prod diff review R1 P0): in-lock, so fire-and-forget rather than
+          // awaited — an app_events emit must never extend the held-lock window.
+          void escalation.catch(() => {
+            /* best-effort: the typed response still returns */
+          });
+        }
         return errorResponse(code === "DRIVE_FETCH_FAILED" ? 502 : 409, code);
       }
       const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, {
@@ -561,7 +654,7 @@ export async function handleLivePendingIngestionRetry(
           code: "PENDING_INGESTION_RETRY_REVALIDATE_FAILED",
           showId: revalidatedShowId,
           driveFileId,
-          error: serializeError(error),
+          error: error,
         });
         await escalation.catch(() => {
           /* best-effort: the escalation itself must never change the route's outcome */
@@ -601,7 +694,7 @@ export async function handleLivePendingIngestionRetry(
           code: "IDENTITY_LINK_RENAME_UNLANDED_EMIT_FAILED",
           showId: unlandedRef.showId,
           driveFileId: unlandedRef.driveFileId,
-          error: serializeError(error),
+          error: error,
         });
         await escalation.catch(() => {
           /* best-effort: the escalation itself must never change the route's outcome */
@@ -623,7 +716,7 @@ export async function handleLivePendingIngestionRetry(
           source: "api.admin.pending-ingestions.retry",
           code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
           showId: variantRef.showId,
-          error: serializeError(error),
+          error: error,
         });
         await escalation.catch(() => {
           /* best-effort: the escalation itself must never change the route's outcome */
@@ -654,7 +747,7 @@ export async function handleLivePendingIngestionRetry(
           code: "ROLE_FLAGS_NOTICE_EMIT_FAILED",
           showId: noticeRef.showId,
           driveFileId,
-          error: serializeError(error),
+          error: error,
         });
         await escalation.catch(() => {
           /* best-effort: the escalation itself must never change the route's outcome */
@@ -684,4 +777,10 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   return await handleLivePendingIngestionRetry(request, context);
 }
 
-export { depsWithDefaults as livePendingIngestionDepsWithDefaults, readLockedPendingIngestion };
+export {
+  depsWithDefaults as livePendingIngestionDepsWithDefaults,
+  readLockedPendingIngestion,
+  // Exported (spec §3.1) so the first-seen prepare-failure tests can construct the error
+  // the route's `instanceof` branch keys on.
+  FirstSeenStagePrepareError,
+};

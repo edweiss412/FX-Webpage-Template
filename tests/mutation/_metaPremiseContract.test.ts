@@ -33,6 +33,22 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // throwaway repo, so it counts as environment-touching like its
   // single-line sibling.
   "tests/scripts/ledgerClaimsCheck.test.ts": 16,
+  // chore/guard-completeness-wave (2026-08-15): the spawn-seam suite, enrolled as
+  // ledgerGit's second suite. All 16 of its cases import `realGitSurface`, so the scanner
+  // classifies every one environment-touching — correctly by its own rule, even though
+  // each case INJECTS its spawn and reaches no real process. The 13 recording cases carry
+  // a real premise (`calls.length > 0`: a reader that short-circuits before spawning,
+  // which `currentBranch` proves reachable under GitHub Actions variables, would otherwise
+  // assert on `undefined`); the 3 fault cases carry `no-premise`, because their spawn
+  // result is the fixture itself.
+  "tests/scripts/ledgerGitSpawnSeam.test.ts": 16,
+  // The analyzer suite enrolled by this branch. It declares 0 honestly: the cases drive
+  // literal source strings through a pure AST function and reach no member of
+  // ENVIRONMENT_SOURCES.
+  "tests/db/destructiveFileAnalysis.test.ts": 0,
+  // The pgCronSmokes unit suite enrolled by this branch: literal strings and URLs through
+  // pure helpers, reaching no member of ENVIRONMENT_SOURCES.
+  "tests/cross-cutting/pgCronSmokesUnit.test.ts": 0,
   "tests/scripts/ledgerClaims.test.ts": 0,
   // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
   // inventory suite reads DESIGN.md and walks the repo, but through the module
@@ -41,10 +57,25 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // the real tree only for the universe fences.
   "tests/docs/_metaInteractionTimingInventory.test.ts": 0,
   "tests/docs/interactionTimingScan.test.ts": 0,
+  // The 2026-08-15 arms suites, enrolled with citationIntent and redContract.
+  // All five are pure: they drive literal fixture documents through the core
+  // and read no member of ENVIRONMENT_SOURCES. Every subprocess-spawning case
+  // of this arc lives in tests/specLint/cli.test.ts, which is deliberately NOT
+  // enrolled, so no enrolled suite here spawns anything.
+  "tests/specLint/citationIntent.test.ts": 0,
+  "tests/specLint/citationIntentWiring.test.ts": 0,
+  "tests/specLint/citationIntentCorpus.test.ts": 0,
+  "tests/specLint/redContract.test.ts": 0,
+  "tests/specLint/redExec.test.ts": 0,
   "tests/specLint/taskContract.test.ts": 0,
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
   // exercises compareFindings over literal fixtures and reads no environment.
   "tests/specLint/taskContractFindingOrder.test.ts": 0,
+  // The v2 grammar suite, enrolled 2026-08-15 as taskContract's third suite.
+  // Pure by the corpus-suite rule: it reads committed legacy fixtures through
+  // node:fs, which is deliberately NOT provenance, and touches neither
+  // child_process, ledger-git, nor process.env.
+  "tests/specLint/taskContractV2Grammar.test.ts": 0,
   // The review-round economy's two suites, enrolled by reviewRoundCount and
   // reviewRoundCorpus. Both declare 0, and the declaration is honest rather
   // than convenient: neither reaches any member of ENVIRONMENT_SOURCES.
@@ -62,6 +93,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // child_process, ledger-git, or process.env.
   "tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts": 0,
   "tests/help/_metaUiLabelCrosswalk.test.ts": 0,
+  // Enrolled by specLintNumerics (2026-08-11). Pure, and the declaration is
+  // honest rather than convenient: every case drives checkNumerics or runLint
+  // over literal fixture text with a hand-built FileResolver, so it reaches no
+  // member of ENVIRONMENT_SOURCES -- no child process, no ledger-git, no
+  // process.env, and no filesystem read at all.
+  "tests/specLint/numerics.test.ts": 0,
   // Enrolled by feat/diagram-viewing-polish (2026-08-11) alongside the
   // phantom-gap executed-count oracle. 3: the three shipped-CLI cases spawn the
   // checker through node:child_process, because an exit code is the one thing
@@ -76,6 +113,18 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // blindness to nested helpers is the wider class, probed and filed as
   // BL-PREMISESCAN-NESTED-HELPER-SCOPE.
   "tests/ci/phantomGapExecuted.test.ts": 3,
+  // The interactive-scan guard surfaces, enrolled 2026-08-14
+  // (fix/ui-interactive-token-policy). All three declare 0, and the declaration
+  // is honest rather than convenient: each reads the live tree through node:fs
+  // (and, in the core's fixture cases, a tree it builds under mkdtempSync),
+  // which is deliberately NOT provenance by the same rule the corpus suite is
+  // declared 0 under. None spawns a child process, imports ledger-git, or reads
+  // process.env. The one suite in this arc that DOES spawn — the contrast
+  // suite's tailwindcss compile — is not a mutation suitePath and is therefore
+  // not walked here.
+  "tests/styles/interactiveScanCore.test.ts": 0,
+  "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
+  "tests/styles/_metaTapTargetFloor.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

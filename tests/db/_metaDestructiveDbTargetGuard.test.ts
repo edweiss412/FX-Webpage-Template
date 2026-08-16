@@ -30,14 +30,17 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
+import { DESTRUCTIVE_STATEMENT_PATTERNS, GUARD_OWN_FILES } from "./_destructiveStatements";
 import { stripCommentsForFile, stripSqlComments } from "@/tests/_shared/stripComments";
 
 const TESTS_ROOT = join(process.cwd(), "tests");
 
 /**
- * Executes the whole-DB wipe RPC.
+ * Discovery's patterns ARE the analyzer's, imported rather than re-declared: the
+ * analyzer anchors every recognized destructive statement to a checked execution site,
+ * so a second copy here would mean discovery and anchoring range over different sets.
  *
- * **DOCUMENTED LIMIT — discovery is spelling-sensitive, and that is not closed.**
+ * **DOCUMENTED LIMIT - discovery is spelling-sensitive, and that is not closed.**
  * These patterns require the schema-qualified, unquoted `public.<name>(` form. An
  * unqualified `select prune_sync_log()` or a quoted `select "public"."prune_sync_log"()`
  * is NOT discovered, so no safety analysis runs on such a file (whole-diff r16). Chasing
@@ -45,38 +48,21 @@ const TESTS_ROOT = join(process.cwd(), "tests");
  * analyzer went through, so it is recorded rather than pursued: the terminating framing
  * is to discover files by the fact that they OPEN A DATABASE CONNECTION, and require the
  * guard of all of them, which removes SQL spelling from the question entirely. That is a
- * cross-cutting change over every DB test in the repo and is filed as part of
- * `BL-DESTRUCTIVE-GUARD-EXECUTION-SITE`.
- *
- * Keyed on the FUNCTION NAME, not on a statement shape. r15 showed
- * `select * from public.reset_validation_data()`, a parenthesized form, and an aliased
- * `update … as g set enabled = true` all escaping shape-anchored patterns — the same
- * enumeration failure the analyzer went through, one layer up. A destructive function
- * named in executed code is the signal; how the statement is spelled around it is not
- * something this guard needs to model.
+ * cross-cutting change over every DB test in the repo, filed with its census as
+ * `BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION`.
  */
-const EXECUTES_WIPE = /\bpublic\.reset_validation_data\s*\(/i;
+const EXECUTES_WIPE = DESTRUCTIVE_STATEMENT_PATTERNS.executesWipe;
+const ENABLES_WIPE_GATE = DESTRUCTIVE_STATEMENT_PATTERNS.enablesWipeGate;
+const EXECUTES_PRUNE = DESTRUCTIVE_STATEMENT_PATTERNS.executesPrune;
 
-/** Flips the prod-safety gate ON — the only thing standing between a test run
- *  and a live wipe. */
-const ENABLES_WIPE_GATE =
-  /destructive_reset_gate\b[\s\S]{0,120}?\benabled\s*=\s*(?:true|\$\{?\s*true)/i;
-
-/** Executes a retention prune. Deletes by time window against whatever DB it is
- *  pointed at, so it is destructive in exactly the sense this guard exists for.
- *  `prune_app_events` is folded in deliberately: identical hazard, no coverage
- *  before 2026-08-09, one alternation to fix. That is the class-sweep default -
- *  repair every instance of the shape in the same PR - rather than filing a peer
- *  for something free to fix here. */
-const EXECUTES_PRUNE = /\bpublic\.prune_(?:sync_log|app_events)\s*\(/i;
+/** The set discovery actually runs, so the identity test below ranges over the real
+ *  thing rather than over three names that happen to be spelled the same way. */
+const DISCOVERY_PATTERNS: readonly RegExp[] = [EXECUTES_WIPE, ENABLES_WIPE_GATE, EXECUTES_PRUNE];
 
 /** Any of the sanctioned loopback asserts, called (not merely imported).
  *  Retained for the message it powers; the ADMISSION decision now runs through
  *  analyseDestructiveFile, which closes the three holes a name match leaves open. */
 const CALLS_LOCAL_GUARD = /\b(?:assertLocalDbUrl|assertSafeDestructiveTarget)\s*\(/;
-
-/** Opt-out for a file that provably cannot reach a remote (documented inline). */
-const EXEMPTION = /\/\/\s*not-subject-to-destructive-target-guard:\s*\S+/;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -117,10 +103,37 @@ const destructive = files.filter(({ path, source }) => {
   const js = stripCommentsForFile(source, path);
   const sql = stripSqlComments(js);
   const hit = (re: RegExp) => re.test(js) || re.test(sql);
-  return hit(EXECUTES_WIPE) || hit(ENABLES_WIPE_GATE) || hit(EXECUTES_PRUNE);
+  return DISCOVERY_PATTERNS.some(hit);
 });
 
 describe("destructive DB target guard", () => {
+  test("discovery runs the analyzer's own recognizer objects, not copies of them", () => {
+    // The analyzer anchors every recognized destructive statement to a checked
+    // execution site, so it and discovery must range over the SAME set: a pattern one
+    // side matches and the other does not is either a file discovered but never
+    // anchored within, or a statement anchored in a file nobody discovered.
+    //
+    // Identity, not equality. Two `toEqual`-equal RegExp objects are exactly the state
+    // this test exists to reject — a second copy that drifts on the next edit to one
+    // of them.
+    const shared = Object.values(DESTRUCTIVE_STATEMENT_PATTERNS);
+    expect(DISCOVERY_PATTERNS).toHaveLength(shared.length);
+    for (const re of DISCOVERY_PATTERNS) expect(shared).toContain(re);
+    // Residual, stated rather than papered over: this pins the objects discovery
+    // holds, not the expression that consumes them, so a fourth pattern OR'd inline
+    // into the filter would escape it. That direction WIDENS discovery (more files
+    // analyzed), which is the conservative one; the dangerous direction — discovery
+    // recognizing a spelling the analyzer's Rule 2 does not — is what identity closes.
+  });
+
+  test("the guard's own two files are exempted by name, not by coincidence", () => {
+    // Anti-vacuity for the exemption itself: if discovery stopped matching these
+    // two, the exemption would be dead code and this test would still pass without
+    // it. Both are discovered, and both are exempted deliberately.
+    const rel = destructive.map((f) => f.path.replace(process.cwd() + "/", ""));
+    for (const own of GUARD_OWN_FILES) expect(rel).toContain(own);
+  });
+
   test("discovery matches ordinary SQL spellings, not one canonical shape", () => {
     // whole-diff r15: shape-anchored patterns missed `select * from public.prune_…()`,
     // a parenthesized call, an aliased `update … as g set enabled = true`, and any
@@ -167,7 +180,11 @@ describe("destructive DB target guard", () => {
     ({ path, source }) => {
       if (path === "<none discovered>") return; // covered by the anti-vacuity test above
       const rel = path.replace(process.cwd() + "/", "");
-      if (EXEMPTION.test(source)) return;
+      // The guard's own files carry destructive SQL as FIXTURE TEXT for a pure
+      // function. Exempted by NAME (GUARD_OWN_FILES), which is checked before any
+      // analysis runs, rather than by an inline-comment regex that these two used to
+      // satisfy only because one of them quoted the comment form in a failure message.
+      if (GUARD_OWN_FILES.includes(rel)) return;
       const verdict = analyseDestructiveFile(path, source);
       expect(
         verdict.ok,
@@ -183,8 +200,11 @@ describe("destructive DB target guard", () => {
           "never calls a loopback assert. TEST_DATABASE_URL is the VALIDATION project in this " +
           "repo's .env.local, so this file wipes live validation on a plain `pnpm test`. Resolve " +
           "the URL from LOCAL_TEST_DATABASE_URL and pass it through assertLocalDbUrl() " +
-          "(tests/db/_localDbUrl.ts) before opening the connection, or add an inline " +
-          "`// not-subject-to-destructive-target-guard: <reason>` with a verified reason.",
+          "(tests/db/_localDbUrl.ts) before opening the connection. There is no inline " +
+          "opt-out: the comment form this message used to offer was deleted with the " +
+          "accidental self-exemption it enabled, and the only exemption now is an explicit " +
+          "GUARD_OWN_FILES entry in tests/db/_destructiveStatements.ts, which is for the " +
+          "guard's own fixture files and needs a reason in review.",
       ).toBe(true);
     },
   );

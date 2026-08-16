@@ -23,6 +23,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { revalidateTag } from "next/cache";
 import { showCacheTag } from "@/lib/data/showCacheTag";
+import { readyPrepared } from "@/tests/_shared/preparedProcessOneFile";
 
 // Per-file faithful mock: revalidateTag records the (tag, profile) AND pushes an
 // ordering marker so the post-commit assertions can interleave it with the
@@ -485,6 +486,10 @@ describe("live pending-ingestion retry route", () => {
         }) as never,
         fetchDriveFileMetadata: async () => driveFile(),
         readFinalizeOwnershipGuardUnlocked: async () => false,
+        // Census class d (spec 2026-08-14 §5): stubbed so the route does not run REAL preparation
+        // (Drive I/O) ahead of the runner double, now that `prepared` is a required argument.
+        prepareProcessOneFile: (async () => readyPrepared()) as never,
+        logSyncSink: (async () => {}) as never,
         runManualSyncForShowUnlocked: (async () => ({
           outcome: "applied",
           showId: SHOW_ID,
@@ -535,6 +540,10 @@ describe("live pending-ingestion retry route", () => {
         }) as never,
         fetchDriveFileMetadata: async () => driveFile(),
         readFinalizeOwnershipGuardUnlocked: async () => false,
+        // Census class d (spec 2026-08-14 §5): stubbed so the route does not run REAL preparation
+        // (Drive I/O) ahead of the runner double, now that `prepared` is a required argument.
+        prepareProcessOneFile: (async () => readyPrepared()) as never,
+        logSyncSink: (async () => {}) as never,
         runManualSyncForShowUnlocked: (async () => ({
           outcome: "source_gone",
           code: "SHEET_UNAVAILABLE",
@@ -578,6 +587,10 @@ describe("live pending-ingestion retry route", () => {
         }) as never,
         fetchDriveFileMetadata: async () => driveFile(),
         readFinalizeOwnershipGuardUnlocked: async () => false,
+        // Census class d (spec 2026-08-14 §5): stubbed so the route does not run REAL preparation
+        // (Drive I/O) ahead of the runner double, now that `prepared` is a required argument.
+        prepareProcessOneFile: (async () => readyPrepared()) as never,
+        logSyncSink: (async () => {}) as never,
         runManualSyncForShowUnlocked: (async () => ({
           outcome: "stage",
           stagedId: "staged-1",

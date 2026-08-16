@@ -51,7 +51,13 @@ export const REQUIRED = {
   // exact title in the wiring guard's EXPECTED_SKIPS.
   // 16 as of the crew-chrome branch: the 15 above plus the anchored-footer
   // short-page case (AC-U2), which asserts both width regimes in one test.
-  "crew-page.spec.ts": 16,
+  // 21 as of the wifi-password-legibility branch: the 16 above plus the five
+  // "wifi password transcription affordance (production route)" cases, which
+  // measure the shipped route rather than a harness mount (spec
+  // 2026-08-10-wifi-password-legibility §6(b) splits production-route topology
+  // here from the standalone geometry harness). Counted from the observed
+  // mobile-safari run (21 passed / 4 skipped), not from arithmetic.
+  "crew-page.spec.ts": 21,
   // 9, and the number is the MATRIX rather than a multiple (plan
   // 2026-08-09-quick-wins-2 "e2e harness readiness"). theme-toggle runs two arms:
   //   arm (a) — 4 standalone-toggle cases, BOTH projects            = 8
@@ -64,6 +70,13 @@ export const REQUIRED = {
   // wiring guard derives this same number from live per-project resolution minus
   // its PROJECT_GATED registry — it is not trusted as a literal here.
   "theme-toggle.spec.ts": 9,
+  // 4 — the persist-failure geometry matrix: two consumers (help header, admin
+  // nav cluster) x two claims (viewport containment of the anchored bubble, and
+  // the wrapper box still equal to the button box). desktop-chromium ALONE,
+  // which is the spec's only project: the containment cases size the viewport
+  // in-test, so a second project would re-run an identical assertion rather than
+  // add cover. The wiring guard re-derives this from live per-project resolution.
+  "theme-persistence-note.spec.ts": 4,
   // ── wired 2026-08-10 by M-wave 2 W-E2E (BL-RIGHTNOW-SECTION57-FIXTURE-INERT +
   // BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER) ────────────────────────
   // 3 = the §5.7 anchor pair (Day-1 anchor, midnight rollover) + the restricted-

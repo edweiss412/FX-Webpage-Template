@@ -15,7 +15,7 @@ import {
   type DriveRetryOptions,
 } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
-import type { TriggeredReviewItem } from "@/lib/parser/types";
+import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
@@ -44,10 +44,15 @@ import {
 } from "@/lib/sync/verifyReelOnApply";
 import {
   STAGED_PARSE_REVISION_RACE,
+  type ProcessOneFileDeps,
   type SyncPipelineTx,
+  classifySyncFailure,
+  errorPayload,
+  logSync as writeSyncLogEntry,
   withPostgresSyncPipelineLock,
   emitSuccessfulPhase2Tail,
 } from "@/lib/sync/runScheduledCronSync";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { revalidateShow } from "@/lib/data/showCacheTag";
@@ -274,6 +279,10 @@ export type ApplyStagedResult =
       // Census hop 3b (spec §3): the dashboard Apply surface's carry-out.
       variantFailures?: DiagramVariantFailureRow[];
       snapshotRevisionId?: string;
+      // §3.4 (spec 2026-08-14): the applied attempt's parse warnings, sourced from
+      // coreResult.parseWarnings. REQUIRED — the same tsc-forced pattern that protects the tail, so
+      // a future builder of an applied ApplyStagedResult cannot silently drop the sync_log channel.
+      parseWarnings: ParseResult["warnings"];
       // §10 point 5: gate-passing ROLE_TOKEN_MAPPED entries carried to the live post-commit emit
       // region. Optional — only the applied path sets it; absent = nothing gated.
       appliedRoleMappings?: GatedRoleMapping[];
@@ -314,6 +323,11 @@ export type ApplyStagedResult =
   | { outcome: "blocked"; code: typeof SHOW_ARCHIVED_IMMUTABLE };
 
 export type ApplyStagedDeps = {
+  // §3.4 (spec 2026-08-14): the applied attempt's sync_log sink. The PRODUCTION default is resolved
+  // at the emit site in the outer applyStaged, NOT in depsWithDefaults — that runs inside
+  // applyLiveWithDriveReverify and its resolved object never returns to applyStaged, so a default
+  // planted only there would leave the whole surface dark.
+  logSync?: ProcessOneFileDeps["logSync"];
   readLivePendingSyncForApply?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
@@ -370,7 +384,11 @@ export type ApplyStagedDeps = {
   // the shared emitSuccessfulPhase2Tail chokepoint. Injectable for testing; broad-typed tail deps so the
   // SHOW_FIRST_PUBLISHED alert code is accepted (applyStaged's own upsertAdminAlert is a narrower union).
   emitSuccessfulPhase2Tail?: typeof emitSuccessfulPhase2Tail;
-  firstPublishedTailDeps?: Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"];
+  // `logSync` is Omitted (spec §3.4 R4 F2/R7 F1): a sink supplied here would make the in-tx tail
+  // write an applied row that §3.4 then writes again post-commit. TypeScript being structural, this
+  // rejects fresh literals but not a wider aliased value — the GUARANTEE is the runtime strip at
+  // the invocation site; this narrowing states the intent.
+  firstPublishedTailDeps?: Omit<Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"], "logSync">;
   createUnpublishToken?: () => string;
   now?: () => Date;
   insertSyncAudit?: (
@@ -951,7 +969,8 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   // Optional (test-injectable). When absent, the FIRST_SEEN_REVIEW tail binds the tx-bound
   // upsertAdminAlert (tx.upsertAdminAlert) so the SHOW_FIRST_PUBLISHED alert is written in the SAME
   // transaction as the new show (the standalone service-role writer would FK-fail on the uncommitted show).
-  firstPublishedTailDeps?: Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"];
+  // `logSync` Omitted for the same reason as the ApplyStagedDeps declaration above.
+  firstPublishedTailDeps?: Omit<Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"], "logSync">;
 };
 
 function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
@@ -1452,6 +1471,11 @@ export async function applyStaged_unlocked(
     showId: coreResult.showId,
     syncAuditId: coreResult.syncAuditId,
     derivedSideEffects: coreResult.derivedSideEffects,
+    // §3.4: carried out to the post-commit sync_log emit in the locked `applyStaged` wrapper. The
+    // tail below is sinkless by construction, and an existing-show apply never reaches it at all.
+    // Written WITHOUT a trailing `(` after any identifier: the single-holder lock guard builds its
+    // call graph by regex over raw source, so `name (` in a comment forges a call edge.
+    parseWarnings: coreResult.parseWarnings,
     adminAlertCode: assetAdjusted.adminAlertCode,
     adminAlertCodes: assetAdjusted.adminAlertCodes,
     // §10 point 5: carry the gate-passing entries to the live post-commit emit region.
@@ -1473,6 +1497,13 @@ export async function applyStaged_unlocked(
   // emailed rollback link and the stored token match (no token-without-persistence).
   if (autoPublishFirstSeen) {
     const tail = deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail;
+    type TailDeps = Parameters<typeof emitSuccessfulPhase2Tail>[0]["deps"];
+    const suppliedTailDeps: Omit<TailDeps, "logSync"> | undefined = deps.firstPublishedTailDeps
+      ? (() => {
+          const { logSync: _stripped, ...rest } = deps.firstPublishedTailDeps as TailDeps;
+          return rest;
+        })()
+      : undefined;
     await tail({
       tx,
       // §02 (FIX-3 / R16/R17): source the sync_log parse_warnings from coreResult.parseWarnings (the
@@ -1489,7 +1520,10 @@ export async function applyStaged_unlocked(
       // service-role writer runs on a separate connection and FK-fails on the uncommitted shows.id
       // (admin_alerts.show_id → shows.id), rolling back the whole approval. Pass the context object RAW
       // ($3::jsonb — postgres.js serializes it once; JSON.stringify would double-encode).
-      deps: deps.firstPublishedTailDeps ?? {
+      // Runtime strip (spec §3.4 R7 F1): whatever a caller smuggles through the structural type,
+      // the staged tail runs SINKLESS — §3.4 owns this attempt's row, post-commit, where the show
+      // row is already visible so a first-seen apply attributes instead of writing NULL.
+      deps: suppliedTailDeps ?? {
         upsertAdminAlert: async (input) => {
           const row = await tx.queryOne<{ id: string } | null>(
             "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
@@ -1949,7 +1983,43 @@ export async function applyStaged(
   deps: ApplyStagedDeps = {},
 ): Promise<ApplyStagedResult | ConcurrentSyncSkipped> {
   if (args.sourceScope === "live") {
-    const result = await applyLiveWithDriveReverify(args, deps);
+    // Attempt boundary, mirroring processOneFile's (spec §3.4). Documented limit: this measures
+    // from applyStaged entry, so route-level auth/body parsing is excluded — the parent spec's
+    // runner-boundary rule, on a third surface.
+    const attemptStartedAtMs = (deps.now ?? (() => new Date()))().getTime();
+    // Resolved HERE, not in depsWithDefaults (R1 F5): that runs inside applyLiveWithDriveReverify
+    // and its object never returns here. Same pattern this region already uses for
+    // `deps.upsertAdminAlert ?? defaultUpsertAdminAlert`.
+    const sink = deps.logSync ?? writeSyncLog;
+    let result: ApplyStagedResult | ConcurrentSyncSkipped;
+    try {
+      result = await applyLiveWithDriveReverify(args, deps);
+    } catch (error) {
+      // applyStagedCore contains no catch: a throw from runPhase2 or the in-tx floor/audit/pending
+      // operations would otherwise escape with no row — an attempt that did real sync work,
+      // terminating silently. No tracker needed: this surface installs no sink into the core (the
+      // tail is stripped sinkless), so at catch time it has written zero rows by construction.
+      try {
+        await sink({
+          driveFileId: args.driveFileId,
+          outcome: "parse_error",
+          code: classifySyncFailure(error),
+          payload: errorPayload(error),
+        });
+      } catch (sinkError) {
+        // Unchained so prettier keeps `log.error(` on ONE line (stripLogEmissionCalls).
+        const escalation = log.error("staged apply sync_log emit failed", {
+          source: "sync.applyStaged",
+          code: "SYNC_LOG_EMIT_FAILED",
+          driveFileId: args.driveFileId,
+          error: sinkError,
+        });
+        await escalation.catch(() => {
+          /* best-effort: a recording failure must never displace the failure it was recording */
+        });
+      }
+      throw error;
+    }
     // Finding #12: the dashboard Apply hit a CONTENDED per-show advisory lock — the
     // ConcurrentSyncSkipped sentinel is returned with no durable trail (contrast the cron
     // path's sync_log row). Emit a fail-open durable forensic record here, at the single
@@ -1965,6 +2035,41 @@ export async function applyStaged(
         driveFileId: args.driveFileId,
       });
       return result;
+    }
+    // §3.4 (spec 2026-08-14): the applied attempt's sync_log row — the ONE place the live staged
+    // apply records an attempt, for BOTH first-seen and existing-show applies. Post-commit, so a
+    // first-seen row attributes to a show that now exists; first in this region for the same
+    // drop-prevention reason as the variant emit below; isolated and fail-open, because a recording
+    // failure must never turn a committed apply into an error response.
+    if (!("skipped" in result) && result.outcome === "applied") {
+      try {
+        const appliedResult = {
+          outcome: "applied" as const,
+          showId: result.showId,
+          parseWarnings: result.parseWarnings,
+          appliedRoleMappings: result.appliedRoleMappings ?? [],
+        };
+        await writeSyncLogEntry(
+          { logSync: sink, attemptStartedAtMs, ...(deps.now ? { now: deps.now } : {}) },
+          args.driveFileId,
+          appliedResult,
+          undefined,
+          // The helper reads warnings from this FIFTH parameter, never off the result object.
+          appliedResult.parseWarnings,
+        );
+      } catch (error) {
+        // Unchained so prettier keeps `log.error(` on ONE line (stripLogEmissionCalls).
+        const escalation = log.error("staged apply sync_log emit failed", {
+          source: "sync.applyStaged",
+          code: "SYNC_LOG_EMIT_FAILED",
+          driveFileId: args.driveFileId,
+          showId: result.showId,
+          error: error,
+        });
+        await escalation.catch(() => {
+          /* best-effort: the escalation must never change the apply outcome */
+        });
+      }
     }
     // Census hop 3 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT,
     // outside the held lock tx (invariant 10), and FIRST in this tail. This region is

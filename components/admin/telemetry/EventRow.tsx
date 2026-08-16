@@ -100,7 +100,7 @@ export function EventRow({
           <Link
             data-testid={`event-row-request-${event.id}`}
             href={`/admin/dev/telemetry?requestId=${encodeURIComponent(event.requestId)}&since=all`}
-            className="inline-flex min-h-tap-min shrink-0 items-center rounded-pill bg-surface-sunken px-2 text-xs text-text-subtle"
+            className="inline-flex min-h-tap-min shrink-0 items-center rounded-pill bg-surface-sunken px-2 text-xs text-text"
           >
             {event.requestId.slice(0, 8)}
           </Link>

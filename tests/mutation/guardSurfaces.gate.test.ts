@@ -39,6 +39,18 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // four sign-not-magnitude and two guarded-branch equivalents — all six with
   // control-flow arguments, which is why the surface now carries NO accepted gap.
   taskContract: { equivalent: 22 },
+  // The 2026-08-15 arms surfaces, enrolled with EMPTY ledgers. Both are pure
+  // classifiers over literal fixtures, so every survivor is repayable by a test
+  // rather than blessable: a row appearing here later is a coverage regression
+  // to explain, not a number to bump.
+  // citationIntent swept clean: 21/21 killed, no blessed survivor, so a row
+  // appearing here later is a coverage regression to repair.
+  citationIntent: {},
+  // redContract: SEVEN reachability arguments — the GATE bound that only ever
+  // runs on GATE_ANY hits, three one-past-the-end scan bounds, and the two
+  // extent-containment equalities a marker line can never occupy. No
+  // accepted-gap: every other survivor of the first run was repaid by a test.
+  redContract: { equivalent: 7 },
   // Counted from the surface, not read back off its ledger: `scripts/lib/
   // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
   // always present -- two in the tip comparator, one in the age loop -- and
@@ -53,15 +65,17 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // is therefore a regression to explain, not a number to update.
   interactionTimingScan: { equivalent: 8 },
   // Counted from the surface: SIX reachability arguments -- the three two-field
-  // parses at ledger-git.ts:83, :130 and :192, the twice-tested regex group at :219,
-  // the `+++ b/` fallthrough at :280, and headRepo's three-way collapse at :325
-  // -- plus ONE accepted-gap family of exactly SIX sites: the spawn timeouts at
-  // :32-34 and MAX_GIT_STDOUT's three literals at :62, all of them spawnSync
-  // bounds unassertable through the surface and all ledgered against
-  // BL-LEDGER-GIT-TIMEOUT-CONSTANTS (extended 2026-08-09,
-  // BL-MUTATION-LEDGERGIT-SITE-DRIFT). A seventh accepted-gap row means a new
-  // family, which needs its own backlog entry rather than a bumped number here.
-  ledgerGit: { equivalent: 6, "accepted-gap": 6 },
+  // parses at ledger-git.ts:66, :142 and :232, the twice-tested regex group at :259,
+  // the `+++ b/` fallthrough at :320, and headRepo's three-way collapse at :365
+  // -- and NO accepted-gap rows at all. The one former family of six (the spawn
+  // timeouts at :32-34 and MAX_GIT_STDOUT's three literals at :62) is CLOSED:
+  // the injectable spawn seam makes every bound observable and
+  // tests/scripts/ledgerGitSpawnSeam.test.ts kills all six
+  // (chore/guard-completeness-wave, BL-LEDGER-GIT-TIMEOUT-CONSTANTS).
+  // "accepted-gap" is absent rather than 0 because the reducer omits kinds with
+  // no rows. A new accepted-gap row means a new family, which needs its own
+  // backlog entry rather than a bumped number here.
+  ledgerGit: { equivalent: 6 },
   // Counted from the surface: count.ts carries NO blessed survivor at all. Its
   // floor is 1, so any row appearing here is a coverage regression to repair
   // rather than a number to update.
@@ -85,6 +99,25 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // fall-through continue, which reaches only comparisons a null key cannot
   // match). renderedTextHaystack: clean sweep, 17/17 killed after the
   // hardening rows.
+  // chore/guard-completeness-wave (2026-08-15). destructiveFileAnalysis: EIGHT
+  // reachability arguments — the begin-callback receiver test Rule 1 already rejects
+  // ahead of, four fixpoint loop bounds the break-on-no-growth condition makes
+  // unreachable, the candidate-declaration count that cannot be zero by construction,
+  // Rule 3's tag test whose only other identifier position is a type argument, the
+  // ordering comparison two distinct nodes cannot tie, and the candidate-walker
+  // parameter leg where widening CANDIDATES cannot widen CHECKED because declQualifies
+  // re-derives `.begin`-ness independently. Everything else the runs surfaced was killed
+  // by a fixture, or deleted as dead code.
+  //
+  // The eighth row arrived late and is worth the sentence: CI's whole-gate run found
+  // TWELVE unaccepted survivors that three SIGTERM-killed local runs never reached, all
+  // in code this branch added. Eleven were real. Nine of those never flip `ok` — they
+  // move the rejection from Rule 1 to the containment rule — so only this suite's
+  // reason-CLASS pinning could kill them, which is the argument for that discipline.
+  destructiveFileAnalysis: { equivalent: 8 },
+  // pgCronSmokes: a clean sweep, 14/14 killed on first enrolment. Empty is the honest
+  // declaration and a row appearing here later is a regression to explain.
+  pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
   // W-NEARMISS (2026-08-15). Both rows enrolled with an EMPTY ledger and both are
@@ -92,6 +125,31 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // explain, not a number to update.
   fieldNearMiss: {},
   rowScanOpener: {},
+  // Counted from the surface: 42 reachability / control-flow arguments and NO accepted
+  // gap. The triage ran 84 -> 54 -> 45 -> 44 -> 43 -> 42 survivors, repaying 42 of them
+  // with tests rather than blessing them. The last TWO came off because whole-diff review
+  // refuted their equivalence arguments with probes: R1's compared a marker width instead
+  // of an indent, and R2's assumed a one-token union forced identical digit runs, which
+  // SET tokenization does not (multiplicity is discarded). Both are now killed by the
+  // shapes those probes used. So a 43rd row is a coverage regression to argue rather than
+  // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
+  // first, needing its own backlog entry.
+  specLintNumerics: { equivalent: 50 },
+  // The interactive-scan surfaces, enrolled 2026-08-15. `tapTargetScan` carries
+  // NO blessed survivor: its whole body is one map over the shared core's
+  // verdicts, and the census suite kills its single mutant, so a row appearing
+  // here later is a coverage regression to repair rather than a number to bump.
+  tapTargetScan: {},
+  // The shared core is this arc's mutation-relevant surface: the in-scope
+  // predicate, the resolver and both token grammars live here, and three suites
+  // decide its verdicts. Its eleven blessed survivors are all ONE shape — a
+  // mutation whose only effect is on a value no consumer can distinguish: an
+  // empty string added to a token list nothing counts, a loop's off-the-end read
+  // of `undefined`, a 2px shift against a 24px gap, a consistent relabelling
+  // under a symmetric `min`. Across two rounds SIXTY-SEVEN other survivors were
+  // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
+  // repay rather than a number to bump.
+  interactiveScanCore: { equivalent: 11 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

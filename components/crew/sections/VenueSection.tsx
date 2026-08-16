@@ -76,7 +76,7 @@ type VenueSectionProps = {
   showId: string;
   /** Per-request tile ledger, threaded from _CrewShell. */
   ledger: TileRenderLedger;
-  cardReport?: CardReportContext;
+  cardReport?: CardReportContext | null;
 };
 
 /**
@@ -259,7 +259,19 @@ export function VenueSection({
       testId: "venue-wifi-ssid",
     });
     if (wifi.password) {
-      factRows.push({ k: "Wi-Fi password", v: wifi.password, testId: "venue-wifi-password" });
+      // The one row on a crew page that gets transcribed character by character
+      // into a phone's Wi-Fi dialog, often in a dim ballroom mid-task. `code`
+      // buys the slashed zero and tabular figures; the copy control is the only
+      // complete answer for the ambiguities no font feature fixes (`rn`/`m`,
+      // and a trailing period that IS part of the password). The SSID row above
+      // deliberately takes neither: it is picked from a visible network list.
+      factRows.push({
+        k: "Wi-Fi password",
+        v: wifi.password,
+        testId: "venue-wifi-password",
+        code: true,
+        copyLabel: "Copy the Wi-Fi password",
+      });
     }
     if (wifi.notes) {
       // Labeled "Internet notes", NOT "Crew Wi-Fi" (impeccable critique P1): four

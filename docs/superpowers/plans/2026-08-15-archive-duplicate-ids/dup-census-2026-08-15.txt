@@ -1,0 +1,276 @@
+# Duplicate-id census transcript — 2026-08-15, base fafa354ac
+
+## Pass 1 — the entry's own pipeline
+$ grep -oE "^#{2,3} (BL|DEF)-[A-Z0-9-]+" BACKLOG-archive.md | sed -E "s/^#+ //" | sort | uniq -d | wc -l
+35
+
+## Pass 3a — walker census, family opts (dup-census.mts)
+BACKLOG-archive.md: entries=369 dupIds=35
+  BL-RATE-LIMIT-SNAPSHOT-DURABILITY: lines 2582,2611
+  BL-LEDGER-MDAST-SHARED-HOME: lines 2623,2659
+  BL-AGENDA-PERLINK-COMPLETENESS: lines 2674,2708
+  BL-FITWITHINCLIP-CLIP-SCROLL-STALE: lines 2728,2770
+  BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP: lines 2817,2850
+  BL-IDENTITYLINK-LANDED-VS-REQUESTED: lines 2860,2893
+  BL-UNDO-SELECTIONS-RESET-AT-DROP: lines 2903,2935
+  BL-ADMIN-NOJS-LOADING-CONFLICT: lines 2984,2986
+  BL-MODAL-REALTIME-UPDATED-CUE: lines 3067,3075
+  BL-ONBOARDING-CAS-SOURCE-ANCHORS: lines 3085,3087
+  BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT: lines 3117,3119
+  BL-ADMIN-PARSEPANEL-ORPHANED: lines 3125,3127
+  BL-HELP-STRIP-COPYLINK-STALE: lines 3131,3133
+  BL-UNPUBLISH-TO-HELD: lines 3141,3143
+  BL-VERSION-AMBIGUOUS-V1-OVERRIDE: lines 3153,3155
+  BL-CI-STATIC-ENV-INJECTION: lines 3383,3387
+  BL-DANGLING-CITATIONS-RETIRED-WORKFLOW: lines 3399,3401
+  BL-MASTERSPEC-FINANCIALS-VOCAB: lines 3429,3431
+  BL-SOUND-REDIRECT-GUARD: lines 3439,3443
+  BL-CI-GITHUB-ENV-CROSS-STEP-STATE: lines 3453,3457
+  BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION: lines 3465,3469
+  BL-LEDGER-GUARD-MDAST-REWRITE: lines 3487,3491
+  BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE: lines 4870,4874
+  BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP: lines 4880,4884
+  BL-INVARIANT8-CLOSEOUT-ENFORCEMENT: lines 5117,5123
+  BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS: lines 5250,5254
+  BL-ATTENTION-MENU-PANEL-CLIP: lines 5266,5270
+  BL-PUBLISHED-TOGGLE-OVERLAY-CLIP: lines 5282,5286
+  BL-SHAREHUB-CONFIRM-NAMES-SHOW: lines 5294,5298
+  BL-SHAREHUB-OPEN-TIMER-LEAK: lines 5310,5314
+  BL-POPOVER-SHARED-RAF-COALESCER: lines 5324,5328
+  BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE: lines 5590,5602
+  BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE: lines 5617,5625
+  BL-KNOWN-SECTIONS-WALKER: lines 5639,5654
+  BL-NEEDS-ATTENTION-HOLDS-ROLLUP: lines 5973,5975
+BACKLOG.md: entries=58 dupIds=0
+DEFERRED-archive.md: entries=149 dupIds=2
+  USE-RAW-FULL-LIST-1: lines 1763,1905
+  CASP-2: lines 1807,1818
+DEFERRED.md: entries=19 dupIds=0
+
+## Pass 3b — walker census, scan levels [2,3] (dup-census-widened.mts)
+BACKLOG-archive.md: entries=369 dupIds=35
+  BL-RATE-LIMIT-SNAPSHOT-DURABILITY: lines 2582,2611
+  BL-LEDGER-MDAST-SHARED-HOME: lines 2623,2659
+  BL-AGENDA-PERLINK-COMPLETENESS: lines 2674,2708
+  BL-FITWITHINCLIP-CLIP-SCROLL-STALE: lines 2728,2770
+  BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP: lines 2817,2850
+  BL-IDENTITYLINK-LANDED-VS-REQUESTED: lines 2860,2893
+  BL-UNDO-SELECTIONS-RESET-AT-DROP: lines 2903,2935
+  BL-ADMIN-NOJS-LOADING-CONFLICT: lines 2984,2986
+  BL-MODAL-REALTIME-UPDATED-CUE: lines 3067,3075
+  BL-ONBOARDING-CAS-SOURCE-ANCHORS: lines 3085,3087
+  BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT: lines 3117,3119
+  BL-ADMIN-PARSEPANEL-ORPHANED: lines 3125,3127
+  BL-HELP-STRIP-COPYLINK-STALE: lines 3131,3133
+  BL-UNPUBLISH-TO-HELD: lines 3141,3143
+  BL-VERSION-AMBIGUOUS-V1-OVERRIDE: lines 3153,3155
+  BL-CI-STATIC-ENV-INJECTION: lines 3383,3387
+  BL-DANGLING-CITATIONS-RETIRED-WORKFLOW: lines 3399,3401
+  BL-MASTERSPEC-FINANCIALS-VOCAB: lines 3429,3431
+  BL-SOUND-REDIRECT-GUARD: lines 3439,3443
+  BL-CI-GITHUB-ENV-CROSS-STEP-STATE: lines 3453,3457
+  BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION: lines 3465,3469
+  BL-LEDGER-GUARD-MDAST-REWRITE: lines 3487,3491
+  BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE: lines 4870,4874
+  BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP: lines 4880,4884
+  BL-INVARIANT8-CLOSEOUT-ENFORCEMENT: lines 5117,5123
+  BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS: lines 5250,5254
+  BL-ATTENTION-MENU-PANEL-CLIP: lines 5266,5270
+  BL-PUBLISHED-TOGGLE-OVERLAY-CLIP: lines 5282,5286
+  BL-SHAREHUB-CONFIRM-NAMES-SHOW: lines 5294,5298
+  BL-SHAREHUB-OPEN-TIMER-LEAK: lines 5310,5314
+  BL-POPOVER-SHARED-RAF-COALESCER: lines 5324,5328
+  BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE: lines 5590,5602
+  BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE: lines 5617,5625
+  BL-KNOWN-SECTIONS-WALKER: lines 5639,5654
+  BL-NEEDS-ATTENTION-HOLDS-ROLLUP: lines 5973,5975
+BACKLOG.md: entries=58 dupIds=0
+DEFERRED-archive.md: entries=159 dupIds=7
+  NEWTAB-GUARD-UNDECIDABLE-2: lines 380,412
+  DESTRUCT-ARM-ANNOUNCE-1: lines 448,470
+  PSQL-GUARD-RECALL-RESIDUAL: lines 478,507
+  PSQL-STARTUP-FILE-NO-X-CLASSWIDE: lines 541,587
+  CI: lines 1218,1314
+  USE-RAW-FULL-LIST-1: lines 1763,1905
+  CASP-2: lines 1807,1818
+DEFERRED.md: entries=19 dupIds=0
+
+## Pass 2+4 — per-pair terminal/original classification (pair-table.mts)
+## BACKLOG-archive.md
+| BL-RATE-LIMIT-SNAPSHOT-DURABILITY | 2582 (terminal) | 2611 (original) | keep first |
+| BL-LEDGER-MDAST-SHARED-HOME | 2623 (terminal) | 2659 (original) | keep first |
+| BL-AGENDA-PERLINK-COMPLETENESS | 2674 (terminal) | 2708 (original) | keep first |
+| BL-FITWITHINCLIP-CLIP-SCROLL-STALE | 2728 (terminal) | 2770 (original) | keep first |
+| BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP | 2817 (terminal) | 2850 (original) | keep first |
+| BL-IDENTITYLINK-LANDED-VS-REQUESTED | 2860 (terminal) | 2893 (original) | keep first |
+| BL-UNDO-SELECTIONS-RESET-AT-DROP | 2903 (terminal) | 2935 (original) | keep first |
+| BL-ADMIN-NOJS-LOADING-CONFLICT | 2984 (terminal) | 2986 (original) | keep first |
+| BL-MODAL-REALTIME-UPDATED-CUE | 3067 (terminal) | 3075 (original) | keep first |
+| BL-ONBOARDING-CAS-SOURCE-ANCHORS | 3085 (terminal) | 3087 (original) | keep first |
+| BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT | 3117 (terminal) | 3119 (original) | keep first |
+| BL-ADMIN-PARSEPANEL-ORPHANED | 3125 (terminal) | 3127 (original) | keep first |
+| BL-HELP-STRIP-COPYLINK-STALE | 3131 (terminal) | 3133 (original) | keep first |
+| BL-UNPUBLISH-TO-HELD | 3141 (terminal) | 3143 (original) | keep first |
+| BL-VERSION-AMBIGUOUS-V1-OVERRIDE | 3153 (terminal) | 3155 (original) | keep first |
+| BL-CI-STATIC-ENV-INJECTION | 3383 (terminal) | 3387 (original) | keep first |
+| BL-DANGLING-CITATIONS-RETIRED-WORKFLOW | 3399 (terminal) | 3401 (original) | keep first |
+| BL-MASTERSPEC-FINANCIALS-VOCAB | 3429 (terminal) | 3431 (original) | keep first |
+| BL-SOUND-REDIRECT-GUARD | 3439 (terminal) | 3443 (original) | keep first |
+| BL-CI-GITHUB-ENV-CROSS-STEP-STATE | 3453 (terminal) | 3457 (original) | keep first |
+| BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION | 3465 (terminal) | 3469 (original) | keep first |
+| BL-LEDGER-GUARD-MDAST-REWRITE | 3487 (terminal) | 3491 (original) | keep first |
+| BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE | 4870 (terminal) | 4874 (original) | keep first |
+| BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP | 4880 (terminal) | 4884 (original) | keep first |
+| BL-INVARIANT8-CLOSEOUT-ENFORCEMENT | 5117 (original) | 5123 (original) | keep ?? |
+    A: ## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a closeout
+    B: ## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a §12 closeout
+| BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS | 5250 (terminal) | 5254 (original) | keep first |
+| BL-ATTENTION-MENU-PANEL-CLIP | 5266 (terminal) | 5270 (original) | keep first |
+| BL-PUBLISHED-TOGGLE-OVERLAY-CLIP | 5282 (terminal) | 5286 (original) | keep first |
+| BL-SHAREHUB-CONFIRM-NAMES-SHOW | 5294 (terminal) | 5298 (original) | keep first |
+| BL-SHAREHUB-OPEN-TIMER-LEAK | 5310 (terminal) | 5314 (original) | keep first |
+| BL-POPOVER-SHARED-RAF-COALESCER | 5324 (terminal) | 5328 (original) | keep first |
+| BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE | 5590 (terminal) | 5602 (original) | keep first |
+| BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE | 5617 (terminal) | 5625 (original) | keep first |
+| BL-KNOWN-SECTIONS-WALKER | 5639 (terminal) | 5654 (original) | keep first |
+| BL-NEEDS-ATTENTION-HOLDS-ROLLUP | 5973 (terminal) | 5975 (original) | keep first |
+## DEFERRED-archive.md
+| NEWTAB-GUARD-UNDECIDABLE-2 | 380 (terminal) | 412 (original) | keep first |
+| DESTRUCT-ARM-ANNOUNCE-1 | 448 (terminal) | 470 (original) | keep first |
+| PSQL-GUARD-RECALL-RESIDUAL | 478 (terminal) | 507 (original) | keep first |
+| PSQL-STARTUP-FILE-NO-X-CLASSWIDE | 541 (terminal) | 587 (original) | keep first |
+| USE-RAW-FULL-LIST-1 | 1763 (original) | 1905 (terminal) | keep second |
+| CASP-2 | 1807 (terminal) | 1818 (original) | keep first |
+
+## Pass 2 — pairwise body similarity (pair-similarity.py)
+BL-ADMIN-NOJS-LOADING-CONFLICT: DIFFER ratio=0.0466 (levels ##/###, lines 2984/2986)
+BL-ADMIN-PARSEPANEL-ORPHANED: DIFFER ratio=0.1236 (levels ##/##, lines 3125/3127)
+BL-AGENDA-PERLINK-COMPLETENESS: DIFFER ratio=0.0506 (levels ##/###, lines 2674/2708)
+BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE: DIFFER ratio=0.0583 (levels ##/##, lines 4870/4874)
+BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP: DIFFER ratio=0.1121 (levels ##/##, lines 4880/4884)
+BL-ATTENTION-MENU-PANEL-CLIP: DIFFER ratio=0.0726 (levels ##/###, lines 5266/5270)
+BL-CI-GITHUB-ENV-CROSS-STEP-STATE: DIFFER ratio=0.0709 (levels ##/##, lines 3453/3457)
+BL-CI-STATIC-ENV-INJECTION: DIFFER ratio=0.0491 (levels ##/##, lines 3383/3387)
+BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE: DIFFER ratio=0.0436 (levels ##/###, lines 5590/5602)
+BL-DANGLING-CITATIONS-RETIRED-WORKFLOW: DIFFER ratio=0.0566 (levels ##/###, lines 3399/3401)
+BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP: DIFFER ratio=0.0612 (levels ##/##, lines 2817/2850)
+BL-FITWITHINCLIP-CLIP-SCROLL-STALE: DIFFER ratio=0.1218 (levels ##/##, lines 2728/2770)
+BL-HELP-STRIP-COPYLINK-STALE: DIFFER ratio=0.1038 (levels ##/###, lines 3131/3133)
+BL-IDENTITYLINK-LANDED-VS-REQUESTED: DIFFER ratio=0.0430 (levels ##/##, lines 2860/2893)
+BL-INVARIANT8-CLOSEOUT-ENFORCEMENT: DIFFER ratio=0.1033 (levels ##/##, lines 5117/5123)
+BL-KNOWN-SECTIONS-WALKER: DIFFER ratio=0.0708 (levels ##/##, lines 5639/5654)
+BL-LEDGER-GUARD-MDAST-REWRITE: DIFFER ratio=0.0393 (levels ##/##, lines 3487/3491)
+BL-LEDGER-MDAST-SHARED-HOME: DIFFER ratio=0.0767 (levels ##/##, lines 2623/2659)
+BL-MASTERSPEC-FINANCIALS-VOCAB: DIFFER ratio=0.0457 (levels ##/##, lines 3429/3431)
+BL-MODAL-REALTIME-UPDATED-CUE: DIFFER ratio=0.0754 (levels ##/##, lines 3067/3075)
+BL-NEEDS-ATTENTION-HOLDS-ROLLUP: DIFFER ratio=0.0616 (levels ##/##, lines 5973/5975)
+BL-ONBOARDING-CAS-SOURCE-ANCHORS: DIFFER ratio=0.0512 (levels ##/###, lines 3085/3087)
+BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE: DIFFER ratio=0.0544 (levels ##/##, lines 5617/5625)
+BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION: DIFFER ratio=0.0759 (levels ##/###, lines 3465/3469)
+BL-POPOVER-SHARED-RAF-COALESCER: DIFFER ratio=0.1133 (levels ##/###, lines 5324/5328)
+BL-PUBLISHED-TOGGLE-OVERLAY-CLIP: DIFFER ratio=0.0988 (levels ##/###, lines 5282/5286)
+BL-RATE-LIMIT-SNAPSHOT-DURABILITY: DIFFER ratio=0.0725 (levels ##/###, lines 2582/2611)
+BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT: DIFFER ratio=0.0970 (levels ##/##, lines 3117/3119)
+BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS: DIFFER ratio=0.0656 (levels ##/###, lines 5250/5254)
+BL-SHAREHUB-CONFIRM-NAMES-SHOW: DIFFER ratio=0.0675 (levels ##/###, lines 5294/5298)
+BL-SHAREHUB-OPEN-TIMER-LEAK: DIFFER ratio=0.0991 (levels ##/###, lines 5310/5314)
+BL-SOUND-REDIRECT-GUARD: DIFFER ratio=0.0373 (levels ##/##, lines 3439/3443)
+BL-UNDO-SELECTIONS-RESET-AT-DROP: DIFFER ratio=0.0431 (levels ##/##, lines 2903/2935)
+BL-UNPUBLISH-TO-HELD: DIFFER ratio=0.0400 (levels ##/##, lines 3141/3143)
+BL-VERSION-AMBIGUOUS-V1-OVERRIDE: DIFFER ratio=0.0257 (levels ##/##, lines 3153/3155)
+TOTALS: verbatim=0 near=0 differ=35 of 35
+
+## Addendum 2026-08-15 (spec R5 F1) — all-depth census (dup-census-widened.mts at levels [1..6])
+BACKLOG-archive.md: entries=371 dupIds=37
+  BL-RATE-LIMIT-SNAPSHOT-DURABILITY: lines 2582,2611
+  BL-LEDGER-MDAST-SHARED-HOME: lines 2623,2659
+  BL-AGENDA-PERLINK-COMPLETENESS: lines 2674,2708
+  BL-FITWITHINCLIP-CLIP-SCROLL-STALE: lines 2728,2770
+  BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP: lines 2817,2850
+  BL-IDENTITYLINK-LANDED-VS-REQUESTED: lines 2860,2893
+  BL-UNDO-SELECTIONS-RESET-AT-DROP: lines 2903,2935
+  BL-ADMIN-NOJS-LOADING-CONFLICT: lines 2984,2986
+  BL-MODAL-REALTIME-UPDATED-CUE: lines 3067,3075
+  BL-ONBOARDING-CAS-SOURCE-ANCHORS: lines 3085,3087
+  BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT: lines 3117,3119
+  BL-ADMIN-PARSEPANEL-ORPHANED: lines 3125,3127
+  BL-HELP-STRIP-COPYLINK-STALE: lines 3131,3133
+  BL-UNPUBLISH-TO-HELD: lines 3141,3143
+  BL-VERSION-AMBIGUOUS-V1-OVERRIDE: lines 3153,3155
+  BL-CI-STATIC-ENV-INJECTION: lines 3383,3387
+  BL-DANGLING-CITATIONS-RETIRED-WORKFLOW: lines 3399,3401
+  BL-MASTERSPEC-FINANCIALS-VOCAB: lines 3429,3431
+  BL-SOUND-REDIRECT-GUARD: lines 3439,3443
+  BL-CI-GITHUB-ENV-CROSS-STEP-STATE: lines 3453,3457
+  BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION: lines 3465,3469
+  BL-LEDGER-GUARD-MDAST-REWRITE: lines 3487,3491
+  BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE: lines 4870,4874
+  BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP: lines 4880,4884
+  BL-INVARIANT8-CLOSEOUT-ENFORCEMENT: lines 5117,5123
+  BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS: lines 5250,5254
+  BL-ATTENTION-MENU-PANEL-CLIP: lines 5266,5270
+  BL-PUBLISHED-TOGGLE-OVERLAY-CLIP: lines 5282,5286
+  BL-SHAREHUB-CONFIRM-NAMES-SHOW: lines 5294,5298
+  BL-SHAREHUB-OPEN-TIMER-LEAK: lines 5310,5314
+  BL-POPOVER-SHARED-RAF-COALESCER: lines 5324,5328
+  BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK: lines 5481,5488
+  BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE: lines 5590,5602
+  BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE: lines 5617,5625
+  BL-KNOWN-SECTIONS-WALKER: lines 5639,5654
+  BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND: lines 5664,5688
+  BL-NEEDS-ATTENTION-HOLDS-ROLLUP: lines 5973,5975
+BACKLOG.md: entries=58 dupIds=0
+DEFERRED-archive.md: entries=159 dupIds=7
+  NEWTAB-GUARD-UNDECIDABLE-2: lines 380,412
+  DESTRUCT-ARM-ANNOUNCE-1: lines 448,470
+  PSQL-GUARD-RECALL-RESIDUAL: lines 478,507
+  PSQL-STARTUP-FILE-NO-X-CLASSWIDE: lines 541,587
+  CI: lines 1218,1314
+  USE-RAW-FULL-LIST-1: lines 1763,1905
+  CASP-2: lines 1807,1818
+DEFERRED.md: entries=20 dupIds=0
+
+## Addendum — per-pair classification incl. the two ###/#### pairs (pair-table.mts)
+| NEWTAB-GUARD-UNDECIDABLE-2 | 380 (terminal) | 412 (original) | keep first |
+| DESTRUCT-ARM-ANNOUNCE-1 | 448 (terminal) | 470 (original) | keep first |
+| PSQL-GUARD-RECALL-RESIDUAL | 478 (terminal) | 507 (original) | keep first |
+| PSQL-STARTUP-FILE-NO-X-CLASSWIDE | 541 (terminal) | 587 (original) | keep first |
+| USE-RAW-FULL-LIST-1 | 1763 (original) | 1905 (terminal) | keep second |
+| CASP-2 | 1807 (terminal) | 1818 (original) | keep first |
+
+Note: pair-table prints 'keep ??' for BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK because BOTH headings carry a terminal word (the demoted #### original's own historic '✅ FULLY CLOSED' heading is the very shape BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND was filed about). Convention decides: the ### record at 5481 is the archive-time terminal record and keeps the heading; the #### original at 5488 demotes. Ratified in spec §2.1.
+
+## Addendum (plan R3) — survivor-verifier authored and probed at plan time
+$ pnpm exec tsx docs/superpowers/plans/2026-08-15-archive-duplicate-ids/gen-survivor-expectations.mts
+wrote 43 rows
+$ pnpm exec tsx docs/superpowers/plans/2026-08-15-archive-duplicate-ids/verify-survivors.mts   # PRE-REPAIR: the A1 step-6 red
+CASP-2: demoted text still a heading (1) in DEFERRED-archive.md
+CASP-2: demoted text not found as a bold line in DEFERRED-archive.md
+FAIL: 86 survivor-verification failures
+# gate mutant: first row direction swapped in a scratch copy -> exit 1, failures named by id (BL-RATE-LIMIT-SNAPSHOT-DURABILITY x2); expectations restored byte-identical after the probe
+
+## Addendum (plan R4 F1) — gate mutant re-run WITH a green baseline
+# A scratch tree was built by mechanically applying the ratified demotion rule (all 43
+# demotions applied cleanly — end-to-end pre-validation of the repair rule itself):
+# baseline exit 0 -> "OK: all 43 pairs verified"
+# then the first row direction swapped in the scratch expectations only:
+# mutant exit 1, exactly the swapped id named (3 row failures):
+#   BL-RATE-LIMIT-SNAPSHOT-DURABILITY: survivor heading count 0 (want 1) in BACKLOG-archive.md
+#   BL-RATE-LIMIT-SNAPSHOT-DURABILITY: demoted text still a heading (1) in BACKLOG-archive.md
+#   BL-RATE-LIMIT-SNAPSHOT-DURABILITY: demoted text not found as a bold line in BACKLOG-archive.md
+# The discrimination is attributable to the reversal alone: identical tree, one JSON row changed.
+
+## Addendum (post-merge reconciliation, 2026-08-15) — census re-run on the merged tree
+# origin/main merged (base advanced past #800): the all-depth census returns the SAME 43
+# ids; only BACKLOG-archive line numbers shifted. The generator line table was refreshed
+# from the fresh census and re-run: survivor-expectations.json regenerated BYTE-IDENTICAL
+# (text-keyed rows are drift-proof by design). NOT_A_CITATION rows added for the BL-X
+# plant examples in the spec and plan (referential-integrity guard, full docs suite now
+# green: 22 files / 515 tests).
+
+## Note (2026-08-15, post-PR): the two walker-importing census scripts named in the pass
+# headers above (dup-census.mts, dup-census-widened.mts) were RELOCATED to one flag-switched
+# script, scripts/ledger-dup-census.mts (family mode / --all-depth), because the
+# sheetIconLinkContainment tests-import boundary allows only tests/ and scripts/ to import
+# from tests/ (CI caught the violation on PR #805). Both modes re-verified: family 35+2,
+# all-depth 37+7 dup ids — identical to the recorded passes.

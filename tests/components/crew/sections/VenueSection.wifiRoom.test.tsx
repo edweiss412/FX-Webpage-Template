@@ -167,6 +167,47 @@ describe("Wi-Fi split rows", () => {
     expect(container.querySelector('[data-testid="venue-wifi-notes"]')).toBeNull();
   });
 
+  // -------------------------------------------------------------------------
+  // Transcription affordance at the real call site
+  // (docs/superpowers/specs/2026-08-10-wifi-password-legibility.md AC-1/AC-2)
+  // -------------------------------------------------------------------------
+
+  test("the password row carries code-value and a copy control; the SSID row carries neither", () => {
+    const container = renderVenue(withInternet(SPLIT_INTERNET));
+    const password = container.querySelector('[data-testid="venue-wifi-password"]')!;
+    const ssid = container.querySelector('[data-testid="venue-wifi-ssid"]')!;
+
+    // Scoped to each row's own value span, not the card: the whole point is
+    // that the flag is per-row.
+    const valueSpanOf = (row: Element) =>
+      row.querySelector("dd")!.querySelector("span:not([role='log'])")!;
+
+    expect(valueSpanOf(password).getAttribute("class")).toContain("code-value");
+    expect(password.querySelector("button")?.getAttribute("aria-label")).toBe(
+      "Copy the Wi-Fi password",
+    );
+
+    // An SSID is picked from the phone's visible network list, never typed
+    // character by character, so the transcription rationale stops at this row
+    // (spec §1.1).
+    expect(valueSpanOf(ssid).getAttribute("class")).not.toContain("code-value");
+    expect(ssid.querySelector("button")).toBeNull();
+  });
+
+  test("a sentinel password takes the fail-soft raw path, keeping every character (spec §7)", () => {
+    // `N/A` is rejected by the pre-FactRows sentinel check, which returns the
+    // WHOLE cell to the raw fallback rather than committing to a split and then
+    // dropping the row — so no password row, and no lost text.
+    const cell = "SSID: Hyatt_Meeting Password: N/A";
+    const container = renderVenue(withInternet(cell));
+
+    expect(container.querySelector('[data-testid="venue-wifi-password"]')).toBeNull();
+    expect(container.querySelector('[data-testid="venue-wifi-ssid"]')).toBeNull();
+    expect(valueOf(rawWifiRow(container))).toBe(cell);
+    // No copy control anywhere: the raw row never opted in.
+    expect(container.querySelector('[data-testid="venue-wifi-copy-log"]')).toBeNull();
+  });
+
   test("an unsplittable value renders the pre-split markup byte for byte", () => {
     // Captured from the component BEFORE the split landed, with this exact
     // fixture. Equality here is the whole fail-soft contract: the raw row keeps

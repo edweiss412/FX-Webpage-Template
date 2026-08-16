@@ -70,7 +70,10 @@ describe("M11-A-D2: /help skip-link (WCAG 2.4.1)", () => {
   it("skip link is visually hidden until focused (sr-only pattern)", async () => {
     await renderLayout();
     const skip = screen.getByRole("link", { name: /skip to content/i });
-    expect(skip.className).toContain("sr-only");
-    expect(skip.className).toContain("focus:not-sr-only");
+    // classList, not a substring check: `sr-only` is a proper substring of
+    // `focus:not-sr-only`, so the substring form passes on an element that
+    // carries only the focus variant — it never pinned the base token.
+    expect(skip.classList.contains("sr-only")).toBe(true);
+    expect(skip.classList.contains("focus:not-sr-only")).toBe(true);
   });
 });

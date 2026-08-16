@@ -1,0 +1,316 @@
+<title>Step 3 Tap Decisions</title>
+<style>
+  :root {
+    --bg: #f7f6f4;
+    --surface: #ffffff;
+    --sunken: #efedea;
+    --border: #ddd9d3;
+    --text: #26221c;
+    --subtle: #6b655c;
+    --faint: #98917f;
+    --accent: #2f6fb5;
+    --hit: rgba(47, 111, 181, 0.18);
+    --hit-line: rgba(47, 111, 181, 0.55);
+    --clash: rgba(196, 74, 54, 0.28);
+    --clash-line: #c44a36;
+    --good: #2e7d4f;
+    --chip: #f3f1ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17150f;
+      --surface: #211e17;
+      --sunken: #2b2820;
+      --border: #3a362c;
+      --text: #ece7dd;
+      --subtle: #a49c8d;
+      --faint: #7a7263;
+      --accent: #6ba3dd;
+      --hit: rgba(107, 163, 221, 0.22);
+      --hit-line: rgba(107, 163, 221, 0.6);
+      --clash: rgba(224, 106, 85, 0.3);
+      --clash-line: #e06a55;
+      --good: #5fbf8a;
+      --chip: #2e2b22;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17150f;
+    --surface: #211e17;
+    --sunken: #2b2820;
+    --border: #3a362c;
+    --text: #ece7dd;
+    --subtle: #a49c8d;
+    --faint: #7a7263;
+    --accent: #6ba3dd;
+    --hit: rgba(107, 163, 221, 0.22);
+    --hit-line: rgba(107, 163, 221, 0.6);
+    --clash: rgba(224, 106, 85, 0.3);
+    --clash-line: #e06a55;
+    --good: #5fbf8a;
+    --chip: #2e2b22;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    margin: 0;
+    padding: 40px 48px 80px;
+  }
+  main { max-width: 1560px; margin: 0 auto; }
+  h1 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lede { color: var(--subtle); max-width: 68ch; margin: 0 0 40px; }
+  section { margin: 0 0 56px; }
+  h2 { font-size: 19px; margin: 0 0 4px; }
+  .qsub { color: var(--subtle); max-width: 78ch; margin: 0 0 18px; }
+  .options { display: flex; gap: 20px; align-items: stretch; flex-wrap: wrap; }
+  .opt {
+    flex: 1 1 320px; max-width: 500px;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+    padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .opt h3 { margin: 0; font-size: 15px; }
+  .opt h3 .tag { color: var(--good); font-weight: 600; font-size: 12px; margin-left: 6px; }
+  .stage { background: var(--sunken); border-radius: 8px; padding: 18px; flex: 1; }
+  .note { color: var(--subtle); font-size: 13px; margin: 0; }
+  .legend { display: flex; gap: 18px; margin: 14px 0 0; font-size: 13px; color: var(--subtle); flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 22px; height: 13px; border-radius: 3px; display: inline-block; }
+  .swatch.hit { background: var(--hit); border: 1px dashed var(--hit-line); }
+  .swatch.clash { background: var(--clash); border: 1px solid var(--clash-line); }
+
+  /* ---- Q1: sheet-title card facsimile ---- */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px; position: relative; overflow: hidden;
+  }
+  .titleline { position: relative; display: inline-block; }
+  .title-text {
+    font-size: 16px; font-weight: 600; position: relative; z-index: 2;
+    text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--faint);
+  }
+  .metaline { position: relative; z-index: 2; margin-top: 4px; font-size: 13px; color: var(--subtle); }
+  .hitbox {
+    position: absolute; left: -8px; right: -8px; z-index: 1;
+    background: var(--hit); border: 1px dashed var(--hit-line); border-radius: 4px;
+    height: 44.8px;
+  }
+  .hitbox.sym { top: -10px; }      /* symmetric: 10px above, 10px below a ~24.8px line */
+  .hitbox.up { top: -20px; }       /* one-directional: 20px above, flush at text bottom */
+  .clashband {
+    position: absolute; left: -8px; right: -8px; z-index: 3; height: 8px;
+    background: var(--clash); border-left: 2px solid var(--clash-line); border-right: 2px solid var(--clash-line);
+  }
+
+  /* ---- Q2: transport grid facsimile ---- */
+  .tgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .tcell {
+    background: var(--surface); border-radius: 6px; padding: 10px 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+    border: 1px solid var(--border);
+  }
+  .tcell .eyebrow { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+  .tcell .body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  .tcell .line { font-size: 11px; color: var(--subtle); }
+  .tcell .name { font-size: 12px; font-weight: 500; color: var(--text); }
+  .h160 { height: 160px; }
+  .hshort { height: 60px; }
+  .htall { height: 160px; }
+
+  /* ---- Q3: contact cell facsimile ---- */
+  .ccell {
+    width: 240px; margin: 0 auto; background: var(--surface); border-radius: 6px;
+    border: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column;
+    align-items: center; text-align: center;
+  }
+  .ccell .eyebrow { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
+  .crow {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    font-size: 11px; color: var(--subtle); width: 100%;
+  }
+  .crow.name { font-size: 12px; font-weight: 500; color: var(--text); }
+  .tapzone {
+    min-height: 44px; display: flex; align-items: center; justify-content: center; width: 100%;
+    background: var(--hit); border: 1px dashed var(--hit-line); border-radius: 4px;
+  }
+  .chiprow {
+    min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; background: var(--chip); border: 1px solid var(--border); border-radius: 6px;
+    font-size: 11px; color: var(--text);
+  }
+  .gap6 { height: 6px; }
+  .gap10 { height: 10px; }
+  .gap2 { height: 2px; }
+  .avatar {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff;
+    font-size: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600;
+  }
+  .glyph { opacity: 0.65; }
+  .measure { font-size: 11px; color: var(--clash-line); font-weight: 600; }
+</style>
+
+<main>
+  <h1>Step 3 Tap Decisions</h1>
+  <p class="lede">Three small layout questions on the admin wizard's review screen (Step&nbsp;3), all fallout
+  from making tap targets finger-sized. Each shows the current state and the candidate change, drawn to the
+  real proportions. Blue dashed boxes are the invisible tap areas a finger actually hits.</p>
+  <div class="legend">
+    <span><span class="swatch hit"></span> invisible tap area</span>
+    <span><span class="swatch clash"></span> problem zone</span>
+  </div>
+
+  <section>
+    <h2>1 — The sheet-title link's tap area hangs over the text below it</h2>
+    <p class="qsub">The title link opens Google Sheets in a new tab. Its 44.8px tap area is centered on the
+    title, so ~8px of it covers the top of the info line underneath — a tap on that line's upper half opens
+    Sheets instead of doing nothing. The fix moves the extra tap area upward into the card's empty padding,
+    leaving the info line alone.</p>
+    <div class="options">
+      <div class="opt">
+        <h3>Today <span class="tag" style="color:var(--clash-line)">8px overlap</span></h3>
+        <div class="stage">
+          <div class="card" style="padding-top:28px">
+            <div class="titleline">
+              <span class="hitbox sym"></span>
+              <span class="title-text">II – East Coast – Marriott Ballroom ↗</span>
+              <span class="clashband" style="bottom:-12px"></span>
+            </div>
+            <div class="metaline">Modified Aug 12 · 6 tabs · matched crew: 14</div>
+          </div>
+        </div>
+        <p class="note">Tap area extends 10px above and 10px below the title. The red band is where it sits
+        on top of the first ~8px of the info line — which tap "wins" there depends on where your finger lands.</p>
+      </div>
+      <div class="opt">
+        <h3>Option A — shift the tap area upward <span class="tag">recommended</span></h3>
+        <div class="stage">
+          <div class="card" style="padding-top:28px">
+            <div class="titleline">
+              <span class="hitbox up"></span>
+              <span class="title-text">II – East Coast – Marriott Ballroom ↗</span>
+            </div>
+            <div class="metaline">Modified Aug 12 · 6 tabs · matched crew: 14</div>
+          </div>
+        </div>
+        <p class="note">Same 44.8px total; all the extra sits above the title, inside the card's own
+        20px padding. The info line is fully outside the tap area. Nothing moves visually.</p>
+      </div>
+      <div class="opt">
+        <h3>Option B — leave it, note the limit</h3>
+        <div class="stage">
+          <div class="card" style="padding-top:28px">
+            <div class="titleline">
+              <span class="hitbox sym"></span>
+              <span class="title-text">II – East Coast – Marriott Ballroom ↗</span>
+              <span class="clashband" style="bottom:-12px"></span>
+            </div>
+            <div class="metaline">Modified Aug 12 · 6 tabs · matched crew: 14</div>
+          </div>
+        </div>
+        <p class="note">Accept the overlap (the line under it isn't tappable anyway, so a mis-tap opens
+        Sheets rather than doing something wrong) and record the decision. No code change.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 — Short transport cells stretch to match the tallest one</h2>
+    <p class="qsub">Making the Driver cell's phone + email finger-sized grew it to ~160px. The Vehicle and
+    Parking cells sit in the same grid row and stretch to match — ~34px of content floating in a 160px
+    panel that reads as broken. Each contact cell also adds ~54px of scrolling on a phone.</p>
+    <div class="options">
+      <div class="opt">
+        <h3>Today <span class="tag" style="color:var(--clash-line)">stretched</span></h3>
+        <div class="stage">
+          <div class="tgrid">
+            <div class="tcell h160"><span class="eyebrow">Driver</span><div class="body"><span class="name">Marcus Webb</span><span class="line">📞 (555) 014-2210</span><span class="line">✉ marcus@fxav.co</span></div></div>
+            <div class="tcell h160"><span class="eyebrow">Vehicle</span><div class="body"><span class="line">Sprinter · ABC-1042</span></div></div>
+            <div class="tcell h160"><span class="eyebrow">Parking</span><div class="body"><span class="line">Dock B, rear</span></div></div>
+          </div>
+        </div>
+        <p class="note">One line of text centered in 160px of panel, twice.</p>
+      </div>
+      <div class="opt">
+        <h3>Option A — short cells stay short <span class="tag">recommended</span></h3>
+        <div class="stage">
+          <div class="tgrid" style="align-items:start">
+            <div class="tcell htall"><span class="eyebrow">Driver</span><div class="body"><span class="name">Marcus Webb</span><span class="line">📞 (555) 014-2210</span><span class="line">✉ marcus@fxav.co</span></div></div>
+            <div class="tcell hshort"><span class="eyebrow">Vehicle</span><div class="body"><span class="line">Sprinter · ABC-1042</span></div></div>
+            <div class="tcell hshort"><span class="eyebrow">Parking</span><div class="body"><span class="line">Dock B, rear</span></div></div>
+          </div>
+        </div>
+        <p class="note">Each cell is as tall as its content. Ragged bottom edge, but every panel
+        looks intentional and the page gets shorter.</p>
+      </div>
+      <div class="opt">
+        <h3>Option B — uniform row, made deliberate</h3>
+        <div class="stage">
+          <div class="tgrid">
+            <div class="tcell h160"><span class="eyebrow">Driver</span><div class="body"><span class="name">Marcus Webb</span><span class="line">📞 (555) 014-2210</span><span class="line">✉ marcus@fxav.co</span></div></div>
+            <div class="tcell h160"><span class="eyebrow">Vehicle</span><div class="body"><span class="line">Sprinter · ABC-1042</span></div></div>
+            <div class="tcell h160"><span class="eyebrow">Parking</span><div class="body"><span class="line">Dock B, rear</span></div></div>
+          </div>
+        </div>
+        <p class="note">Keep the uniform row but pin it with an explicit shared minimum height, so the
+        matching is a stated choice rather than a grid accident. Looks the same as today.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3 — Two finger-sized contact links, 6px apart, invisible</h2>
+    <p class="qsub">The Driver cell's phone and email are each a full 44px tap target now — but they still
+    look like two small text lines. The two big invisible boxes sit 6px apart (a mis-tap dials the driver
+    mid-show instead of emailing), and the dead space inside them makes the name float away from its own
+    phone number. Separately, these links show no sign they're tappable until you hover — which phones
+    can't do.</p>
+    <div class="options">
+      <div class="opt">
+        <h3>Today <span class="tag" style="color:var(--clash-line)">6px apart, invisible</span></h3>
+        <div class="stage">
+          <div class="ccell">
+            <span class="eyebrow">Driver</span>
+            <div class="crow name"><span class="avatar">MW</span> Marcus Webb</div>
+            <div class="gap6"></div>
+            <div class="tapzone"><span class="crow"><span class="glyph">📞</span> (555) 014-2210</span></div>
+            <div class="gap6"></div>
+            <div class="tapzone"><span class="crow"><span class="glyph">✉</span> marcus@fxav.co</span></div>
+          </div>
+        </div>
+        <p class="note">Blue boxes shown for illustration — on the real page they're invisible. 44px of
+        air that looks exactly like static text.</p>
+      </div>
+      <div class="opt">
+        <h3>Option A — visible chip rows <span class="tag">recommended</span></h3>
+        <div class="stage">
+          <div class="ccell">
+            <span class="eyebrow">Driver</span>
+            <div class="crow name"><span class="avatar">MW</span> Marcus Webb</div>
+            <div class="gap6"></div>
+            <div class="chiprow"><span class="glyph">📞</span> (555) 014-2210</div>
+            <div class="gap10"></div>
+            <div class="chiprow"><span class="glyph">✉</span> marcus@fxav.co</div>
+          </div>
+        </div>
+        <p class="note">Each link becomes a full-width subtle chip: the 44px reads as a button-like row,
+        the two targets get visible edges and a wider gap between them, and "this is tappable" no longer
+        depends on hover.</p>
+      </div>
+      <div class="opt">
+        <h3>Option B — keep the text look, fix spacing only</h3>
+        <div class="stage">
+          <div class="ccell">
+            <span class="eyebrow">Driver</span>
+            <div class="crow name"><span class="avatar">MW</span> Marcus Webb</div>
+            <div class="gap2"></div>
+            <div class="tapzone"><span class="crow"><span class="glyph">📞</span> (555) 014-2210</span></div>
+            <div class="gap10"></div>
+            <div class="tapzone"><span class="crow"><span class="glyph">✉</span> marcus@fxav.co</span></div>
+          </div>
+        </div>
+        <p class="note">No new chrome: pull the name toward its phone, widen phone↔email to ~10px. The
+        mis-tap distance improves; the targets stay invisible and hover-only (that part stays open).</p>
+      </div>
+    </div>
+  </section>
+</main>

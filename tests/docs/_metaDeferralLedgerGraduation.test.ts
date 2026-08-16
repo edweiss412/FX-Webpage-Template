@@ -34,10 +34,14 @@
 // marker grammar). What remains HERE is the ledger half, enforceable and true.
 //
 // Spec: docs/superpowers/specs/2026-07-24-settings-devrow-copy-close.md §9 T8.
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+
+import { LEDGER_FAMILIES, ledgerFiles, optsFor, type LedgerFamily } from "@/scripts/lib/ledger-fields";
+import { premise } from "@/tests/_shared/premise";
 
 import {
   entryTerminal,
@@ -93,6 +97,15 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/help-refanchor-a11y (2026-08-15): the /help/errors copy-link a11y row, all three
+  // filed findings shipped in one arc. The entry left the tab-stop question open on
+  // purpose; the owner ratified that the copy-links STAY tabbable, so it graduates with a
+  // skip path rather than the tabindex removal a reader might have assumed.
+  { id: "BL-HELP-REFANCHOR-A11Y-PASS", provenance: "fix/help-refanchor-a11y" },
+  // fix/changes-feed-batch-flake (2026-08-15): the e2e flake row whose own filed theory was
+  // refuted rather than confirmed — the repair is a wait helper that recovers once from the
+  // admin error boundary, not the fixture isolation the entry proposed.
+  { id: "BL-CHANGES-FEED-MODAL-BATCH-FLAKE", provenance: "fix/changes-feed-batch-flake" },
   // feat/diagram-viewing-polish (2026-08-11): the three diagram-viewing rows the
   // 2026-08-10 decision round bundled, each closing by a DIFFERENT route, which
   // is why they are three rows and not one. The progress-affordance row
@@ -141,6 +154,17 @@ const BACKLOG_GRADUATED = [
   // exclusion (email-canonicalization) is execution-proven via the run-excluded
   // oracle registry, so every exclusion is gated elsewhere by construction.
   { id: "BL-CI-UNIT-GATE-EXCLUSIONS", provenance: "ci/unit-gate-exclusions" },
+  // feat/speclint-prose-count-parity (2026-08-11): graduates RESOLVED by shipping
+  // all three measured shapes as advisory spec:lint codes. One of the three is a
+  // partial graduation stated as such rather than waived — shape (c)'s
+  // wedge-remeasure anchor is not boundedly expressible (three probe-refuted
+  // designs), so it stays covered by the RULE half of the entry's own filing and
+  // is pinned as a NO-FLAG fixture. The archived section carries the corpus
+  // measurement and the arms' documented limits.
+  {
+    id: "BL-SPECLINT-PROSE-COUNT-PARITY",
+    provenance: "feat/speclint-prose-count-parity",
+  },
   {
     id: "BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST",
     provenance: "test/libdata-call-boundary-metatest",
@@ -519,6 +543,47 @@ const BACKLOG_GRADUATED = [
     id: "BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES",
     provenance: "fix/promote-identity-validation",
   },
+  // feat/wifi-password-legibility (2026-08-15): two rows, closing by two
+  // different routes, which is why they are two entries rather than one arc row.
+  // The transcription row graduates as a BUILD — the affordance question it was
+  // filed to settle got its owner decision (disambiguated type AND tap-to-copy),
+  // and both halves shipped with the geometry measured in the production route
+  // and a standalone harness. The trailing-prose row graduates on PROBE EVIDENCE
+  // with NO parser change: it was filed INFERRED-NOT-PROBED, its own named
+  // corpus sweep was run, and it found zero instances plus a third genuine
+  // multi-token SSID — so every candidate rule is a recognizer calibrated on
+  // nothing, and the limit is documented in the spec rather than left open.
+  {
+    id: "BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY",
+    provenance: "feat/wifi-password-legibility",
+  },
+  {
+    id: "BL-WIFI-FLATTENED-TRAILING-PROSE",
+    provenance: "feat/wifi-password-legibility",
+  },
+  // chore/guard-completeness-wave (2026-08-14): owner-ratified documented limit
+  // (2026-08-10) demoted per the filing bar; the limits live in the guard's own
+  // JSDoc block (tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:215-245).
+  {
+    id: "BL-CI-WIRING-GUARD-RESIDUAL-BYPASSES",
+    provenance: "chore/guard-completeness-wave",
+  },
+  // chore/guard-completeness-wave (2026-08-15): the wave's three BUILD entries,
+  // graduating together in the close-out commit. Each one's IN PROGRESS marker comes
+  // off in this same commit, because the in-progress guard rejects an archived entry
+  // that still declares itself in flight.
+  {
+    id: "BL-DESTRUCTIVE-GUARD-EXECUTION-SITE",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+    provenance: "chore/guard-completeness-wave",
+  },
+  {
+    id: "BL-PG-CRON-HOST-ASSERTION",
+    provenance: "chore/guard-completeness-wave",
+  },
 ] as const;
 
 /** The follow-up that branch filed when it descoped the bespoke origin gate. */
@@ -724,16 +789,25 @@ describe("backlog ledger graduation", () => {
 
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
-    const backlog = read("BACKLOG.md");
-    expect(backlogIdsIn("BACKLOG.md").has(ORIGIN_GATE_ID)).toBe(true);
+    // The entry SHIPPED on fix/auth-picker-hardening (2026-08-15) and moved to
+    // BACKLOG-archive.md. What this guard protects is the REASONING, not the
+    // file it sits in: a closed entry that drops the residual it closed is just
+    // as lossy as an open one that never carried it, and the archive is where a
+    // future reader checks the closure against what was actually filed. So the
+    // entry is resolved from whichever ledger holds it, and every substance
+    // assertion below is unchanged and still runs against its body.
+    const LEDGERS_FOR_ENTRY = ["BACKLOG.md", "BACKLOG-archive.md"] as const;
+    const home = LEDGERS_FOR_ENTRY.find((rel) => backlogIdsIn(rel).has(ORIGIN_GATE_ID));
+    expect(home, `${ORIGIN_GATE_ID} is in neither BACKLOG.md nor BACKLOG-archive.md`).toBeDefined();
+    const backlog = read(home!);
 
     // A heading-only entry must fail: the whole point of filing it is to carry
     // the reasoning forward. Section body from this heading to the next.
     // Anchor on the HEADING, not the first mention: an earlier summary reference
     // would send this at another section — the same bug the provenance check above
     // already avoids.
-    const headingMatch = new RegExp(`^#{2,3} ~{0,2}${ORIGIN_GATE_ID}`, "m").exec(backlog);
-    expect(headingMatch, `${ORIGIN_GATE_ID} has no heading in BACKLOG.md`).not.toBeNull();
+    const headingMatch = new RegExp(`^#{2,3} ~{0,2}${ORIGIN_GATE_ID} `, "m").exec(backlog);
+    expect(headingMatch, `${ORIGIN_GATE_ID} has no heading in ${home}`).not.toBeNull();
     const start = headingMatch!.index;
     const rest = backlog.slice(start);
     const nextHeading = rest.slice(1).search(/\n#{2,3} /);
@@ -1210,6 +1284,257 @@ describe("graduated entries carry no in-flight marker", () => {
       const next = rest.slice(1).search(/\n#{2,3} /);
       const section = next === -1 ? rest : rest.slice(0, next + 1);
       expect(section, `${id}'s section does not name ${provenance}`).toContain(provenance);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Within-file id uniqueness (BL-ARCHIVE-DUPLICATE-ENTRY-IDS, 2026-08-15).
+//
+// `ledgerIds()` returns a Set (_ledgerMdast.ts:426), so every cross-file lane
+// in this suite is blind BY CONSTRUCTION to an id that appears twice inside one
+// file. The archive had 43 such pairs — not union-merge duplicates (a pairwise
+// body diff of all 43 measured a best similarity ratio of 0.12, i.e. zero
+// verbatim pairs) but the archive's own resolution convention: a terminal
+// record heading followed by the preserved original entry carrying a SECOND
+// id-bearing heading. Both mint the same id, so every heading-extraction
+// pipeline counts the entry twice.
+//
+// Spec: docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md
+// Census transcript:
+// docs/superpowers/plans/2026-08-15-archive-duplicate-ids/dup-census-2026-08-15.txt
+//
+// The repaired form (§2.3, the convention going forward): the terminal record
+// keeps the id-bearing heading; the preserved original's heading becomes a bold
+// PARAGRAPH line with identical text. A bold paragraph mints nothing — heading
+// lanes see headings only, and body-defined-id minting requires a bold
+// LIST-ITEM lead (_ledgerMdast.ts:360-375).
+// ---------------------------------------------------------------------------
+
+/** Every mdast heading depth. */
+const ALL_DEPTHS: readonly number[] = [1, 2, 3, 4, 5, 6];
+
+type Duplicate = { id: string; lines: number[] };
+
+/**
+ * Ids minted more than once within one ledger text.
+ *
+ * TWO passes, and the split is the whole design:
+ *
+ * - DOMAIN: the family's RATIFIED levels. This alone decides WHICH ids are
+ *   judged, so a level-2 `## CI speedup …` prose heading in the null-prefix
+ *   DEFERRED family (live at DEFERRED-archive.md, two of them) can never
+ *   false-positive — `CI` is not a DEFERRED entry at level 3, so it is out of
+ *   domain no matter how many times it appears.
+ * - SCAN: EVERY depth, with the family's prefix rule. A duplicate parked at any
+ *   depth collides with an in-domain id, including a one-character `####` typo
+ *   — the shape that hid two live BACKLOG pairs from a levels-[2,3] scan. The
+ *   wider scan adds no false-positive surface beyond what the family grammar
+ *   already tolerates, because the domain pass alone bounds the judged set.
+ *
+ * Exported shape is a LIST, not a Set: `extractEntries` returns one row per
+ * id-heading, which is exactly the visibility `ledgerIds` throws away.
+ */
+const duplicateIds = (text: string, familyOpts: ExtractOpts): Duplicate[] => {
+  const domain = new Set(extractEntries(text, familyOpts).map((e) => e.id));
+  const scan = extractEntries(text, {
+    requirePrefix: familyOpts.requirePrefix,
+    levels: ALL_DEPTHS,
+  });
+  const byId = new Map<string, number[]>();
+  for (const entry of scan) {
+    byId.set(entry.id, [...(byId.get(entry.id) ?? []), entry.line]);
+  }
+  return [...byId.entries()]
+    .filter(([id, lines]) => lines.length > 1 && domain.has(id))
+    .map(([id, lines]) => ({ id, lines }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+};
+
+/**
+ * The whole lane, over a ROOT and a family registry — the live call and the
+ * registry plant drive this same function.
+ *
+ * Parameterised deliberately (diff review R1 F2). An earlier revision inlined
+ * the walk in the live `it` and handed `FUTURE_OPTS` straight to
+ * `duplicateIds` in the plant. That plant proved `duplicateIds` honors the opts
+ * it is given, but NOT that the live loop routes `optsFor(file)` per file — so
+ * a one-line regression hardcoding `BACKLOG_OPTS` in the live walk would miss a
+ * registered non-default-level family while every plant stayed green
+ * (demonstrated by the reviewer against the shipped algorithm). Routing the
+ * plant through `ledgerFiles` + `optsFor` puts the discovery and opts-resolution
+ * wiring itself under the plant.
+ *
+ * ONE code path, by construction (diff review R3). The R1 repair took
+ * `families?` and branched — `families ? f(root, families) : f(root)` — which
+ * left the DEFAULT branch, the one production actually runs, unpinned: the
+ * reviewer exhibited two mutations (dropping DEFERRED from default discovery,
+ * and defaulting opts to `BACKLOG_OPTS`) that every plant survived because the
+ * fixture only ever drove the explicit branch. Repaired by NARROWING rather
+ * than by adding a second plant: `families` now DEFAULTS to `LEDGER_FAMILIES`
+ * and both call sites take the same single path, so the divergent branch does
+ * not exist to regress. `ledgerFiles(root, LEDGER_FAMILIES)` and
+ * `optsFor(file, LEDGER_FAMILIES)` are exactly what the no-arg forms do
+ * (`scripts/lib/ledger-fields.ts`), so behavior is unchanged — but a mutation
+ * to this path now reds the live lane and the fixture plant together.
+ */
+const duplicatesUnder = (
+  root: string,
+  families: readonly LedgerFamily[] = LEDGER_FAMILIES,
+): string[] => {
+  const files = ledgerFiles(root, families);
+  const offenders: string[] = [];
+  for (const file of files) {
+    const opts = optsFor(file, families);
+    const text = readFileSync(join(root, file), "utf8");
+    for (const { id, lines } of duplicateIds(text, opts)) {
+      offenders.push(`${file}: ${id} at lines ${lines.join(", ")}`);
+    }
+  }
+  return offenders;
+};
+
+describe("within-file ledger id uniqueness", () => {
+  it("no ledger file mints the same id on more than one heading", () => {
+    // Discovery through the REGISTRY (ledgerFiles + optsFor), never an
+    // enumerated filename list: a family added to LEDGER_FAMILIES brings its
+    // base+archive pair into this lane by default rather than going dark.
+    premise(
+      "ledger discovery reaches the registered families' files",
+      ledgerFiles(process.cwd()).length,
+      3,
+    );
+
+    const offenders = duplicatesUnder(process.cwd());
+    expect(
+      offenders,
+      "an id is minted by more than one heading in the same ledger file — demote the " +
+        "preserved original's heading to a bold line (spec §2.3, " +
+        "docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md)",
+    ).toEqual([]);
+  });
+
+  it("plants: the lane fires on every duplicate shape and stays quiet on the rest", () => {
+    // Executable plants through the SAME duplicateIds the live walk uses (the
+    // r40 architecture): removing a lane's WIRING breaks a plant, not just a
+    // code-reading claim. Unconditional execution — never inside `.each`.
+    const FUTURE_OPTS: ExtractOpts = { requirePrefix: null, levels: [4] };
+    const fires = (text: string, opts: ExtractOpts): string[] =>
+      duplicateIds(text, opts).map((d) => d.id);
+
+    // --- FIRE rows ---------------------------------------------------------
+    // Same-level duplicate: the plain union-merge shape.
+    expect(fires("## BL-X — a\n\nbody.\n\n## BL-X — b\n\nbody.\n", BACKLOG_OPTS)).toEqual(["BL-X"]);
+    // Cross-level: terminal record at ##, preserved original at ###. The live
+    // BACKLOG shape, 35 pairs of it.
+    expect(fires("## BL-X — RESOLVED\n\nbody.\n\n### BL-X — original\n\nbody.\n", BACKLOG_OPTS)).toEqual(
+      ["BL-X"],
+    );
+    // DEFERRED family: ## stub + ### original. Invisible to levels [3] alone,
+    // which is why the SCAN pass spans depths — four live pairs.
+    expect(
+      fires("## DEF-STUB-1 — RESOLVED\n\nbody.\n\n### DEF-STUB-1 — original\n\nbody.\n", DEFERRED_OPTS),
+    ).toEqual(["DEF-STUB-1"]);
+    // A family registered at a NON-default level still fires. NOTE this row
+    // only pins `duplicateIds` itself; the REGISTRY WIRING that would route
+    // such a family's opts in the live walk is pinned separately by the
+    // fixture-root plant below — handing FUTURE_OPTS in directly cannot see a
+    // live loop that hardcodes BACKLOG_OPTS (R1 F2).
+    expect(fires("#### FUT-1 — a\n\nbody.\n\n#### FUT-1 — b\n\nbody.\n", FUTURE_OPTS)).toEqual([
+      "FUT-1",
+    ]);
+    // The one-character depth typo: `####` is outside BOTH families' ratified
+    // levels, so a levels-[2,3] scan passes this silently. Without this plant a
+    // revert to the narrower scan satisfies every other row here.
+    expect(fires("## BL-X — RESOLVED\n\nbody.\n\n#### BL-X — original\n\nbody.\n", BACKLOG_OPTS)).toEqual(
+      ["BL-X"],
+    );
+
+    // --- STAYS-QUIET rows, each with the pin it protects -------------------
+    // PIN: the domain rule. Two `## CI …` prose section headings in the
+    // null-prefix DEFERRED family — the LIVE shape (DEFERRED-archive.md has
+    // exactly this pair). `CI` mints at level 2 only, never at the family's
+    // ratified level 3, so it is out of domain. The premise makes the row
+    // non-vacuous: without it, this passes even if the scan saw nothing at all.
+    const ciText = "## CI speedup — phase 2\n\nbody.\n\n## CI unit-suite sharding\n\nbody.\n";
+    premise(
+      "the CI-prose plant reaches the scan pass (else the quiet row proves nothing)",
+      extractEntries(ciText, { requirePrefix: null, levels: ALL_DEPTHS }).filter(
+        (e) => e.id === "CI",
+      ).length,
+      1,
+    );
+    expect(fires(ciText, DEFERRED_OPTS)).toEqual([]);
+
+    // PIN: the REPAIRED form. One heading plus the demoted bold paragraph line
+    // carrying identical text. If a bold paragraph ever started minting an id,
+    // this arc's 43 repairs would all reopen.
+    const repaired = "## BL-X — RESOLVED\n\nbody.\n\n**BL-X — original**\n\nbody.\n";
+    premise(
+      "the repaired plant's survivor heading still mints (else the quiet row is vacuous)",
+      extractEntries(repaired, { requirePrefix: "BL-", levels: ALL_DEPTHS }).length,
+      0,
+    );
+    expect(fires(repaired, BACKLOG_OPTS)).toEqual([]);
+
+    // PIN: distinct ids at the same level are not a collision.
+    const twoIds = "## BL-X — a\n\nbody.\n\n## BL-Y — b\n\nbody.\n";
+    premise(
+      "the two-id plant mints both ids (else the quiet row is vacuous)",
+      extractEntries(twoIds, { requirePrefix: "BL-", levels: ALL_DEPTHS }).length,
+      1,
+    );
+    expect(fires(twoIds, BACKLOG_OPTS)).toEqual([]);
+  });
+
+  it("plant: a registered non-default-level family is covered through the real discovery path", () => {
+    // The wiring plant (diff review R1 F2). Everything above hands opts to
+    // `duplicateIds` directly, so none of it can observe HOW the live walk
+    // obtains those opts. This row drives `duplicatesUnder` — the same function
+    // the live `it` calls — against a throwaway root with a family registered
+    // ONLY here, so `ledgerFiles(root, families)` must discover the pair and
+    // `optsFor(file, families)` must resolve its levels for the row to pass.
+    //
+    // The kill this adds: hardcode `BACKLOG_OPTS` (or any fixed opts) in
+    // `duplicatesUnder` and this row reds, because `FUT-1` sits at level 4 and
+    // mints nothing under `{ requirePrefix: "BL-", levels: [2, 3] }`.
+    //
+    // `ledgerFiles`/`optsFor` take `families` as a parameter precisely so a
+    // test can register a family against a fixture root without mutating
+    // module state (`scripts/lib/ledger-fields.ts`), which is also what proves
+    // the registry is consulted rather than a widened filename regex.
+    const root = mkdtempSync(join(tmpdir(), "ledger-uniqueness-"));
+    try {
+      const dupe = "#### FUT-1 — terminal record\n\nbody.\n\n#### FUT-1 — original\n\nbody.\n";
+      writeFileSync(join(root, "FUTURE.md"), "#### FUT-2 — solo\n\nbody.\n");
+      writeFileSync(join(root, "FUTURE-archive.md"), dupe);
+      const families = [
+        { name: "FUTURE", opts: { requirePrefix: null, levels: [4] } },
+      ] as const satisfies readonly LedgerFamily[];
+
+      // PREMISE: discovery must actually reach BOTH fixture files, else a green
+      // result below would mean "found nothing to look at", not "found nothing
+      // wrong" — the exact vacuity this plant exists to rule out.
+      premise(
+        "the fixture root's registered family pair is discovered",
+        ledgerFiles(root, families).length,
+        1,
+      );
+
+      expect(duplicatesUnder(root, families)).toEqual([
+        "FUTURE-archive.md: FUT-1 at lines 1, 5",
+      ]);
+
+      // Negative, same fixture: registered at the DEFERRED default level 3, the
+      // level-4 headings mint nothing and the duplicate is out of domain. This
+      // is what makes the positive attributable to opts ROUTING rather than to
+      // discovery alone.
+      const wrongLevel = [
+        { name: "FUTURE", opts: { requirePrefix: null, levels: [3] } },
+      ] as const satisfies readonly LedgerFamily[];
+      expect(duplicatesUnder(root, wrongLevel)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

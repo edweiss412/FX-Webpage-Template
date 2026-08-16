@@ -116,7 +116,6 @@ const LOCAL_ONLY_GALLERY_CAPTURE =
 const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/screenshots-gallery-capture.spec.ts": LOCAL_ONLY_GALLERY_CAPTURE,
   "tests/e2e/admin-dev.spec.ts": UNSEEN,
-  "tests/e2e/admin-changes-feed-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/admin-lifecycle-transitions.spec.ts":
     "its lifecycle-layout-e2e.yml run block validates the REPEATS input in a case/if block, and the R12 scanner refuses control-flow run blocks (both branches DO run the spec on every PR — REPEATS defaults to '1' — but the scanner cannot prove branch liveness by regex; the census pins the same block via complex-invocation registry rows). NOT the BL-E2E-APP-DEPENDENT-SPECS-CI-DARK population: this spec runs on every PR.",
@@ -129,6 +128,10 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/rowactions-geometry.spec.ts": PATH_GATED,
   "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
+  // Staged crew preview (spec 2026-08-15-step3-crew-preview §7): app-dependent
+  // (dev server + seeded pending_syncs row), so wiring it into a workflow belongs
+  // to the BL-E2E-APP-DEPENDENT-SPECS-CI-DARK batch, not to this arc.
+  "tests/e2e/staged-preview.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
   "tests/e2e/attention-modal-gallery.spec.ts":
     "runs in dev-gate-e2e.yml via a project-only --project invocation (invisible to the scanner), which since 2026-08-09 carries a PATH-FILTERED pull_request trigger over the tested surfaces PLUS the daily schedule backstop for out-of-filter drift (24h bound). Not PR-blocking-capable: the job is absent on non-matching PRs, so it cannot join the required set. Gate-placement decision ratified at BL-DEV-GATE-GALLERY-SPEC-ROT close-out (BACKLOG-archive.md): the spec's value is the built ADMIN_DEV_PANEL_ENABLED=true artifact, so the dedicated project stays.",
@@ -176,6 +179,11 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // WebKit), so it is paths-ignore-gated like its three siblings rather than unseen.
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
+  // Named in crew-e2e.yml's run command beside theme-toggle — the two cover the
+  // same control from opposite ends (persistence behavior, and the geometry of
+  // the note that reports a failed persist), so they are paths-ignore-gated the
+  // same way rather than PR-covered.
+  "tests/e2e/theme-persistence-note.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/theme-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
 };

@@ -1167,16 +1167,59 @@ describe("the git adapter, against a constructed checkout (guard-premise Task 8)
     ]);
   });
 
-  it("discards a failed gh's output even when it printed well-formed JSON", () => {
-    // Kills `r.status !== 0 || !r.stdout` -> `&&`, which reads the payload of a
-    // FAILED gh. That is how an error-shaped or partial page becomes a PR
-    // number attached to somebody's claim.
+  it("throws on a failed gh even when it printed well-formed JSON", () => {
+    // Kills `r.status !== 0` -> `===`, which reads the payload of a FAILED gh.
+    // That is how an error-shaped or partial page becomes a PR number attached
+    // to somebody's claim. The intent is unchanged from when this asserted `[]`
+    // — a failed gh's payload never becomes a PR universe — but the SIGNAL is:
+    // `[]` was indistinguishable from "no open PRs", so the caller degraded
+    // nothing. It now throws, and resolveClaims turns that into
+    // `pr-universe-unavailable`, which runCheck promotes to exit 2.
     const repo = throwawayRepo();
-    const { result: rows, ran } = withFakeGh(
+    const { result: threw, ran } = withFakeGh(
       `echo '[{"number":1,"headRefName":"x","isCrossRepository":false}]'\n` + "exit 1\n",
-      () => atRepo(repo.dir, (git) => git.prList()),
+      () =>
+        atRepo(repo.dir, (git) => {
+          try {
+            git.prList();
+            return false;
+          } catch {
+            return true;
+          }
+        }),
     );
     premiseHolds("the PATH shim is the gh that ran, and it printed a parseable page", ran);
-    expect(rows, "a failed gh's output was trusted").toEqual([]);
+    expect(threw, "a failed gh's output was trusted").toBe(true);
+  });
+});
+
+describe("a PR-universe fault is untrusted, not empty", () => {
+  it("resolveClaims records pr-universe-unavailable rather than an empty PR set", () => {
+    const resolution = resolveClaims(
+      fake({
+        prList: () => {
+          throw new Error("gh pr list: empty stdout on exit 0");
+        },
+      }),
+      { fetch: false, now: NOW },
+    );
+    expect(resolution.degraded.some((d) => d.startsWith("pr-universe-unavailable"))).toBe(true);
+  });
+
+  it("runCheck exits 2 when prList throws, even with no collision to report", () => {
+    // The marker alone is not the contract — a degraded marker that still
+    // returned `{"code":0}` is exactly the false all-clear this repairs, so the
+    // assertion is on the EXIT CODE.
+    const r = checkVerified(
+      fake({
+        currentBranch: () => "other",
+        prList: () => {
+          throw new Error("gh pr list failed: status 1");
+        },
+      }),
+      ["BL-UNRELATED"],
+    );
+    expect(r.code).toBe(2);
+    expect(r.reasons.some((x) => x.startsWith("pr-universe-unavailable"))).toBe(true);
   });
 });
