@@ -796,16 +796,6 @@ Moving the four directories outside the repo and re-running takes the same suite
 
 **The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
 
-## BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a failing drift run can never refresh the cache that made it fail
-
-**Status:** OPEN · **Severity:** MEDIUM · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-14 from a live main-branch incident
-
-`screenshots-drift.yml` restores `.next-screenshots-help/cache` via `actions/cache` with a `restore-keys` prefix fallback, and `actions/cache` saves only in the post step of a SUCCESSFUL job. Those two facts compose into a trap: once every saved `Linux-nextcache-screenshots-*` cache predates a UI-changing merge, the nightly drift job restores a stale Next build cache, renders the OLD chrome, diffs against the CURRENT committed baselines, fails — and by failing, skips the cache save that would have replaced the stale cache. The failure self-perpetuates until a human deletes the caches.
-
-**Probe evidence (two-run, 2026-08-14).** Main-branch drift runs 31693276503 and 31748971797 failed on the same 6 `public/help/screenshots/crew-preview-*.webp` files (md5-verified as the only drifting set) while (a) the committed baselines were current — regenerated at `a5e1ee44d` AFTER the #779 UI change — and (b) the sanctioned `screenshots-regen.yml` on the same sha, same pinned image (`mcr.microsoft.com/playwright:v1.59.1-jammy`), same `pnpm screenshot:help` command committed NOTHING ("No baseline changes to commit") — the regen workflow has no cache step, so a fresh build reproduced the committed bytes exactly. All 12 saved caches predated #779. Deleting all 12 via `gh cache delete` and re-dispatching flipped the outcome: run 31749355724 SUCCESS with zero source change. Same sha, same image, same command; the only variable was the restored cache.
-
-**Repair directions (any one closes the class):** key the cache on a hash of the inputs that feed the build (so a stale restore is impossible, not merely unlucky); or split restore/save into explicit `actions/cache/restore` + `actions/cache/save` with `if: always()` so a failing run still refreshes its cache; or drop the `restore-keys` prefix fallback so a miss builds cold instead of restoring a wrong-generation cache. Whichever lands should note in the workflow why, citing this entry.
-
 ---
 
 ## Merged from the plans backlog (2026-08-02)
