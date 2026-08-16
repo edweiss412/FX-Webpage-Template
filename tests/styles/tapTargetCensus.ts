@@ -293,7 +293,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 3760,
+    line: 3768,
     tag: "a",
     category: "full-bleed",
     reason:

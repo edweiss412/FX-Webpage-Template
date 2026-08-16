@@ -64,4 +64,4 @@ Both assessments converged independently: the chip's edge was **1.15:1 light / 1
 - **AC-6** — three entries graduated with dated resolution paragraphs, flight markers stripped in the move, `tests/docs/` green. **MET** (515 passed).
 - **AC-7** — impeccable dual gate with P0/P1 fixed or deferred, `lifecycle-layout-e2e.yml` green on the PR. **Gate MET** (this section); CI is the proof and is recorded at merge.
 
-impeccable-gate: RAN 2026-08-16 — critique + audit, dual-agent; 0 P0, 1 P1 (chip control-outline contrast 1.15:1 light / 1.38:1 dark) FIXED in-branch via `border-text-faint` (DESIGN.md §1.2 pinned 3.02:1 / 4.11:1) plus the guard that was passing on it; 2 P2 accepted with reasons recorded above; 2 detector `broken-image` findings out of scope (pre-existing `DiagramTile`, absent from this diff)
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded
