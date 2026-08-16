@@ -1089,9 +1089,14 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         // assembleStep3Row extraction). OnboardingWizard keeps its own import,
         // so this is a NEW row, not a moved one.
         "lib/admin/assembleStep3Row.ts": 1,
+        // The staged crew preview's Supabase read imports SourceAnchor to type the
+        // row's `source_anchors` column (2026-08-15 step3-crew-preview §2.1).
+        "lib/admin/lookupStagedRow.ts": 1,
         "lib/admin/step3SectionStatus.ts": 1,
         "lib/adminAlerts/alertActions.ts": 5,
         "lib/data/getShowForViewer.ts": 2,
+        // The staged adapter carries `sourceAnchors` straight onto the projection.
+        "lib/data/stagedShowForViewer.ts": 1,
         "lib/dev/publishedModalFixture.ts": 4,
         "lib/drive/crewRoleAnchors.ts": 1,
         "lib/drive/showDayTimeAnchors.ts": 1,

@@ -35,7 +35,7 @@ export function CardReportTrigger({
   cardId: CardId;
   region: RegionId;
   showId: string;
-  cardReport?: CardReportContext;
+  cardReport?: CardReportContext | null;
   /**
    * CARDREPORT-1: which direction the invisible ≥44×44 tap overlay grows. The
    * 14px glyph is unchanged; a transparent centered `::before` (invisible to
@@ -50,6 +50,11 @@ export function CardReportTrigger({
   // Defense-in-depth: a crew card always has a show, but never mount the modal
   // machinery without a show id (mirrors Footer's `{showId ? … }` guard).
   if (!showId) return null;
+  // Explicit `null` is the DISABLED state (spec 2026-08-15-step3-crew-preview §2.6
+  // item 5): reporting is off, so no trigger renders. Distinct from `undefined`,
+  // which keeps the DEFAULT_CARD_REPORT parameter default every existing caller
+  // relies on.
+  if (cardReport === null) return null;
 
   const surfaceId = `${cardReport.surfaceIdScope}-${cardId}-${showId}`;
   const autocapture: ReportAutocapture = {

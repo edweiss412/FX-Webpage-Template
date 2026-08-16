@@ -184,6 +184,9 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
     "transition (d): hero state-change while leaving Today unmounts the hero cleanly (no concurrent animation; compound)",
   ],
   "tests/e2e/theme-toggle.spec.ts": [],
+  // The persist-failure geometry spec skips nothing: all four cases resolve under
+  // desktop-chromium alone (its only project) and every one executes.
+  "tests/e2e/theme-persistence-note.spec.ts": [],
 };
 
 /**
@@ -275,6 +278,7 @@ const ENROLLED = [
   "tests/e2e/stage-restricted-crew-schedule.spec.ts",
   "tests/e2e/crew-page.spec.ts",
   "tests/e2e/theme-toggle.spec.ts",
+  "tests/e2e/theme-persistence-note.spec.ts",
   "tests/e2e/right-now-transitions.spec.ts",
 ] as const;
 

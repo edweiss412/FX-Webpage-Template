@@ -159,7 +159,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "app/help/errors/page.tsx",
-    line: 68,
+    line: 82,
     tag: "a",
     category: "inline-prose-link",
     reason:
@@ -217,7 +217,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/Step3ReviewModal.tsx",
-    line: 763,
+    line: 783,
     tag: "input",
     category: "parent-label-target",
     reason: "Step-3 review selection checkbox inside its label row; the row is the target.",
@@ -301,14 +301,14 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/diagrams/Gallery.tsx",
-    line: 341,
+    line: 344,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
   },
   {
     file: "components/diagrams/GalleryLightbox.tsx",
-    line: 526,
+    line: 600,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",
@@ -393,7 +393,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/shared/CardReportTrigger.tsx",
-    line: 68,
+    line: 73,
     tag: "button",
     category: "padding-arithmetic",
     reason:
