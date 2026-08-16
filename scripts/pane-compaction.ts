@@ -145,29 +145,66 @@ function prFrom(
   };
 }
 
+/**
+ * The reads that do not vary per pane, done once.
+ *
+ * `gh pr checks` is a NETWORK call and the roster is a dozen panes, so calling
+ * it per pane spends a dozen API requests on one report — on the same budget a
+ * whole batch of arcs shares, which is exactly how that budget got exhausted
+ * once already. Panes in one worktree have one PR and one git state, so both
+ * memoize on cwd; the purview directory is a single answer for the whole run.
+ */
+function memoize<T>(read: (key: string) => T): (key: string) => T {
+  const seen = new Map<string, T>();
+  return (key) => {
+    const hit = seen.get(key);
+    if (hit !== undefined) return hit;
+    const value = read(key);
+    seen.set(key, value);
+    return value;
+  };
+}
+
+type Cached = {
+  purview: PurviewFile[];
+  gh: (cwd: string) => GhInvocation;
+  git: (cwd: string) => { clean: boolean; lastCommitAt: number | null };
+  corpus: (branch: string) => CorpusRow[];
+};
+
+function cacheOf(s: Surface): Cached {
+  return {
+    purview: s.purview(),
+    gh: memoize((cwd) => s.gh(cwd)),
+    git: memoize((cwd) => s.git(cwd)),
+    corpus: memoize((branch) => s.corpus(branch)),
+  };
+}
+
 /** One pane, observed through the surface and classified by the core. */
 function observe(
   pane: RosterPane,
   roster: RosterPane[],
   asSessionId: string | null,
   s: Surface,
+  cache: Cached,
 ): PaneReport {
   const marker = s.marker(pane.cwd);
   const tenths = parseGauge(s.screen(pane.paneId));
   const rejectedField = rejectedFieldOf({ status: pane.status, tenths, marker });
 
-  const ghRun = s.gh(pane.cwd);
+  const ghRun = cache.gh(pane.cwd);
   const ghOutcome = classifyGh(ghRun);
-  const git = s.git(pane.cwd);
+  const git = cache.git(pane.cwd);
   const position = positionFor({
     now: s.now(),
     clean: git.clean,
     lastCommitAt: git.lastCommitAt,
     pr: prFrom(ghRun),
-    corpus: s.corpus(pane.agentName),
+    corpus: pane.agentName === null ? [] : cache.corpus(pane.agentName),
   });
 
-  const ownership = resolveOwnership(pane.paneId, pane.agentName, s.purview(), asSessionId ?? "");
+  const ownership = resolveOwnership(pane.paneId, pane.agentName, cache.purview, asSessionId ?? "");
   const markerSession = typeof marker?.["sessionId"] === "string" ? marker["sessionId"] : null;
   const blockedOn = typeof marker?.["blockedOn"] === "string" ? marker["blockedOn"] : "";
 
@@ -285,7 +322,8 @@ export function main(argv: string[], s: Surface): number {
     return drive(opts, pane, roster, s);
   }
 
-  const panes = roster.map((p) => observe(p, roster, opts.as, s));
+  const cache = cacheOf(s);
+  const panes = roster.map((p) => observe(p, roster, opts.as, s, cache));
   if (opts.json) {
     s.out(JSON.stringify(reportEnvelope(panes, []), null, 2));
   } else {
@@ -297,7 +335,8 @@ export function main(argv: string[], s: Surface): number {
 /** The three one-shot commands, each revalidating on its own predicate (§5.2). */
 function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface): number {
   const as = opts.as ?? "";
-  const report = observe(pane, roster, as, s);
+  const cache = cacheOf(s);
+  const report = observe(pane, roster, as, s, cache);
   const marker = s.marker(pane.cwd);
   const markerNonce =
     typeof marker?.["checkpointNonce"] === "string" ? marker["checkpointNonce"] : null;
@@ -356,7 +395,9 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
     send: (text) => s.send(pane.paneId, text),
     // Revalidated a second time at the moment of the send, per §5.2.
     revalidate: () => {
-      const fresh = observe(pane, roster, as, s);
+      // Revalidation must OBSERVE AGAIN, so it takes a fresh cache rather than
+      // the one the first classification filled.
+      const fresh = observe(pane, roster, as, s, cacheOf(s));
       return fresh.verdict === report.verdict
         ? { ok: true }
         : {
