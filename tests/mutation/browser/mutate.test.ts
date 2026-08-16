@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import {
   applyEdits,
   buildManifest,
   classifyChild,
+  killsMutant,
   parseManifest,
   reportEvidence,
 } from "./mutate";
@@ -24,6 +25,7 @@ import { MutantRunInfraError } from "../source/runner";
  * (spec §6), because a spawn boundary is not expressible without executing
  * Playwright — so the logic that CAN be pinned by a fast suite lives here.
  */
+const ROOT = process.cwd();
 let dir: string;
 
 const A = "alpha.tsx";
@@ -374,6 +376,34 @@ describe("classifyChild — the §3.4 verdict table, verbatim", () => {
         report: { present: false, fresh: false, executed: 0 },
       }),
     ).toBe("DID_NOT_KILL");
+  });
+});
+
+describe("killsMutant — the suite-loop fold", () => {
+  it("kills on KILLED and ONLY on KILLED", () => {
+    // Both directions, because this predicate decides whether the loop
+    // short-circuits. Flipped, a vitest `DID_NOT_KILL` returns KILLED at once:
+    // the Playwright child never runs, and the surface reports a full score with
+    // a killed control while almost no overlay executed (diff round 2, P0).
+    expect(killsMutant("KILLED")).toBe(true);
+    expect(killsMutant("DID_NOT_KILL"), "a suite that did not kill must not end the loop").toBe(
+      false,
+    );
+  });
+
+  it("is the predicate the runner actually folds with — not a parallel copy", () => {
+    // The point of extracting it was to move an `equality-flip` site OUT of the
+    // unenrollable runner. That only holds while the runner calls it, so the
+    // call is pinned: a reverted inline comparison restores the P0 silently.
+    const runner = readFileSync(join(ROOT, "tests/mutation/browser/runner.ts"), "utf8");
+    premiseHolds("the runner source was read", runner.includes("function runMutant"));
+    expect(runner, "the runner must fold through killsMutant").toMatch(
+      /if \(killsMutant\(verdict\)\) return "KILLED";/,
+    );
+    expect(
+      runner,
+      "no bare KILLED comparison may return to the runner — that is the flip site this removed",
+    ).not.toMatch(/verdict\s*[!=]==\s*"KILLED"/);
   });
 });
 

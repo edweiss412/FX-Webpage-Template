@@ -9,6 +9,7 @@ import {
   applyEdits,
   buildManifest,
   classifyChild,
+  killsMutant,
   reportEvidence,
   type ReportEvidence,
 } from "./mutate";
@@ -221,7 +222,7 @@ function runMutant(
           undefined,
         );
       }
-      if (verdict === "KILLED") return "KILLED";
+      if (killsMutant(verdict)) return "KILLED";
     }
     return "SURVIVED";
   } finally {

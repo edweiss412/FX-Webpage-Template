@@ -207,6 +207,29 @@ export function classifyChild(input: {
 }
 
 /**
+ * Does THIS suite's classification kill the mutant?
+ *
+ * Trivial, and it lives here rather than inline in the runner for a specific
+ * reason (diff review round 2, P0). Inline, the runner read
+ * `if (verdict === "KILLED") return "KILLED";` — an `equality-flip` site in a
+ * module the mutation registry cannot enrol, because the runner's other half is
+ * a spawn boundary. Flipped to `!==`, a vitest `DID_NOT_KILL` returns KILLED
+ * immediately, the Playwright child never runs, and the surface reports 19/19
+ * with a killed control and a score of 1.0 while almost no overlay ever
+ * executed. That is the exact "perfect score from a dead harness" failure §3.4
+ * exists to prevent, and it was the one path into it left open.
+ *
+ * Moving the comparison into this module puts it under the browserMutate
+ * surface, where the flip is a scored mutant with a test that kills it. What
+ * remains at the call site is a bare predicate call with no comparison operator
+ * to flip; `statement-removal` on the `return` beside it fails SAFE, since every
+ * mutant then survives and the gate reds loudly.
+ */
+export function killsMutant(classification: "KILLED" | "DID_NOT_KILL"): boolean {
+  return classification === "KILLED";
+}
+
+/**
  * Fold per-mutant verdicts into the `RunResult` the existing gate consumes
  * (`tests/mutation/source/runner.ts:22-30`), unchanged and unforked (spec §1.1.6).
  *
