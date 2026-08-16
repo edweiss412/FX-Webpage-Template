@@ -113,6 +113,8 @@ Each row is settled. Re-opening one needs new evidence, not a re-reading.
 | Clause (a) matches on argv STRUCTURE — node as `argv[0]` plus a last-token path suffix — never on containment. Containment was measured producing a live false positive and is not coming back. | §4.2(a) |
 | An exemption clause that cannot be EVALUATED stops the whole run. "Proceed with fewer exemptions" is rejected: it concludes a process is unexempt from a failure to check. | §4.4, §8 AC-3b |
 | The subtree kill is best-effort over the RECORDED set and the reaper is idempotent-and-repeated, not transactional. Descendants created after collection are next run's ordinary orphans. | §4.4, §7 L-5, §8 AC-5 |
+| Every §4.4 condition has an ID, and §6.2 and §8 CITE those IDs instead of paraphrasing the behavior. Three rounds found a summary sentence contradicting its own table; single-sourcing each behavior is the defense that closes the class, and re-introducing a paraphrase re-opens it. | §4.4 preamble, §6.2, §8 |
+| Target identity is (pid, start time, command). `etime` is excluded because it increases by definition; `ppid` is excluded because this run's own kills change it. Kill order is root-first for the same reason. | §4.4 K2, §8 AC-5b |
 | Reaping is a local-machine concern only. Nothing here runs in CI, and no CI job is added. | §6 |
 
 ---
@@ -359,38 +361,71 @@ reapable, not less. The invariant is therefore three statements, not one:
 §5's types are what make the reporting half expressible; round 1 found the earlier signature could
 not carry most of this table, which is why the two sections are written against each other.
 
-**Collection-level (whole-run) conditions.**
+**Every row below carries an ID, and §6.2 and §8 CITE those IDs rather than paraphrasing the
+behavior.** That is a structural repair, not a formatting choice: three consecutive review rounds
+found a summary sentence contradicting the table it summarized (round 1 F1/F4, round 2 F2/F5,
+round 3 F1/F2). The class is "a normative claim restated in prose drifts from its source", and the
+defense that closes it is to have exactly one statement of each behavior and make every other
+mention a reference. No AC below restates a condition's behavior.
 
-| Condition | Behavior |
-| --- | --- |
-| `ps` cannot be invoked (missing, non-zero exit, sandbox denial — a reviewer probe produced `zsh:1: operation not permitted: ps`) | reap NOTHING; exit non-zero with the failure named. A reaper that cannot see the process table must never conclude the machine is clean. |
-| `ps` succeeds but emits zero parsable rows | reap nothing, exit 0, report the row count so a silently-empty read is visible |
-| slot dir missing or unreadable | UNDECIDABLE exemption: reap NOTHING, exit non-zero, name the dir. Clause (c) cannot be evaluated at all, so no candidate can be shown unexempt. |
-| slot dir present and readable but holding no slot files | DECIDABLE: there are no holders, so clause (c) exempts nobody. The run proceeds. This is distinct from unreadable — an empty readable dir is an answer, an unreadable one is not. |
-| a slot metadata file is torn, empty, non-JSON, or has no `pid` key | UNDECIDABLE for that slot: its holder pid is unknown, so any candidate might descend from it. Reap NOTHING, exit non-zero, name the slot — the surfacing posture `describe_holder` already takes (`scripts/with-heavy-slot.py:263-267`), with the safety upgraded from "report unknown" to "do not act on unknown". |
-| a recorded slot holder pid no longer exists | DECIDABLE: not a live holder, contributes no exemption; the run proceeds and reports it, since a crashed holder is precisely the condition whose workers are now orphans. |
-| `FX_REAP_MIN_AGE_S` unset | not a degenerate input — use `14400`, no note. |
-| `FX_REAP_MIN_AGE_S` non-numeric, negative, or zero | REFUSE to run: exit non-zero naming the rejected value, reap nothing. Falling back to a default would silently apply a ceiling the operator did not ask for, and a zero or negative one would make everything old enough. |
+**Collection-level conditions.** `Decidable?` is the load-bearing column: an UNDECIDABLE condition
+means an exemption clause could not be evaluated, and the run must reap nothing. A DECIDABLE one is
+an answer — possibly a boring answer — and the run proceeds.
 
-**Row-level conditions.**
+| ID | Condition | Decidable? | Behavior |
+| --- | --- | --- | --- |
+| C1 | `ps` cannot be invoked (missing, non-zero exit, sandbox denial — a reviewer probe produced `zsh:1: operation not permitted: ps`) | no | reap NOTHING, exit non-zero, name the failure. A reaper that cannot see the process table must never conclude the machine is clean. |
+| C2 | `ps` succeeds but emits zero parsable rows | yes | reap nothing, exit 0, report the row count so a silently-empty read is visible |
+| C3 | slot dir missing or unreadable | no | reap NOTHING, exit non-zero, name the dir. Clause (c) cannot be evaluated at all, so no candidate can be shown unexempt. |
+| C4 | slot dir present and readable, holding no slot files | yes | there are no holders, so clause (c) exempts nobody; the run proceeds. Distinct from C3 by construction: an empty readable dir is an ANSWER, an unreadable one is the absence of one. |
+| C5 | a slot metadata file is torn, empty, non-JSON, or has no `pid` key | no | reap NOTHING, exit non-zero, name the slot. Its holder pid is unknown, so any candidate might descend from it. The surfacing posture `describe_holder` already takes (`scripts/with-heavy-slot.py:263-267`), with the safety upgraded from "report unknown" to "do not act on unknown". |
+| C6 | a recorded slot holder pid no longer exists | yes | not a live holder, contributes no exemption; the run proceeds and reports it, since a crashed holder is precisely the condition whose workers are now orphans |
+| C7 | `FX_REAP_MIN_AGE_S` unset | yes | use `14400`. Not a degenerate input; no note. |
+| C8 | `FX_REAP_MIN_AGE_S` non-numeric, negative, or zero | no | REFUSE to run: exit non-zero naming the rejected value, reap nothing. Falling back to a default would silently apply a ceiling the operator did not ask for, and a zero or negative one would make everything old enough. |
 
-| Condition | Behavior |
-| --- | --- |
-| `pid` absent or unparsable | the row cannot be acted on at all; retained as an unparsable row, counted, reported, never reaped |
-| `ppid` absent or unparsable | NOT reapable (clause (b) is undecidable); retained and reported |
-| `etime` absent or unparsable | NOT reapable (clause (d) is undecidable); retained and reported |
-| `command` empty | NOT reapable (clause (a) cannot match); retained and reported |
-| ancestry walk hits a cycle or a missing parent | the walk terminates and the row is NOT exempt-by-(c) and NOT reapable — an unresolvable ancestry is undecidable, and undecidable means inaction |
+**Row-level conditions.** All are DECIDABLE at the run level and scoped to their own row.
 
-**Kill-time conditions.**
+| ID | Condition | Behavior |
+| --- | --- | --- |
+| R1 | `pid` absent or unparsable | the row cannot be acted on at all; retained as an `UnparsableRow`, counted, reported, never reaped |
+| R2 | `ppid` absent or unparsable | NOT reapable (clause (b) undecidable for this row); retained and reported |
+| R3 | `etime` absent or unparsable | NOT reapable (clause (d) undecidable for this row); retained and reported |
+| R4 | `command` empty | NOT reapable (clause (a) cannot match); retained and reported |
+| R5 | ancestry walk hits a cycle or a missing parent | the walk terminates; the row is NOT exempt-by-(c) and NOT reapable — an unresolvable ancestry is undecidable, and undecidable means inaction |
 
-| Condition | Behavior |
-| --- | --- |
-| the process exits between classify and kill (`ESRCH`) | tolerated, counted as already-gone, not an error |
-| the pid was recycled between classify and kill | RE-VERIFY BEFORE SIGNALLING: immediately before each `kill`, re-read that pid's `ppid`, `etime` and command and require them to still match what was classified. A mismatch aborts the kill for that pid and reports it as `identity-changed`. This does not close the window — nothing single-process can — it narrows it from the whole run to one syscall pair, and turns the residue into limit L-8 instead of an unexamined assumption. |
-| `kill` fails for any other reason (e.g. `EPERM`) | reported per pid and counted as a failed kill; the run continues to the remaining targets and exits non-zero |
-| a recorded descendant survives the subtree kill | after killing the recorded set, ONE verification re-scan; any recorded pid still alive is reported as a partial kill by pid, exit non-zero |
-| a descendant was created AFTER collection, or reparented between collection and kill | NOT reached by this run, and the spec does not claim otherwise — see L-5. It becomes an ordinary orphan and is a candidate on the NEXT run, which is the honest guarantee: the reaper is idempotent and repeated, not transactional. |
+**Kill-time conditions.** These are ACTIONS, so "resolves toward inaction" does not apply; what
+applies is that no failure is silent.
+
+| ID | Condition | Behavior |
+| --- | --- | --- |
+| K1 | the process exits between classify and kill (`ESRCH`) | tolerated, counted as `already-gone`, exit unaffected |
+| K2 | the pid was recycled between classify and kill | re-verify identity immediately before signalling (below); a mismatch skips the kill and reports `identity-changed`, exit non-zero |
+| K3 | `kill` fails for any other reason (e.g. `EPERM`) | reported per pid as `failed`; the run continues to the remaining targets; exit non-zero |
+| K4 | a recorded target survives the subtree kill | after killing the recorded set, ONE verification re-scan; any recorded pid still alive is reported as `partial` by pid; exit non-zero |
+| K5 | a descendant was created AFTER collection, or reparented between collection and kill | NOT reached by this run, and the spec does not claim otherwise (L-5). It becomes an ordinary orphan and is a candidate on the NEXT run: the reaper is idempotent and repeated, not transactional. |
+
+**Identity, for K2 — and what it must NOT be.** The identity of a target is the triple
+**(pid, process start time, command)**. Round 3 found the previous draft using `etime` and `ppid`,
+and both are wrong:
+
+- **`etime` is monotonically increasing by definition**, so requiring it unchanged can never hold.
+  This spec's own P4 probe (§1.3) shows one pid's `etime` advancing `00:27 → 00:33 → 00:39 →
+  00:45 → 00:51` while the process never changed. Start time is the stable form of the same fact.
+  Probed on this machine 2026-08-16: across three samples one second apart, `ps -o lstart=` read
+  `Sun Aug 16 09:35:23 2026` every time while `ps -o etime=` read `00:00`, `00:01`, `00:02`.
+- **`ppid` changes under ordinary reparenting**, including reparenting THIS RUN causes — the
+  harness's own comment records that a killed parent leaves its descendants reparented to init
+  (`tests/mutation/source/runner.ts:141-143`). A `ppid` in the identity tuple would make the
+  reaper abort on its own side effects.
+
+**Kill order is therefore specified, not left open:** the reaped root is signalled FIRST, then its
+recorded descendants. Killing the root first stops it spawning, and because `ppid` is not part of
+the identity tuple, the reparenting that kill causes cannot invalidate any pending target.
+
+Identity is read per TARGET, not for the whole table: `ps -o lstart=,command= -p <pid>` at
+classification and again immediately before the signal. That keeps `lstart` — whose value contains
+spaces and would complicate whitespace-splitting the bulk `ps` output — out of the collection
+parser entirely, and costs one cheap read per target rather than per process.
 
 ---
 
@@ -484,6 +519,17 @@ export type KillOutcome = {
   result: "killed" | "already-gone" | "failed" | "partial" | "identity-changed";
   detail?: string;
 };
+
+/**
+ * A target's identity for K2, read per target rather than for the whole table.
+ *
+ * `startedAt` is `ps -o lstart=`: STABLE for the life of a process, and different for a recycled
+ * pid. It is deliberately not `etime`, which increases by definition and can never compare equal
+ * across a second boundary, and the tuple deliberately excludes `ppid`, which changes under the
+ * reparenting this run's own kills cause.
+ */
+export type TargetIdentity = { pid: number; startedAt: string; command: string };
+export function readIdentity(pid: number): TargetIdentity | null; // null = the pid is gone (K1)
 ```
 
 `classify` returns a decision for EVERY row, not only the reapable ones. A function returning only
@@ -553,9 +599,15 @@ Stop hook of its own, and there is no guarantee any other session ever ends a tu
 Killing requires `--kill` explicitly; running the tool can never be the destructive act by
 accident. `--all` is a REPORTING breadth flag only and never widens what is killed.
 
-Exit status: `0` when classification completed and every attempted kill succeeded or was
-already-gone; non-zero when collection failed (§4.4), when any kill failed, or when any subtree
-kill was partial.
+Exit status, enumerated by §4.4 row ID so it cannot drift from the table:
+
+- **Non-zero** on any of C1, C3, C5, C8 (an undecidable collection condition — nothing was reaped)
+  or any of K2, K3, K4 (a kill was skipped, failed, or left a recorded target alive).
+- **Zero** otherwise, including C2, C4, C6, C7 and K1 — a decidable collection answer and an
+  already-gone target are both ordinary outcomes.
+
+K2 is deliberately non-zero even though no signal was sent: an `identity-changed` skip means the
+machine moved under the reaper, and an operator who sees exit 0 will not look.
 
 ### 6.3 Durability
 
@@ -610,11 +662,12 @@ surfaced signal files here rather than as a review round.
   to impersonate an exempt shape, or reparents itself to dodge clause (b), defeats this. The
   threat model is ordinary orphaning by killed sessions and crashed harnesses.
 - **L-8 — pid reuse cannot be fully closed by a single process.** Between classification and the
-  signal, a target can exit and its pid be recycled onto an unrelated process. §4.4's re-verify
-  step narrows the window to one syscall pair by re-reading `ppid`, `etime` and command and
-  requiring a match, which also makes the residue observable (`identity-changed`), but a reuse
-  inside that window is undetectable without kernel support macOS does not offer. The exposure is
-  bounded by how rarely a pid recycles in milliseconds on a machine with a 99 999 pid space.
+  signal, a target can exit and its pid be recycled onto an unrelated process. K2 narrows the
+  window to one syscall pair by re-reading the identity triple (pid, start time, command) and
+  requiring a match, and makes the residue observable as `identity-changed`. A recycled process
+  that started at the same clock second AND runs the same command would still pass; that is
+  undetectable without kernel support macOS does not offer, and is bounded by how rarely a pid
+  recycles within one second on a machine with a 99 999 pid space.
 - **L-7 — clause (c) trusts the slot directory.** A stale or hand-edited slot file naming a live
   unrelated pid would exempt that pid's descendants. AGENTS.md already forbids hand-editing slot
   state and `FX_HEAVY_SLOT_DIR` in production sessions; the failure direction is inaction.
@@ -623,43 +676,43 @@ surfaced signal files here rather than as a review round.
 
 ## 8. Acceptance criteria
 
+**No criterion below restates a §4.4 behavior; each CITES the rows it is satisfied by.** That is the
+structural answer to the class three rounds kept finding (§4.4's preamble). Where a criterion needs
+to say something §4.4 does not, it says only that.
+
 - **AC-1** — A process matching a declared worker shape, with `ppid == 1`, no live slot-holder
   ancestor, and age ≥ the ceiling is classified reapable.
 - **AC-2** — **A heavy phase that is structurally identifiable as live is never reapable, at any
-  age.** Two proofs, one per closed row of §4.3's table: a worker descending from a live slot
-  holder is exempt by clause (c); a worker with a live parent is exempt by clause (b). Neither
-  proof involves the ceiling, which is why AC-2 holds at any age. The third row — unwrapped AND
-  detached — is NOT covered by this criterion and is stated as L-3.
-- **AC-3** — Every CLASSIFICATION condition in §4.4 (the collection-level and row-level tables)
-  resolves toward NOT reaping at its stated scope — whole-run for collection-level, that row only
-  for row-level — and each one is REPORTED through the §5 channel that carries it: row-level as a
-  `Decision`, collection-level as a `SlotProblem` / `CollectResult` / `configNotes` entry,
-  kill-time as a `KillOutcome`. Executable from the §5 interfaces alone. Kill-time conditions are
-  ACTIONS and are governed by AC-5/AC-5b, not by this criterion.
-- **AC-3b** — An unreadable slot directory, a torn slot metadata file, or a rejected
-  `FX_REAP_MIN_AGE_S` value each cause the run to reap NOTHING and exit non-zero. A run that
-  cannot evaluate an exemption clause never concludes a process is unexempt.
+  age.** Two proofs, one per closed row of §4.3's table: descent from a live slot holder (clause c)
+  and a live parent (clause b). Neither involves the ceiling, which is why AC-2 holds at any age.
+  The rows §4.3 marks "no" are NOT covered by this criterion; they are L-3.
+- **AC-3** — Every row-level condition R1-R5 behaves as its row states, and each appears in
+  `Classification.decisions` — so `decisions.length === rows.length` for any input.
+- **AC-3b** — Every collection-level condition C1-C8 behaves as its row states. In particular the
+  UNDECIDABLE rows (C1, C3, C5, C8) reap nothing and exit non-zero, and the DECIDABLE rows
+  (C2, C4, C6, C7) proceed. A run that cannot evaluate an exemption clause never concludes a
+  process is unexempt; a run that CAN evaluate it and finds nobody exempt is not the same thing and
+  is not blocked.
 - **AC-4** — The reaper never targets its own process or any ancestor of it.
-- **AC-5** — Killing removes the RECORDED descendant set of a reaped process — every descendant
-  present in the collection snapshot — and one verification re-scan reports any recorded pid still
-  alive as a partial kill, with a non-zero exit. Descendants created after collection are outside
-  this criterion by construction (L-5); they are ordinary orphans on the next run.
-- **AC-5b** — No pid is signalled whose `ppid`, `etime` and command have changed since
-  classification; such a pid is skipped and reported as `identity-changed`.
+- **AC-5** — Killing removes the RECORDED target set — the reaped root plus every descendant
+  present in the collection snapshot — in the order §4.4 specifies, and K4's verification re-scan
+  reports any recorded pid still alive. K5 is outside this criterion by construction.
+- **AC-5b** — K2 holds: no pid is signalled whose identity triple (pid, start time, command) has
+  changed since classification. `etime` and `ppid` are NOT part of that triple, and a target whose
+  `etime` advanced or whose `ppid` changed because this run killed its parent is still signalled.
 - **AC-6** — `pnpm heavy:reap` with no flags kills nothing and reports every reap candidate and
-  every declined orphan-shaped process; `--all` widens only the report; `--kill` is required to
-  kill. Exit status follows §6.2.
-- **AC-7** — A `ps` that cannot be invoked reaps nothing and exits non-zero, rather than reporting
-  a clean machine.
+  every declined orphan-shaped process; `--all` widens only the report, never what is killed;
+  `--kill` is required to kill; `--quiet` suppresses only decline rows. Exit status per §6.2.
+- **AC-7** — C1 holds: a `ps` that cannot be invoked reaps nothing and exits non-zero, rather than
+  reporting a clean machine.
 - **AC-8** — Trigger 1 fails open: with scripts/heavy-reap.ts absent, erroring, or timing out,
-  `pnpm heavy <cmd>` admits and runs `<cmd>` exactly as it does today.
+  `pnpm heavy <cmd>` admits and runs `<cmd>` exactly as it does today, with byte-identical argv,
+  and the wrapper's own exit status still reaches the caller.
 - **AC-9** — lib/heavyReap/classify.ts is enrolled in `tests/mutation/source/registry.ts` with a
   declared `scoreFloor`, a row in `EXPECTED_LEDGER_KINDS`
   (`tests/mutation/guardSurfaces.gate.test.ts`), and no unaccepted survivor.
 - **AC-10** — A live smoke asserts collect.ts parses this machine's real `ps` output into rows
   whose pid/ppid/age agree with a direct `ps -o` read for a process the test itself spawns.
-
----
 
 ## 9. Mutation enrolment — the convergence criterion
 
