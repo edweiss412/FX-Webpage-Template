@@ -10,6 +10,8 @@ Both probes are **read-only**. Probe A generates mutants and discards them witho
 
 ## Probe A — per-surface weights (generation only)
 
+> **Superseded on the weight question by Probe C below.** Probe A's sweep accumulates raw `mutants`; the shipping weight is the boot model. Its per-surface counts, its 0.85 s timing, and its "`n=4` is the last useful shard count" conclusion all survive — Probe C reaches the same conclusion on the correct weight — but quote Probe C's loads, not Probe A's.
+
 Run from the worktree root. It spawns no `vitest` child, so it is not a harness run and takes under a second.
 
 ```ts
@@ -138,3 +140,66 @@ Since the source gate calls `runSurface` at module scope (`tests/mutation/guardS
 - Probe A's weights are an upper bound (§ `maxSuiteRuns`); real cost is lower where mutants die on the first suite. Consequence is shard imbalance, never a wrong verdict.
 - Probe B's per-file durations are vitest's own reporting; the occupancy figures are derived from wall-clock completion timestamps plus the first-wave assumption, which the arithmetic above independently corroborates (predicted finish 07:25:33 + 9,565 s = 10:04:58, observed 10:04:58).
 - Two scheduled runs is a small sample. The 08-15/08-16 pair is used for the growth *direction* and the cost *decomposition*, both of which are structural; the absolute s/mutant figure carries runner variance and the design does not depend on it (weights are recomputed live).
+
+---
+
+## Probe C — which weight, re-derived after spec review round 1
+
+Codex spec-R1 finding #2 was correct and load-bearing: Probe A's LPT sweep accumulated `mutants`, while the draft spec's §3.1 had specified `mutants × suitePaths.length`, and it omitted the key-ascending tie-break. The sweep was therefore not a measurement of the algorithm the spec shipped.
+
+Re-derived with the spec's assignment verbatim — sort by `(w desc, key asc)`, least-loaded, ties to lowest index — across all three candidate weights.
+
+**The repair went the other way from the finding.** Re-running with `mutants × suites` does make `interactiveScanCore` the floor (816), but that weight is simply wrong: `runAllSuites` short-circuits (`tests/mutation/source/runner.ts:216-228`), so a killed mutant costs ONE boot regardless of how many suites the surface declares. The boot model is
+
+```
+boots = mutants + accepted × (suites − 1) + suites
+```
+
+— killed mutants one boot each, survivors every suite, plus one baseline pass. In a green run survivors are exactly the ledgered `accepted` rows, since an unaccepted survivor fails the gate. So `mutants × suites` puts `interactiveScanCore` at 816 against a modelled **297**, a 2.7× over-estimate on the one surface that decides the floor.
+
+```
+$ pnpm tsx probe-weights-v2.ts
+id                       mutants suites accepted  w:mutants  w:mutants*suites  w:boots
+specLintNumerics             520      1       50        520               520      521
+interactiveScanCore          272      3       11        272               816      297
+destructiveFileAnalysis      237      1        8        237               237      238
+taskContract                 115      3       22        115               345      162
+redContract                  119      3        7        119               357      136
+ledgerGit                     99      2        6         99               198      107
+interactionTimingScan         95      2        8         95               190      105
+popoverOverlayExtract         78      1        2         78                78       79
+reviewRoundCorpus             71      1        2         71                71       72
+ledgerClaimsCore              63      2        3         63               126       68
+browserRegistry               57      1        0         57                57       58
+browserMutate                 40      1        1         40                40       41
+citationIntent                21      3        0         21                63       24
+renderedTextHaystack          17      1        0         17                17       18
+reviewRoundCount              15      2        0         15                30       17
+pgCronSmokes                  14      1        0         14                14       15
+phantomGapExecuted            13      1        0         13                13       14
+tapTargetScan                  1      1        0          1                 1        2
+
+=== weight=wMutants  total=1847  heaviest=specLintNumerics(520) ===
+  n=4: max=520 ideal=462 max/ideal=1.13 floorBoundBy=HEAVIEST SURFACE loads=[520,439,439,449]
+=== weight=wMutantsXSuites  total=3173  heaviest=interactiveScanCore(816) ===
+  n=4: max=816 ideal=794 max/ideal=1.03 floorBoundBy=HEAVIEST SURFACE loads=[816,785,787,785]
+=== weight=wBoots  total=1974  heaviest=specLintNumerics(521) ===
+  n=2: max=990 ideal=987 max/ideal=1.00 floorBoundBy=packing        loads=[990,984]
+  n=3: max=662 ideal=658 max/ideal=1.01 floorBoundBy=packing        loads=[653,662,659]
+  n=4: max=521 ideal=494 max/ideal=1.06 floorBoundBy=HEAVIEST SURFACE loads=[521,479,490,484]
+  n=5: max=521 ideal=395 max/ideal=1.32 floorBoundBy=HEAVIEST SURFACE loads=[521,369,358,368,358]
+  n=6: max=521 ideal=329 max/ideal=1.58 floorBoundBy=HEAVIEST SURFACE loads=[521,297,294,290,290,282]
+  n=8: max=521 ideal=247 max/ideal=2.11 floorBoundBy=HEAVIEST SURFACE loads=[521,297,238,180,179,182,188,189]
+
+deterministic=true
+n=25 (> 18 surfaces): emptyShards=7
+```
+
+**Conclusions, all on the weight that ships (`wBoots`).**
+
+- `n=4` is the last shard count that buys anything: `max` is pinned at 521 by `specLintNumerics` for every `n ≥ 4`, so `n=5` costs a runner and returns nothing. Same conclusion Probe A reached, now on the correct weight.
+- `wBoots` also packs best at `n=4` (1.06, against 1.13 for raw mutants and 1.03 for the over-weighted variant, whose apparent tightness is an artifact of inflating one surface).
+- The assignment is deterministic across repeated computation.
+- `n=25` against 18 surfaces yields 7 empty shards rather than an error — degenerate but total, which is the failure direction §3.1 claims.
+
+**Recalibration.** The 16-surface set is 1,974 − 58 − 41 = **1,875 boots** against 9,457 s: **5.04 s/boot**. Heaviest shard at `n=4` = 521 × 5.04 = **43.8 min**. The earlier draft's "3.07 s/boot" divided by `maxSuiteRuns`, an upper bound, and is withdrawn.

@@ -126,9 +126,24 @@ surfaces=18  totalMutants=1847  totalMaxSuiteRuns=3173
 heaviest=specLintNumerics 520 (28.2% of mutants)   mean=102.6   max/mean=5.07
 ```
 
-`maxSuiteRuns` = `mutants × suitePaths.length`, an **upper** bound: `runAllSuites` short-circuits on the first suite that rejects (`tests/mutation/source/runner.ts:216-228`), so a killed mutant usually costs one child boot, not all of them.
+`maxSuiteRuns` = `mutants × suitePaths.length` is an **upper** bound and is NOT the weight this spec uses — it over-weights a multi-suite surface by up to `suitePaths.length`. `runAllSuites` short-circuits on the first suite that rejects (`tests/mutation/source/runner.ts:216-228`), so the actual child-boot count per surface is:
 
-**Calibration.** The 16-surface set that ran on 2026-08-16 excludes `browserRegistry` and `browserMutate` (merged at 13:38 Z that day, after the 07:25 Z run), giving 1,750 mutants and 3,076 max suite-runs against 9,457 s of measured import: **5.40 s/mutant, or 3.07 s per child-vitest boot** on a GitHub 4-vCPU runner. The parent spec measures ~0.75 s/mutant locally (`2026-08-04-source-mutation-guard-gate.md:48`), so CI is ~4× slower per boot — consistent, and the boot figure is the more stable unit because it absorbs the 1–3 suite spread.
+```
+boots = mutants + accepted × (suites − 1) + suites
+        └ killed: 1 boot each  └ survivors run every suite  └ the baseline
+```
+
+A survivor is a mutant no suite rejects, so it pays every suite; in a **green** run every survivor is a ledgered `accepted` row, because an unaccepted survivor fails the gate by construction (`tests/mutation/guardSurfaces.gate.test.ts:185-191`). `accepted.length` is therefore the survivor count, and the model is computable from the registry alone.
+
+| weight | heaviest surface | n=4 max/ideal |
+|---|---|---|
+| `mutants` | `specLintNumerics` (520) | 1.13 |
+| `mutants × suites` | `interactiveScanCore` (816) | 1.03 |
+| **`boots` (used)** | **`specLintNumerics` (521)** | **1.06** |
+
+`mutants × suites` puts `interactiveScanCore` at 816 against a modelled 297 real boots — a 2.7× over-estimate that moves the apparent floor onto the wrong surface. The boot model is the weight §3.1 specifies.
+
+**Calibration.** The 16-surface set that ran on 2026-08-16 excludes `browserRegistry` and `browserMutate` (merged at 13:38 Z that day, after the 07:25 Z run): 1,750 mutants and **1,875 modelled boots** against 9,457 s of measured import — **5.40 s/mutant, 5.04 s per child boot** on a GitHub 4-vCPU runner. The per-boot figure uses the boot model as its denominator, not `maxSuiteRuns`; dividing by an upper bound would understate the true per-boot cost, which is why the earlier draft's 3.07 s figure is withdrawn. The parent spec measures ~0.75 s/mutant locally (`docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md:48`), so CI is ~7× slower per boot.
 
 ### 2.4 What a per-surface partition can and cannot achieve
 
@@ -144,7 +159,9 @@ perSurfaceLPT n=8: max=520 ideal=231 max/ideal=2.25  loads=[520,272,237,158,169,
 
 **A surface is indivisible under this partition, so the heaviest surface is a hard floor on the makespan.** `specLintNumerics` at 520 mutants pins `max` from `n=4` onward; every shard past four is empty capacity. This is the measured answer to the first question the arc brief poses (“a surface, or a surface’s mutants?”): **per surface, with a useful ceiling of four shards**, and sub-surface partitioning filed as a limit with an explicit trigger rather than built now (§6, L-2).
 
-At the recommended `n=4`, 520 mutants × 5.40 s = **46.8 min** for the heaviest shard, which lands almost exactly on the heaviest parser shard (46.2 min). The two sides balance without tuning.
+Under the boot weight §3.1 actually specifies, the same sweep gives `n=4: max=521 ideal=494 max/ideal=1.06 loads=[521,479,490,484]`, and `max` is pinned at 521 by `specLintNumerics` for every `n ≥ 4` — the same conclusion, on the weight that ships. The full three-weight comparison is in the probe record.
+
+At the recommended `n=4`, 521 boots × 5.04 s = **43.8 min** for the heaviest shard, against a heaviest parser shard of 46.2 min. The two sides balance without tuning.
 
 ### 2.5 Weight computation is free
 
@@ -191,7 +208,7 @@ The `notify` job does file a tracking issue for a red **scheduled** run (`.githu
 ### 3.1 Partition unit and weight
 
 - **Unit:** one enrolled surface (`GuardSurface`, `tests/mutation/source/registry.ts:12`). Indivisible.
-- **Weight:** `mutants × suitePaths.length`, computed at shard startup from the live registry by generation only (§2.5). Not committed, not cached.
+- **Weight:** `mutants + accepted.length × (suitePaths.length − 1) + suitePaths.length` — the child-boot model derived in §2.3 — computed at shard startup from the live registry by generation only (§2.5). Not committed, not cached. It is a MODEL, not a measurement: §6 L-3 states its failure direction.
 - **Assignment:** the existing `lptAssign` (`tests/parser/mutation/shardPartition.ts:19`), reused as-is — sort by (weight desc, key asc), assign to the least-loaded shard, ties to the lowest index. Integer arithmetic and lexicographic ties only, so every shard on every runner computes a byte-identical map.
 - **Shard count:** `SOURCE_SHARD_COUNT = 4` (§2.4).
 
@@ -222,6 +239,14 @@ A NEW file, tests/mutation/guardSurfaces.gates.test.ts, created by this arc — 
 - **Balance:** `max/mean` load stays under a stated bound, the analogue of the parser's `(h)`.
 - **A surface's `it` count is 7**, pinning the arithmetic §2.2 uses to read enrolment off a run's test count.
 
+#### 3.3.1 Five new files must be excluded from the default projects, or they land on the merge path
+
+`PARALLEL_TEST_GLOBS` contains `tests/mutation/**/*.test.{ts,tsx}` (`vitest.projects.ts:143`), and the nightly gate stays out of the default projects only because `NIGHTLY_ONLY_EXCLUDES` (`vitest.projects.ts:93-97`) names it explicitly. **A new shard file that is added to `MUTATION_TEST_GLOBS` but not to `NIGHTLY_ONLY_EXCLUDES` is therefore admitted by the `parallel` project and runs on every pull request** — putting a per-mutant harness, tens of minutes of it, onto the merge path of every PR in the repo.
+
+This is the one failure mode of this change that is both silent at authoring time and severe, so it is pinned rather than remembered. `tests/cross-cutting/vitest-projects-partition.test.ts` already asserts that every discovered test file is admitted by exactly one default project unless it matches `NIGHTLY_ONLY_EXCLUDES` (`tests/cross-cutting/vitest-projects-partition.test.ts:212-227` and `tests/cross-cutting/vitest-projects-partition.test.ts:243-262`), and that every `NIGHTLY_ONLY_EXCLUDES` glob appears in both `serial.exclude` and `parallel.exclude` (`tests/cross-cutting/vitest-projects-partition.test.ts:383-390` and `tests/cross-cutting/vitest-projects-partition.test.ts:471-476`). Those assertions already cover the new files the moment they exist — the task is to add all five to BOTH lists and let the existing guard prove it, not to write a new one.
+
+That suite also carries a hard count — `expect(nightlyCount, "exactly the 11 nightly files …").toBe(11)` (`tests/cross-cutting/vitest-projects-partition.test.ts:265-268`) — which becomes 15 (9 parser + 4 source shards + source gates + browser gate), and whose message text is stale on its face once it changes. Updating that literal and its message is a task step, not an incidental edit.
+
 ### 3.4 Workflow: a matrix of jobs, which is the part that buys the wall clock
 
 Both harnesses become matrix jobs, so each shard gets its own 4-vCPU runner instead of a third of one:
@@ -229,14 +254,14 @@ Both harnesses become matrix jobs, so each shard gets its own 4-vCPU runner inst
 ```yaml
 jobs:
   parser-shards:
-    strategy: { fail-fast: false, matrix: { shard: [0,1,2,3,4,5,6,7] } }
+    strategy: { fail-fast: false, matrix: { shard: [0,1,2,3,4,5,6,7] } }   # == SHARD_COUNT
     timeout-minutes: 90
     run: pnpm exec vitest run --project mutation tests/parser/mutationHarness.shard${{ matrix.shard }}.test.ts
   parser-gates:
     timeout-minutes: 30
     run: pnpm exec vitest run --project mutation tests/parser/mutationHarness.gates.test.ts
   source-shards:
-    strategy: { fail-fast: false, matrix: { shard: [0,1,2,3] } }
+    strategy: { fail-fast: false, matrix: { shard: [0,1,2,3] } }           # == SOURCE_SHARD_COUNT
     timeout-minutes: 90
     run: pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.shard${{ matrix.shard }}.test.ts
   source-gates:
@@ -246,6 +271,14 @@ jobs:
 
 `fail-fast: false` is load-bearing: one shard's coverage regression must not cancel the other eleven and hide their results, which is the same reason the gate is non-gating.
 
+#### 3.4.1 The matrix index list is a SECOND copy of the shard count, and it is the design's sharpest failure mode
+
+A GitHub matrix cannot read a TypeScript constant, so `[0,1,2,3]` is a literal that can disagree with `SOURCE_SHARD_COUNT`. **That disagreement is silent and it is exactly the "silently missing verdict" this design must not have:** raise `SOURCE_SHARD_COUNT` to 5 without touching the workflow and the partition assigns surfaces to shard 4, the gates file's totality proof still passes (it proves the *logical* partition is total, and it is), every job that runs is green — and shard 4's surfaces were never executed. A duplicated index would double-run a shard just as quietly.
+
+The repair is a **structural meta-test, not a convention** — a NEW file, tests/mutation/_metaSourceShardIntegrity.test.ts, named in plain text here because this arc creates it. It parses `.github/workflows/mutation-harness.yml` and asserts, for BOTH matrices, that the index list is exactly `[0 .. COUNT-1]` against the TypeScript constant — `SOURCE_SHARD_COUNT` for `source-shards`, and the parser harness's existing `SHARD_COUNT` (`tests/parser/mutation/shardPartition.ts:11`) for `parser-shards`. **The parser matrix carries the identical defect** and is repaired in the same commit; this is a class, not an instance. The same test asserts the shard FILE set matches the same constant, so file set, matrix, and constant are pinned to one another in one place.
+
+The alternative — deriving the matrix from a job output via `fromJSON` — is deliberately rejected: it moves the count into a runtime value the meta-test can no longer read statically, trading a checkable duplicate for an uncheckable one, and it adds a job to the critical path of every run to compute a number that changes about once a quarter.
+
 Expected wall clock is **max over jobs ≈ 47 min + ~3 min setup ≈ 50 min**, against 166 today. Fourteen jobs each pay checkout + install, so *runner-minutes* rise by roughly 14 × 3 = 42 min while *wall clock* falls by ~116 min. For a nightly that is the right trade, and it is the only trade that stays flat as surfaces enrol: a new surface lands in one shard, and when the heaviest shard nears budget, `SOURCE_SHARD_COUNT` goes up.
 
 `permissions: contents: read` stays on every harness job, and the `notify` job keeps sole ownership of `issues: write` (`.github/workflows/mutation-harness.yml:57-61` and `.github/workflows/mutation-harness.yml:89-91`) — the matrix changes job count, not the privilege split. `notify` gains `needs: [parser-shards, parser-gates, source-shards, source-gates]` and names the failing job(s) in the issue body; its existing schedule/default-branch gate (`.github/workflows/mutation-harness.yml:87`) is unchanged.
@@ -254,12 +287,16 @@ Expected wall clock is **max over jobs ≈ 47 min + ~3 min setup ≈ 50 min**, a
 
 Partitioning without this leaves the incentive intact, which is the entry's actual complaint.
 
-Each shard job emits its own elapsed time, and a final `budget` job (`if: always()`) compares the **maximum** shard elapsed against a declared `SHARD_BUDGET_MINUTES = 60` and:
+Each shard job records its elapsed minutes and uploads it as an artifact named `elapsed-<job-family>-<shard index>` — **one artifact per matrix leg, uniquely named**. A final `budget` job (`needs:` every harness family, `if: always()`) downloads them and compares against a declared `SHARD_BUDGET_MINUTES = 60`:
 
 - **fails** when any shard exceeds the budget — a real signal, well below the 90-min job timeout, so the run still produces complete results while reporting that the shape is wrong;
 - **warns** (annotation, run still green) above 75 % of budget, which is the "approaching" signal nothing emits today.
 
-`SHARD_BUDGET_MINUTES` and `SOURCE_SHARD_COUNT` are declared once, in one module, and referenced everywhere else (the single-source-of-truth discipline in `docs/agents/spec-self-review.md:14`).
+**The transport is fail-closed on completeness, which is the part that is easy to get wrong.** Matrix legs cannot use job *outputs* for this: outputs from matrix children share one name and overwrite each other nondeterministically, so the slow shard is precisely the value that can vanish, and AC-7 would pass on a partial set. Hence artifacts with per-leg names, plus an explicit count check — the `budget` job asserts it received exactly `SHARD_COUNT + SOURCE_SHARD_COUNT + 2` timing records and **fails when any is missing or duplicated**, naming the absent leg. A budget job that cannot see every shard reports that it cannot, rather than silently maximising over the shards that did report.
+
+`notify` therefore takes `needs: [parser-shards, parser-gates, source-shards, source-gates, budget]`. Without `budget` in that list a budget-only failure files no tracking issue — the whole point of §3.5 — and worse, `notify`'s green branch could auto-close the standing issue (`.github/workflows/mutation-harness.yml:132-147`) on a run whose budget check had failed. The issue body names the specific failing leg(s) and, for a budget failure, the shard and its elapsed against budget.
+
+`SHARD_BUDGET_MINUTES` and `SOURCE_SHARD_COUNT` are declared once, in one module, and referenced everywhere else (the single-source-of-truth discipline in `docs/agents/spec-self-review.md:14`); §3.4.1 is what stops the workflow's own copies from drifting from them.
 
 This converts "the nightly quietly got slower" into a named failure with a named remedy — raise `SOURCE_SHARD_COUNT` — and it keeps the cost of enrolling a surface at zero, which is the design's own success criterion.
 
@@ -285,9 +322,22 @@ This converts "the nightly quietly got slower" into a named failure with a named
 - **AC-4** Shard files are the same template: byte-identical to shard 0 after normalising the shard literal and the filename comment; each file's literal matches its filename; the file set is exactly `0..SOURCE_SHARD_COUNT-1`, with no monolith left behind.
 - **AC-5** The registry-completeness assertion exists in exactly one place and fails when a surface is enrolled without an `EXPECTED_LEDGER_KINDS` row — the fail-by-default property at `guardSurfaces.gate.test.ts:161-167` survives the move.
 - **AC-6** A red shard does not cancel its siblings (`fail-fast: false`), and the tracking issue names which job failed.
-- **AC-7** A shard exceeding `SHARD_BUDGET_MINUTES` fails the budget job; a shard above 75 % emits an annotation and stays green.
+- **AC-6a** For BOTH matrices, the new integrity meta-test asserts the workflow's index list equals exactly `0..COUNT-1` for its TypeScript constant (`SOURCE_SHARD_COUNT`; `SHARD_COUNT` at `tests/parser/mutation/shardPartition.ts:11`), and the shard FILE set equals the same range. Raising either constant without updating its matrix fails this test — the executable form of §3.4.1. Fails by default: the test derives the expected range from the constant, so it cannot be satisfied by a stale literal.
+- **AC-6b** The `budget` job receives exactly one timing record per harness leg and **fails naming the absent leg** when any is missing or duplicated; it never maximises over a partial set. `notify` lists `budget` in `needs`, so a budget-only failure files a tracking issue and cannot be auto-closed by a green sibling.
+- **AC-7** A shard exceeding `SHARD_BUDGET_MINUTES` fails the budget job; a shard above 75 % emits an annotation and stays green. Verified against a CONSTRUCTED over-budget record, not only against a live run — a budget check that has never been observed failing is not known to fail.
 - **AC-8** `permissions: contents: read` on every harness job; `issues: write` only on `notify`.
-- **AC-9** Real CI on the implementing branch via the existing path-filtered `pull_request` trigger (`.github/workflows/mutation-harness.yml:27-36`) — per the "local-passes-CI-fails is its own bug class" rule in `AGENTS.md`, local green is necessary and not sufficient. **Green is measured against the merge-base, not against zero.** `mutation-harness` is red on `main` for two pre-existing reasons unrelated to this arc (§2.7, filed in PR #824 / `docs/mutation-harness-main-red`, reproduced identically on two unrelated heads). The criterion is therefore: every job the arc introduces or reshapes is green, **and** the failing set is a subset of the merge-base's failing set. The implementer records the merge-base failure set before triaging any red, and does not treat a pre-existing failure as a regression of this diff. The harness is not a required context and does not block the merge.
+- **AC-9** Real CI on the implementing branch via the existing path-filtered `pull_request` trigger (`.github/workflows/mutation-harness.yml:27-36`) — per the "local-passes-CI-fails is its own bug class" rule in `AGENTS.md`, local green is necessary and not sufficient. **Green is measured against the merge-base, not against zero**, because `mutation-harness` is red on `main` for two pre-existing reasons unrelated to this arc (§2.7).
+
+  **The comparison is over FAILURE SIGNATURES, never job identity.** Job identity cannot be the key: the merge-base has one `mutation-harness` job (`.github/workflows/mutation-harness.yml:43`) and the branch has four families plus matrix children, so "the same job failed" is not expressible and a subset relation over job names is vacuous. A signature is the pair *(assertion site, failing item)*, normalised so it is invariant to which shard ran it:
+
+  | failure class | signature |
+  |---|---|
+  | source-mutation gate condition | `<surfaceId>` + gate condition + the offending `siteId` — e.g. `interactionTimingScan` / `unaccepted-survivor` / `logical-connector:330:39:&&>||` |
+  | parser ledger reconciliation | the bucket (`NEW` / `FIXED` / `DRIFTED`) + each `siteId|kind|fingerprint` row — e.g. the 11 `blank-row:inject:…` rows |
+  | anything else | the test file path with its shard index stripped, plus the `it(...)` title |
+
+  The criterion: **the branch's signature set is a subset of the merge-base's signature set.** The implementer captures the merge-base set FIRST — from the two runs already recorded in §2.7, or a fresh `workflow_dispatch` on the merge-base — and pastes it into the closeout before triaging any red. A red whose signature is absent from that set is a regression of this diff, even if it lands in the same file or shard as a pre-existing one; a red whose signature is present is pre-existing, even if the shard index differs. The harness is not a required context and does not block the merge.
+- **AC-9a** All five new files appear in BOTH `MUTATION_TEST_GLOBS` and `NIGHTLY_ONLY_EXCLUDES`, and `tests/cross-cutting/vitest-projects-partition.test.ts` is green — so no shard file is admitted by the `serial` or `parallel` project and none reaches a pull-request leg (§3.3.1).
 - **AC-10** `pnpm mutation:guards` (the repo-root `package.json`, `"mutation:guards"` at line 55) still runs the whole gate locally, unsharded, so enrolling a surface needs no shard arithmetic by hand.
 
 ---
@@ -296,9 +346,9 @@ This converts "the nightly quietly got slower" into a named failure with a named
 
 | id | limit | argument |
 |---|---|---|
-| **L-1** | Wall clock is bounded by the heaviest **single surface**, not by `SOURCE_SHARD_COUNT`. `specLintNumerics` (520 mutants ≈ 47 min) pins the makespan from `n=4` on (§2.4). | Measured. Shards past four are empty capacity, which is why the count is 4 and not 8. |
+| **L-1** | Wall clock is bounded by the heaviest **single surface**, not by `SOURCE_SHARD_COUNT`. `specLintNumerics` (521 boots ≈ 43.8 min) pins the makespan from `n=4` on (§2.4). | Measured. Shards past four are empty capacity, which is why the count is 4 and not 8. |
 | **L-2** | **Sub-surface partitioning is deferred, not overlooked** — the same posture R6 took toward this spec. Trigger, stated so it is not a judgement call: when the heaviest single surface's projected cost exceeds `SHARD_BUDGET_MINUTES`, per-surface partitioning can no longer meet the budget and the unit must become the mutant. That requires cross-shard aggregation, because `evaluateGate` scores a surface as a whole. | The budget job (§3.5) is what detects the trigger, so the limit is self-reporting rather than remembered. |
-| **L-3** | Weights are an upper bound (`maxSuiteRuns`), so a surface whose mutants are mostly killed by its first suite is over-weighted. Consequence is imbalance only (§3.1). | Short-circuit at `runner.ts:216-228`. |
+| **L-3** | The weight is a **model** (§2.3), not a measurement. It assumes a killed mutant costs one boot and a survivor costs every suite; a surface whose mutants are killed only by a LATER suite is under-weighted, and one whose real survivors exceed its ledgered `accepted` rows is too — though that second case fails the gate anyway, so it cannot persist. Consequence is shard imbalance only: the partition stays total and disjoint, so no verdict changes (§3.1). Re-deriving the model against per-surface timings, once any exist, is a cheap future refinement and needs no design change — the weight is recomputed live. | Short-circuit at `tests/mutation/source/runner.ts:216-228`; three-weight comparison in the probe record. |
 | **L-4** | Runner-minutes rise ~42 min/run for the per-job setup tax. Accepted: this is a nightly, and wall clock is the constrained resource. | §3.4. |
 | **L-5** | A GitHub-hosted 4-vCPU runner yields three vitest workers; nothing here assumes more. If runner size changes, shard counts want re-deriving, not the design. | `.github/workflows/mutation-harness.yml:2-10`; confirmed by three files starting concurrently at 07:25:33 (§2.1). |
 
