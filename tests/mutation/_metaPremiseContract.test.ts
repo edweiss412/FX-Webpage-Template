@@ -28,6 +28,21 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in guardSurfaces.gate.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // The pane-compaction suites, enrolled 2026-08-16. All declare 0 honestly and
+  // structurally: ENVIRONMENT_SOURCES.modules is ["node:child_process",
+  // "scripts/lib/ledger-git"], and these suites import neither. That holds only
+  // because the core takes its git/gh/fs/clock surface by INJECTION — the core
+  // itself may reach child_process, since the scanner classifies suites, not
+  // targets. A later suite importing a real surface must declare a non-zero
+  // count, the way ledgerGitSpawnSeam declares 16.
+  "tests/paneCompaction/bands.test.ts": 0,
+  "tests/paneCompaction/precedence.test.ts": 0,
+  "tests/paneCompaction/acceptSet.test.ts": 0,
+  "tests/paneCompaction/position.test.ts": 0,
+  "tests/paneCompaction/purview.test.ts": 0,
+  "tests/paneCompaction/cli.test.ts": 0,
+  "tests/paneCompaction/driver.test.ts": 0,
+  "tests/paneCompaction/revalidate.test.ts": 0,
   // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
   // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a
   // throwaway repo, so it counts as environment-touching like its

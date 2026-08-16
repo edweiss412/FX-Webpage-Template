@@ -150,6 +150,52 @@ export function validateSurface(surface: GuardSurface): string[] {
  */
 export const GUARD_SURFACES: GuardSurface[] = [
   {
+    // The orchestrator pane-compaction classifier. Enrolled BEFORE the
+    // whole-diff review, because that review's brief must carry a
+    // `GUARD SURFACE:` line with a real score.
+    id: "paneCompactionCore",
+    sourcePath: "scripts/lib/pane-compaction-core.ts",
+    suitePaths: [
+      "tests/paneCompaction/bands.test.ts",
+      "tests/paneCompaction/precedence.test.ts",
+      "tests/paneCompaction/acceptSet.test.ts",
+      "tests/paneCompaction/position.test.ts",
+      "tests/paneCompaction/purview.test.ts",
+      "tests/paneCompaction/cli.test.ts",
+      "tests/paneCompaction/driver.test.ts",
+      "tests/paneCompaction/revalidate.test.ts",
+    ],
+    // Five of the six. `regex-quantifier-bound` is EXCLUDED, and the exclusion
+    // is probed rather than assumed: it recognizes only `{m,n}` quantifiers
+    // inside literal text, and this surface's two regexes use `{5}` (exact) and
+    // `\s+` / `\b`, so it generates ZERO sites here. Measured:
+    //
+    //     11  relational-boundary      65  integer-literal
+    //     51  equality-flip             0  regex-quantifier-bound
+    //     19  logical-connector        17  statement-removal
+    //
+    // Declaring it anyway would be a DARK operator: the gate asserts only that
+    // total mutants exceed zero, so it would pass while contributing nothing.
+    // The enrolment suite asserts every DECLARED operator has a site, which is
+    // what turned this from a plan claim into a measurement.
+    operators: [
+      "relational-boundary",
+      "equality-flip",
+      "logical-connector",
+      "integer-literal",
+      "statement-removal",
+    ],
+    // The house value. A FLOOR, not a snapshot: pinning it at the measured
+    // score turns every future line of this module into a gate failure before
+    // it has a test, which is how a ratchet becomes a wall.
+    scoreFloor: 0.95,
+    // Lowering the eligibility threshold makes every below-band fixture band
+    // as eligible, which bands.test.ts asserts IN PROCESS. Run, not merely
+    // asserted non-equal to the source.
+    control: { from: "export const ELIGIBLE_AT = 5;", to: "export const ELIGIBLE_AT = 0;" },
+    accepted: [],
+  },
+  {
     // The citation-intent classifier (2026-08-15 arms spec §3, §7). Its three
     // suites split the surface deliberately: the unit suite pins the matching
     // discipline per consumer, the wiring suite pins the two-pass relocation
