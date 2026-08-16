@@ -1,0 +1,25 @@
+# Double-serialize sweep — run 2026-08-15 (plan R1 F2 artifact)
+
+$ grep -rn "error: serializeError(" lib/ app/ --include="*.ts" --include="*.tsx"
+```
+lib/auth/picker/resolvePickerSelection.ts:56:    ...(detail === undefined ? {} : { error: serializeError(detail) }),
+lib/auth/picker/resolveShowPageAccess.ts:75:    ...(detail === undefined ? {} : { error: serializeError(detail) }),
+lib/log/emitIdentityLinkRenameUnlanded.ts:66:        error: serializeError(result.error),
+lib/log/emitLeadRoleApplied.ts:77:        error: serializeError(result.error),
+lib/log/persist.ts:32:      console.error("[log/persist] app_events write failed", { error: serializeError(error) });
+lib/log/persist.ts:38:    console.error("[log/persist] app_events write threw", { error: serializeError(e) });
+lib/sync/emitRoleFlagsNotice.ts:118:        error: serializeError(error),
+lib/sync/emitRoleFlagsNotice.ts:139:        error: serializeError(error),
+lib/sync/emitRoleFlagsNotice.ts:170:        error: serializeError(error),
+lib/sync/applyStaged.ts:2016:          error: serializeError(sinkError),
+lib/sync/applyStaged.ts:2068:          error: serializeError(error),
+lib/sync/runManualStageForFirstSeen.ts:377:          error: serializeError(sinkError),
+lib/sync/runManualSyncForShow.ts:344:          error: serializeError(sinkError),
+lib/sync/runManualSyncForShow.ts:572:          error: serializeError(sinkError),
+app/api/admin/pending-ingestions/[id]/retry/route.ts:486:              error: serializeError(sinkError),
+app/api/admin/pending-ingestions/[id]/retry/route.ts:587:            error: serializeError(sinkError),
+app/api/admin/pending-ingestions/[id]/retry/route.ts:658:          error: serializeError(error),
+app/api/admin/pending-ingestions/[id]/retry/route.ts:698:          error: serializeError(error),
+app/api/admin/pending-ingestions/[id]/retry/route.ts:720:          error: serializeError(error),
+app/api/admin/pending-ingestions/[id]/retry/route.ts:751:          error: serializeError(error),
+```

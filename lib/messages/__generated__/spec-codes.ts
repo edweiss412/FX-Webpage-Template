@@ -1436,6 +1436,12 @@ export const SPEC_CODES = {
     "followUp": "Eric → inspect sync_log payload",
     "helpfulContext": "A database or Supabase boundary returned an infrastructure error. The structured log payload keeps the original operation and error class for debugging.",
   },
+  "SYNC_LOG_EMIT_FAILED": {
+    "crewFacing": null,
+    "dougFacing": null,
+    "followUp": null,
+    "helpfulContext": null,
+  },
   "SYNC_STALLED": {
     "crewFacing": null,
     "dougFacing": "Auto sync hasn't run in over an hour, so new sheet changes won't reach crew pages until it resumes. If this keeps happening, check the Drive connection or re-run setup.",

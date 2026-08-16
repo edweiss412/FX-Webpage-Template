@@ -1,6 +1,7 @@
 import { getActiveWatchedFolderId } from "@/lib/appSettings/getWatchedFolderId";
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { log } from "@/lib/log";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { revalidateShowFromResult } from "@/lib/data/showCacheTag";
 import {
@@ -243,7 +244,26 @@ async function logUnlessArchived(
     if (await readShowArchived_unlocked(tx, driveFileId)) {
       return { outcome: "skipped", reason: ARCHIVED_SKIP_REASON };
     }
-    await logSync(logEntry);
+    // Guard the SINK write (spec 2026-08-15 §2.2). This runs inside the blocking withLock
+    // callback and `sync_log` rides its own postgres connection, so an unguarded transient sink
+    // fault escaped the lock callback and failed the whole push sync.
+    try {
+      await logSync(logEntry);
+    } catch (sinkError) {
+      // Local const (NOT chained) so prettier keeps `log.error(` on ONE line —
+      // stripLogEmissionCalls cannot match a `log` / `.error` split across lines.
+      const escalation = log.error("push sync_log emit failed", {
+        source: "sync.pushSync",
+        code: "SYNC_LOG_EMIT_FAILED",
+        driveFileId,
+        // RAW value: buildRecord serializes exactly once (§2.2).
+        error: sinkError,
+      });
+      // Invariant 10: the held lock window must never be extended by an app_events emit.
+      void escalation.catch(() => {
+        /* best-effort: a recording failure must never displace the failure it was recording */
+      });
+    }
     return result;
   });
 }
