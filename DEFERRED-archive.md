@@ -407,9 +407,9 @@ screen-disposition 2026-08-04: DEMOTE — every item is either already ratified 
 `2026-07-25-newtab-announcement-family.md` §6.4 or closed in-body; the spec section is the record.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-### NEWTAB-GUARD-UNDECIDABLE-2 — statically undecidable guard limits (2026-07-25; item (b) closed same day)
+**NEWTAB-GUARD-UNDECIDABLE-2 — statically undecidable guard limits (2026-07-25; item (b) closed same day)**
 
 **Effort:** XS
 
@@ -465,9 +465,9 @@ from the resolved row rather than this one.
 screen-disposition 2026-08-04: GRADUATE — the tracking row it delegates to resolved 2026-08-01 with
 both gaps closed, one by fix and one by owner ratification.
 
-The original entry follows verbatim.
+The original entry follows verbatim (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window closes silently
+**DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window closes silently**
 
 From the same audit. At 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. Separately, 4s is tight against ~3s of polite speech for the arm message.
 
@@ -502,9 +502,9 @@ screen-disposition 2026-08-04: DEMOTE — probe-backed limits on surfaces this t
 case is inert here, so the record belongs in the guard's limits block, not the open queue.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-### PSQL-GUARD-RECALL-RESIDUAL — three hypothetical gaps in the psql `-X` guard (2026-08-03)
+**PSQL-GUARD-RECALL-RESIDUAL — three hypothetical gaps in the psql `-X` guard (2026-08-03)**
 
 **Effort:** S
 
@@ -582,9 +582,9 @@ exemption mechanism (`psql-startup-files-ok: <reason>`, reason mandatory) exists
 has **zero users** in the tree.
 
 The filing-time entry follows verbatim, census and all, so the gap between what an `rg` census sees
-and what the tree actually contains stays legible.
+and what the tree actually contains stays legible (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-### PSQL-STARTUP-FILE-NO-X-CLASSWIDE — every other `psql` call site still reads startup files (2026-08-02)
+**PSQL-STARTUP-FILE-NO-X-CLASSWIDE — every other `psql` call site still reads startup files (2026-08-02)**
 
 Surfaced by whole-diff review R3 on `test/step3-live-render-cluster`, which proved the vector
 against the installed binary: with a `PSQLRC` (or `$HOME/.psqlrc`, or the compiled system psqlrc)
@@ -1760,7 +1760,7 @@ Dual-gate on the Task 13 UI diff (`RoleRecognizeControl` + boundary + `/admin/se
 
 Dual-gate on the `feat/use-raw-wizard-full-list` diff (`components/admin/wizard/step3ReviewSections.tsx`; spec `docs/superpowers/specs/2026-07-16-use-raw-wizard-full-list-toggle.md`). Critique 27/40 (dual-agent), audit 19/20; deterministic detector clean — the single `broken-image` hit is a false positive on JSDoc comment text, pre-existing. One P1 and two P2s deferred below; no P0.
 
-### USE-RAW-FULL-LIST-1 — [P1→ratified+deferred] Callout + list both render live controls; role-control siblings can diverge until navigation
+**USE-RAW-FULL-LIST-1 — [P1→ratified+deferred] Callout + list both render live controls; role-control siblings can diverge until navigation**
 
 - **What:** A warning in the first 3 of its section's callout now has two live control instances (callout preview + complete list). Use-raw converges via `router.refresh()` on every save; the recognize-role control deliberately performs no client refresh (2026-07-15 §8.1 timing contract), so recognizing a role via one instance leaves the sibling in create mode until navigation — Doug could re-submit from the sibling (impeccable critique P1).
 - **Why deferred:** This is the **ratified spec contract**, not an oversight: keep-both was the user-approved resolved decision (spec §2.1, 2026-07-16) and §4.6 ratifies the stale-sibling class as accepted — it is pre-existing (per-occurrence `UNKNOWN_ROLE_TOKEN` emission already mounts duplicate live create controls for one token today), and the stale-sibling save resolves deterministically via the action's EXISTING-ROW-first branch: set-equal grants → idempotent success, different grants → benign conflict notice, never a raw code (pinned by the new sibling test in `tests/components/admin/wizard/warningsBreakdownControls.test.tsx`). No data corruption is possible; the cost is momentary confusion, bounded by the §8.1 contract this diff deliberately does not alter.
@@ -1815,7 +1815,7 @@ Source: the consolidated-admin-show-page rebuild (spec `docs/superpowers/specs/2
 
 <details><summary>Original deferral (superseded by the resolution above)</summary>
 
-### CASP-2 — [P1 critique + Task-10 watchpoint → deferred] StatusStrip wraps the full-weight PublishedToggle card in a slim strip
+**CASP-2 — [P1 critique + Task-10 watchpoint → deferred] StatusStrip wraps the full-weight PublishedToggle card in a slim strip**
 
 - **What:** the sticky `StatusStrip` (`components/admin/showpage/StatusStrip.tsx`) wraps the FULL `PublishedToggle` card (`components/admin/PublishedToggle.tsx` — a bordered `p-tile-pad` box with an `<h3>Published`, a wrapping subline, and inline error/refusal slots), not a compact switch. On desktop the strip is `sm:flex-nowrap` (single row) and the card is fine; on a ≤640px phone the strip is `flex-wrap` and the card is the dominant child, so the "slim, pinned" strip inflates to a tall multi-row block on Doug's venue-floor phone. Surfaced by the Task 16 impeccable critique (Assessment A, P1 "sticky strip overloads on mobile" + the toggle-weight watchpoint) and pre-flagged in `.superpowers/sdd/task-10-report.md` §3 ("in a slim strip this is visually heavy; a compact variant is a shared-component change for impeccable/Task 13").
 - **Why deferred (not a gate blocker; disproportionate + risky at close-out):** (1) The control WORKS correctly and desktop (Doug's primary desk context) is unaffected — this is a mobile density/weight concern, not broken function or a banned pattern. (2) The proper fix — a `variant="inline"` on the shared `PublishedToggle` (compact switch + label in the strip; subline/error relocated to the Overview share cluster where the `admin-share-link-inactive` notice already lives) — is a shared-component presentational redesign that RELOCATES the React-19 refusal-error rendering (`PUBLISH_BLOCKED_PENDING_REVIEW` etc.), which is exactly the dispatch-safety surface the B1 revoke-hang lesson governs; a half-done relocation is worse than a heavy-but-correct card, and it wants its own TDD cycle + adversarial review, not a close-out drive-by. (3) The heavy card is NOT diff-introduced — `PublishedToggle` is a pre-existing shipped component (spec `docs/superpowers/specs/admin/2026-07-01-published-toggle.md`) that this branch merely relocated into the strip. (4) Matching precedent for deferring pre-existing / shared-component P1 UI-weight findings with a trigger: STEP3MODAL-1, DQIGNORE-6, CARDREPORT-1. (5) Folds in the coupled critique P2 "duplicated crew-link-off copy" (the toggle subline vs the Overview inactive notice) — the compact variant removes the subline, leaving the Overview notice as the single source.

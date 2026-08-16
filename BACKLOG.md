@@ -966,29 +966,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Promotion prerequisite:** EITHER (a) owner decides to formalize the downloadable template as a real v2 feature (template design + adoption plan), OR (b) the v1 redesign ships and operator feedback shows the empty-state surfaces (timeline, wifi, flights, contacts) are a real friction point worth closing at the source. Promotion starts with a brainstorming session on the template shape + the parser contract for any new structured tabs (the AGENDA run-of-show grid contract is already partially mapped in the redesign milestone's deep-read notes).
 
-### BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 35 ids appear twice in BACKLOG-archive.md, and no gate notices
-
-**Severity:** LOW (the archive is a record, not a queue; nothing reads it for scheduling) · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, found while resolving an archive merge) · **Effort:** S
-
-**Probed, not theorized.** On `origin/main`, and on main BEFORE the quick-wins-2 mech branch merged (so this is not that arc's doing):
-
-```
-$ git show origin/main:BACKLOG-archive.md \
-    | grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' | sed -E 's/^#+ //' | sort | uniq -d | wc -l
-35
-$ git show ec06b825a^1:BACKLOG-archive.md | ... same pipeline ...
-35
-```
-
-**Why nothing caught it.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` asserts no id is both ACTIVE and ARCHIVED — a cross-file check. Nothing asserts an id appears at most once WITHIN the archive. A union-style merge resolution on the archive (the natural resolution, since two branches usually only append) silently duplicates any entry both sides carry, and every existing gate stays green.
-
-**Two traps for whoever picks this up**, both hit while resolving the merge that found it:
-
-- The active ledger uses `### ` headings and the archive uses `## `. A duplicate check anchored to one level reports clean while every collision hides in the other. Match `^#{2,3}`.
-- Archive PROSE cross-references entry ids, so a substring test (the bare id as a substring) reports an id as archived when only a mention is present. Anchor to the heading.
-
-**Fix:** de-duplicate the 35, then add the within-file uniqueness assertion to the graduation meta-test so the class cannot come back.
-
 ---
 
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
