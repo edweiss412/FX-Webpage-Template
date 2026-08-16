@@ -320,6 +320,24 @@ Memory at the same instant: 14.86 GB rss of 18 GB, `Pages free: 4015`, compresso
 
 **First scheduled step:** measure the longest legitimate `mutation:guards` wall clock on this machine (the nightly is already at 138-180 min per `BL-MUTATION-HARNESS-WALLCLOCK-CEILING` below, so the ceiling is not small), then pick the shape. The two entries share a surface and should be read together — that one is about a job that runs too long, this one about processes that never stop.
 
+## BL-SPECLINT-RED-TARGET-ROOT-FILE — a red-contract `red-target=` cannot name a repository-root file
+
+**Status:** OPEN · **Severity:** LOW (one plan region per affected arc falls back to the v1 marker; nothing ships wrong, but the stricter contract is unavailable exactly where a root-level config file is the production surface) · **Class:** tooling / spec-lint · **Effort:** S · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, hit while writing the heavy-orphan plan) · **Reachability: PROBED** — the finding below is a real `spec:lint` failure on a real plan, not a projection.
+
+`classifySpan` marks a citation BARE when its path contains no `/` (`lib/specLint/citations.ts:55`), and `targetProblem` rejects a bare shorthand outright: "bare-filename shorthand is not legal in a marker; use the full path" (`lib/specLint/redContract.ts:110`). For a file at the repository root the full path IS the bare name, so **no legal spelling exists**. Probed on `docs/superpowers/plans/ci/2026-08-16-heavy-orphan-worker-lifetime.md`, whose Task 4 edits the `heavy` script:
+
+```
+FAIL RED_TARGET_INVALID 942:105 invalid `red-target=`: bare-filename shorthand is not legal in a marker; use the full path
+```
+
+The rule is right in general — a bare filename in a marker has no anchor context to resolve against, which is the defect it was written to stop. It is only wrong for the root, where there is nothing to disambiguate: `package.json` resolves to exactly one tracked path, and the ambiguity the rule guards against (`CITATION_AMBIGUOUS` lists three `package.json` files, two of them under `tests/styles/__fixtures__/`) is real for PROSE shorthands but not for a marker field that is required to be a full path.
+
+**Workaround in use:** the affected task leaves the red-contract region and uses a v1 marker in a sibling plain region, with the red stated in prose. That is legal and the multi-region design supports it, but it loses `red-state=`/`why=`/`red-target=` for that task — the fields exist precisely so the claim is machine-checked rather than trusted.
+
+**Candidate repairs, for the implementing arc to weigh:** (a) accept a path that resolves to exactly one tracked file even when it contains no `/`, keeping the rejection only when the basename is ambiguous — this makes the check match its stated rationale; (b) accept an explicit `./`-prefixed form and strip it before resolution; (c) declare the limit and document that root-level surfaces use the v1 marker. (a) is the smallest change that removes the dead spot rather than naming it.
+
+**First scheduled step:** confirm whether any OTHER tracked root-level file is a plausible `red-target=` (`git ls-files --full-name . | grep -v /` is the enumeration), since that set bounds how much the gap actually costs.
+
 ## BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH — the mutation harness bounds a child only while its parent lives
 
 **Status:** OPEN · **Severity:** MEDIUM (it is the PRODUCER of the orphans `BL-HEAVY-ORPHAN-WORKER-LIFETIME` cleans up after; that entry bounds the consequence, this one prevents it) · **Class:** local capacity / process hygiene · **Effort:** M · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, class-sweep of the heavy-orphan spec) · **Reachability: PROBED** — probe P2 below was run on this machine, and the eleven orphans of the 2026-08-16 incident were all children of this harness.

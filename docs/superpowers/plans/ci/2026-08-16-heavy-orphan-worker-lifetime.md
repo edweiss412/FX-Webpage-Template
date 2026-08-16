@@ -4,9 +4,9 @@
 
 **Goal:** Bound how long a heavy-phase worker process outlives the harness that owns it, without ever reaping a heavy phase that is structurally identifiable as live.
 
-**Architecture:** A pure classifier over the process table plus the heavy semaphore's own slot files decides which processes are orphaned heavy workers; a collector reads that world and reports its own failures; a thin CLI adapter reports by default and kills only under `--kill`. The classifier is enrolled in the source-mutation registry, which is what makes the review's convergence criterion a score rather than an argument.
+**Architecture:** A pure classifier over the process table decides which processes are orphaned heavy workers; a collector reads that table and reports its own failure rather than an empty world; a thin CLI adapter reports by default and kills only under `--kill`. The classifier is enrolled in the source-mutation registry, which makes the review's convergence criterion a score rather than an argument.
 
-**Tech Stack:** TypeScript (strict: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), vitest, `tsx` for the CLI, `ps(1)`, the existing `scripts/with-heavy-slot.py` semaphore (read-only).
+**Tech Stack:** TypeScript (strict: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), vitest, `tsx` for the CLI, `ps(1)`, the existing `scripts/with-heavy-slot.py` semaphore (untouched).
 
 **Spec:** `docs/superpowers/specs/ci/2026-08-16-heavy-orphan-worker-lifetime-design.md` — every §-reference below is to it, and the executor reads both. `BL-HEAVY-ORPHAN-WORKER-LIFETIME`.
 
@@ -14,9 +14,9 @@
 
 Copied verbatim from the spec; every task's requirements implicitly include these.
 
-- **The three §4.4 tables are the ONLY source for what any condition does.** Code comments and test names cite the row ID (C1-C8, R1-R5, K1-K5); they do not paraphrase the behavior.
-- **`scripts/with-heavy-slot.py` is not edited.** Trigger 1 is a `package.json` change. No change to admission control, slot counts, or the wrapper's `execvp` model.
-- **Slot state is read, never written.** No task creates, edits, or deletes a file under the slot directory, and no task sets `FX_HEAVY_SLOT_DIR` outside a per-test tmpdir.
+- **The three §4.4 tables are the ONLY source for what any condition does.** Code comments and test names cite the row ID (C1-C4, R1-R4, K1-K5); they do not paraphrase the behavior.
+- **`scripts/with-heavy-slot.py` is not edited.** Trigger 1 is a package.json change. No change to admission control, slot counts, or the wrapper's `execvp` model.
+- **The reaper never reads the semaphore's state.** The slot-membership clause was found unreachable and removed (spec §4.2); no task adds slot parsing back, and no task reads or writes `/tmp/fx-heavy-slots`.
 - **`tests/mutation/source/runner.ts` and `childRun.ts` are not edited** (spec §11; filed as `BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH`).
 - **Default ceiling `FX_REAP_MIN_AGE_S` = `14400` seconds (4 h).** One definition, in `classify.ts`; nothing else restates the number.
 - **Every heavy phase runs under `pnpm heavy`** — `pnpm test:fast`, any build, any `--project mutation` run. Scoped `vitest run <files>` stays unwrapped.
@@ -28,30 +28,32 @@ Copied verbatim from the spec; every task's requirements implicitly include thes
 
 | File | Responsibility |
 | --- | --- |
-| `lib/heavyReap/classify.ts` (new) | Every decision rule. Pure, total, no I/O, no clock. The mutation-registry surface. |
-| `lib/heavyReap/collect.ts` (new) | Read the world: `ps` into rows, the slot dir into a `SlotSurvey`. Distinguishes its own failure from an empty world. |
-| `scripts/heavy-reap.ts` (new) | CLI adapter: flags, report, kill plan, identity re-check, exit status. Decision logic exported as pure functions; only `process.kill` is injected. |
-| `tests/heavyReap/classify.test.ts` (new) | Task 1 |
-| `tests/heavyReap/collect.test.ts` (new) | Task 2 |
-| `tests/heavyReap/fixtures/` (new) | A committed `ps` sample from this machine; slot-dir fixtures. |
-| `tests/heavyReap/cli.test.ts` (new) | Task 3 |
-| `tests/heavyReap/triggerFailOpen.test.ts` (new) | Task 4 |
-| `package.json:56` (modify) | The `heavy` script gains the pre-admission reap; a new `heavy:reap` script. |
+| lib/heavyReap/classify.ts (new) | Every decision rule. Pure, total, no I/O, no clock. The mutation-registry surface. |
+| lib/heavyReap/collect.ts (new) | Read the world: `ps` into rows. Distinguishes its own failure (C1) from an empty table (C2). |
+| scripts/heavy-reap.ts (new) | CLI adapter: flags, ceiling, report, kill plan, identity re-check, exit status. Decision logic exported as pure functions; only the signal and the identity read are injected. |
+| tests/heavyReap/classify.test.ts (new) | Task 1 |
+| tests/heavyReap/collect.test.ts (new) | Task 2 |
+| tests/heavyReap/fixtures/ps-sample.txt (new) | A committed `ps` sample from this machine, containing at least one real worker line. |
+| tests/heavyReap/cli.test.ts (new) | Task 3 |
+| tests/heavyReap/triggerFailOpen.test.ts (new) | Task 4 |
+| package.json:56 (modify) | The `heavy` script gains the pre-admission reap; a new `heavy:reap` script. |
 | `tests/mutation/source/registry.ts:151` (modify) | One `GUARD_SURFACES` row. |
 | `tests/mutation/guardSurfaces.gate.test.ts:34` (modify) | One `EXPECTED_LEDGER_KINDS` row. |
 | `AGENTS.md` (modify) | Document `pnpm heavy:reap`, trigger 1, and the `Stop`-hook install one-liner. |
 
-`tests/heavyReap/` is absent from `PARALLEL_TEST_GLOBS`, so it lands in the SERIAL vitest project by default. That is the correct project — Task 2's live smoke and Task 4's child-process test both spawn processes — and **no wiring change is needed**: `BASE_INCLUDE` already covers `tests/**/*.test.ts`, so `tests/cross-cutting/vitest-projects-partition.test.ts` is satisfied.
+tests/heavyReap/ is absent from `PARALLEL_TEST_GLOBS`, so it lands in the SERIAL vitest project by default. That is the correct project — Task 2's live smoke and Task 4's child-process test both spawn processes — and **no wiring change is needed**: `BASE_INCLUDE` already covers `tests/**/*.test.ts`, so `tests/cross-cutting/vitest-projects-partition.test.ts` is satisfied.
 
 ## Acceptance criteria → task
 
 | AC | Task |
 | --- | --- |
-| AC-1, AC-2, AC-3, AC-3b, AC-4 | 1 |
+| AC-1, AC-2, AC-3, AC-4 | 1 |
 | AC-7 (C1), AC-10 | 2 |
-| AC-5, AC-5b, AC-6 | 3 |
+| AC-3b, AC-5, AC-5b, AC-6 | 3 |
 | AC-8 | 4 |
 | AC-9 | 5 |
+
+AC-3b splits: C3/C4 are the ceiling, read in Task 3's `readCeiling` and carried into `classify` as `configNotes` (asserted in Task 1); C1/C2 are collection, asserted in Tasks 2 and 3.
 
 ## Meta-test inventory
 
@@ -59,16 +61,16 @@ CREATES none. EXTENDS `tests/mutation/source/registry.ts` (one `GUARD_SURFACES` 
 
 ## Mutation-operator families — the closure set for review
 
-Declared up front per the mutation-family-closure rule; this enumeration is what the diff-stage review converges against. `classify.ts` enrols with the full declared operator set (`[...OPERATOR_NAMES]`, the shape every current surface uses). A reviewer-proposed NEW family is admissible only with a live escaping mutant demonstrated against the shipped guard.
+Declared up front per the mutation-family-closure rule; this enumeration is what the diff-stage review converges against. `classify.ts` enrols with the full declared operator set (`[...OPERATOR_NAMES]`). A reviewer-proposed NEW family is admissible only with a live escaping mutant demonstrated against the shipped guard.
 
 | Family | Where it bites | Killed by (Task 1 case) |
 | --- | --- | --- |
-| comparison-operator swap | `ageSeconds >= minAgeSeconds` | the row exactly AT the ceiling |
-| boolean-operator swap | the four-clause conjunction | one row failing exactly one clause, per clause |
-| negation removal | `ppid === 1` | a row with a live parent |
-| literal change | the `1` in `ppid === 1`; `DEFAULT_MIN_AGE_SECONDS` | a row with `ppid === 2`; the C7 case |
-| statement removal | the self guard; the undecidable early return | the AC-4 cases; the C3 case |
-| return-value swap | `surveyIsDecidable` | the C3 fixture asserting zero reaps |
+| comparison-operator swap | `etimeSeconds < config.minAgeSeconds` | the row exactly AT the ceiling |
+| boolean-operator swap | `basename(argv0) !== "node"` and the entrypoint test | the non-node-argv0 case; the `tail -f` case |
+| negation removal | `row.ppid !== 1` | a row with a live parent |
+| literal change | the `1` in `ppid !== 1`; `DEFAULT_MIN_AGE_SECONDS` | a row with `ppid === 2`; the C3 case |
+| statement removal | the self guard; each early return | the AC-4 cases; the R2/R3 cases |
+| discriminant change | `"parsed"` / `"unparsable"` | the R1 case and the totality case |
 
 ## Pre-draft code-verification pass (RUN, not described)
 
@@ -92,11 +94,6 @@ $ grep -n 'export function premise' tests/_shared/premise.ts
 26:export function premise(description: string, actual: number, mustExceed: number): void {
 36:export function premiseHolds(description: string, condition: boolean): void {
 
-$ grep -n 'FX_HEAVY_DISABLE\|^DEFAULT_SLOT_DIR\|^MARKER_ENV' scripts/with-heavy-slot.py
-36:DEFAULT_SLOT_DIR = "/tmp/fx-heavy-slots"
-48:MARKER_ENV = "FX_HEAVY_SLOT_HELD"
-678:    if env_flag(env, "FX_HEAVY_DISABLE"):
-
 $ grep -c 'tests/heavyReap' vitest.projects.ts   # 0 => new dir defaults to the SERIAL project
 0
 
@@ -106,7 +103,16 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 171:    control: { from: "const PROXIMITY_WINDOW = 5;", to: "const PROXIMITY_WINDOW = 4;" },
 ```
 
-Consequence for the task markers: `lib/heavyReap/` and `scripts/heavy-reap.ts` do not exist, so Tasks 1-3 use the PATH-ONLY `red-target=` form (which requires an untracked path). Task 4's target is tracked, so it uses the colon form on `package.json:56`.
+**Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
+
+- `pnpm typecheck` passes on all seven files under the repo's strict config.
+- Tasks 1-3's suites run GREEN against Tasks 1-3's implementations: **71 cases, 3 files**.
+- Task 4's suite runs RED exactly as its Step 2 now claims: `1 failed | 6 passed (7)`.
+- Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
+
+This pass earned its cost twice. It found the SPEC defect this plan is written against — executing Task 1's clause-(c) case is how the unreachable slot clause was discovered (spec §4.2) — and it found a plan defect, an earlier Step 2 that claimed three of Task 4's cases go red when only one does.
+
+Consequence for the task markers: `lib/heavyReap/` and scripts/heavy-reap.ts do not exist, so Tasks 1-3 use the PATH-ONLY `red-target=` form (which requires an untracked path). Task 4's target is tracked, so it uses the colon form on package.json:56.
 
 ---
 
@@ -116,19 +122,19 @@ Consequence for the task markers: `lib/heavyReap/` and `scripts/heavy-reap.ts` d
 
 ### Task 1: The classifier
 
-<!-- task: red=`pnpm vitest run tests/heavyReap/classify.test.ts` red-state=authored red-target=`lib/heavyReap/classify.ts` why=`lib/heavyReap/classify.ts does not exist, so every case fails at import resolution` ac=AC-1,AC-2,AC-3,AC-3b,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/heavyReap/classify.test.ts` red-state=authored red-target=`lib/heavyReap/classify.ts` why=`lib/heavyReap/classify.ts does not exist, so every case fails at import resolution` ac=AC-1,AC-2,AC-3,AC-4 -->
 
 **Files:**
-- Create: `lib/heavyReap/classify.ts`
-- Test: `tests/heavyReap/classify.test.ts`
+- Create: lib/heavyReap/classify.ts
+- Test: tests/heavyReap/classify.test.ts
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `ProcRow`, `ParsedRow`, `UnparsableRow`, `SlotSurvey`, `SlotProblem`, `ReapConfig`, `Skip`, `Decision`, `Classification`, `DEFAULT_MIN_AGE_SECONDS`, `WORKER_ENTRYPOINTS`, `classify()`, `surveyIsDecidable()`. Tasks 2 and 3 both import from here.
+- Produces: `ProcRow`, `ParsedRow`, `UnparsableRow`, `ReapConfig`, `Skip`, `Decision`, `Classification`, `DEFAULT_MIN_AGE_SECONDS`, `WORKER_ENTRYPOINTS`, `classify()`. Tasks 2 and 3 both import from here.
 
-**What is red and why:** the module is absent, so the suite cannot resolve its import. The production surface is `lib/heavyReap/classify.ts` itself.
+**What is red and why:** the module is absent, so the suite cannot resolve its import. The production surface is lib/heavyReap/classify.ts itself.
 
-- [ ] **Step 1: Write the failing test.** `tests/heavyReap/classify.test.ts`:
+- [ ] **Step 1: Write the failing test.** tests/heavyReap/classify.test.ts:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -138,23 +144,18 @@ import {
   type ParsedRow,
   type ProcRow,
   type ReapConfig,
-  type SlotSurvey,
   classify,
-  surveyIsDecidable,
 } from "../../lib/heavyReap/classify";
 
 const NODE = "/Users/x/.nvm/versions/node/v20.20.1/bin/node";
 const FORKS = "/Users/x/node_modules/.pnpm/vitest@4.1.5/node_modules/vitest/dist/workers/forks.js";
-const NOW = 1_800_000_000;
 
 const CONFIG: ReapConfig = {
-  nowSeconds: NOW,
   minAgeSeconds: DEFAULT_MIN_AGE_SECONDS,
   minAgeSource: "default",
   selfPid: 999,
   selfAncestry: [998, 997],
 };
-const CLEAN: SlotSurvey = { holderPids: [], problems: [] };
 
 function worker(over: Partial<ParsedRow> = {}): ParsedRow {
   return {
@@ -166,34 +167,29 @@ function worker(over: Partial<ParsedRow> = {}): ParsedRow {
     ...over,
   };
 }
-const only = (rows: ProcRow[], slots: SlotSurvey = CLEAN, cfg: ReapConfig = CONFIG) =>
-  classify(rows, slots, cfg).decisions[0];
+const only = (rows: ProcRow[], cfg: ReapConfig = CONFIG) => classify(rows, cfg).decisions[0];
 
-describe("classify — AC-1", () => {
-  it("reaps a worker-shaped, orphaned, unslotted row past the ceiling", () => {
+describe("classify: AC-1", () => {
+  it("reaps a worker-shaped, orphaned row past the ceiling", () => {
     expect(only([worker()])).toMatchObject({ pid: 100, reap: true });
   });
 });
 
-describe("classify — AC-2, exempt at ANY age", () => {
+describe("classify: AC-2, exempt at ANY age", () => {
   const ancient = { etimeSeconds: 10 * 365 * 86_400 };
 
-  it("clause (c): a descendant of a live slot holder is never reaped", () => {
-    const rows = [worker({ ...ancient, ppid: 50 }), worker({ pid: 50, ppid: 1, command: "pnpm" })];
-    const slots: SlotSurvey = { holderPids: [50], problems: [] };
-    expect(classify(rows, slots, CONFIG).decisions[0]).toMatchObject({
-      reap: false,
-      because: "slot-descendant",
-    });
-  });
-
-  it("clause (b): a row with a live parent is never reaped", () => {
+  it("clause (b): a worker with a live parent is never reaped, however old", () => {
     const rows = [worker({ ...ancient, ppid: 4242 }), worker({ pid: 4242, ppid: 1, command: "sh" })];
     expect(only(rows)).toMatchObject({ reap: false, because: "has-live-parent" });
   });
+
+  it("clause (a): the pnpm wrapper of a live phase is never reaped, however old", () => {
+    const rows = [worker({ ...ancient, command: "node /x/bin/pnpm exec vitest run" })];
+    expect(only(rows)).toMatchObject({ reap: false, because: "not-a-worker" });
+  });
 });
 
-describe("classify — clause (a) is structural, never containment", () => {
+describe("classify: clause (a) is structural, never containment", () => {
   it.each([
     ["tail", `tail -f ${FORKS}`],
     ["grep", `grep -n forks ${FORKS}`],
@@ -211,9 +207,22 @@ describe("classify — clause (a) is structural, never containment", () => {
       because: "not-a-worker",
     });
   });
+
+  it("accepts every declared entrypoint", () => {
+    for (const entry of [
+      "vitest/dist/workers/forks.js",
+      "vitest/dist/workers/threads.js",
+      "playwright/lib/worker/workerMain.js",
+      "next/dist/compiled/jest-worker/processChild.js",
+    ]) {
+      expect(only([worker({ command: `${NODE} /x/node_modules/${entry}` })])).toMatchObject({
+        reap: true,
+      });
+    }
+  });
 });
 
-describe("classify — clause (d) boundary", () => {
+describe("classify: the age clause boundary", () => {
   it.each([
     [DEFAULT_MIN_AGE_SECONDS - 1, false],
     [DEFAULT_MIN_AGE_SECONDS, true],
@@ -221,9 +230,14 @@ describe("classify — clause (d) boundary", () => {
   ])("age %i => reap %s", (etimeSeconds, reaped) => {
     expect(only([worker({ etimeSeconds })])).toMatchObject({ reap: reaped });
   });
+
+  it("uses the configured ceiling, not the default", () => {
+    const cfg: ReapConfig = { ...CONFIG, minAgeSeconds: 60, minAgeSource: "env" };
+    expect(only([worker({ etimeSeconds: 61 })], cfg)).toMatchObject({ reap: true });
+  });
 });
 
-describe("classify — AC-4", () => {
+describe("classify: AC-4", () => {
   it.each([
     ["own pid", 999],
     ["an ancestor", 998],
@@ -232,10 +246,10 @@ describe("classify — AC-4", () => {
   });
 });
 
-describe("classify — AC-3, row-level R1-R5", () => {
+describe("classify: AC-3, row-level R1-R4", () => {
   it("R1: an unparsable row survives into decisions", () => {
     const rows: ProcRow[] = [{ kind: "unparsable", raw: "??? garbage", problem: "no pid" }];
-    expect(classify(rows, CLEAN, CONFIG).decisions[0]).toMatchObject({
+    expect(classify(rows, CONFIG).decisions[0]).toMatchObject({
       reap: false,
       because: "unparsable",
     });
@@ -249,10 +263,11 @@ describe("classify — AC-3, row-level R1-R5", () => {
     expect(only([worker(over)])).toMatchObject({ reap: false, because });
   });
 
-  it("R5: an ancestry cycle declines rather than looping", () => {
-    const rows = [worker({ pid: 10, ppid: 11 }), worker({ pid: 11, ppid: 10 })];
-    const slots: SlotSurvey = { holderPids: [77], problems: [] };
-    expect(classify(rows, slots, CONFIG).decisions.every((d) => d.reap === false)).toBe(true);
+  it("a ppid naming a process not in the table is undecidable, not an orphan", () => {
+    expect(only([worker({ ppid: 31337 })])).toMatchObject({
+      reap: false,
+      because: "undecidable",
+    });
   });
 
   it("is TOTAL: one decision per input row", () => {
@@ -261,47 +276,25 @@ describe("classify — AC-3, row-level R1-R5", () => {
       worker({ pid: 101, command: "sleep 9" }),
       { kind: "unparsable", raw: "x", problem: "no pid" },
     ];
-    expect(classify(rows, CLEAN, CONFIG).decisions).toHaveLength(rows.length);
+    expect(classify(rows, CONFIG).decisions).toHaveLength(rows.length);
+  });
+
+  it("premise: this fixture DOES contain a reapable row", () => {
+    premiseHolds(
+      "the totality fixture is not vacuously all-declines",
+      classify([worker()], CONFIG).decisions.some((d) => d.reap),
+    );
   });
 });
 
-describe("classify — AC-3b, collection-level C-rows", () => {
-  const reapable = [worker()];
-
-  it("premise: this fixture IS reapable under a decidable survey", () => {
-    premiseHolds(
-      "the C3/C5 fixture contains a row that a decidable survey would reap",
-      classify(reapable, CLEAN, CONFIG).decisions.some((d) => d.reap),
-    );
-  });
-
-  it.each([
-    ["C3", { holderPids: [], problems: [{ slot: "/tmp/fx-heavy-slots", problem: "dir-unreadable" as const, detail: "EACCES" }] }],
-    ["C5", { holderPids: [], problems: [{ slot: "slot-0", problem: "metadata-malformed" as const, detail: "torn" }] }],
-  ])("%s: an undecidable survey reaps nothing", (_id, slots) => {
-    expect(surveyIsDecidable(slots)).toBe(false);
-    expect(classify(reapable, slots, CONFIG).decisions.some((d) => d.reap)).toBe(false);
-  });
-
-  it.each([
-    ["C4", { holderPids: [], problems: [] }],
-    ["C6", { holderPids: [], problems: [{ slot: "slot-0", problem: "holder-dead" as const, detail: "pid 5 gone" }] }],
-  ])("%s: a decidable survey proceeds", (_id, slots) => {
-    expect(surveyIsDecidable(slots)).toBe(true);
-    expect(classify(reapable, slots, CONFIG).decisions.some((d) => d.reap)).toBe(true);
-  });
-
-  it("C8: a rejected ceiling is carried in configNotes", () => {
+describe("classify: C4's rejected ceiling reaches the reporter", () => {
+  it("carries the rejected raw value in configNotes", () => {
     const cfg: ReapConfig = { ...CONFIG, minAgeSource: "env", minAgeRejected: "-5" };
-    expect(classify(reapable, CLEAN, cfg).configNotes.join(" ")).toContain("-5");
+    expect(classify([worker()], cfg).configNotes.join(" ")).toContain("-5");
   });
 
-  it("passes slot problems through for the reporter", () => {
-    const slots: SlotSurvey = {
-      holderPids: [],
-      problems: [{ slot: "slot-1", problem: "holder-dead", detail: "pid 5 gone" }],
-    };
-    expect(classify(reapable, slots, CONFIG).slotProblems).toHaveLength(1);
+  it("C3: an unset ceiling produces no note", () => {
+    expect(classify([worker()], CONFIG).configNotes).toEqual([]);
   });
 });
 ```
@@ -311,7 +304,7 @@ describe("classify — AC-3b, collection-level C-rows", () => {
 Run: `pnpm vitest run tests/heavyReap/classify.test.ts`
 Expected: FAIL — `Cannot find module '../../lib/heavyReap/classify'`.
 
-- [ ] **Step 3: Write minimal implementation.** `lib/heavyReap/classify.ts`:
+- [ ] **Step 3: Write minimal implementation.** lib/heavyReap/classify.ts:
 
 ```ts
 import { basename } from "node:path";
@@ -340,15 +333,9 @@ export type ParsedRow = {
 export type UnparsableRow = { kind: "unparsable"; raw: string; problem: string };
 export type ProcRow = ParsedRow | UnparsableRow;
 
-export type SlotProblem = {
-  slot: string;
-  problem: "dir-unreadable" | "dir-missing" | "metadata-unreadable" | "metadata-malformed" | "holder-dead";
-  detail: string;
-};
-export type SlotSurvey = { holderPids: number[]; problems: SlotProblem[] };
-
 export type ReapConfig = {
-  nowSeconds: number;
+  // No clock field: `etime` is already an ELAPSED duration, so the age clause compares two
+  // durations. See the spec's §5 note.
   minAgeSeconds: number;
   minAgeSource: "default" | "env";
   minAgeRejected?: string;
@@ -356,33 +343,16 @@ export type ReapConfig = {
   selfAncestry: readonly number[];
 };
 
-export type Skip =
-  | "not-a-worker"
-  | "has-live-parent"
-  | "slot-descendant"
-  | "too-young"
-  | "self"
-  | "undecidable";
+export type Skip = "not-a-worker" | "has-live-parent" | "too-young" | "self" | "undecidable";
 
 export type Decision =
   | { pid: number; reap: true; shape: string; ageSeconds: number }
   | { pid: number; reap: false; because: Skip; detail?: string }
   | { reap: false; because: "unparsable"; raw: string; detail: string };
 
-export type Classification = {
-  decisions: Decision[];
-  slotProblems: SlotProblem[];
-  configNotes: string[];
-};
+export type Classification = { decisions: Decision[]; configNotes: string[] };
 
-/** False for C3 and C5; true for C4. */
-export function surveyIsDecidable(slots: SlotSurvey): boolean {
-  return !slots.problems.some(
-    (p) => p.problem !== "holder-dead",
-  );
-}
-
-/** The declared shape, per clause (a): node as argv[0], entrypoint as the LAST token. */
+/** Clause (a): node as argv[0], a declared entrypoint as the LAST token. */
 function workerShape(command: string): string | null {
   const tokens = command.split(/\s+/).filter((t) => t.length > 0);
   const argv0 = tokens[0];
@@ -392,44 +362,13 @@ function workerShape(command: string): string | null {
   return WORKER_ENTRYPOINTS.find((e) => last.endsWith(e)) ?? null;
 }
 
-/** Walk ppid upward. Returns true only if a live holder is REACHED; a cycle or a break returns null. */
-function ancestryHitsHolder(
-  row: ParsedRow,
-  byPid: Map<number, ParsedRow>,
-  holders: ReadonlySet<number>,
-): boolean | null {
-  const seen = new Set<number>([row.pid]);
-  let cursor = row.ppid;
-  while (cursor !== null && cursor > 1) {
-    if (holders.has(cursor)) return true;
-    if (seen.has(cursor)) return null;
-    seen.add(cursor);
-    const parent = byPid.get(cursor);
-    if (parent === undefined) return false;
-    cursor = parent.ppid;
-  }
-  return cursor === null ? null : false;
-}
-
-export function classify(
-  rows: readonly ProcRow[],
-  slots: SlotSurvey,
-  config: ReapConfig,
-): Classification {
+export function classify(rows: readonly ProcRow[], config: ReapConfig): Classification {
   const configNotes: string[] =
     config.minAgeRejected === undefined
       ? []
       : [`FX_REAP_MIN_AGE_S rejected: ${config.minAgeRejected}; using ${config.minAgeSeconds}`];
-  const decidable = surveyIsDecidable(slots);
-  const holders = new Set(slots.holderPids);
   const live = new Set<number>();
-  const byPid = new Map<number, ParsedRow>();
-  for (const row of rows) {
-    if (row.kind === "parsed") {
-      byPid.set(row.pid, row);
-      live.add(row.pid);
-    }
-  }
+  for (const row of rows) if (row.kind === "parsed") live.add(row.pid);
   const selfSet = new Set<number>([config.selfPid, ...config.selfAncestry]);
 
   const decisions: Decision[] = rows.map((row) => {
@@ -445,10 +384,6 @@ export function classify(
         ? { pid: row.pid, reap: false, because: "has-live-parent" }
         : { pid: row.pid, reap: false, because: "undecidable" };
     }
-    if (!decidable) return { pid: row.pid, reap: false, because: "undecidable" };
-    const inSlot = ancestryHitsHolder(row, byPid, holders);
-    if (inSlot === null) return { pid: row.pid, reap: false, because: "undecidable" };
-    if (inSlot) return { pid: row.pid, reap: false, because: "slot-descendant" };
     if (row.etimeSeconds === null) return { pid: row.pid, reap: false, because: "undecidable" };
     if (row.etimeSeconds < config.minAgeSeconds) {
       return { pid: row.pid, reap: false, because: "too-young" };
@@ -456,21 +391,18 @@ export function classify(
     return { pid: row.pid, reap: true, shape, ageSeconds: row.etimeSeconds };
   });
 
-  return { decisions, slotProblems: slots.problems, configNotes };
+  return { decisions, configNotes };
 }
 ```
 
-**Note for the implementer on clause (c) and clause (b) ordering:** clause (b) is checked before (c) because a row with a live parent is exempt whichever slot it belongs to, and the ancestry walk is the more expensive check. A `ppid` naming a process not in the table is `undecidable`, not "orphan" — only `ppid === 1` is the orphan shape (spec §4.2b).
+**Note for the implementer on the `ppid !== 1` branch:** a `ppid` naming a process NOT in the table is `undecidable`, never "orphan". Only `ppid === 1` is the orphan shape (spec §4.2b), and treating a missing parent as an orphan would reap a worker whose parent merely exited between `ps` reading the two rows.
 
 - [ ] **Step 4: Run tests to verify they pass.**
 
 Run: `pnpm vitest run tests/heavyReap/classify.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Typecheck.**
-
-Run: `pnpm typecheck`
-Expected: PASS. The repo is strict — `noUncheckedIndexedAccess` is why `workerShape` binds `tokens[0]` and `tokens[tokens.length - 1]` to locals and checks both for `undefined`, and `exactOptionalPropertyTypes` is why `minAgeRejected` is only ever read, never assigned `undefined`.
+- [ ] **Step 5: Typecheck.** Run: `pnpm typecheck`. Expected: PASS. `noUncheckedIndexedAccess` is why `workerShape` binds `tokens[0]` and the last token to locals and checks both for `undefined`; `exactOptionalPropertyTypes` is why `minAgeRejected` is only ever read, never assigned `undefined`.
 
 - [ ] **Step 6: Commit.**
 
@@ -484,15 +416,15 @@ git commit -m "feat(infra): classify orphaned heavy-phase workers"
 <!-- task: red=`pnpm vitest run tests/heavyReap/collect.test.ts` red-state=authored red-target=`lib/heavyReap/collect.ts` why=`lib/heavyReap/collect.ts does not exist, so every case fails at import resolution` ac=AC-7,AC-10 -->
 
 **Files:**
-- Create: `lib/heavyReap/collect.ts`
-- Create: `tests/heavyReap/fixtures/ps-sample.txt` (captured from this machine, committed)
-- Test: `tests/heavyReap/collect.test.ts`
+- Create: lib/heavyReap/collect.ts
+- Create: tests/heavyReap/fixtures/ps-sample.txt
+- Test: tests/heavyReap/collect.test.ts
 
 **Interfaces:**
-- Consumes: `ProcRow`, `SlotSurvey`, `SlotProblem` from Task 1.
-- Produces: `CollectResult`, `parsePsOutput(text: string): ProcRow[]`, `surveySlots(dir: string): SlotSurvey`, `collect(dir: string): CollectResult`. Task 3 imports `collect`.
+- Consumes: `ProcRow` from Task 1.
+- Produces: `CollectResult`, `parseEtime(raw: string): number | null`, `parsePsOutput(text: string): ProcRow[]`, `collect(psBin?: string): CollectResult`. Task 3 imports `collect`.
 
-**What is red and why:** the module is absent. Production surface: `lib/heavyReap/collect.ts`.
+**What is red and why:** the module is absent. Production surface: lib/heavyReap/collect.ts.
 
 - [ ] **Step 1: Capture the fixture.**
 
@@ -508,34 +440,18 @@ wait
 grep -c 'vitest/dist/workers' tests/heavyReap/fixtures/ps-sample.txt   # MUST be >= 1
 ```
 
-A plain `head` of the table captures only long-lived system processes and yields ZERO worker lines
-— measured while authoring this plan, which is why the capture is written this way. Step 2's first
-case is a premise asserting the fixture holds a worker, so a degenerate fixture fails loudly rather
-than passing vacuously. Real worker command lines run ~617 characters; do not hand-trim them.
+A plain `head` of the table captures only long-lived system processes and yields ZERO worker lines — measured while authoring this plan, which is why the capture is written this way. Step 2's first case is a premise asserting the fixture holds a worker, so a degenerate fixture fails loudly rather than passing vacuously. Real worker command lines run ~617 characters; do not hand-trim them.
 
-- [ ] **Step 2: Write the failing test.** `tests/heavyReap/collect.test.ts`:
+- [ ] **Step 2: Write the failing test.** tests/heavyReap/collect.test.ts:
 
 ```ts
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
 import { premiseHolds } from "../_shared/premise";
-import { collect, parsePsOutput, surveySlots } from "../../lib/heavyReap/collect";
-import { surveyIsDecidable } from "../../lib/heavyReap/classify";
+import { collect, parseEtime, parsePsOutput } from "../../lib/heavyReap/collect";
 
 const SAMPLE = readFileSync(new URL("./fixtures/ps-sample.txt", import.meta.url), "utf8");
-const dirs: string[] = [];
-const slotDir = (files: Record<string, string>): string => {
-  const dir = mkdtempSync(join(tmpdir(), "heavy-reap-slots-"));
-  dirs.push(dir);
-  for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body);
-  return dir;
-};
-afterAll(() => {
-  for (const d of dirs) chmodSync(d, 0o755);
-});
 
 describe("parsePsOutput", () => {
   it("premise: the committed fixture contains a real worker line", () => {
@@ -548,11 +464,10 @@ describe("parsePsOutput", () => {
   });
 
   it("keeps a full-length worker command intact", () => {
-    const rows = parsePsOutput(SAMPLE).filter(
-      (r) => r.kind === "parsed" && r.command.includes("vitest/dist/workers/"),
-    );
-    const longest = Math.max(...rows.map((r) => (r.kind === "parsed" ? r.command.length : 0)));
-    expect(longest).toBeGreaterThan(200);
+    const lengths = parsePsOutput(SAMPLE)
+      .filter((r) => r.kind === "parsed" && r.command.includes("vitest/dist/workers/"))
+      .map((r) => (r.kind === "parsed" ? r.command.length : 0));
+    expect(Math.max(...lengths)).toBeGreaterThan(200);
   });
 
   it("R1: a line with no numeric pid becomes an unparsable row", () => {
@@ -560,77 +475,54 @@ describe("parsePsOutput", () => {
   });
 
   it.each([
-    ["R2", "  700       xx    01:00 node /x/vitest/dist/workers/forks.js", "ppid"],
-    ["R3", "  700       1     zzzz node /x/vitest/dist/workers/forks.js", "etimeSeconds"],
+    ["R2", "  700  xx  01:00 node /x/vitest/dist/workers/forks.js", "ppid"],
+    ["R3", "  700  1  zzzz node /x/vitest/dist/workers/forks.js", "etimeSeconds"],
   ])("%s: an unparsable field becomes null, not a dropped row", (_id, line, field) => {
-    const row = parsePsOutput(`${line}\n`)[0];
-    expect(row).toMatchObject({ kind: "parsed", [field]: null });
+    expect(parsePsOutput(`${line}\n`)[0]).toMatchObject({ kind: "parsed", [field]: null });
   });
 
+  it("C2: empty ps output yields zero rows, not a throw", () => {
+    expect(parsePsOutput("")).toEqual([]);
+  });
+});
+
+describe("parseEtime", () => {
   it.each([
     ["MM:SS", "01:30", 90],
     ["HH:MM:SS", "01:00:00", 3600],
     ["D-HH:MM:SS", "1-00:00:00", 86_400],
-  ])("parses the %s etime form", (_label, etime, seconds) => {
-    const row = parsePsOutput(`  700 1 ${etime} node /x/vitest/dist/workers/forks.js\n`)[0];
-    expect(row).toMatchObject({ etimeSeconds: seconds });
+    ["the incident's oldest orphan", "1-05:29:53", 106_193],
+  ])("parses the %s form", (_label, raw, seconds) => {
+    expect(parseEtime(raw)).toBe(seconds);
+  });
+
+  it.each([["zzz"], [""], ["12"], ["1-2-3:04:05"]])("rejects %s", (raw) => {
+    expect(parseEtime(raw)).toBeNull();
   });
 });
 
-describe("surveySlots", () => {
-  it("C4: an empty readable dir is DECIDABLE with no holders", () => {
-    const s = surveySlots(slotDir({}));
-    expect(s.holderPids).toEqual([]);
-    expect(surveyIsDecidable(s)).toBe(true);
-  });
-
-  it("C3: a missing dir is UNDECIDABLE", () => {
-    expect(surveyIsDecidable(surveySlots(join(tmpdir(), "definitely-absent-dir-xyz")))).toBe(false);
-  });
-
-  it("C3 and C4 are DIFFERENT results, not the same empty world", () => {
-    const empty = surveySlots(slotDir({}));
-    const missing = surveySlots(join(tmpdir(), "definitely-absent-dir-xyz"));
-    expect(surveyIsDecidable(empty)).not.toBe(surveyIsDecidable(missing));
-  });
-
-  it("C5: torn metadata is UNDECIDABLE", () => {
-    expect(surveyIsDecidable(surveySlots(slotDir({ "slot-0": "{not json" })))).toBe(false);
-  });
-
-  it("C6: a live-shaped record whose pid is gone is DECIDABLE with no holder", () => {
-    const s = surveySlots(slotDir({ "slot-0": JSON.stringify({ pid: 2_147_483_6 }) }));
-    expect(surveyIsDecidable(s)).toBe(true);
-    expect(s.holderPids).toEqual([]);
-  });
-
-  it("records a live holder pid", () => {
-    const s = surveySlots(slotDir({ "slot-0": JSON.stringify({ pid: process.pid }) }));
-    expect(s.holderPids).toEqual([process.pid]);
-  });
-});
-
-describe("collect — AC-7 (C1)", () => {
+describe("collect: AC-7 (C1)", () => {
   it("reports ps failure instead of an empty world", () => {
-    const r = collect(slotDir({}), "definitely-not-a-real-ps-binary");
+    const r = collect("definitely-not-a-real-ps-binary");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.problem).toBe("ps-unavailable");
   });
 });
 
-describe("collect — AC-10 live smoke", () => {
+describe("collect: AC-10 live smoke", () => {
   it("finds a child this test spawned, with the right ppid and a plausible age", async () => {
     const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 8000)"]);
     const startedAt = Date.now();
     try {
       await new Promise((r) => setTimeout(r, 1200));
-      const result = collect(slotDir({}));
+      const result = collect();
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       const found = result.rows.find((r) => r.kind === "parsed" && r.pid === child.pid);
       premiseHolds("the spawned child appears in the live ps read", found !== undefined);
       expect(found).toMatchObject({ kind: "parsed", ppid: process.pid });
       const age = found?.kind === "parsed" ? (found.etimeSeconds ?? -1) : -1;
+      expect(age).toBeGreaterThanOrEqual(0);
       expect(age).toBeLessThanOrEqual(Math.ceil((Date.now() - startedAt) / 1000) + 3);
     } finally {
       child.kill("SIGKILL");
@@ -644,28 +536,22 @@ describe("collect — AC-10 live smoke", () => {
 Run: `pnpm vitest run tests/heavyReap/collect.test.ts`
 Expected: FAIL — `Cannot find module '../../lib/heavyReap/collect'`.
 
-- [ ] **Step 4: Write minimal implementation.** `lib/heavyReap/collect.ts`:
+- [ ] **Step 4: Write minimal implementation.** lib/heavyReap/collect.ts:
 
 ```ts
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import type { ProcRow, SlotProblem, SlotSurvey } from "./classify";
-
-export const DEFAULT_SLOT_DIR = "/tmp/fx-heavy-slots";
+import type { ProcRow } from "./classify";
 
 export type CollectResult =
-  | { ok: true; rows: ProcRow[]; slots: SlotSurvey }
+  | { ok: true; rows: ProcRow[] }
   | { ok: false; problem: "ps-unavailable" | "ps-failed"; detail: string };
 
-/** `[[D-]HH:]MM:SS` — ps(1)'s elapsed-time forms. Returns null when it is none of them. */
+/** `[[D-]HH:]MM:SS`: ps(1)'s elapsed-time forms. Null when it is none of them. */
 export function parseEtime(raw: string): number | null {
   const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(raw.trim());
   if (m === null) return null;
   const [, d, h, mm, ss] = m;
-  return (
-    Number(d ?? 0) * 86_400 + Number(h ?? 0) * 3600 + Number(mm ?? 0) * 60 + Number(ss ?? 0)
-  );
+  return Number(d ?? 0) * 86_400 + Number(h ?? 0) * 3600 + Number(mm ?? 0) * 60 + Number(ss ?? 0);
 }
 
 export function parsePsOutput(text: string): ProcRow[] {
@@ -691,49 +577,7 @@ export function parsePsOutput(text: string): ProcRow[] {
   return rows;
 }
 
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as { code?: string }).code === "EPERM";
-  }
-}
-
-export function surveySlots(dir: string): SlotSurvey {
-  const problems: SlotProblem[] = [];
-  let names: string[];
-  try {
-    names = readdirSync(dir).filter((n) => /^slot-\d+$/.test(n));
-  } catch (e) {
-    const code = (e as { code?: string }).code;
-    problems.push({
-      slot: dir,
-      problem: code === "ENOENT" ? "dir-missing" : "dir-unreadable",
-      detail: String(code ?? e),
-    });
-    return { holderPids: [], problems };
-  }
-  const holderPids: number[] = [];
-  for (const name of names.sort()) {
-    let pid: unknown;
-    try {
-      pid = (JSON.parse(readFileSync(join(dir, name), "utf8")) as { pid?: unknown }).pid;
-    } catch (e) {
-      problems.push({ slot: name, problem: "metadata-malformed", detail: String(e) });
-      continue;
-    }
-    if (typeof pid !== "number" || !Number.isInteger(pid)) {
-      problems.push({ slot: name, problem: "metadata-malformed", detail: "no pid key" });
-      continue;
-    }
-    if (pidAlive(pid)) holderPids.push(pid);
-    else problems.push({ slot: name, problem: "holder-dead", detail: `pid ${pid} is gone` });
-  }
-  return { holderPids, problems };
-}
-
-export function collect(slotDir: string = DEFAULT_SLOT_DIR, psBin = "ps"): CollectResult {
+export function collect(psBin = "ps"): CollectResult {
   let text: string;
   try {
     text = execFileSync(psBin, ["-eo", "pid=,ppid=,etime=,command="], {
@@ -748,52 +592,44 @@ export function collect(slotDir: string = DEFAULT_SLOT_DIR, psBin = "ps"): Colle
       detail: err.message ?? String(err.status ?? "unknown"),
     };
   }
-  return { ok: true, rows: parsePsOutput(text), slots: surveySlots(slotDir) };
+  return { ok: true, rows: parsePsOutput(text) };
 }
 ```
 
-**Note on `pidAlive`:** `process.kill(pid, 0)` sends no signal. `EPERM` means the process EXISTS but belongs to another user, so it counts as alive; `ESRCH` means it is gone. Treating `EPERM` as dead would drop a real holder and un-exempt its workers, which is a clause-(c) hole.
+**Note on `maxBuffer`:** the default 1 MB is close to a full `ps -eo command=` read on this machine (measured ~199 KB for 679 rows, but worker command lines are ~617 characters each and the count grows with concurrent arcs). 64 MB removes the cap as a failure mode rather than trading it for a bigger number to outgrow — the same reasoning as `tests/mutation/source/runner.ts:167-174`.
 
-**Note on `maxBuffer`:** the default 1 MB is far below a full `ps -eo command=` read on this machine (measured ~199 KB for 679 rows, but worker command lines are ~617 characters each and the count grows with concurrent arcs). 64 MB removes the cap as a failure mode rather than trading it for a bigger number to outgrow — the same reasoning as `tests/mutation/source/runner.ts:167-174`.
-
-- [ ] **Step 5: Run tests to verify they pass.**
-
-Run: `pnpm vitest run tests/heavyReap/collect.test.ts`
-Expected: PASS.
-
+- [ ] **Step 5: Run tests to verify they pass.** Run: `pnpm vitest run tests/heavyReap/collect.test.ts`. Expected: PASS.
 - [ ] **Step 6: Typecheck.** Run: `pnpm typecheck`. Expected: PASS.
-
 - [ ] **Step 7: Commit.**
 
 ```bash
 git add lib/heavyReap/collect.ts tests/heavyReap/collect.test.ts tests/heavyReap/fixtures/ps-sample.txt
-git commit -m "feat(infra): collect the process table and the heavy-slot survey"
+git commit -m "feat(infra): collect and parse the process table"
 ```
 
 ### Task 3: The CLI adapter
 
-<!-- task: red=`pnpm vitest run tests/heavyReap/cli.test.ts` red-state=authored red-target=`scripts/heavy-reap.ts` why=`scripts/heavy-reap.ts does not exist, so the suite cannot import parseFlags, planKills or exitStatus` ac=AC-5,AC-5b,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/heavyReap/cli.test.ts` red-state=authored red-target=`scripts/heavy-reap.ts` why=`scripts/heavy-reap.ts does not exist, so the suite cannot import parseFlags, readCeiling, planTargets, executeKills or exitStatus` ac=AC-3b,AC-5,AC-5b,AC-6 -->
 
 **Files:**
-- Create: `scripts/heavy-reap.ts`
-- Modify: `package.json` (add `heavy:reap`)
-- Test: `tests/heavyReap/cli.test.ts`
+- Create: scripts/heavy-reap.ts
+- Modify: package.json (add `heavy:reap`)
+- Test: tests/heavyReap/cli.test.ts
 
 **Interfaces:**
-- Consumes: `classify`, `Decision`, `Classification` (Task 1); `collect` (Task 2).
-- Produces: `parseFlags`, `readCeiling`, `planTargets`, `executeKills`, `exitStatus`, `KillOutcome`, `TargetIdentity`. Nothing later consumes these; the CLI is the top of the stack.
+- Consumes: `classify`, `Decision`, `DEFAULT_MIN_AGE_SECONDS` (Task 1); `collect` (Task 2).
+- Produces: `parseFlags`, `readCeiling`, `planTargets`, `executeKills`, `exitStatus`, `readIdentity`, `KillOutcome`, `TargetIdentity`, `Flags`, `Ceiling`, `KillDeps`. Nothing later consumes these; the CLI is the top of the stack.
 
-**What is red and why:** the module is absent. Production surface: `scripts/heavy-reap.ts`.
+**What is red and why:** the module is absent. Production surface: scripts/heavy-reap.ts.
 
 Decision logic is exported as pure functions so it is testable without killing anything; only the signal and the identity read are injected.
 
-- [ ] **Step 1: Write the failing test.** `tests/heavyReap/cli.test.ts`:
+- [ ] **Step 1: Write the failing test.** tests/heavyReap/cli.test.ts:
 
 ```ts
 import { describe, expect, it } from "vitest";
-import type { Decision } from "../../lib/heavyReap/classify";
+import { DEFAULT_MIN_AGE_SECONDS, type Decision } from "../../lib/heavyReap/classify";
 import {
-  DEFAULT_MIN_AGE_SECONDS,
   type KillOutcome,
   executeKills,
   exitStatus,
@@ -804,7 +640,7 @@ import {
 
 const reap = (pid: number): Decision => ({ pid, reap: true, shape: "forks.js", ageSeconds: 99_999 });
 
-describe("parseFlags — AC-6", () => {
+describe("parseFlags: AC-6", () => {
   it.each([
     [[], { kill: false, all: false, quiet: false }],
     [["--all"], { kill: false, all: true, quiet: false }],
@@ -819,15 +655,15 @@ describe("parseFlags — AC-6", () => {
   });
 });
 
-describe("readCeiling — C7 and C8", () => {
-  it("C7: unset uses the default with no note", () => {
-    expect(readCeiling(undefined)).toMatchObject({
+describe("readCeiling: C3 and C4", () => {
+  it("C3: unset uses the default with no rejection", () => {
+    expect(readCeiling(undefined)).toEqual({
       seconds: DEFAULT_MIN_AGE_SECONDS,
       source: "default",
     });
   });
 
-  it.each([["abc"], ["-5"], ["0"]])("C8: rejects %s", (raw) => {
+  it.each([["abc"], ["-5"], ["0"], [""], ["1.5"]])("C4: rejects %s", (raw) => {
     expect(readCeiling(raw).rejected).toBe(raw);
   });
 
@@ -836,7 +672,7 @@ describe("readCeiling — C7 and C8", () => {
   });
 });
 
-describe("planTargets — AC-5", () => {
+describe("planTargets: AC-5", () => {
   it("plans the root FIRST, then its recorded descendants", () => {
     const rows = [
       { pid: 10, ppid: 1 },
@@ -850,9 +686,17 @@ describe("planTargets — AC-5", () => {
   it("plans nothing when no decision reaps", () => {
     expect(planTargets([{ pid: 10, reap: false, because: "too-young" }], [])).toEqual([]);
   });
+
+  it("does not loop on a parent cycle", () => {
+    const rows = [
+      { pid: 10, ppid: 11 },
+      { pid: 11, ppid: 10 },
+    ];
+    expect(planTargets([reap(10)], rows)).toEqual([10, 11]);
+  });
 });
 
-describe("executeKills — AC-5, AC-5b", () => {
+describe("executeKills: AC-5, AC-5b", () => {
   const ident = (pid: number) => ({ pid, startedAt: "Sun Aug 16 09:35:23 2026", command: "node x" });
 
   it("K2: a changed identity is NOT signalled", () => {
@@ -860,11 +704,27 @@ describe("executeKills — AC-5, AC-5b", () => {
     const out = executeKills([10], {
       identityAtPlan: new Map([[10, ident(10)]]),
       readIdentity: () => ({ pid: 10, startedAt: "Sun Aug 16 10:00:00 2026", command: "node x" }),
-      kill: (pid) => signalled.push(pid),
+      kill: (pid) => {
+        signalled.push(pid);
+      },
       stillAlive: () => false,
     });
     expect(signalled).toEqual([]);
     expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "identity-changed" }]);
+  });
+
+  it("K2: an ADVANCED etime is irrelevant, because etime is not in the triple", () => {
+    const signalled: number[] = [];
+    const out = executeKills([10], {
+      identityAtPlan: new Map([[10, ident(10)]]),
+      readIdentity: (pid) => ident(pid),
+      kill: (pid) => {
+        signalled.push(pid);
+      },
+      stillAlive: () => false,
+    });
+    expect(signalled).toEqual([10]);
+    expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "killed" }]);
   });
 
   it("K1: a pid already gone is already-gone, not an error", () => {
@@ -903,19 +763,19 @@ describe("executeKills — AC-5, AC-5b", () => {
   });
 });
 
-describe("exitStatus — §6.2", () => {
+describe("exitStatus: §6.2", () => {
+  const base = { collectFailed: false, ceilingRejected: false };
   it.each([
     ["C1", { collectFailed: true, outcomes: [] }, 1],
-    ["C3/C5", { undecidableSurvey: true, outcomes: [] }, 1],
-    ["C8", { ceilingRejected: true, outcomes: [] }, 1],
+    ["C4", { ceilingRejected: true, outcomes: [] }, 1],
     ["K2", { outcomes: [{ pid: 1, result: "identity-changed" as const }] }, 1],
     ["K3", { outcomes: [{ pid: 1, result: "failed" as const }] }, 1],
     ["K4", { outcomes: [{ pid: 1, result: "partial" as const }] }, 1],
     ["K1", { outcomes: [{ pid: 1, result: "already-gone" as const }] }, 0],
-    ["clean", { outcomes: [{ pid: 1, result: "killed" as const }] }, 0],
-    ["C2/C4/C6/C7", { outcomes: [] }, 0],
+    ["clean kill", { outcomes: [{ pid: 1, result: "killed" as const }] }, 0],
+    ["C2/C3", { outcomes: [] }, 0],
   ])("%s", (_id, state, code) => {
-    expect(exitStatus({ collectFailed: false, undecidableSurvey: false, ceilingRejected: false, ...state })).toBe(code);
+    expect(exitStatus({ ...base, ...state })).toBe(code);
   });
 });
 ```
@@ -925,18 +785,11 @@ describe("exitStatus — §6.2", () => {
 Run: `pnpm vitest run tests/heavyReap/cli.test.ts`
 Expected: FAIL — `Cannot find module '../../scripts/heavy-reap'`.
 
-- [ ] **Step 3: Write minimal implementation.** `scripts/heavy-reap.ts`:
+- [ ] **Step 3: Write minimal implementation.** scripts/heavy-reap.ts:
 
 ```ts
 import { execFileSync } from "node:child_process";
-import {
-  DEFAULT_MIN_AGE_SECONDS,
-  type Decision,
-  classify,
-} from "../lib/heavyReap/classify";
-import { DEFAULT_SLOT_DIR, collect } from "../lib/heavyReap/collect";
-
-export { DEFAULT_MIN_AGE_SECONDS };
+import { DEFAULT_MIN_AGE_SECONDS, type Decision } from "../lib/heavyReap/classify";
 
 export type Flags = { kill: boolean; all: boolean; quiet: boolean };
 
@@ -953,13 +806,13 @@ export type Ceiling = { seconds: number; source: "default" | "env"; rejected?: s
 export function readCeiling(raw: string | undefined): Ceiling {
   if (raw === undefined) return { seconds: DEFAULT_MIN_AGE_SECONDS, source: "default" };
   const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0) {
+  if (raw.trim().length === 0 || !Number.isInteger(n) || n <= 0) {
     return { seconds: DEFAULT_MIN_AGE_SECONDS, source: "default", rejected: raw };
   }
   return { seconds: n, source: "env" };
 }
 
-/** Root first, then its recorded descendants (spec §4.4, K2's kill-order note). */
+/** Root first, then its recorded descendants (spec §4.4, the kill-order note under K2). */
 export function planTargets(
   decisions: readonly Decision[],
   rows: readonly { pid: number; ppid: number | null }[],
@@ -972,12 +825,14 @@ export function planTargets(
     else children.set(r.ppid, [r.pid]);
   }
   const out: number[] = [];
+  const seen = new Set<number>();
   for (const d of decisions) {
-    if (!("reap" in d) || d.reap !== true) continue;
+    if (!("pid" in d) || d.reap !== true) continue;
     const queue = [d.pid];
     while (queue.length > 0) {
       const pid = queue.shift();
-      if (pid === undefined || out.includes(pid)) continue;
+      if (pid === undefined || seen.has(pid)) continue;
+      seen.add(pid);
       out.push(pid);
       queue.push(...(children.get(pid) ?? []));
     }
@@ -1033,11 +888,10 @@ export function executeKills(targets: readonly number[], deps: KillDeps): KillOu
 
 export function exitStatus(state: {
   collectFailed: boolean;
-  undecidableSurvey: boolean;
   ceilingRejected: boolean;
   outcomes: readonly KillOutcome[];
 }): number {
-  if (state.collectFailed || state.undecidableSurvey || state.ceilingRejected) return 1;
+  if (state.collectFailed || state.ceilingRejected) return 1;
   return state.outcomes.some((o) => o.result !== "killed" && o.result !== "already-gone") ? 1 : 0;
 }
 
@@ -1049,25 +903,18 @@ export function readIdentity(pid: number): TargetIdentity | null {
     }).trim();
     if (out.length === 0) return null;
     const tokens = out.split(/\s+/);
-    return {
-      pid,
-      startedAt: tokens.slice(0, 5).join(" "),
-      command: tokens.slice(5).join(" "),
-    };
+    return { pid, startedAt: tokens.slice(0, 5).join(" "), command: tokens.slice(5).join(" ") };
   } catch {
     return null;
   }
 }
 ```
 
-**Note for the implementer:** the `main()` wiring — read `process.argv.slice(2)`, `readCeiling(process.env.FX_REAP_MIN_AGE_S)`, `collect(DEFAULT_SLOT_DIR)`, `classify(...)`, print the report per §6.2's table, and under `--kill` build `identityAtPlan` from `readIdentity` before planning — goes at the bottom of the file behind an `import.meta.url` main-module check so importing it in the test spawns nothing. `--quiet` suppresses only the DECLINE lines; every `KillOutcome` that is not `killed`, plus all slot problems and config notes, always prints.
+**Note for the implementer:** the `main()` wiring — read `process.argv.slice(2)`, `readCeiling(process.env.FX_REAP_MIN_AGE_S)`, `collect()`, `classify(...)`, print the report per §6.2's table, and under `--kill` build `identityAtPlan` from `readIdentity` BEFORE planning — goes at the bottom of the file behind an `import.meta.url` main-module check, so importing it in the test spawns nothing. `--quiet` suppresses only the DECLINE lines; every `KillOutcome` that is not `killed`, plus every config note, always prints. `stillAlive` in production is `process.kill(pid, 0)` with `EPERM` counted as alive (an `EPERM` process EXISTS; counting it dead would report a false `killed`).
 
-- [ ] **Step 4: Run tests to verify they pass.**
+- [ ] **Step 4: Run tests to verify they pass.** Run: `pnpm vitest run tests/heavyReap/cli.test.ts`. Expected: PASS.
 
-Run: `pnpm vitest run tests/heavyReap/cli.test.ts`
-Expected: PASS.
-
-- [ ] **Step 5: Add the script.** In `package.json`, beside `"heavy"`:
+- [ ] **Step 5: Add the script.** In package.json, beside `"heavy"`:
 
 ```json
     "heavy:reap": "tsx scripts/heavy-reap.ts",
@@ -1080,7 +927,7 @@ pnpm heavy:reap
 pnpm heavy:reap --all | tail -20
 ```
 
-A live run reporting zero rows on a machine with hundreds of processes is a vacuous pass, so paste the actual candidate and decline counts into the commit message. If any process is reported reapable, sanity-check it by hand before Task 7 — the first live `--kill` is an irreversible action.
+A live run reporting zero rows on a machine with hundreds of processes is a vacuous pass, so paste the actual candidate and decline counts into the commit message. If anything is reported reapable, verify it by hand before Task 7 — the first live `--kill` is irreversible.
 
 - [ ] **Step 7: Typecheck, then commit.**
 
@@ -1090,21 +937,34 @@ git add scripts/heavy-reap.ts tests/heavyReap/cli.test.ts package.json
 git commit -m "feat(infra): heavy-reap CLI, report by default and kill only on --kill"
 ```
 
+<!-- tasks: end -->
+
+<!-- tasks: depth=3 -->
+
 ### Task 4: Trigger 1
 
-<!-- task: red=`pnpm vitest run tests/heavyReap/triggerFailOpen.test.ts` red-state=authored red-target=`package.json:56` why=`package.json:56 is still the wrapper alone, so the ordering and fail-open assertions have no reaper to assert about` ac=AC-8 -->
+<!-- task: red=`pnpm vitest run tests/heavyReap/triggerFailOpen.test.ts` ac=AC-8 -->
+
+**Why this task uses the v1 marker while Tasks 1-3 use the red-contract form.** Its production
+surface is the `heavy` script, which lives at the repository ROOT in package.json, and a
+`red-target=` cannot name it: the arm classifies a citation as a bare shorthand when the path
+contains no `/` (`lib/specLint/citations.ts:55`) and rejects bare shorthands in markers
+(`lib/specLint/redContract.ts:110`), so package.json:56 draws `RED_TARGET_INVALID` and no legal
+spelling of a root-level file exists. Probed at plan time and filed as
+`BL-SPECLINT-RED-TARGET-ROOT-FILE`. The red is therefore stated in prose below rather than declared
+in a field, and Step 2 pins it with the exact observed counts.
 
 **Files:**
-- Modify: `package.json:56`
-- Test: `tests/heavyReap/triggerFailOpen.test.ts`
+- Modify: package.json:56
+- Test: tests/heavyReap/triggerFailOpen.test.ts
 
 **Interfaces:**
-- Consumes: `scripts/heavy-reap.ts` (Task 3).
+- Consumes: scripts/heavy-reap.ts (Task 3).
 - Produces: nothing importable.
 
-**What is red and why:** `package.json:56` is `"heavy": "python3 scripts/with-heavy-slot.py --"`. The reaper is not in it, so the ordering assertion has nothing to find. Production surface: `package.json:56`.
+**What is red and why:** package.json:56 is `"heavy": "python3 scripts/with-heavy-slot.py --"`. The reaper is not in it, so the ordering assertion has nothing to find. Production surface: package.json:56.
 
-- [ ] **Step 1: Write the failing test.** `tests/heavyReap/triggerFailOpen.test.ts`:
+- [ ] **Step 1: Write the failing test.** tests/heavyReap/triggerFailOpen.test.ts:
 
 ```ts
 import { execFileSync } from "node:child_process";
@@ -1116,11 +976,13 @@ import { describe, expect, it } from "vitest";
 const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
   scripts: Record<string, string>;
 };
+const segments = (): string[] =>
+  (pkg.scripts.heavy ?? "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 
 describe("the heavy script wires the reaper AHEAD of the wrapper", () => {
-  const segments = () =>
-    (pkg.scripts.heavy ?? "").split(";").map((s) => s.trim()).filter((s) => s.length > 0);
-
   it("runs the reaper", () => {
     expect(segments()[0]).toContain("heavy-reap");
   });
@@ -1137,24 +999,30 @@ describe("the heavy script wires the reaper AHEAD of the wrapper", () => {
 });
 
 describe("AC-8 fail-open, executed against real pnpm", () => {
-  const build = (reaper: string): string => {
+  const build = (reaper: string, wrapper = "node show.js --"): string => {
     const dir = mkdtempSync(join(tmpdir(), "heavy-trigger-"));
     writeFileSync(
       join(dir, "package.json"),
       JSON.stringify({
         name: "trigger-probe",
         version: "0.0.0",
-        scripts: { heavy: `${reaper}; node show.js --` },
+        scripts: { heavy: `${reaper}; ${wrapper}` },
       }),
     );
     writeFileSync(join(dir, "show.js"), "console.log('ARGV ' + JSON.stringify(process.argv.slice(2)));");
     writeFileSync(join(dir, "fail.js"), "process.exit(3);");
-    writeFileSync(join(dir, "exit42.js"), "console.log('ARGV ' + JSON.stringify(process.argv.slice(2))); process.exit(42);");
+    writeFileSync(
+      join(dir, "exit42.js"),
+      "console.log('ARGV ' + JSON.stringify(process.argv.slice(2))); process.exit(42);",
+    );
     return dir;
   };
   const run = (dir: string, args: string[]): { out: string; code: number } => {
     try {
-      return { out: execFileSync("pnpm", ["heavy", ...args], { cwd: dir, encoding: "utf8" }), code: 0 };
+      return {
+        out: execFileSync("pnpm", ["heavy", ...args], { cwd: dir, encoding: "utf8" }),
+        code: 0,
+      };
     } catch (e) {
       const err = e as { stdout?: string; status?: number };
       return { out: err.stdout ?? "", code: err.status ?? -1 };
@@ -1164,43 +1032,60 @@ describe("AC-8 fail-open, executed against real pnpm", () => {
   it.each([
     ["absent reaper", "node no-such-reaper.js"],
     ["reaper exiting 3", "node fail.js"],
-  ])("%s: the wrapper still runs with identical argv", (_label, reaper) => {
-    const { out } = run(build(reaper), ["pnpm", "mutation:guards"]);
-    expect(out).toContain(`ARGV ["--","pnpm","mutation:guards"]`);
-  }, 60_000);
+  ])(
+    "%s: the wrapper still runs with identical argv",
+    (_label, reaper) => {
+      expect(run(build(reaper), ["pnpm", "mutation:guards"]).out).toContain(
+        `ARGV ["--","pnpm","mutation:guards"]`,
+      );
+    },
+    60_000,
+  );
 
-  it("forwards an explicit '--' through to the wrapper", () => {
-    const { out } = run(build("node fail.js"), ["--", "node", "-e", "1"]);
-    expect(out).toContain(`ARGV ["--","--","node","-e","1"]`);
-  }, 60_000);
+  it(
+    "forwards an explicit '--' through to the wrapper",
+    () => {
+      expect(run(build("node fail.js"), ["--", "node", "-e", "1"]).out).toContain(
+        `ARGV ["--","--","node","-e","1"]`,
+      );
+    },
+    60_000,
+  );
 
-  it("still returns the wrapper's own exit status behind a failing reaper", () => {
-    const dir = build("node fail.js");
-    const p = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
-      scripts: Record<string, string>;
-    };
-    p.scripts.heavy = "node fail.js; node exit42.js --";
-    writeFileSync(join(dir, "package.json"), JSON.stringify(p));
-    expect(run(dir, ["x"]).code).toBe(42);
-  }, 60_000);
+  it(
+    "still returns the wrapper's own exit status behind a failing reaper",
+    () => {
+      expect(run(build("node fail.js", "node exit42.js --"), ["x"]).code).toBe(42);
+    },
+    60_000,
+  );
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails.**
 
 Run: `pnpm vitest run tests/heavyReap/triggerFailOpen.test.ts`
-Expected: FAIL — the first three cases fail because `scripts.heavy` has one segment and it is the wrapper.
+Expected: **FAIL, `1 failed | 6 passed (7)`** — and the failing case is exactly `runs the reaper`,
+because `scripts.heavy` has ONE segment today and it is the wrapper.
 
-- [ ] **Step 3: Edit `package.json:56`.**
+**Which cases are red, and which are invariants — stated because running this at plan time showed
+the obvious guess is wrong.** Only `runs the reaper` goes red. `makes the WRAPPER the last segment`
+and `sequences with ';' and never '&&'` both PASS on today's single-segment script and keep passing
+after the edit: they are INVARIANTS pinning the shape the edit must preserve, not part of the
+red-to-green cycle. The four `AC-8 fail-open` cases likewise pass before and after, because each
+builds its own throwaway package and never reads package.json:56 — they pin `pnpm`'s argument
+forwarding, which the edit relies on but does not change. So the red-to-green transition on this
+command is carried by one case, and the other six are regression guards. Do not "strengthen" them
+into red cases by making them read the repo's script; that would couple every invariant to one
+edit and lose the distinction.
+
+- [ ] **Step 3: Edit package.json:56.**
 
 ```json
     "heavy": "tsx scripts/heavy-reap.ts --kill --quiet; python3 scripts/with-heavy-slot.py --",
 ```
 
-- [ ] **Step 4: Run tests to verify they pass.**
-
-Run: `pnpm vitest run tests/heavyReap/triggerFailOpen.test.ts`
-Expected: PASS.
+- [ ] **Step 4: Run tests to verify they pass.** Run: `pnpm vitest run tests/heavyReap/triggerFailOpen.test.ts`. Expected: PASS.
 
 - [ ] **Step 5: Prove the wiring end to end on the real script.**
 
@@ -1235,7 +1120,10 @@ AC-9. This task GATES the diff review (AGENTS.md convergence bullet 4, spec §9)
     suitePaths: ["tests/heavyReap/classify.test.ts"],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.9,
-    control: { from: "export const DEFAULT_MIN_AGE_SECONDS = 14400;", to: "export const DEFAULT_MIN_AGE_SECONDS = 1;" },
+    control: {
+      from: "export const DEFAULT_MIN_AGE_SECONDS = 14400;",
+      to: "export const DEFAULT_MIN_AGE_SECONDS = 1;",
+    },
     accepted: [],
   },
 ```
