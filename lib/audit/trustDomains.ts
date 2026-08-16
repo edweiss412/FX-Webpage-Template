@@ -34,6 +34,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/admin/show/[slug]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/show/staged/[stagedId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/show/[slug]/preview/[crewId]/page.tsx", chain: ["requireAdmin"] },
+  // Staged crew preview (spec 2026-08-15-step3-crew-preview §2.1): same
+  // requireAdmin()-first chain as the published preview above.
+  { path: "app/admin/wizard/preview/[stagedId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/needs-attention/page.tsx", chain: ["requireAdmin"] },
   // Telemetry — service-role app-event log + cron-health page;
   // developer-gated (developer-tier §6 row 5: the page's own
