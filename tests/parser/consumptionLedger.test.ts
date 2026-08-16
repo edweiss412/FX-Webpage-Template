@@ -9,6 +9,8 @@ import { readFileSync } from "node:fs";
 import { newAggregator } from "@/lib/parser/warnings";
 import { parseSheet } from "@/lib/parser";
 import { parseEventDetails, SECTION_HEADER_TOKENS } from "@/lib/parser/blocks/event";
+import { parseVenue } from "@/lib/parser/blocks/venue";
+import { parseOps } from "@/lib/parser/blocks/ops";
 import { parseTransportation, TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
 import { premiseHolds } from "@/tests/_shared/premise";
 
@@ -178,4 +180,49 @@ describe("the ledger COUNTS occurrences, and the reader draws them down (whole-d
     // and 2 would mean the draw-down stopped covering the resolved row at all.
     expect(loadInWarnings(dup)).toHaveLength(1);
   });
+});
+
+describe("a FUZZY resolution ledgers like an exact one (whole-diff r3 F1)", () => {
+  // Spec §3.3 says a row is consumed when a block parser RESOLVES its label. The scoped
+  // fuzzy fallbacks resolve — they populate the field and emit FIELD_LABEL_AUTOCORRECTED —
+  // but they were not marking, so the near-miss detector then called the same row
+  // unrecognized. The row was parsed AND reported unparsed, on an ordinary punctuation edit
+  // of a field the sheet shows.
+  //
+  // Asserted through the BLOCK PARSERS rather than end-to-end: the ledger is what the
+  // detector reads, so a mark landing in `agg.consumed` under the row's own
+  // (opener, label, value) key is the property that fixes it, and payload population is
+  // asserted alongside so the case cannot pass on a parser that resolved nothing.
+  const consumedTriples = (agg: { consumed: Map<string, number> }): string[][] =>
+    [...agg.consumed.keys()].map((k) => k.split("\u0000"));
+
+  it("venue's scoped fuzzy fallback marks the row it corrected", () => {
+    const doc = ["| VENUE NAME | Grand Hall |", "| Venue-Address | 1 Main St |"].join("\n");
+    const agg = newAggregator();
+    const venue = parseVenue(doc, "v4", agg) as { address?: string | null } | null;
+    // Premise: the fuzzy branch actually ran. If `Venue-Address` stopped resolving, the
+    // ledger assertion below would pass vacuously on an empty map.
+    premiseHolds(
+      "the fuzzy fallback resolved Venue-Address to venue.address",
+      venue?.address === "1 Main St",
+    );
+    expect(consumedTriples(agg)).toContainEqual(["VENUE NAME", "Venue-Address", "1 Main St"]);
+  });
+
+  it("ops' scoped fuzzy fallback marks the row that won the candidate slot", () => {
+    const doc = ["| OPS | |", "| Invoice-Notes | pay net 30 |"].join("\n");
+    const agg = newAggregator();
+    const ops = parseOps(doc, "v4", agg) as { invoice_notes?: string | null };
+    premiseHolds(
+      "the fuzzy fallback resolved Invoice-Notes to invoice_notes",
+      ops.invoice_notes === "pay net 30",
+    );
+    expect(consumedTriples(agg)).toContainEqual(["OPS", "Invoice-Notes", "pay net 30"]);
+  });
+
+  // The third site, transport's `gatedVocabCorrect` v2 schedule recovery, carries the same
+  // mark for the same reason but has NO case here, deliberately: hyphenating `Rental Pickup`
+  // drops the leg on all seven corpus fixtures that carry it, so the branch is unreachable
+  // from the committed corpus with that input and any test would be asserting a constructed
+  // shape no sheet produces. Recorded rather than faked.
 });

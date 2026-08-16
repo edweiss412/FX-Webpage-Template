@@ -1,7 +1,7 @@
 import type { ShowRow } from "@/lib/parser/types";
 import { resolveAlias, resolveAliasFull, resolveAliasScoped } from "@/lib/parser/aliases";
-import type { ParseAggregator } from "@/lib/parser/warnings";
-import { presence } from "./_helpers";
+import { type ParseAggregator, markConsumed } from "@/lib/parser/warnings";
+import { clean, presence } from "./_helpers";
 import { scanRowsWithOpener } from "./_rowScan";
 import { matchesSectionHeader } from "./_sectionHeaderMatch";
 
@@ -87,6 +87,12 @@ export function parseVenue(
       if (fuzzy?.corrected) {
         col0Canon = fuzzy.canonical;
         fieldLabelCorrectedTo = fuzzy.canonical;
+        // A fuzzy recovery IS a resolution (spec §3.3 resolution-site semantics), so it
+        // ledgers like the exact branch. Without this the row drives field assignment,
+        // emits FIELD_LABEL_AUTOCORRECTED, and THEN the near-miss detector calls the same
+        // row unrecognized — two contradictory warnings about a row the parser understood
+        // (whole-diff r3 P1, probed with `Venue-Address`, an ordinary punctuation edit).
+        markConsumed(agg, opener, clean(col0), clean(row[1] ?? ""));
       }
     }
 

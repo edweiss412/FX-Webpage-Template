@@ -518,8 +518,10 @@ describe("calibrated residual classes fire exactly as baselined", () => {
  * line. `rg -c emitUnknownField lib/parser --glob '!warnings.ts'` sums to 8 lines before
  * the removals and 4 after, and neither number is the thing being pinned.
  *
- * So this reads the PARSE, not the text: a call site is a `CallExpression` whose callee is
- * the identifier. Comments are not in the AST and an import specifier is not a call, so
+ * So this reads the PARSE, not the text: a call site is a `CallExpression` whose callee
+ * resolves to the emitter — as a bare identifier, as a property access
+ * (`warnings.emitUnknownField(...)`), as an indexed access with a literal name, or through a
+ * local alias declared by this file's own `import { emitUnknownField as X }`. Comments are not in the AST and an import specifier is not a call, so
  * both are excluded by construction rather than by a stripping pass that could be fooled.
  * (Hand-rolled comment handling in a guard is also forbidden — single source is
  * `tests/_shared/stripComments`, enforced by
@@ -528,13 +530,39 @@ describe("calibrated residual classes fire exactly as baselined", () => {
 function emitCallSiteLines(src: string): number[] {
   const sf = ts.createSourceFile("__scan.ts", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const out: number[] = [];
+
+  // THREE call shapes reach the emitter, and an earlier version of this scan recognized only
+  // the first (whole-diff r3 P2, demonstrated with an AST probe using its own predicate):
+  //   emitUnknownField(...)            bare identifier
+  //   warnings.emitUnknownField(...)   namespace or property access
+  //   emitUF(...)                      local alias from `import { emitUnknownField as emitUF }`
+  // The third is why aliases are collected from the file's own import declarations rather
+  // than guessed: a renaming import is ordinary TypeScript, not obfuscation, and the threat
+  // model is an authoring mistake by a contributor who did not know this pin existed.
+  const aliases = new Set<string>(["emitUnknownField"]);
+  const collectAliases = (n: ts.Node): void => {
+    if (ts.isImportDeclaration(n)) {
+      const named = n.importClause?.namedBindings;
+      if (named && ts.isNamedImports(named)) {
+        for (const el of named.elements) {
+          if ((el.propertyName ?? el.name).text === "emitUnknownField") aliases.add(el.name.text);
+        }
+      }
+    }
+    ts.forEachChild(n, collectAliases);
+  };
+  collectAliases(sf);
+
   const visit = (n: ts.Node): void => {
-    if (
-      ts.isCallExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      n.expression.text === "emitUnknownField"
-    ) {
-      out.push(sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1);
+    if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      const hit =
+        (ts.isIdentifier(callee) && aliases.has(callee.text)) ||
+        (ts.isPropertyAccessExpression(callee) && callee.name.text === "emitUnknownField") ||
+        (ts.isElementAccessExpression(callee) &&
+          ts.isStringLiteralLike(callee.argumentExpression) &&
+          callee.argumentExpression.text === "emitUnknownField");
+      if (hit) out.push(sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1);
     }
     ts.forEachChild(n, visit);
   };
@@ -692,6 +720,34 @@ describe("the detector is enrolled in the source-mutation guard registry (AC-N7)
       "no enrolled guard surface declares scanRowsWithOpener — the opener derivation is outside the mutation surface",
     ).toHaveLength(1);
     expect(owners[0]!.suitePaths).toContain("tests/parser/fieldNearMiss.test.ts");
+  });
+
+  it("the call-site scan sees all three shapes an ordinary contributor would write", () => {
+    // The version this replaces matched only a bare identifier callee, so a second emitter
+    // written as `warnings.emitUnknownField(...)` or through a renaming import evaded a pin
+    // whose whole claim is filesystem-wide sole-emitter coverage. Each source below is a
+    // separate call shape; each must be counted, and the negative controls must not be.
+    const positives: [string, string][] = [
+      ["bare identifier", "emitUnknownField(agg, o);"],
+      ["property access", "warnings.emitUnknownField(agg, o);"],
+      ["indexed access", 'warnings["emitUnknownField"](agg, o);'],
+      [
+        "renaming import",
+        'import { emitUnknownField as emitUF } from "@/lib/parser/warnings";\nemitUF(agg, o);',
+      ],
+    ];
+    for (const [shape, src] of positives) {
+      expect(emitCallSiteLines(src), `${shape} must be counted`).toHaveLength(1);
+    }
+    const negatives: [string, string][] = [
+      ["import specifier alone", 'import { emitUnknownField } from "@/lib/parser/warnings";'],
+      ["comment", "// emitUnknownField(agg, o);"],
+      ["string literal", 'const s = "emitUnknownField(agg, o)";'],
+      ["unrelated alias target", 'import { other as emitUF } from "x";\nemitUF(agg, o);'],
+    ];
+    for (const [shape, src] of negatives) {
+      expect(emitCallSiteLines(src), `${shape} must NOT be counted`).toEqual([]);
+    }
   });
 
   it("both rows are structurally valid, so neither gate runs vacuously", () => {

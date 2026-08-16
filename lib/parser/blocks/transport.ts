@@ -438,6 +438,10 @@ function parseV2Transport(
         TRANSPORT_SCHEDULE_GATE_OPTS,
       );
       if (fix?.corrected) {
+        // Fuzzy recovery is a resolution (spec §3.3), so it ledgers like the exact
+        // `V2_SCHEDULE_LABELS` branch above. Otherwise the leg is recovered AND the row is
+        // reported unrecognized (whole-diff r3 P1, probed with `Rental Pick-up`).
+        markConsumed(agg, blockOpener, col0, col1);
         const { date, time } = parseV2DateTime(col1, contextYear);
         schedule.push({
           stage: col0,

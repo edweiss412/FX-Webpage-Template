@@ -17,7 +17,7 @@
 
 - **AC-S1:** A baseline signal-parity test pins today's per-fixture emission multiset across all 17 fixtures and stays green after the refactor.
 - **AC-S2:** The 10 probe-named swaps (rpas-central B14/B15/B19, asset-mgmt B14/B15, ria B3/B4/B7/B8, consultants-roundtable B22 — ledger probe §2.3) preserve the signal multiset post-fix.
-- **AC-S3:** `OPERATOR_FINDING_MAP["section-reorder"]` re-maps to a documented-finding ref accepted by `knownHoles.test.ts`; the 72 ratified rows stay; only the 10 rows delete; backlog row closes with the documented-limit note.
+- **AC-S3:** `OPERATOR_FINDING_MAP["section-reorder"]` re-maps to a documented-finding ref accepted by `knownHoles.test.ts`; the ratified rows stay and the closed rows delete (predicted 72 / 10; measured 59 / 24 — see the correction banner above); backlog row closes with the documented-limit note.
 - **AC-S4:** Full harness green (four buckets empty); no live render change on any surface.
 
 <!-- tasks: depth=3 -->
