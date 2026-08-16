@@ -917,13 +917,22 @@ describe("GalleryLightbox — the demote's sighted chip", () => {
       premiseHolds("the chip scheduled its own timer", vi.getTimerCount() === mounted + 1);
       expect(container.querySelector(CHIP)).not.toBeNull();
 
+      const withChip = vi.getTimerCount();
       cleanup();
 
-      // An absent act() warning is not a cleanup proof under React 19; the timer
-      // count is (precedent: tests/devcapture/useDevCapture.test.tsx:342). The
-      // chip's timer is gone; anything the lightbox left behind is pre-existing
-      // and not what this case claims.
-      expect(vi.getTimerCount()).toBeLessThanOrEqual(mounted);
+      // WHAT THIS CAN AND CANNOT SETTLE. It pins that unmounting releases at
+      // least what the chip added — a real regression if a future change parks
+      // the chip's timer somewhere teardown does not reach. It does NOT prove
+      // the unmount-cleanup effect is what releases it: probed by deleting that
+      // effect, and this case stays green, because the teardown path drops the
+      // pending timer here regardless. The effect stays as a defensive backstop
+      // and the surviving mutant is recorded as an accepted gap in the unit's
+      // closeout rather than papered over with an oracle that cannot see it.
+      // The clears that DO discriminate are the close path and both
+      // second-failure branches, each killed by its own mutation probe.
+      expect(vi.getTimerCount(), "unmount released the chip's own timer").toBeLessThanOrEqual(
+        withChip - 1,
+      );
     } finally {
       vi.useRealTimers();
     }
@@ -1033,6 +1042,47 @@ describe("GalleryLightbox — the demote's sighted chip", () => {
       // contradiction: the chip's premise died with the clamped tier.
       premiseHolds(
         "the second failure really reached the placeholder",
+        container.textContent?.includes("Image unavailable") === true,
+      );
+      expect(container.querySelector(CHIP)).toBeNull();
+      expect(
+        vi.getTimerCount(),
+        "the chip timer was cancelled, not left running",
+      ).toBeLessThanOrEqual(mounted);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("clears when the demoted slide's clamped tier fails while it is INACTIVE", () => {
+    // The second route into clear-4, and the one the active-branch handler cannot
+    // see: Embla keeps every slide mounted, so a demoted slide swiped away can
+    // still have its clamped request fail on the inactive branch. The render
+    // hides the chip behind `failedKeys` either way — what this pins is that the
+    // STATE and its timer go too, so swiping back does not put a chip over the
+    // "Image unavailable" placeholder for the rest of the window.
+    vi.useFakeTimers();
+    try {
+      const fixture = item(1);
+      const { container } = open([fixture, item(2)]);
+      emitScale(2.4);
+      const mounted = vi.getTimerCount();
+      act(() => {
+        fireEvent.error(activeImage(container));
+      });
+      premiseHolds("the demote showed a chip", container.querySelector(CHIP) !== null);
+      premiseHolds("the chip scheduled its own timer", vi.getTimerCount() === mounted + 1);
+
+      act(() => emblaApis.at(-1)!.scrollTo(1));
+      const inactive = container.querySelectorAll("figure")[0]!.querySelector("img");
+      premiseHolds("the demoted slide rendered an inactive image that can fail", inactive !== null);
+      act(() => {
+        fireEvent.error(inactive!);
+      });
+
+      act(() => emblaApis.at(-1)!.scrollTo(0));
+      premiseHolds(
+        "the slide really reached the placeholder",
         container.textContent?.includes("Image unavailable") === true,
       );
       expect(container.querySelector(CHIP)).toBeNull();

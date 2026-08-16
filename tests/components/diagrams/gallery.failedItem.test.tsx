@@ -1158,6 +1158,15 @@ describe("Gallery — the demote chip never survives a dialog session", () => {
       });
       premiseHolds("the exit window is open, so this is the retained instance", presence.exiting);
 
+      // ASSERTED MID-EXIT, before any re-open. After a re-open the session stamp
+      // hides a stale notice on its own, so a post-re-open assertion alone would
+      // pass with `clearDemoteNotice()` deleted from the close path — and the
+      // user would watch the chip ride the dialog out.
+      expect(
+        document.querySelector(CHIP),
+        "the close cleared the chip on the retained instance",
+      ).toBeNull();
+
       // Re-open INSIDE the window: the exit is canceled and the same instance is
       // retained, which is exactly where a chip cleared only on unmount survives.
       act(() => {

@@ -27,7 +27,7 @@ unclassified`), which is what the inventory gate reads.
 - `tests/components/diagrams/gallery.failedItem.test.tsx` — 5 session cases through the REAL parent:
   all three close initiators, the exit-window repopulation block, and the positive re-entry ordering
   (the case that fails against an effect-timed reset).
-- All 16 observed RED before implementation (11 + 5, counted from the runtime selection: `-t "demote's sighted chip"` reports 11 passed, `-t "never survives a dialog session"` reports 5); `tests/components/diagrams/` green at 153.
+- All 16 observed RED before implementation (a 17th, the inactive-branch clear-4 route, was added in review round 5 and is mutation-killed) (11 + 5, counted from the runtime selection: `-t "demote's sighted chip"` reports 11 passed, `-t "never survives a dialog session"` reports 5); `tests/components/diagrams/` green at 153.
 - `tests/docs/_metaInteractionTimingInventory.test.ts` observed failing by name
   (`DEMOTE_CHIP_VISIBLE_MS = 6000` not listed) before the §5.5 row landed; green both directions in
   the same commit.
@@ -89,6 +89,24 @@ demote R4 F1 exists to protect. The notice is now STAMPED with the session it be
 (`{ id, nonce }`) and rendered only while `nonce === openNonce`, so a stale notice is ignored by
 construction and no reset step exists to race. Fewer moving parts, and the render-time property is
 now structural rather than procedural.
+
+## Mutation probes on the clear conditions (diff review R5)
+
+R5 asked whether the clear conditions' tests can actually see their own mechanisms. Four probes, run
+against the shipped tree and reverted after each:
+
+| Mutant | Result |
+| --- | --- |
+| `closedAtNonce !== openNonce` → `true` (delete the exit-window gate) | KILLED — the exit-window case reds (1 failed / 40 passed). |
+| `clearDemoteNotice()` removed from `handleClose` | KILLED — all three close-initiator cases red (3 failed / 38 passed), because each now asserts chip absence MID-EXIT, before the re-open where the session stamp would mask it. |
+| the inactive-branch clear removed | KILLED — the new "clamped tier fails while the slide is INACTIVE" case reds (1 failed / 35 passed). |
+| the unmount-cleanup effect removed | **SURVIVES — accepted gap, recorded.** In this harness the teardown path drops the pending timer regardless, so no `vi.getTimerCount()` oracle can see the effect's absence. The effect stays as a defensive backstop; the case says plainly what it can and cannot settle rather than carrying an oracle that cannot discriminate. |
+
+R5 also found the fourth clear condition covered on ONE of its two routes: a demoted slide swiped
+INACTIVE can still have its clamped request fail on the inactive branch, where the render hid the
+chip via `failedKeys` while the state and its timer survived — so a swipe back would have shown a
+chip over the "Image unavailable" placeholder for the rest of the window. Both branches now clear,
+and the new case covers the second route.
 
 ## §12 — impeccable dual gate (invariant 8)
 

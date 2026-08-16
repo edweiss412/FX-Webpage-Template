@@ -1124,6 +1124,14 @@ export function GalleryLightbox({
                               next.add(item.id);
                               return next;
                             });
+                            // Same contradiction as the active branch, reached by
+                            // a different route: a demoted slide swiped INACTIVE
+                            // can still have its clamped request fail here. The
+                            // render already hides the chip behind `failedKeys`,
+                            // but the state and its timer would survive, so a
+                            // swipe back would put the chip over the placeholder
+                            // for the remainder of its window.
+                            if (demotedNotice?.id === item.id) clearDemoteNotice();
                           }}
                           className="max-h-full max-w-full object-contain"
                         />
