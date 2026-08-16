@@ -145,6 +145,10 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
   // repay rather than a number to bump.
   interactiveScanCore: { equivalent: 11 },
+  // Fresh enrolment: every survivor is repaid or argued in the registry row's
+  // accepted list; a nonzero count appearing here later is a regression to
+  // repair rather than a number to bump.
+  serializeErrorStructure: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

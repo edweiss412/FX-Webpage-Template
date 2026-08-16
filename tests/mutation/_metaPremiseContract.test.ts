@@ -125,6 +125,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/styles/interactiveScanCore.test.ts": 0,
   "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
   "tests/styles/_metaTapTargetFloor.test.ts": 0,
+  // The serializeError contract suite, enrolled 2026-08-16
+  // (fix/serialize-error-structure). 0, and honestly so: every case builds its
+  // fixture in the test body and drives it through the imported helper, so the
+  // suite reaches no member of ENVIRONMENT_SOURCES — no child process, no
+  // ledger-git, no process.env, and no filesystem read at all.
+  "tests/log/serializeError.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

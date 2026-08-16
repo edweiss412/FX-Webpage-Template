@@ -236,6 +236,45 @@ describe("serializeError -- mutant-killing boundary pairs (plan R1 F1; each case
     const out = serializeError(e) as { cause?: { a?: { leaf?: string } } };
     expect(out.cause?.a?.leaf).toBe("v");
   });
+  test("a throwing getter consumes no node budget (kills the getter-branch continue-removal mutant)", () => {
+    // The throwing-getter case above pins the MARKER; it cannot see the budget.
+    // Dropping the `continue` still writes "[Throwing getter]" and then walks the
+    // never-assigned `undefined` through serializeValue, which spends one node
+    // before returning DROP -- identical output, one node poorer. Only a fixture
+    // sitting EXACTLY on the budget can tell the two apart.
+    //
+    // root(1) + `a`(1) + 6 child arrays(6) + 6x32 numbers(192) = 200 = NODES_MAX.
+    // The getter is read FIRST (insertion order), so a node spent there pushes the
+    // last number to 201 and truncates it.
+    const six = Array.from({ length: 6 }, () => Array.from({ length: 32 }, (_, i) => i));
+    const fixture = {
+      get boom(): never {
+        throw new Error("getter");
+      },
+      a: six,
+    };
+    const out = serializeError(fixture) as Record<string, unknown>;
+    expect(out.boom).toBe("[Throwing getter]");
+    expect(JSON.stringify(out)).not.toContain("[Truncated: budget]");
+  });
+  test("an Error whose own `cause` is undefined emits no cause key (kills the cause &&-to-|| mutant)", () => {
+    // `"cause" in error && error.cause !== undefined` reads as redundant -- an
+    // absent `cause` is undefined either way -- so the mutant produces the same
+    // OUTPUT for every ordinary Error. The one input that separates them is an own
+    // `cause` whose value IS undefined: `||` enters the branch, spends a node on
+    // serializeValue(undefined), and at an exhausted budget that returns the
+    // truncation marker rather than DROP, which lands as a bogus `cause` key.
+    //
+    // defineProperty rather than `new Error(m, { cause: undefined })`: under
+    // exactOptionalPropertyTypes the literal form does not typecheck, and this
+    // pins the own-property shape directly.
+    const six = Array.from({ length: 6 }, () => Array.from({ length: 32 }, (_, i) => i));
+    const e = new Error("x") as Error & { a: unknown };
+    Object.defineProperty(e, "cause", { value: undefined, configurable: true });
+    e.a = six; // root(1) + a(1) + 6 + 192 = 200 = NODES_MAX exactly
+    const out = serializeError(e) as Record<string, unknown>;
+    expect("cause" in out).toBe(false);
+  });
   test("a nested bigint is capped at STR_MAX like every other emitted string (plan R2 F1)", () => {
     const out = serializeError({ value: BigInt("9".repeat(STR_MAX + 100)) }) as Record<
       string,

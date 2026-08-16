@@ -190,8 +190,8 @@ function contributingObjectLiterals(root: ObjectLiteralExpression): ObjectLitera
  * Sound in the direction that matters. If `serializeError` appears anywhere in the value that
  * reaches `error`, then on at least one path the logger receives an already-serialized object
  * and re-serializes it — historically to "[object Object]", structurally since
- * fix/serialize-error-structure, and drifted in shape either way. A conditional carrier is not a special case of
- * that — it IS that, on one branch.
+ * fix/serialize-error-structure, and drifted in shape either way. A conditional
+ * carrier is not a special case of that — it IS that, on one branch.
  *
  * The cost is a possible false positive: an expression that mentions the helper without its
  * result reaching `error`. That is a LOUD failure a contributor resolves by hoisting the call,

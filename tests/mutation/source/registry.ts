@@ -1267,4 +1267,24 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  {
+    id: "serializeErrorStructure",
+    sourcePath: "lib/log/serializeError.ts",
+    suitePaths: ["tests/log/serializeError.test.ts"],
+    operators: [
+      "relational-boundary",
+      "equality-flip",
+      "logical-connector",
+      "integer-literal",
+      "statement-removal",
+    ],
+    scoreFloor: 0.95,
+    // Inverts the depth guard so truncation fires one level EARLY -- the
+    // boundary-pair cases in the suite must notice both directions.
+    control: {
+      from: 'if (depth > DEPTH_MAX) return "[Truncated: depth]";',
+      to: 'if (depth >= DEPTH_MAX) return "[Truncated: depth]";',
+    },
+    accepted: [],
+  },
 ];
