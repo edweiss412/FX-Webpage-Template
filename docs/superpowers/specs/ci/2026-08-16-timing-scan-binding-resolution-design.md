@@ -151,8 +151,8 @@ No visual state is added or changed — no `AnimatePresence`, no exit/initial/an
 
 ## §5 Meta-test / registry inventory
 
-- **CREATES:** fixture rows in `tests/docs/interactionTimingScan.test.ts` for the P5 shapes (four fires halves, five stays-quiet halves); a structural pin that the resolver's `paths` assumption matches `tsconfig.json`.
-- **EXTENDS:** `scripts/scan-interaction-timings.ts` (`TimingSite.refPos`, `scanRepo`'s resolution step, the header paragraph that documents the hole); `tests/mutation/source/registry.ts` (`interactionTimingScan` accepted-survivor set re-derived — line-keyed, so re-derivation is mandatory).
+- **CREATES:** fixture rows in `tests/docs/interactionTimingScan.test.ts` for the P5 shapes plus the P10 same-line neighbour — six fires halves (module-level shadow, inner-scope shadow, parameter shadow, aliased import, same-line neighbour, and the property-value shadow) and five stays-quiet halves (the unshadowed peer, a legit local, a direct import, a barrel re-export, and the live-shaped `ttlMs` pass-through); a structural pin that the resolver's `paths` assumption matches `tsconfig.json`. The plan's task tables are the single source for that split.
+- **EXTENDS:** `scripts/scan-interaction-timings.ts` (`TimingSite.refPos` and `TimingSite.declPos`, the resolver, `scanRepo`'s resolution step, the header paragraph that documents the hole); `tests/mutation/source/registry.ts` (`interactionTimingScan` accepted-survivor set re-derived — its `siteId`s are line-keyed, so re-derivation is mandatory rather than optional).
 - **UNCHANGED:** `DESIGN.md` §5.5, `UNCLASSIFIED_DISPOSITIONS`, `EXPLICIT_INCLUDES`, `EXCLUDED_PREFIXES`, `UNIVERSE_ROOTS`, `TIMING_NAME`, `isBoundaryTimingKey`, `inventoryRows`, `scripts/scan-interaction-timings.cli.ts`.
 - No Supabase call site, no invariant-10 mutation surface (tooling and test code only), no advisory lock, no §12.4 row, no UI surface.
 
