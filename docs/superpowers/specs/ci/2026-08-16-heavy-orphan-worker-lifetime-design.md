@@ -104,10 +104,10 @@ Each row is settled. Re-opening one needs new evidence, not a re-reading.
 | Decision | Ratification |
 | --- | --- |
 | The wrapper keeps `execvp`. Making it fork-and-supervise to kill its group on death is REJECTED (§3, approach C) — it destroys the zero-cleanup slot release (`scripts/with-heavy-slot.py:15-21`) and the exit-status transparency, and the supervisor is itself killable, moving the orphan problem up one level rather than closing it. | §3 |
-| Slot state is never edited by hand and capacity changes go only through `--recreate`; `FX_HEAVY_SLOT_DIR` is never set in a production session. This design reads slot files and writes none. | AGENTS.md heavy-phase section |
+| The reaper does not read the semaphore's state at all. The slot-membership clause every draft through round 10 carried was found UNREACHABLE while writing the plan, and removing it took the slot survey with it. | §4.2, §5 |
 | The reaper never uses an activity, CPU, or log-freshness proxy as its liveness signal. | §1.3, `docs/agents/codex-silent-death-2026-07-24.md` §1 |
 | `tests/mutation/source/runner.ts` is NOT edited by this arc. Its per-mutant ceiling (`MUTANT_TIMEOUT_MS`, `tests/mutation/source/runner.ts:49`) and its group reap (`GROUP_LEADER_ARGV`, `tests/mutation/source/runner.ts:146`) are correct for the hazard they address — a mutant that will not terminate while the harness is alive — and both landed 2026-08-15 after review. They do not address parent death, which is a different hazard; see §3 approach B and §11.1. | §3, §11 |
-| The default ceiling is a MARGIN, not the mechanism. Exemptions (b) and (c) in §4.2 carry the safety, and a heavy phase they cover is exempt on structure regardless of age. A heavy phase covered by NEITHER — unwrapped AND detached — is not identifiable as live by any means this design has; that residue is limit L-3, and AC-2 is scoped to exclude it rather than claiming it away. | §4.3, §7 L-3, §8 |
+| The default ceiling is a MARGIN, not the mechanism. Clauses (a) and (b) in §4.2 carry the safety, and every process in a live heavy phase is exempt under one of them regardless of age. The residue is a worker orphaned while its phase runs on, which is limit L-7 and is deliberate rather than a gap. | §4.3, §7 L-7, §8 |
 | The reaper is INVOKED, never resident. The bound is therefore the ceiling plus the interval to the next trigger (§6.1), stated as limit L-2. A daemon or launchd agent is out of scope. | §6.1, §7 L-2, §12 |
 | Trigger 1 lives in `package.json`'s `heavy` script and fails open by construction, so `scripts/with-heavy-slot.py` stays unedited and admission is never blocked by the reaper. | §6.1, §12 |
 | Clause (a) matches on argv STRUCTURE — node as `argv[0]` plus a last-token path suffix — never on containment. Containment was measured producing a live false positive and is not coming back. | §4.2(a) |
@@ -130,10 +130,10 @@ not true of any invoked reaper and pretending otherwise cost this spec its first
 - **"Bound" means bounded by the ceiling plus the interval to the next trigger**, not by the
   ceiling alone. A reaper that is invoked cannot act at an instant nobody invokes it. §6 defines
   the trigger set that makes the second term small and states its residue as limit L-2.
-- **"Structurally identifiable as live" means exempt by clause (b) or (c) of §4.2** — a live
-  ancestor, or descent from a live slot holder — which is a property of the process tree, not a
-  function of age. A heavy phase that is neither is not identifiable as live by any means this
-  design has, and §4.3 plus limit L-3 state exactly what happens to it.
+- **"Structurally identifiable as live" means exempt by clause (a) or (b) of §4.2** — not
+  worker-shaped, or having a live parent — both properties of the process tree rather than
+  functions of age. The one process in a live heavy phase that is neither is a worker whose own
+  parent has died; §4.3's table and limit L-7 state exactly what happens to it.
 
 **Non-goals.**
 
@@ -152,7 +152,7 @@ not true of any invoked reaper and pretending otherwise cost this spec its first
 ## 3. Approaches considered
 
 **A — max-lifetime orphan reaper (CHOSEN).** A classifier over the live process table plus the
-semaphore's own slot files decides which processes are orphaned heavy workers, and a thin adapter
+process tree decides which processes are orphaned heavy workers, and a thin adapter
 kills them. Mirrors what a human ran by hand during the incident, with a far narrower predicate.
 
 *Why:* it is the only candidate that covers orphans from EVERY producer — vitest, playwright,
@@ -165,7 +165,7 @@ it does nothing, which is also its behavior when this machine is healthy.
 *Cost:* it is a backstop, so an orphan burns until the ceiling elapses AND a trigger fires — the
 full bound stated in §6.1 and limit L-2, not the ceiling alone. Accepted. The exemptions in §4.2
 mean the ceiling is the only knob whose MISCONFIGURATION can cost anything, and what it costs is
-bounded by L-3: a ceiling set too low can reach an unwrapped, detached, legitimately long phase.
+bounded by L-7: a ceiling set too low reaches a worker orphaned while its phase runs on sooner.
 It is not true that the ceiling can only misfire toward inaction, and an earlier draft of this
 paragraph said so.
 
@@ -199,8 +199,8 @@ Three units, each independently testable:
 
 | Unit | Responsibility | Depends on |
 | --- | --- | --- |
-| lib/heavyReap/classify.ts (new) | PURE decision function: given process rows (parsable and not), a slot survey, and a config carrying the clock reading, return a decision for EVERY row plus the collection problems and config notes the reporter needs. No I/O, no clock. | nothing |
-| lib/heavyReap/collect.ts (new) | Read the world: run `ps`, parse it into rows; read `/tmp/fx-heavy-slots/slot-*` into a `SlotSurvey`. Distinguishes its own failure from an empty world (C1 vs C2, C3 vs C4). | node `child_process`, `fs` |
+| lib/heavyReap/classify.ts (new) | PURE decision function: given process rows (parsable and not) and a config, return a decision for EVERY row plus the config notes the reporter needs. No I/O, and no clock — `etime` is already elapsed. | nothing |
+| lib/heavyReap/collect.ts (new) | Read the world: run `ps` and parse it into rows. Distinguishes its own failure from an empty table (C1 vs C2). | node `child_process` |
 | scripts/heavy-reap.ts (new) | Adapter: collect → classify → report or kill. Owns the flag set and the exit status, both defined in §6.2. | both above |
 
 The split is the point. classify.ts is where every rule lives and it never touches the machine,
@@ -258,19 +258,38 @@ which an unscoped `pkill -f vitest` caused on 2026-07-24.
 ancestry inference is a proxy of the kind §1.3 rules out. A worker whose parent is alive is never
 touched, whatever its age.
 
-**(c) Unslotted.** Neither the process itself nor any of its ancestors is a pid recorded in a
-live `/tmp/fx-heavy-slots/slot-*` metadata file. The wrapper `execvp`s, so the recorded `pid`
-(`scripts/with-heavy-slot.py:230`) IS the running heavy command, and its workers are its
-descendants. A holder pid is "live" only if that pid currently exists; a stale metadata line from
-a crashed holder exempts nothing.
+**There is deliberately NO slot-membership clause, and this is the design's sharpest correction.**
+Every draft through review round 10 carried one — "neither the process nor any of its ancestors is
+a pid recorded in a live slot file" — and called it the thing that made the design safe. **It is
+unreachable.** Clause (b) admits only `ppid == 1`, and an ancestry walk that STARTS at init can
+never reach a slot holder, so the clause could not fire for any process the predicate would
+otherwise reap. It was found by executing the classifier the plan specifies rather than by reading
+it: the case asserting the exemption failed, reporting `has-live-parent` where the spec expected
+`slot-descendant`.
 
-Clause (c) is what makes this safe rather than merely careful: every heavy phase that HOLDS a
-slot is exempt on structure, at any age, forever. It says nothing about a phase that holds no
-slot — see §4.3's table, which enumerates every way that happens.
+Two probes settle why no repair of it works, both run 2026-08-16:
 
-**(d) Aged.** `etime >= FX_REAP_MIN_AGE_S`, default `14400` (4 h).
+- **Process-group membership survives reparenting**, so it looked like the fix. An orphaned
+  grandchild kept `pgid=41496` — identical to its still-live root — while its `ppid` became 1.
+- **But it does not link a worker to its slot holder.** Of five vitest workers alive
+  machine-wide, exactly ONE shared a pgid with any live holder. The mutation runner is why: it
+  puts every child in a NEW group by design (`GROUP_LEADER_ARGV`,
+  `tests/mutation/source/runner.ts:146`, probed in §1.3 as P2), so the producer that generated all
+  eleven orphans of the incident is precisely the one a pgid rule cannot see.
 
-**(e) Not self.** Never the reaper's own process, nor any ancestor of it. A reaper that can kill
+**Clause (b) alone delivers the safety the slot clause claimed to.** A live heavy phase's workers
+have LIVE PARENTS — the vitest or playwright main process — so they are exempt at any age, and the
+`pnpm heavy` wrapper itself is exempt under clause (a) because it is not worker-shaped. A worker
+that is genuinely orphaned while its heavy phase runs on is spinning on a dead IPC channel and is
+doing no work anyone is waiting for; reaping it after the ceiling is correct, not a false positive.
+
+The consequence is a materially smaller design: no slot survey, no slot-metadata parsing, and none
+of the undecidable-collection machinery that existed only to keep an unevaluable slot clause
+honest. The reaper no longer reads the semaphore's state at all.
+
+**(c) Aged.** `etime >= FX_REAP_MIN_AGE_S`, default `14400` (4 h).
+
+**(d) Not self.** Never the reaper's own process, nor any ancestor of it. A reaper that can kill
 its own session is a worse outage than the leak.
 
 Kill is SIGKILL to the process AND its descendant subtree — a vitest worker can own children
@@ -279,45 +298,22 @@ parent alone re-orphans them.
 
 ### 4.3 Why 4 h, and what the number is actually for
 
-Clauses (b) and (c) exempt every heavy phase that is structurally identifiable as live:
+Clause (b) exempts every heavy phase that is structurally identifiable as live, and it does so at
+any age:
 
-| How a heavy phase is run | Exempt by | At any age? |
+| Process in a live heavy phase | Exempt by | At any age? |
 | --- | --- | --- |
-| Under `pnpm heavy`, HOLDING a slot | (c) — its worker descends from a live slot holder | yes |
-| Under `pnpm heavy` with `FX_HEAVY_DISABLE=1`, attended | (b) — its parent is alive | yes |
-| Under `pnpm heavy` with `FX_HEAVY_DISABLE=1`, detached | (d) only | no — see L-3 |
-| Unwrapped but attended (a shell, a session) | (b) — its parent is alive | yes |
-| Unwrapped AND detached (`nohup`, `disown`) | (d) only | no — see L-3 |
+| a vitest / playwright / next worker | (b) — its pool's main process is its live parent | yes |
+| the `pnpm heavy` wrapper itself, however launched | (a) — it is `pnpm`/`python3`, not worker-shaped | yes |
+| an intermediate pnpm or vitest.mjs process | (a) — same reason | yes |
+| a worker whose own parent has died while the phase runs on | nothing — see below | no |
 
-**The `FX_HEAVY_DISABLE` rows are not hypothetical**, and an earlier draft's blanket
-"under `pnpm heavy` ⇒ clause (c)" was wrong because of them. The wrapper honors that flag at
-`scripts/with-heavy-slot.py:678` and execs the command directly WITHOUT acquiring or publishing a
-slot, so no slot metadata ever names it. Probed 2026-08-16:
-
-```
-$ FX_HEAVY_DISABLE=1 python3 scripts/with-heavy-slot.py -- \
-    node -e 'console.log(process.env.FX_HEAVY_SLOT_HELD ?? "ABSENT")'
-ABSENT
-```
-
-Such a run is protected by (b) while attached and falls to L-3 if detached — the same treatment as
-an unwrapped run, which is the honest reading: a phase that holds no slot is invisible to clause
-(c) by construction, however it was launched.
-
-So the ceiling binds exactly one situation, reached two ways: a heavy phase that holds no slot —
-whether unwrapped or run with `FX_HEAVY_DISABLE=1` — AND is detached from any session. The number
-is a margin on that situation, not the mechanism.
-That residual case is NOT closed by this design and is stated as limit L-3; §8's AC-2 is scoped to
-the two rows that ARE closed, and deliberately claims nothing about the third.
-
-**Clause (c) verified live, 2026-08-16 13:41Z.** Slot-0's metadata recorded `pid=21488`; walking
-`ps -eo pid=,ppid=,command=` upward from every process on the machine found 6 descendants of that
-pid, 2 of them vitest fork workers — both exempt under (c) — while 2 of the 4 vitest workers alive
-machine-wide belonged to other trees and were not exempted by this holder. The chain is
-`21632 → 21537 → 21488`: the worker's parent is the vitest.mjs process and its grandparent is
-the recorded holder itself. This is guaranteed rather than incidental, because the wrapper records
-`os.getpid()` (`scripts/with-heavy-slot.py:230`) and then `execvp`s, so the recorded pid IS the
-running heavy command and its workers are necessarily its descendants.
+The last row is the only one the ceiling binds, and it is not a false positive: such a worker has
+lost the IPC channel it reports through, is doing work nobody will collect, and is exactly what the
+2026-08-16 incident was made of. Reaping it after the ceiling is the design's PURPOSE, not its
+risk. **How it was launched — `pnpm heavy`, unwrapped, `FX_HEAVY_DISABLE=1`, `nohup` — makes no
+difference to any row**, which is the simplification that fell out of dropping the slot clause: the
+predicate reads the process tree, and the process tree does not record how a phase was started.
 
 Measured longest legitimate heavy phases, for the derivation. CI figures are RUN-level
 (`gh run list --workflow mutation-harness.yml`, `createdAt` → `updatedAt`); the workflow header's
@@ -332,33 +328,15 @@ own "138 min" for 2026-08-15 is the job-level equivalent of the 137 m 58 s row.
 `14400` s is 1.41 × the longest measured legitimate heavy phase (169 m 39 s, the 2026-08-16
 nightly — which failed on a ledger drift, not on its 300-minute `timeout-minutes`). The hand-run
 during the incident used ≥ 12 h, but that was a BARE age filter over a command pattern with no
-ancestry or slot clause; a predicate carrying (a)-(c) is safe at a materially lower ceiling.
+shape or orphan clause; a predicate carrying (a) and (b) is safe at a materially lower ceiling.
 Overridable via `FX_REAP_MIN_AGE_S` for a genuine outlier.
 
-Note the clock the ceiling reads is process age, which for a `pnpm heavy` invocation includes
-time spent WAITING in the semaphore queue — unbounded by design under contention, and measured at
-17 minutes of queueing for one local run on 2026-08-16. That does not weaken (d), because a
-waiting wrapper has a live session parent and is exempt under (b) long before age matters.
+Note the clock the ceiling reads is process age, which for a `pnpm heavy` invocation includes time
+spent WAITING in the semaphore queue — unbounded by design under contention, and measured at 17
+minutes for one local run and over 65 minutes for another on 2026-08-16. That does not weaken (c),
+because a waiting wrapper is not worker-shaped and is exempt under (a) whatever its age.
 
 ### 4.4 Guard conditions — every input at its degenerate value
-
-**Three classes, distinguished by SCOPE and by which criterion owns them. The behavior of each
-condition is in its row and nowhere else** — this preamble deliberately states no behavior, because
-a preamble that restated one is what rounds 1 through 4 kept finding drifted.
-
-| Class | Scope of a condition's effect | Owned by |
-| --- | --- | --- |
-| Collection-level (C1-C8) | the whole run | AC-3b |
-| Row-level (R1-R5) | that row only | AC-3 |
-| Kill-time (K1-K5) | that target only | AC-5, AC-5b; exit status per §6.2 |
-
-The one design idea behind the C-rows, stated as the rule it is: **a clause you cannot evaluate
-has not been evaluated.** Concluding a process is unexempt from a failure to check is the precise
-error that made the codex reaper kill live work. What the rule COSTS in each case is in the rows
-the `Decidable?` column marks "no" — C1, C3, C5, C8 — and stated nowhere else.
-
-§5's types are what make the reporting half expressible; round 1 found the earlier signature could
-not carry most of this table, which is why the two sections are written against each other.
 
 **The three tables below are the ONLY source for what any condition does. Every other mention
 anywhere in this document CITES the ID instead of paraphrasing — and "every other mention" includes
@@ -375,12 +353,11 @@ single-line JSDoc, then another table's rows):
 python3 - <<'EOF'
 import re
 lines = open("docs/superpowers/specs/ci/2026-08-16-heavy-orphan-worker-lifetime-design.md").read().split("\n")
-src = {i for i, l in enumerate(lines) if re.match(r"^\| (C[1-8]|R[1-5]|K[1-5]) \|", l.strip())}
+src = {i for i, l in enumerate(lines) if re.match(r"^\| (C[1-4]|R[1-4]|K[1-5]) \|", l.strip())}
 verbs = re.compile(r"exit non-zero|non-zero.exit|reap(s|ing)? (nothing|NOTHING)|exit status|exits? 0"
                    r"|unaffected|tolerated|never reaped|not reapable|stops the run|is blocked"
                    r"|kills nothing|non-destructive|failed kill|partial kill|identity-changed"
                    r"|already-gone|ESRCH|surviving pids"
-                   # added after round 9, each from a phrase that actually escaped the set above
                    r"|ordinary orphans|next run|empty world|recorded survivor|is reported|are reported")
 for i, l in enumerate(lines):
     t = l.strip()
@@ -395,32 +372,38 @@ Every hit it reports must be one of five things, and anything else is a defect: 
 ID, a POINTER to the section that owns the behavior, a DEFINITION of a term the tables use, a
 HISTORICAL note recording a claim this spec corrected, or a claim OWNED by the section making it
 and described by no row (AC-8's trigger-1 properties and §9's consequence bound are the two of
-those). The scan does not decide which; it bounds where to look, which is the part that kept failing. It
-is an AID, not a gate: it is a verb-list regex, so a paraphrase using none of its verbs is not
-reported, and round 9 demonstrated exactly that with three escaping phrases. Those phrases were
-added to the set — a widening justified by concrete escapes rather than by imagination — and the
-limit itself is permanent: naming a further escaping phrase is admissible, naming the possibility
-of one is not. That is a structural repair, not a formatting choice: three consecutive review rounds
-found a summary sentence contradicting the table it summarized (round 1 F1/F4, round 2 F2/F5,
-round 3 F1/F2). The class is "a normative claim restated in prose drifts from its source", and the
-defense that closes it is to have exactly one statement of each behavior and make every other
-mention a reference. No AC below restates a condition's behavior.
+those). The scan does not decide which; it bounds where to look, which is the part that kept
+failing. It is an AID, not a gate: it is a verb-list regex, so a paraphrase using none of its verbs
+is not reported, and round 9 demonstrated exactly that with three escaping phrases. Those phrases
+were added to the set — a widening justified by concrete escapes rather than by imagination — and
+the limit itself is permanent: naming a further escaping phrase is admissible, naming the
+possibility of one is not.
+
+**Three classes, distinguished by SCOPE and by which criterion owns them. The behavior of each
+condition is in its row and nowhere else** — this preamble deliberately states no behavior, because
+a preamble that restated one is what rounds 1 through 4 kept finding drifted.
+
+| Class | Scope of a condition's effect | Owned by |
+| --- | --- | --- |
+| Collection-level (C1-C4) | the whole run | AC-3b |
+| Row-level (R1-R4) | that row only | AC-3 |
+| Kill-time (K1-K5) | that target only | AC-5, AC-5b; exit status per §6.2 |
+
+The one design idea behind the C-rows, stated as the rule it is: **a clause you cannot evaluate
+has not been evaluated.** Concluding a process is unexempt from a failure to check is the precise
+error that made the codex reaper kill live work. What the rule COSTS in each case is in the rows
+the `Decidable?` column marks "no" — C1 and C4 — and stated nowhere else.
 
 **Collection-level conditions.** `Decidable?` is the load-bearing column, and it asks one thing:
 does the clause this input feeds still have an ANSWER? "No" means the clause was never evaluated;
-"yes" means it was, even when the answer is a boring one like "nobody is exempt". What follows from
-each is in the row.
+"yes" means it was, even when the answer is a boring one. What follows from each is in the row.
 
 | ID | Condition | Decidable? | Behavior |
 | --- | --- | --- | --- |
 | C1 | `ps` cannot be invoked (missing, non-zero exit, sandbox denial — a reviewer probe produced `zsh:1: operation not permitted: ps`) | no | reap NOTHING, exit non-zero, name the failure. A reaper that cannot see the process table must never conclude the machine is clean. |
 | C2 | `ps` succeeds but emits zero parsable rows | yes | reap nothing, exit 0, report the row count so a silently-empty read is visible |
-| C3 | slot dir missing or unreadable | no | reap NOTHING, exit non-zero, name the dir. Clause (c) cannot be evaluated at all, so no candidate can be shown unexempt. |
-| C4 | slot dir present and readable, holding no slot files | yes | there are no holders, so clause (c) exempts nobody; the run proceeds. Distinct from C3 by construction: an empty readable dir is an ANSWER, an unreadable one is the absence of one. |
-| C5 | a slot metadata file is torn, empty, non-JSON, or has no `pid` key | no | reap NOTHING, exit non-zero, name the slot. Its holder pid is unknown, so any candidate might descend from it. The surfacing posture `describe_holder` already takes (`scripts/with-heavy-slot.py:263-267`), with the safety upgraded from "report unknown" to "do not act on unknown". |
-| C6 | a recorded slot holder pid no longer exists | yes | not a live holder, contributes no exemption; the run proceeds and reports it, since a crashed holder is precisely the condition whose workers are now orphans |
-| C7 | `FX_REAP_MIN_AGE_S` unset | yes | use `14400`. Not a degenerate input; no note. |
-| C8 | `FX_REAP_MIN_AGE_S` non-numeric, negative, or zero | no | REFUSE to run: exit non-zero naming the rejected value, reap nothing. Falling back to a default would silently apply a ceiling the operator did not ask for, and a zero or negative one would make everything old enough. |
+| C3 | `FX_REAP_MIN_AGE_S` unset | yes | use `14400`. Not a degenerate input; no note. |
+| C4 | `FX_REAP_MIN_AGE_S` non-numeric, negative, or zero | no | REFUSE to run: exit non-zero naming the rejected value, reap nothing. Falling back to a default would silently apply a ceiling the operator did not ask for, and a zero or negative one would make everything old enough. |
 
 **Row-level conditions.** All are DECIDABLE at the run level and scoped to their own row.
 
@@ -428,9 +411,8 @@ each is in the row.
 | --- | --- | --- |
 | R1 | `pid` absent or unparsable | the row cannot be acted on at all; retained as an `UnparsableRow`, counted, reported, never reaped |
 | R2 | `ppid` absent or unparsable | NOT reapable (clause (b) undecidable for this row); retained and reported |
-| R3 | `etime` absent or unparsable | NOT reapable (clause (d) undecidable for this row); retained and reported |
+| R3 | `etime` absent or unparsable | NOT reapable (the age clause is undecidable for this row); retained and reported |
 | R4 | `command` empty | NOT reapable (clause (a) cannot match); retained and reported |
-| R5 | ancestry walk hits a cycle or a missing parent | the walk terminates; the row is NOT exempt-by-(c) and NOT reapable — an unresolvable ancestry is undecidable, and undecidable means inaction |
 
 **Kill-time conditions.** These are ACTIONS, so the undecidable-stops-the-run rule above does not
 apply to them; §6.2 owns their exit status.
@@ -470,10 +452,9 @@ parser entirely, and costs one cheap read per target rather than per process.
 
 ## 5. Interfaces
 
-The signature exists to make §4.4 expressible. Its shape is driven by three rules: every input
-that can be degenerate survives into the output rather than being parsed away before the decision;
-every collection-level problem has a channel; and `classify` stays pure and total so §9 can score
-it.
+The signature exists to make §4.4 expressible. Its shape is driven by three rules: every input that
+can be degenerate survives into the output rather than being parsed away before the decision; every
+collection-level problem has a channel; and `classify` stays pure and total so §9 can score it.
 
 ```ts
 // lib/heavyReap/classify.ts
@@ -482,8 +463,8 @@ it.
 export type ParsedRow = {
   kind: "parsed";
   pid: number;
-  ppid: number | null; // null = the field was absent or unparsable
-  etimeSeconds: number | null; // null = ditto
+  ppid: number | null; // R2
+  etimeSeconds: number | null; // R3
   command: string;
 };
 
@@ -492,33 +473,17 @@ export type UnparsableRow = { kind: "unparsable"; raw: string; problem: string }
 
 export type ProcRow = ParsedRow | UnparsableRow;
 
-/** What clause (c) knows, including what it failed to learn (C3, C5, C6). */
-export type SlotSurvey = {
-  holderPids: number[];
-  problems: SlotProblem[]; // the conditions C3, C5, C6 describe
-};
-export type SlotProblem = {
-  slot: string; // "slot-0", or the dir path for a dir-level problem
-  problem: "dir-unreadable" | "dir-missing" | "metadata-unreadable" | "metadata-malformed" | "holder-dead";
-  detail: string;
-};
-
 export type ReapConfig = {
-  nowSeconds: number; // the clock reading, passed in: §4.1 calls classify pure, so it reads no clock
+  // No clock field. `etime` is already an ELAPSED duration, so the age clause compares two
+  // durations and never needs "now" - a field an earlier draft carried and nothing ever read.
   minAgeSeconds: number;
-  minAgeSource: "default" | "env"; // C7 vs C8
-  minAgeRejected?: string; // the raw value that was rejected, when one was
+  minAgeSource: "default" | "env"; // C3 vs C4
+  minAgeRejected?: string;
   selfPid: number;
   selfAncestry: readonly number[];
 };
 
-export type Skip =
-  | "not-a-worker"
-  | "has-live-parent"
-  | "slot-descendant"
-  | "too-young"
-  | "self"
-  | "undecidable"; // R2, R3, R5
+export type Skip = "not-a-worker" | "has-live-parent" | "too-young" | "self" | "undecidable"; // R2, R3
 
 export type Decision =
   | { pid: number; reap: true; shape: string; ageSeconds: number }
@@ -527,21 +492,17 @@ export type Decision =
 
 export type Classification = {
   decisions: Decision[]; // one per input row, parsable or not (R1)
-  slotProblems: SlotProblem[]; // passed through so the reporter has one source
-  configNotes: string[]; // e.g. C8's rejected value
+  configNotes: string[]; // e.g. C4's rejected value
 };
 
-export function classify(rows: readonly ProcRow[], slots: SlotSurvey, config: ReapConfig): Classification;
+export function classify(rows: readonly ProcRow[], config: ReapConfig): Classification;
 ```
 
 ```ts
 // lib/heavyReap/collect.ts
 export type CollectResult =
-  | { ok: true; rows: ProcRow[]; slots: SlotSurvey }
-  | { ok: false; problem: "ps-unavailable" | "ps-failed"; detail: string };
-
-/** Whether a SlotSurvey can decide clause (c) at all: false for C3 and C5, true for C4. */
-export function surveyIsDecidable(slots: SlotSurvey): boolean;
+  | { ok: true; rows: ProcRow[] }
+  | { ok: false; problem: "ps-unavailable" | "ps-failed"; detail: string }; // C1
 ```
 
 ```ts
@@ -558,10 +519,12 @@ export function readIdentity(pid: number): TargetIdentity | null; // null = the 
 ```
 
 `classify` returns a decision for EVERY row, not only the reapable ones. A function returning only
-the kills could not be tested for the property that matters far more — that it declines — and
-`--report` would have nothing to print. `Classification` carries `slotProblems` and `configNotes`
-straight through so the reporter has ONE source of truth rather than re-deriving collection state
-it did not observe.
+the kills could not be tested for the property that matters far more — that it declines — and the
+report would have nothing to print.
+
+**Note what is NOT here.** No `SlotSurvey`, no `SlotProblem`, no `surveyIsDecidable`, and `collect`
+takes no slot directory. All of that existed to serve the slot-membership clause §4.2 removed, and
+it went with it. The reaper reads the process table and nothing else.
 
 ---
 
@@ -626,10 +589,9 @@ accident. `--all` is a REPORTING breadth flag only and never widens what is kill
 
 Exit status, enumerated by §4.4 row ID so it cannot drift from the table:
 
-- **Non-zero** on any of C1, C3, C5, C8 (an undecidable collection condition — nothing was reaped)
-  or any of K2, K3, K4 (a kill was skipped, failed, or left a recorded target alive).
-- **Zero** otherwise, including C2, C4, C6, C7 and K1, each of which is an ordinary outcome per
-  its row.
+- **Non-zero** on C1 or C4 (an undecidable collection condition — nothing was reaped) or on any of
+  K2, K3, K4 (a kill was skipped, failed, or left a recorded target alive).
+- **Zero** otherwise, including C2, C3 and K1, each of which is an ordinary outcome per its row.
 
 K2 is deliberately non-zero even though no signal was sent: an `identity-changed` skip means the
 machine moved under the reaper, and an operator who sees exit 0 will not look.
@@ -665,11 +627,12 @@ surfaced signal files here rather than as a review round.
   the next heavy phase anyone starts — but a machine on which nobody starts a heavy phase and no
   Claude turn ends can hold an orphan indefinitely. Closing this would need a daemon or a launchd
   agent, which §12 rules out.
-- **L-3 — an unwrapped, detached, legitimately long heavy phase past the ceiling is reapable.**
-  The one false-positive window, and the one row of §4.3's table that clause (b) and (c) do not
-  cover. Two convention violations are required to reach it, `FX_REAP_MIN_AGE_S` covers the
-  genuine outlier, and the default invocation is non-destructive per §6.2. AC-2 is scoped to exclude
-  this case rather than claiming it away.
+- **L-3 — a legitimately long heavy phase is never reapable on account of its length.** Recorded
+  as a limit that CLOSED: earlier drafts carried an unwrapped-and-detached false-positive window,
+  which existed only because exemption was tied to slot membership. With the predicate reading the
+  process tree, how a phase was launched is invisible to it, and every process in a running phase
+  is exempt under clause (a) or (b) at any age. The residue that remains is L-7, which is a
+  different case.
 - **L-4 — Codex trees and MCP fleets are out of scope.** reap-idle-codex.sh owns them. The
   accept-set contains no Codex entrypoint, so the two cannot both claim a process.
 - **L-5 — `ps` is a sample, not a transaction, and the subtree kill is therefore best-effort.**
@@ -702,9 +665,11 @@ surfaced signal files here rather than as a review round.
   K2 already eliminates every recycle before the check, which is the whole run minus a syscall, and
   the reaper only ever signals pids it first found orphaned, worker-shaped and hours old.
 
-- **L-7 — clause (c) trusts the slot directory.** A stale or hand-edited slot file naming a live
-  unrelated pid would exempt that pid's descendants. AGENTS.md already forbids hand-editing slot
-  state and `FX_HEAVY_SLOT_DIR` in production sessions; the failure direction is inaction.
+- **L-7 — a worker orphaned while its heavy phase runs on is reapable after the ceiling.** It is
+  exempt by nothing: its parent is gone, and §4.2 has no slot clause to notice that the phase
+  around it is alive. This is deliberate — such a worker has lost the channel it reports through
+  and is doing work nobody will collect — but it is a behavior to know rather than a guarantee, and
+  a harness that ever deliberately detaches a worker it still depends on would be defeated by it.
 
 ---
 
@@ -717,16 +682,16 @@ to say something §4.4 does not, it says only that.
 - **AC-1** — A process matching a declared worker shape, with `ppid == 1`, no live slot-holder
   ancestor, and age ≥ the ceiling is classified reapable.
 - **AC-2** — **A heavy phase that is structurally identifiable as live is never reapable, at any
-  age.** Two proofs, one per closed row of §4.3's table: descent from a live slot holder (clause c)
-  and a live parent (clause b). Neither involves the ceiling, which is why AC-2 holds at any age.
-  The rows §4.3 marks "no" are NOT covered by this criterion; they are L-3.
-- **AC-3** — Every row-level condition R1-R5 behaves as its row states, and each appears in
+  age.** Proved per row of §4.3's table: its workers have a live parent (clause b), and every
+  non-worker process in it fails clause (a). Neither proof involves the ceiling, which is why AC-2
+  holds at any age. The one row §4.3 marks "no" is NOT covered by this criterion; it is L-7.
+- **AC-3** — Every row-level condition R1-R4 behaves as its row states, and each appears in
   `Classification.decisions` — so `decisions.length === rows.length` for any input.
-- **AC-3b** — Every collection-level condition C1-C8 behaves as its row states, and the
-  undecidable/decidable partition it is tested against is the table's `Decidable?` column — C1, C3,
-  C5, C8 undecidable; C2, C4, C6, C7 decidable. The distinction the criterion exists to pin: a run
-  that CANNOT evaluate an exemption clause is not the same as one that CAN and finds nobody exempt.
-  C3 and C4 are that pair, and their rows differ.
+- **AC-3b** — Every collection-level condition C1-C4 behaves as its row states, and the
+  undecidable/decidable partition it is tested against is the table's `Decidable?` column — C1 and
+  C4 undecidable, C2 and C3 decidable. The distinction the criterion exists to pin: a run that
+  CANNOT evaluate a clause is not the same as one that CAN and finds nothing. C1 and C2 are that
+  pair, and their rows differ.
 - **AC-4** — The reaper never targets its own process or any ancestor of it.
 - **AC-5** — Killing removes the RECORDED target set — the reaped root plus every descendant
   present in the collection snapshot — in the order §4.4 specifies, and K4's verification re-scan
@@ -771,9 +736,8 @@ Convergence criterion for every review dispatch on this arc:
   and is silent by construction rather than by omission. A decline is a DOCUMENTED LIMIT (§7), not
   a finding.
 - **`PROBE DOMAIN:`** the live process table on this machine
-  (`ps -eo pid,ppid,etime,%cpu,rss,command`), the live slot directory `/tmp/fx-heavy-slots/slot-*`
-  and its metadata files, `package.json`'s `heavy` script, and `tests/mutation/**` plus the
-  captured `ps` and slot fixtures the plan adds. A probe input is drawn from that domain or is one
+  (`ps -eo pid,ppid,etime,%cpu,rss,command`), `package.json`'s `heavy` script, and
+  `tests/mutation/**` plus the captured `ps` fixtures the plan adds. A probe input is drawn from that domain or is one
   ordinary edit away from an input in it; a constructed process table no producer in this repo can
   emit files to §7.
 - **Threat fence:** ordinary orphaning by killed sessions and crashed harnesses. Adversarial
