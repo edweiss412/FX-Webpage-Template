@@ -12,6 +12,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
+import { CORPUS_TEMP_PREFIX } from "@/tests/helpers/corpusTemp";
 
 import {
   DISTINCTIVENESS_MAX,
@@ -644,7 +645,7 @@ const SOURCE_EXT = /\.(?:tsx?|mts|cts|jsx?|mjs|cjs)$/;
 function walkTs(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir === "" ? "." : dir, { withFileTypes: true })) {
-    if (entry.name.startsWith(".")) continue;
+    if (entry.name.startsWith(".") || entry.name.startsWith(CORPUS_TEMP_PREFIX)) continue;
     const p = dir === "" ? entry.name : `${dir}/${entry.name}`;
     if (entry.isDirectory()) {
       if (EXCLUDED_DIRS.has(p)) continue;
