@@ -363,11 +363,22 @@ describe("screenshots-drift nextcache: exact input-hash key, no fallback, always
     const [restore] = stepsUsing("actions/cache/restore@v4");
     const key = String(restore?.with?.key ?? "");
     const args = /hashFiles\(([^)]*)\)/.exec(key)?.[1] ?? "";
+    // Extract QUOTED LITERALS, never `args.split(",")` (diff review R1 F1).
+    // Splitting on commas treats a comma INSIDE a quoted glob as an argument
+    // separator, so joining any adjacent pair into one literal —
+    // `hashFiles('app/**, components/**', …)` — reconstructs both expected
+    // patterns and passes while the expression actually supplies one combined
+    // glob that matches nothing. The reviewer's probe escaped all 23 adjacent
+    // boundaries this way. A literal-level parse cannot: the joined argument is
+    // one census entry containing a comma, equal to no expected glob.
     const census = new Set(
-      args
-        .split(",")
-        .map((a) => a.trim().replace(/^['"]|['"]$/g, ""))
-        .filter(Boolean),
+      [...args.matchAll(/'([^']*)'|"([^"]*)"/g)].map((m) => m[1] ?? m[2] ?? ""),
+    );
+    // Anti-vacuity: a broken extractor yielding {} would satisfy no comparison
+    // by accident, but an extractor yielding one giant literal must not read as
+    // "24 args" either. Pin the count against the literal count.
+    expect(census.size, "hashFiles must supply one quoted literal per render-input glob").toBe(
+      (args.match(/'/g) ?? []).length / 2,
     );
     const filter = DOC.on.pull_request.paths;
     // ONE derivation: the filter is the render-input census, so a future repair
@@ -411,7 +422,7 @@ describe("screenshots-drift nextcache: exact input-hash key, no fallback, always
     const script = String(drift?.run ?? "");
     expect(script.length, "drift-check step has no run: script").toBeGreaterThan(0);
 
-    const build = (withDrift: boolean): string => {
+    const build = (kind: "both" | "tracked" | "untracked" | "clean"): string => {
       const dir = mkdtempSync(join(tmpdir(), "drift-check-"));
       const shots = join(dir, "public", "help", "screenshots");
       mkdirSync(shots, { recursive: true });
@@ -424,8 +435,10 @@ describe("screenshots-drift nextcache: exact input-hash key, no fallback, always
       git("config", "user.name", "t");
       git("add", "-A");
       git("commit", "-qm", "base");
-      if (withDrift) {
+      if (kind === "both" || kind === "tracked") {
         writeFileSync(join(shots, "tracked.webp"), "MODIFIED");
+      }
+      if (kind === "both" || kind === "untracked") {
         writeFileSync(join(shots, "untracked.webp"), "NEW");
       }
       return dir;
@@ -436,26 +449,45 @@ describe("screenshots-drift nextcache: exact input-hash key, no fallback, always
       return { status: r.status, out: `${r.stdout}${r.stderr}` };
     };
 
-    const dirty = build(true);
-    const clean = build(false);
+    // FOUR states, not two (diff review R1 F2). Both-plus-clean alone cannot
+    // see a gate that only fails when BOTH classes are present: the reviewer
+    // flipped the script's final `||` to `&&` and it survived, leaving
+    // tracked-only drift and untracked-only captures each exiting 0 with the
+    // filename printed. Each SINGLETON is therefore its own row.
+    const dirs = {
+      both: build("both"),
+      tracked: build("tracked"),
+      untracked: build("untracked"),
+      clean: build("clean"),
+    };
     try {
-      const bad = run(dirty);
-      expect(bad.status, "the drift check must fail when captures diverge").not.toBe(0);
-      // BOTH names. The pre-repair script hid untracked filenames behind
+      const both = run(dirs.both);
+      expect(both.status, "the drift check must fail when captures diverge").not.toBe(0);
+      // The pre-repair script hid untracked filenames behind
       // `test -z "$(git ls-files --others ...)"` (probed: status=1, 0 bytes of
       // output), and its fail-fast `git diff --exit-code` exited before any
       // later branch could run — so with both kinds present only the tracked
       // name printed.
-      expect(bad.out, "the tracked drift filename must be named").toContain("tracked.webp");
-      expect(bad.out, "the untracked capture filename must be named").toContain("untracked.webp");
+      expect(both.out, "the tracked drift filename must be named").toContain("tracked.webp");
+      expect(both.out, "the untracked capture filename must be named").toContain("untracked.webp");
 
-      const ok = run(clean);
+      // Tracked drift ALONE must fail and name itself.
+      const tracked = run(dirs.tracked);
+      expect(tracked.status, "tracked-only drift must fail the gate").not.toBe(0);
+      expect(tracked.out).toContain("tracked.webp");
+
+      // An untracked NEW capture ALONE must fail and name itself. This is the
+      // half the original script could not report at all.
+      const untracked = run(dirs.untracked);
+      expect(untracked.status, "untracked-only captures must fail the gate").not.toBe(0);
+      expect(untracked.out).toContain("untracked.webp");
+
+      const ok = run(dirs.clean);
       expect(ok.status, "a clean capture set must pass").toBe(0);
       expect(ok.out).not.toContain("tracked.webp");
       expect(ok.out).not.toContain("untracked.webp");
     } finally {
-      rmSync(dirty, { recursive: true, force: true });
-      rmSync(clean, { recursive: true, force: true });
+      for (const d of Object.values(dirs)) rmSync(d, { recursive: true, force: true });
     }
   });
 });
