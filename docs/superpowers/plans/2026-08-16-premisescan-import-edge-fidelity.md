@@ -314,14 +314,21 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
     ).toBe("environment-touching");
   });
 
-  it("a data import is PURE, and the specifier carries the extension (AC-9)", () => {
-    // The extension must be spelled out or resolveSpecifier never reaches the
-    // file at all, and the case is pure whether or not the guard exists.
+  it("a data import is PURE, on a fixture that is RED today (AC-9)", () => {
+    // Two conditions make this discriminating. The specifier must spell out the
+    // extension, or resolveSpecifier never reaches the file at all. And the
+    // payload must be TypeScript that reaches node:child_process, because a
+    // .json target IS parsed as TypeScript today: probed environment-touching
+    // on the unrepaired tree. A fixture holding real JSON is free before and
+    // after and proves nothing.
     expect(
       verdictWithModules(
-        { "data.json": `{ "a": 1 }` },
-        `import data from "__MODULE_data__";
-         it("x", () => { void data; });`,
+        {
+          "data.json": `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_data__";
+         it("x", () => { spawnHelper(); });`,
       ),
     ).toBe("environment-free");
   });
@@ -350,7 +357,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"
 ```
 
-Expected: a non-zero FAILING count (never `skipped`). Red: `a renamed default import resolves`, `a default export that is an EXPRESSION resolves`, `export { x as y }` (the lookup asks the target for `runIt`), and `an EXPORT beats a same-named non-exported local`. Already green, as foils: `a same-named default import` (name coincidence), `a pure default export stays free` — which passes by lookup MISS, not by purity, so record that in the commit message rather than letting it read as evidence — `export { x }` local, the exported `const`, the `.json` case and the `.mjs` case. Record which cases were red.
+Expected: a non-zero FAILING count (never `skipped`). Red: `a renamed default import resolves`, `a default export that is an EXPRESSION resolves`, `export { x as y }` (the lookup asks the target for `runIt`), and `an EXPORT beats a same-named non-exported local`. Also red: `a data import is PURE` — a `.json` target is parsed as TypeScript today, so the fixture measures `environment-touching` until the extension guard lands. Already green, as foils: `a same-named default import` (name coincidence), `a pure default export stays free` — which passes by lookup MISS, not by purity, so record that rather than letting it read as evidence — `export { x }` local, the exported `const`, and the `.mjs` case. Record which cases were red.
 
 - [ ] **Step 4: Implement.** In `premiseScan.ts`:
 
