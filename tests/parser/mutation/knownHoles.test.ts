@@ -252,9 +252,9 @@ describe("ledger is triageable — no blanket 'unaudited' (Codex whole-diff R3)"
   // -SECTION-ORDER); they used to be sub-items of the BL-MUTATION-HARNESS-OPEN-HOLES umbrella,
   // whose decomposition record is now in BACKLOG-archive.md under that id.
   // BL-MUTATION-SECTION-ORDER joins it there in this PR's last commit, carrying the §7
-  // ratification and the 72-row documented-limit note: the 10 real-loss rows are closed by
-  // the near-miss detector, and an archived id stays resolvable, so the map value above
-  // does not change.
+  // ratification and the documented-limit note at its MEASURED size: the collected harness
+  // run closes 24 rows, not the 10 the wave plan predicted, leaving 59 — and an archived id
+  // stays resolvable, so the map value above does not change.
   const CORRUPTING = [
     "header-typo",
     "ref-sub",
