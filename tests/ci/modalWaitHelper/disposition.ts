@@ -450,11 +450,15 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       const countRead = /\.count\(\)/.test(t);
       const geometryRead = /\brectOf\(/.test(t);
       const binding = /^const \w+ = page\.(?:locator|getByTestId)\(/.test(t);
-      const continuation = /^\.(?:locator|getByTestId)\(/.test(t);
-      // A pure data/argument line: it names the testid but calls nothing on the
-      // page at all (an evaluate() argument, a tuple element, a filter needle).
+      // A line that calls nothing on the page at all: a chain continuation, an
+      // evaluate() argument, a tuple element, a filter needle. Deliberately the
+      // ONE wide arm, and it is where this rule's documented limit lives — see
+      // the LINE-GRANULARITY note in scan.ts's header. A separate
+      // `/^\.(?:locator|getByTestId)\(/` continuation arm was dropped as dead:
+      // both live instances (admin-layout-dimensions.spec.ts:111 and :301) also
+      // satisfy this one, so it justified nothing it did not already cover.
       const dataOnly = !/\bpage\./.test(t);
-      return assertion || countRead || geometryRead || binding || continuation || dataOnly;
+      return assertion || countRead || geometryRead || binding || dataOnly;
     },
   },
 

@@ -457,15 +457,31 @@ PR CI evaluates the branch head, which is green.
 
 Split tight-scope, three surfaces (AGENTS.md: split reviews are the default at this diff size).
 
+Adoption and visibility were reviewed at the PREVIOUS base (`47396915d479`, sibling corpus file);
+the helper-and-guard surface carries this base alone, which is why its round numbers restart.
+
 | round | surface | verdict | findings |
 | --- | --- | --- | --- |
-| 1 | adoption | NEEDS-ATTENTION | 1 |
-| 1 | visibility | NEEDS-ATTENTION | 2 |
-| 2 | adoption | **APPROVE** | 0 |
-| 2 | visibility | **APPROVE** | 0 |
-| 3 | helper + guard | BLOCKING | 2 |
-| 4 | helper + guard | BLOCKING | 1 |
-| 5 | helper + guard | **no_verdict — Codex credits exhausted** | — |
+| 1 | adoption (base `47396915d479`) | NEEDS-ATTENTION | 1 |
+| 1 | visibility (base `47396915d479`) | NEEDS-ATTENTION | 2 |
+| 2 | adoption (base `47396915d479`) | **APPROVE** | 0 |
+| 2 | visibility (base `47396915d479`) | **APPROVE** | 0 |
+| 1 | helper + guard | BLOCKING | 2 |
+| 2 | helper + guard | BLOCKING | 1 |
+| 3 | helper + guard | **no_verdict — Codex credits exhausted** | — |
+| 4 | helper + guard | BLOCKING | 2 |
+| 5 | helper + guard | BLOCKING | 1 |
+| 6 | helper + guard | BLOCKING | 1 |
+| 7 | helper + guard | NEEDS-ATTENTION | 1 |
+| 8 | helper + guard | NEEDS-ATTENTION | 1 |
+| 9 | helper + guard | NEEDS-ATTENTION | 1 |
+| 10 | helper + guard | NEEDS-ATTENTION | 1 (**fenced**) |
+| 11 | helper + guard | **APPROVE** | 0 |
+
+Round 4 also carries a `no_verdict` row with `failureReason: interrupted` — a dispatch killed
+before it produced a verdict, re-dispatched at the same round number. Both rows stay in the corpus;
+only the verdict row counts toward the threshold, which is why the filing counts nine and the file
+holds eleven.
 
 All three round-1 findings were probed before repair, accepted, and fixed in `0963aeafe`. Two are
 worth recording beyond their fix, because each says something about the diff that a summary loses:
@@ -600,26 +616,99 @@ divergences §2.2 enumerates, both landing in Task 3.
 The counts agreeing is the point: the plan's table and the shipped tree were derived
 independently, and a table that only ever agreed with itself is what cost the plan its R1 finding 2.
 
-### Surface A's last round did not run, and that is a real gap
+### Surface A's round 3 was lost to an outage; the surface then ran to APPROVE
 
 Diff review ran three surfaces. Adoption and visibility both reached **APPROVE / 0 findings** at
-round 2. The helper-and-guard surface returned BLOCKING twice, both times correctly, and both
-findings were repaired and each repair proven by re-running the reviewer's own probes. Its THIRD
-round returned `no_verdict` — `failureReason: attempts_exhausted`, three attempts, each exiting 1
-with `ERROR: You've hit your usage limit … try again at Aug 22nd`.
+round 2 of the previous base. The helper-and-guard surface's THIRD round returned `no_verdict` —
+`failureReason: attempts_exhausted`, three attempts, each exiting 1 with `ERROR: You've hit your
+usage limit … try again at Aug 22nd`. That is an infrastructure fault, not a reviewer verdict, and
+it correctly does not count toward the round threshold.
 
-That is an infrastructure fault, not a reviewer verdict, and unlike the reaper-kill class it is not
-retryable — the credits reset six days out. **So the repairs to surface A are not cross-model
-reviewed.** What stands in their place, stated so the gap is visible rather than papered over:
+An earlier revision of this document recorded that outage as the surface's terminal state and said
+so plainly: "the repairs to surface A are not cross-model reviewed … weaker than a cross-model
+APPROVE and should be read that way." **That is no longer the case, and the honest correction is
+recorded here rather than by silently deleting the admission.** Dispatch resumed once credits
+allowed, and the surface ran rounds 4 through 10 to an APPROVE. Every finding in that span was
+correct and was repaired against the reviewer's own probe; nothing was refuted.
 
-- Each repair was verified against the finding's OWN probe: deleting a post-open helper wait now
-  KILLS (`f/member-shape-N` 12→11), adding an unadopted Shape-G site KILLS (30→31). Before the
-  repair both edits left the suite green.
-- The mutation evidence AC-3 asks for is now measured rather than argued: 55/57 with an EMPTY
-  unaccepted-survivor set.
-- Three fresh adversarial self-probes were run against the repaired guard: a helper call split
-  across lines keeps its count (green, correct), a bare `import` of the helper does NOT inflate the
-  adopted count (green, correct), and a G→U shape swap that leaves the TOTAL unchanged is still
-  caught (red, correct).
+The rounds after the outage, in one line each:
 
-This is weaker than a cross-model APPROVE and should be read that way.
+- **4** — commented-out waits certified as members (origin (f) read raw text while the violation
+  scan was already comment-aware), and the mutation ledger contradicted the enrolled surface.
+- **5** — split activations: `d/member-row-activation` required `.click(` on the SAME line, which
+  is the call-keyed grep spec §2.1 makes origin (d) testid-keyed to avoid.
+- **6** — the comment repair was incomplete: `isComment` is whole-line only, so a helper call
+  commented out BESIDE live code still certified.
+- **7** — the mutation ledger was stale at HEAD: a siteId is `operator:LINE:column:from>to`, so the
+  previous commit's own edit relocated it.
+- **8** — the adopted-site counts are aggregate, not site-associated. **Declined and fenced**, with
+  its cost stated; see the documented-limit section above and `BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS`.
+- **9** — `d/reference-not-activation` was a catch-all ("not a `.click()`"), so one ordinary corpus
+  edit — an existing assertion becoming `page.getByTestId(...).press("Enter")` — activated a link
+  while the rule claimed the line "causes no load". Narrowed to an allowlist of the six
+  reference-only forms the corpus contains; an unrecognized activation shape is now UNDISPOSED and
+  fails. Narrowing it re-exposed a disjointness defect (the split-activation binding satisfies the
+  allowlist's `binding` form), repaired in the same commit by hoisting that predicate to one
+  definition both rules reference.
+- **10** — the round-9 narrowing is still line-granular: reformat its own probe as the multiline
+  chain the corpus already uses (`await page` / `.getByTestId(...)` / `.press("Enter")`) and the
+  candidate line is the middle one, so the verb is on a line the classifier never sees. Correct, and
+  **DECLINED as a documented limit** — see below.
+- **11** — APPROVE, 0 findings.
+
+**Round 10 is the arc's second deliberate fence, and it is a CLASS rather than the two instances.**
+The finding and a sibling probe run in the same session (an in-page `(el as HTMLElement).click()`
+inside a `page.evaluate` body, whose testid sits on the evaluate's argument line) are one defect:
+**the unit of classification is the physical line**, so any activation whose verb lands on a
+different line than the testid is invisible. Filed as `BL-MODAL-WAIT-LINE-GRANULARITY-ACTIVATION`
+with both probes, and recorded in the guard's own header.
+
+Declined rather than repaired because the available repairs are the two AGENTS.md forbids at this
+point in an arc. A "look at the next line too" arm is the third grammar corner on an axis that
+already consumed counted rounds 3-5, and it falls to the fourth spelling. The honest repair is a
+change of UNIT — build candidates from TypeScript statements so the existing activation-verb refusal
+covers every spelling at once, the way counted round 5's stripped-line repair subsumed every comment
+spelling — and that changes the candidate contract, every count in `disposition.ts`, and the
+mutation ledger. It is a redesign with its own spec, not a round-10 patch.
+
+One narrowing was taken for free in the same commit: the rule's separate `continuation` arm is
+**dead** — both live instances (`admin-layout-dimensions.spec.ts:111` and `:301`) also satisfy the
+`dataOnly` arm, as the reviewer's own exhaustive population probe showed — so it was deleted. The
+rule now has exactly one wide arm, and that arm is where the documented limit is pinned.
+
+Cost, stated: a misclassified site is left unadopted, so under the gateway-502 class it fails as a
+generic locator timeout instead of naming the boundary and `show_review_snapshot_failed`. Same shape
+as the round-8 fence. No silent pass, and no shipped product code is affected — this guard governs
+test-infra adoption only.
+
+What the probes showed, kept from the earlier revision because it is still the evidence: deleting a
+post-open helper wait KILLS (`f/member-shape-N` 12→11), adding an unadopted Shape-G site KILLS
+(30→31), a helper call split across lines keeps its count, a bare `import` does not inflate the
+adopted count, and a G→U shape swap that leaves the TOTAL unchanged is still caught.
+
+### The mutation score is a direct-operator measurement, not a harness run
+
+Stated as a deviation because it is one. AC-3's evidence — 58/60 = 0.9667 at HEAD, both survivors
+argued `equivalent`, unaccepted-survivor set EMPTY — was obtained by applying the harness's OWN
+operators (`enumerateSites` + `applyMutant` from `tests/mutation/source/`) to `scan.ts` directly,
+one deciding-suite run per mutant, sequential, with a clean-source baseline first.
+
+`pnpm mutation:guards` itself was never completed on this arc. It is 138-300 minutes behind the
+2-slot machine-wide semaphore that eight concurrent arcs were saturating; a run scoped to this
+surface waited ~2h for a slot, held one for 2h05m without finishing, and was killed when an
+`origin/main` merge changed the registry files it was reading mid-run. The nightly
+`mutation-harness` job remains authoritative and is not merge-required. A direct-operator run takes
+a few minutes and is what should have been reached for first.
+
+### This arc finished under a cross-account takeover
+
+The account driving it hit a WEEKLY usage limit at 17:05 CDT with the round-9 repair written but
+uncommitted and unverified. A session on a different account took the worktree over per the
+AGENTS.md takeover protocol — marker `sessionId` overwritten, `blockedOn` cleared, a fresh 10-minute
+nudge registered, pane and agent labels reclaimed — and drove rounds 9-repair through merge.
+
+Worth recording because the takeover immediately paid for itself: the inherited round-9 repair was
+correct in direction but **red**, double-claiming `interactions.spec.ts:244` and `:355` across two
+rules. Had the marker's `next` been trusted as written (it still said "round 3 dispatched"), the
+state would have been misread entirely. Derive pipeline state from the corpus, the git log, and the
+dirty tree — the marker's prose is a hint, not ground truth.

@@ -34,6 +34,28 @@
  * AGENTS.md says is repaired by narrowing or a documented limit, never by a
  * wider recognizer. Filed as BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS.
  *
+ * DOCUMENTED LIMIT — THE UNIT OF CLASSIFICATION IS THE PHYSICAL LINE. A
+ * candidate carries the one line its testid appears on, so origin (d) can only
+ * ever answer "does THIS LINE activate". Any activation whose verb lands on a
+ * DIFFERENT line than the testid is therefore invisible, and that is a class,
+ * not a list. Both members were probed, neither inferred:
+ *
+ *   - a chained call split by ordinary formatting — `await page` /
+ *     `.getByTestId(...)` / `.press("Enter")` — where the candidate line is the
+ *     middle one and the verb is on the next (the style the corpus already uses
+ *     at admin-layout-dimensions.spec.ts:300);
+ *   - an in-page activation inside a `page.evaluate` body, where the testid sits
+ *     on the evaluate's ARGUMENT line (the corpus holds four such hydration
+ *     polls) and the `click()` happens in the browser context lines above it.
+ *
+ * In both, the census still reads the line as a pure reference and stays green.
+ * DECLINED for the same reason as the aggregate-counts limit above: seeing the
+ * rest of a statement from one of its lines is multi-line analysis, which is
+ * exactly the recognizer growth AGENTS.md forbids on a surface already under
+ * same-axis recurrence — and the honest repair is not a third grammar corner but
+ * a change of unit (classify the STATEMENT, not the line), which is a redesign
+ * with its own spec. Filed as BL-MODAL-WAIT-LINE-GRANULARITY-ACTIVATION.
+ *
  * Deliberate narrowness (§4.4 fence): the guard recognizes the single-line
  * navigation shape only. A URL assembled on a previous line and passed as a
  * variable, a click-open, and any adversarial spelling are NOT recognized —

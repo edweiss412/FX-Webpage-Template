@@ -786,6 +786,23 @@ Five of the nine specced members were RED when first run — the spec had verifi
 
 ---
 
+## BL-MODAL-WAIT-LINE-GRANULARITY-ACTIVATION — the modal-wait census classifies one PHYSICAL LINE, so an activation whose verb lands on another line is silently excluded
+
+**Status:** OPEN · **Severity:** LOW (a misclassified site is left unadopted, and it still FAILS under the fault it would have named) · **Class:** e2e guard precision · **Effort:** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's diff review round 10 plus a sibling probe run in the same session) · **Class-sweep exception:** (c) — the repair is a change of the analysis UNIT (classify the statement, not the line), a redesign of the candidate producer rather than a fix to the filing arc's surface. · **Reachability:** PROBED — both members demonstrated against the shipped guard, neither inferred.
+
+`tests/ci/modalWaitHelper/scan.ts` gives each candidate the ONE line its testid appears on, so `disposition.ts`'s origin-(d) rules can only ever answer "does THIS LINE activate". Any activation whose verb lands on a different line than the testid is invisible. Two members, both probed against the shipped guard:
+
+- **Chained call split by ordinary formatting.** Rewrite `admin-layout-dimensions.spec.ts:260` in the multiline style the corpus already uses eleven lines later at `:300` — `await page` / `.getByTestId(...)` / `.press("Enter")` — and the candidate line is the middle one. Shipped output: `matchedRules: ["d/reference-not-activation"], undisposed: 0, ambiguous: 0, ruleCountDrift: []`. The exact activation the round-9 narrowing was built to reject is certified by reformatting alone.
+- **In-page activation inside a `page.evaluate` body.** The corpus holds four hydration polls whose testid sits on the evaluate's ARGUMENT line (`}, \`shows-table-row-${slug}\`),`). Replace such a body's read with `(el as HTMLElement).click()`— probed at`published-review-modal.realtime.spec.ts:96-103` — and the suite stays 24/24 green while the line activates the row link.
+
+**Cost of leaving it:** the misclassified site is simply not adopted, so under the gateway-502 class it fails as a generic locator timeout rather than naming the boundary and the `show_review_snapshot_failed` signature — outcome (c) of the consequence bound degrading from "fails loudly" to "fails". Identical in kind to `BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS`. No silent pass, and no effect on shipped product code: this guard governs test-infra adoption only.
+
+**Why it was declined at filing time rather than repaired:** looking past the candidate's own line is multi-line analysis. The filing arc had already spent counted rounds 3-5 adding one grammar corner per round on precisely this axis, and AGENTS.md's repair-direction rule says a recognizer in that state is repaired by narrowing or a documented limit, never by growth — each widening being a bigger target for the next round. A "check the next line too" arm is the third corner, and it would fall to the fourth spelling. The finding also carried no surviving mutant from the surface's declared operator set, which is this surface's stated convergence criterion.
+
+**What a repair needs:** change the UNIT rather than add a corner — build candidates from TypeScript statements (the parser is already a dependency, `tests/mutation/source/operators.ts` uses it) so `enumerateCandidates` hands the disposition a whole statement and the existing activation-verb refusal covers both members at once, the way counted round 5's stripped-line repair subsumed every comment spelling. That changes the candidate contract, every count in `disposition.ts`, and the mutation ledger, so it wants its own spec. **Re-open trigger:** a member site actually misclassified in review or in CI, or any further work on this guard's candidate producer.
+
+---
+
 ## BL-MODAL-WAIT-SKELETON-TOLERANT-SITES — two e2e waits the boundary helper cannot harden, because the Suspense skeleton wins the race
 
 **Status:** OPEN · **Severity:** LOW (two sites keep the exposure they have today; nothing regresses) · **Class:** e2e flake hardening · **Effort:** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's spec review round 3) · **Class-sweep exception:** (c) — the repair is a redesign of what these two tests wait on, which changes their assertions; the filing arc does not otherwise touch them. · **Reachability:** PROBED — the shared-testid mechanism below is read from source, not inferred.
