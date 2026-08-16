@@ -24,6 +24,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { AvatarMenu } from "@/components/auth/AvatarMenu";
+import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 
 afterEach(cleanup);
 
@@ -31,7 +32,7 @@ const props = {
   slug: "east-coast",
   shareToken: "tok",
   showId: "s1",
-  clearAction: (): void => {},
+  clearAction: async (): Promise<ClearIdentityResult> => ({ ok: true as const }),
 };
 
 /**
