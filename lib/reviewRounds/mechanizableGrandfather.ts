@@ -51,6 +51,8 @@ export const MECHANIZABLE_GRANDFATHERED: ReadonlySet<string> = new Set([
   "docs/review-rounds/feat/m-wave-ui/fc4902004b78.md",
   "docs/review-rounds/feat/m2-ui-cluster/876cbd06c156.md",
   "docs/review-rounds/feat/mutation-merged-cell/c95ad35edd43.md",
+  "docs/review-rounds/feat/mutation-playwright-component-mode/ba676b08d1a4.md",
+  "docs/review-rounds/feat/mutation-playwright-component-mode/fafa354accf0.md",
   "docs/review-rounds/feat/ops-log-code-emits/61281c23e8ce.md",
   "docs/review-rounds/feat/private-image-pipeline/d2a31e4aa021.md",
   "docs/review-rounds/feat/review-infra-gates/61281c23e8ce.md",
