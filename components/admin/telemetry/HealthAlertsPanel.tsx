@@ -256,7 +256,7 @@ function Section({
         <Link
           data-testid={`health-load-more-${weight}`}
           href={href}
-          className="inline-flex min-h-tap-min items-center self-start rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          className="inline-flex min-h-tap-min items-center self-start rounded-sm border border-text-faint bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
           Load more
         </Link>

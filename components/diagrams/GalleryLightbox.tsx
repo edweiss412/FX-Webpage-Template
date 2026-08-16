@@ -683,10 +683,10 @@ export function GalleryLightbox({
           re-centers around the pinch midpoint, so a figure reflow
           would slide the user's pinched-detail out from under their
           fingers. Absolute-positioning inside the image container
-          keeps the figure dimensions stable. `border-border-strong`
-          gives the chip slight visual primacy over the chevrons when
-          active (critique MED-5). Keyboard-focusable; included in
-          dialog focus trap via natural DOM order.
+          keeps the figure dimensions stable. `border-text-faint`
+          gives the chip slight visual primacy over the chevrons when active (critique MED-5,
+          STRENGTHENED not overturned by the 2026-08-16 control-outline swap: 1.59/1.50 -> 3.35/3.53
+          on `surface-raised`). Keyboard-focusable; included in dialog focus trap via DOM order.
         */}
         {zoomed ? (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-dropdown flex justify-center px-4">
@@ -705,7 +705,7 @@ export function GalleryLightbox({
                 controlsSlotRef.current?.resetTransform();
               }}
               aria-label="Reset zoom"
-              className="pointer-events-auto inline-flex min-h-tap-min items-center gap-2 rounded-pill border border-border-strong bg-surface-raised px-4 text-sm font-medium text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className="pointer-events-auto inline-flex min-h-tap-min items-center gap-2 rounded-pill border border-text-faint bg-surface-raised px-4 text-sm font-medium text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             >
               <RotateCcw aria-hidden="true" className="size-4" />
               <span>Reset</span>
