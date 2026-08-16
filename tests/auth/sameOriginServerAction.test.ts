@@ -146,6 +146,10 @@ describe("isSameOriginServerAction", () => {
   });
 
   it.each(cases)("%s", async (_label, hdrs, expected) => {
+    // no-premise: the environment IS the fixture. Each row CONSTRUCTS its own
+    // header set and the site origin is a stubbed constant, so there is no
+    // ambient condition that could leave the assertion unable to reach its
+    // boundary — the inputs and the environment are the same thing.
     for (const [k, v] of Object.entries(hdrs)) headerMap.set(k, v);
     expect(await isSameOriginServerAction()).toBe(expected);
   });
@@ -154,6 +158,8 @@ describe("isSameOriginServerAction", () => {
     // resolveSiteOrigin returns { ok: false } for blank/localhost, so the fallback
     // has no trusted constant to compare against and must NOT allow. An
     // implementation that ignored `site.ok` would allow any Origin here.
+    // no-premise: the blank env IS the fixture. This case exists to drive
+    // `site.ok === false`, which it sets itself; nothing ambient gates it.
     vi.stubEnv("NEXT_PUBLIC_SITE_ORIGIN", "");
     headerMap.set("origin", SITE);
     expect(await isSameOriginServerAction()).toBe(false);
@@ -164,6 +170,8 @@ describe("isSameOriginServerAction", () => {
     // HTTP request — a direct server-side invocation, a suite calling the
     // action as a function. No browser, so no victim cookies, so no CSRF
     // surface. An attacker cannot induce this state from the network.
+    // no-premise: the thrown `headers()` IS the fixture — the case sets the
+    // toggle it depends on, so the branch is reached by construction.
     headersControl.throws = true;
     expect(await isSameOriginServerAction()).toBe(true);
   });
@@ -202,6 +210,13 @@ describe("the designated refusal exports", () => {
   describe("assertSameOriginServerAction", () => {
     it("emits AND interrupts with forbidden() on a cross-origin request", async () => {
       crossSite();
+      premiseHolds(
+        "the header set this case installs is one the truth table REJECTS, or the refusal branch is never entered",
+        cases.some(
+          ([, hdrs, expected]) =>
+            expected === false && hdrs["sec-fetch-site"] === headerMap.get("sec-fetch-site"),
+        ),
+      );
       await expect(assertSameOriginServerAction("x", "y")).rejects.toThrow(FORBIDDEN_INTERRUPT);
       expect(logMock.warn).toHaveBeenCalledWith(
         expect.any(String),
@@ -216,6 +231,13 @@ describe("the designated refusal exports", () => {
 
     it("resolves silently on a same-origin request — no emit, no interrupt", async () => {
       headerMap.set("sec-fetch-site", "same-origin");
+      premiseHolds(
+        "the header set this case installs is one the truth table ALLOWS, or 'no emit' passes for the wrong reason",
+        cases.some(
+          ([, hdrs, expected]) =>
+            expected === true && hdrs["sec-fetch-site"] === headerMap.get("sec-fetch-site"),
+        ),
+      );
       await expect(assertSameOriginServerAction("x", "y")).resolves.toBeUndefined();
       expect(logMock.warn).not.toHaveBeenCalled();
       expect(forbiddenSpy).not.toHaveBeenCalled();

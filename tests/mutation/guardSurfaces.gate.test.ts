@@ -187,6 +187,10 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // were repaid with fixtures sitting exactly on NODES_MAX, so the re-run is
   // 65/65 with an empty ledger.
   serializeErrorStructure: {},
+  // Enrolled 2026-08-16 with an EMPTY ledger: no survivor is blessed, so a row
+  // appearing here at all is this surface's first accepted gap and needs its own
+  // argument plus a backlog ref.
+  sameOriginServerAction: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

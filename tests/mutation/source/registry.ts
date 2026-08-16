@@ -1587,4 +1587,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  {
+    id: "sameOriginServerAction",
+    sourcePath: "lib/auth/sameOriginServerAction.ts",
+    suitePaths: ["tests/auth/sameOriginServerAction.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Flips the Fetch-Metadata verdict for the ONE state the whole gate exists
+    // to allow. Every `same-origin` row of the truth table reverses, so a
+    // silently-inert overlay cannot report a perfect score off this surface.
+    control: {
+      from: 'return secFetchSite === "same-origin" || secFetchSite === "none";',
+      to: 'return secFetchSite !== "same-origin" || secFetchSite === "none";',
+    },
+    accepted: [],
+  },
 ];
