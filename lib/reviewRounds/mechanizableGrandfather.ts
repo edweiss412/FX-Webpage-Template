@@ -1,0 +1,70 @@
+/**
+ * The Mechanizable-parity grandfather set (enforcement-pair spec §3.3).
+ *
+ * CLOSED HISTORICAL SET, frozen at the spec's landing (2026-08-15): the
+ * repo-relative filing paths that existed before the parity rule shipped.
+ * Filings are immutable evidence (review-round-economy corpus contract), so
+ * the rule binds only filings authored after it — this list IS that boundary,
+ * materialized. A path is NEVER added (a new filing complies instead) and is
+ * removed only if its filing file is deleted. 55 paths at freeze, derived by
+ * `find docs/review-rounds -name '*.md' ! -name README.md` at merge base
+ * fafa354accf0; the arc's own filing is deliberately NOT here — it is the
+ * rule's first customer.
+ */
+export const MECHANIZABLE_GRANDFATHERED: ReadonlySet<string> = new Set([
+  "docs/review-rounds/chore/guard-completeness-wave/04f601134519.md",
+  "docs/review-rounds/chore/guard-completeness-wave/ecbddfa1aac4.md",
+  "docs/review-rounds/chore/next-1630-wedge-remeasure/9bec2e11ab11.md",
+  "docs/review-rounds/ci/app-e2e-batch1/76a614309434.md",
+  "docs/review-rounds/docs/arc-a-spec/a0e41551c059.md",
+  "docs/review-rounds/docs/arc-b-spec/a0e41551c059.md",
+  "docs/review-rounds/docs/arc-c-spec/a0e41551c059.md",
+  "docs/review-rounds/docs/l-wave-spec/a8b3a4128a10.md",
+  "docs/review-rounds/docs/m-wave-2-spec/d2a31e4aa021.md",
+  "docs/review-rounds/docs/mutation-wave-retro-fixes/9bd0a8456151.md",
+  "docs/review-rounds/docs/quick-wins-2-specs/97e179d831aa.md",
+  "docs/review-rounds/docs/round-economy-followups-2-specs/d2a31e4aa021.md",
+  "docs/review-rounds/feat/a11y-privacy-cluster/3c12f7cc5849.md",
+  "docs/review-rounds/feat/admin-dashboard-row-actions/4a3be8baed76.md",
+  "docs/review-rounds/feat/admin-dashboard-row-actions/7e04cd6f04e9.md",
+  "docs/review-rounds/feat/admin-dashboard-row-actions/ec06b825aba8.md",
+  "docs/review-rounds/feat/admin-nav-badge-suspense/7e04cd6f04e9.md",
+  "docs/review-rounds/feat/backlog-quick-wins/59cdc8407814.md",
+  "docs/review-rounds/feat/crew-field-enrichment/196334d5ef61.md",
+  "docs/review-rounds/feat/crew-field-enrichment/4a3be8baed76.md",
+  "docs/review-rounds/feat/crew-field-enrichment/7e04cd6f04e9.md",
+  "docs/review-rounds/feat/diagram-viewing-polish/a7393880ae6d.md",
+  "docs/review-rounds/feat/heavy-phase-semaphore/4a3be8baed76.md",
+  "docs/review-rounds/feat/help-report-surface/d2a31e4aa021.md",
+  "docs/review-rounds/feat/l-wave-docs/c23208e1334f.md",
+  "docs/review-rounds/feat/l-wave-emdash/699f554e30a9.md",
+  "docs/review-rounds/feat/l-wave-push/a0e41551c059.md",
+  "docs/review-rounds/feat/m-wave-ui/fc4902004b78.md",
+  "docs/review-rounds/feat/m2-ui-cluster/876cbd06c156.md",
+  "docs/review-rounds/feat/mutation-merged-cell/c95ad35edd43.md",
+  "docs/review-rounds/feat/ops-log-code-emits/61281c23e8ce.md",
+  "docs/review-rounds/feat/private-image-pipeline/d2a31e4aa021.md",
+  "docs/review-rounds/feat/review-infra-gates/61281c23e8ce.md",
+  "docs/review-rounds/feat/review-round-economy/48b280b949cc.md",
+  "docs/review-rounds/feat/round-economy-followups/22795d2b56c5.md",
+  "docs/review-rounds/feat/task-enrollment-multi-region/d8cc5c96839b.md",
+  "docs/review-rounds/feat/wifi-password-legibility/1e503d714b6e.md",
+  "docs/review-rounds/feat/wifi-password-legibility/a7393880ae6d.md",
+  "docs/review-rounds/fix/help-tour-hydration/876cbd06c156.md",
+  "docs/review-rounds/fix/help-tour-hydration/a7393880ae6d.md",
+  "docs/review-rounds/fix/promote-identity-validation/a7393880ae6d.md",
+  "docs/review-rounds/fix/quick-wins-2-mech/d2a31e4aa021.md",
+  "docs/review-rounds/fix/step3-a11y-cluster/61281c23e8ce.md",
+  "docs/review-rounds/fix/storage-asset-integrity/1e503d714b6e.md",
+  "docs/review-rounds/fix/sync-log-show-id-duration/d2a31e4aa021.md",
+  "docs/review-rounds/fix/sync-observability-gaps/04f601134519.md",
+  "docs/review-rounds/fix/tap-target-inline-controls/a7393880ae6d.md",
+  "docs/review-rounds/fix/watch-promotion-activation-race/d8cc5c96839b.md",
+  "docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md",
+  "docs/review-rounds/refactor/classname-array-join-cn/9bd0a8456151.md",
+  "docs/review-rounds/refactor/classname-array-join-cn/b2aca7b02547.md",
+  "docs/review-rounds/test/libdata-call-boundary-metatest/0d8d239abcba.md",
+  "docs/review-rounds/test/libdata-call-boundary-metatest/b2a9122935c8.md",
+  "docs/review-rounds/test/resurrect-mobile-safari-e2e/9bd0a8456151.md",
+  "docs/review-rounds/test/resurrect-mobile-safari-e2e/b2aca7b02547.md",
+]);

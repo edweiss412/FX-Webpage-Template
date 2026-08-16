@@ -29,8 +29,12 @@ export type FilingSection = {
    *  renders for the reader while marker discovery sees nothing, so the corpus
    *  gate rejects it loudly for non-grandfathered filings. */
   nestedMechanizable: boolean;
-  /** Disposition field names visible as AST field paragraphs (spec R9): the
-   *  raw-scan booleans above count fenced/indented/HTML content, these do not. */
+  /** Disposition field names RENDERED anywhere in the body (spec R9): a strong
+   *  `**<name>:**` label outside code/html/delete content. The raw-scan
+   *  booleans above are satisfied by fenced/indented/HTML lines the reader
+   *  never sees rendered; these are not. Deliberately wider than the marker
+   *  rule (any rendered position, not only paragraph-initial): the R9 defect is
+   *  non-rendered-ONLY fields, and a field on a soft-broken line is rendered. */
   astDispositions: string[];
   astExamined: boolean;
 };
@@ -102,6 +106,25 @@ function listItemDeclines(item: ListItem): boolean {
   return first !== undefined && beginsWithDecline(first);
 }
 
+/**
+ * Every `**<name>:**` label rendered anywhere in the tree - a strong node whose
+ * text ends in a colon, outside code/html/delete content (spec R9). Feeds
+ * `astDispositions`/`astExamined`, which the corpus gate uses to reject a
+ * NON-grandfathered filing whose only field lines live in non-rendered content.
+ */
+function renderedFieldLabels(nodes: RootContent[], out: Set<string>): void {
+  for (const node of nodes) {
+    if (node.type === "code" || node.type === "html" || node.type === "delete") continue;
+    if (node.type === "strong") {
+      const label = visibleText(node as unknown as RootContent, true).trim();
+      if (label.endsWith(":")) out.add(label.slice(0, -1));
+    }
+    if ("children" in node) {
+      renderedFieldLabels((node as Parent).children as RootContent[], out);
+    }
+  }
+}
+
 /** True when any listItem, at any depth, holds a rendered Mechanizable field. */
 function hasNestedMechanizable(nodes: RootContent[]): boolean {
   for (const node of nodes) {
@@ -130,8 +153,10 @@ function analyzeBody(text: string): AstAnalysis {
   const top = root.children;
 
   const fieldNames = top.map((n) => fieldName(n));
-  const astDispositions = DISPOSITIONS.filter((d) => fieldNames.includes(d));
-  const astExamined = fieldNames.includes("Examined");
+  const labels = new Set<string>();
+  renderedFieldLabels(top, labels);
+  const astDispositions = DISPOSITIONS.filter((d) => labels.has(d));
+  const astExamined = labels.has("Examined");
   const nestedMechanizable = hasNestedMechanizable(top);
 
   const markerIndexes = top.flatMap((n, i) => (fieldNames[i] === "Mechanizable" ? [i] : []));
@@ -209,7 +234,11 @@ export function parseFiling(md: string): FilingSection[] {
     body = [];
   };
 
-  const emptySection = (stage: string, declaredRounds: number | null, i: number): FilingSection => ({
+  const emptySection = (
+    stage: string,
+    declaredRounds: number | null,
+    i: number,
+  ): FilingSection => ({
     stage,
     declaredRounds,
     hasExamined: false,

@@ -285,10 +285,24 @@ const NOT_A_CITATION: Record<string, Record<string, string>> = {
   "tests/reviewRounds/filing.test.ts": {
     "BL-SPEC-CITATION-RESOLVE": "the spec's §6 sample filing, parsed as the worked example's citation",
     "BL-ONE": "planted token proving the recognizer admits BL- and DEF- and nothing else",
+    "BL-REAL": "planted strikethrough-retraction fixture id (enforcement-pair spec R11)",
+    "BL-IN-BLOCK": "planted block-scope fixture: the id INSIDE the Mechanizable block",
+    "BL-IN-JUDGMENT": "its control: the id in a following Judgment field, never collected",
+    "BL-TICKED": "planted inlineCode citation proving backticked ids are collected",
+    "BL-DECODED-ROW": "planted backslash-escaped spelling proving remark decodes before CITED_ID",
+  },
+  "docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md": {
+    "BL-FOO": "worked example of a backticked citation in §3.1's citedIds rule",
+    "BL-REAL": "the meta-test's injected resolvable control, quoted by §6.2's fixture mandate",
+  },
+  "docs/superpowers/plans/2026-08-15-round-economy-enforcement-pair/plan.md": {
+    "BL-REAL": "the same injected resolvable control, quoted by Task 1/2 fixture lists",
   },
   "tests/docs/_metaReviewRoundEconomy.test.ts": {
     "BL-REAL": "the injected resolvable id every fixture arc's filing cites",
     "BL-NOT-A-REAL-ID": "the unresolvable citation it is the control for",
+    "BL-NO-SUCH-ROW":
+      "planted AST-decoded unresolvable id in the R10 escape/character-reference fixtures",
     "BL-PLANTED-HEADING-ROW": "planted `## BL-… —` entry in the fixture-root BACKLOG.md",
     "BL-PLANTED-NESTED-HEADING-ROW":
       "planted `### BL-… —` entry there, pinning that a level-3 row resolves too",
