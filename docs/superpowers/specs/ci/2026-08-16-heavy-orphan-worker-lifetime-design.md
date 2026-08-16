@@ -119,6 +119,40 @@ Each row is settled. Re-opening one needs new evidence, not a re-reading.
 
 ---
 
+## 1.2 Convergence bound — what closes this design, stated so it can close
+
+This arc ran 22 spec rounds and 16 plan rounds. The finding rate never decayed: 5/6/3 in spec
+rounds 1-3, then flat at 0-3 for nineteen more rounds, with APPROVE at 10, 14, 17, 20 and 22 and a
+re-opening after each of the first four. The plan APPROVED at round 10 and then took six more
+rounds, **every one of them on a single axis — a case that named a reporting guarantee it could not
+observe — and not one of them a wrong behavior.** That is the ratchet `AGENTS.md`'s round-economy
+block describes, and the repair for it is NARROWING, not another recognizer.
+
+So the bound is stated here, in the design, rather than only in a review brief:
+
+- **Consequence bound.** The worst case of any input this design cannot classify is a conservative
+  NO-KILL plus a surfaced signal. A process is reaped only when every clause of §4.2 holds; anything
+  undecidable declines and is reported (§4.4). **A wrongly-killed live phase is the only outcome
+  this design treats as a defect.** "The report could be more informative" is not one.
+- **Probe domain.** The live process table on this machine (`ps -eo pid,ppid,etime,lstart,command`),
+  `package.json`'s `heavy` script, `scripts/with-heavy-slot.py`, and `tests/mutation/**`. An input
+  constructed outside that set does not establish a finding; it establishes a documented limit.
+- **Threat fence.** Ordinary orphaning by killed sessions and crashed harnesses. Adversarial process
+  manipulation — argv rewritten to impersonate an exempt shape, deliberate reparenting to dodge
+  clause (b) — is OUT, and files to §7 (L-6).
+
+**L-9, the limit this bound creates, and the one that ended the arc.** The reporting surface (§6.2)
+is specified behavior, and the shipped case set observes it across: every candidate; the decline
+reasons `not-a-worker`, `has-live-parent`, `too-young`, `self`, `undecidable` and `unparsable`; the
+row and candidate summaries; the full twelve-cell `KillOutcome` print matrix; and `--quiet` over five
+decline kinds at once under `--kill --all`. **Enumerating further reporting shapes is fenced.** Six
+consecutive plan rounds proposed one more cell each and none of them found a behavior that was
+wrong — only a case that could not have seen it. The residue is filed as
+`BL-HEAVY-REAP-REPORT-OBSERVABILITY` and it is a test-coverage question, never a safety one, because
+by the consequence bound above a reporting defect cannot kill anything.
+
+---
+
 ## 2. Goal and non-goals
 
 **Goal.** Bound how long a heavy-phase worker outlives the harness that owns it, without ever
@@ -677,6 +711,12 @@ surfaced signal files here rather than as a review round.
 - **L-6 — adversarial process manipulation is out of scope.** A process that rewrites its own argv
   to impersonate an exempt shape, or reparents itself to dodge clause (b), defeats this. The
   threat model is ordinary orphaning by killed sessions and crashed harnesses.
+- **L-9 — reporting observability is bounded by the shipped case set, deliberately.** §1.2 states
+  the fence and the evidence. The report's BEHAVIOR is specified in §6.2 and unchanged; what is
+  fenced is the enumeration of further cases that would observe it. Filed as
+  `BL-HEAVY-REAP-REPORT-OBSERVABILITY`. This is a coverage limit and never a safety one: by §1.2's
+  consequence bound a reporting defect cannot cause a kill, so its worst case is an operator who has
+  to run `--all` to see something the default would have shown.
 - **L-8 — pid reuse cannot be closed by a single process, and the residue is SILENT.** K2 re-reads
   the identity triple immediately before signalling, which narrows the window from the whole run to
   the gap between that read and the `kill` syscall. It does not close it, and — corrected here after
