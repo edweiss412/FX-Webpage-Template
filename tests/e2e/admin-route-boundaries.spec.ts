@@ -37,6 +37,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { admin } from "./helpers/supabaseAdmin";
+import { clearStagedFor, insertStagedFor } from "./helpers/stagedSync";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
@@ -71,29 +72,6 @@ async function lookupPublishedShowWithCrew(): Promise<{ slug: string; crewId: st
     );
   }
   return { slug: show.slug, crewId: (crewRes.data[0] as { id: string }).id };
-}
-
-async function clearPendingSyncs(driveFileId: string): Promise<void> {
-  const { error } = await admin.from("pending_syncs").delete().eq("drive_file_id", driveFileId);
-  if (error) throw new Error(`clearPendingSyncs failed: ${error.message}`);
-}
-
-async function insertStaged(driveFileId: string): Promise<{ staged_id: string }> {
-  const { data, error } = await admin
-    .from("pending_syncs")
-    .insert({
-      drive_file_id: driveFileId,
-      source_kind: "manual",
-      base_modified_time: null,
-      staged_modified_time: new Date().toISOString(),
-      parse_result: { show: { title: "Seed Test Show", client_label: "Seed Test Client" } },
-      triggered_review_items: [],
-      warning_summary: "",
-    })
-    .select("staged_id")
-    .single();
-  if (error) throw new Error(`insertStaged failed: ${error.message}`);
-  return data as { staged_id: string };
 }
 
 test.describe("§2.7 route-render proof — post-layout page-gate faults route to their boundaries", () => {
@@ -140,14 +118,14 @@ test.describe("§2.7 route-render proof — post-layout page-gate faults route t
   test("/admin/show/staged/<seededId> → inherits catch-all app/admin/error.tsx", async ({
     page,
   }) => {
-    await clearPendingSyncs(SEED_DRIVE_FILE_ID);
-    const staged = await insertStaged(SEED_DRIVE_FILE_ID);
+    await clearStagedFor(SEED_DRIVE_FILE_ID);
+    const stagedId = await insertStagedFor(SEED_DRIVE_FILE_ID);
     try {
-      await page.goto(`/admin/show/staged/${staged.staged_id}`);
+      await page.goto(`/admin/show/staged/${stagedId}`);
       await expectRouteBoundary(page);
       await expect(page.getByTestId("admin-route-error-boundary")).toBeVisible();
     } finally {
-      await clearPendingSyncs(SEED_DRIVE_FILE_ID);
+      await clearStagedFor(SEED_DRIVE_FILE_ID);
     }
   });
 
