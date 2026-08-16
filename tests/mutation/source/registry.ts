@@ -163,6 +163,10 @@ export const GUARD_SURFACES: GuardSurface[] = [
       "tests/paneCompaction/purview.test.ts",
       "tests/paneCompaction/cli.test.ts",
       "tests/paneCompaction/driver.test.ts",
+      // Pins which RULE decided, not merely which verdict came out. Rules 4-6
+      // share a verdict and rules 7/8/11/12 can share one, so without this the
+      // hit(5..8) and verdictFor-key mutants all survived.
+      "tests/paneCompaction/ruleIdentity.test.ts",
       "tests/paneCompaction/revalidate.test.ts",
     ],
     // Five of the six. `regex-quantifier-bound` is EXCLUDED, and the exclusion

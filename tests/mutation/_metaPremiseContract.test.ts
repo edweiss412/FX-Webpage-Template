@@ -43,6 +43,7 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/paneCompaction/cli.test.ts": 0,
   "tests/paneCompaction/driver.test.ts": 0,
   "tests/paneCompaction/revalidate.test.ts": 0,
+  "tests/paneCompaction/ruleIdentity.test.ts": 0,
   // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
   // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a
   // throwaway repo, so it counts as environment-touching like its
