@@ -12,17 +12,75 @@
  * `same-origin` + mismatching origin. Both shapes fail here.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { premiseHolds } from "../_shared/premise";
 
 const headerMap = new Map<string, string>();
+
+/**
+ * `headers()` throws outside a request scope. The gate treats that as ALLOW
+ * (spec §7 documented limit), so the suite has to be able to produce the
+ * throw — a mock that only ever resolves cannot reach the branch at all.
+ */
+const headersControl = vi.hoisted(() => ({ throws: false }));
 vi.mock("next/headers", () => ({
-  headers: async () => ({ get: (k: string) => headerMap.get(k.toLowerCase()) ?? null }),
+  headers: async () => {
+    if (headersControl.throws) throw new Error("headers() outside a request scope");
+    return { get: (k: string) => headerMap.get(k.toLowerCase()) ?? null };
+  },
 }));
 
-import { isSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
+/**
+ * A passthrough by default, so every truth-table row still exercises the REAL
+ * `resolveSiteOrigin` against `vi.stubEnv`. The toggle exists for one case: a
+ * fault raised OUTSIDE `headers()` must still propagate, which is what makes
+ * the catch above scoped rather than a swallow.
+ */
+const siteOriginControl = vi.hoisted(() => ({ throws: false }));
+vi.mock("@/lib/notify/siteOrigin", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/notify/siteOrigin")>();
+  return {
+    ...actual,
+    resolveSiteOrigin: (raw?: string | undefined) => {
+      if (siteOriginControl.throws) throw new Error("site-origin resolution fault");
+      return actual.resolveSiteOrigin(raw);
+    },
+  };
+});
+
+const SITE_ORIGIN_FAULT = "site-origin resolution fault";
+const FORBIDDEN_INTERRUPT = "NEXT_HTTP_ERROR_FALLBACK;403";
+
+/** Mirrors the real `forbidden()`, which returns `never` by throwing. */
+const forbiddenSpy = vi.hoisted(() =>
+  vi.fn((): never => {
+    throw new Error("NEXT_HTTP_ERROR_FALLBACK;403");
+  }),
+);
+vi.mock("next/navigation", () => ({ forbidden: forbiddenSpy }));
+
+const logMock = vi.hoisted(() => ({
+  warn: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
+
+import {
+  assertSameOriginServerAction,
+  isSameOriginServerAction,
+  rejectCrossOriginNeutral,
+  rejectCrossOriginPicker,
+  rejectCrossOriginVoid,
+} from "@/lib/auth/sameOriginServerAction";
 
 const SITE = "https://crew.example.com";
 beforeEach(() => {
   headerMap.clear();
+  headersControl.throws = false;
+  siteOriginControl.throws = false;
+  forbiddenSpy.mockClear();
+  logMock.warn.mockClear();
   vi.stubEnv("NEXT_PUBLIC_SITE_ORIGIN", SITE);
 });
 
@@ -99,5 +157,103 @@ describe("isSameOriginServerAction", () => {
     vi.stubEnv("NEXT_PUBLIC_SITE_ORIGIN", "");
     headerMap.set("origin", SITE);
     expect(await isSameOriginServerAction()).toBe(false);
+  });
+
+  it("ALLOWS when there is no request scope at all (headers() throws)", async () => {
+    // Spec §7 documented limit: a thrown headers() means there is no inbound
+    // HTTP request — a direct server-side invocation, a suite calling the
+    // action as a function. No browser, so no victim cookies, so no CSRF
+    // surface. An attacker cannot induce this state from the network.
+    headersControl.throws = true;
+    expect(await isSameOriginServerAction()).toBe(true);
+  });
+
+  it("PROPAGATES a fault raised outside headers() — the catch is scoped, not a swallow", async () => {
+    // The negative sibling of the row above, and the reason it is not
+    // sufficient on its own: widening the try to the whole function body would
+    // satisfy that row while turning every internal fault into a silent ALLOW.
+    headerMap.set("origin", SITE);
+    premiseHolds(
+      "resolveSiteOrigin is reached only when sec-fetch-site is absent AND origin is present",
+      headerMap.get("sec-fetch-site") === undefined && headerMap.get("origin") === SITE,
+    );
+    siteOriginControl.throws = true;
+    await expect(isSameOriginServerAction()).rejects.toThrow(SITE_ORIGIN_FAULT);
+  });
+});
+
+/**
+ * The four designated refusal exports (spec §3.6). The accept-sets in
+ * tests/auth/_metaServerActionOriginGate.test.ts resolve a refusal BY NAME
+ * against this closed set rather than by analysing whatever function an author
+ * put in the return position, so these four bodies are the only place the
+ * refusal behaviour is established. Each case asserts the returned value AND
+ * the emit: a silent-refusal regression and a dark-refusal regression fail
+ * different assertions.
+ */
+describe("the designated refusal exports", () => {
+  const crossSite = (): void => {
+    // Derived from the truth table's own reject rows, never an ad-hoc header
+    // set: `cross-site` refuses on every origin state, the filed bypass
+    // included.
+    headerMap.set("sec-fetch-site", "cross-site");
+  };
+
+  describe("assertSameOriginServerAction", () => {
+    it("emits AND interrupts with forbidden() on a cross-origin request", async () => {
+      crossSite();
+      await expect(assertSameOriginServerAction("x", "y")).rejects.toThrow(FORBIDDEN_INTERRUPT);
+      expect(logMock.warn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          code: "SERVER_ACTION_ORIGIN_REJECTED",
+          action: "x",
+          source: "y",
+        }),
+      );
+      expect(forbiddenSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("resolves silently on a same-origin request — no emit, no interrupt", async () => {
+      headerMap.set("sec-fetch-site", "same-origin");
+      await expect(assertSameOriginServerAction("x", "y")).resolves.toBeUndefined();
+      expect(logMock.warn).not.toHaveBeenCalled();
+      expect(forbiddenSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it("rejectCrossOriginPicker returns the catalogued picker refusal and emits", () => {
+    expect(rejectCrossOriginPicker("a")).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "PICKER_ORIGIN_REJECTED",
+        source: "auth.picker.sameOriginGate",
+        action: "a",
+      }),
+    );
+  });
+
+  it("rejectCrossOriginNeutral returns the confirm page's own neutral state and emits", () => {
+    expect(rejectCrossOriginNeutral("b")).toEqual({ status: "neutral" });
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "SERVER_ACTION_ORIGIN_REJECTED",
+        action: "b",
+      }),
+    );
+  });
+
+  it("rejectCrossOriginVoid resolves undefined and emits", async () => {
+    await expect(rejectCrossOriginVoid("c")).resolves.toBeUndefined();
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "PICKER_ORIGIN_REJECTED",
+        source: "auth.picker.sameOriginGate",
+        action: "c",
+      }),
+    );
   });
 });
