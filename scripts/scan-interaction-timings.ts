@@ -287,14 +287,17 @@ const TIMING_WORDS = ["ms", "delay", "duration", "timeout", "seconds"] as const;
  */
 const TIME_UNITS = ["milliseconds", "microseconds", "nanoseconds"] as const;
 
-/** A key's camel / snake / digit segments, lowercased. `retry_ttlMs` → retry, ttl, ms. */
+/** A key's camel / snake / digit segments, lowercased. `retry_ttlMs` → retry, ttl, ms.
+ *
+ *  MATCHED rather than split-and-filtered: a split has to discard the empty
+ *  strings that separators produce, and that discard is a second decision with
+ *  its own boundary (`deadline_ms_` and `deadline_ms_x` both turn on it). A
+ *  match yields only non-empty segments by construction, so there is no
+ *  boundary to get wrong — the mutation gate found both of the discarded
+ *  branch's mutants unpinned, and this deletes the branch instead of arguing
+ *  about it. */
 function keySegments(key: string): string[] {
-  return key
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-    .split(/[\s_]+/)
-    .filter((s) => s.length > 0)
-    .map((s) => s.toLowerCase());
+  return (key.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+/g) ?? []).map((s) => s.toLowerCase());
 }
 
 /**

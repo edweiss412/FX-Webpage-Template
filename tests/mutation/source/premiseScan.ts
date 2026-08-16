@@ -47,8 +47,19 @@ export type TestClassification = {
 const REGISTRARS = new Set(["it", "test", "describe"]);
 const MODIFIERS = new Set(["each", "for", "skip", "only", "concurrent", "sequential", "todo"]);
 
+/** Parsed by EXTENSION: a `.tsx` suite read as TS turns `<div>x</div>` into a
+ *  type assertion, so the classifier would be reasoning about an AST the file
+ *  does not have. No enrolled suite is `.tsx` today; nothing stops the next one
+ *  from being, and the JSX rules in `isReferenceIdentifier` are only reachable
+ *  under this parse. */
 const parse = (path: string, text: string): ts.SourceFile =>
-  ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+  ts.createSourceFile(
+    path,
+    text,
+    ts.ScriptTarget.ES2022,
+    true,
+    path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
 
 /** `it`, `test.each`, `describe.skip.each` … → the root identifier, else null. */
 function registrarRoot(callee: ts.Expression): string | null {
@@ -120,7 +131,11 @@ function isReferenceIdentifier(id: ts.Identifier): boolean {
     return false;
   }
   if (ts.isPropertyAccessExpression(p) && p.name === id) return false;
-  if (ts.isQualifiedName(p) && p.right === id) return false;
+  // (A QualifiedName's right-hand identifier needs no rule: every position one
+  // can occupy inside a test's extent — a type reference, a `typeof` query — is
+  // already a type position, and the mutation gate confirmed no declared
+  // operator can distinguish the check from its absence. Deleted rather than
+  // carried as an equivalence argument.)
   if (ts.isPropertyAssignment(p) && p.name === id) return false;
   // `{ prop: local }` — the KEY names a property, the local name is a binding.
   if (ts.isBindingElement(p) && p.propertyName === id) return false;

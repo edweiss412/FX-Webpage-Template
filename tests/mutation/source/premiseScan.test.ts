@@ -555,3 +555,83 @@ describe("R2 — dynamic imports and non-runtime positions", () => {
     ).toBe("environment-touching");
   });
 });
+
+// ── Mutation-gate repayments: the R2 repair's own uncovered branches ─────────
+describe("the reference rules the gate found unpinned", () => {
+  const IMPORT = `import { spawnSync } from "node:child_process";`;
+
+  /** A `.tsx` suite, so the JSX rules are reachable at all. */
+  function verdictTsx(src: string): string {
+    const p = join(scratch, `case${n++}.tsx`);
+    writeFileSync(p, src, "utf8");
+    return classifyTests(ROOT, p)[0]?.verdict ?? "<no test found>";
+  }
+
+  it("a lowercase JSX tag names an element, not the same-named binding", () => {
+    // Kills the `p.tagName === id` flip: with `!==` the intrinsic rule stops
+    // firing on the tag it was written for, and `<cache />` reads the module
+    // binding.
+    expect(
+      verdictTsx(`${IMPORT}
+        const cache = spawnSync("git", []);
+        it("x", () => { return <cache />; });`),
+    ).toBe("environment-free");
+  });
+
+  it("a Capitalized JSX tag IS a value reference", () => {
+    // The foil: the intrinsic rule must not swallow component tags, which are
+    // ordinary reads of a binding.
+    expect(
+      verdictTsx(`${IMPORT}
+        const Cache = spawnSync("git", []);
+        it("x", () => { return <Cache />; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a JSX attribute NAME is not a value reference", () => {
+    // Kills the `ts.isJsxAttribute(p) && p.name === id` flip.
+    expect(
+      verdictTsx(`${IMPORT}
+        const cache = spawnSync("git", []);
+        it("x", () => { return <Thing cache={1} />; });`),
+    ).toBe("environment-free");
+  });
+
+  it("a destructuring KEY is not a value reference", () => {
+    // Kills the `ts.isBindingElement(p) && p.propertyName === id` flip: the key
+    // in `{ spawnSync: local }` names a property of the object being taken
+    // apart, not the import.
+    expect(
+      verdict(`${IMPORT}
+        it("x", () => { const { spawnSync: local } = { spawnSync: 1 }; return local; });`),
+    ).toBe("environment-free");
+  });
+
+  it("an associated premise must name the binding the registration consumes", () => {
+    // Kills the `id.text === name` flip in `referencesName`: with `!==` ANY
+    // other identifier in a premise call counts as naming the producer, so a
+    // premise about something else is accepted as this registration's.
+    const p = join(scratch, `assoc${n++}.ts`);
+    writeFileSync(
+      p,
+      `const rows = [[1]];
+       const other = [2];
+       premise("about something else", other.length, 0);
+       it.each(rows)("case %s", (v) => { void v; });`,
+      "utf8",
+    );
+    expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(false);
+  });
+
+  it("a premise that DOES name the producer is associated", () => {
+    const p = join(scratch, `assoc${n++}.ts`);
+    writeFileSync(
+      p,
+      `const rows = [[1]];
+       premise("the producer yields cases", rows.length, 0);
+       it.each(rows)("case %s", (v) => { void v; });`,
+      "utf8",
+    );
+    expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(true);
+  });
+});
