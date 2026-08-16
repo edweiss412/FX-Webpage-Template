@@ -315,36 +315,25 @@ Both buttons are `className="border px-3 py-1 bg-{blue,yellow}-600 text-white"` 
 
 **First scheduled step:** decide whether the dev panel should be styled at all — either narrow the `@source not` exclusion so the surface compiles and can carry the floor, or ratify it as an unstyled developer tool and move the two census rows to a documented-limit record.
 
-## BL-TAP-TITLE-LINK-META-LINE-BLEED — the sheet-title link's 44px hit box covers ~8px of the meta line beneath it
+## BL-TRANSITION-AUDIT-COUNTS-A-MENTION-AS-A-CONSUMER — naming `SECONDARY_ACTION_CLASS` in a comment changes the pinned count
 
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** accessibility / mis-tap. **Effort:** S. **Class-sweep exception:** (b) — a ratified scope decision fences it. **Reachability:** PROBED — the geometry is arithmetic on the shipped class strings, and the arc's own e2e suite measures the 44.8px box in a real browser (`tests/e2e/tap-target-inline-controls.layout.spec.ts`).
+**Filed:** 2026-08-16 (`fix/step3-tap-cluster`, whole-diff CI). **Class:** guard false positive (use-vs-mention). **Effort:** XS. **Class-sweep exception:** (c) — the guard belongs to a different spec's transition audit (§7.4) and this PR does not otherwise touch it; changing its scan semantics is a change to that guard's contract and deserves its own review. **Reachability:** PROBED — see the probe below.
 
-`SheetTitleLink`'s repaired class string (`components/admin/wizard/Step3SheetCard.tsx:167`) carries `-my-2.5 py-2.5`: the padding lifts the target to 44.8px and the negative margin cancels the growth in flow, so the row does not get taller. The consequence is that 10px of live hit box hangs below the text, and the meta line under it only clears 2px of that with its own `mt-0.5` — leaving the top ~8px of a 21.7px non-interactive text line inside a target that opens Google Sheets in a NEW TAB. Which element wins a tap varies with x-position. The same shape exists at `Step3SheetCard.tsx:452` (`mt-1`, so 6px) over "We couldn't read the details of this sheet".
+`tests/components/admin/wizard/step3JudgmentChrome.test.tsx:158` decides whether to append `lib/ui/actionClass.ts` to the scanned source with a raw substring test:
 
-**Why it was not repaired on the filing branch:** spec `docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md` §2 ratifies this recipe verbatim — "**Exactly** `inline-block -my-2.5 py-2.5 -mx-2 px-2` … (R1 F2: one recipe, no delegated choice)" — and the spec's neighbour-overlap contract is scoped to _interactive_ neighbours, which this diff satisfies and pins. Changing the bleed is a spec amendment, not an implementation call.
+```ts
+if (src.includes("SECONDARY_ACTION_CLASS")) {
+  src += `\n${readFileSync(join(process.cwd(), "lib/ui/actionClass.ts"), "utf8")}`;
+}
+```
 
-**First scheduled step:** decide whether the overlap contract should cover non-interactive text at all (a mis-tap over prose is indistinguishable, to the user, from a mis-tap over a control). If yes, the candidate is a one-directional bleed — `-mt-5 pt-5 pb-0` — which keeps the whole 44.8px box inside the card's own 20px `--spacing-tile-pad` and off the meta line entirely.
+The stated rule is "a file that CONSUMES `SECONDARY_ACTION_CLASS` is scanned WITH it", so collapsing hand-written button classes onto the constant cannot buy slack in the count. A COMMENT that merely names the constant is not a consumer, but `includes` cannot tell the difference.
 
-## BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR — contact cells grew ~54px and drag their grid row-mates to match
+**Probe (this is how it was found, not a hypothetical):** a one-line comment in `components/admin/wizard/step3ReviewSections.tsx` reading "the same recipe `SECONDARY_ACTION_CLASS` uses for its boundary" — no code change, no class change — moved the file's `transition-(all|colors|opacity)` count from 2 to 3 and failed CI with `expected 3 to be 2` on `unit-suite-nodb (2)`. The file's own transition classes were byte-identical to `origin/main` throughout. Worked around on that branch by rewording the comment.
 
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** visual regression (layout). **Effort:** S. **Class-sweep exception:** (c) — a container redesign the filing PR does not otherwise touch. **Reachability:** PROBED — arithmetic on the shipped strings; the tap-floor heights are measured in a real browser by the arc's e2e suite.
+**Why it matters beyond the annoyance:** it fails in the direction that teaches the wrong lesson. An author whose only change is a comment gets a red count pin and the natural repair is to bump the pinned number, which silently buys the slack the rule exists to deny.
 
-Lifting the `tel:` and `mailto:` links to the 44px floor (`components/admin/wizard/step3ReviewSections.tsx:1412`, `:1424`) takes the Driver cell from roughly 106px to roughly 160px. The cells sit in `grid grid-cols-2 gap-2 min-[560px]:grid-cols-3` (`:1461`) whose items stretch by default, so at ≥560px the Vehicle and Parking cells stretch to 160px around ~34px of content — a large `bg-surface-sunken` panel that reads as broken rather than spacious. Each contact cell also costs ~54px more scroll on a phone, which is where this surface is read.
-
-**First scheduled step:** pick one of — `items-start` on the grid so short cells stay short, or a shared `min-h` across every `TransportCell` so the row is uniform by intent rather than by accident.
-
-## BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING — two 44px contact targets sit 6px apart, and the taller boxes invert the grouping
-
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2 + P3). **Class:** accessibility / mis-tap + visual grouping. **Effort:** S. **Class-sweep exception:** (a) — needs a design decision the filing branch cannot settle. **Reachability:** PROBED — the arc's e2e suite asserts the two rects are disjoint and measures both at 44px; the 6px separation is the cell's `gap-1.5`.
-
-Two consequences of the floor repair at `components/admin/wizard/step3ReviewSections.tsx:1412`/`:1424`, neither a correctness defect:
-
-1. **Separation did not grow with the targets.** The `tel:` and `mailto:` links are now 44px tall and 6px apart in a `flex-col gap-1.5` cell. Bigger targets make the intended one easier to hit AND the wrong one easier to hit; here the wrong one dials the driver mid-show.
-2. **Grouping inverted.** With `items-center` in a 44px box, a 17px label leaves ~13.5px dead above and below, so the visual gap name→phone (~19.5px) is now smaller than phone→email (~33px). The two contact _methods_ became the furthest-apart things in the cell.
-
-Folded in from the same gate (P3): sites 4/6/7 rely on `hover:` treatments for their only affordance, which `PRODUCT.md:59`'s venue-floor constraint bans as a sole affordance — 44px of air that looks exactly like static text is a bigger _invisible_ target. Pre-existing (the repair enlarged the boxes, it removed no rest state), but it is the same cell and should be settled with it.
-
-**First scheduled step:** decide the resting presentation for a contact row — a container (`w-full justify-center rounded-sm bg-surface px-2`) so 44px reads as a row rather than a void — then set the gap from that decision rather than leaving `gap-1.5`.
+**First scheduled step:** strip comments before the `includes` check using the existing shared helper `tests/_shared/stripComments.ts` (`stripCommentsSafely`, `ts.ScriptKind.TSX`) — the same defence `tests/styles/_metaSubtleOnInteractive.test.ts` already applies for exactly this reason ("a cue surviving only in commentary cannot satisfy a pin"). Then re-add the comment form above as a stays-quiet regression row.
 
 ## BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT — globals.css states a contrast figure that has been wrong since 2026-07-16
 

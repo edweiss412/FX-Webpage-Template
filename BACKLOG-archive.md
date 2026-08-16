@@ -1,3 +1,62 @@
+## BL-TAP-TITLE-LINK-META-LINE-BLEED — the sheet-title link's hit box bleeds upward only — CLOSED 2026-08-15 (`fix/step3-tap-cluster`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Effort (as shipped):** S
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** accessibility / mis-tap. **Class-sweep exception at filing:** (b) — a ratified scope decision fenced it. **Reachability:** PROBED — the geometry is arithmetic on the shipped class strings, and the arc's own e2e suite measures the 44.8px box in a real browser (`tests/e2e/tap-target-inline-controls.layout.spec.ts`).
+
+**The decision the row asked for was made by the user on 2026-08-15**, against a rendered mockup: the overlap contract DOES cover non-interactive text, and the repair is the row's own candidate — a one-directional bleed. `SheetTitleLink`'s single shared class string now carries `-mt-5 pt-5` in place of `-my-2.5 py-2.5`: `pt-5` (20px) over the 24.8px `text-base` line box keeps the same 44.8px target, with all 20px of bleed ABOVE the text and the box bottom flush with the text-line bottom. `-mt-5` still cancels the growth in flow, so nothing moves visually. The 20px of upward bleed lands exactly inside the card's own 20px `p-tile-pad`, so the box never escapes its card.
+
+**One edit repaired both filed contexts**, because all three render sites share one class string: the demoted card's `mt-0.5` meta line and the no-details card's `mt-1` warning line are now fully outside the hit box. Both are pinned in a real browser at 390px and 800px by new assertions in `tests/e2e/tap-target-inline-controls.layout.spec.ts` — disjointness against the text line beneath, plus a containment assertion that the bleed stays inside the card. The no-details variant got its own seeded case; it is the tighter of the two contexts (4px of clearance against the old 10px bleed) and the one a half-fix would still fail.
+
+**The trade is recorded rather than hidden:** the title text is no longer vertically centred in its own hit box — it sits at the bottom. That is the ratified point of the change (`docs/superpowers/specs/2026-08-15-step3-tap-cluster.md` §2.1, limits 1-2 in §7): below-the-text taps belong to the meta line, above-the-text taps land in card padding that was previously dead. The 2026-08-10 spec's site-5 row carries a dated amendment pointer so neither document relitigates the other.
+
+`SheetTitleLink`'s repaired class string (`components/admin/wizard/Step3SheetCard.tsx:167`) carries `-my-2.5 py-2.5`: the padding lifts the target to 44.8px and the negative margin cancels the growth in flow, so the row does not get taller. The consequence is that 10px of live hit box hangs below the text, and the meta line under it only clears 2px of that with its own `mt-0.5` — leaving the top ~8px of a 21.7px non-interactive text line inside a target that opens Google Sheets in a NEW TAB. Which element wins a tap varies with x-position. The same shape exists at `Step3SheetCard.tsx:452` (`mt-1`, so 6px) over "We couldn't read the details of this sheet".
+
+**Why it was not repaired on the filing branch:** spec `docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md` §2 ratifies this recipe verbatim — "**Exactly** `inline-block -my-2.5 py-2.5 -mx-2 px-2` … (R1 F2: one recipe, no delegated choice)" — and the spec's neighbour-overlap contract is scoped to _interactive_ neighbours, which this diff satisfies and pins. Changing the bleed is a spec amendment, not an implementation call.
+
+**First scheduled step:** decide whether the overlap contract should cover non-interactive text at all (a mis-tap over prose is indistinguishable, to the user, from a mis-tap over a control). If yes, the candidate is a one-directional bleed — `-mt-5 pt-5 pb-0` — which keeps the whole 44.8px box inside the card's own 20px `--spacing-tile-pad` and off the meta line entirely.
+
+## BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR — short transport cells stay short — CLOSED 2026-08-15 (`fix/step3-tap-cluster`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Effort (as shipped):** S
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** visual regression (layout). **Class-sweep exception at filing:** (c) — a container redesign the filing PR did not otherwise touch. **Reachability:** PROBED — arithmetic on the shipped strings; the tap-floor heights are measured in a real browser by the arc's e2e suite.
+
+**The decision was made by the user on 2026-08-15:** of the row's two candidates, `items-start` — short cells keep their content height — plus a compaction pass the user added on top. The grid gains `items-start`, and `TransportCell` tightens from `py-2.5`/`gap-1.5`/`gap-1.5` to `py-2`/`gap-1`/`gap-1`. Vehicle and Parking now drop to content height instead of stretching to a contact cell's ~160px.
+
+**Compaction is bounded by the floors, and the bound is executable.** The 44px `tel:`/`mailto:` floors are inviolable; every pixel of compaction comes out of dead space. `tests/e2e/tap-target-inline-controls.layout.spec.ts` pins the contact cell's ENTIRE non-content budget at 34px — `py-2` (16) + eyebrow gap (4) + name gap (4) + the phone-to-email separation (10) — as a spec-pinned constant the render never produces, with the measured content heights added in. A future gap or padding regression fails by name, and because the four content heights are summed into the bound, it can never be satisfied by shrinking a tap target instead of the dead space. The short-cell claim is pinned separately by a seeded one-line Vehicle cell asserted strictly shorter than its Driver row-mate — an assertion that fails against default grid stretch, which equalises them.
+
+**Honest statement of what compaction buys** (`docs/superpowers/specs/2026-08-15-step3-tap-cluster.md` §7 limit 3): two 44px targets plus a name and an eyebrow keep a Driver cell near ~150px whatever the gaps do. The visible win is the row-mates, not the contact cell.
+
+Lifting the `tel:` and `mailto:` links to the 44px floor (`components/admin/wizard/step3ReviewSections.tsx:1412`, `:1424`) takes the Driver cell from roughly 106px to roughly 160px. The cells sit in `grid grid-cols-2 gap-2 min-[560px]:grid-cols-3` (`:1461`) whose items stretch by default, so at ≥560px the Vehicle and Parking cells stretch to 160px around ~34px of content — a large `bg-surface-sunken` panel that reads as broken rather than spacious. Each contact cell also costs ~54px more scroll on a phone, which is where this surface is read.
+
+**First scheduled step:** pick one of — `items-start` on the grid so short cells stay short, or a shared `min-h` across every `TransportCell` so the row is uniform by intent rather than by accident.
+
+## BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING — contact links are full-width chip rows with an at-rest edge — CLOSED 2026-08-15 (`fix/step3-tap-cluster`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Effort (as shipped):** S
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2 + P3). **Class:** accessibility / mis-tap + visual grouping. **Class-sweep exception at filing:** (a) — needed a design decision the filing branch could not settle. **Reachability:** PROBED — the arc's e2e suite asserts the two rects are disjoint and measures both at 44px; the 6px separation was the cell's `gap-1.5`.
+
+**The decision was made by the user on 2026-08-15**, against a rendered mockup, and it is the row's own "first scheduled step" taken literally: a container, with the gap set from that decision. Both links become full-width chip rows — `w-full`, `border border-text-faint`, `bg-surface` on the cell's `bg-surface-sunken` ground, `rounded-sm`, `justify-center` — and the separation follows from the container rather than from a leftover `gap-1.5`. The outline token is `text-faint`, not a border token: the invariant-8 gate measured `border-border` at 1.15:1 light / 1.38:1 dark against the sunken cell, and a control edge standing on its own needs text-grade contrast (DESIGN.md §1.2a; §1.2 pins this pair at 3.02:1 / 4.11:1).
+
+**All three filed consequences are closed, each with its own assertion.** (1) Separation: phone-to-email is now 10px (`gap-1` + the email chip's `mt-1.5`) with two visible edges between the targets, pinned at ≥9.5px (the derived 10px less the suite's 0.5px tolerance). (2) Grouping: name-to-phone tightens to 4px, so the name sits with its contact methods again instead of being the furthest thing from them. (3) The folded P3 hover-only finding is settled for sites 6/7 by the chip container itself — the at-rest affordance `PRODUCT.md:59`'s venue-floor constraint requires, since phones cannot hover; `hover:text-*` survives as an enhancement rather than the sole signal. The chips also gain the house focus ring, which neither string carried before.
+
+**The P3's third site was repaired in the same sweep.** The pack-list overflow toggle (`step3ReviewSections.tsx`) is not in the contact cell and does not fit a chip container, so it takes the SHAPE of the decision in the codebase's own idiom: `hover:underline` becomes an at-rest `underline`, matching every sibling text toggle. Pinned by a computed `text-decoration-line` read with no pointer over the control.
+
+**Per-chip, not per-pair:** the visible-edge assertion runs on EACH chip's computed background and border, so an asymmetric regression that leaves one of the two invisible fails by name — and the background check rejects transparency separately from the delta, because a fully transparent chip differs from the cell as a string while painting nothing.
+
+**Documented limit carried forward** (`docs/superpowers/specs/2026-08-15-step3-tap-cluster.md` §7 limit 4): `mt-1.5` on the email chip is unconditional, so every phone-less combination carries 6px of extra leading dead space. Accepted over a conditional className, whose non-literal shape is what `BL-TAP-TARGET-STRUCTURAL-GUARD` records as the corpus guard's blocker.
+
+Two consequences of the floor repair at `components/admin/wizard/step3ReviewSections.tsx:1412`/`:1424`, neither a correctness defect:
+
+1. **Separation did not grow with the targets.** The `tel:` and `mailto:` links are now 44px tall and 6px apart in a `flex-col gap-1.5` cell. Bigger targets make the intended one easier to hit AND the wrong one easier to hit; here the wrong one dials the driver mid-show.
+2. **Grouping inverted.** With `items-center` in a 44px box, a 17px label leaves ~13.5px dead above and below, so the visual gap name→phone (~19.5px) is now smaller than phone→email (~33px). The two contact _methods_ became the furthest-apart things in the cell.
+
+Folded in from the same gate (P3): sites 4/6/7 rely on `hover:` treatments for their only affordance, which `PRODUCT.md:59`'s venue-floor constraint bans as a sole affordance — 44px of air that looks exactly like static text is a bigger _invisible_ target. Pre-existing (the repair enlarged the boxes, it removed no rest state), but it is the same cell and should be settled with it.
+
+**First scheduled step:** decide the resting presentation for a contact row — a container (`w-full justify-center rounded-sm bg-surface px-2`) so 44px reads as a row rather than a void — then set the gap from that decision rather than leaving `gap-1.5`.
+
 ## BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS — the psql startup-file scan walks `.next-*` build outputs and blows the stack — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
 
 **Severity:** MEDIUM (a whole guard suite is red locally for a reason unrelated to any change; the failure names a TypeScript internal, not the cause) · **Class:** guard robustness · **Effort:** S · **Filed:** 2026-08-11
