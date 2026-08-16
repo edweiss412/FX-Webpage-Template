@@ -63,14 +63,19 @@ rg -n "function moduleScopeExtent|function unclassifiableWithin|function resolve
 
 Expected: all five symbols resolve. If `moduleScopeExtent` is absent, the design's central citation is stale — STOP and re-derive spec §2.1 before writing code.
 
-- [ ] **Step 3: Re-run the probe harness against the merged tree.** Recreate the harnesses from the probe record's Method sections under a gitignored `.claude/probe/` directory, importing `classifyTests` from the merged source.
+- [ ] **Step 3: Re-run the BEHAVIOURAL probe harnesses against the merged tree.** Recreate them from the probe record's Method sections under a gitignored `.claude/probe/` directory, importing `classifyTests` from the merged source. **Name what is re-run and what is not** — a round-1 draft ran one script and claimed the probe record's tables entire, which is the "claim wider than its harness" class that cost the spec three rounds.
 
 ```bash
 mkdir -p .claude/probe && git check-ignore -v .claude/probe
-npx tsx .claude/probe/importForms.ts
+npx tsx .claude/probe/importForms.ts        # spec §3.1 + §3.2 tables
+npx tsx .claude/probe/hookSeed.ts           # spec §3.11 rows A-E
+npx tsx .claude/probe/exportedDynamic.ts    # spec §3.12 exported-dynamic rows
+npx tsx .claude/probe/runtimeImportShapes.ts # spec §3.13 live/near populations
+REGISTRY_SRC=tests/mutation/source/registry.ts npx tsx .claude/probe/acceptSetCover.ts
+WIDE=1 REGISTRY_SRC=tests/mutation/source/registry.ts npx tsx .claude/probe/acceptSetCover.ts
 ```
 
-Expected: the probe record's tables, unchanged. **If any row has moved, the design is re-derived before implementation, not after.**
+Expected: spec §3.1, §3.2, §3.11, §3.12 and §3.13 unchanged, and §3.3b's live figure still zero misses. **NOT re-run here, and not claimed:** probe 3 (the §3.3/§3.4 population walk) whose source the probe record deliberately describes rather than reproduces, and the §3.6-§3.9 one-off narrowing probes. Those fed draft-time design decisions that AC-1 re-derives executably; if a §3.1/§3.2/§3.11/§3.13 row has moved, **the design is re-derived before implementation, not after.**
 
 - [ ] **Step 4: Record the AC-14 baseline — the CORPUS PASS, not the suite duration.** The two deciding suites take about 20.7 s of vitest wall clock, roughly 19 s of which is four spawned `childRun` fixtures; the scan itself is ~1.5 s, and the regression AC-14 guards against is a 3.7× move at that grain.
 
@@ -88,7 +93,15 @@ console.log(`suites=${suites.length} tests=${n} corpus-pass=${((Date.now() - t0)
 npx vitest run tests/mutation/_metaPremiseContract.test.ts 2>&1 | tail -6
 ```
 
-Write the seconds figure to a gitignored scratch file, `corpus-pass-baseline.txt`, in the worktree's probe directory — Task 6 Step 1 reads that file and fails on a ratio, so the baseline must be a recorded value rather than a remembered one. The pre-merge measurement on 2026-08-16 was `suites=29 tests=1314 corpus-pass=1.49s`; post-#827 the suite count is 31, so re-measure rather than reusing that number. Expected: the meta-contract PASSES with every declared count holding — 31 rows post-#827, the two added being `tests/mutation/source/premiseScan.test.ts` (declared `0`) and `tests/mutation/_metaPremiseContract.test.ts` (declared `1`).
+Write the seconds figure to `"$PROBE_DIR/corpus-pass-baseline.txt"`, where **`PROBE_DIR="$(git rev-parse --show-toplevel)/.claude/probe"`** — define it in the shell before the command below, and use the same definition in Task 6 Step 1. A round-1 draft referenced `$PROBE_DIR` in Task 6 without ever defining it anywhere, so the ratio gate failed on a missing file (`cat: /corpus-pass-baseline.txt: No such file or directory`) rather than on scanner performance. Write it with:
+
+```bash
+PROBE_DIR="$(git rev-parse --show-toplevel)/.claude/probe"; mkdir -p "$PROBE_DIR"
+# … run the measurement above, then:
+printf '%s\n' "<the corpus-pass seconds figure>" > "$PROBE_DIR/corpus-pass-baseline.txt"
+```
+
+The file is a gitignored scratch file in the worktree's probe directory — Task 6 Step 1 reads that file and fails on a ratio, so the baseline must be a recorded value rather than a remembered one. The pre-merge measurement on 2026-08-16 was `suites=29 tests=1314 corpus-pass=1.49s`; post-#827 the suite count is 31, so re-measure rather than reusing that number. Expected: the meta-contract PASSES with every declared count holding — 31 rows post-#827, the two added being `tests/mutation/source/premiseScan.test.ts` (declared `0`) and `tests/mutation/_metaPremiseContract.test.ts` (declared `1`).
 
 - [ ] **Step 5: Note the corpus base-sha split.** The merge moves `git merge-base origin/main HEAD`, so rows already written under `docs/review-rounds/fix/premisescan-import-edges/` for the pre-merge base sit beside a second file keyed on the post-merge one. That is intended — round counts are per merge-base — but Task 7 must read BOTH.
 
@@ -131,10 +144,10 @@ type Reach = { verdict: Verdict; reasons: string[] };
 const LANGUAGE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"] as const;
 // `.json` ONLY. `.mdx` is NOT data: this repo executes MDX (next.config.ts:54
 // pageExtensions, @mdx-js/rollup in vitest.config.ts), so purifying it is a
-// silent free — spec §2.4 answer 2, §3.11, §4 limit 13. It falls to answer 3.
+// silent free: spec §2.4 answer 2, §3.11, §4 limit 13. It falls to answer 3.
 const DATA_EXTENSIONS = [".json"] as const;
-// Every other shape resolveSpecifier lands on — `.mdx` and a directory
-// included — is REPORTED.
+// Every other shape resolveSpecifier lands on, `.mdx` and a directory
+// included, is REPORTED.
 
 function resolveExport(
   facts: ModuleFacts,
@@ -201,7 +214,7 @@ function classificationsWithModules(
 
 /**
  * The FIRST classification. Most cases build a single test, so this is the
- * ergonomic form — but a case asserting about a SIBLING test must use
+ * ergonomic form, but a case asserting about a SIBLING test must use
  * `classificationsWithModules` and select by `testName`, or it asserts about a
  * test it never meant (AC-12b).
  */
@@ -219,7 +232,17 @@ function verdictWithModules(modules: Record<string, string>, testSrc: string): s
 
 - Consumes: `ModuleFacts`, `resolveSpecifier`, `bindingIdentifiers`, `unclassifiableWithin`, all already in `premiseScan.ts`.
 
-- [ ] **Step 1: Add the three module-scope helpers**, beside the existing module-scope `verdict` (`tests/mutation/source/premiseScan.test.ts:15`) and the `scratch` / `n` state they close over. Add `TestClassification` to the file's type import from `./premiseScan`. Run BOTH suites before writing any new case:
+- [ ] **Step 1: Add the three module-scope helpers**, beside the existing module-scope `verdict` (`tests/mutation/source/premiseScan.test.ts:15`) and the `scratch` / `n` state they close over.
+
+  **Extend the imports in the same edit, or Step 1's own green run fails to COMPILE** and every later `red=` in this task is invalid for a test-local reason:
+
+```ts
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"; // + mkdirSync
+import { dirname, join } from "node:path";                              // + dirname
+import { classifyTests, type TestClassification } from "./premiseScan";  // + the type
+```
+
+  `mkdirSync` and `dirname` are needed because a module key may name a nested path (the AC-9c directory case), and `TestClassification` is the return type of the plural helper. Compiling the exact splice without them reports `Cannot find name 'mkdirSync'` and `Cannot find name 'dirname'`; with them, every planned block reports `diagnostics=0`. Run BOTH suites before writing any new case:
 
 ```bash
 npx vitest run tests/mutation/source/premiseScan.test.ts
@@ -373,6 +396,30 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
     ).toBe("environment-free");
   });
 
+  it("E4: an ANONYMOUS default function declaration resolves (AC-5d)", () => {
+    expect(
+      verdictWithModules(
+        { helper: `import { spawnSync } from "node:child_process";
+            export default function (): string { return String(spawnSync("echo", ["x"]).stdout); }` },
+        `import runIt from "__MODULE_helper__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E4: a NAMED default class declaration resolves (AC-5d)", () => {
+    // `export default class K {}` exports `default`; the name K is module-local.
+    // A resolver recording BOTH names passes AC-4b while mis-modelling ES.
+    expect(
+      verdictWithModules(
+        { helper: `import { spawnSync } from "node:child_process";
+            export default class K { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }` },
+        `import K from "__MODULE_helper__";
+         it("x", () => { new K().go(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
   it("E3: `export default <expr>` resolves under a renamed default (AC-5d)", () => {
     // E3 has NO fixture in the round-3 plan and probes environment-free TODAY
     // (spec §3.13). AC-4 covers E4's `export default function`; an implementation
@@ -397,7 +444,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
   });
 
   it("E1: MULTIPLE declarators in one statement each bind (AC-5d)", () => {
-    // `export const a = …, b = …` — the modifier is on the VariableStatement and
+    // `export const a = …, b = …`: the modifier is on the VariableStatement and
     // must map to every declarator, not just the first.
     expect(
       verdictWithModules(
@@ -438,7 +485,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
     // AC-9's discriminating twin: byte-identical payload, only the extension
     // differs. MDX is EXECUTABLE in this repo (next.config.ts:54 pageExtensions,
     // @mdx-js/rollup in vitest.config.ts), so answer 2 would be a silent free
-    // introduced by this repair — spec §2.4, §3.11, §4 limit 13. 31 .mdx import
+    // introduced by this repair; spec §2.4, §3.11, §4 limit 13. 31 .mdx import
     // edges live in the near-domain across 14 files; 0 are enrolled, so AC-1 holds.
     expect(
       verdictWithModules(
@@ -572,9 +619,10 @@ Expected: a non-zero FAILING count (never `skipped`). Red: `a renamed default im
 - [ ] **Step 4: Implement.** In `premiseScan.ts`:
 
   1. Default-import registration becomes `imports.set(clause.name.text, { spec, imported: "default" })`.
+  1b. **Mark namespace bindings AT REGISTRATION, in this task, not in Task 4.** A static `NamespaceImport` records `{ spec, imported: "*", namespace: true }` on the existing import binding, and `bindPattern`'s identifier branch does the same for `const ns = await import("<literal>")`. Step 4.3 below tests `namespace` to decide that `export { ns }` reports, and Task 3's `export { ns }` case asserts it, so deferring the flag to Task 4 leaves both depending on a field nothing sets: the entry reads as an ordinary forward, the target answers `noSuchExport`, and the case is silently `environment-free`. Only the FLAG is set here. Task 4 consumes it for member resolution, the `bindingKey` member identity, and the non-member positions — none of which this task touches.
   2. Add `exports` to `ModuleFacts`, mapping an EXPORTED name to either a local name or a node. Populate it in the same walk: for an `ExportDeclaration` without a `moduleSpecifier` whose clause is `NamedExports`, the exported name is `e.name.text` and the local name is `(e.propertyName ?? e.name).text` — the mirror of an import specifier, and the easiest thing here to get backwards; for a `VariableStatement`, `FunctionDeclaration`, `ClassDeclaration` or `EnumDeclaration` carrying an `export` modifier, map every identifier it binds to itself, reading the modifier from the STATEMENT in the variable case and walking object and array binding patterns and multiple declarators; for an `ExportAssignment` with `isExportEquals === false`, map `default` to the expression; for a declaration carrying both `export` and `default` — function OR class, named or anonymous — map `default` to the declaration. Skip anything `isTypeOnly`. **All four E1 declaration kinds are required**: probe §3.9 measures an exported class, an exported enum and a destructured `export const` each touching today, and the enrolled closure itself contains exported classes, so dropping a kind is a live regression.
-  3. Add `resolveExport(facts, exportName, visited)`. **Consult `exports` FIRST and never `extents` on its own** — `extents` is reached only through an entry that has already established the name is exported. A local name resolves through module-scope `extents`; a recorded node resolves to `{ kind: "extent", nodes: [node] }`; a name that is a NON-namespace entry in `facts.imports` resolves to `{ kind: "forward", … }` (Task 2 follows it; until then treat `forward` as `unresolvable` with reason `forwarded export (not yet followed)`); a name that is a NAMESPACE entry resolves to `{ kind: "unresolvable", reason: "local re-export of a namespace binding" }`, because `export { ns }` exports the namespace object rather than a target export and forwarding it would answer `noSuchExport` and go silently pure (spec §2.2 E2, probe §3.9, population 0); a name in neither map resolves to `{ kind: "noSuchExport" }`, which is PURE on a direct request and adds no reason (spec §2.1).
-  4. Classify the resolved target **before any read**, three ways (spec §2.4): extension in `LANGUAGE_EXTENSIONS` → analyze as today; extension in `DATA_EXTENSIONS` → `data`, pure exactly as a bare specifier is; **anything else, including a DIRECTORY → `{ kind: "unresolvable", reason: \`unsupported module shape for ${spec}\` }`**. Never call `factsFor` on the last two, so a directory can no longer reach `readFileSync` and throw `EISDIR` — probe §3.9 measures that crash today. Do NOT widen `resolveSpecifier`'s candidate list; an extensionless `.mjs` specifier stays unresolved and pure, filed as spec §4 limit 5.
+  3. Add `resolveExport(facts, exportName, active, done)` — **the same four-parameter signature the Interfaces block declares and Task 2 consumes**; a `visited` variant appeared in a round-1 draft and is not implementable against §2.5's active/done pair. **Consult `exports` FIRST and never `extents` on its own** — `extents` is reached only through an entry that has already established the name is exported. A local name resolves through module-scope `extents`; a recorded node resolves to `{ kind: "extent", nodes: [node] }`; a name that is a NON-namespace entry in `facts.imports` resolves to `{ kind: "forward", … }` (Task 2 follows it; until then treat `forward` as `unresolvable` with reason `forwarded export (not yet followed)`); a name that is a NAMESPACE entry resolves to `{ kind: "unresolvable", reason: "local re-export of a namespace binding" }`, because `export { ns }` exports the namespace object rather than a target export and forwarding it would answer `noSuchExport` and go silently pure (spec §2.2 E2, probe §3.9, population 0); a name in neither map resolves to `{ kind: "noSuchExport" }`, which is PURE on a direct request and adds no reason (spec §2.1).
+  4. Classify the resolved target **before any read**, three ways (spec §2.4): extension in `LANGUAGE_EXTENSIONS` → analyze as today; extension in `DATA_EXTENSIONS` → `data`, pure exactly as a bare specifier is; **anything else, including a DIRECTORY → `{ kind: "unresolvable", reason: \`unsupported module shape for ${spec}\` }`**. Never call `factsFor` on the last two, so a directory can no longer reach `readFileSync` and throw `EISDIR` — probe §3.9 measures that crash today. Do NOT widen `resolveSpecifier`'s candidate list. **But the miss is no longer silent** (spec §2.4b, which CLOSED the round-3 limit 5): an in-repo specifier — one starting `.`, `..` or `@/` — that fails to resolve reports `{ kind: "unresolvable", reason: \`unresolved in-repo specifier ${spec}\` }`, while a BARE specifier stays pure by L-2. Split on the specifier SHAPE, never on the null, because `resolveSpecifier` returns `null` for both.
   5. Change `reaches` to return `Reach`, routing every `{ kind: "unresolvable", reason }` into `reasons`. **The path names the module the unresolvable was FOUND in, not the module being visited from** (spec §2.6 item 2): an unfollowable re-export is a defect of the BARREL, and naming the importing test file sends the reader to the wrong file. Task 3's `detail` assertion depends on this.
   6. Update BOTH `reaches` call sites in `classifyTests`: the test-extent call takes `.verdict` and merges `.reasons`; the hook loop compares `.verdict === "environment-touching"` and merges `.reasons` too. Merge into `detail`, de-duplicated, alongside `ownUnresolved`. A test with non-empty `reasons` whose verdict is not `environment-touching` classifies `unclassifiable`.
   7. Delete `moduleScopeExtent`.
@@ -740,6 +788,47 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     ).toBe("environment-touching");
   });
 
+  it("E5: `export { x as default } from` forwards named-to-DEFAULT", () => {
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel: `export { spawnHelper as default } from "__MODULE_helper__";` },
+        `import runIt from "__MODULE_barrel__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E2: an import ALIAS then a local export forwards by the IMPORTED name", () => {
+    // A resolver forwarding by the LOCAL name asks the target for `h`, gets
+    // noSuchExport, and goes silently pure. The plain import-then-export case
+    // cannot catch that, because there the two names coincide.
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          barrel: `import { spawnHelper as h } from "__MODULE_helper__";
+                   export { h };`,
+        },
+        `import { h } from "__MODULE_barrel__";
+         it("x", () => { h(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E2: a DEFAULT import then a local export forwards as `default`", () => {
+    expect(
+      verdictWithModules(
+        {
+          helper: `${SPAWNER}\nexport default spawnHelper;`,
+          barrel: `import runIt from "__MODULE_helper__";
+                   export { runIt };`,
+        },
+        `import { runIt } from "__MODULE_barrel__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
   it("a re-exported PURE binding stays free", () => {
     // The foil: following the edge must not mark the target's whole closure.
     expect(
@@ -770,25 +859,28 @@ describe("forwarded exports: a re-export is followed to its source", () => {
   // NOTE what this pair can and cannot discriminate (spec §2.5, AC-10): it
   // catches an `active` set that is never POPPED, which would report this legal
   // barrel shape as a re-export cycle. It does NOT catch removing `done`, and no
-  // fixture here pretends to — the star branch returns on the first arm that is
+  // fixture here pretends to. The star branch returns on the first arm that is
   // not noSuchExport, so the shared pair is never revisited inside one
   // resolution. `done` is a performance structure; AC-14 is its bound.
-  it("a PURE diamond resolves, and is not mistaken for a cycle", () => {
-    // The shared target must be PURE or the repeat never happens: with a
-    // touching target the first branch short-circuits on provenance and the
-    // second never reaches the shared module, so the case proves nothing.
-    // Probe §3.9 measures this exact shape.
+  it("a diamond whose shared target MISSES is not mistaken for a cycle (AC-10)", () => {
+    // The shared target must MISS the sought name (spec AC-10). Two earlier
+    // drafts gave `d` the export, and then the FIRST star arm returns an extent,
+    // §2.2's source-order rule short-circuits, the second arm never revisits
+    // (d, name), and the case passes even with an `active` set that is never
+    // popped. Here both arms reach (d, "absent"), the first completes with
+    // noSuchExport and POPS, and the second re-reaches the same pair: a
+    // never-popped set sees a back edge and falsely reports `re-export cycle`.
     expect(
       verdictWithModules(
         {
-          d: `export function x(): number { return 1; }`,
+          d: `export function present(): number { return 1; }`,
           b: `export * from "__MODULE_d__";`,
           c: `export * from "__MODULE_d__";`,
           a: `export * from "__MODULE_b__";
               export * from "__MODULE_c__";`,
         },
-        `import { x } from "__MODULE_a__";
-         it("t", () => { x(); });`,
+        `import { absent } from "__MODULE_a__";
+         it("t", () => { void absent; });`,
       ),
     ).toBe("environment-free");
   });
@@ -862,7 +954,9 @@ git commit -m "fix(mutation): follow forwarded exports across module boundaries"
 
 ### Task 3: The declined forms are REPORTED, not passed
 
-**Spec §2.4b is this task's centre of gravity.** It replaced the round-3 enumeration of four accepted dynamic spellings with ONE rule — a module reference the resolver cannot bind to a member-precise in-repo edge is REPORTED — after round-4 review listed six more shapes the enumeration missed. Write the cases as one `it.each` over §2.4b's table so a seventh shape lands in the rule rather than needing a seventh fixture:
+**Spec §2.4b is this task's centre of gravity.** It replaced the round-3 enumeration of four accepted dynamic spellings with ONE rule, a module reference the resolver cannot bind to a member-precise in-repo edge is REPORTED, after round-4 review listed six more shapes the enumeration missed.
+
+**Step 1 authors BOTH describe blocks below and Step 3 implements BOTH**; a round-1 draft left this first block outside every checkbox, which meant AC-5c was neither authored nor implemented while the task still claimed it. Write the cases as one `it.each` over §2.4b's table so a seventh shape lands in the rule rather than needing a seventh fixture:
 
 ```ts
 const SPAWNS = `import { spawnSync } from "node:child_process";
@@ -875,7 +969,15 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     ["embedded: .then destructure", `it("x", () => { void import("__MODULE_helper__").then(({ spawner }) => spawner()); });`],
     ["bare side-effect dynamic", `it("x", async () => { await import("__MODULE_helper__"); });`],
   ])("an unmodelled runtime reference REPORTS: %s", (_label, testSrc) => {
-    expect(verdictWithModules({ helper: SPAWNS }, testSrc)).toBe("unclassifiable");
+    // Assert the REASON, not only the verdict. A generic or misattributed
+    // reason satisfies a verdict-only assertion while violating AC-5c, and the
+    // whole point of REPORTING is that the reader is told WHICH construct and
+    // WHICH module. Spec §2.6 item 2: the path names the module the construct
+    // was FOUND in.
+    const c = classificationWithModules({ helper: SPAWNS }, testSrc);
+    expect(c?.verdict).toBe("unclassifiable");
+    expect(c?.detail).toMatch(/dynamic import|side-effect|unresolved in-repo specifier/);
+    expect(c?.detail).toMatch(/helper/);
   });
 
   it("an EXPORTED embedded dynamic import REPORTS through the importer", () => {
@@ -900,7 +1002,7 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
 
   it("an in-repo specifier that does NOT resolve REPORTS", () => {
     // Extensionless `./h` for a `.mjs` sibling. resolveSpecifier's candidates are
-    // NOT widened (spec §2.4b) — the miss is reported instead of passed as pure.
+    // NOT widened (spec §2.4b): the miss is reported instead of passed as pure.
     expect(
       verdictWithModules(
         { "helper.mjs": SPAWNS },
@@ -909,7 +1011,7 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     ).toBe("unclassifiable");
   });
 
-  it("a BARE unresolved specifier stays FREE — L-2 is unchanged", () => {
+  it("a BARE unresolved specifier stays FREE, L-2 is unchanged", () => {
     // The foil that stops the rule swallowing node_modules. Without it, §2.4b
     // would report every third-party import in the corpus.
     expect(
@@ -917,7 +1019,7 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     ).toBe("environment-free");
   });
 
-  it("a LOCAL dynamic namespace resolves — the discriminating foil", () => {
+  it("a LOCAL dynamic namespace resolves, the discriminating foil", () => {
     // §2.3 binds this member-precisely and AC-2b pins it. The EXPORTED
     // spellings are NOT foils: §2.2 REPORTS them, because once `ns` crosses a
     // module boundary the importer holds a promise, not a namespace. A round-4
@@ -936,7 +1038,7 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     ["const ns = await import(); export { ns }", `const ns = await import("__MODULE_helper__");\nexport { ns };`, "ns"],
     ["const { spawner } = await import(); export { spawner }", `const { spawner } = await import("__MODULE_helper__");\nexport { spawner };`, "spawner"],
   ])("an EXPORTED dynamic binding REPORTS: %s (spec §2.2)", (_l, barrel, name) => {
-    // Each imports the name its own barrel exports — a fixture importing a name
+    // Each imports the name its own barrel exports. A fixture importing a name
     // the barrel lacks would be pure for a test-local reason and never go green.
     expect(
       verdictWithModules(
@@ -957,7 +1059,7 @@ Spec §2.2's declined list and §4 limits 1, 2 and 4. **Scope note:** the canoni
 
 **Interfaces:** Consumes `resolveExport`, `Reach`, `classificationWithModules`. Produces no new helper — this task only makes the remaining declined forms resolve to `unresolvable` with their own reason strings.
 
-- [ ] **Step 1: Write the failing tests.**
+- [ ] **Step 1: Write the failing tests — BOTH blocks: the §2.4b runtime-reference block above AND the declined-export-form block here.**
 
 ```ts
 describe("declined export forms: recognized, unresolvable, and REPORTED", () => {
@@ -1064,6 +1166,8 @@ npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export for
 Expected: a non-zero FAILING count. The five reporting cases classify `environment-free` — each resolves to `noSuchExport`, which Task 1 makes pure — except `export { ns }`, which Task 1 Step 4.3 already reports, so that one is GREEN on arrival and is a regression pin rather than a red. Both foils are already green.
 
 - [ ] **Step 3: Implement.** In `moduleFacts`, record the declined forms explicitly so they resolve to `unresolvable` with their own reasons rather than falling through to `noSuchExport`: an `ExportDeclaration` whose clause is a `NamespaceExport` (`export * as ns from`); an `ExportAssignment` with `isExportEquals === true` (`export =`); and a `ModuleDeclaration` carrying an `export` modifier (`export namespace` / `export module`). E1's predicate is already the four registered declaration kinds — Task 1 Step 4.2 writes it that way — so nothing is narrowed here; that is why `export namespace` reaches this task's rule at all rather than resolving to an empty extent.
+
+  **Implement spec §2.4b's rule in this same step**, since Step 1 authored its block: in `reaches`/`moduleFacts`, a literal `import()` whose enclosing node is NOT a direct local variable-declaration initializer — assignment position, embedded in a larger expression, or a bare statement — reports `{ kind: "unresolvable", reason: \`unbindable dynamic import of ${spec}\` }`; an in-repo static `import "./x"` with NO import clause reports likewise; an EXPORTED dynamic binding reports (spec §2.2); and an in-repo specifier that does not resolve reports (Task 1 Step 4.4). Live-domain population of every row is ZERO (spec §3.13), so `_metaPremiseContract` must stay green with no declared count moving — if one moves, the rule over-reached and the task stops.
 
   The unfollowable re-export needs care, because `resolveSpecifier` returns `null` for TWO different things: a relative or `@/` specifier that does not exist, and a BARE specifier, which must stay pure by L-2 (spec §4 limit 6's neighbour). **Split by specifier SHAPE, not by the null**: only a specifier starting `.` or `@/` becomes `{ kind: "unresolvable", reason: \`unfollowable re-export of ${exportName} from ${spec}\` }`; a bare specifier stays pure exactly as today. `export { ns }` over a namespace binding is already handled by Task 1 Step 4.3.
 
@@ -1233,7 +1337,7 @@ describe("namespace bindings: member-precise, and nothing else", () => {
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "namespace bindings"
 ```
 
-Expected: a non-zero FAILING count. Red: both member cases, the dynamic namespace case, and the three reporting cases — six. Already green, as foils: the dynamic destructured case, `pureOne`, both AC-10b cases and both provenance-module cases — six. Record that split; a foil already green is what makes the reds meaningful.
+Expected: a non-zero FAILING count. Red: both member cases, the dynamic namespace case, the three reporting cases, **and BOTH AC-2c ordering cases — eight**. A round-1 draft said six and omitted the ordering pair, reasoning that only one order can expose a member-blind `bindingKey`; that is true AFTER the member-precise binding lands, and false before it. Right now neither namespace member resolves at all, so both orders are `environment-free` and both are red. Already green, as foils: the dynamic destructured case, `pureOne`, both AC-10b cases — **four**. Record that split; a foil already green is what makes the reds meaningful, and a red transcript that miscounts is how a red gets accepted for the wrong cause.
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`:
 
@@ -1363,13 +1467,20 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
     ).toBe("environment-touching");
   });
 
-  it("a TOP-LEVEL hook holding a construct reports (AC-11)", () => {
-    expect(
-      verdict(`const specifier = "./x" + String(1);
-        beforeAll(async () => { await import(specifier); });
-        it("x", () => { expect(1).toBe(1); });`),
-    ).toBe("unclassifiable");
-  });
+  it.each(["beforeEach", "beforeAll", "afterEach", "afterAll"])(
+    "a TOP-LEVEL %s holding a construct reports (AC-11)",
+    (hook) => {
+      // AC-11 requires this separately for all four registrars, not just
+      // beforeAll: probe §3.11 row D measures a top-level afterAll free today
+      // exactly as beforeEach is, so a single-registrar block would read as
+      // complete while leaving half the defect live.
+      expect(
+        verdict(`const specifier = "./x" + String(1);
+          ${hook}(async () => { await import(specifier); });
+          it("x", () => { expect(1).toBe(1); });`),
+      ).toBe("unclassifiable");
+    },
+  );
 
   it("a TOP-LEVEL hook with a PURE body stays free", () => {
     // The foil: attaching top-level hooks must not mark every test in every
@@ -1406,12 +1517,12 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
     // The criterion AC-11's pure-hook foil cannot catch. hookBodies walks with
     // ts.forEachChild (premiseScan.ts:895), so a seed written as one recursive
     // call over the SourceFile attaches EVERY hook in the file to EVERY test in
-    // it — turning this pure sibling environment-touching. A FALSE POSITIVE,
+    // it, turning this pure sibling environment-touching. A FALSE POSITIVE,
     // the direction spec §0 forbids trading into.
     //
     // Read by NAME, not by first-classification: verdictWithModules returns the
     // FIRST test (inA), which is environment-touching before the repair, after
-    // it, AND under the wrong recursive implementation — so a fixture written
+    // it, AND under the wrong recursive implementation, so a fixture written
     // that way cannot fail for the reason it claims. inB is the discriminating
     // assertion and it is only reachable through the full list.
     //
@@ -1435,6 +1546,53 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
     );
     expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
     expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+  });
+
+  it("AC-12b: a PURE top-level hook beside a spawning nested one", () => {
+    // The second shape AC-12b requires. The top-level hook attaches to BOTH
+    // tests, so if the seed were to carry the nested hook's provenance with it,
+    // inB would flip. Pinning the pure top-level hook separately is what shows
+    // the seed adds the hook without adding the nested one's reach.
+    const all = classificationsWithModules(
+      {
+        helper: `import { spawnSync } from "node:child_process";
+          export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+      },
+      `import { spawnHelper } from "__MODULE_helper__";
+       beforeEach(() => { void 0; });
+       describe("A", () => {
+         beforeEach(() => { spawnHelper(); });
+         it("inA", () => { expect(1).toBe(1); });
+       });
+       describe("B", () => { it("inB", () => { expect(1).toBe(1); }); });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+  });
+
+  it("AC-12b: the SHARED-OUTER leak is pinned at its CURRENT value", () => {
+    // Spec §4 limit 14 and AC-12b: under a shared outer describe, hookBodies'
+    // recursion ALREADY leaks branch A's hook to sibling B, and this arc does
+    // not fix it (repairing it moves live verdicts and breaks AC-1). Asserting
+    // the leaked value pins "this arc did not WIDEN it", without this case a
+    // seed change could deepen the leak with nothing going red.
+    const all = classificationsWithModules(
+      {
+        helper: `import { spawnSync } from "node:child_process";
+          export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+      },
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe("A", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("inA", () => { expect(1).toBe(1); });
+         });
+         describe("B", () => { it("inB", () => { expect(1).toBe(1); }); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    // The documented pre-existing FALSE POSITIVE, asserted as-is (probe §3.11 row A).
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-touching");
   });
 
   it("a hook reaching PROVENANCE still classifies touching (C6 foil)", () => {
@@ -1553,6 +1711,14 @@ git commit -m "fix(mutation): propagate unresolvable constructs from helpers, ho
 
 **Interfaces:** Consumes `enumerateSites` / `siteId` (`tests/mutation/source/operators.ts`). Produces the score and unaccepted-survivor set the round-1 diff brief must state.
 
+- [ ] **Step 0: Observe the task's `red=` FIRST, before changing anything.**
+
+```bash
+pnpm heavy pnpm mutation:guards
+```
+
+Expected: **FAIL**, with `stale-ledger-row` for `premiseScan`. Tasks 1-5 moved every line below their first hunk and the accepted `siteId`s are LINE-keyed, so the ledger holds stale rows on entry to this task. A round-1 draft ran this command only at Step 5, AFTER re-deriving and retiring — so the named `red=` was never observed red before being made green, which is the same-command red/green contract this plan is written under. Record the failing condition and the rows it names.
+
 - [ ] **Step 1: Measure the corpus pass and compare against Task 0's baseline as a RATIO.**
 
 ```bash
@@ -1571,6 +1737,7 @@ console.log(`suites=${suites.length} tests=${n} corpus-pass=${((Date.now() - t0)
 Make it a COMMAND that exits non-zero, not a figure to eyeball — a reading instruction is the defect AC-1 was repaired to remove. Task 0 Step 4 writes its figure to a gitignored scratch file under the worktree's probe directory, `corpus-pass-baseline.txt`; this step reads it:
 
 ```bash
+PROBE_DIR="$(git rev-parse --show-toplevel)/.claude/probe"   # defined in Task 0 Step 4
 BASE=$(cat "$PROBE_DIR/corpus-pass-baseline.txt")
 npx tsx -e '
 import { classifyTests } from "./tests/mutation/source/premiseScan";
@@ -1675,6 +1842,8 @@ ls docs/review-rounds/fix/premisescan-import-edges/
 Expected: all PASS. **Read every file in that directory, not one** — Task 0's merge moved the merge-base, so the arc's rows are split across a pre-merge and a post-merge base sha. If `_metaReviewRoundEconomy` reds, a stage reached `ROUND_THRESHOLD` counted rounds and the arc owes a filing beside the rows that triggered it. A `no_verdict` dispatch is NOT a counted round.
 
 - [ ] **Step 5: Commit — this must be the PR's LAST commit**, so the IN PROGRESS marker never reaches `main` (AGENTS.md invariant 12).
+
+**Sequencing, because "last commit" and "Task 7" are not the same moment.** In the autonomous pipeline the whole-diff cross-model review runs AFTER implementation, and its repair commits land after this task's other steps. So **Task 7 Step 5 is deferred until that review converges to APPROVE**: run Steps 1-4 in place, then hold the marker-removal commit until the diff review is done and any repair commits are in. Two consequences a round-1 draft missed — the marker-removal commit must be genuinely final or the origin-existence rule in `tests/docs/_metaLedgerInProgress.test.ts` fails on `main`; and Step 4 must re-read `docs/review-rounds/` at that point, because the diff-stage rows do not exist yet when Steps 1-4 first run and a stage may cross `ROUND_THRESHOLD` on the strength of them.
 
 ```bash
 git add BACKLOG.md BACKLOG-archive.md docs/review-rounds/
