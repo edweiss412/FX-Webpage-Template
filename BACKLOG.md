@@ -1126,6 +1126,30 @@ than by role precisely because they are all present. `aria-hidden={!isActive}` i
 change, deferred only because it moves several existing role-based queries and belongs with the
 current-slide announcement decision rather than ahead of it.
 
+### BL-PROBE-RECORD-COVERAGE-TABLE — a probe record's universal claim should be checkable against its harness source
+
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec round-economy filing at `docs/review-rounds/fix/premisescan-import-edges/daa53759a953.md`) · **Effort:** S
+
+Three consecutive spec rounds on one arc raised the same defect: a probe record asserting "every live edge resolves", then "every VALUE edge", then dynamic-import coverage — each time over a harness that walked strictly less than the prose claimed, and each time inside the repair of the previous instance. **Probe evidence:** rounds R2 F2, R3 F1 and R4 F2 of that arc, each reproduced against the target tree; the round-4 disposition (a per-edge-class YES/NO table checked against the harness source, with the uncovered populations counted) is the form that terminated it.
+
+Proposal: require any probe record whose conclusion quantifies universally to carry that coverage table, as a `docs/agents/spec-self-review.md` rule. The table is cheap and it converts an unfalsifiable summary into a claim a reviewer can check in one pass.
+
+### BL-CODEX-GUARD-CITATION-GATE — CITATION_MALFORMED should block the dispatch, not become a review finding
+
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, same filing) · **Effort:** S
+
+The codex-guard `--lint-doc` arm already detects pathless `:NN` citations and attaches the report to the brief. On that arc it detected all three instances of round-4 finding 6, and they still cost a round, because nothing consumed the signal before dispatch. **Probe evidence:** the round-4 reviewer quotes the lint report as independently reporting all three as `CITATION_MALFORMED`.
+
+Proposal: make `CITATION_MALFORMED` a dispatch-blocking condition in `scripts/codex-guard.mjs`, the way `~/.claude/hooks/review-convergence-gate.sh` blocks a brief with no consequence bound — a detected-but-unconsumed signal is the same defect shape the convergence gate exists to close.
+
+### BL-SPEC-PIN-VS-BRANCH-HEAD — a spec pinning an unmerged commit should be checked against that branch's head at dispatch time
+
+**Status:** OPEN · **Severity:** LOW · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, same filing) · **Effort:** S
+
+A spec designed against an unmerged PR pinned `ac9a40cd8`; the branch advanced five commits mid-review, and the document ended up citing two different trees at once — one limit describing a parser behaviour the target no longer had, and one limit citing a comment only the newer commits contained. **Probe evidence:** round-3 finding 5, plus `git log ac9a40cd8..origin/fix/scanner-scope-totality` showing the five commits and `premiseScan.ts:61` showing the changed parse-kind selection.
+
+Proposal: when a `--lint-doc` document names both a branch and a commit sha, compare the sha to that branch's current head and surface the drift at dispatch time. Cheap, and it catches the class before a reviewer spends a round on it.
+
 ### BL-PREMISESCAN-IMPORT-EDGE-FIDELITY — ordinary import forms and helper-body unclassifiable constructs silently lose environment reach
 
 **Status:** IN PROGRESS · **Branch:** fix/premisescan-import-edges · **Severity:** MEDIUM (both halves are false NEGATIVES — the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-15 (`docs/scanner-scope-totality-spec`, spec review R1 findings 2 and 3 — reviewer-probed, transcripts below) · **Effort:** M
