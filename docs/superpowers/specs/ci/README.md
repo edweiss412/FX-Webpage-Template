@@ -29,4 +29,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-09-app-e2e-batch1-design.md`](./2026-08-09-app-e2e-batch1-design.md) | 2026-08-09 |
 | [`2026-08-09-round-economy-followups-2.md`](./2026-08-09-round-economy-followups-2.md) | 2026-08-09 |
 | [`2026-08-14-guard-completeness-wave-design.md`](./2026-08-14-guard-completeness-wave-design.md) | 2026-08-14 |
+| [`2026-08-15-mutation-browser-mode.md`](./2026-08-15-mutation-browser-mode.md) | 2026-08-15 |
 | [`probes`](./probes) | 2026-08-04 |
