@@ -72,3 +72,112 @@ export function bandFor(tenths: number): Band {
   if (tenths >= ELIGIBLE_AT) return "eligible";
   return "below";
 }
+
+// ---------------------------------------------------------------------------
+// §4.5 precedence
+// ---------------------------------------------------------------------------
+
+export type Verdict =
+  | "NOT-AN-ARC"
+  | "UNOWNED"
+  | "UNDETERMINED"
+  | "HOLD"
+  | "WAIT"
+  | "COMPACT"
+  | "FORCE";
+
+/** Position cost, §4.4. Ordered cheapest-last for readability, not compared ordinally. */
+export type PositionCost = "HardWait" | "High" | "Low" | "Lowest";
+
+/**
+ * One pane, with every fact ALREADY RESOLVED by the injected surface.
+ *
+ * `classify` is pure over this. Resolving the facts — running `gh`, reading the
+ * marker, walking the corpus — belongs to the surface (Tasks 3-5), which is what
+ * keeps this function testable without a live herdr, git or network.
+ */
+export type ObservedPane = {
+  paneId: string;
+  /** null when the pane carries no agent label at all. */
+  branch: string | null;
+  /** true when another roster entry shares this pane's agent name. */
+  duplicateName: boolean;
+  status: "idle" | "working" | "blocked" | "done" | "unknown";
+  owned: boolean;
+  contested: boolean;
+  /** null when the accept-set rejected an input; the string names the offending field. */
+  rejectedField: string | null;
+  sessionMismatch: boolean;
+  ghFault: boolean;
+  blockedOn: string;
+  tenths: number | null;
+  position: PositionCost;
+};
+
+export type Classification = {
+  verdict: Verdict;
+  /** Which of the twelve rules decided. Reported so a report can show its reasoning. */
+  rule: number;
+  /** Later rules that ALSO matched. Ordering cases assert against this. */
+  alsoMatched: number[];
+  /** What banding alone would have produced, ignoring rules 1-8. */
+  wouldBandTo: Verdict;
+};
+
+function bandVerdict(tenths: number | null, position: PositionCost): Verdict {
+  if (tenths === null) return "UNDETERMINED";
+  if (tenths < ELIGIBLE_AT) return "HOLD";
+  if (tenths >= CRITICAL_AT) return position === "High" ? "WAIT" : "FORCE";
+  return position === "Low" || position === "Lowest" ? "COMPACT" : "WAIT";
+}
+
+/** Spec §4.5. Ordered; FIRST MATCH WINS. */
+export function classify(pane: ObservedPane): Classification {
+  const matched: number[] = [];
+  const hit = (rule: number, cond: boolean): void => {
+    if (cond) matched.push(rule);
+  };
+
+  hit(1, pane.branch === null);
+  hit(2, pane.branch !== null && pane.duplicateName);
+  hit(3, !pane.owned || pane.contested);
+  hit(4, pane.rejectedField !== null);
+  hit(5, pane.sessionMismatch);
+  hit(6, pane.ghFault);
+  hit(7, pane.status === "blocked" || pane.status === "unknown" || pane.blockedOn !== "");
+  hit(8, pane.position === "HardWait");
+
+  const wouldBandTo = bandVerdict(pane.tenths, pane.position);
+  const verdictFor: Record<number, Verdict> = {
+    1: "NOT-AN-ARC",
+    2: "UNDETERMINED",
+    3: "UNOWNED",
+    4: "UNDETERMINED",
+    5: "UNDETERMINED",
+    6: "UNDETERMINED",
+    7: "WAIT",
+    8: "WAIT",
+  };
+
+  const first = matched[0];
+  if (first !== undefined) {
+    const verdict = verdictFor[first];
+    if (verdict === undefined) throw new Error(`no verdict for rule ${first}`);
+    return { verdict, rule: first, alsoMatched: matched.slice(1), wouldBandTo };
+  }
+
+  // Rules 9-12: banding. Reached only when every validation rule stayed quiet.
+  if (pane.tenths === null) throw new Error("unreachable: a null gauge is rejected by rule 4");
+  if (pane.tenths < ELIGIBLE_AT) return { verdict: "HOLD", rule: 9, alsoMatched: [], wouldBandTo };
+  if (pane.tenths >= CRITICAL_AT) {
+    return pane.position === "High"
+      ? { verdict: "WAIT", rule: 11, alsoMatched: [], wouldBandTo }
+      : { verdict: "FORCE", rule: 10, alsoMatched: [], wouldBandTo };
+  }
+  return {
+    verdict: bandVerdict(pane.tenths, pane.position),
+    rule: 12,
+    alsoMatched: [],
+    wouldBandTo,
+  };
+}
