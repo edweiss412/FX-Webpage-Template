@@ -155,6 +155,14 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // process.env. The one suite in this arc that DOES spawn — the contrast
   // suite's tailwindcss compile — is not a mutation suitePath and is therefore
   // not walked here.
+  // The near-miss detector's two suites (spec parser/2026-08-15-field-near-miss-detector-
+  // design.md, AC-N7). Both read the live tree through `node:fs` — the blocks directory, the
+  // repo-wide call-site walk, the committed 65-row baseline — which is declared 0 by the same
+  // rule the corpus suite above is: reading a tracked file is not provenance. Neither spawns a
+  // child process, imports ledger-git, or reads `process.env`; the baseline suite's regen path
+  // is env-gated but the gate is read by the SCRIPT, not the suite.
+  "tests/parser/fieldNearMiss.test.ts": 0,
+  "tests/parser/fieldNearMissBaseline.test.ts": 0,
   "tests/styles/interactiveScanCore.test.ts": 0,
   "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
   "tests/styles/_metaTapTargetFloor.test.ts": 0,
