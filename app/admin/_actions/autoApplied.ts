@@ -37,12 +37,14 @@ import {
   type AcknowledgeChangesResult,
 } from "@/lib/sync/holds/acknowledgeChanges";
 import { undoChange, type UndoChangeResult } from "@/lib/sync/holds/undoChange";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 /** Accept a SINGLE auto-applied change from the dashboard strip. */
 export async function acceptChangeAction(
   _prev: AcknowledgeChangesResult | null,
   formData: FormData,
 ): Promise<AcknowledgeChangesResult> {
+  await assertSameOriginServerAction("acceptChangeAction", "admin.dashboard.autoApplied.accept");
   const admin = await requireAdminIdentity();
   const showId = String(formData.get("showId") ?? "");
   const changeLogId = String(formData.get("changeLogId") ?? "");
@@ -78,6 +80,7 @@ export async function acceptAllAction(
   _prev: AcknowledgeChangesResult | null,
   formData: FormData,
 ): Promise<AcknowledgeChangesResult> {
+  await assertSameOriginServerAction("acceptAllAction", "admin.dashboard.autoApplied.acceptAll");
   const admin = await requireAdminIdentity();
   const showId = String(formData.get("showId") ?? "");
   const acceptableIds = String(formData.get("ids") ?? "")
@@ -111,6 +114,7 @@ export async function undoFromDashboardAction(
   _prev: UndoChangeResult | null,
   formData: FormData,
 ): Promise<UndoChangeResult> {
+  await assertSameOriginServerAction("undoFromDashboardAction", "admin.dashboard.autoApplied.undo");
   const admin = await requireAdminIdentity();
   const changeLogId = String(formData.get("changeLogId") ?? "");
   const result = await undoChange(changeLogId);

@@ -107,9 +107,6 @@ const READ_ONLY_EXEMPT = [
  * until the picker task migrates them to the designated export.
  */
 const PENDING_GATE: readonly string[] = [
-  "app/admin/_actions/autoApplied.ts",
-  "app/admin/actions.ts",
-  "app/admin/dev/actions.ts",
   "app/admin/onboarding/_actions/roleTokenStaged.ts",
   "app/admin/onboarding/_actions/useRawStaged.ts",
   "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx",

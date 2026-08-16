@@ -44,7 +44,17 @@ import { parseAndStage, resetDevSchema } from "@/app/admin/dev/actions";
 const FIXTURE_HAPPY = "2026-03-rpas-central-four-seasons.md";
 const ACTIONS_SOURCE_PATH = join(process.cwd(), "app/admin/dev/actions.ts");
 
+function firstStatementsOfExportedAction(name: string, count: number): string[] {
+  const lines: string[] = [];
+  for (let i = 0; i < count; i += 1) lines.push(executableLineOfExportedAction(name, i));
+  return lines;
+}
+
 function firstStatementOfExportedAction(name: string): string {
+  return executableLineOfExportedAction(name, 0);
+}
+
+function executableLineOfExportedAction(name: string, index: number): string {
   const source = stripCommentsForFile(
     readFileSync(ACTIONS_SOURCE_PATH, "utf8"),
     ACTIONS_SOURCE_PATH,
@@ -76,7 +86,7 @@ function firstStatementOfExportedAction(name: string): string {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  return executableLines[0] ?? "";
+  return executableLines[index] ?? "";
 }
 
 /**
@@ -148,21 +158,73 @@ afterEach(async () => {
   await admin.rpc("dev_truncate_all");
 });
 
-describe("defense-in-depth: requireDeveloper() is the first line of every /admin/dev server action", () => {
-  test("every exported /admin/dev action has await requireDeveloper() as its first executable statement", () => {
-    for (const actionName of [
-      "parseAndStage",
-      "parseAndStageFormAction",
-      "getStagedResult",
-      "resetDevSchema",
-      "resetDevSchemaFormAction",
-      "listFixtures",
-    ]) {
+/**
+ * The DESTRUCTIVE dev actions now open with the same-origin gate, which refuses
+ * a forged cross-site POST before ANY auth I/O
+ * (docs/superpowers/specs/2026-08-16-server-action-origin-sweep-design.md §3.3).
+ * `requireDeveloper()` is therefore the first AUTH statement rather than the
+ * first statement outright, and the pair is what this guard pins.
+ *
+ * The two read-only actions are deliberately UNGATED (§3.5): a cross-site POST
+ * to them mutates nothing, and both are awaited during the dev panel's own
+ * render, where a top-level navigation from an external link carries
+ * `sec-fetch-site: cross-site` — gating them would 403 the page. So their first
+ * executable line is still `await requireDeveloper();`, and the split below is
+ * the contract, not a carve-out: moving an action across it fails here.
+ */
+const DEV_ACTIONS_GATED = [
+  "parseAndStage",
+  "parseAndStageFormAction",
+  "resetDevSchema",
+  "resetDevSchemaFormAction",
+] as const;
+const DEV_ACTIONS_READ_ONLY = ["getStagedResult", "listFixtures"] as const;
+
+describe("defense-in-depth: requireDeveloper() is the first auth line of every /admin/dev server action", () => {
+  test("every DESTRUCTIVE /admin/dev action opens with the same-origin gate, then requireDeveloper()", () => {
+    for (const actionName of DEV_ACTIONS_GATED) {
+      const [gateLine, authLine] = firstStatementsOfExportedAction(actionName, 2);
+      expect(
+        gateLine,
+        `${actionName} must refuse a cross-origin request before any auth I/O; the same-origin gate is the first executable line.`,
+      ).toMatch(
+        new RegExp(`^await assertSameOriginServerAction\\("${actionName}", "[a-zA-Z.]+"\\);$`),
+      );
+      expect(
+        authLine,
+        `${actionName} must call requireDeveloper() directly as its first AUTH line; delegating to another gated helper is not enough for the server-action invariant.`,
+      ).toBe("await requireDeveloper();");
+    }
+  });
+
+  test("the read-only /admin/dev actions still open with requireDeveloper() and take no gate", () => {
+    for (const actionName of DEV_ACTIONS_READ_ONLY) {
       expect(
         firstStatementOfExportedAction(actionName),
         `${actionName} must call requireDeveloper() directly as its first executable line; delegating to another gated helper is not enough for the server-action invariant.`,
       ).toBe("await requireDeveloper();");
     }
+  });
+
+  test("both lists name only actions this module actually exports", () => {
+    // Keeps a renamed or deleted action from silently going unchecked. This is
+    // a subset check, NOT a completeness one: the pair of lists is this guard's
+    // original scope and does not claim to cover every export of the module
+    // (the four attention-scenario actions gate on `requireDeveloperIdentity`
+    // and are covered by the structural origin-gate walk in
+    // tests/auth/_metaServerActionOriginGate.test.ts, which IS derived).
+    const source = stripCommentsForFile(
+      readFileSync(ACTIONS_SOURCE_PATH, "utf8"),
+      ACTIONS_SOURCE_PATH,
+    );
+    const exported = new Set(
+      [...source.matchAll(/export\s+async\s+function\s+(\w+)\b/g)].map((m) => m[1]),
+    );
+    expect(exported.size).toBeGreaterThan(0);
+    const missing = [...DEV_ACTIONS_GATED, ...DEV_ACTIONS_READ_ONLY].filter(
+      (name) => !exported.has(name),
+    );
+    expect(missing).toEqual([]);
   });
 
   test("parseAndStage() rejects without developer auth (gate aborts before any DB write)", async () => {
