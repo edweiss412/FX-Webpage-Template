@@ -19,13 +19,16 @@
  * strings below are the contract.
  */
 import "@testing-library/jest-dom/vitest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { AvatarMenu } from "@/components/auth/AvatarMenu";
 import { avatarColor } from "@/lib/crew/avatarColor";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const ROUTE = {
   slug: "east-coast",
@@ -307,5 +310,104 @@ describe("the transition inventory (spec §2.3)", () => {
     // …and the theme change SURVIVED the close, rather than being rolled back
     // with the menu state.
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+});
+
+describe("the persist-failure note", () => {
+  // theme-persistence-note Task N3 (spec §2.2; AC-1 / AC-4 / AC-6). The menu's
+  // theme row writes through the same hook the standalone toggle uses, so a
+  // device that cannot remember the choice has to say so HERE too — a note on
+  // one control only would leave the other silent for the identical failure.
+  function blockWrites(): void {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+  }
+
+  function allowWrites(): void {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      /* a working device */
+    });
+  }
+
+  function flipTheme(): void {
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-theme"));
+    });
+  }
+
+  const note = () => screen.getByTestId("theme-persist-note");
+
+  it("mounts the status region empty when the menu opens, before any failure (AC-4)", () => {
+    blockWrites();
+    renderMenu();
+    openMenu();
+
+    // Present BEFORE the failing activation. A region inserted at failure time
+    // announces nothing — the ReSyncButton trap, pinned.
+    expect(note()).toBeInTheDocument();
+    expect(note()).toHaveAttribute("role", "status");
+    expect(note().textContent).toBe("");
+  });
+
+  it("renders the note on a blocked write and leaves the menu open (AC-1)", () => {
+    blockWrites();
+    renderMenu();
+    openMenu();
+
+    flipTheme();
+
+    expect(note().textContent).toBe("This device won't remember this choice.");
+    // The absorb holds: the theme still applied, and the row did not close the menu.
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("keeps the note OUT of the role=menu element and its owned children (AC-6)", () => {
+    blockWrites();
+    renderMenu();
+    openMenu();
+    flipTheme();
+
+    const menu = screen.getByRole("menu");
+    expect(menu.contains(note())).toBe(false);
+    // `role="menu"` constrains what it owns; the note is a popover sibling.
+    expect(within(menu).queryByRole("status")).toBeNull();
+    expect(
+      [
+        ...within(menu).getAllByRole("menuitemcheckbox"),
+        ...within(menu).getAllByRole("menuitem"),
+      ].map((el) => el.getAttribute("data-testid")),
+    ).toEqual(["avatar-menu-theme", "avatar-menu-switch-person"]);
+  });
+
+  it("re-renders the note when the popover is closed and re-opened", () => {
+    blockWrites();
+    renderMenu();
+    openMenu();
+    flipTheme();
+    expect(note().textContent).toBe("This device won't remember this choice.");
+
+    act(() => fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" }));
+    expect(screen.queryByTestId("theme-persist-note")).toBeNull();
+
+    openMenu();
+    // Hook state lives on the component, not the popover: the device has not
+    // started remembering just because the menu closed.
+    expect(note().textContent).toBe("This device won't remember this choice.");
+  });
+
+  it("keeps the note through a repeated failure and clears it on recovery (AC-1, AC-3)", () => {
+    blockWrites();
+    renderMenu();
+    openMenu();
+
+    flipTheme();
+    flipTheme();
+    expect(note().textContent).toBe("This device won't remember this choice.");
+
+    allowWrites();
+    flipTheme();
+    expect(note().textContent).toBe("");
   });
 });

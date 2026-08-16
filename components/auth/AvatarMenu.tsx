@@ -57,7 +57,7 @@ import { Check, Moon, UserRoundCog } from "lucide-react";
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { avatarColor } from "@/lib/crew/avatarColor";
 import { cn } from "@/lib/ui/cn";
-import { useAppliedTheme } from "@/components/layout/useAppliedTheme";
+import { THEME_PERSIST_FAILED_NOTE, useAppliedTheme } from "@/components/layout/useAppliedTheme";
 
 /** The name substituted for a blank one, so the trigger is never unnamed. */
 export const CREW_MEMBER_FALLBACK = "Crew member";
@@ -93,7 +93,7 @@ const ITEM_COUNT = 2;
 export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }: AvatarMenuProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const { mounted, isDark, setTheme } = useAppliedTheme();
+  const { mounted, isDark, persistFailed, setTheme } = useAppliedTheme();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -367,6 +367,26 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
                 Not you? Switch person
               </button>
             </form>
+          </div>
+
+          {/*
+            SIBLING of the menu, never a child. `role="menu"` constrains the
+            elements it owns — the same ARIA required-owned-elements rule that
+            already forced `role="none"` onto the form above — and the popover
+            panel is used to hosting non-menuitem content (the identity header).
+
+            Always mounted while the popover is open, with only the TEXT
+            conditional: a live region inserted together with its message
+            announces nothing. The theme row deliberately keeps the menu open on
+            activation, so the note appears in place, under the row that just
+            failed to save.
+          */}
+          <div role="status" data-testid="theme-persist-note">
+            {persistFailed ? (
+              <p className="px-3 pb-1 text-xs/relaxed text-text-subtle">
+                {THEME_PERSIST_FAILED_NOTE}
+              </p>
+            ) : null}
           </div>
         </div>
       ) : null}
