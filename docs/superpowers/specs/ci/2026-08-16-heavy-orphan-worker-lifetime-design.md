@@ -504,10 +504,10 @@ export type CollectResult =
 /**
  * Whether a SlotSurvey can decide clause (c) at all.
  *
- * `undecidable` is the §4.4 collection-level case: an unreadable dir, or a slot whose metadata
- * did not yield a pid. The caller must reap NOTHING and exit non-zero. It is deliberately
- * NOT modelled as "zero holders": an empty readable dir is an ANSWER (nobody is exempt), an
- * unreadable one is the absence of an answer, and collapsing the two is the round-2 defect.
+ * False for the §4.4 rows the `Decidable?` column marks "no" — C3 and C5 — and those rows say what
+ * the caller must then do. It is deliberately NOT modelled as "zero holders", because C3 and C4
+ * are different conditions with different rows: one is the absence of an answer, the other is an
+ * answer. Collapsing them was the round-2 defect.
  */
 export function surveyIsDecidable(slots: SlotSurvey): boolean;
 ```
