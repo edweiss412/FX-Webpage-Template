@@ -224,7 +224,7 @@ Keyed on **structure**, never spelling:
   flight`, not as a fault.
 - A `gh` outcome, **in any of its three forms** — a parsed check state, the recognized no-PR
   signature (non-zero exit **and** stderr matching `no pull requests found for branch`), or a
-  fault. All three are *accepted observations*; the accept-set does not classify them. **Rule 5
+  fault. All three are *accepted observations*; the accept-set does not classify them. **Rule 6
   alone decides what a fault produces** (§4.5), so that rule stays reachable and independently
   testable. Round 3 found the previous wording consuming faults here, which made that rule dead
   code.
@@ -328,10 +328,8 @@ independently.
 ```
 panes:compact --checkpoint <target> --as <sessionId>
   0. revalidate: verdict is COMPACT|FORCE, purview resolves to <sessionId>, uncontested
-  1. mint a nonce that DIFFERS from the marker's current `checkpointNonce`
-     (a repeated value would let --compact accept the PREVIOUS checkpoint
-     before this prompt ever executes); send CHECKPOINT_TEXT carrying it;
-     send $'\r'                                                         [P1: queues if busy]
+  1. mint a fresh random nonce (128-bit, never reused); send CHECKPOINT_TEXT
+     carrying it; send $'\r'                                            [P1: queues if busy]
   2. record (target, nonce) under the orchestrator's state dir
   -> exits 0 having SENT, not having waited. The target executes when its turn ends.
 
@@ -339,21 +337,20 @@ panes:compact --compact <target> --as <sessionId>
   0. revalidate: same three conditions, fresh                            (closes F5)
   1. read the target's marker; require `checkpointNonce` == the recorded nonce
      mismatch or absent -> exit 1, send NOTHING                          (closes r3 F6)
-  2. compare-and-consume ATOMICALLY, as one operation on the record file:
-     a read-then-consume pair lets two overlapping invocations both pass
-     before either consumption is visible. Consume BEFORE sending, so a
-     crash costs a re-checkpoint rather than leaving a replayable record
-                                                                         (closes r4 F2, r5 F2)
+  2. consume the record BEFORE sending, so a crash costs a re-checkpoint
+     rather than leaving a replayable record                             (closes r4 F2)
   3. send '/compact'; send $'\r'                                         [P5, P7]
   -> exits 0 having SENT. No wait, no post-compact failure matrix.       (closes r3 F7)
 
 panes:compact --resume <target> --as <sessionId>
-  0. revalidate: §4.5 rules 1-7 must ALL not fire (so the pane is an arc, is
-     uniquely named, is owned by <sessionId> uncontested, is inside the
-     accept-set, matches its session, has a determinate gh outcome, and is
-     not blocked). Rules 8-12 are NOT applied: they band on pressure, and a
-     successful compaction is what drops pressure below eligibility.
-     any failure -> exit 1 naming it, send NOTHING                       (closes r4 F1, r5 F3)
+  0. revalidate: §4.5 rules 1-8 must ALL not fire. Rules 1-7 are the
+     validation observations; rule 8 (CI green, PR unmerged) is included
+     because it is pressure-INDEPENDENT -- round 6 found it excluded as
+     "banding" when it is nothing of the kind, so checks turning green
+     between compaction and resume would still have been resumed.
+     Rules 9-12 are NOT applied: those band on pressure, and a successful
+     compaction is exactly what drops pressure below eligibility.
+     any failure -> exit 1 naming it, send NOTHING            (closes r4 F1, r5 F3, r6 F1)
   1. send RESUME_TEXT; send $'\r'                                        [P6]
 ```
 
@@ -368,17 +365,25 @@ compaction: is this pane still mine, still an arc, still the session I checkpoin
 blocked. Round 4 found the previous version sending unconditionally, which would let a superseded
 pane be restarted against a worktree another session now owns.
 
-**The nonce is single-use, fresh, and consumed atomically.** Three properties, each closing a
-distinct replay:
+**The nonce is single-use and randomly minted, and that is deliberately all it is.**
+`--compact` consumes the record before sending, so a retry finds none and exits 1. The value is a
+fresh 128-bit random, never reused, so "differs from whatever is in the marker" is a consequence of
+minting rather than a rule to check.
 
-- **Single-use** — `--compact` consumes the record, so a retry finds none and exits 1 rather than
-  issuing a second `/compact`.
-- **Fresh** — the minted value must differ from the marker's current `checkpointNonce`. Without
-  that, re-checkpointing a pane mints the value already sitting in its marker, and `--compact`
-  would accept the *previous* checkpoint before the new prompt had executed.
-- **Atomic** — compare and consume are one operation on the record file. Read-then-consume lets two
-  overlapping invocations both pass before either consumption becomes visible, which is exactly the
-  case §7 limit 4's "at most one `/compact`" claim rests on.
+**It is NOT a cross-orchestrator exclusion mechanism, and this spec no longer claims it is.**
+Rounds 4, 5 and 6 each found a new race in a nonce that was accreting toward one — a replay, then
+freshness-versus-the-marker plus read-then-consume interleaving, then freshness-versus-an
+outstanding-record and cross-file landing order. Each repair widened the mechanism and the next
+round found the next corner, which is the ratchet the repair-direction rule exists to stop. The
+narrowing: **two orchestrators can both send `/compact` to one pane, and that is fine.** P7 and the
+probe pane measured the consequence directly — a second `/compact` on an already-compacted session
+is a near no-op, gauge `ctx ░░░░░` before and after. Buying "exactly one" would need consensus
+across two orchestrators' separate files, which is a distributed-systems problem this surface has
+no reason to solve.
+
+What the nonce still does, unchanged: prove that **this** orchestrator's checkpoint prompt was
+executed by the target before **this** orchestrator sends `/compact`. That is the property the
+feature actually needs, and it is local to one record file.
 
 **The nonce is what makes verification sound.** Round 3 showed that "marker mtime is newer and
 `next` is non-empty" passes on *any* concurrent marker write — a stage progression, a `blockedOn`
@@ -462,6 +467,13 @@ tree it was measuring, resetting its own counter. Purview state takes the same p
 **Disk-backed, deliberately.** The orchestrator is itself subject to compaction, and an in-context
 list of "panes I dispatched" is what a compaction eats.
 
+**A purview row is stale when its pane's branch changes.** Rows record `paneId`, `agentName` and
+`branch`; ownership resolves from `paneId`, but a row whose recorded `branch` does not match the
+pane's **current** agent name is **stale** and confers no ownership — the pane reports `UNOWNED`
+until re-registered. Round 6 found that reusing one terminal pane for a different branch otherwise
+left the former orchestrator owning, and able to drive, an arc it never dispatched. A markerless
+new worktree makes this the only check standing, since rule 5 no-ops without a `sessionId`.
+
 **Ownership is detected, not enforced.** Nothing stops two orchestrators writing the same `paneId`.
 The classifier reads **every** file in the purview directory, and a pane claimed by more than one
 yields `UNOWNED` (contested) — reported to both rather than driven by either. This is a collision
@@ -498,8 +510,13 @@ tests/mutation/_metaPremiseContract.test.ts     # + one EXPECTED_ENV_TOUCHING en
 tests/docs/_metaPaneCompactionContract.test.ts  # NEW: prose pin (§10)
 docs/agents/orchestrator-pane-compaction.md     # NEW: the write-up (§10)
 AGENTS.md                                       # + pointer under cross-cutting discipline
-~/.claude/pane-purview/<orchestratorSessionId>.json   # NEW: purview, outside any worktree
-~/.claude/pane-purview/<orchestratorSessionId>.nonces.json  # NEW: outstanding checkpoint nonces
+~/.claude/pane-purview/<orchestratorSessionId>.json   # NEW: purview, outside any worktree.
+                                                      #   This directory holds ONLY purview
+                                                      #   registries -- it is read exhaustively
+                                                      #   (§5.4), so a foreign file shape there
+                                                      #   has no defined verdict.
+~/.claude/pane-nonces/<orchestratorSessionId>.json    # NEW: outstanding checkpoint nonces, in a
+                                                      #   SEPARATE directory for that reason
 ```
 
 ---
@@ -520,7 +537,8 @@ actually addressed a review verdict is not observable from outside the target's 
 
 What the bound therefore guarantees, exactly:
 
-1. No pane is driven while any §4.5 rule 1-8 condition holds. These are all **observations** —
+1. No pane is driven — by any of the three commands, `--resume` included — while any §4.5 rule
+   1-8 condition holds. These are all **observations** —
    name resolution, uniqueness, ownership, accept-set membership, session match, `gh`
    determinacy, blocked status, CI-green-with-PR-unmerged — and each failure is named.
 2. `FORCE` never fires at a High-cost position (rule 11).
@@ -564,20 +582,25 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
 
 2. **A checkpoint can be issued and never followed by `--compact`.** The orchestrator may simply
    not run the second command. The consequence is a marker update the target performs at its own
-   pace and no compaction — harmless, and visible in the next report because the recorded nonce
-   is still outstanding.
+   pace and no compaction — harmless. **The report does not surface the outstanding record**: its
+   columns are pane, branch, pressure, verdict and position evidence, and round 6 was right that an
+   earlier version of this limit claimed a signal no contract provides. The record is inert, and a
+   later `--checkpoint` replaces it.
 3. **The nonce proves the target wrote it, not that the target wrote anything useful.** A target
    that sets `checkpointNonce` but leaves `next` stale satisfies `--compact`. The bound is that
    this is the target's own contract failure, identical to one that would have occurred under
    auto-compaction, and it is not made worse by compacting. Requiring the orchestrator to judge
    the *content* of another session's `next` is out of scope (§11).
-4. **Purview collision detection is a report, not a lock — but the nonce makes the outcome
-   conservative rather than merely bounded.** Two orchestrators reading before either writes can
-   both issue `--checkpoint`. The second prompt overwrites `checkpointNonce`, so the first
-   orchestrator's `--compact` reads a nonce that is not its own and **refuses without sending**.
-   At most **one** `/compact` is issued, by whichever orchestrator checkpointed last. The other is
-   told why. That is correct-or-signaled, not "no worse than"; round 4 was right that the previous
-   wording asserted a weaker bound than §6 permits.
+4. **Purview collision detection is a report, not a lock, and two orchestrators can both send
+   `/compact` to one pane.** Once both claims are visible, rule 3 makes both refuse; but in the
+   window before either write lands, both can proceed, and their nonce records live in separate
+   files that nothing orders. **This spec does not claim "exactly one".** Rounds 4, 5 and 6 each
+   found a new race in a nonce accreting toward that guarantee, and buying it needs consensus
+   across two orchestrators' files — a distributed-systems problem this surface has no reason to
+   solve. The measured consequence is benign: a second `/compact` on an already-compacted session
+   is a near no-op (probe pane, gauge `ctx ░░░░░` before and after), and each orchestrator's own
+   nonce still proves its own checkpoint landed before its own send. Compare `ledger:claims`,
+   which reports claims across branches and likewise does not lock.
 5. **`gh`'s no-PR signature is matched on human-readable stderr**, which is not a stability
    contract. A future reword demotes every pane to `UNDETERMINED` rather than mis-classifying.
 6. **An arc whose Stage 0 label was never set is indistinguishable from a non-arc pane.** Both
@@ -610,10 +633,10 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
 | Session match | Marker `sessionId` matching, differing, and pane reporting none — three cases. |
 | Corpus | Absent corpus reads as "no review in flight", not a fault; non-APPROVE newest row with no commit since → row 4. |
 | Purview | Unowned reported; contested reported; registry read from every file in the directory. |
-| Nonce single-use | `--compact` twice in a row: the second exits 1 and sends nothing, because the record was consumed before the first send. |
-| Nonce freshness | Re-checkpointing a pane whose marker already carries nonce N mints a value != N, so `--compact` cannot accept the previous checkpoint before the new prompt executes. |
-| Nonce atomicity | Two overlapping `--compact` invocations against one target: exactly one consumes and sends; the other exits 1. Asserted against the record file, not by sequential calls — a sequential retry cannot exercise the interleaving §7 limit 4 rests on. |
-| `--resume` predicate | Refuses whenever **any** of §4.5 rules 1-7 fires — one case per rule, including duplicate agent names, which round 5 found the hand-picked earlier list omitting while rule 2 classified them `UNDETERMINED` precisely because a later command cannot resolve its target. Asserted **not** to require `COMPACT`/`FORCE`, since a successful compaction makes that false. |
+| Nonce single-use | `--compact` twice in a row: the second exits 1 and sends nothing, because the record was consumed before the first send. **No cross-orchestrator exclusion is asserted** — §7 limit 4 no longer claims it, so no test pretends to establish it. |
+| Purview staleness | A row whose recorded `branch` differs from the pane's current agent name confers no ownership; the pane reports `UNOWNED` (AC-24). |
+| Directory separation | A file in the purview directory that lacks the purview-row shape is impossible by construction: nonce records live elsewhere (AC-25). Asserted by reading a nonce path and confirming it is outside the exhaustively-read directory. |
+| `--resume` predicate | Refuses whenever **any** of §4.5 rules **1-8** fires — one case per rule, including duplicate agent names (round 5) and CI-green-with-PR-unmerged (round 6), the latter being pressure-independent and so not "banding". Asserted **not** to require `COMPACT`/`FORCE`, since a successful compaction makes that false. |
 | Duplicate agent names | Two roster entries sharing a name are both `UNDETERMINED` **before banding** — a fixture where both would otherwise be `COMPACT`. |
 | Corpus newest-selection | Multiple rows across multiple files: greatest `endedAt` among `status: verdict` rows wins. **A `no_verdict` row carrying a valid `endedAt` must not become newest** — the live corpus contains one (`docs/review-rounds/docs/parser-mutation-wave/0da9f84b1634.jsonl`), so the fixture is real, not constructed. A `verdict` row with an unparsable `endedAt` is excluded and named; a tie yields `UNDETERMINED`. |
 | `FORCE` respects High cost | `t >= 8` at a High-cost position yields `WAIT`, not `FORCE` — the §7 limit-1 behavior change, asserted rather than described. |
@@ -659,10 +682,12 @@ on the case's own inputs.
   is (§4.5 rules 10-11), except under §4.5 rules 1-8.
 - **AC-12** The write-up and the AGENTS.md pointer exist; the §10 meta-test fails when either
   drifts.
-- **AC-23** `--resume` refuses when any §4.5 rule 1-7 fires, including duplicate agent names, and
-  does not apply the banding rules 8-12.
-- **AC-24** A minted nonce differs from the marker's current `checkpointNonce`, and compare-and-
-  consume is atomic: of two overlapping `--compact` invocations, exactly one sends.
+- **AC-23** `--resume` refuses when any §4.5 rule **1-8** fires — including duplicate agent names
+  and CI-green-with-PR-unmerged, which is pressure-independent — and applies none of rules 9-12.
+- **AC-24** A purview row whose recorded `branch` does not match the pane's current agent name is
+  stale and confers no ownership; the pane reports `UNOWNED`.
+- **AC-25** Nonce records are read from the nonce directory, never from the purview directory,
+  which the classifier reads exhaustively.
 - **AC-13** `--checkpoint` and `--compact` each revalidate immediately before sending and refuse,
   exiting 1 without sending, when the fresh verdict is not `COMPACT`/`FORCE` or purview does not
   resolve to `--as` uncontested. **`--resume` revalidates against its own predicate** (§5.2) and
