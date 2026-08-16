@@ -25,6 +25,10 @@ import { prevalidateUnpublishBinding } from "@/lib/sync/unpublishConfirmPage";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { messageFor } from "@/lib/messages/lookup";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import {
+  isSameOriginServerAction,
+  rejectCrossOriginNeutral,
+} from "@/lib/auth/sameOriginServerAction";
 import type { ConfirmUnpublishActionState } from "./copy";
 
 function fieldOf(formData: FormData, name: string): string | undefined {
@@ -37,6 +41,8 @@ export async function confirmUnpublishAction(
   _prev: ConfirmUnpublishActionState,
   formData: FormData,
 ): Promise<ConfirmUnpublishActionState> {
+  if (!(await isSameOriginServerAction()))
+    return rejectCrossOriginNeutral("confirmUnpublishAction");
   const slug = fieldOf(formData, "slug");
   const token = fieldOf(formData, "token");
   const r = fieldOf(formData, "r");

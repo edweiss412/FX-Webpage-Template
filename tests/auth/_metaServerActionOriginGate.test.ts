@@ -109,7 +109,6 @@ const READ_ONLY_EXEMPT = [
 const PENDING_GATE: readonly string[] = [
   "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx",
   "app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx",
-  "app/show/[slug]/unpublish/actions.ts",
   "components/auth/IdentityChip.tsx",
 ];
 
