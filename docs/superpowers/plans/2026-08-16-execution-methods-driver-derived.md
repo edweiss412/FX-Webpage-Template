@@ -27,7 +27,7 @@ AC-1 (generator output + check mode), AC-2 (composition unchanged + corpus green
 ## Meta-test inventory (mandatory declaration)
 
 - CREATES: tests/db/executionMethodsManifest.test.ts (guard suite + derivation fixture corpus).
-- EXTENDS: `scripts/pretest-gen.mjs` `MANIFEST` (new row; `tests/cross-cutting/pretest-gen-manifest.test.ts` covers the row automatically — it walks the imported MANIFEST, so no test-file edit is expected; Task 4 verifies).
+- EXTENDS: `scripts/pretest-gen.mjs` `MANIFEST` (new row) AND `tests/cross-cutting/pretest-gen-manifest.test.ts` — its per-row arms walk the imported MANIFEST automatically, but its "covers all four generators" case (`tests/cross-cutting/pretest-gen-manifest.test.ts:95-101`) hardcodes the four existing names and MUST gain `gen:execution-methods` (plan review R1 finding 1); the `scripts/pretest-gen.mjs:2` header comment's "four pre*-hook generators" count is the same enumeration and is updated in the same commit. Task 4 carries both edits.
 - EXTENDS: `tests/mutation/source/registry.ts` (one new `GuardSurface` row; see reconciliation below).
 - None of the candidate registries in docs/agents/writing-plans.md (Supabase call boundaries, sentinel hiding, admin-alert catalog, advisory-lock topology, email normalization) applies: this change touches no auth path, no DB write, no alert, no tile, no lock. Declared explicitly per the rule.
 
@@ -358,8 +358,8 @@ Expected: PASS.
 Run: `pnpm gen:execution-methods --check; echo "exit=$?"`
 Expected: `exit=0`.
 
-Run (mutant-red for check mode, restore after): `echo "// stale" >> tests/db/__generated__/postgresExecutionMethods.ts && pnpm gen:execution-methods --check; echo "exit=$?"; git checkout -- tests/db/__generated__/postgresExecutionMethods.ts`
-Expected: `exit=1` with the stale message.
+Run (mutant-red for check mode; the file is still UNTRACKED at this point, so restore by regenerating, not by git checkout — plan review R1 finding 2): `echo "// stale" >> tests/db/__generated__/postgresExecutionMethods.ts && pnpm gen:execution-methods --check; echo "exit=$?"; pnpm gen:execution-methods`
+Expected: `exit=1` with the stale message, then the final regeneration rewrites the canonical content. Confirm with `pnpm gen:execution-methods --check; echo "exit=$?"` printing `exit=0` before committing.
 
 - [ ] **Step 6: Typecheck and commit**
 
@@ -479,11 +479,11 @@ git commit -m "test(db): compose EXECUTION_METHODS from the derived core"
 
 ### Task 4: pretest-gen registration
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/pretest-gen-manifest.test.ts` red-state=authored red-target=`scripts/pretest-gen.mjs:16` why=`the MANIFEST array holds no row for the new generator; the row is added first with deliberately incomplete inputs so arm coverage failures are OBSERVED, then completed` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/pretest-gen-manifest.test.ts` red-state=authored red-target=`scripts/pretest-gen.mjs:16` why=`the MANIFEST array holds no row for the new generator; the row is added first with deliberately incomplete inputs so the four-generator name-list rejection and the arm coverage failures are OBSERVED, then completed` ac=AC-4 -->
 
 **Files:**
-- Modify: `scripts/pretest-gen.mjs` (`MANIFEST` array, `scripts/pretest-gen.mjs:16`)
-- Test: `tests/cross-cutting/pretest-gen-manifest.test.ts` (no edit expected — it walks the imported `MANIFEST`)
+- Modify: `scripts/pretest-gen.mjs` (`MANIFEST` array at `scripts/pretest-gen.mjs:16`; header comment's generator count at `scripts/pretest-gen.mjs:2`)
+- Modify: `tests/cross-cutting/pretest-gen-manifest.test.ts` (the "covers all four generators" name list at `tests/cross-cutting/pretest-gen-manifest.test.ts:95-101` gains `gen:execution-methods`; the per-row arms need no edit — they walk the imported `MANIFEST`)
 
 - [ ] **Step 1: Add the row with script-only inputs (deliberate red)**
 
@@ -501,9 +501,11 @@ Append to `MANIFEST` in `scripts/pretest-gen.mjs`:
 - [ ] **Step 2: Run the manifest meta-test and OBSERVE the coverage failure**
 
 Run: `pnpm vitest run tests/cross-cutting/pretest-gen-manifest.test.ts`
-Expected: FAIL — the import-closure arm reports scripts/execution-methods/lib.ts missing from inputs, and/or the read-call arm reports the driver-types and driver-package reads uncovered. This red proves the meta-test actually guards the new row.
+Expected: FAIL, twice over — the "covers all four generators" case rejects the fifth name (its list at `tests/cross-cutting/pretest-gen-manifest.test.ts:96-101` hardcodes the four existing generators), and the import-closure/read-call arms report scripts/execution-methods/lib.ts missing from inputs and the driver-types and driver-package reads uncovered. This red proves the meta-test actually guards the new row.
 
-- [ ] **Step 3: Complete the inputs**
+- [ ] **Step 3: Complete the inputs; update the name list and header count**
+
+In `tests/cross-cutting/pretest-gen-manifest.test.ts`, rename the case to "covers all five generators" and add `"gen:execution-methods"` to its sorted expected list. In `scripts/pretest-gen.mjs:2`, update the header comment's "the four pre*-hook generators" to "the five pre*-hook generators". Then complete the row's inputs:
 
 ```js
     inputs: [
@@ -527,7 +529,7 @@ Expected: second run skips gen:execution-methods (stamp hit). Then hand-append a
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/pretest-gen.mjs
+git add scripts/pretest-gen.mjs tests/cross-cutting/pretest-gen-manifest.test.ts
 git commit -m "infra: register gen:execution-methods in the pretest-gen manifest"
 ```
 
@@ -573,10 +575,20 @@ pnpm gen:execution-methods
 git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts; echo "exit=$?"
 ```
 
-Expected: `exit=0` — WRONG expectation? No: `pnpm gen:execution-methods` regenerates over the mutant, so the tree matches HEAD again and the gate passes. That is exactly the CI behavior for a hand-edited module (regeneration repairs it; the diff artifact captures nothing). The gate's REAL failing input is a stale COMMIT, simulated by mutating the committed baseline instead:
+Expected: `exit=0` — and that is the correct expectation for THIS input: `pnpm gen:execution-methods` regenerates over the working-tree mutant, so the tree matches HEAD again and the gate passes (regeneration repairs a hand-edit; the diff artifact captures nothing). Restore with `pnpm gen:execution-methods` if any residue remains. The gate's REAL failing input is a stale COMMIT, probed in Step 4 AFTER the workflow change is committed, so no stash juggling is needed (plan review R1 finding 2: the earlier draft stashed the workflow edit and never popped it).
+
+- [ ] **Step 3: Commit the workflow change**
 
 ```bash
-git stash -u 2>/dev/null || true
+git add .github/workflows/x-audits.yml
+git commit -m "infra: x-audits freshness gate for the execution-methods module"
+```
+
+- [ ] **Step 4: Mutant-red probe of the gate against a stale commit (AC-7 evidence)**
+
+The working tree is now clean. Simulate the silent-merge shape from spec review R1 finding 1 — a committed module that no longer matches the installed driver derivation:
+
+```bash
 sed -i '' 's/"unsafe"/"unsafe-mutant"/' tests/db/__generated__/postgresExecutionMethods.ts
 git add tests/db/__generated__/postgresExecutionMethods.ts && git commit -m "tmp: gate mutant (revert immediately)"
 pnpm gen:execution-methods
@@ -584,14 +596,7 @@ git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts; echo "e
 git reset --hard HEAD^
 ```
 
-Expected: `exit=1` — the regenerated working tree differs from the mutant commit, so the gate goes red on exactly the silent-merge shape from spec review R1 finding 1. Record both probe outcomes.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add .github/workflows/x-audits.yml
-git commit -m "infra: x-audits freshness gate for the execution-methods module"
-```
+Expected: `exit=1` — the regenerated working tree differs from the mutant commit, so the gate goes red on exactly the stale-commit shape. After `git reset --hard HEAD^`, confirm `git status --short` prints nothing and `pnpm gen:execution-methods --check` exits 0. Record both probe transcripts (Step 2's exit=0 and this step's exit=1) in this plan's "Execution evidence" section.
 
 ### Task 6: Mutation enrolment
 
@@ -653,21 +658,31 @@ git commit -m "test(db): enrol executionMethodsDerivation in the mutation gate"
 
 ### Task 7: Closeout sweeps, ledger graduation, handoff evidence
 
-<!-- task: red=`rg -n "types/index.d.ts" tests/ --glob '!tests/db/__generated__/**'` ac=AC-6 -->
+<!-- task: red=`bash -c '! rg -n "types/index.d.ts" tests/ --glob "!tests/db/__generated__/**"'` ac=AC-6 -->
 
-The marker's `red=` is the AC-6 negative sweep in inverted form: it must return NO hits in any vitest suite (rg exits 1 on zero matches — the command "failing" with hits is the defect signal; it is observed with hits if any suite references the driver types file, and exits 1, clean, at closeout). Interpret exit 1 as PASS and exit 0 (hits found) as FAIL; record the transcript.
+The marker's `red=` is the AC-6 sweep with CORRECT red-then-green polarity (plan review R1 finding 3): the `!` inverts rg, so the command exits NON-ZERO exactly when a vitest suite references the driver types file (the defect) and 0 when the tree is clean. Step 1 OBSERVES the red against a constructed failing input before running the clean sweep — a gate never seen failing proves nothing.
 
 **Files:**
 - Modify: `BACKLOG.md`, `BACKLOG-archive.md` (graduate the entry), this plan file (execution-evidence notes), `docs/review-rounds/test/execution-methods-driver-derived/119895a7c756.md` (extend if diff rounds reach threshold)
 
-- [ ] **Step 1: AC-6 sweeps, authored and run**
+- [ ] **Step 1: AC-6 sweeps — observe the red, then the clean pass**
+
+First OBSERVE the marker command failing on a constructed defect (one ordinary edit inside the probe domain):
 
 ```bash
-rg -n "types/index.d.ts" tests/ --glob '!tests/db/__generated__/**'; echo "exit=$?"
+printf '// probe: node_modules/postgres/types/index.d.ts\n' > tests/db/ac6-probe.test.ts
+bash -c '! rg -n "types/index.d.ts" tests/ --glob "!tests/db/__generated__/**"'; echo "exit=$?"
+rm tests/db/ac6-probe.test.ts
+```
+
+Expected: `exit=1` (the sweep catches the reference). Then the clean pass:
+
+```bash
+bash -c '! rg -n "types/index.d.ts" tests/ --glob "!tests/db/__generated__/**"'; echo "exit=$?"
 rg -n "node_modules/postgres" tests/; echo "exit=$?"
 ```
 
-Expected: first exits 1 (no suite touches the driver types file). Second returns exactly the version sentinel's node_modules/postgres/package.json read (and the generated module's provenance comment if the glob catches it) — every hit dispositioned in the handoff notes; any OTHER hit is an AC-6 violation to repair.
+Expected: first prints `exit=0` — the SAME command that just failed now passes (no suite touches the driver types file). Second returns exactly the version sentinel's node_modules/postgres/package.json read (and the generated module's provenance comment if the glob catches it) — every hit dispositioned in the Execution evidence section; any OTHER hit is an AC-6 violation to repair. Record all three transcripts in the Execution evidence section.
 
 - [ ] **Step 2: Full verification battery**
 
@@ -681,13 +696,23 @@ Expected: all green. (`pnpm heavy test:fast` is the full-suite leg and MUST run 
 
 - [ ] **Step 3: Graduate the ledger entry**
 
-Move the whole `BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES` entry from `BACKLOG.md` to `BACKLOG-archive.md` with provenance (branch, spec path, this plan path, what shipped, the spec §1 equality correction, and the re-open triggers from spec §4 — a postgres.js version bump or a first live largeObject use). Remove the `**Status:** IN PROGRESS · **Branch:** ...` marker line in the SAME commit (archives reject in-flight entries; the marker must never reach main). This is the PR's last commit, per invariant 12.
+Move the whole `BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES` entry from `BACKLOG.md` to `BACKLOG-archive.md` with provenance (branch, spec path, this plan path, what shipped, the spec §1 equality correction, and ALL THREE re-open triggers — the two from spec §4, a postgres.js version bump or a first live largeObject use, PLUS the entry's own original trigger preserved by spec §4's closing line: a second omission found by review rather than by this guard; plan review R1 finding 5). Remove the `**Status:** IN PROGRESS · **Branch:** ...` marker line in the SAME commit (archives reject in-flight entries; the marker must never reach main). This is the PR's last commit, per invariant 12.
 
 - [ ] **Step 4: Cross-model diff review, CI, merge**
 
 Whole-diff codex review to APPROVE via codex-guard (`--stage diff`), with the round-1 brief stating: consequence bound, PROBE DOMAIN, threat fence (copy from spec §7), the measured mutation score + survivor set from Task 6, and REVIEWER ONLY. Then push, real CI green, `gh pr merge --merge`, fast-forward main, confirm `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
 <!-- tasks: end -->
+
+## Execution evidence
+
+Appended by the implementation session as each named step completes; a step that names this section is not done until its transcript is here. Required rows (each a fenced transcript with the command, its output tail, and the exit code):
+
+- Task 2 step 5: check-mode both-ways probe (exit 0 fresh, exit 1 stale).
+- Task 5 step 2: hand-edit probe (exit 0 with the regeneration explanation).
+- Task 5 step 4: stale-commit mutant probe (exit 1) — the AC-7 mutant-red evidence.
+- Task 6 step 3: measured mutation score, survivor dispositions, run duration.
+- Task 7 step 1: AC-6 red observation (exit 1), clean pass (exit 0), and the node_modules sweep with per-hit dispositions.
 
 ## 12 Closeout
 
