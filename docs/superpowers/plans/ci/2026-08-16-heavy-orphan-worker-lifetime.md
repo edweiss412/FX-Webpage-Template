@@ -1425,7 +1425,7 @@ const exists = (pid: number): boolean => {
  *
  * SIGKILL is asynchronous: the kernel tears the process down after `kill` returns, and a check
  * issued immediately can still see it. Without the retry the reaper reports `partial` for a target
- * it killed correctly, which is a false alarm AND a non-zero exit. Four 50 ms attempts cost
+ * it killed correctly, which is a false alarm and a false non-zero exit. Four 50 ms attempts cost
  * nothing when the process is already gone, because the first check returns.
  */
 export function stillAlive(pid: number, attempts = 4, waitMs = 50): boolean {
