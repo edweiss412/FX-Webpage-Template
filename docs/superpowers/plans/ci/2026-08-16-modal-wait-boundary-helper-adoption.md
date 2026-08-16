@@ -231,9 +231,14 @@ So the observable cycle on the MARKER command is the premise-contract arm: add t
 The ledger-kinds arm is verified separately, and its key MUST land before the mutation run or that run cannot green:
 
 ```
-VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation \
+VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm exec vitest run --project mutation \
   tests/mutation/guardSurfaces.gate.test.ts
 ```
+
+`pnpm heavy` is REQUIRED here, not optional: the AGENTS.md heavy-phase rule names "any
+`--project mutation` run" as a member, and this is one. The env var stays outermost — the
+semaphore wrapper `execvp`s into the command with the environment untouched, so it reaches
+vitest unchanged.
 
 Record both arms' before/after in the commit message, since only one of them is the marker's.
 
