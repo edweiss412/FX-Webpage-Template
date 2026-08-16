@@ -573,6 +573,86 @@ The two entries stay `**Status:** IN PROGRESS · **Branch:** fix/auth-picker-har
 Ordered; each item gates the next. All of Closeout runs in the IMPLEMENTATION arc (this spec+plan arc stops at plan-APPROVE — see Execution handoff). The ordering is set so the whole-diff review covers exactly what merges (R2-F1): the impeccable marker is filled BEFORE review, and the ONLY commit after review is the invariant-12-mandated ledger-status removal, which invariant 12 requires to be last and which carries no code.
 
 1. **Impeccable dual-gate.** `components/auth/IdentityChip.tsx` and `components/auth/AvatarMenu.tsx` are UI surfaces. Run the impeccable critique gate AND the impeccable audit gate on the diff (v3 setup gates: the context.mjs load of PRODUCT.md + DESIGN.md, then the register-reference read); P0/P1 fixed or `DEFERRED.md`'d; findings + dispositions recorded here.
+
+**RAN 2026-08-15 (implementation arc). Result: 0 P0, 0 P1. `dispositions=none`.**
+
+Setup gates: the skill's context.mjs loaded PRODUCT.md + DESIGN.md; register = **product** (the skill's reference/product.md) — the avatar menu is app UI where design serves the task. Both paths are plain text, not code spans: they live in the per-machine impeccable plugin cache, which `pnpm spec:lint` cannot resolve against `git ls-files`.
+
+> ⚠️ DEGRADED: single-context (critique's two isolated assessments were dispatched as subagents but did not return within the run's window; the machine was saturated — 8 processes queued on the heavy semaphore and 156 peer sessions live. Both assessments were then reproduced inline, Assessment B's evidence in full and independently.)
+
+The audit half was NOT degraded: `audit` carries no sub-agent mandate and ran normally.
+
+**Critique — Assessment B (detector + evidence), reproduced inline.**
+
+- `detect.mjs --json components/auth/AvatarMenu.tsx components/auth/IdentityChip.tsx` → `[]`, exit 0. **Zero deterministic findings.**
+- Token reality check, every class on the new alert. All DEFINED in `app/globals.css` `@theme`, both modes:
+
+  | pair | light | dark |
+  | --- | --- | --- |
+  | `text-warning-text` on `bg-warning-bg` | `#5c3f00` on `#fff3d6` = **8.79:1 (AAA)** | `#ffd68a` on `#3a2e14` = **9.64:1 (AAA)** |
+  | alert fill vs popover `surface-raised` | `#fff3d6` vs `#ffffff` = 1.10:1 | `#3a2e14` vs `#1c1d23` = 1.27:1 |
+  | `border-border-strong` vs popover | `#cfcdc7` vs `#ffffff` = 1.59:1 | `#3a3b40` vs `#1c1d23` = 1.50:1 |
+
+  Body contrast clears AAA in both modes, which is the binding requirement (PRODUCT.md makes direct-sunlight readability a hard requirement). The boundary ratios are recorded as P2 below.
+
+- Precedent: the class string is the shipped inline-error idiom at `components/admin/ShowRowActions.tsx:859`, which reads `mt-1 rounded-sm border border-border-strong bg-warning-bg p-2.5 text-xs/relaxed text-warning-text`. The only divergence is `px-3 py-2` for `p-2.5`, so the alert's horizontal rhythm lines up with the menu items' `px-3` (spec §4.3).
+- Tap floor: `git diff origin/main...HEAD -- components/auth/ | grep -c tap-min` → `0`. No tap-floor token added or removed; both menu items keep `min-h-tap-min` and the alert is non-interactive, so no floor applies to it.
+- `tests/styles/_metaTapTargetFloor` + `_metaSubtleOnInteractive` + `secondary-action-contrast` → **23 passed**.
+- Skipped step, with reason: no browser visualization. This component renders only inside an authenticated crew show route behind a share token and a resolved picker identity, so it has no standalone URL to inject an overlay into. No user-visible overlay is claimed.
+
+**Critique — Assessment A (design review), produced inline.**
+
+AI slop verdict: **clean.** No banned pattern is present — no side-stripe border (the alert's 1px border is uniform on all four sides), no gradient text, no decorative glassmorphism, no hero-metric block, no identical card grid, no tracked-uppercase eyebrow, no numbered section scaffolding. Against the product-register test (would someone fluent in the category's best tools trust this), an inline error inside the open menu that produced it is the expected shape, not an invented affordance.
+
+| # | Heuristic | Score | Key issue |
+| --- | --- | --- | --- |
+| 1 | Visibility of System Status | 3 | Failure is now announced and pending is visible, but there is no text pending signal ("Switching…") — see P2-1 |
+| 2 | Match System / Real World | 4 | Plain language throughout; no code reaches the UI |
+| 3 | User Control and Freedom | 4 | Escape closes, Tab escapes, the menu stays open so the retry is one tap |
+| 4 | Consistency and Standards | 4 | Copies the shipped inline-error idiom; follows the WAI-ARIA menu pattern for a disabled item |
+| 5 | Error Prevention | 3 | The origin gate refuses a forged submit; the re-entry guard blocks a double submit |
+| 6 | Recognition Rather Than Recall | 4 | Both items carry text beside the icon; the error sits adjacent to the control that produced it |
+| 7 | Flexibility and Efficiency | 3 | Full keyboard map with roving tabindex; switching still costs the ratified two taps |
+| 8 | Aesthetic and Minimalist Design | 4 | Nothing is added at rest; the alert exists only in the error state |
+| 9 | Error Recovery | 4 | The defect this arc closes: plain message, adjacent to source, menu preserved, submit re-enables |
+| 10 | Help and Documentation | 3 | `helpHref` exists in the catalog but the crew alert deliberately does not link it |
+| **Total** | | **35/40** | **Good (top of band)** |
+
+Cognitive load: **0 of 8 checklist items fail** (low). Two menu items is well inside the working-memory limit, and the error is progressive disclosure by construction.
+
+Emotional journey: the valley was "I tapped switch, nothing moved, am I still signed in as this person?" — an ambiguity the crew member could not resolve from the screen. The end state is now always legible: either the control unmounts into the picker, or a one-tap retry sits under it. Reassurance arrives at the moment of highest stakes.
+
+What is working: (a) the failure state reuses a shipped idiom instead of inventing one, so it reads as part of the product; (b) keeping the menu open makes the retry cost one tap rather than three; (c) `aria-disabled` over native `disabled` preserves the whole keyboard contract, verified against all four traversal commands.
+
+**Priority issues (none blocking).**
+
+- **[P2-1] No pending signal for a screen-reader user.** Location: `components/auth/AvatarMenu.tsx`, the switch submit. Category: Accessibility. Between activation and resolution the only change is `aria-disabled` plus an opacity shift; there is no live text. Impact: on slow venue wifi a screen-reader user gets no confirmation the tap registered. Not a WCAG AA violation — `aria-disabled` is programmatically determinable on the element that still holds focus, and the outcome is always announced (the `role="alert"` on failure, the picker interstitial on success) — so this is a comfort gap, not a break. Disposition: **not fixed here.** Adding a second live region beside a `role="alert"` risks double-announcement, and choosing between an `aria-live` status node and an accessible-name change is a design decision this arc did not scope. Suggested command: `/impeccable harden`.
+- **[P2-2] The alert's boundary against the popover is faint.** Fill differs from `surface-raised` by 1.10:1 (light) and 1.27:1 (dark); the border reaches 1.59:1 and 1.50:1. Category: Accessibility / Theming. Impact: the block reads as slightly less separated than intended at a glance. Not a WCAG failure: 1.4.11 governs boundaries required to *identify* a component, and this alert is non-interactive with its meaning carried entirely by AAA-contrast text — which is also what PRODUCT.md requires (never color alone). Disposition: **not fixed here.** The token pair is the shipped warning family used by `ShowRowActions`, `PreviewBanner`, `CompactAlertCard` and `PublishedToggle`; changing it for one surface would be the product-register consistency ban, and changing it everywhere is a design-system decision far outside this diff. Class-sweep disposition exception (c).
+- **[P2-3] A "successful" switch is ineffective for a Google-authenticated viewer.** Already ratified as a documented limit (spec §4.7, §7) and re-filed as `BL-SWITCH-PERSON-GOOGLE-LOOPBACK`. Recorded here only so a later reader does not re-derive it.
+- **[P3-1] `px-3 py-2` diverges from the idiom's `p-2.5`.** Deliberate and documented (spec §4.3): `px-3` matches the menu items' horizontal rhythm so the alert's text edge aligns with the item labels above it. Recorded, not changed.
+
+Persona red flags:
+
+- **Sam (screen reader + keyboard):** only P2-1. Focus never leaves the menu while pending — verified against ArrowDown, the ArrowUp wrap, End, and reopen-with-ArrowUp. The alert is a live region, is not a `menuitem`, and does not enter the traversal order.
+- **Casey (one-handed, 390px, interrupted):** the alert renders inside a popover already on screen, so no scroll or re-orientation is needed. The copy is 31 characters and sets on one line inside `min-w-56` (224px) at `text-xs`, well under the popover's `max-w-[calc(100vw-2rem)]` = 358px at 390px, so it cannot widen the popover or force horizontal scroll. The trigger's top-right position is a pre-existing, ratified placement.
+- **Marcus (A1 on the venue floor, project-specific):** glancing, one-handed, sometimes in direct sun. Light-mode alert text at 8.79:1 clears the AAA sunlight bar. The retry is inside the menu he already has open.
+
+**Audit — health score.**
+
+| # | Dimension | Score | Key finding |
+| --- | --- | --- | --- |
+| 1 | Accessibility | 4 | AAA text contrast both modes; full keyboard contract preserved; only P2-1 outstanding |
+| 2 | Performance | 4 | No animation added, no layout-property animation, no new dependency; one `useTransition` |
+| 3 | Responsive Design | 4 | No fixed px width added; copy cannot widen the popover past `max-w`; tap floors untouched |
+| 4 | Theming | 4 | Zero hard-coded colors in the diff; every class resolves to a token defined in both modes |
+| 5 | Anti-Patterns | 4 | Detector returns `[]`; no banned pattern present |
+| **Total** | | **20/20** | **Excellent (minor polish)** |
+
+Mechanical evidence for the audit: `git diff origin/main...HEAD -- components/auth/` contains no `#hex`/`rgb()`/`hsl()`/`oklch()` literal, no `animate-`/`transition-`/`duration-` addition, and no `z-[…]`/`w-[…px]`/`h-[…px]` arbitrary value.
+
+**Gate outcome: 0 P0, 0 P1.** Nothing is owed to `DEFERRED.md`; the three P2s and one P3 are recorded above with their dispositions, and P2-3 is already carried by a filed backlog entry.
+impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=0 dispositions=none
+
 2. **Fill the machine closeout marker (BEFORE review, so review covers it — R2-F1).** After step 1 has actually run, the implementer adds the bare-anchored marker line to this plan. The grammar (quoted here mid-line inside backticks so this instruction is NOT itself a marker line, per the closeout guard's line-initial rule): the implementer writes a line reading `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` with the REAL counts (`RAN-DEGRADED` if a gate half degraded; `dispositions=recorded` iff `p0+p1>0`, else `none`), as its own line in this section. **Not filled now, and never fabricated:** the invariant-8 closeout design's HONEST CEILING (`docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md` §7) states a fabricated marker is a deliberate lie; the gate has not run in this spec+plan arc, so no `RAN` claim is honest yet. Consequently `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design (a declaring plan with no completed marker is correctly gated out of `main`); it goes green when this step fills the marker in the implementation arc, before merge.
 3. **Full local gates before push:** `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.
 4. **Whole-diff cross-model review to APPROVE.** Covers ALL code plus the filled invariant-8 marker (step 2) — i.e. everything that merges EXCEPT the mechanical ledger-status removal in step 5. Any repair from this review is re-reviewed here, so no code change escapes review.
