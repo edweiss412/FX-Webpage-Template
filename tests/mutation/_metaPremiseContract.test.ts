@@ -50,6 +50,14 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // pure helpers, reaching no member of ENVIRONMENT_SOURCES.
   "tests/cross-cutting/pgCronSmokesUnit.test.ts": 0,
   "tests/scripts/ledgerClaims.test.ts": 0,
+  // The psql startup-file scanner's deciding suite, enrolled 2026-08-16. It declares 0
+  // honestly, and the number is measured rather than asserted: the enrolment's own red
+  // cycle reported "expected +0 to be undefined" for this suite before the row existed.
+  // Every case drives literal fixtures through the exported scanners; the walk and
+  // execFileSync surfaces the suite exercises are reached only THROUGH the module under
+  // test, never through a member of ENVIRONMENT_SOURCES directly - the interactionTimingScan
+  // precedent.
+  "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 0,
   // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
   // inventory suite reads DESIGN.md and walks the repo, but through the module
   // under test rather than any member of ENVIRONMENT_SOURCES directly; the unit

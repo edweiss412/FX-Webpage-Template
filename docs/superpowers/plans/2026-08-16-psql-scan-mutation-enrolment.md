@@ -225,7 +225,7 @@ If a site survives the §2.3 bar as an ACCEPTED-GAP (expected: zero): file its `
 
 <!-- task: red=`pnpm vitest run tests/mutation/_metaPremiseContract.test.ts tests/mutation/_metaGuardSurfaceRegistry.test.ts` red-state=authored red-target=`tests/mutation/_metaPremiseContract.test.ts:29` why=`adding the registry row WITHOUT the EXPECTED_ENV_TOUCHING declaration reds the premise-contract walk (fail-by-default on a newly enrolled suite) - the red is observed at Step 2, after the registry edit and before the declarations, and the same command greens at Step 4` ac=AC-4,AC-5 -->
 
-- [ ] **Step 1: Compute the FINAL floor from the disposition table** — no run needed: `score = killed / (killed + acceptedGaps)` with equivalents excluded (`tests/mutation/source/ledger.ts`, `score()`); killed = 17 probe-killed + Tasks 2-5 kills; rounded DOWN to two decimals (spec §3.3). With zero accepted-gap rows the floor is exactly `1`. Add the registry row to `GUARD_SURFACES` with this FINAL floor — the committed row is never provisional (plan review R1 F7):
+- [x] **Step 1: Compute the FINAL floor from the disposition table** — no run needed: `score = killed / (killed + acceptedGaps)` with equivalents excluded (`tests/mutation/source/ledger.ts`, `score()`); killed = 17 probe-killed + Tasks 2-5 kills; rounded DOWN to two decimals (spec §3.3). With zero accepted-gap rows the floor is exactly `1`. Add the registry row to `GUARD_SURFACES` with this FINAL floor — the committed row is never provisional (plan review R1 F7):
 
 ```ts
   {
@@ -255,8 +255,8 @@ If a site survives the §2.3 bar as an ACCEPTED-GAP (expected: zero): file its `
 
 Verify the control anchor is still unique: `grep -c 'if (name === "--no-psqlrc") return true;' tests/cross-cutting/psqlStartupFiles/scan.ts` prints 1. (Probed at plan review: `controlOccurrences: 1`, `validateSurface: []`.)
 
-- [ ] **Step 2: Observe the marker's red** — `pnpm vitest run tests/mutation/_metaPremiseContract.test.ts tests/mutation/_metaGuardSurfaceRegistry.test.ts` FAILS: the premise contract walks enrolled suites and the deciding suite has no `EXPECTED_ENV_TOUCHING` row.
-- [ ] **Step 3: Add both declarations.** In `tests/mutation/_metaPremiseContract.test.ts` — re-run `classifyTests` first (Tasks 2-5 added cases; the spec-time probe said 306 declarations, all environment-free) and declare the TRUE count with the file's honesty rule:
+- [x] **Step 2: Observe the marker's red** — `pnpm vitest run tests/mutation/_metaPremiseContract.test.ts tests/mutation/_metaGuardSurfaceRegistry.test.ts` FAILS: the premise contract walks enrolled suites and the deciding suite has no `EXPECTED_ENV_TOUCHING` row.
+- [x] **Step 3: Add both declarations.** In `tests/mutation/_metaPremiseContract.test.ts` — re-run `classifyTests` first (Tasks 2-5 added cases; the spec-time probe said 306 declarations, all environment-free) and declare the TRUE count with the file's honesty rule:
 
 ```ts
   // The psql startup-file scanner's deciding suite, enrolled 2026-08-16. It
@@ -276,9 +276,9 @@ In `tests/mutation/guardSurfaces.gate.test.ts`, the `EXPECTED_LEDGER_KINDS` row'
   psqlStartupScan: { equivalent: 12 },
 ```
 
-- [ ] **Step 4: Observe the marker's green** — the Step-2 command passes. Run the deciding suite once more, green.
-- [ ] **Step 5: Full-gate acceptance of the COMMITTED state** — `FX_HEAVY_PRIORITY=1 pnpm heavy pnpm mutation:guards` (runs every registry row; ~35-45 min of it is this surface). This run exercises the FINAL floor, the final ledger, the control — the exact state that ships (plan review R1 F7). All nine `GateCondition` members must pass for `psqlStartupScan`. If it reds: `unaccepted-survivor` means a Task 2-5 verdict is missing or a kill does not kill (re-prove with the checker); `stale-ledger-row` means an id drifted (a post-finalization `scan.ts` edit — run the mid-arc restart protocol); `below-floor` means the Step-1 arithmetic disagrees with the machine (trust the machine; recompute and recommit). Budget one contingency re-run.
-- [ ] **Step 6: Commit** `test(mutation): enrol psqlStartupScan - floor <value>, <e> equivalents, gate green`.
+- [x] **Step 4: Observe the marker's green** — the Step-2 command passes. Run the deciding suite once more, green.
+- [x] **Step 5: Full-gate acceptance of the COMMITTED state** — `FX_HEAVY_PRIORITY=1 pnpm heavy pnpm mutation:guards` (runs every registry row; ~35-45 min of it is this surface). This run exercises the FINAL floor, the final ledger, the control — the exact state that ships (plan review R1 F7). All nine `GateCondition` members must pass for `psqlStartupScan`. If it reds: `unaccepted-survivor` means a Task 2-5 verdict is missing or a kill does not kill (re-prove with the checker); `stale-ledger-row` means an id drifted (a post-finalization `scan.ts` edit — run the mid-arc restart protocol); `below-floor` means the Step-1 arithmetic disagrees with the machine (trust the machine; recompute and recommit). Budget one contingency re-run.
+- [x] **Step 6: Commit** `test(mutation): enrol psqlStartupScan - floor <value>, <e> equivalents, gate green`.
 
 ### Task 7: Graduation + closeout
 
