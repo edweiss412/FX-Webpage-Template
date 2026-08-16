@@ -198,8 +198,14 @@ export function scanForViolations(root: string = process.cwd()): ScanResult {
     // block-commented one both reported as violations.
     const stripped = stripCommentsForFile(raw, file).split("\n");
     lines.forEach((text, index) => {
-      if ((stripped[index] ?? "").trim() === "") return;
-      if (!GOTO_CALL.test(text) || !MODAL_ROUTE_PATTERN.test(text)) return;
+      // TWO different questions, so two different texts. "Does this line NAVIGATE?"
+      // is about code, so it is asked of the STRIPPED line — otherwise a live
+      // statement with a commented-out goto beside it reads as a violation.
+      // "Does it declare an EXEMPTION?" is about a comment, so `exemptionReasonAt`
+      // keeps reading the RAW line. Asking one question of the other's text is
+      // the defect this split closes, in both directions.
+      const code = stripped[index] ?? "";
+      if (!GOTO_CALL.test(code) || !MODAL_ROUTE_PATTERN.test(code)) return;
       const site: SourceLine = { file, line: index + 1, text: text.trim() };
       const reason = exemptionReasonAt(lines, index);
       if (reason === null || reason === "") {
@@ -295,8 +301,13 @@ export function enumerateCandidates(root: string = process.cwd()): Candidate[] {
       // the second reopened the exact regression origin (f) was added to close —
       // commenting a wait out left its member count untouched, so the guard
       // certified a site whose post-open wait no longer runs.
-      const isImport = /^import\b|^\}? from ["']/.test(text.trim());
-      if (HELPER_CALL.test(text) && !isImport && !site.isComment) push("f-helper-call");
+      // Asked of the STRIPPED line for the same reason the violation scan is:
+      // `isComment` is true only when the WHOLE line is comment, so a helper call
+      // commented out BESIDE live code (`await other(); // await openShowReviewModal(…)`)
+      // left the raw text matching and certified a site whose helper never runs.
+      const code = stripped[index] ?? "";
+      const isImport = /^import\b|^\}? from ["']/.test(code.trim());
+      if (HELPER_CALL.test(code) && !isImport) push("f-helper-call");
     });
   }
   return candidates;
