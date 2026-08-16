@@ -403,6 +403,67 @@ describe("a write is an assignment OPERATOR, not one statement shape (whole-diff
   });
 });
 
+describe("two binding forms that were scoped wrongly (whole-diff R3 #4)", () => {
+  const spawner = `import { spawnSync } from "node:child_process";
+    const cache = () => spawnSync("git", []);`;
+
+  it("a `var` in a class static block belongs to that block, not the module", () => {
+    // A class static block is a function-like boundary: its `var` does NOT
+    // escape it. The block was not a scope node at all, so the var hoisted all
+    // the way to module scope and merged its spawning extent into the unrelated
+    // module `cache` an ordinary test then reads — over-classification, silent.
+    //
+    // The static block is at MODULE scope on purpose: with an enclosing function
+    // the var lands in that function and the case passes for the wrong reason.
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        const cache = () => 1;
+        class K { static v: unknown; static { var cache = () => spawnSync("git", []); K.v = cache; } }
+        function read() { return cache; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-free");
+  });
+
+  it("a `using` declaration stops binding at the end of its block", () => {
+    // `using` is block-scoped like let/const. `isVarDeclaration` tested only for
+    // the Let and Const flags, so `using` read as `var`, hoisted to the whole
+    // function, and shadowed a read that sits AFTER its block — losing real
+    // provenance, silently.
+    expect(
+      verdict(`${spawner}
+        function read() {
+          { using cache = { [Symbol.dispose]() {} }; void cache; }
+          return cache;
+        }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a `using` declaration still shadows INSIDE its own block", () => {
+    // The pair: block-scoping it must not become failing to bind it at all.
+    expect(
+      verdict(`${spawner}
+        function read() {
+          { using cache = { [Symbol.dispose]() {} }; return cache; }
+        }
+        it("x", () => { read(); });`),
+    ).toBe("environment-free");
+  });
+
+  it("a `var` in a plain block still hoists out of it", () => {
+    // The foil for the static-block change: an ordinary block is a scope for
+    // let/const, and `var` must keep escaping it.
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        function read() {
+          { var cache = () => spawnSync("git", []); }
+          return cache;
+        }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+});
+
 describe("unclassifiable — recognized but unresolvable, and it reds", () => {
   it("a dynamic import whose specifier is not a literal", () => {
     expect(

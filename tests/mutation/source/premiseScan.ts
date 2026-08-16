@@ -234,7 +234,12 @@ function isScopeNode(node: ts.Node): boolean {
     ts.isForOfStatement(node) ||
     ts.isForInStatement(node) ||
     ts.isCatchClause(node) ||
-    ts.isCaseBlock(node)
+    ts.isCaseBlock(node) ||
+    // A class static block is function-like for `var` as well as for let/const:
+    // its `var` does not escape it. Missing here, a static block's `var` hoisted
+    // to module scope and merged its extent into an unrelated module binding of
+    // the same name (whole-diff R3 #4).
+    ts.isClassStaticBlockDeclaration(node)
   );
 }
 
@@ -269,7 +274,9 @@ function functionScopeOf(node: ts.Node): Scope | null {
   let p: ts.Node | undefined = node.parent;
   let found: Scope | null = null;
   while (p) {
-    if (ts.isSourceFile(p) || isFunctionLike(p)) {
+    // A class static block bounds `var` the way a function body does, so the
+    // hoist stops here rather than carrying the name out to the module.
+    if (ts.isSourceFile(p) || isFunctionLike(p) || ts.isClassStaticBlockDeclaration(p)) {
       found = p;
       break;
     }
@@ -377,11 +384,24 @@ function isDynamicImportInitializer(init: ts.Expression | undefined): boolean {
   return ts.isCallExpression(expr) && expr.expression.kind === ts.SyntaxKind.ImportKeyword;
 }
 
-/** `var` (function-scoped) vs `let`/`const` (block-scoped). */
+/**
+ * `var` (function-scoped) vs `let`/`const`/`using` (block-scoped).
+ *
+ * Tested as "not Let and not Const", `using` and `await using` fell through to
+ * the `var` arm, hoisted to the whole function, and shadowed reads that sit
+ * AFTER their block — losing real provenance, silently (whole-diff R3 #4).
+ * `using` carries the Const flag on its own list in some TypeScript versions and
+ * a dedicated one in others, so both are named rather than inferred.
+ */
 function isVarDeclaration(decl: ts.VariableDeclaration): boolean {
   const list = decl.parent;
   if (list === undefined || !ts.isVariableDeclarationList(list)) return false;
-  return (list.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0;
+  const blockScoped =
+    ts.NodeFlags.Let |
+    ts.NodeFlags.Const |
+    (ts.NodeFlags.Using ?? 0) |
+    (ts.NodeFlags.AwaitUsing ?? 0);
+  return (list.flags & blockScoped) === 0;
 }
 
 type ModuleFacts = {
