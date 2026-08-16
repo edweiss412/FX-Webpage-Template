@@ -58,7 +58,7 @@ AC-3b splits: C3/C4 are the ceiling, read in Task 3's `readCeiling` and carried 
 
 ## Meta-test inventory
 
-CREATES none. EXTENDS `tests/mutation/source/registry.ts` (one `GUARD_SURFACES` row) and `tests/mutation/guardSurfaces.gate.test.ts` (one `EXPECTED_LEDGER_KINDS` row — a new surface fails by default until it declares its counts). No Supabase call boundary, no advisory lock, no admin mutation surface, no `admin_alerts` row, no UI surface.
+CREATES none. EXTENDS three registries: `tests/mutation/source/registry.ts` (one `GUARD_SURFACES` row, Task 5), `tests/mutation/guardSurfaces.gate.test.ts` (one `EXPECTED_LEDGER_KINDS` row — a new surface fails by default until it declares its counts, Task 5), and `tests/docs/_metaDeferralLedgerGraduation.test.ts`'s `BACKLOG_GRADUATED` (one `{ id, provenance }` row, Task 7's final commit). No Supabase call boundary, no advisory lock, no admin mutation surface, no `admin_alerts` row, no UI surface.
 
 ## Mutation-operator families — the closure set for review
 
@@ -479,9 +479,13 @@ const identityRead = args.includes("-o");
 
 if (mode === "fail" && !identityRead) process.exit(2);
 if (mode === "identity-fail" && identityRead) process.exit(2);
-// A status-1 exit WITH output is a ps error, not "no such pid": K6, never K1.
+// A status-1 exit WITH output on EITHER stream is a ps error, not "no such pid": K6, never K1.
 if (mode === "identity-noisy-fail" && identityRead) {
   process.stdout.write("ps: some diagnostic\n");
+  process.exit(1);
+}
+if (mode === "identity-stderr-fail" && identityRead) {
+  process.stderr.write("ps: some diagnostic\n");
   process.exit(1);
 }
 if ((mode === "hang" && !identityRead) || (mode === "identity-hang" && identityRead)) {
@@ -778,6 +782,7 @@ import {
 const reap = (pid: number): Decision => ({ pid, reap: true, shape: "forks.js", ageSeconds: 99_999 });
 const ident = (pid: number) => ({ pid, startedAt: "Sun Aug 16 09:35:23 2026", command: "node x" });
 const read = (pid: number): IdentityRead => ({ state: "read", identity: ident(pid) });
+const planned = (pid: number) => new Map<number, IdentityRead>([[pid, read(pid)]]);
 
 describe("parseFlags: AC-6", () => {
   it.each([
@@ -865,7 +870,7 @@ describe("executeKills: AC-5, AC-5b", () => {
   it("K2: a changed identity is NOT signalled", () => {
     const signalled: number[] = [];
     const out = executeKills([10], {
-      identityAtPlan: new Map([[10, ident(10)]]),
+      identityAtPlan: planned(10),
       readIdentity: () => ({
         state: "read",
         identity: { pid: 10, startedAt: "Sun Aug 16 10:00:00 2026", command: "node x" },
@@ -882,11 +887,11 @@ describe("executeKills: AC-5, AC-5b", () => {
   it("AC-5b: an advanced etime and a changed ppid do NOT block the signal", () => {
     // Both identities carry ppid/etime that DIFFER. If an implementation ever adds either to the
     // comparison, this fails; asserting on two identical objects could not detect that.
-    const planned = { ...ident(10), ppid: 1, etimeSeconds: 100 } as unknown as TargetIdentity;
+    const before = { ...ident(10), ppid: 1, etimeSeconds: 100 } as unknown as TargetIdentity;
     const current = { ...ident(10), ppid: 99, etimeSeconds: 5_000 } as unknown as TargetIdentity;
     const signalled: number[] = [];
     const out = executeKills([10], {
-      identityAtPlan: new Map([[10, planned]]),
+      identityAtPlan: new Map<number, IdentityRead>([[10, { state: "read", identity: before }]]),
       readIdentity: () => ({ state: "read", identity: current }),
       kill: (pid) => {
         signalled.push(pid);
@@ -905,7 +910,7 @@ describe("executeKills: AC-5, AC-5b", () => {
 
   it("K1: a pid gone BEFORE the identity read is already-gone", () => {
     const out = executeKills([10], {
-      identityAtPlan: new Map([[10, ident(10)]]),
+      identityAtPlan: planned(10),
       readIdentity: () => ({ state: "gone" }),
       kill: () => undefined,
       stillAlive: () => false,
@@ -915,7 +920,7 @@ describe("executeKills: AC-5, AC-5b", () => {
 
   it("K1: a pid gone AFTER the identity read (kill throws ESRCH) is also already-gone", () => {
     const out = executeKills([10], {
-      identityAtPlan: new Map([[10, ident(10)]]),
+      identityAtPlan: planned(10),
       readIdentity: read,
       kill: () => {
         throw Object.assign(new Error("no such process"), { code: "ESRCH" });
@@ -928,7 +933,7 @@ describe("executeKills: AC-5, AC-5b", () => {
   it("an UNREADABLE identity is never conflated with a gone process", () => {
     const signalled: number[] = [];
     const out = executeKills([10], {
-      identityAtPlan: new Map([[10, ident(10)]]),
+      identityAtPlan: planned(10),
       readIdentity: () => ({ state: "unreadable", detail: "EPERM" }),
       kill: (pid) => {
         signalled.push(pid);
@@ -939,11 +944,40 @@ describe("executeKills: AC-5, AC-5b", () => {
     expect(out[0]).toMatchObject({ pid: 10, result: "identity-unreadable" });
   });
 
+  it.each([
+    ["a later successful read", { state: "read", identity: ident(10) } as IdentityRead],
+    ["a later gone", { state: "gone" } as IdentityRead],
+  ])("K6: a PLAN-TIME unreadable stays unreadable, despite %s", (_label, second) => {
+    const signalled: number[] = [];
+    const out = executeKills([10], {
+      identityAtPlan: new Map<number, IdentityRead>([
+        [10, { state: "unreadable", detail: "EPERM" }],
+      ]),
+      readIdentity: () => second,
+      kill: (pid) => {
+        signalled.push(pid);
+      },
+      stillAlive: () => false,
+    });
+    expect(signalled).toEqual([]);
+    expect(out[0]).toMatchObject({ pid: 10, result: "identity-unreadable" });
+  });
+
+  it("K1: a PLAN-TIME gone stays already-gone", () => {
+    const out = executeKills([10], {
+      identityAtPlan: new Map<number, IdentityRead>([[10, { state: "gone" }]]),
+      readIdentity: read,
+      kill: () => undefined,
+      stillAlive: () => false,
+    });
+    expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "already-gone" }]);
+  });
+
   it("K3: a failing kill is reported per pid and does not stop the run", () => {
     const out = executeKills([10, 11], {
-      identityAtPlan: new Map([
-        [10, ident(10)],
-        [11, ident(11)],
+      identityAtPlan: new Map<number, IdentityRead>([
+        [10, read(10)],
+        [11, read(11)],
       ]),
       readIdentity: read,
       kill: (pid) => {
@@ -956,7 +990,7 @@ describe("executeKills: AC-5, AC-5b", () => {
 
   it("K4: a recorded target alive after the re-scan is partial", () => {
     const out = executeKills([10], {
-      identityAtPlan: new Map([[10, ident(10)]]),
+      identityAtPlan: planned(10),
       readIdentity: read,
       kill: () => undefined,
       stillAlive: (pid) => pid === 10,
@@ -1009,6 +1043,15 @@ describe("readIdentity: the K1 / K6 boundary, executed", () => {
 
   it("K6: ps exiting 1 WITH output is a ps error, never gone", () => {
     process.env.FAKE_PS_MODE = "identity-noisy-fail";
+    try {
+      expect(readIdentity(4242, FAKE_PS).state).toBe("unreadable");
+    } finally {
+      delete process.env.FAKE_PS_MODE;
+    }
+  });
+
+  it("K6: ps exiting 1 with a STDERR-only diagnostic is a ps error, never gone", () => {
+    process.env.FAKE_PS_MODE = "identity-stderr-fail";
     try {
       expect(readIdentity(4242, FAKE_PS).state).toBe("unreadable");
     } finally {
@@ -1227,6 +1270,14 @@ describe("the CLI, executed end to end", () => {
     }
   }, 180_000);
 
+  it("--quiet suppresses K1 already-gone too, since it is a plain success", () => {
+    const owned = spawnOrphan();
+    owned.kill(); // gone BEFORE the reaper runs, so the target reads as already-gone
+    const table: Row[] = [{ pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD }];
+    const { out } = runCli(["--kill", "--quiet"], table, { FAKE_PS_IDENTITY_GONE: String(owned.pid) });
+    expect(out).not.toContain("already-gone");
+  }, 180_000);
+
   it("--quiet keeps C4 visible", () => {
     const { out, code } = runCli(["--kill", "--quiet"], [], { FX_REAP_MIN_AGE_S: "abc" });
     expect(out).toContain("rejected: abc");
@@ -1324,7 +1375,15 @@ export type KillOutcome = {
 };
 
 export type KillDeps = {
-  identityAtPlan: ReadonlyMap<number, TargetIdentity>;
+  /**
+   * The PLAN-TIME read, kept as the full IdentityRead rather than a bare identity.
+   *
+   * Storing only the successful reads loses the difference between "we never read it" and "we read
+   * it and it was gone/unreadable", and the outcome would then be decided by the SECOND read
+   * alone: an initial K6 followed by a successful read would report `identity-changed`, and one
+   * followed by a gone would report `already-gone` with exit 0. K6 must survive.
+   */
+  identityAtPlan: ReadonlyMap<number, IdentityRead>;
   readIdentity: (pid: number) => IdentityRead;
   kill: (pid: number) => void;
   stillAlive: (pid: number) => boolean;
@@ -1337,6 +1396,15 @@ export function executeKills(targets: readonly number[], deps: KillDeps): KillOu
   const signalled: number[] = [];
   for (const pid of targets) {
     const planned = deps.identityAtPlan.get(pid);
+    // A plan-time read that FAILED is K6 on its own terms; the second read cannot rehabilitate it.
+    if (planned !== undefined && planned.state === "unreadable") {
+      outcomes.push({ pid, result: "identity-unreadable", detail: planned.detail });
+      continue;
+    }
+    if (planned !== undefined && planned.state === "gone") {
+      outcomes.push({ pid, result: "already-gone" });
+      continue;
+    }
     const now = deps.readIdentity(pid);
     if (now.state === "gone") {
       outcomes.push({ pid, result: "already-gone" });
@@ -1348,8 +1416,9 @@ export function executeKills(targets: readonly number[], deps: KillDeps): KillOu
     }
     if (
       planned === undefined ||
-      planned.startedAt !== now.identity.startedAt ||
-      planned.command !== now.identity.command
+      planned.state !== "read" ||
+      planned.identity.startedAt !== now.identity.startedAt ||
+      planned.identity.command !== now.identity.command
     ) {
       outcomes.push({ pid, result: "identity-changed" });
       continue;
@@ -1392,8 +1461,12 @@ export function readIdentity(pid: number, psBin: string = psBinFromEnv()): Ident
     // ps exits 1 with NO OUTPUT for a pid that does not exist. Status 1 WITH output is a ps
     // error, and anything else is a read failure; both are K6 and must never be reported as a
     // gone process, which would signal nothing while claiming an ordinary success.
-    const stdout = String((e as { stdout?: unknown }).stdout ?? "").trim();
-    if (err.status === 1 && stdout.length === 0) return { state: "gone" };
+    // `gone` requires ps's exact "no such pid" shape: status 1 and NOTHING on either stream.
+    // A diagnostic on EITHER channel is a ps error, so checking only stdout would classify a
+    // stderr-only failure as gone and report an ordinary success having signalled nothing.
+    const out = String((e as { stdout?: unknown }).stdout ?? "").trim();
+    const errOut = String((e as { stderr?: unknown }).stderr ?? "").trim();
+    if (err.status === 1 && out.length === 0 && errOut.length === 0) return { state: "gone" };
     return { state: "unreadable", detail: err.code ?? err.message ?? "ps failed" };
   }
   if (out.length === 0) return { state: "gone" };
@@ -1507,11 +1580,8 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv): number {
   if (!flags.kill) return exitStatus({ collectFailed: false, ceilingRejected: false, outcomes: [] });
 
   const targets = planTargets(result.decisions, parsed);
-  const identityAtPlan = new Map<number, TargetIdentity>();
-  for (const pid of targets) {
-    const read = readIdentity(pid);
-    if (read.state === "read") identityAtPlan.set(pid, read.identity);
-  }
+  const identityAtPlan = new Map<number, IdentityRead>();
+  for (const pid of targets) identityAtPlan.set(pid, readIdentity(pid));
   const outcomes = executeKills(targets, {
     identityAtPlan,
     readIdentity: (pid) => readIdentity(pid),
@@ -1519,7 +1589,7 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv): number {
     stillAlive,
   });
   // §6.2: `--kill` reports one KillOutcome line per target. `--quiet` keeps only what an operator
-  // must act on - K2, K3, K4, K6 - and drops the plain successes, `killed` and `already-gone`.
+  // must act on - K2, K3, K4, K6 - and drops BOTH plain successes, `killed` and `already-gone`.
   const plainSuccess = (r: KillOutcome["result"]): boolean => r === "killed" || r === "already-gone";
   for (const o of outcomes) {
     if (flags.quiet && plainSuccess(o.result)) continue;
@@ -1535,7 +1605,10 @@ if (process.argv[1] !== undefined && process.argv[1] === fileURLToPath(import.me
 
 **Note for the implementer:** the `main()` wiring — read `process.argv.slice(2)`, `readCeiling(process.env.FX_REAP_MIN_AGE_S)`, `collect()`, `classify(...)`, print the report per §6.2's table, and under `--kill` build `identityAtPlan` from `readIdentity` BEFORE planning — goes at the bottom of the file behind an `import.meta.url` main-module check, so importing it in the test spawns nothing. `--quiet` suppresses only the DECLINE lines; every `KillOutcome` that is not `killed`, plus every config note, always prints. `stillAlive` in production is `process.kill(pid, 0)` with `EPERM` counted as alive (an `EPERM` process EXISTS; counting it dead would report a false `killed`).
 
-- [ ] **Step 4: Run tests to verify they pass.** Run: `pnpm vitest run tests/heavyReap/cli.test.ts`. Expected: PASS.
+- [ ] **Step 4: Run tests.** Run: `pnpm vitest run tests/heavyReap/cli.test.ts`. Expected: every
+      case passes EXCEPT `package wiring > exposes heavy:reap`, which stays RED until Step 5 adds
+      the alias. That one case is the second half of this task's red-to-green cycle, so a fully
+      green run here would mean the alias assertion is missing.
 
 - [ ] **Step 5: Add the script — this is part of the SAME red-to-green cycle.** The suite's
       `package wiring` case asserts the `heavy:reap` script is exactly
@@ -1616,8 +1689,11 @@ describe("the heavy script wires the reaper AHEAD of the wrapper", () => {
   // A substring match on "heavy-reap" would pass on a report-only invocation, the wrong
   // interpreter, or a segment that merely mentions the name - so each part is asserted
   // separately (plan round 1 finding 5).
-  it("invokes the reaper through tsx, by path", () => {
-    expect(segments()[0]).toMatch(/\btsx\s+scripts\/heavy-reap\.ts\b/);
+  // Anchored to the START of the segment, because a segment that merely CONTAINS the text runs
+  // something else: `echo tsx scripts/heavy-reap.ts --kill --quiet` satisfies every unanchored
+  // assertion while reaping nothing (plan round 4 finding 4).
+  it("invokes the reaper through tsx, by path, as the command itself", () => {
+    expect(segments()[0]).toMatch(/^tsx\s+scripts\/heavy-reap\.ts(\s|$)/);
   });
 
   it("invokes it in DESTRUCTIVE mode, or trigger 1 bounds nothing", () => {
@@ -1628,10 +1704,19 @@ describe("the heavy script wires the reaper AHEAD of the wrapper", () => {
     expect(segments()[0]).toMatch(/(^|\s)--quiet(\s|$)/);
   });
 
-  it("makes the WRAPPER the last segment, so caller args reach it", () => {
+  it("makes the WRAPPER the last segment, invoked as the command itself", () => {
     const last = segments()[segments().length - 1];
-    expect(last).toContain("with-heavy-slot.py");
+    expect(last).toMatch(/^python3\s+scripts\/with-heavy-slot\.py(\s|$)/);
     expect(last?.endsWith("--")).toBe(true);
+  });
+
+  it.each([
+    ["echo tsx scripts/heavy-reap.ts --kill --quiet", "a non-live reaper segment"],
+    ["echo python3 scripts/with-heavy-slot.py --", "a non-live wrapper segment"],
+  ])("rejects %s (%s)", (segment) => {
+    // The escape the anchors close, asserted directly rather than trusted.
+    expect(segment).not.toMatch(/^tsx\s+scripts\/heavy-reap\.ts(\s|$)/);
+    expect(segment).not.toMatch(/^python3\s+scripts\/with-heavy-slot\.py(\s|$)/);
   });
 
   it("sequences with ';' and never '&&', so a failing reaper cannot block admission", () => {
@@ -1719,11 +1804,14 @@ and `sequences with ';' and never '&&'` both PASS on today's single-segment scri
 after the edit: they are INVARIANTS pinning the shape the edit must preserve, not part of the
 red-to-green cycle. **The three red cases are deliberately split rather than one substring match**:
 a single `toContain("heavy-reap")` would go green on a report-only invocation, the wrong
-interpreter, or a segment that merely mentions the name — which is a case passing for the wrong
-reason, and is plan review round 1 finding 5. The four `AC-8 fail-open` cases likewise pass before and after, because each
+interpreter, or a segment that merely mentions the name. Each is also ANCHORED to the start of the
+segment, because an unanchored match is satisfied by `echo tsx scripts/heavy-reap.ts --kill
+--quiet`, which reaps nothing — a case passing for the wrong reason, and plan review rounds 1 and 4
+finding 5 and 4 respectively. Two cases assert that escape is rejected, rather than trusting it. The four `AC-8 fail-open` cases likewise pass before and after, because each
 builds its own throwaway package and never reads package.json:56 — they pin `pnpm`'s argument
 forwarding, which the edit relies on but does not change. So the red-to-green transition on this
-command is carried by one case, and the other six are regression guards. Do not "strengthen" them
+command is carried by those three cases, and the remaining six are regression guards. Do not
+"strengthen" them
 into red cases by making them read the repo's script; that would couple every invariant to one
 edit and lose the distinction.
 
@@ -1817,8 +1905,10 @@ necessarily trips the pin, and the fixture update is the green.
       codex-guard shim install, because the hook is per-machine config this repo cannot install.
       Note explicitly that the hook is a SECOND trigger and that trigger 1 already covers the
       contended case, so a machine without the hook is degraded rather than unprotected.
-- [ ] **Step 4:** add the index row for this plan to `docs/superpowers/plans/ci/README.md`. The
-      spec's row landed with the spec commit — VERIFY, do not duplicate.
+- [ ] **Step 4:** VERIFY the index rows, do not add them. Both landed with their own commits —
+      the plan's at `docs/superpowers/plans/ci/README.md:16` and the spec's in
+      `docs/superpowers/specs/ci/README.md`. This step exists because adding a duplicate row is
+      the easy mistake here, not because a row is missing.
 - [ ] **Step 5:** `BACKLOG.md` needs nothing: `BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH` and
       `BL-SPECLINT-RED-TARGET-ROOT-FILE` were both filed at spec and plan time, each observed red
       then green on `tests/docs/_metaLedgerReferentialIntegrity.test.ts`.
@@ -1839,11 +1929,30 @@ git commit -m "docs(infra): document the pre-admission reap in the heavy-phase c
 - [ ] Push; open the PR (merge-commit convention).
 - [ ] **Adversarial review (cross-model), whole diff, to APPROVE.** The round-1 brief carries Task 5's mutation score and unaccepted-survivor set, plus the spec's consequence bound, `PROBE DOMAIN:` and threat fence (§9), and the do-not-relitigate list from §1.1.
 - [ ] Real CI green — not just local.
-- [ ] **Final commit — graduation + marker removal** (after review APPROVE and CI green). Enrol the
-      graduation in `BACKLOG_GRADUATED` FIRST and observe that guard RED, then graduate
-      `BL-HEAVY-ORPHAN-WORKER-LIFETIME` to `BACKLOG-archive.md` and remove the
-      `**Status:** IN PROGRESS · **Branch:**` marker in the SAME commit (invariant 12 — archives
-      reject in-flight entries, so the two are inseparable), then GREEN on the same command.
+- [ ] **Final commit — graduation + marker removal** (after review APPROVE and CI green), as a
+      red-to-green cycle on ONE command:
+      `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts`.
+
+      **RED first.** Add the row to `BACKLOG_GRADUATED` (`tests/docs/_metaDeferralLedgerGraduation.test.ts:99`)
+      BEFORE moving the entry:
+
+      ```ts
+        // chore/heavy-orphan-reaper (2026-08-16): the orphaned-worker lifetime row. The arc also
+        // corrected the entry's own candidate (c): the slot-membership exemption it proposed is
+        // unreachable, so the shipped predicate reads the process tree alone.
+        { id: "BL-HEAVY-ORPHAN-WORKER-LIFETIME", provenance: "chore/heavy-orphan-reaper" },
+      ```
+
+      The command goes RED because the id is still in `BACKLOG.md` and absent from the archive
+      (`tests/docs/_metaDeferralLedgerGraduation.test.ts:640-643`). `provenance` is the string the
+      ARCHIVED SECTION must contain, checked inside that section rather than anywhere in the file
+      (`tests/docs/_metaDeferralLedgerGraduation.test.ts:646`), so the archive entry must name the
+      branch.
+
+      **GREEN.** In the SAME commit: move the entry to `BACKLOG-archive.md` with a section naming
+      `chore/heavy-orphan-reaper`, and remove the `**Status:** IN PROGRESS · **Branch:**` marker
+      (invariant 12 — archives reject in-flight entries, so the two are inseparable). Re-run the
+      SAME command — GREEN. Then `pnpm heavy pnpm vitest run tests/docs` — GREEN.
 - [ ] **PUSH the final commit, and wait for CI GREEN on that head.** This step is easy to skip and
       the plan previously did (round 3 finding 6): a graduation commit created after CI has passed
       either never reaches the remote — so the merge lands the PREVIOUS head and leaves the ledger
