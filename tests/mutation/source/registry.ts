@@ -165,12 +165,33 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // bounded `{m,n}` syntax only, and this module's regexes use `*`, so it
     // yields zero sites here.
     operators: [...OPERATOR_NAMES],
-    scoreFloor: 0.9,
+    scoreFloor: 0.95,
     // Drops the empty-reason arm of the exemption check, so a
     // `// modal-wait-exempt:` with nothing after it silently becomes a valid
     // exemption. The premise proof's empty-reason case is what notices.
     control: { from: 'reason === null || reason === ""', to: "reason === null" },
-    accepted: [],
+    accepted: [
+      // ---- equivalent: cannot change observable behavior ------------------
+      //
+      // First real run scored 49/57 with EIGHT survivors. Six were coverage gaps
+      // and were repaid with cases in the deciding suite, each proven against its
+      // own mutant (testid-window bound and its same-line edge, the quoted
+      // data-testid capture group, the product surface's own line number, and the
+      // two-rule ambiguity threshold). Re-run: 55/57 with exactly these two left,
+      // so a THIRD row here is a gap to repay rather than a number to bump.
+      {
+        siteId: "statement-removal:142:9:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "Drops the `continue` after `visit(child)` in walkSourceFiles, so a DIRECTORY falls through to the `child.endsWith('.ts') || child.endsWith('.tsx')` test below it. No directory in app/ or components/ ends in .ts or .tsx, so the extra test is always false and the walk's output is identical. Observable only for a directory literally named `*.ts`, which the tree does not contain.",
+      },
+      {
+        siteId: "integer-literal:309:83:0>1",
+        kind: "equivalent",
+        reason:
+          "Changes the `?? 0` fallback in classifyCandidates' count increment to `?? 1`. The branch is unreachable: countsByRule is pre-seeded with a 0 entry for EVERY rule at construction (`new Map(rules.map((rule) => [rule.id, 0]))`), so `countsByRule.get(hit.id)` never returns undefined and the nullish fallback never evaluates.",
+      },
+    ],
   },
   {
     // The citation-intent classifier (2026-08-15 arms spec §3, §7). Its three

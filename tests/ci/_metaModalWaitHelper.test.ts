@@ -253,6 +253,92 @@ describe("modal-wait guard — the live corpus", () => {
     expect(prefixes.some((p) => p.startsWith("needs-attention-link-"))).toBe(true);
   });
 
+  test("the testid window has a real BOUND, and same-line and far testids sit either side of it", () => {
+    // Repays three surviving mutants from the first real mutation run:
+    // TESTID_WINDOW 12->13, `distance <= WINDOW` -> `<`, and `distance = 0` -> 1.
+    // Each moves the window by one, so the fixture puts an href exactly ON the
+    // boundary, one past it, and one on the SAME line as its testid.
+    const href = "        href={`/admin?show=${row.slug}`}";
+    const testid = "        data-testid={`probe-row-${row.slug}`}";
+    const mk = (gap: number): string => {
+      const filler = Array.from({ length: gap - 1 }, () => "        // filler");
+      return ["export function P() {", "  return (", href, ...filler, testid, "  );", "}"].join(
+        "\n",
+      );
+    };
+    const rootAt = (body: string): string => {
+      const root = mkdtempSync(join(tmpdir(), "modal-wait-product-"));
+      tempRoots.push(root);
+      mkdirSync(join(root, "components"), { recursive: true });
+      mkdirSync(join(root, "tests", "e2e"), { recursive: true });
+      writeFileSync(join(root, "components", "Probe.tsx"), body, "utf8");
+      return root;
+    };
+    const prefixOf = (body: string): string | null =>
+      productOpenSurfaces(rootAt(body)).find((s) => s.file.endsWith("Probe.tsx"))?.testIdPrefix ??
+      null;
+
+    // Same line: `distance = 0` is the only pass that can see it.
+    expect(prefixOf(`export const P = () => <a ${href.trim()} ${testid.trim()} />;`)).toBe(
+      "probe-row-",
+    );
+    // Exactly ON the window: found. One past it: NOT found.
+    expect(prefixOf(mk(12))).toBe("probe-row-");
+    expect(prefixOf(mk(13))).toBeNull();
+  });
+
+  test("a QUOTED data-testid resolves, not just the template-literal form", () => {
+    // Repays the `match[1] ?? match[2]` -> `match[3]` survivor: the corpus's
+    // quoted form (PreviewBanner's admin-preview-banner-exit) was never asserted,
+    // so dropping the quoted capture group left the suite green.
+    const prefixes = productOpenSurfaces(REPO_ROOT)
+      .map((s) => s.testIdPrefix)
+      .filter((p): p is string => p !== null);
+    expect(prefixes, "the quoted-attribute capture group is load-bearing").toContain(
+      "admin-preview-banner-exit",
+    );
+  });
+
+  test("a product surface reports the line it was actually found on", () => {
+    // Repays the `line: index + 1` -> `index + 2` survivor. Nothing consumed the
+    // line number, so an off-by-one in it was invisible.
+    const root = mkdtempSync(join(tmpdir(), "modal-wait-line-"));
+    tempRoots.push(root);
+    mkdirSync(join(root, "components"), { recursive: true });
+    mkdirSync(join(root, "tests", "e2e"), { recursive: true });
+    writeFileSync(
+      join(root, "components", "Line.tsx"),
+      ["// one", "// two", "const href = `/admin?show=${slug}`;"].join("\n"),
+      "utf8",
+    );
+    const found = productOpenSurfaces(root).find((s) => s.file.endsWith("Line.tsx"));
+    expect(found?.line, "the route literal is on line 3").toBe(3);
+  });
+
+  test("a candidate claimed by exactly TWO rules is reported ambiguous", () => {
+    // Repays the `hits.length > 1` -> `> 2` survivor: with the threshold at 2, a
+    // two-rule overlap — the ordinary way a disposition goes ambiguous — passed
+    // silently, and only a three-rule pile-up was reported.
+    const candidate: Candidate = {
+      origin: "a-route-literal",
+      file: "tests/e2e/two-rules.spec.ts",
+      line: 1,
+      text: "await page.goto(`/admin?show=${slug}`);",
+      exemptReason: null,
+    };
+    const always = { origin: "a-route-literal" as const, expectedCount: 1, match: () => true };
+    const result = classifyCandidates(
+      [candidate],
+      [
+        { ...always, id: "probe/one" },
+        { ...always, id: "probe/two" },
+      ],
+    );
+    expect(result.ambiguous).toHaveLength(1);
+    expect(result.ambiguous[0]?.ruleIds).toEqual(["probe/one", "probe/two"]);
+    expect(result.undisposed).toHaveLength(0);
+  });
+
   test("the guard's population is walked from disk, so a new spec is covered by default", () => {
     const populated = new Set(enumerateCandidates(REPO_ROOT).map((c) => c.file));
     premise("the corpus walk found spec files", populated.size, 20);
