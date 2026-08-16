@@ -35,6 +35,7 @@ Out of scope:
 - **The guard's predicate is per-site, never per-file** (spec-review R1 finding 2). A file-level "does this file import the helper" predicate is a false-negative machine: one adopted site silences every other site in the same file. §4.4 bans the naked navigation itself. Findings proposing to re-introduce an import-presence predicate relitigate a refuted design.
 - **The derivation carries a re-navigation command, and the site/wrapper distinction is settled** (spec-review R2 finding 1). §2.1 command (e) covers reload and history origins, whose loads write no URL for any URL-keyed command to find; §2 defines a site as the source location that CAUSES the load, never the wrapper that waits. Findings proposing to drop (e) as redundant, or to re-count wait wrappers as sites, relitigate a measured correction.
 - **The core is `.first()`-scoped internally and unscoped in its return value** (spec-review R2 finding 2). §4.1's strictness contract is the resolution; it is a sweep over the core's five locator operations, not over the two known `MODAL_ANY` callers. Proposing that the RETURN value also narrow relitigates the §1.1 public-behavior pin directly above.
+- **Census completeness was the same vector three rounds running, so it got the comprehensive re-analysis AGENTS.md mandates, and the structural defense ships with it.** The re-analysis is the product-keyed table in §2.1 (eight product surfaces, five of them never touched by any spec) plus the three origin classes probed to closure there. The defense is AC-2b: the plan lands the candidate enumeration as CODE beside the guard predicate, and the spec's tables are asserted against it, so a future divergence fails a test instead of waiting for a reviewer. A finding that the prose table is stale is then a finding against the derivation, which is the point.
 - **`openShowReviewModal`'s existing unit surface stays green unchanged.** The three cases in `tests/e2e/helpers/openShowReviewModal.unit.test.ts:28-37` and the dead-slug diagnostic (`tests/e2e/admin-changes-feed-layout.spec.ts:185`) pin the public contract; the §4.1 refactor is internal extraction plus two additive exports.
 - **The app-e2e oracle's stdout is pinned and stays byte-identical.** `tests/ci/appE2eAnnotationPrint.test.ts` runs `scripts/check-app-e2e-executed.mjs` as a child process and asserts its print lines; the §4.3 collector extraction must keep that suite green without editing its assertions.
 
@@ -54,8 +55,11 @@ rg -n 'goto\(' tests/e2e/*.spec.ts | rg -v 'goto\(\s*[`"'"'"']'
 # (c) legacy routes that 307 into the modal
 rg -n '/admin/show/' tests/e2e/*.spec.ts
 
-# (d) in-app navigations to the route: the two product testids whose href is /admin?show=
-rg -n 'shows-table-row|needs-attention-link' tests/e2e/*.spec.ts
+# (d) in-app link activation. PRODUCT-KEYED: first enumerate every product surface whose
+#     href or openHref targets the route, then grep tests for each surface's testid.
+rg -n "href=" components/admin/ app/admin/ | rg 'show='
+rg -n 'useShowModalNav|buildShowModalHref' app/ components/
+rg -n 'shows-table-row|needs-attention-link|health-alert-show-link|bell-caret|archived-show-open|admin-preview-banner-exit' tests/e2e/*.spec.ts
 
 # (e) re-navigations of the CURRENT url (no url is written, so (a)-(d) cannot see them)
 rg -n 'reload\(|goBack\(|goForward\(' tests/e2e/*.spec.ts
@@ -63,7 +67,40 @@ rg -n 'reload\(|goBack\(|goForward\(' tests/e2e/*.spec.ts
 
 **Why these five cover the corpus.** A `/admin?show=` load originates from a full navigation, an in-app link activation, or a RE-navigation of the url already in the address bar. That third origin writes no url anywhere, so no url-keyed command can see it — spec-review R2 finding 1 surfaced it as a live member (`admin-lifecycle-transitions.spec.ts:174`, inside `expectFlipLanded`'s `reload` recovery tier, which reloads the current `?show=` route and waits on the modal at `admin-lifecycle-transitions.spec.ts:175`). (e) closes it, and the class-sweep is a classification of every one of its 21 hits, not a patch of the named instance: exactly one is on a `?show=` route. The other 20 reload or step back on `/admin`, `/admin/needs-attention`, the picker, or a crew route (`theme-toggle.spec.ts:216`, `needs-attention-holds.spec.ts` 291/303/326, `needs-attention-page.spec.ts:193`, `picker-flow.spec.ts` 742/772/788, `bell-panel-layout.spec.ts` 354/566, `admin-nav-layout-dimensions.spec.ts` 611/635/700, `crew-section-toggle.spec.ts` 235/244, `crew-page.spec.ts` 1529/1533), and `published-review-modal.interactions.spec.ts:392` steps back OFF `?show=` to close the modal, asserting its absence. Of the url-writing origins: (a) catches every full navigation whose URL is written inline; (b) is the complete residue of full navigations — every non-literal `goto` argument in the tree, 100 lines, each classified, and only three resolve to `?show=` (`published-review-modal.deeplink.spec.ts:120`, `published-review-modal.interactions.spec.ts:103`, `alert-action-links.spec.ts:345`); (c) catches the redirect-in shape, whose URL never contains `?show=`; (d) catches link activation by naming the two product testids that carry a `/admin?show=` href, which any test must reference to reach them.
 
-**(d) is testid-keyed, not call-keyed, and that is load-bearing.** Grepping for the click (`rg 'shows-table-row.*click'`) misses `published-review-modal.interactions.spec.ts:355`, where the locator is bound to a variable at line 349 and clicked as `trigger.click()`. The testid reference is the invariant; the call shape is not. Residual limit: a test that reached a row by `getByRole("link", …)` would evade (d) — probed and absent from the corpus (`rg 'getByRole\(.link' tests/e2e/*.spec.ts` returns four hits, none an admin dashboard row), and recorded as documented limit 6.
+**(d) is PRODUCT-keyed, and that is the correction three review rounds earned.** Rounds 1, 2 and
+3 each landed a finding on census completeness — the same vector three times running, which
+AGENTS.md makes a trigger for comprehensive re-analysis rather than another patch. The
+re-analysis was run before this draft and it went at the problem from the PRODUCT side: rather
+than guessing which testids a test might click, enumerate every surface the product gives a
+user to open this modal, then ask which ones any spec touches. There are eight, across six
+components:
+
+| product surface | testid | any e2e spec? |
+| --- | --- | --- |
+| `components/admin/ShowsTable.tsx:547` (via `openHref`) | `shows-table-row-<slug>` | yes — the click-open members of §2.4 |
+| `components/admin/NeedsAttentionInbox.tsx:132` | `needs-attention-link-sync-problem-<alertId>` | no |
+| `components/admin/NeedsAttentionInbox.tsx:200` | `needs-attention-link-identity-hold-<showId>` | yes — `needs-attention-holds.spec.ts:335` |
+| `components/admin/NeedsAttentionInbox.tsx:226` | `needs-attention-link-<slug>` | no |
+| `components/admin/ArchivedShowRow.tsx:77` | `archived-show-open-<slug>` | **never referenced** |
+| `components/admin/telemetry/HealthAlertsPanel.tsx:141` | `health-alert-show-link-<id>` | **never referenced** |
+| `components/admin/telemetry/EventRow.tsx:82` | (no testid) | **never referenced** |
+| `components/admin/BellPanel.tsx:713` | `bell-caret-<alertId>` | referenced for visibility and geometry only, never clicked |
+| `components/admin/PreviewBanner.tsx:116` | `admin-preview-banner-exit` | **never referenced** |
+
+The re-analysis added ZERO members — which is the point. The earlier two-testid grep happened
+to be complete, but nothing about it said so; this table does, and it is re-derivable from the
+product rather than from a reviewer noticing an omission. It also explains R3 finding 2 from
+the product side: `ArchivedShowRow` really does emit `/admin?bucket=archived&show=…`, so the
+param-order spelling the guard now matches is a shape the PRODUCT produces, not a hypothetical.
+
+Three further origin classes were probed to closure in the same pass and are recorded here so
+they are not re-derived: history-API navigation (`location.href =`, `pushState`, `replaceState`)
+appears only in `crew-section-toggle.spec.ts` on a crew route; extra pages (`context.newPage()`
+at lines 262 and 772 of `published-review-modal.realtime.spec.ts`) reach the route through a `goto` or
+a row click already counted on that page object; and no spec awaits an app-initiated navigation
+to the route that some other command has not already caught.
+
+**(d) is also testid-keyed rather than call-keyed, and that too is load-bearing.** Grepping for the click (`rg 'shows-table-row.*click'`) misses `published-review-modal.interactions.spec.ts:355`, where the locator is bound to a variable at line 349 and clicked as `trigger.click()`. The testid reference is the invariant; the call shape is not. Residual limit: a test that reached a row by `getByRole("link", …)` would evade (d) — probed and absent from the corpus (`rg 'getByRole\(.link' tests/e2e/*.spec.ts` returns four hits, none an admin dashboard row), and recorded as documented limit 6.
 
 **Measured correction to the entry's censuses.** `rg -l 'published-show-review-modal'` misses every `published-*` spec (they build the selector from `const BASE = "published-show-review"`, e.g. `tests/e2e/published-show-attention.spec.ts:25`) while including a harness-only gallery; `rg -c 'admin\?show='` counts comment mentions (`tests/e2e/skeletonBandParity.spec.ts:7`) and assertion strings (`tests/e2e/published-review-modal.reopen.spec.ts:138`, `tests/e2e/published-review-modal.realtime.spec.ts:909` are `href` expectations, not navigations).
 
@@ -230,6 +267,8 @@ New meta-test (e.g. `tests/ci/_metaModalWaitHelper.test.ts`) with its predicate 
 
 - **AC-1:** `awaitReviewModalOrRecover` and `openShowReviewModalAt` exist with the §4.1 contract; `openShowReviewModal` delegates through both; the §1.1 pins (three unit cases, dead-slug diagnostic, no top-level `@playwright/test` value import) pass unchanged. New unit cases cover `gotoOptions` pass-through, `label` fallback, and — the R2 finding-2 pin, narrowed by R3 finding 1 — a **twin-frame fixture** in which BOTH a skeleton `…-modal` and a loaded `…-modal:has(…-title)` are present, asserting that `LOADED_REVIEW_MODAL` resolves to exactly one node (the single-match premise, stated executably rather than assumed), that neither the first wait nor the post-recovery re-wait raises a strict-mode violation, and that the error text still names the boundary and `show_review_snapshot_failed`. There is no `readySelector` case, because there is no `readySelector`.
 - **AC-2:** All 51 member open sites in §2.3 + §2.4 (re-derived at implementation via §2.1's five commands) engage the helper in their assigned shape (§4.2); downstream assertions unchanged — verified by targeted local playwright runs of all 17 adopted specs under `pnpm heavy` (non-interactive playwright is heavy by invocation shape), green against a freshly seeded database.
+<!-- spec-lint: ignore — tests/ci/_metaModalWaitHelper.test.ts is created by this spec's implementation -->
+- **AC-2b (structural defense for the census vector):** the guard's predicate module ALSO exports the candidate enumeration — every open site the five §2.1 origins can produce — and `tests/ci/_metaModalWaitHelper.test.ts` asserts the §2.3 + §2.4 member set against it, so the spec's tables cannot drift from the tree without a red test. The enumeration is a filesystem walk plus the product-surface testid list of §2.1, both derived, neither hand-maintained.
 - **AC-3:** The §4.4 guard lands with its five-case executable premise proof (including the import-present-but-naked-goto regression pin), passes on the adopted corpus with exactly the one pinned exemption, and its predicate module is enrolled in the source-mutation registry with the score + empty unaccepted-survivor set reported before the first diff review dispatch.
 - **AC-4:** The §4.3 wiring rule holds: every workflow step executing a member spec emits a JSON report and prints its recoveries; `check-app-e2e-executed.mjs` stdout is byte-identical under the collector extraction (`tests/ci/appE2eAnnotationPrint.test.ts` green unchanged); the new printer has a vitest case (child-process, synthetic report: prints rows from `tests[].annotations` only, exactly-once on the duplicated-location case, plus the total line — red first).
 - **AC-5:** No behavior change to any workflow's gating: printers and oracle print duties are informational; no retries flags added or removed; no run-step file list changes.
