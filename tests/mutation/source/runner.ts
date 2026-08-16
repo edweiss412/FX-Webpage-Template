@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { type StdioOptions, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -172,7 +172,7 @@ function spawnChild(
     // making any high-output surface unenrollable. Discarding removes the cap
     // outright instead of trading it for a bigger number to outgrow later, and
     // costs nothing observable because the output was already invisible.
-    stdio: ["ignore", "ignore", "ignore"] as const,
+    stdio: ["ignore", "ignore", "ignore"] as StdioOptions,
     timeout: MUTANT_TIMEOUT_MS,
     // SIGTERM is what vitest's own watchdogs and this machine's idle-process
     // reaper use, and a vitest child can trap it; SIGKILL cannot be trapped,
