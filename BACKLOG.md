@@ -662,31 +662,26 @@ level         text not null check (level in ('info','warn','error')),
 
 **The decision this needs, and why it was filed rather than fixed:** which side moves. Widen the CHECK to accept `debug` (and accept that the forensic log gains a chatty tier with a 60-day retention window), or narrow `LogLevel` to the three values the sink actually stores (and give `debug` callers a console-only path that is honest about not persisting). That is a product decision about what the run log is for, not a repair — class-sweep disposition exception (a).
 
-## BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE — the dashboard-overview baseline predates five days of dashboard component changes
+## BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE — screenshots-drift and admin-layout-e2e both flipped across a markdown-only delta
 
-**Status:** OPEN · **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, from PR #812's CI)
+**Status:** OPEN · **Severity:** LOW (advisory jobs; neither is a required context) · **Class:** CI-INFRA / flake · **Effort:** M · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, PR #812)
 
-`screenshots-drift` fails on `public/help/screenshots/dashboard-overview-light.webp` (Bin 77670 -> 82600 bytes). The drift is INHERITED FROM MAIN, not caused by the PR that surfaced it.
+**This entry CORRECTS a wrong filing made minutes earlier on the same PR.** `BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE` claimed the `dashboard-overview-light.webp` drift was a stale baseline that main's component churn had outrun. The next run REFUTED that: the byte comparison passed at a head whose only delta was one markdown file.
 
-**Probe evidence.**
+**Probe evidence — two advisory jobs, two heads, identical product code.**
 
-```
-$ git log --oneline -1 -- public/help/screenshots/dashboard-overview-light.webp
-3f48fe674 test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)   # 2026-08-11
-$ git diff --name-only 3f48fe674 origin/main -- components/ app/admin/ | head
-components/admin/AppHealthPopover.tsx
-components/admin/BellPanel.tsx
-components/admin/OnboardingWizard.tsx
-...                                   # ~20 dashboard-rendered components
-```
+| job                 | head                   | delta vs the other head       | result                                                                      |
+| ------------------- | ---------------------- | ----------------------------- | --------------------------------------------------------------------------- |
+| `screenshots-drift` | `b5aa6ef7`             | —                             | FAIL (`dashboard-overview-light.webp`, Bin 77670 -> 82600)                  |
+| `screenshots-drift` | `f6c3ac55`             | one commit, `BACKLOG.md` only | PASS                                                                        |
+| `admin-layout-e2e`  | `b5aa6ef7`, `3bc1ad28` | —                             | PASS                                                                        |
+| `admin-layout-e2e`  | `f6c3ac55`             | one commit, `BACKLOG.md` only | FAIL (`rowactions-geometry.spec.ts:368`, submenu scroll-into-view geometry) |
 
-The manifest entry captures `/admin`'s `[data-testid=admin-dashboard]` (`scripts/help-screenshots.manifest.ts:50-56`), so any of those components changes the capture. The arc that surfaced it adds no element under that selector: its admin surfaces are a new `/admin/wizard/preview/[stagedId]` route and a link inside the step-3 review MODAL, which is not mounted on load.
+A markdown-only commit cannot change a WebP's bytes or a submenu's scroll geometry, so BOTH results are non-deterministic at a fixed tree. They flip in OPPOSITE directions across the same pair of heads, which also rules out "one bad runner": whatever varies is per-job, not per-head.
 
-**Why it surfaced now rather than on the commit that caused it:** the screenshots workflow is path-gated, so it fires only on a PR that touches a watched path. The sibling PR open at the same time (#807, mutation-harness work) does not trigger it at all, and main's own push runs do not include the job.
+**Why it matters even though neither job is required:** an advisory job that flips at a fixed tree teaches operators to ignore it, which is exactly how a real regression in either surface ships unnoticed. The byte-comparison discipline in AGENTS.md pins the Docker image AND the host architecture for this reason; a residual non-determinism inside that pinned environment is the interesting part.
 
-**Repair:** regenerate the baseline FROM THE PINNED DOCKER IMAGE with `--platform linux/amd64` — never from a dev machine. The byte-comparison discipline in AGENTS.md is the authority here: an arm64 host produces different bytes than the native-x64 CI runner even on an identical pinned image tag, so a local `pnpm screenshot:help` would replace one wrong baseline with another (and pollutes the tree meanwhile — `git restore public/help/screenshots/` after any local capture).
-
-**Not merge-blocking, verified rather than assumed:** the twelve required contexts on `main` are quality, unit-suite, x1..x6, validation-schema-parity, affordance-matrix-parity, postgrest-dml-lockdown, traceability-audit (`gh api repos/.../branches/main/protection`). `screenshots-drift` is not among them.
+**First scheduled step is a probe, not a repair:** re-run each job N times at ONE fixed sha (`workflow_dispatch` is already enabled on these workflows) and record the pass rate. That distinguishes a genuinely flaky capture/geometry from a runner-population bimodality (`feedback_screenshot_capture_runner_bimodality` documents the latter shape on the screenshot job specifically). Only then is the repair direction decidable.
 
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 23 app-dependent e2e specs are named by no CI workflow
 
