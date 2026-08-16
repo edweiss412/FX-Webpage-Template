@@ -328,8 +328,12 @@ independently.
 ```
 panes:compact --checkpoint <target> --as <sessionId>
   0. revalidate: verdict is COMPACT|FORCE, purview resolves to <sessionId>, uncontested
-  1. mint a fresh random nonce (128-bit, never reused); send CHECKPOINT_TEXT
-     carrying it; send $'\r'                                            [P1: queues if busy]
+  1. mint a 128-bit random nonce and COMPARE it against the marker's current
+     `checkpointNonce`, re-minting on the (negligible but non-zero) collision.
+     Randomness makes a repeat improbable, not impossible, and an unlucky
+     repeat would let --compact pass on the PREVIOUS checkpoint. One local
+     comparison, not the cross-orchestrator machinery round 6 removed.
+     Then send CHECKPOINT_TEXT carrying it; send $'\r'   [P1: queues if busy]
   2. record (target, nonce) under the orchestrator's state dir
   -> exits 0 having SENT, not having waited. The target executes when its turn ends.
 
@@ -366,9 +370,12 @@ blocked. Round 4 found the previous version sending unconditionally, which would
 pane be restarted against a worktree another session now owns.
 
 **The nonce is single-use and randomly minted, and that is deliberately all it is.**
-`--compact` consumes the record before sending, so a retry finds none and exits 1. The value is a
-fresh 128-bit random, never reused, so "differs from whatever is in the marker" is a consequence of
-minting rather than a rule to check.
+`--compact` consumes the record before sending, so a retry finds none and exits 1. The minted value
+is a 128-bit random **explicitly compared against the marker's current `checkpointNonce`** and
+re-minted on collision — round 7 was right that "randomness makes it different" is a probability
+argument, not a proof, and an unlucky repeat would let `--compact` accept the previous checkpoint.
+That comparison is one local read, not a return of the cross-orchestrator machinery round 6
+removed.
 
 **It is NOT a cross-orchestrator exclusion mechanism, and this spec no longer claims it is.**
 Rounds 4, 5 and 6 each found a new race in a nonce that was accreting toward one — a replay, then
@@ -525,8 +532,7 @@ AGENTS.md                                       # + pointer under cross-cutting 
 
 **Consequence bound.** Every pane is classified correct or signaled — never silently wrong. A pane
 is classified correctly, or reported `UNDETERMINED`/`WAIT`/`UNOWNED`/`NOT-AN-ARC` with the reason
-named; it is never driven on a verdict the classifier could not establish. A worst case of
-conservative demotion plus a surfaced reason is a **documented limit**, not a finding.
+named; it is never driven on a verdict the classifier could not establish.
 
 **The bound ranges over OBSERVATIONS, not over inferred position — and this scoping is the point,
 not a loophole.** Rounds 2, 3, 4 and 5 each found a §7 limit claiming more than the mechanism
@@ -544,9 +550,15 @@ What the bound therefore guarantees, exactly:
 2. `FORCE` never fires at a High-cost position (rule 11).
 3. Every refusal states its reason.
 
-What it does **not** guarantee: that an inferred position matches the target's actual state. That
-gap is §7 limit 1, and it is a limit rather than a defect because it is unobservable, not because
-it is unimportant.
+What it does **not** guarantee: that an inferred position matches the target's actual state, that
+every residual is surfaced at the moment it occurs, or that the target's checkpoint content is
+useful. Those are §7's `[residual]` and `[bounded]` rows. §7 no longer asserts a blanket property
+over its list — each row carries its tier — because five consecutive rounds found a blanket claim
+that the list did not uniformly satisfy.
+
+A worst case of conservative demotion plus a surfaced reason is a **documented limit**, not a
+finding; so is a `[bounded]` or `[residual]` row the spec names explicitly. A finding needs a probe
+showing a drive decision the bound above forbids.
 
 **Probe domain.** The live `herdr agent list` roster on this machine and the fixture corpus at
 `tests/paneCompaction/fixtures/`. A constructed roster outside that set, or more than one ordinary
@@ -564,9 +576,26 @@ line.
 
 ## 7. Documented limits
 
-Each is conservative-plus-signaled — consistent with §6, not an exception to it.
+**There is no universal property here, and asserting one is what five review rounds kept finding.**
+Rounds 2-7 each caught a limit claiming more than it delivers, and every repair before this one
+reworded the offending limit while leaving a blanket preamble that quantified over the whole list.
+The list is heterogeneous; the preamble is deleted.
 
-1. **Position inference can be wrong in both directions, and the promotion case is real.** The
+Each limit instead carries its own tier, and §6's enumeration — not this section — is what states
+the guarantee:
+
+- **[demote]** conservative demotion plus a surfaced reason. Satisfies §6's formulation directly.
+- **[bounded]** the behaviour is bounded and understood, but the residual is **not** surfaced at
+  the moment it occurs.
+- **[residual]** an accepted gap: the outcome can differ from the ideal and nothing detects it.
+  Admitted deliberately because closing it needs a fact the surface cannot observe, or a mechanism
+  out of scope.
+
+A `[residual]` row is **not** a §6 violation, because §6 quantifies over observations and drive
+decisions, not over the accuracy of inference or the completeness of reporting. It is a statement
+about what this surface declines to promise.
+
+1. **[residual] Position inference can be wrong in both directions, and the promotion case is real.** The
    demote-only rule only breaks ties between predicates that both match; it does not constrain a
    false negative. Round 5's example is ordinary: one commit after a non-APPROVE corpus row
    disables the triage-pending predicate whether or not that commit addressed the verdict, after
@@ -580,18 +609,18 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
    orchestrator believed cheaper than it was, which is the same class of outcome as the
    auto-compaction it replaces.
 
-2. **A checkpoint can be issued and never followed by `--compact`.** The orchestrator may simply
+2. **[bounded] A checkpoint can be issued and never followed by `--compact`.** The orchestrator may simply
    not run the second command. The consequence is a marker update the target performs at its own
    pace and no compaction — harmless. **The report does not surface the outstanding record**: its
    columns are pane, branch, pressure, verdict and position evidence, and round 6 was right that an
    earlier version of this limit claimed a signal no contract provides. The record is inert, and a
    later `--checkpoint` replaces it.
-3. **The nonce proves the target wrote it, not that the target wrote anything useful.** A target
+3. **[residual] The nonce proves the target wrote it, not that the target wrote anything useful.** A target
    that sets `checkpointNonce` but leaves `next` stale satisfies `--compact`. The bound is that
    this is the target's own contract failure, identical to one that would have occurred under
    auto-compaction, and it is not made worse by compacting. Requiring the orchestrator to judge
    the *content* of another session's `next` is out of scope (§11).
-4. **Purview collision detection is a report, not a lock, and two orchestrators can both send
+4. **[bounded] Purview collision detection is a report, not a lock, and two orchestrators can both send
    `/compact` to one pane.** Once both claims are visible, rule 3 makes both refuse; but in the
    window before either write lands, both can proceed, and their nonce records live in separate
    files that nothing orders. **This spec does not claim "exactly one".** Rounds 4, 5 and 6 each
@@ -601,21 +630,22 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
    is a near no-op (probe pane, gauge `ctx ░░░░░` before and after), and each orchestrator's own
    nonce still proves its own checkpoint landed before its own send. Compare `ledger:claims`,
    which reports claims across branches and likewise does not lock.
-5. **`gh`'s no-PR signature is matched on human-readable stderr**, which is not a stability
+5. **[demote] `gh`'s no-PR signature is matched on human-readable stderr**, which is not a stability
    contract. A future reword demotes every pane to `UNDETERMINED` rather than mis-classifying.
-6. **An arc whose Stage 0 label was never set is indistinguishable from a non-arc pane.** Both
+6. **[demote] An arc whose Stage 0 label was never set is indistinguishable from a non-arc pane.** Both
    report `NOT-AN-ARC`; neither is driven, and neither is silently omitted.
-7. **A marker-less worktree is supported and classified from git and corpus signals alone.**
+7. **[residual] A marker-less worktree is supported and classified from git and corpus signals alone.**
    Measured: 3 of 38 worktrees carry no marker, one of which (`ci-flake-ledger-correction`) is a
    genuine branch worktree. AGENTS.md's ship-gate has a soft tier for exactly this. Absence is
    never read as mismatch — §4.5 rule 5 no-ops rather than firing.
-8. **Agent-label uniqueness is a convention, not an invariant.** It holds on the live roster today
+8. **[demote] Agent-label uniqueness is a convention, not an invariant.** It holds on the live roster today
    and follows from branches being unique, but a hand-mislabeled pane could collide. Two roster
-   entries sharing a name yield `UNDETERMINED` for both, naming the collision, for the same reason
-   a contested purview claim does: the classifier cannot tell which pane a later command reaches.
-9. **Auto-compaction cannot be prevented, only preempted.** A target can auto-compact between any
+   entries sharing a name yield `UNDETERMINED` for both **when that name resolves to a branch**;
+   when it does not, rule 1 fires first and both are `NOT-AN-ARC`. Either way neither is driven,
+   which is the property that matters.
+9. **[demote] Auto-compaction cannot be prevented, only preempted.** A target can auto-compact between any
    two commands; each command revalidates, so the consequence is a refused or wasted invocation.
-10. **Cross-account panes.** The roster spans workspaces. Purview reporting is the only separation;
+10. **[bounded] Cross-account panes.** The roster spans workspaces. Purview reporting is the only separation;
     there is no account-level enforcement.
 
 
@@ -637,7 +667,7 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
 | Purview staleness | A row whose recorded `branch` differs from the pane's current agent name confers no ownership; the pane reports `UNOWNED` (AC-24). |
 | Directory separation | A file in the purview directory that lacks the purview-row shape is impossible by construction: nonce records live elsewhere (AC-25). Asserted by reading a nonce path and confirming it is outside the exhaustively-read directory. |
 | `--resume` predicate | Refuses whenever **any** of §4.5 rules **1-8** fires — one case per rule, including duplicate agent names (round 5) and CI-green-with-PR-unmerged (round 6), the latter being pressure-independent and so not "banding". Asserted **not** to require `COMPACT`/`FORCE`, since a successful compaction makes that false. |
-| Duplicate agent names | Two roster entries sharing a name are both `UNDETERMINED` **before banding** — a fixture where both would otherwise be `COMPACT`. |
+| Duplicate agent names | Two entries sharing a **branch-resolving** name are both `UNDETERMINED` before banding — a fixture where both would otherwise be `COMPACT`. A second fixture shares a **non**-branch-resolving name and asserts `NOT-AN-ARC`, since rule 1 precedes rule 2. |
 | Corpus newest-selection | Multiple rows across multiple files: greatest `endedAt` among `status: verdict` rows wins. **A `no_verdict` row carrying a valid `endedAt` must not become newest** — the live corpus contains one (`docs/review-rounds/docs/parser-mutation-wave/0da9f84b1634.jsonl`), so the fixture is real, not constructed. A `verdict` row with an unparsable `endedAt` is excluded and named; a tie yields `UNDETERMINED`. |
 | `FORCE` respects High cost | `t >= 8` at a High-cost position yields `WAIT`, not `FORCE` — the §7 limit-1 behavior change, asserted rather than described. |
 | Nonce verification (§5.2) | Four cases: nonce matches → sends; nonce absent → exit 1, nothing sent; nonce differs → exit 1, nothing sent; **marker mtime newer and `next` non-empty but nonce stale** → exit 1, which is the concurrent-writer false positive round 3 found. |
@@ -669,8 +699,9 @@ on the case's own inputs.
   malformed (AC-5, AC-16).
 - **AC-5** A pane in no purview registry is reported `UNOWNED`, **including when its marker is
   malformed**; a pane in two registries is reported `UNOWNED` contested. Neither is driven.
-  Provided §4.5 rule 1 did not fire — a pane that is not an arc is `NOT-AN-ARC` (AC-16), which
-  outranks ownership because ownership is meaningless for a pane with no branch.
+  Provided §4.5 rules 1-2 did not fire — a pane that is not an arc is `NOT-AN-ARC` (AC-16), and a
+  duplicate branch-resolving name is `UNDETERMINED` (AC-22). Both outrank ownership: ownership is
+  meaningless for a pane with no branch, and unresolvable for a pane a command cannot address.
 - **AC-6** `--dry-run` on any sending mode sends nothing and prints that command's §5.2 bytes
   verbatim, including the literal texts with `<NONCE>` substituted.
 - **AC-7** Every sending mode rejects `--all`, requires a single named target, and requires
@@ -708,13 +739,14 @@ on the case's own inputs.
   differs from the nonce `--checkpoint` recorded for that target. The nonce is **single-use**:
   `--compact` consumes the record before sending, so an immediate re-run exits 1 rather than
   issuing a second `/compact`.
-- **AC-22** Two roster entries sharing an agent name are both `UNDETERMINED` via §4.5 rule 2,
-  before any banding rule can reach them.
+- **AC-22** Two roster entries sharing a branch-resolving agent name are both `UNDETERMINED` via
+  §4.5 rule 2, before any banding rule can reach them.
 - **AC-20** A pane whose worktree has no marker is classified from git and corpus signals alone and
   is never `UNDETERMINED` for that reason; §4.5 rule 5 no-ops rather than treating absent as
   mismatched.
 - **AC-21** An unresolvable target exits 1 naming it and sends nothing; two roster panes sharing an
-  agent name are both `UNDETERMINED`, naming the collision.
+  agent name **that resolves to a branch** are both `UNDETERMINED`, naming the collision. Sharing a
+  name that resolves to no branch yields `NOT-AN-ARC` via rule 1, which precedes.
 
 ---
 
