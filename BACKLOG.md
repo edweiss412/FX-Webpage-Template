@@ -8,6 +8,34 @@ Last reconciled: 2026-08-15 — `feat/spec-lint-intent-red` graduated `BL-SPEC-L
 
 ---
 
+## BL-PSQL-SCAN-MUTATION-ENROLMENT — the psql startup-file scanner is measurable now, and scores 0.354
+
+**Status:** OPEN · **Filed:** 2026-08-15 (`fix/local-harness-false-failures`, from that arc's own enrolment probe) · **Class:** guard coverage · **Effort:** M · **Class-sweep exception:** (a) — the disposition of 31 survivors is a judgment call the filing PR cannot settle, ratified by the user against repaying in-branch. · **Reachability:** PROBED — the numbers below are a real run, not an estimate.
+
+`tests/cross-cutting/psqlStartupFiles/scan.ts` is registry-expressible (an importable module with a deciding suite, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`) and is still NOT enrolled. The arc that would have enrolled it ran the probe instead, and the probe says enrolment is its own piece of work.
+
+**Two findings, one shipped and one filed here.**
+
+The surface was not measurable at all until a harness defect was repaired. `runSuite` (`tests/mutation/source/runner.ts`) and `childRun` (`tests/mutation/source/childRun.ts`) both piped the child's output into Node's 1 MB default `maxBuffer` and never read it — the exit status is the only signal either consumes. One mutant reds enough of this surface's 789-case suite that the failure dump alone overruns 1 MB, so Node SIGTERMed the child and the whole run died scoring nothing:
+
+```
+MutantRunInfraError: mutation run produced no exit status for
+relational-boundary:2250:59:>>>= [tests/cross-cutting/psqlStartupFileSuppression.test.ts]
+(signal=SIGTERM, code=ENOBUFS)
+```
+
+That is FIXED and shipped in the same arc (`9edf520d1`): the output is discarded, removing the cap outright instead of trading it for a bigger number to outgrow. Any high-output surface was unenrollable before it.
+
+**With measurement possible, the scoped subset scores 0.3542 — 17 of 48 killed, 31 unaccepted survivors** (27 `relational-boundary`, 4 `regex-quantifier-bound`; operators scoped to those two for wall clock — the full set is 987 sites ≈ 11 h, this subset 48 sites ≈ 20 min measured). The survivors are a genuine MIX, which is why they cannot be blessed in bulk:
+
+- `scan.ts:1749` `index > 0` → `>= 0` falls through to `basename(before[-1] ?? "")` — plausibly EQUIVALENT.
+- `scan.ts:523` `token.length > 1` → `>= 1` admits a bare `-` token into the flag-cluster branch — looks like a REAL coverage gap.
+- `scan.ts:1792` `/^-{1,2}[A-Za-z0-9]/` → `{1,3}` accepts `---x` as a flag; `scan.ts:581`'s `l < to.line && l < out.length` → `<=` is an off-by-one on a comment-range loop. Both need reading before either is called.
+
+**Why filed rather than repaired in the arc that found it — exception (a).** Dispositioning 31 sites is per-site analysis across a 2968-line scanner, each iteration costing a gate re-run, and the outcome is a judgment about what the suite SHOULD pin — not a mechanical repair the finding PR can settle. Enrolling anyway at a `scoreFloor` of 0.35 with 31 blessed `accepted-gap` rows was considered and REJECTED by the user: that is the symbolic enrolment AGENTS.md convergence bullet 4 forbids, since a floor that low asserts almost nothing while each blessed row is still a claim owing a reason.
+
+**First scheduled step:** read the 31 survivors, kill the real gaps with suite cases, mark the true equivalents with reasons, then enrol with `scoreFloor` at the achieved score. The full survivor list is in the arc's diff-review record; regenerate it with `pnpm heavy pnpm mutation:guards` after adding the row. Spec context: `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.3 re-disposition note.
+
 ## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
 
 **Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today.
