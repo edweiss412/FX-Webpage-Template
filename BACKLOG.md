@@ -290,7 +290,7 @@ Memory at the same instant: 14.86 GB rss of 18 GB, `Pages free: 4015`, compresso
 
 ## BL-MUTATION-HARNESS-WALLCLOCK-CEILING — the nightly job's wall clock grows with every enrolled surface and nothing bounds it
 
-**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, Task 5 enrolment). **Class:** CI capacity. **Effort:** M. **Class-sweep exception:** (c) — the repair is a redesign of the harness's execution model (sharding) on a surface this branch only enrols into. **Reachability:** PROBED — three measured runs, below.
+**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, Task 5 enrolment). **Class:** CI capacity. **Effort:** M. **Class-sweep exception:** (c) — the repair is a redesign of the harness's execution model (sharding) on a surface this branch only enrols into. **Reachability:** PROBED — three measured runs, below. **Status:** IN PROGRESS · **Branch:** chore/mutation-gate-sharding
 
 `mutation-harness` runs `vitest run --project mutation`: 8 LPT-balanced parser shard files plus `tests/mutation/guardSurfaces.gate.test.ts`, which runs EVERY registered source-mutation surface serially, one `vitest` child per mutant (`tests/mutation/source/runner.ts`; serial execution is ratified in the harness spec as R6 / limit L-4). The gates file therefore grows monotonically as surfaces enrol, and no layer bounds it.
 
