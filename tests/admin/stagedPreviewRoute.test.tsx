@@ -13,7 +13,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { makeStagedParseFixture } from "@/tests/fixtures/stagedParseResult";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
 
@@ -221,5 +225,39 @@ describe("staged preview segment error boundary", () => {
     expectNoRawCode(container);
     // The boundary never leaks the thrown error's own text.
     expect(container.textContent).not.toContain("boom");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 7 — transition audit (spec Transition Inventory)
+// ---------------------------------------------------------------------------
+
+const SEGMENT_DIR = join(__dirname, "..", "..", "app", "admin", "wizard", "preview", "[stagedId]");
+const PAGE_PATH = join(SEGMENT_DIR, "page.tsx");
+const ERROR_PATH = join(SEGMENT_DIR, "error.tsx");
+const ERROR_RAW = readFileSync(ERROR_PATH, "utf8");
+// Comments are stripped before the scan: a doc comment that NAMES a banned token
+// in order to explain why it is banned is a mention, not a use.
+const PAGE_SRC = stripCommentsForFile(readFileSync(PAGE_PATH, "utf8"), PAGE_PATH);
+const ERROR_SRC = stripCommentsForFile(ERROR_RAW, ERROR_PATH);
+
+const CLIENT_STATE_TOKENS = ["AnimatePresence", "motion.", "useState", "useEffect", "transition-"];
+
+describe("staged preview segment is static (Transition Inventory)", () => {
+  test("neither the page nor the boundary carries animation tokens or client state", () => {
+    for (const token of CLIENT_STATE_TOKENS) {
+      expect(PAGE_SRC, `page must not contain ${token}`).not.toContain(token);
+      expect(ERROR_SRC, `error boundary must not contain ${token}`).not.toContain(token);
+    }
+  });
+
+  test("error.tsx IS a client component and page.tsx is NOT", () => {
+    // Next requires the segment boundary to be a client component; the page must
+    // stay a Server Component so the adapter and lookup run on the server.
+    expect(ERROR_RAW.startsWith('"use client"')).toBe(true);
+    expect(PAGE_SRC).not.toContain('"use client"');
+    // Premise: both files really were read.
+    expect(PAGE_SRC).toContain("export default async function StagedPreviewPage");
+    expect(ERROR_SRC).toContain("export default function StagedPreviewError");
   });
 });

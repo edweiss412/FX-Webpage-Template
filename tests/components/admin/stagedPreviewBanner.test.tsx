@@ -6,7 +6,10 @@
  * so an off-by-one disclosure condition (`>= 14` instead of `> 12`) fails here
  * rather than shipping.
  */
-import { afterEach, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
@@ -16,6 +19,7 @@ import {
   STAGED_PICKER_INLINE_HEAD,
 } from "@/components/admin/StagedPreviewBanner";
 import type { StagedPreviewRosterEntry } from "@/lib/data/stagedShowForViewer";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 
 afterEach(cleanup);
 
@@ -143,4 +147,47 @@ test("renders nothing at all for an empty roster", () => {
     <StagedPreviewBanner stagedId={STAGED_ID} roster={[]} selectedId="staged-crew-0" />,
   );
   expect(container.querySelector('[data-testid="staged-preview-banner"]')).toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// Task 7 — transition audit (spec Transition Inventory)
+// ---------------------------------------------------------------------------
+
+/**
+ * The added chrome has exactly ONE state and changes only by full navigation, so
+ * the inventory records zero state pairs and zero compound transitions. These
+ * assertions are what keep that true: the failure mode they catch is someone
+ * later giving static chrome client state or an animation, which would silently
+ * introduce transitions the spec says do not exist.
+ *
+ * Proven non-vacuous by mutation: adding `className="transition-all"` to the
+ * banner fails the first arm (recorded in the Task 7 commit message).
+ */
+const BANNER_PATH = join(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "components",
+  "admin",
+  "StagedPreviewBanner.tsx",
+);
+// Comments are stripped before the scan: a doc comment that NAMES a banned token
+// in order to explain why it is banned is a mention, not a use.
+const BANNER_SRC = stripCommentsForFile(readFileSync(BANNER_PATH, "utf8"), BANNER_PATH);
+
+const CLIENT_STATE_TOKENS = ["AnimatePresence", "motion.", "useState", "useEffect", "transition-"];
+
+describe("staged preview banner is static chrome", () => {
+  test("carries no animation token and no client state", () => {
+    for (const token of CLIENT_STATE_TOKENS) {
+      expect(BANNER_SRC, `banner must not contain ${token}`).not.toContain(token);
+    }
+  });
+
+  test("is a Server Component (no use client directive)", () => {
+    expect(BANNER_SRC).not.toContain('"use client"');
+    // Premise: the file really was read, so "no match" is not "no file".
+    expect(BANNER_SRC).toContain("export function StagedPreviewBanner");
+  });
 });
