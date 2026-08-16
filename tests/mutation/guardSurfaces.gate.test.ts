@@ -181,6 +181,12 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repay rather than a number to bump.
   browserRegistry: {},
   browserMutate: { equivalent: 1 },
+  // Fresh enrolment: every survivor is repaid or argued in the registry row's
+  // accepted list; a nonzero count appearing here later is a regression to
+  // repair rather than a number to bump. First run scored 63/65; both survivors
+  // were repaid with fixtures sitting exactly on NODES_MAX, so the re-run is
+  // 65/65 with an empty ledger.
+  serializeErrorStructure: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
