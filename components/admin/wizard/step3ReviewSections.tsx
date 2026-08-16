@@ -2615,7 +2615,12 @@ function PackCaseItems({ items }: { items: PullSheetItem[] }) {
             // `w-fit` is belt-and-braces HERE specifically — this control is inline-level inside a
             // plain <li>, so it already shrink-wraps. It carries load at the recipe's other sites,
             // where the control is a direct flex child and CSS blockifies it to full width.
-            className="inline-flex w-fit min-h-tap-min items-center rounded-sm font-medium text-text underline-offset-2 hover:text-text-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            //
+            // The underline is AT REST, not `hover:` (spec 2026-08-15-step3-tap-cluster §2.4).
+            // Hover-only left 44px of text looking exactly like the static items above it, on a
+            // surface read at venues where nothing can hover. This is the codebase's at-rest
+            // underline idiom, already worn by every sibling text toggle in this file.
+            className="inline-flex w-fit min-h-tap-min items-center rounded-sm font-medium text-text underline underline-offset-2 hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             {showAll ? "Show fewer items" : `Show all ${items.length} items`}
           </button>

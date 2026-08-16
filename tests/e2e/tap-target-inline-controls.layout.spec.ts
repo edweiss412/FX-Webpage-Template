@@ -469,6 +469,15 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
       const itemRows = (groups["rows"] ?? []).filter((r) => r.nestedInteractive === 0);
       assertDisjoint(toggleRect, itemRows, "site 4 (pack overflow toggle)");
 
+      // At-rest affordance (spec 2026-08-15-step3-tap-cluster §2.4). Read with
+      // no pointer over the control, so a `hover:underline`-only treatment —
+      // 44px of text that looks exactly like the static items above it, on a
+      // surface read at venues where nothing can hover — fails here.
+      const decoration = await toggle.evaluate((el) => getComputedStyle(el).textDecorationLine);
+      expect(decoration, `site 4 must carry an at-rest underline, found "${decoration}"`).toContain(
+        "underline",
+      );
+
       await signOut(page);
     } finally {
       await cleanupStagedRow(dfid);
