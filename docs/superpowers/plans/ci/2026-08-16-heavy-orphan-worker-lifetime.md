@@ -14,7 +14,7 @@
 
 Copied verbatim from the spec; every task's requirements implicitly include these.
 
-- **The three §4.4 tables are the ONLY source for what any condition does.** Code comments and test names cite the row ID (C1-C4, R1-R4, K1-K5); they do not paraphrase the behavior.
+- **The three §4.4 tables are the ONLY source for what any condition does.** Code comments and test names cite the row ID (C1-C4, R1-R5, K1-K6); they do not paraphrase the behavior.
 - **`scripts/with-heavy-slot.py` is not edited.** Trigger 1 is a package.json change. No change to admission control, slot counts, or the wrapper's `execvp` model.
 - **The reaper never reads the semaphore's state.** The slot-membership clause was found unreachable and removed (spec §4.2); no task adds slot parsing back, and no task reads or writes `/tmp/fx-heavy-slots`.
 - **`tests/mutation/source/runner.ts` and `childRun.ts` are not edited** (spec §11; filed as `BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH`).
@@ -107,9 +107,9 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The directory runs **118 cases** (27 classify + 20 collect + 60 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 118 are green. Both states observed, both edits reverted.
+- The directory runs **123 cases** (28 classify + 23 collect + 61 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 123 are green. Both states observed, both edits reverted.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
-- Twelve cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
+- Thirteen cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
 - Seven cases drive `readIdentity` against a real `ps` at its K1/K6 boundary, including both status-1 spellings (stdout and stderr diagnostics) and a hanging read bounded by its timeout. One further case drives the production `stillAlive` against a process that exits mid-window, which is the only way K4's settle is observable.
 
@@ -187,6 +187,7 @@ function worker(over: Partial<ParsedRow> = {}): ParsedRow {
     pid: 100,
     ppid: 1,
     etimeSeconds: CEILING + 1,
+    startedAt: "Sun Aug 16 09:35:23 2026",
     command: `${NODE} --experimental-import-meta-resolve ${FORKS}`,
     ...over,
   };
@@ -295,6 +296,7 @@ describe("classify: AC-3, row-level R1-R4", () => {
     ["R2", { ppid: null }, "undecidable"],
     ["R3", { etimeSeconds: null }, "undecidable"],
     ["R4", { command: "" }, "not-a-worker"],
+    ["R5", { startedAt: null }, "undecidable"],
   ] as const)("%s: an undecidable field declines the row", (_id, over, because) => {
     expect(only([worker(over)])).toMatchObject({ reap: false, because });
   });
@@ -361,6 +363,8 @@ export type ParsedRow = {
   pid: number;
   ppid: number | null;
   etimeSeconds: number | null;
+  /** R5. The classification-time half of K2's identity triple, from the SAME read that classified. */
+  startedAt: string | null;
   command: string;
 };
 export type UnparsableRow = { kind: "unparsable"; raw: string; problem: string };
@@ -418,6 +422,9 @@ export function classify(rows: readonly ProcRow[], config: ReapConfig): Classifi
         : { pid: row.pid, reap: false, because: "undecidable" };
     }
     if (row.etimeSeconds === null) return { pid: row.pid, reap: false, because: "undecidable" };
+    // R5: without a classification-time start time, K2 has nothing to compare a pre-signal read
+    // against, so the target could not be signalled safely even if every other clause held.
+    if (row.startedAt === null) return { pid: row.pid, reap: false, because: "undecidable" };
     if (row.etimeSeconds < config.minAgeSeconds) {
       return { pid: row.pid, reap: false, because: "too-young" };
     }
@@ -467,7 +474,7 @@ mkdir -p tests/heavyReap/fixtures
 # A worker line only exists while a vitest run is live, so start one and sample during it.
 pnpm vitest run tests/heavyReap/classify.test.ts >/dev/null 2>&1 &
 sleep 4
-ps -eo pid=,ppid=,etime=,command= > /tmp/ps-full.txt
+ps -eo pid=,ppid=,etime=,lstart=,command= > /tmp/ps-full.txt
 { grep -E 'vitest/dist/workers/' /tmp/ps-full.txt | head -3; head -40 /tmp/ps-full.txt; } \
   > tests/heavyReap/fixtures/ps-sample.txt
 wait
@@ -487,11 +494,12 @@ be run with `--kill` in a test without any possibility of signalling something r
 // is emitted verbatim, which is how an unparsable row is produced). Tests that exercise --kill put
 // the pids of processes THEY SPAWNED in it, so the reaper only ever signals something the test
 // owns. FAKE_PS_MODE injects failures.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-
 const args = process.argv.slice(2);
 const mode = process.env.FAKE_PS_MODE ?? "table";
 const identityRead = args.includes("-o");
+// One start time for the whole fixture, so the bulk row and the pre-signal read AGREE by default;
+// FAKE_PS_IDENTITY_DRIFT is what makes them disagree, which is K2.
+const LSTART = "Sun Aug 16 09:35:23 2026";
 
 if (mode === "fail" && !identityRead) process.exit(2);
 if (mode === "identity-fail" && identityRead) process.exit(2);
@@ -510,21 +518,24 @@ if ((mode === "hang" && !identityRead) || (mode === "identity-hang" && identityR
   const rows = JSON.parse(process.env.FAKE_PS_TABLE ?? "[]");
   process.stdout.write(
     rows
-      .map((r) => (typeof r === "string" ? r : `${r.pid} ${r.ppid} ${r.etime} ${r.command}`))
+      .map((r) =>
+        typeof r === "string" ? r : `${r.pid} ${r.ppid} ${r.etime} ${LSTART} ${r.command}`,
+      )
       .map((l) => `${l}\n`)
       .join(""),
   );
 } else {
   const pid = args[args.indexOf("-p") + 1];
   if (process.env.FAKE_PS_IDENTITY_GONE === pid) process.exit(1); // status 1, NO output: K1
-  let startedAt = "Sun Aug 16 09:35:23 2026";
-  if (process.env.FAKE_PS_IDENTITY_DRIFT === "1") {
-    const counter = `${process.env.TMPDIR ?? "/tmp"}/fake-ps-drift-${pid}`;
-    const seen = existsSync(counter) ? Number(readFileSync(counter, "utf8")) : 0;
-    writeFileSync(counter, String(seen + 1));
-    if (seen > 0) startedAt = "Mon Aug 17 11:11:11 2026";
-  }
-  process.stdout.write(`${startedAt} /usr/bin/node /x/worker-${pid}\n`);
+  // DRIFT makes the PRE-SIGNAL read disagree with the start time the bulk row carried, which is
+  // exactly K2: the identity changed since classification. There is only ONE identity read per
+  // target now, so this needs no call counter.
+  const startedAt =
+    process.env.FAKE_PS_IDENTITY_DRIFT === "1" ? "Mon Aug 17 11:11:11 2026" : LSTART;
+  const rows = JSON.parse(process.env.FAKE_PS_TABLE ?? "[]");
+  const row = rows.find((r) => typeof r !== "string" && String(r.pid) === String(pid));
+  const command = row ? row.command : `/usr/bin/node /x/worker-${pid}`;
+  process.stdout.write(`${startedAt} ${command}\n`);
 }
 ```
 
@@ -567,11 +578,24 @@ describe("parsePsOutput", () => {
     expect(parsePsOutput("garbage line\n")[0]).toMatchObject({ kind: "unparsable" });
   });
 
+  const LS = "Sun Aug 16 09:35:23 2026";
+
   it.each([
-    ["R2", "  700  xx  01:00 node /x/vitest/dist/workers/forks.js", "ppid"],
-    ["R3", "  700  1  zzzz node /x/vitest/dist/workers/forks.js", "etimeSeconds"],
+    ["R2", `  700  xx  01:00 ${LS} node /x/vitest/dist/workers/forks.js`, "ppid"],
+    ["R3", `  700  1  zzzz ${LS} node /x/vitest/dist/workers/forks.js`, "etimeSeconds"],
+    ["R5", "  700  1  01:00 not-a-date node /x/vitest/dist/workers/forks.js", "startedAt"],
   ])("%s: an unparsable field becomes null, not a dropped row", (_id, line, field) => {
     expect(parsePsOutput(`${line}\n`)[0]).toMatchObject({ kind: "parsed", [field]: null });
+  });
+
+  it("reads lstart out of its fixed five-token window and leaves the command intact", () => {
+    const row = parsePsOutput(`  700  1  01:00 ${LS} /usr/bin/node /x/a b.js\n`)[0];
+    expect(row).toMatchObject({ kind: "parsed", startedAt: LS, command: "/usr/bin/node /x/a b.js" });
+  });
+
+  it("R5: with no parsable lstart the command still starts at the right token", () => {
+    const row = parsePsOutput("  700  1  01:00 /usr/bin/node /x/a.js\n")[0];
+    expect(row).toMatchObject({ kind: "parsed", startedAt: null, command: "/usr/bin/node /x/a.js" });
   });
 
   it("C2: empty ps output yields zero rows, not a throw", () => {
@@ -704,6 +728,9 @@ export function parseEtime(raw: string): number | null {
   return Number(d ?? 0) * 86_400 + Number(h ?? 0) * 3600 + Number(mm ?? 0) * 60 + Number(ss ?? 0);
 }
 
+/** `ps -o lstart=`'s shape: `Sun Aug 16 09:35:23 2026`, always five whitespace-separated tokens. */
+const LSTART = /^[A-Z][a-z]{2} [A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}$/;
+
 export function parsePsOutput(text: string): ProcRow[] {
   const rows: ProcRow[] = [];
   for (const line of text.split("\n")) {
@@ -716,12 +743,18 @@ export function parsePsOutput(text: string): ProcRow[] {
       continue;
     }
     const ppid = Number(rawPpid);
+    // `lstart` occupies a FIXED five-token window before the command. That is why it is requested
+    // before `command` rather than after: its value contains spaces, and only a known offset makes
+    // it parseable without quoting. Probed over 400 live rows with zero failures.
+    const lstart = parts.slice(3, 8).join(" ");
+    const hasLstart = LSTART.test(lstart);
     rows.push({
       kind: "parsed",
       pid,
       ppid: rawPpid !== undefined && Number.isInteger(ppid) ? ppid : null,
       etimeSeconds: rawEtime === undefined ? null : parseEtime(rawEtime),
-      command: parts.slice(3).join(" "),
+      startedAt: hasLstart ? lstart : null,
+      command: parts.slice(hasLstart ? 8 : 3).join(" "),
     });
   }
   return rows;
@@ -730,7 +763,7 @@ export function parsePsOutput(text: string): ProcRow[] {
 export function collect(psBin: string = psBinFromEnv()): CollectResult {
   let text: string;
   try {
-    text = execFileSync(psBin, ["-eo", "pid=,ppid=,etime=,command="], {
+    text = execFileSync(psBin, ["-eo", "pid=,ppid=,etime=,lstart=,command="], {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
       timeout: PS_TIMEOUT_MS,
@@ -1356,6 +1389,24 @@ describe("the CLI, executed end to end", () => {
     expect(code).toBe(0);
   }, 180_000);
 
+  it("K2: a target whose identity changed SINCE CLASSIFICATION is never signalled", () => {
+    const owned = spawnOrphan();
+    try {
+      const table: Row[] = [{ pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD }];
+      // DRIFT makes the pre-signal read disagree with the start time the BULK row carried. That
+      // window is only observable because the classification-time identity comes from the row
+      // itself; capturing it in a later read would compare two post-classification values and
+      // report `killed` here (plan round 9).
+      const { out, code } = runCli(["--kill"], table, { FAKE_PS_IDENTITY_DRIFT: "1" });
+      expect(out).toContain(`identity-changed pid=${owned.pid}`);
+      expect(out).not.toContain(`killed pid=${owned.pid}`);
+      expect(owned.alive()).toBe(true);
+      expect(code).toBe(1);
+    } finally {
+      owned.kill();
+    }
+  }, 180_000);
+
   it("--quiet suppresses declines and plain successes, never a non-success outcome (K2)", () => {
     const owned = spawnOrphan();
     try {
@@ -1363,10 +1414,7 @@ describe("the CLI, executed end to end", () => {
         { pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
         { pid: 777001, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
       ];
-      const { out, code } = runCli(["--kill", "--quiet"], table, {
-        FAKE_PS_IDENTITY_DRIFT: "1",
-        TMPDIR: mkdtempSync(join(tmpdir(), "fake-ps-drift-")),
-      });
+      const { out, code } = runCli(["--kill", "--quiet"], table, { FAKE_PS_IDENTITY_DRIFT: "1" });
       expect(out).not.toContain("skip "); // declines suppressed
       expect(out).toContain(`identity-changed pid=${owned.pid}`); // K2 always visible
       expect(out).toContain("REAPABLE"); // candidates are NOT declines, so they stay
@@ -1699,8 +1747,20 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv): number {
   if (!flags.kill) return exitStatus({ collectFailed: false, ceilingRejected: false, outcomes: [] });
 
   const targets = planTargets(result.decisions, parsed);
+  // K2's classification-time identity comes from the ROW that was classified, not from a read
+  // taken afterwards: a post-classification read binds to whatever owns the pid THEN, which is
+  // exactly the window a recycled pid would slip through (plan round 9).
+  const rowById = new Map(parsed.map((r) => [r.pid, r]));
   const identityAtPlan = new Map<number, IdentityRead>();
-  for (const pid of targets) identityAtPlan.set(pid, readIdentity(pid));
+  for (const pid of targets) {
+    const row = rowById.get(pid);
+    identityAtPlan.set(
+      pid,
+      row === undefined || row.startedAt === null
+        ? { state: "unreadable", detail: "no classification-time identity for this pid" }
+        : { state: "read", identity: { pid, startedAt: row.startedAt, command: row.command } },
+    );
+  }
   const outcomes = executeKills(targets, {
     identityAtPlan,
     readIdentity: (pid) => readIdentity(pid),
