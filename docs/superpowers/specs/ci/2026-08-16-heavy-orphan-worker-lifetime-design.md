@@ -201,7 +201,7 @@ Three units, each independently testable:
 | --- | --- | --- |
 | lib/heavyReap/classify.ts (new) | PURE decision function: given process rows (parsable and not), a slot survey, and a config carrying the clock reading, return a decision for EVERY row plus the collection problems and config notes the reporter needs. No I/O, no clock. | nothing |
 | lib/heavyReap/collect.ts (new) | Read the world: run `ps`, parse it into rows; read `/tmp/fx-heavy-slots/slot-*` into a `SlotSurvey`. Reports its own failure rather than returning an empty world. | node `child_process`, `fs` |
-| scripts/heavy-reap.ts (new) | Adapter: collect → classify → report, and kill only under `--kill`. Owns the flag set and the exit status (§6.2). | both above |
+| scripts/heavy-reap.ts (new) | Adapter: collect → classify → report or kill. Owns the flag set and the exit status, both defined in §6.2. | both above |
 
 The split is the point. classify.ts is where every rule lives and it never touches the machine,
 so its whole behavior is reachable from a unit test with a literal table — which is what makes §9
@@ -360,9 +360,11 @@ the `Decidable?` column marks "no" — C1, C3, C5, C8 — and stated nowhere els
 §5's types are what make the reporting half expressible; round 1 found the earlier signature could
 not carry most of this table, which is why the two sections are written against each other.
 
-**Every row below carries an ID, and every other mention of a condition anywhere in this document
-— §6.2, §8, and the doc comments inside §5's code blocks — CITES the ID rather than paraphrasing
-the behavior.** That is a structural repair, not a formatting choice: three consecutive review rounds
+**The three tables below are the ONLY source for what any condition does. Every other mention
+anywhere in this document CITES the ID instead of paraphrasing — and "every other mention" includes
+the rows of OTHER tables (§4.1's unit table, §6.2's CLI table), the doc comments inside §5's code
+blocks, §7's limits and §8's criteria. Being a table row is not what makes a statement a source;
+being one of these three tables is.** That is a structural repair, not a formatting choice: three consecutive review rounds
 found a summary sentence contradicting the table it summarized (round 1 F1/F4, round 2 F2/F5,
 round 3 F1/F2). The class is "a normative claim restated in prose drifts from its source", and the
 defense that closes it is to have exactly one statement of each behavior and make every other
@@ -581,7 +583,7 @@ Stop hook of its own, and there is no guarantee any other session ever ends a tu
 | `pnpm heavy:reap` (default) | no | every reap CANDIDATE, and every declined process that is orphan-shaped (`ppid == 1`), with its reason; plus all collection problems and config notes |
 | `pnpm heavy:reap --all` | no | the above, plus every non-orphan-shaped row and its reason — the full decision list |
 | `pnpm heavy:reap --kill` | yes | exactly what the default reports, plus a `KillOutcome` line per target |
-| `--quiet` | modifier | suppresses ONLY the per-row DECLINE lines. Everything an operator would need to act on is still emitted: collection problems, config notes, and every `KillOutcome` that is not a plain success — failed kills by pid, partial kills with the surviving pids named, and `identity-changed` skips. Only meaningful with `--kill`, and it is what trigger 1 uses, so a failed or partial reap during admission is still visible. |
+| `--quiet` | modifier | suppresses ONLY the per-row DECLINE lines. Everything else is still emitted: collection problems, config notes, and every K-row outcome that is not a plain success (K2, K3, K4). Only meaningful with `--kill`, and it is what trigger 1 uses, so a reap that went wrong during admission is still visible. |
 
 Killing requires `--kill` explicitly; running the tool can never be the destructive act by
 accident. `--all` is a REPORTING breadth flag only and never widens what is killed.
@@ -590,8 +592,8 @@ Exit status, enumerated by §4.4 row ID so it cannot drift from the table:
 
 - **Non-zero** on any of C1, C3, C5, C8 (an undecidable collection condition — nothing was reaped)
   or any of K2, K3, K4 (a kill was skipped, failed, or left a recorded target alive).
-- **Zero** otherwise, including C2, C4, C6, C7 and K1 — a decidable collection answer and an
-  already-gone target are both ordinary outcomes.
+- **Zero** otherwise, including C2, C4, C6, C7 and K1, each of which is an ordinary outcome per
+  its row.
 
 K2 is deliberately non-zero even though no signal was sent: an `identity-changed` skip means the
 machine moved under the reaper, and an operator who sees exit 0 will not look.
@@ -651,7 +653,7 @@ surfaced signal files here rather than as a review round.
 - **L-8 — pid reuse cannot be fully closed by a single process.** Between classification and the
   signal, a target can exit and its pid be recycled onto an unrelated process. K2 narrows the
   window to one syscall pair by re-reading the identity triple (pid, start time, command) and
-  requiring a match, and makes the residue observable as `identity-changed`. A recycled process
+  requiring a match, and makes the residue observable through K2. A recycled process
   that started at the same clock second AND runs the same command would still pass; that is
   undetectable without kernel support macOS does not offer, and is bounded by how rarely a pid
   recycles within one second on a machine with a 99 999 pid space.
