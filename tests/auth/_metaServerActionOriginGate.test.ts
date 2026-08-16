@@ -398,27 +398,63 @@ function checkExemptionSet(input: {
  * Server Action is gated, or exempt, or SIGNALLED — never silently ungated.
  */
 
-/** Every function-like node in a file whose body opens with `"use server"`. Total over function-likes: it models no naming, no position, and no call shape, so an anonymous JSX action and an object method are counted exactly like a named one. */
+/**
+ * Every function-like node in a file whose body's DIRECTIVE PROLOGUE contains
+ * `"use server"`.
+ *
+ * Total by CONSTRUCTION rather than by enumeration, in both directions, because
+ * diff review round 2 defeated the enumerated version twice:
+ *
+ * - `ts.isFunctionLike` instead of a four-way kind check, so a getter, a
+ *   setter, a static class method, and any function-like TypeScript grows later
+ *   are all counted without this file naming them.
+ * - the whole leading run of string-literal statements instead of index 0,
+ *   because Next reads the full directive prologue — `"use strict"; "use
+ *   server";` is a Server Action, and a statement-zero check called it nothing.
+ */
 function inlineDirectiveBearingCount(sf: ts.SourceFile): number {
   let n = 0;
   const visit = (node: ts.Node): void => {
-    if (
-      (ts.isFunctionDeclaration(node) ||
-        ts.isFunctionExpression(node) ||
-        ts.isArrowFunction(node) ||
-        ts.isMethodDeclaration(node)) &&
-      node.body &&
-      ts.isBlock(node.body)
-    ) {
-      const first = node.body.statements[0];
-      if (first && ts.isExpressionStatement(first) && ts.isStringLiteral(first.expression)) {
-        if (first.expression.text === "use server") n += 1;
+    // `isFunctionLike` is the TOTAL predicate — every function-like kind,
+    // named or not, including ones TypeScript grows later — so the count is not
+    // an enumeration this file has to keep current. It also admits call /
+    // construct / index signatures, which carry no body; those read `undefined`
+    // here and are skipped, which is why the cast is safe rather than a widening.
+    const body = ts.isFunctionLike(node)
+      ? ((node as ts.FunctionLikeDeclaration).body ?? undefined)
+      : undefined;
+    if (body && ts.isBlock(body)) {
+      for (const st of body.statements) {
+        // The prologue ends at the first non-string-literal statement.
+        if (!ts.isExpressionStatement(st) || !ts.isStringLiteral(st.expression)) break;
+        if (st.expression.text === "use server") {
+          n += 1;
+          break;
+        }
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(sf);
   return n;
+}
+
+/**
+ * Every identifier a `BindingName` binds, through both binding-pattern kinds.
+ *
+ * `export const { doIt } = obj;` and `export const [doIt] = arr;` are ordinary
+ * refactors of a live module, and both bind an addressable export name. An
+ * identifier-only reader called them nothing — round 2, finding 1.
+ */
+function collectBindingNames(name: ts.BindingName, out: string[]): void {
+  if (ts.isIdentifier(name)) {
+    out.push(name.text);
+    return;
+  }
+  for (const el of name.elements) {
+    if (ts.isOmittedExpression(el)) continue;
+    collectBindingNames(el.name, out);
+  }
 }
 
 /**
@@ -438,8 +474,7 @@ function exportedValueNames(sf: ts.SourceFile): string[] {
       if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
         if (ts.isFunctionDeclaration(st) && st.name) names.push(st.name.text);
         if (ts.isVariableStatement(st))
-          for (const d of st.declarationList.declarations)
-            if (ts.isIdentifier(d.name)) names.push(d.name.text);
+          for (const d of st.declarationList.declarations) collectBindingNames(d.name, names);
       }
     }
     if (
@@ -479,6 +514,11 @@ function undiscoverableConstructs(roots: string[], units: readonly SurfaceUnit[]
     const sf = parse(file);
     const found = byFile.get(file) ?? [];
 
+    // BOTH checks run for EVERY file. The module branch used to `continue`,
+    // which meant an inline action nested inside a file-level "use server"
+    // module was reconciled by nobody — discovery returns early for such a file
+    // and never collects inline actions at all, so the count there is ALWAYS
+    // undiscoverable. Round 2, finding 2.
     if (moduleHasUseServer(sf)) {
       const exported = exportedValueNames(sf);
       const discovered = new Set(found.map((u) => u.fn));
@@ -489,7 +529,6 @@ function undiscoverableConstructs(roots: string[], units: readonly SurfaceUnit[]
             `an addressable endpoint the origin walk cannot see, so it can neither be gated nor exempted`,
         );
       }
-      continue;
     }
 
     const inlineCount = inlineDirectiveBearingCount(sf);
@@ -497,8 +536,9 @@ function undiscoverableConstructs(roots: string[], units: readonly SurfaceUnit[]
     if (inlineCount > discoveredInline) {
       problems.push(
         `${file}: holds ${inlineCount} function-scoped "use server" bodies but discovery produced ` +
-          `${discoveredInline} unit(s) — the remainder is an unnameable inline action (anonymous JSX prop, ` +
-          `object method, class method) that the origin walk cannot see`,
+          `${discoveredInline} unit(s) — the remainder is an inline action the origin walk cannot see ` +
+          `(an unnameable one, or one nested inside a file-level "use server" module, where discovery ` +
+          `returns early and collects no inline action at all)`,
       );
     }
   }
@@ -982,59 +1022,100 @@ describe("the read-only tripwire — fixture self-tests", () => {
   });
 });
 
-describe("the discovery tripwire — fixture self-tests (the round-1 attack)", () => {
-  /** Runs BOTH halves the way the live assertion does: discover, then reconcile. */
+describe("the discovery tripwire — fixture self-tests (the round-1 and round-2 attacks)", () => {
   const problemsFor = (rel: string, src: string): string[] => {
     const root = makeFixture(rel, src);
     const units = collectSurfaceUnits([root]).filter((u) => u.kind !== "route");
     return undiscoverableConstructs([root], units);
   };
 
-  // Each of these four is a form Next registers as a Server Action and the
-  // shared engine returns ZERO units for — verified against the live engine, not
-  // assumed. The premise below is what makes that verification part of the test.
-  const UNDISCOVERABLE: ReadonlyArray<readonly [string, string, string]> = [
-    [
-      "module export wrapped in parens",
-      "lib/x/a.ts",
-      '"use server";\nexport const doIt = async () => { await db.from("t").delete(); };\nexport const wrapped = (async () => { await db.from("t").delete(); });\n',
-    ],
-    [
-      "module export aliased through an intermediate binding",
-      "lib/x/b.ts",
-      '"use server";\nconst impl = async () => { await db.from("t").delete(); };\nconst alias = impl;\nexport { alias as doIt };\n',
-    ],
-    [
-      "ANONYMOUS inline action passed straight to a JSX action prop",
-      "components/x/F.tsx",
-      'export function F() {\n  return <form action={async () => { "use server"; await db.from("t").delete(); }} />;\n}\n',
-    ],
-    [
-      "inline action as an object method",
-      "components/x/G.tsx",
-      'export function G() {\n  const actions = { async doIt() { "use server"; await db.from("t").delete(); } };\n  return actions;\n}\n',
-    ],
+  /**
+   * Every form a reviewer defeated the walk with, as a permanent regression pin.
+   *
+   * `actions` is how many Server Actions the fixture really contains. It is what
+   * makes the premise executable: if discovery ever produces that many units,
+   * the fixture has stopped exercising the tripwire and would pass for the wrong
+   * reason, so the premise reds instead of the assertion silently going vacuous.
+   */
+  const ESCAPES: ReadonlyArray<{ label: string; rel: string; src: string; actions: number }> = [
+    // ── round 1 ──────────────────────────────────────────────────────────────
+    {
+      label: "R1: module export wrapped in parens",
+      rel: "lib/x/a.ts",
+      src: '"use server";\nexport const wrapped = (async () => { await db.from("t").delete(); });\n',
+      actions: 1,
+    },
+    {
+      label: "R1: module export aliased through an intermediate binding",
+      rel: "lib/x/b.ts",
+      src: '"use server";\nconst impl = async () => { await db.from("t").delete(); };\nconst alias = impl;\nexport { alias as doIt };\n',
+      actions: 1,
+    },
+    {
+      label: "R1: anonymous inline action passed straight to a JSX action prop",
+      rel: "components/x/F.tsx",
+      src: 'export function F() {\n  return <form action={async () => { "use server"; await db.from("t").delete(); }} />;\n}\n',
+      actions: 1,
+    },
+    {
+      label: "R1: inline action as an object method",
+      rel: "components/x/G.tsx",
+      src: 'export function G() {\n  const a = { async doIt() { "use server"; await db.from("t").delete(); } };\n  return a;\n}\n',
+      actions: 1,
+    },
+    // ── round 2 ──────────────────────────────────────────────────────────────
+    {
+      label: "R2: OBJECT binding-pattern export",
+      rel: "lib/x/c.ts",
+      src: '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport const { doIt } = bag;\n',
+      actions: 1,
+    },
+    {
+      label: "R2: ARRAY binding-pattern export",
+      rel: "lib/x/d.ts",
+      src: '"use server";\nconst arr = [async () => { await db.from("t").delete(); }];\nexport const [doIt] = arr;\n',
+      actions: 1,
+    },
+    {
+      label: 'R2: inline action NESTED inside a file-level "use server" module',
+      rel: "lib/x/e.ts",
+      src: '"use server";\nexport async function outer() {\n  const nested = async () => { "use server"; await db.from("t").delete(); };\n  return nested;\n}\n',
+      actions: 2,
+    },
+    {
+      label: 'R2: directive PROLOGUE — "use strict" before "use server"',
+      rel: "components/x/H.tsx",
+      src: 'export function H() {\n  return <form action={async () => { "use strict"; "use server"; await db.from("t").delete(); }} />;\n}\n',
+      actions: 1,
+    },
+    {
+      label: "R2: static class method carrying the directive",
+      rel: "components/x/I.tsx",
+      src: 'export class I {\n  static async doIt() { "use server"; await db.from("t").delete(); }\n}\n',
+      actions: 1,
+    },
   ];
 
-  test.each(UNDISCOVERABLE)("%s is SIGNALLED, never silently dropped", (_label, rel, src) => {
-    // Premise: the engine must actually fail to discover this form. If a future
-    // engine change starts discovering it, this fixture stops exercising the
-    // tripwire and would pass for the wrong reason — so the premise reds instead.
-    const root = makeFixture(rel, src);
-    const units = collectSurfaceUnits([root]).filter((u) => u.kind !== "route");
-    const undiscovered =
-      rel.endsWith(".tsx") || !src.startsWith('"use server"')
-        ? units.filter((u) => u.kind === "inline-action").length === 0
-        : units.length < 2;
-    premiseHolds(
-      `the shared engine still fails to discover this form; if it now discovers it, this fixture no longer exercises the tripwire (${rel})`,
-      undiscovered,
-    );
-    expect(undiscoverableConstructs([root], units).length).toBeGreaterThan(0);
-  });
+  test.each(ESCAPES.map((e) => [e.label, e] as const))(
+    "%s is SIGNALLED, never silently dropped",
+    (_label, e) => {
+      const root = makeFixture(e.rel, e.src);
+      const units = collectSurfaceUnits([root]).filter((u) => u.kind !== "route");
+      premiseHolds(
+        `the shared engine still fails to discover every action in this fixture; if it now discovers all ${e.actions}, ` +
+          `this fixture no longer exercises the tripwire (${e.rel})`,
+        units.length < e.actions,
+      );
+      const problems = undiscoverableConstructs([root], units);
+      expect(
+        problems.length,
+        `${e.label}: escaped BOTH discovery and the tripwire`,
+      ).toBeGreaterThan(0);
+    },
+  );
 
   test("a fully discoverable module is QUIET — the tripwire is not a blanket failure", () => {
-    // The negative half. Without it, a tripwire that fired on everything would
+    // The negative half. Without it a tripwire that fired on everything would
     // pass every case above while being useless.
     expect(
       problemsFor(
@@ -1045,7 +1126,6 @@ describe("the discovery tripwire — fixture self-tests (the round-1 attack)", (
   });
 
   test("a type-only export does not trip it", () => {
-    // "use server" modules legitimately export types; they are not endpoints.
     expect(
       problemsFor(
         "lib/x/types.ts",
@@ -1059,9 +1139,9 @@ describe("the discovery tripwire — fixture self-tests (the round-1 attack)", (
   test("a named inline action IS discovered, so it reconciles quietly", () => {
     expect(
       problemsFor(
-        "components/x/H.tsx",
+        "components/x/Named.tsx",
         `import { ${CHECK_EXPORT}, rejectCrossOriginVoid } from "${GATE_MODULE}";\n` +
-          "export function H() {\n" +
+          "export function Named() {\n" +
           "  const doIt = async () => {\n" +
           '    "use server";\n' +
           `    if (!(await ${CHECK_EXPORT}())) return rejectCrossOriginVoid("doIt");\n` +
@@ -1069,6 +1149,14 @@ describe("the discovery tripwire — fixture self-tests (the round-1 attack)", (
           "  return doIt;\n" +
           "}\n",
       ),
+    ).toEqual([]);
+  });
+
+  test("an ordinary function with no directive at all is QUIET", () => {
+    // The counter keys on the directive, not on being a function. Without this
+    // the tripwire would fire on every file in the repo.
+    expect(
+      problemsFor("components/x/Plain.tsx", "export function Plain() {\n  return null;\n}\n"),
     ).toEqual([]);
   });
 });
