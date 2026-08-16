@@ -83,6 +83,139 @@ The failure is maximally confusing: the named file **does not exist** by the tim
 
 **First scheduled step:** write the mutant outside the globbed tree (a temp dir passed to vitest) rather than into `tests/`, or give it an extension the projects' `include` patterns do not match. Either removes the race outright; excluding the basename by name would leave the next such probe exposed.
 
+## BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE — the dashboard-overview baseline predates five days of dashboard component changes — CLOSED 2026-08-16 (`docs/ci-flake-ledger-correction`, REFUTED)
+
+**Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, from PR #812's CI)
+
+`screenshots-drift` fails on `public/help/screenshots/dashboard-overview-light.webp` (Bin 77670 -> 82600 bytes). The drift is INHERITED FROM MAIN, not caused by the PR that surfaced it.
+
+**Probe evidence.**
+
+```
+$ git log --oneline -1 -- public/help/screenshots/dashboard-overview-light.webp
+3f48fe674 test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)   # 2026-08-11
+$ git diff --name-only 3f48fe674 origin/main -- components/ app/admin/ | head
+components/admin/AppHealthPopover.tsx
+components/admin/BellPanel.tsx
+components/admin/OnboardingWizard.tsx
+...                                   # ~20 dashboard-rendered components
+```
+
+The manifest entry captures `/admin`'s `[data-testid=admin-dashboard]` (`scripts/help-screenshots.manifest.ts:50-56`), so any of those components changes the capture. The arc that surfaced it adds no element under that selector: its admin surfaces are a new `/admin/wizard/preview/[stagedId]` route and a link inside the step-3 review MODAL, which is not mounted on load.
+
+**Why it surfaced now rather than on the commit that caused it:** the screenshots workflow is path-gated, so it fires only on a PR that touches a watched path. The sibling PR open at the same time (#807, mutation-harness work) does not trigger it at all, and main's own push runs do not include the job.
+
+**Repair:** regenerate the baseline FROM THE PINNED DOCKER IMAGE with `--platform linux/amd64` — never from a dev machine. The byte-comparison discipline in AGENTS.md is the authority here: an arm64 host produces different bytes than the native-x64 CI runner even on an identical pinned image tag, so a local `pnpm screenshot:help` would replace one wrong baseline with another (and pollutes the tree meanwhile — `git restore public/help/screenshots/` after any local capture).
+
+**Not merge-blocking, verified rather than assumed:** the twelve required contexts on `main` are quality, unit-suite, x1..x6, validation-schema-parity, affordance-matrix-parity, postgrest-dml-lockdown, traceability-audit (`gh api repos/.../branches/main/protection`). `screenshots-drift` is not among them.
+
+---
+
+**REFUTED 2026-08-16, by the next CI run at a tree this row could not distinguish.** `screenshots-drift` PASSED at `f6c3ac55`, whose only delta from the failing `b5aa6ef7` is a single `BACKLOG.md` commit. A markdown-only commit cannot change a WebP's bytes, so the drift is non-deterministic at a fixed tree and the stale-baseline diagnosis above is wrong.
+
+The probe evidence the row DID carry is still true and still useless as a cause: the baseline was last regenerated 2026-08-11 and dashboard-rendered components have changed since. It simply does not follow that the drift came from that, and this row asserted the inference without testing it — the failing run and the passing run were never compared.
+
+Superseded by `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`, which carries the two-job / two-head table and schedules a repeat-at-fixed-sha probe as its first step instead of a repair.
+
+**Kept rather than deleted** so the citation in the superseding row resolves, and so the mistake is legible: a filing whose worst case is "an advisory job is red" still has to distinguish its cause from the alternatives before it names one.
+
+## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3 — CLOSED 2026-08-16 (`feat/admin-ui-surfaces`, SHIPPED)
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
+
+Step 3 reviews a staged parse through its own section cards, not through the surface the crew will actually see. A C-style full preview would render `CrewShell` from the staged `parse_result`, which needs a `parse_result → ShowForViewer` adapter. Verified 2026-08-02: no such adapter exists.
+
+The adapter is the substance of the work, not the rendering — `getShowForViewer` builds its projection from persisted rows, and a staged parse is neither persisted nor viewer-scoped, so the adapter has to decide what a preview means for viewer name aliases, per-viewer visibility filters, and the admin-preview branch before any of it renders. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+---
+
+**Shipped 2026-08-16 (PR #812).** The entry's own read of the work was right: the adapter was the substance, not the rendering.
+
+`lib/data/stagedShowForViewer.ts` reproduces, for staged data, every viewer-dependent transform `readShowDataForViewer` applies between the raw rows and the projection, reusing the live helpers rather than hand-rolling variants (`normalizeDateRestriction`, `effectiveViewerDateRestriction`, `hotelVisibleToViewer`, `resolveTransportOwners`, `aggregateDays`, `financialsVisible`). The three questions this entry said the adapter had to settle before anything could render were settled as: viewer identity is a minted surrogate roster (`staged-crew-<index>`) the adapter resolves itself, so the projection's fail-closed `UnmatchedViewerError` is never reached; per-viewer visibility filters run exactly as the live projection runs them, including the hotel alias filter and the three-way run-of-show intersection; and the admin-preview branch is the viewer kind the route passes, so the budget gate follows the PREVIEWED member's flags.
+
+Two things the entry did not anticipate, both of which became the arc's real work:
+
+- **`asParseResult` validates CONTAINERS only** (`lib/db/coerceJsonbObject.ts:133`), so every nested field is untrusted on arrival. The adapter normalizes each family to the projection's runtime grain, and cross-model review round 1 then found the sharper half of that rule: a wrong-typed union DISCRIMINANT may never be defaulted to another VALID member (a corrupt `RoomKind` silently hid the General Session room). It drops its owning entry instead. The module header states the rule and its two ratified exceptions.
+- **A throw inside a descendant Server Component's render never passes through the page function's try/catch**, so the segment ships its own `error.tsx`. That is the structural guarantee that no malformed staged row can reach the generic admin error boundary, and it is proved by a real-server e2e arm because jsdom cannot exercise Next's segment routing at all.
+
+`CrewShell` gained a `staticPreview` posture suppressing all five emission surfaces (alert write, both `after()` registrations, the realtime bridge, the footer report affordance, every card report trigger); the prop is absent everywhere else, so both existing callers are byte-identical in behavior.
+
+Spec: `docs/superpowers/specs/step3-onboarding/2026-08-15-step3-crew-preview-and-opslog-disposition-design.md` (APPROVED R4). Plan: `docs/superpowers/plans/step3-onboarding/2026-08-15-step3-crew-preview.md` (APPROVED R6, closeout §12). Invariant-8 gate: `critique=RAN-DEGRADED audit=RAN p0=0 p1=2 dispositions=recorded`.
+
+**Deliberately NOT shipped, and still true as scope:** the preview is wizard-scoped (step-3 staged rows). Generalizing it to the admin show-review staged modal is a non-goal (spec §5); the same adapter would serve it.
+
+## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader — CLOSED 2026-08-15 (`feat/admin-ui-surfaces`, RESOLVED — WON'T BUILD)
+
+**Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+
+The durable sink is built and written (`lib/log/persist.ts:16` → `app_events`), but **its only reader is developer-gated.** Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, `app/admin/dev/telemetry/page.tsx`, which calls `requireDeveloperIdentity()` at `:24`. The `lib/observe/query/*` modules are non-logging copies feeding the `pnpm observe` CLI, not a surface. **No admin-dashboard surface reads `app_events` at all** — the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row.
+
+Consequence: Doug must leave the dashboard to see operator telemetry and, as a non-developer, likely cannot reach the page at all. Everything the other two children emit lands somewhere he cannot look.
+
+**Why M and DESIGN-GATED, not S:** this is a new admin surface, not a query change. What belongs on a dashboard banner — which severities, what recency window, what dismissal behavior, whether it is a banner at all rather than a panel or a bell-badge source — is a product decision, and it is Opus/UI work under the invariant-8 dual gate. Do not implement it as "render the telemetry table on the dashboard."
+
+**Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
+---
+
+**Resolution 2026-08-15 — WON'T BUILD.** Ratified by the user after they challenged the entry's own premise ("sync health is already surfaced elsewhere in UI"). The challenge was correct, and the audit that settled it is spec §3.2 of `docs/superpowers/specs/step3-onboarding/2026-08-15-step3-crew-preview-and-opslog-disposition-design.md`.
+
+**The principle it now stands on (§3.1, ratified):** a dev-only surface's content graduates to an admin surface only when the AUDIENCE of that surface can act on it. `app_events` is the forensic run log; its Doug-actionable content must reach Doug through the alerting pipeline, and the log itself stays dev-only.
+
+**Audit summary (§3.2, verified on this branch).** Every Doug-actionable event class already reaches an admin surface:
+
+- **Bell alerts** — `admin_alerts` via `upsertAdminAlert`, a 37-code union (`lib/adminAlerts/upsertAdminAlert.ts:3-40`) covering the sync/content faults Doug acts on (`DRIVE_FETCH_FAILED`, `SHEET_UNAVAILABLE`, `PARSE_ERROR_LAST_GOOD`, `SYNC_STALLED`, `ONBOARDING_SHEET_UNREADABLE`, `OPENING_REEL_*`, `RESYNC_*`, the email-delivery codes).
+- **Stall escalation** — persistent cron failure fires `SYNC_STALLED` through `detectAndResolveStall`, invoked by `runNotify` (`lib/notify/runNotify.ts:22`), so "the nightly sync keeps failing" reaches the bell with no `app_events` reader in the path.
+- **Per-show status** — the dashboard `ShowsTable` sync column and the per-show `StatusStrip` carry per-show sync state; the nav `AppHealthIndicator` escalates positive → notice → degraded.
+
+The residue in `app_events` is dev-actionable or already paired with an admin-visible consequence at the point of impact: run-level `CRON_RUN_SUMMARY` warns/errors (transient by design; persistence escalates via `SYNC_STALLED`), `*_EMIT_FAILED` / `*_ALERT_WRITE_FAILED` (telemetry-about-telemetry — they cannot alert through the channel whose failure they record), `*_LOOKUP_FAILED` / `*_INFRA_FAULT` / `*_READ_RETURNED_ERROR` (the Doug-visible consequence is the degraded surface, which invariant 9 already requires the surface itself to render), and wizard/stage action failures (surfaced inline in the acting admin's UI at the moment of action).
+
+**Two prior retirements point the same way.** The dashboard banner/panel affordances this entry asked to re-create were deliberately removed TWICE: the global `AlertBanner` in favour of `NotifBell`, and `AppHealthPanel` in favour of the nav `AppHealthIndicator`. Both removals are recorded in comment blocks at `app/admin/page.tsx:104-107` and `app/admin/page.tsx:118-123`.
+
+**Re-open trigger (conjunctive).** A Doug-actionable event class is found landing in `app_events` with NO `admin_alerts` pairing AND no point-of-impact surface. Then design the surface for THAT class, not a generic log reader.
+
+**Filed on the way, not fixed here:** `BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH` (class-sweep disposition exception (a) — it needs its own decision on desired behavior).
+
+## BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a stale restore is now impossible, and a failing run refreshes its own cache — CLOSED 2026-08-15 (`fix/screenshots-drift-cache`, SHIPPED)
+
+**Severity (as filed):** MEDIUM · **Class:** CI-INFRA · **Effort (as shipped):** S, as estimated · **Filed:** 2026-08-14 from a live main-branch incident
+
+**The filed evidence proved more than the filing claimed, and that changed the repair.** The entry offered three directions and the scope brief recommended the cheapest — split the cache step and always-save on the existing key. That default was REFUTED by the entry's own probe. The failing drift runs and the passing regen run were at the SAME sha with the SAME sources; only the cache differed, and the cached run rendered old chrome. So the Next compiler cache served stale compilation for changed content, which means a failing run's post-build cache still CONTAINS the poisoned entries it reused. Saving it under a prefix-restorable key would have propagated the poison to every later run instead of converging.
+
+**What shipped instead makes a stale restore impossible by construction.** The cache key is an exact content hash of the render inputs, in a fresh `-v2-` namespace, with NO `restore-keys`. A hit therefore means the cached compilation was built from byte-identical inputs, so reuse is sound BY KEY CONSTRUCTION rather than by trusting Next's invalidation — the exact trust the incident broke. A miss builds cold (~30s), the correct price for changed inputs. The `-v2-` segment makes every pre-existing entry, including the poisoned generation, unreachable without anyone running `gh cache delete`.
+
+The census is the workflow's own `pull_request.paths` filter (22 globs) MINUS `public/help/screenshots/**` PLUS `pnpm-lock.yaml`, `next.config.ts` and `package.json` — 24 `hashFiles` arguments. The baselines are excluded deliberately: the capture step mutates those bytes mid-run and `actions/cache/save` re-evaluates a content-derived key at save time, so including them would make a drifting run save under a phantom key no checkout ever requests. They are the comparison TARGET, not a compiler input. The shipped pin asserts key-globs == filter-globs minus the baselines plus the named extras, so the two lists are ONE derivation and a future census repair repairs the key with it.
+
+**The split restore/save with `if: always()` still ships, for warmth rather than convergence:** the first run at any input set saves even when the byte gate fails, so a UI-change commit whose drift run fails on stale baselines still leaves the next same-input run warm. The save reuses the restore step's `cache-primary-key` BY REFERENCE, so the key is computed once, before the job mutates anything.
+
+**A second defect surfaced on the way and was repaired in the same edit:** the drift check could not name what drifted. Untracked captures were hidden behind a `test -z "$(git ls-files --others …)"` form (probed: exit 1, zero bytes of output), and the step's fail-fast shell meant `git diff --exit-code` exited before any later branch ran, so with both kinds of drift present only the tracked name printed. It is now one aggregated check: both name lists computed first with name-listing commands, every name from both printed, a single exit at the end.
+
+**Proven with three real `workflow_dispatch` runs, not simulations** (`docs/superpowers/plans/2026-08-15-screenshots-drift-cache/dispatch-proofs.md`):
+
+- **`31926544147` — success.** Cold: missed the empty v2 namespace, built cold, passed, and saved. The saved key is byte-identical to the restored key, which is the single-evaluation contract observed live.
+- **`31926782074` — success.** Warm: an EXACT hit on the key run 1 saved. With no `restore-keys`, that can only be an exact-input match.
+- **`31926586967` — failure.** The constructed failing input (a real admin heading literal changed, baselines not regenerated) landed all four observations in ONE run: the restore MISSED under a different hash (`ea6eb255…` vs `8b9588ef…`) with no fallback to hand back a stale cache; the cold rebuild rendered the NEW chrome, drifting four baselines; the drift check FAILED and NAMED all four with their byte deltas; and the save STILL executed and saved under `if: always()` after the failed gate. That last step is exactly what the old combined step could never reach.
+
+**Shape pinned by nine assertions** in `tests/cross-cutting/ci-workflow-speedup.test.ts`, on PARSED step objects rather than file-wide substrings, so a commented-out `# uses:` line satisfies nothing. Assertion 9 is behavioral: it extracts the drift-check script and EXECUTES it against a constructed repo holding both kinds of drift, asserting both filenames appear, with a clean-repo negative. Six pre-dispatch mutants each red the pin — and commenting out the save's `uses:` line reds five assertions, because the parsed walk then sees no save step at all.
+
+**Documented limits carried forward** (spec §4, not defects): the key can only hash what it names, so an input outside both the filter and the named extras can still produce a stale-for-that-input hit — the byte gate still fails loudly and names the files; a run at an already-saved input set cannot re-save (entries are immutable), which is harmless because a same-key restore is input-identical; a byte-preserving path rename keeps the key while filesystem routing may change build semantics; a run that dies before the build creates the cache path saves nothing and is already red at the killing step; and a capture-step death skips the drift check entirely, deliberately, because a partially-written capture set is not a valid comparison population.
+
+`help-affordances.yml` keeps the combined pattern and is out of scope: it gates no byte comparison, so staleness there cannot self-perpetuate a red main. If it ever grows a byte gate, this spec is the template.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-15-screenshots-drift-cache-refresh-design.md` (spec-APPROVED, codex-guard R5) · **Plan:** `docs/superpowers/plans/2026-08-15-screenshots-drift-cache/plan.md` (plan-APPROVED, codex-guard R5).
+
+The original entry follows, its heading demoted to a bold line per the archive convention, with its in-flight status marker removed on archiving per invariant 12 — archives categorically reject in-progress work.
+
+**BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a failing drift run can never refresh the cache that made it fail**
+
+**Severity:** MEDIUM · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-14 from a live main-branch incident
+
+`screenshots-drift.yml` restores `.next-screenshots-help/cache` via `actions/cache` with a `restore-keys` prefix fallback, and `actions/cache` saves only in the post step of a SUCCESSFUL job. Those two facts compose into a trap: once every saved `Linux-nextcache-screenshots-*` cache predates a UI-changing merge, the nightly drift job restores a stale Next build cache, renders the OLD chrome, diffs against the CURRENT committed baselines, fails — and by failing, skips the cache save that would have replaced the stale cache. The failure self-perpetuates until a human deletes the caches.
+
+**Probe evidence (two-run, 2026-08-14).** Main-branch drift runs 31693276503 and 31748971797 failed on the same 6 `public/help/screenshots/crew-preview-*.webp` files (md5-verified as the only drifting set) while (a) the committed baselines were current — regenerated at `a5e1ee44d` AFTER the #779 UI change — and (b) the sanctioned `screenshots-regen.yml` on the same sha, same pinned image (`mcr.microsoft.com/playwright:v1.59.1-jammy`), same `pnpm screenshot:help` command committed NOTHING ("No baseline changes to commit") — the regen workflow has no cache step, so a fresh build reproduced the committed bytes exactly. All 12 saved caches predated #779. Deleting all 12 via `gh cache delete` and re-dispatching flipped the outcome: run 31749355724 SUCCESS with zero source change. Same sha, same image, same command; the only variable was the restored cache.
+
+**Repair directions (any one closes the class):** key the cache on a hash of the inputs that feed the build (so a stale restore is impossible, not merely unlucky); or split restore/save into explicit `actions/cache/restore` + `actions/cache/save` with `if: always()` so a failing run still refreshes its cache; or drop the `restore-keys` prefix fallback so a miss builds cold instead of restoring a wrong-generation cache. Whichever lands should note in the workflow why, citing this entry.
+
 ## BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 43 duplicate-id heading pairs repaired, and the class is now a CI failure — CLOSED 2026-08-15 (`chore/archive-duplicate-ids`, SHIPPED)
 
 **Severity (as filed):** LOW · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`) · **Effort (as shipped):** S, as estimated
