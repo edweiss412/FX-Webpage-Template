@@ -35,6 +35,8 @@ AC-1 (generator output + check mode), AC-2 (composition unchanged + corpus green
 
 `grep -c 'sourcePath: "' tests/mutation/source/registry.ts` on the plan-time tree returns 16 registry rows (grep -n output pasted: lines 159, 179, 238, 419, 460, 535, 612, 640, 651, 967, 1007, 1025, 1054, 1068, 1153, 1258). Task 6 adds exactly one row (`executionMethodsDerivation`), taking the count to 17. No row is removed.
 
+**Re-reconciled after merging `origin/main` at implementation time (2026-08-16).** Sibling arcs enrolled three further surfaces while this branch was in review, so the same command now returns **19** rows before this arc's row and **20** after it. The invariant this section actually asserts is unchanged and is the one to check: this arc adds EXACTLY ONE row and removes none. The plan-time figures above are retained as the authored record rather than overwritten — the delta (16 to 19) is entirely sibling work merged from main, not drift in this branch.
+
 ## Mutation-family closure (guard-surface work)
 
 The operator families for the new surface are the registry's declared set — `operators: [...OPERATOR_NAMES]` (`tests/mutation/source/registry.ts:3` imports it from `./operators`). That enumeration is the closure set diff review converges against; a reviewer-proposed NEW family is admissible only with a live escaping mutant against the shipped guard (docs/agents/writing-plans.md, mutation-family closure rule).
