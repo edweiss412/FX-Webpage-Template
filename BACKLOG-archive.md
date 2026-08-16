@@ -1,3 +1,34 @@
+## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown — CLOSED 2026-08-16 (`feat/diagram-demote-notice`, SHIPPED)
+
+**Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
+
+The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
+back to the clamped tier rather than showing "Image unavailable"
+(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
+The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
+nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
+again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
+backwards from the usual one.
+
+**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
+`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
+keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
+entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
+shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
+the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
+(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
+up first — one decision covers both.
+
+**What shipped.** A transient chip on the affected slide — "Full detail unavailable", `aria-hidden`, `pointer-events-none`, absolutely positioned at the slide figure's bottom edge in the Reset chip's token family — set in the SAME branch that already announced the demote, so the sighted and screen-reader channels report one event once each. It clears four ways: a 6000ms timer, a second demote replacing it (last wins), the dialog closing at any of its three initiators, and the demoted slide's clamped tier failing too (a "Full detail unavailable" chip floating over "Image unavailable" is a contradiction, and the chip's premise died with the tier).
+
+**Two mechanisms exist because the dialog has no `open` prop to observe.** The parent unmounts the lightbox by nulling its index, and `AnimatePresence` retains the exiting child with FROZEN props, so nothing inside the lightbox can see a close after the fact. The clear therefore runs at the close INITIATORS, and the re-open signal is an `openNonce` the parent increments on every closed-to-open transition — the only observable difference between "still exiting" and "open again" when a re-open inside the 220ms window cancels the exit and retains the instance.
+
+**Limits carried forward** (spec §4, not defects): the chip names no diagram and explains nothing further (the richer named copy is the sr channel's); a demote inside the exit window may show no chip, because the user who closed the dialog is not looking at the slide; the chip does not persist across dialog sessions, so a one-time failure never reads as a permanent banner; and simultaneous demotes collapse to the latest, which carries the same message.
+
+**Proof, not assertion:** 17 tests — 12 in the zoom-gate suite (containment against the affected slide's own figure, the announce count unchanged, the lifetime pinned by the spec's 5999/1 literals rather than by reading the constant back, timer-cancel oracles, last-wins restart, swipe-away-and-back with its REMAINING lifetime, Reset coexistence) and 5 driven through the REAL parent gallery (sixteen observed red before implementation; the seventeenth was added under review and is mutation-killed), because the lightbox-only harness mounts with a no-op `onClose` and can never exercise a close, a canceled exit, or a retained instance. The `DEMOTE_CHIP_VISIBLE_MS` constant and its DESIGN.md §5.5 row land in one commit, with the inventory gate observed failing by name in between.
+
+---
+
 ## BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal — CLOSED 2026-08-16 (`feat/theme-persistence-note`, SHIPPED)
 
 **Severity (as filed):** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S

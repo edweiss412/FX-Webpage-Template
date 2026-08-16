@@ -1015,27 +1015,6 @@ docblock states the gap rather than papering over it.
 
 ---
 
-## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown
-
-**Status:** IN PROGRESS · **Branch:** feat/diagram-demote-notice · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
-
-The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
-back to the clamped tier rather than showing "Image unavailable"
-(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
-The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
-nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
-again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
-backwards from the usual one.
-
-**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
-`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
-keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
-entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
-shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
-the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
-(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
-up first — one decision covers both.
-
 ## BL-DIAGRAMS-ANNOUNCE-CHANNEL-TTL — two crew announce channels ship without the pruning their own module prescribes
 
 **Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, audit half) · **Severity:** low · **Class:** A11Y · **Effort:** XS
