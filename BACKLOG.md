@@ -1139,3 +1139,25 @@ class-sweep exception (c). May share one lint surface with
 **Reachability: PROBED, cross-branch.** Both failures appear identically on two unrelated PR heads: `chore/round-economy-enforcement-pair` (run 31942707419, job 95154111932) and `fix/local-harness-false-failures` (the sibling run one hour earlier). Neither branch touches `scripts/scan-interaction-timings.ts`, its two suites, or any file under `lib/parser`/`tests/parser` — `git diff origin/main...HEAD` is empty on all of them for the first branch, and the second is a harness-only change. The shard-4 drift is in the data-gap alarm domain that `0be765a4c` ("register SYNC_LOG_EMIT_FAILED as a non-gap code and re-pin the shifted alert-producer sites") touched on main; the survivor in (1) was already present in a baseline run taken before that branch made any edit.
 
 **Why it is a row and not a shrug.** The gate is not a required context, so it merges red indefinitely, and its own memory record is that CI's run — not a local one — is what finds real survivors. A gate that is always red cannot deliver that signal. **First scheduled step:** decide per failure whether the surface is genuinely uncovered (repay with a test) or the ledger is stale (re-key), then re-run the workflow on main via `workflow_dispatch` to confirm a clean baseline; the shard-4 half likely needs the alarm ledger re-pinned by whoever owns the non-gap-code change.
+
+---
+
+### BL-SPECLINT-LINT-DRAFT-OUTSIDE-REPO — `spec:lint` refuses out-of-repo paths, so a draft written during a review freeze cannot be linted until it lands
+
+**Status:** OPEN · **Severity:** LOW · **Class:** tooling reach · **Filed:** 2026-08-16 (`feat/orchestrator-pane-compaction`, spec round-economy filing) · **Effort:** S
+
+**Probed, not theorized.** Invariant 11 puts every arc in a worktree, and the adversarial-review runbook freezes that worktree while a `codex-guard` dispatch is live — the wrapper reads the working tree, not the commit it was pointed at. The productive use of that window is drafting the next artifact in the session scratchpad. But:
+
+```
+$ pnpm spec:lint /private/tmp/claude-501/.../scratchpad/plan-draft.md
+document is outside the repository: /private/tmp/claude-501/.../scratchpad/plan-draft.md
+exit 2
+```
+
+So the draft cannot be checked until the freeze lifts and it is copied in, which is exactly when a defect becomes expensive.
+
+**What it cost here.** All ten task markers in a plan drafted during the spec round-3 freeze had `ac=` before `why=`. The grammar is fixed-order — `red=` → `red-state=` → `red-target=` → `why=` → `ac=` (`lib/specLint/taskContract.ts:49-52`) — so every one would have returned `TASK_MARKER_MALFORMED` on the plan dispatch. They were caught by hand-matching the regex, which is the check `spec:lint` exists to make unnecessary.
+
+**Why it is filed rather than fixed here.** Class-sweep disposition exception (c): the repair is to a surface this PR does not otherwise touch. It is also genuinely small — the checks that matter for a draft (task-marker grammar, numerics, copy, sections) are content-only; the citation checks are the sole part needing repo resolution, and they already resolve paths against the repo root rather than against the document. A `--content-only` flag, or resolving citations against the repo while accepting any readable path, would cover it.
+
+**Reachability:** PROBED — the command above, on this branch, 2026-08-16.
