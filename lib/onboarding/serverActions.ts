@@ -2,10 +2,12 @@
 
 import { redirect } from "next/navigation";
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 import { purgeAndRotateOnboardingSession } from "@/lib/onboarding/sessionLifecycle";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export async function startOverServerAction(): Promise<never> {
+  await assertSameOriginServerAction("startOverServerAction", "admin.onboarding.startOver");
   const { email } = await requireAdminIdentity();
   await purgeAndRotateOnboardingSession();
   // Durable forensic telemetry: after the purge resolves, BEFORE the redirect()
@@ -20,6 +22,7 @@ export async function startOverServerAction(): Promise<never> {
 }
 
 export async function rerunSetupServerAction(): Promise<never> {
+  await assertSameOriginServerAction("rerunSetupServerAction", "admin.onboarding.rerunSetup");
   const { email } = await requireAdminIdentity();
   const result = await purgeAndRotateOnboardingSession({ suppressIfFinalizePending: true });
   // Durable forensic telemetry: fires unconditionally once the purge resolves,
