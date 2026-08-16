@@ -32,6 +32,20 @@ const root = process.cwd();
  * taskContract's 18/2 against every surface in `describe.each`).
  */
 const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // psqlStartupScan: EIGHTEEN equivalence arguments and NO accepted gap from the
+  // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Thirteen of
+  // the thirty-one first-run survivors were repaid with tests instead. Both counts moved
+  // during cross-model review, and in the same direction — each round refuted a written
+  // argument with a probe the argument had not been checked against, and each refutation
+  // became a test rather than a re-argued row. Equivalents went 19 -> 18
+  // (`regex-quantifier-bound:2684:32` IS distinguishable by a malformed three-indicator
+  // block-scalar header), and the surface's only accepted gap went 1 -> 0
+  // (`relational-boundary:2167:54` IS distinguishable by a trailing backslash at end of
+  // input, which the shell leaves literal). So the surface now declares a ledger with no
+  // counted survivor at all: an `accepted-gap` appearing here would be this surface's
+  // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
+  // coverage regression to explain.
+  psqlStartupScan: { equivalent: 18 },
   // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
   // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
   // the message as a third key removed the gap rather than re-accepting it. The
@@ -172,6 +186,12 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // coverage gap to repay with a case, and a row appearing here later is a
   // regression to argue rather than a number to bump.
   "modal-wait-helper-scan": {},
+  // Fresh enrolment: every survivor is repaid or argued in the registry row's
+  // accepted list; a nonzero count appearing here later is a regression to
+  // repair rather than a number to bump. First run scored 63/65; both survivors
+  // were repaid with fixtures sitting exactly on NODES_MAX, so the re-run is
+  // 65/65 with an empty ledger.
+  serializeErrorStructure: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

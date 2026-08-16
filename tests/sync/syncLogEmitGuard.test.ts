@@ -29,8 +29,13 @@ import {
  * Record-level capture, not a `vi.spyOn(log, "error")` argument check (AC-1's stated seam).
  * An argument spy observes the FIELDS the caller passed, BEFORE `buildRecord`
  * (lib/log/logger.ts) runs `serializeError` and `sanitizeContext` over them — so it cannot
- * prove what the persisted diagnostic actually says, and a double-serialized `error` field
- * (which collapses to "[object Object]") passes it.
+ * prove what the persisted diagnostic actually says. It passed a double-serialized `error`
+ * field back when that collapsed to "[object Object]"; since fix/serialize-error-structure a
+ * re-serialized Error survives structurally, so the `toMatchObject` rows below no longer
+ * discriminate the double-serialize mutant at all (spec
+ * docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md §4 limit 8).
+ * The static walker at tests/log/noDoubleSerializedLogError.test.ts owns that ban now; the
+ * record-level seam here still earns its keep by proving the persisted shape.
  *
  * The sink stays installed for the file rather than being torn down with `resetLogSink()`:
  * `resetLogSink` restores the DEFAULT sink, whose lazy `import("./persist")` is the exact
@@ -95,10 +100,12 @@ describe("sync_log emit guard — the helper chokepoint (AC-1, AC-4)", () => {
     expect(escalated).toHaveLength(1);
     expect(escalated[0]!.driveFileId).toBe("drive-file-1");
     // Post-buildRecord: the shape `persistAppEvent` would write. The logger serializes
-    // exactly once, so the thrown message survives into the persisted diagnostic. Passing
-    // `serializeError(sinkError)` at the call site instead feeds a plain object back through
-    // serializeError's non-Error branch (`String(value)`) and this collapses to
-    // "[object Object]" — the double-serialize mutant this row kills.
+    // exactly once, so the thrown message survives into the persisted diagnostic. This row
+    // no longer KILLS the double-serialize mutant — since fix/serialize-error-structure the
+    // non-Error branch is structural, so `serializeError(sinkError)` at the call site still
+    // yields a matching `{ message }` (spec
+    // docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md §4 limit 8).
+    // The ban is enforced statically by tests/log/noDoubleSerializedLogError.test.ts.
     expect(escalated[0]!.context.error).toMatchObject({
       message: "probe-sink-connection-reset",
     });
