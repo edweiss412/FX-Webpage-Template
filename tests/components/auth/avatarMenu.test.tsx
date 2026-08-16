@@ -19,11 +19,13 @@
  * strings below are the contract.
  */
 import "@testing-library/jest-dom/vitest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { AvatarMenu } from "@/components/auth/AvatarMenu";
 import { avatarColor } from "@/lib/crew/avatarColor";
+import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
+import { messageFor } from "@/lib/messages/lookup";
 
 afterEach(cleanup);
 
@@ -34,7 +36,7 @@ const ROUTE = {
 };
 
 /** A function action, so React renders the `javascript:` form boundary. */
-const clearAction = (): void => {};
+const clearAction = async (): Promise<ClearIdentityResult> => ({ ok: true as const });
 
 function renderMenu(name = "Doug L.", role = "Lead") {
   return render(<AvatarMenu name={name} role={role} {...ROUTE} clearAction={clearAction} />);
@@ -307,5 +309,210 @@ describe("the transition inventory (spec §2.3)", () => {
     // …and the theme change SURVIVED the close, rather than being rolled back
     // with the menu state.
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+});
+
+/**
+ * The in-menu failure state (BL-IDENTITY-CLEAR-FAILURE-IS-SILENT).
+ *
+ * Spec: docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md §4.
+ * The §2.3 probe measured this lifecycle on a Harness; these fold the same
+ * assertions onto the shipped component.
+ */
+describe("the switch-person failure state", () => {
+  // R2-F3: crewFacing is `string | null`, so coalesce for strict typecheck; the
+  // non-empty assertion below then fails loudly if the catalog copy is emptied.
+  const EXPECTED = messageFor("PICKER_SWITCH_FAILED").crewFacing ?? ""; // derive, never hardcode
+
+  /** Clicking the trigger while open calls close() (AvatarMenu.tsx close path). */
+  function closeMenu(): void {
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-trigger"));
+    });
+  }
+
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+  }
+
+  const renderWith = (action: (formData: FormData) => Promise<ClearIdentityResult>) =>
+    render(<AvatarMenu name="Doug L." role="Lead" {...ROUTE} clearAction={action} />);
+
+  it("EXPECTED copy is a non-empty catalog string (kills the empty-copy tautology)", () => {
+    expect(EXPECTED.length).toBeGreaterThan(0); // an emptied catalog copy fails HERE, not silently
+  });
+
+  it("passes the route inputs (slug/shareToken/showId) to the clear action", async () => {
+    // The mock param is typed so `.mock.calls[0]![0]` indexes the tuple [FormData].
+    const action = vi.fn(async (_formData: FormData) => ({ ok: true as const }));
+    renderWith(action);
+    openMenu();
+    // Submit the FORM so React builds FormData from the hidden inputs.
+    act(() => {
+      fireEvent.submit(screen.getByTestId("avatar-menu-switch-person").closest("form")!);
+    });
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    const received = action.mock.calls[0]![0];
+    expect(received.get("slug")).toBe(ROUTE.slug); // a clearAction(new FormData()) mutant fails here
+    expect(received.get("shareToken")).toBe(ROUTE.shareToken);
+    expect(received.get("showId")).toBe(ROUTE.showId);
+  });
+
+  it("renders an in-menu alert on failure, as a sibling of role=menu, and keeps the menu open", async () => {
+    const action = vi.fn(async () => ({
+      ok: false as const,
+      code: "PICKER_RESOLVER_LOOKUP_FAILED" as const,
+    }));
+    renderWith(action);
+    openMenu();
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent?.trim()).toBe(EXPECTED); // EXACT: a rendered suffix fails, unlike substring
+    const menuEl = screen.getByRole("menu");
+    const popover = screen.getByTestId("avatar-menu-popover");
+    // The full §4.3 placement contract. `contains` alone would let a wrapped
+    // alert, or an alert followed by another child, survive.
+    expect(menuEl.contains(alert)).toBe(false); // not a child of role=menu
+    expect(popover.contains(alert)).toBe(true); // inside the popover
+    expect(menuEl.nextElementSibling).toBe(alert); // IMMEDIATELY after the menu
+    expect(popover.lastElementChild).toBe(alert); // and the popover's LAST child
+    expect(popover).toBeInTheDocument(); // stayed open
+  });
+
+  it("renders the alert for ANY ok:false code, not just one", async () => {
+    // clearIdentity can return PICKER_INVALID_INPUT (malformed FormData or the
+    // origin gate), not only PICKER_RESOLVER_LOOKUP_FAILED. A mutant narrowing
+    // `if (!result.ok)` to one specific code survives every fixture using that
+    // code; a DIFFERENT failure code catches it.
+    const action = vi.fn(async () => ({
+      ok: false as const,
+      code: "PICKER_INVALID_INPUT" as const,
+    }));
+    renderWith(action);
+    openMenu();
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent?.trim()).toBe(EXPECTED); // same generic copy regardless of code
+  });
+
+  it("renders NO alert when the clear succeeds (awaits the transition before asserting absence)", async () => {
+    const action = vi.fn(async () => ({ ok: true as const }));
+    renderWith(action);
+    openMenu();
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+    await waitFor(() => expect(action).toHaveBeenCalled()); // let the transition settle
+    await act(async () => {
+      await Promise.resolve();
+    }); // flush the post-resolve microtask/commit
+    expect(screen.queryByRole("alert")).toBeNull(); // a late alert would now be present
+  });
+
+  it("clears a stale error when the menu is reopened", async () => {
+    const action = vi.fn(async () => ({
+      ok: false as const,
+      code: "PICKER_RESOLVER_LOOKUP_FAILED" as const,
+    }));
+    renderWith(action);
+    openMenu();
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+    await screen.findByRole("alert");
+    closeMenu();
+    openMenu();
+    expect(screen.queryByRole("alert")).toBeNull(); // reset-on-open, no stale error
+  });
+
+  it("close WHILE PENDING then resolve-failure: no throw, no alert; reopen stays clean", async () => {
+    const d = deferred<ClearIdentityResult>();
+    renderWith(() => d.promise);
+    openMenu();
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+    closeMenu(); // close before the clear resolves
+    await act(async () => {
+      d.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await d.promise;
+    });
+    expect(screen.queryByRole("alert")).toBeNull(); // nothing rendered while closed, no throw
+    openMenu();
+    expect(screen.queryByRole("alert")).toBeNull(); // reopen is idle
+  });
+
+  it("reopen WHILE STILL PENDING: submit aria-disabled, no alert; failure then surfaces", async () => {
+    const d = deferred<ClearIdentityResult>();
+    renderWith(() => d.promise);
+    openMenu();
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+    closeMenu();
+    openMenu(); // reopen BEFORE the promise settles
+    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
+      "true",
+    ); // pending persists on the mounted parent
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => {
+      d.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await d.promise;
+    });
+    expect(await screen.findByRole("alert")).toBeTruthy(); // failure surfaces in the open menu
+    expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
+      "false",
+    ); // re-enabled
+  });
+
+  it("keyboard reaches the pending switch item by all four commands, and re-activation is a no-op", async () => {
+    const action = vi.fn(() => new Promise<ClearIdentityResult>(() => {})); // never resolves
+    renderWith(action);
+    openMenu();
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    }); // one real activation → pending
+    const submit = screen.getByTestId("avatar-menu-switch-person");
+    const menu = screen.getByTestId("avatar-menu-popover");
+    expect(submit.getAttribute("aria-disabled")).toBe("true");
+    expect((submit as HTMLButtonElement).disabled).toBe(false); // NOT native disabled: that strands focus
+    // `theme.focus()` fires onFocus → setActiveIndex(0), and that state MUST
+    // commit before the key handler reads activeIndex, so focus and the keyDown
+    // go in SEPARATE act() calls — batched, the handler sees the stale index.
+    const fromFirst = (key: string): void => {
+      act(() => {
+        screen.getByTestId("avatar-menu-theme").focus();
+      });
+      act(() => {
+        fireEvent.keyDown(menu, { key });
+      });
+    };
+    // (a) ArrowDown from the first item lands on the pending switch item…
+    fromFirst("ArrowDown");
+    expect(document.activeElement).toBe(submit);
+    // (b) in-menu ArrowUp from the FIRST item wraps to the last…
+    fromFirst("ArrowUp");
+    expect(document.activeElement).toBe(submit);
+    // (c) End also lands on it…
+    fromFirst("End");
+    expect(document.activeElement).toBe(submit);
+    // (d) reopen-with-ArrowUp opens the menu at the last item…
+    closeMenu();
+    act(() => {
+      fireEvent.keyDown(screen.getByTestId("avatar-menu-trigger"), { key: "ArrowUp" });
+    });
+    expect(document.activeElement).toBe(screen.getByTestId("avatar-menu-switch-person"));
+    // Re-activation while pending is a no-op.
+    const calls = action.mock.calls.length;
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+    expect(action.mock.calls.length).toBe(calls); // onSwitchSubmit early-returns while pending
   });
 });
