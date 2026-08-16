@@ -173,14 +173,33 @@ function isReferenceIdentifier(id: ts.Identifier): boolean {
 
 /** Is this identifier anywhere inside a TYPE, rather than in a value position? */
 function isInTypePosition(id: ts.Identifier): boolean {
+  let prev: ts.Node = id;
   let n: ts.Node | undefined = id.parent;
   while (n !== undefined) {
+    // `class Derived extends Base` READS `Base` at runtime, and TypeScript
+    // answers true to `isTypeNode` for the `ExpressionWithTypeArguments` that
+    // holds it — so the base, a generic base, and a mixin call with its
+    // arguments were all discarded as types. Only its EXPRESSION half is a
+    // value: the type arguments of `extends Base<Config>` are still types, and
+    // an INTERFACE's extends clause is types throughout.
+    if (
+      ts.isExpressionWithTypeArguments(n) &&
+      n.expression === prev &&
+      n.parent !== undefined &&
+      ts.isHeritageClause(n.parent) &&
+      n.parent.token === ts.SyntaxKind.ExtendsKeyword &&
+      n.parent.parent !== undefined &&
+      ts.isClassLike(n.parent.parent)
+    ) {
+      return false;
+    }
     if (ts.isTypeNode(n) || ts.isTypeAliasDeclaration(n) || ts.isInterfaceDeclaration(n)) {
       return true;
     }
     // An expression cannot sit inside a type except through these, and both
     // stop the walk: past them we are back in value code.
     if (ts.isExpressionStatement(n) || ts.isBlock(n) || ts.isSourceFile(n)) return false;
+    prev = n;
     n = n.parent;
   }
   return false;
@@ -274,11 +293,26 @@ function isFunctionLike(node: ts.Node): boolean {
 
 /** Every name a binding form introduces — identifier, or any nesting of object/array patterns. */
 function bindingIdentifiers(name: ts.BindingName): ts.Identifier[] {
-  if (ts.isIdentifier(name)) return [name];
-  const out: ts.Identifier[] = [];
+  return boundNames(name).map(([id]) => id);
+}
+
+/**
+ * Every name a binding form introduces, PAIRED with the default that runs when
+ * the source has nothing for it.
+ *
+ * A default can be the binding's sole provenance — `const { helper =
+ * spawningHelper } = {}` runs the default, always — and attaching only the
+ * declaration's right-hand side lost it silently. Nested patterns carry their
+ * own defaults at every level, so this walks rather than reading one.
+ */
+function boundNames(name: ts.BindingName): Array<[ts.Identifier, ts.Expression | undefined]> {
+  if (ts.isIdentifier(name)) return [[name, undefined]];
+  const out: Array<[ts.Identifier, ts.Expression | undefined]> = [];
   for (const el of name.elements) {
     if (ts.isOmittedExpression(el)) continue;
-    out.push(...bindingIdentifiers(el.name));
+    const inner = boundNames(el.name);
+    // A default on a PATTERN element applies to every name inside it.
+    for (const [id, own] of inner) out.push([id, own ?? el.initializer]);
   }
   return out;
 }
@@ -349,7 +383,10 @@ type ModuleFacts = {
  */
 type Binding =
   | { kind: "local"; scope: Scope; extent: ts.Node[] }
-  | { kind: "import"; scope: Scope; spec: string; imported: string }
+  /** `extent` carries any WRITES to the imported name — `let m = await
+   *  import("p"); m = spawnSync(...)` binds once and is assigned twice, so the
+   *  module edge is not the whole story. */
+  | { kind: "import"; scope: Scope; spec: string; imported: string; extent: ts.Node[] }
   | { kind: "unbound" };
 
 function resolveBinding(facts: ModuleFacts, name: string, from: ts.Node): Binding {
@@ -371,7 +408,14 @@ function resolveUncached(facts: ModuleFacts, name: string, start: Scope): Bindin
     // A dynamic import binds HERE, so it is found on the same innermost-out
     // walk as any other binding rather than from a file-global map.
     const dynamic = facts.scopedImports.get(scope)?.get(name);
-    if (dynamic !== undefined) return { kind: "import", scope, ...dynamic };
+    if (dynamic !== undefined) {
+      return {
+        kind: "import",
+        scope,
+        ...dynamic,
+        extent: facts.extents.get(scope)?.get(name) ?? [],
+      };
+    }
     const here = facts.extents.get(scope)?.get(name);
     if (here && here.length > 0) return { kind: "local", scope, extent: here };
     // A shadow is a real answer, not a miss: the name is bound to something
@@ -381,7 +425,14 @@ function resolveUncached(facts: ModuleFacts, name: string, start: Scope): Bindin
     scope = scopeOf(scope);
   }
   const imported = facts.imports.get(name);
-  if (imported !== undefined) return { kind: "import", scope: facts.sf, ...imported };
+  if (imported !== undefined) {
+    return {
+      kind: "import",
+      scope: facts.sf,
+      ...imported,
+      extent: facts.extents.get(facts.sf)?.get(name) ?? [],
+    };
+  }
   return { kind: "unbound" };
 }
 
@@ -511,12 +562,15 @@ function moduleFacts(path: string): ModuleFacts | null {
       // import(...)` expression, which names no provenance by itself and has no
       // module edge to follow.
       if (!isDynamicImportInitializer(node.initializer)) {
-        for (const id of bindingIdentifiers(node.name)) {
+        for (const [id, fallback] of boundNames(node.name)) {
           // A declaration with NO initializer still BINDS the name here, so a
           // later write inside a nested function attaches to this binding rather
           // than falling through to a same-named outer one.
           if (node.initializer) addExtentIn(home, id.text, node.initializer);
-          else addShadowIn(home, id.text);
+          else if (fallback === undefined) addShadowIn(home, id.text);
+          // The default is part of the extent wherever one exists, because it
+          // is what runs when the source supplies nothing.
+          if (fallback !== undefined) addExtentIn(home, id.text, fallback);
         }
       }
     }
@@ -707,7 +761,13 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           const imported = binding;
           if (isProvenanceModule(imported.spec)) return true;
           const target = resolveSpecifier(root, path, imported.spec);
-          if (target === null) continue; // node_modules, pure by L-2
+          if (target === null) {
+            // node_modules, pure by L-2 — but a WRITE to the same binding is not.
+            for (const ext of binding.extent) {
+              if (visit(ext, f, path)) return true;
+            }
+            continue;
+          }
           const tf = factsFor(target);
           if (tf === null) {
             unresolved.push(`unparseable in-repo module ${imported.spec}`);
@@ -716,6 +776,10 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           // By the name it carries THERE, not the local alias.
           for (const ext of moduleScopeExtent(tf, imported.imported)) {
             if (visit(ext, tf, target)) return true;
+          }
+          // …and anything later ASSIGNED to the same local binding.
+          for (const ext of binding.extent) {
+            if (visit(ext, f, path)) return true;
           }
           continue;
         }
@@ -855,20 +919,82 @@ function premiseIsAssociated(call: ts.CallExpression, facts: ModuleFacts): boole
   if (!producer || !ts.isIdentifier(producer)) return false;
   const binding = producer.text;
 
-  let found = false;
+  // WHICH binding the registration consumes, so a premise about a same-named
+  // one somewhere else cannot stand in for it.
+  const producerBinding = resolveBinding(facts, binding, producer);
+  const producerKey = bindingKey(binding, producerBinding);
+
+  // The candidates are a property of the FILE, not of this registration, so
+  // they are collected once. Re-walking the source per `.each` registration is
+  // what took a corpus pass from 1.1s to 10.7s.
+  return loadTimePremises(facts.sf).some(
+    (n) =>
+      n.getStart(facts.sf) < call.getStart(facts.sf) &&
+      // It has to be about THIS binding, resolved rather than matched by name:
+      // an inner `const rows` in another scope is a different producer.
+      namesBinding(n, binding, producerKey, facts),
+  );
+}
+
+/**
+ * Every `premise(...)` / `premiseHolds(...)` call in the file that RUNS when
+ * the module loads.
+ *
+ * A premise inside a function body runs when that function is called, which for
+ * a never-called helper is never — and the whole point of the associated
+ * placement is that it executes before the registration consumes the producer
+ * (spec §3.3.2.2).
+ */
+const premiseCache = new WeakMap<ts.SourceFile, ts.CallExpression[]>();
+function loadTimePremises(sf: ts.SourceFile): ts.CallExpression[] {
+  const memo = premiseCache.get(sf);
+  if (memo !== undefined) return memo;
+  const out: ts.CallExpression[] = [];
   const walk = (n: ts.Node): void => {
-    if (found) return;
     if (
       ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
       /^premise(Holds)?$/.test(n.expression.text) &&
-      n.getStart(facts.sf) < call.getStart(facts.sf) &&
-      referencesName(n, binding)
+      runsAtModuleLoad(n)
     ) {
-      found = true;
+      out.push(n);
     }
     ts.forEachChild(n, walk);
   };
-  walk(facts.sf);
-  return found;
+  walk(sf);
+  premiseCache.set(sf, out);
+  return out;
+}
+
+/** Does this node execute when the module is loaded — i.e. sit under no function? */
+function runsAtModuleLoad(node: ts.Node): boolean {
+  for (let p: ts.Node | undefined = node.parent; p !== undefined; p = p.parent) {
+    if (ts.isSourceFile(p)) return true;
+    // An IIFE runs at load; a function that something else must call does not.
+    if (isFunctionLike(p)) {
+      const caller = p.parent;
+      const invoked =
+        caller !== undefined &&
+        ((ts.isCallExpression(caller) && caller.expression === p) ||
+          (ts.isParenthesizedExpression(caller) &&
+            caller.parent !== undefined &&
+            ts.isCallExpression(caller.parent) &&
+            caller.parent.expression === caller));
+      if (!invoked) return false;
+    }
+  }
+  return true;
+}
+
+/** Does this premise call read the SAME binding the registration consumes? */
+function namesBinding(
+  node: ts.Node,
+  name: string,
+  producerKey: string | null,
+  facts: ModuleFacts,
+): boolean {
+  if (producerKey === null) return referencesName(node, name);
+  return referencedIdentifiers(node).some(
+    (id) => id.text === name && bindingKey(name, resolveBinding(facts, name, id)) === producerKey,
+  );
 }

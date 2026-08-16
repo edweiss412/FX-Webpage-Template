@@ -649,3 +649,111 @@ describe("the reference rules the gate found unpinned", () => {
     expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(true);
   });
 });
+
+// ── Whole-diff review R3: four more silent losses ────────────────────────────
+describe("R3 — heritage, dynamic-import priority, pattern defaults, premise dominance", () => {
+  const IMPORT = `import { spawnSync } from "node:child_process";`;
+
+  function verdicts3(src: string): string[] {
+    const p = join(scratch, `r3-${n++}.ts`);
+    writeFileSync(p, src, "utf8");
+    return classifyTests(ROOT, p).map((t) => t.verdict);
+  }
+
+  it("a class EXTENDS clause is a value reference, not a type", () => {
+    // `ExpressionWithTypeArguments` answers true to ts.isTypeNode even in a
+    // class heritage clause, so the whole `extends` expression — the base, a
+    // generic base, a mixin call and its arguments — was read as a type and
+    // lost.
+    expect(
+      verdicts3(`${IMPORT}
+        class Base { constructor() { spawnSync("git", []); } }
+        class Derived extends Base {}
+        it("x", () => new Derived());`),
+    ).toEqual(["environment-touching"]);
+  });
+
+  it("an INTERFACE extends clause is still a type", () => {
+    // The foil: heritage on an interface names types, and reading those as
+    // values is the over-classification direction.
+    expect(
+      verdicts3(`${IMPORT}
+        const Base = spawnSync("git", []);
+        interface Derived extends Record<string, number> {}
+        it("x", () => { const v: Derived = {}; return v; });`),
+    ).toEqual(["environment-free"]);
+  });
+
+  it("an import() nested under an initializer does not swallow the initializer", () => {
+    // The dynamic-import clause walked UP to the nearest VariableDeclaration,
+    // so a lazy-loading helper registered the whole declaration as that import
+    // and its real provenance — the `process.env` read — vanished.
+    expect(
+      verdicts3(`const helper = () =>
+          process.env.FLAG ? import("some-package") : Promise.resolve(null);
+        it("x", () => helper());`),
+    ).toEqual(["environment-touching"]);
+  });
+
+  it("a WRITE to a dynamic-import binding is visited too", () => {
+    // The write and the provenance sit OUTSIDE the test, so the only path to
+    // them is through the binding the test reads. `resolveUncached` returned
+    // the import edge and never looked at the writes stored beside it.
+    expect(
+      verdicts3(`${IMPORT}
+        let m = await import("node:path");
+        m = spawnSync("git", []);
+        it("x", () => m);`),
+    ).toEqual(["environment-touching"]);
+  });
+
+  const defaults: ReadonlyArray<readonly [string, string]> = [
+    ["object pattern default", `const { helper = spawning } = {} as { helper?: () => unknown };`],
+    ["array pattern default", `const [helper = spawning] = [] as Array<() => unknown>;`],
+    [
+      "nested pattern default",
+      `const { a: { helper = spawning } = {} } = {} as { a?: { helper?: () => unknown } };`,
+    ],
+  ];
+  it.each(defaults)("a %s carries its own provenance", (_label, decl) => {
+    // A default can be the binding's SOLE provenance: with an empty source the
+    // default is what actually runs. Declared OUTSIDE the test, so the only
+    // path to the spawn is through the binding — a declaration inside the test
+    // body would make the case pass on the default expression being textually
+    // present rather than on the binding carrying it.
+    expect(
+      verdicts3(`${IMPORT}
+        const spawning = () => spawnSync("git", []);
+        ${decl}
+        it("x", () => helper());`),
+    ).toEqual(["environment-touching"]);
+  });
+
+  it("a premise inside a never-called helper does not count as associated", () => {
+    // The associated placement must EXECUTE before registration. A premise in a
+    // function body is a premise nobody runs.
+    const p = join(scratch, `r3-assoc-${n++}.ts`);
+    writeFileSync(
+      p,
+      `const rows = [[1]];
+       function neverCalled() { premise("rows exist", rows.length, 0); }
+       void neverCalled;
+       test.each(rows)("x", (r) => { void r; });`,
+      "utf8",
+    );
+    expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(false);
+  });
+
+  it("a premise naming a SHADOWED same-named producer does not count", () => {
+    const p = join(scratch, `r3-assoc-${n++}.ts`);
+    writeFileSync(
+      p,
+      `const rows = [[1]];
+       { const shadow = [[2]]; void shadow; }
+       (() => { const rows = [[3]]; premise("other rows", rows.length, 0); })();
+       test.each(rows)("x", (r) => { void r; });`,
+      "utf8",
+    );
+    expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(false);
+  });
+});
