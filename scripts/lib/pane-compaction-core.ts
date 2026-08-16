@@ -526,3 +526,69 @@ export function refuse(cause: RefusalCause): Refusal {
   })();
   return { exitCode: 1, sends: [], message };
 }
+
+// ---------------------------------------------------------------------------
+// §5.2 / §5.5 — the nonce, and per-command revalidation
+// ---------------------------------------------------------------------------
+
+/** The outstanding-nonce record for one target. Injected, so no test needs a real file. */
+export type NonceStore = {
+  read(): string | null;
+  consume(): void;
+};
+
+/**
+ * Mint a nonce that is not the one already in the target's marker.
+ *
+ * Randomness makes a repeat improbable, not impossible, and an unlucky repeat
+ * would let `--compact` accept the PREVIOUS checkpoint before the new prompt
+ * had executed. Spec round 7's finding: "128-bit random, therefore different"
+ * is a probability argument, not a proof. One local comparison, not a return of
+ * the cross-orchestrator machinery round 6 removed.
+ */
+export function mintNonce(opts: { markerNonce: string | null; random: () => string }): string {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate = opts.random();
+    if (candidate !== opts.markerNonce) return candidate;
+  }
+  throw new Error("mintNonce: generator kept colliding with the marker's nonce");
+}
+
+export type Revalidation = { ok: true } | { ok: false; message: string };
+
+/**
+ * `--compact`: revalidate, verify the nonce, consume, then send.
+ *
+ * ORDER MATTERS AND IS ASSERTED FROM INSIDE THE SEND. Consuming before the send
+ * means a crash costs a re-checkpoint; consuming after would leave a replayable
+ * record on every failure path. `try { send() } finally { consume() }` produces
+ * identical POST-HOC observations — both end with the record gone — so only an
+ * observation taken while the send executes can tell them apart.
+ *
+ * Revalidation precedes consumption so a refusal does not burn the checkpoint:
+ * the orchestrator can fix the condition and retry without re-checkpointing.
+ */
+export function runCompact(opts: {
+  store: NonceStore;
+  markerNonce: string | null;
+  send: (s: string) => void;
+  revalidate: () => Revalidation;
+}): { exitCode: 0 | 1; message: string } {
+  const fresh = opts.revalidate();
+  if (!fresh.ok) return { exitCode: 1, message: fresh.message };
+
+  const recorded = opts.store.read();
+  if (recorded === null) {
+    return { exitCode: 1, message: refuse({ kind: "nonce-absent" }).message };
+  }
+  if (opts.markerNonce === null) {
+    return { exitCode: 1, message: refuse({ kind: "nonce-absent" }).message };
+  }
+  if (opts.markerNonce !== recorded) {
+    return { exitCode: 1, message: refuse({ kind: "nonce-mismatch" }).message };
+  }
+
+  opts.store.consume(); // BEFORE the send, deliberately
+  for (const s of planSends({ command: "compact", target: "" }).sends) opts.send(s);
+  return { exitCode: 0, message: "" };
+}
