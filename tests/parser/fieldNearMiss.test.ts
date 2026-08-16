@@ -166,6 +166,11 @@ describe("vocabulary derivation", () => {
     // rather than silently sitting outside the vocabulary. A filename grep is NOT the
     // cover — `ops.ts` matches the string in a comment while exporting no tokens, so the
     // membership test is the live export, and the directory is read, never listed.
+    // no-premise: the dynamic specifier IS the derived cover — the premise scanner cannot
+    // resolve `import(`../../lib/parser/blocks/${stem}.ts`)` to a module, and resolving it
+    // would mean naming the files, which is the enumeration this case exists to avoid. The
+    // two `premise(...)` calls below are the executable guards the scanner would otherwise
+    // be standing in for: the walk found files, and some of them exported tokens.
     const files = readdirSync("lib/parser/blocks").filter((f) => f.endsWith(".ts"));
     premise("the blocks directory was actually walked", files.length, 5);
     const exported: string[][] = [];
