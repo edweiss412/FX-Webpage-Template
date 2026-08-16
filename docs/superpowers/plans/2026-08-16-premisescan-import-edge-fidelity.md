@@ -21,6 +21,7 @@
 - **No bound expressed as a NUMBER.** Termination comes from the finite `(modulePath, exportName)` visited set (spec §2.5), never a depth counter — AGENTS.md's repair-economy rule, bullet 1.
 - Convergence criterion for review of this arc: spec §1's consequence bound, `PROBE DOMAIN` and threat fence, plus — from the round-1 diff brief onward — the `premiseScan` mutation score with an empty unaccepted-survivor set.
 - impeccable-gate: N/A — no UI surface. No file under `app/`, `components/`, `app/globals.css`, `tailwind.config.*` or `DESIGN.md` is touched.
+- **A `-t` filter that matches nothing EXITS 0 — probed, not assumed.** `npx vitest run tests/mutation/source/premiseScan.test.ts -t "no such block name xyzzy"` reports `Tests 22 skipped (22)` and exits `0`. Every `red=` command in this plan is a `-t` filter on a describe block that does not exist until that task's Step 1 writes it, so running the red command BEFORE Step 1 produces a false green. Two consequences, binding on every task below: (a) Step 1 (write the cases) always precedes Step 2 (observe the red) — never reorder them; (b) Step 2's pass criterion is that the run reports the named cases as **FAILED**, with a non-zero failing count, never merely a non-zero exit and never `skipped`. A step-2 run reporting `0 failed` has not observed a red, whatever its exit code.
 
 **Meta-test inventory (writing-plans rule):** this plan **EXTENDS** `tests/mutation/source/premiseScan.test.ts` (new fixture groups) and `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array, re-derived). It **EXTENDS COMMENTS ONLY** in `tests/mutation/_metaPremiseContract.test.ts` — no numeric change. It **CREATES no new meta-test**: `_metaPremiseContract.test.ts` already walks the enrolled suites from the registry (so a newly enrolled surface is covered by default) and already asserts the unclassifiable set is empty, which is the structural guard for the reporting posture this arc extends. No other registry applies — no Supabase call boundary, no `admin_alerts` row, no tile sentinel, no advisory lock, no §12.4 catalog row, no migration.
 
@@ -245,7 +246,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"
 ```
 
-Expected: FAIL. `a renamed default import resolves` and `a default export that is an EXPRESSION resolves` report `environment-free`; `export { x as y }` reports `environment-free`. `a same-named default import resolves for the RIGHT reason` and `a pure default export stays free` PASS already — that is the point of the foils. Record which cases were red in the commit message.
+Expected: FAIL, with a non-zero FAILING count (not `skipped` — see the `-t` constraint above). `a renamed default import resolves` and `a default export that is an EXPRESSION resolves` report `environment-free`; `export { x as y }` reports `environment-free`. `a same-named default import resolves for the RIGHT reason` and `a pure default export stays free` PASS already — that is the point of the foils. Record which cases were red in the commit message.
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`:
 
@@ -457,7 +458,7 @@ describe("forwarded exports: a re-export is followed to its source", () => {
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"
 ```
 
-Expected: FAIL. Every `environment-touching` case reports `unclassifiable` (Task 1's stub reason `forwarded export (not yet followed)`); `a re-export CYCLE terminates and reports` may hang or report the stub reason — if the run does not terminate, that is itself the red and it is fixed by this task's visited set.
+Expected: FAIL, with a non-zero FAILING count (not `skipped` — see the `-t` constraint above). Every `environment-touching` case reports `unclassifiable` (Task 1's stub reason `forwarded export (not yet followed)`); `a re-export CYCLE terminates and reports` may hang or report the stub reason — if the run does not terminate, that is itself the red and it is fixed by this task's visited set.
 
 - [ ] **Step 4: Implement.** In `premiseScan.ts`:
 
@@ -583,7 +584,7 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export forms"
 ```
 
-Expected: FAIL. `an unfollowable re-export reports` and `an in-repo module that cannot be parsed reports` report `environment-free`; the `export * as ns from` and `export =` cases report `environment-free`. The two foils PASS already.
+Expected: FAIL, with a non-zero FAILING count (not `skipped` — see the `-t` constraint above). `an unfollowable re-export reports` and `an in-repo module that cannot be parsed reports` report `environment-free`; the `export * as ns from` and `export =` cases report `environment-free`. The two foils PASS already.
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`, route every `{ kind: "unresolvable", reason }` from `resolveExport` into `reaches`'s existing `unresolved` array, formatted as `` `${reason} in ${relative(root, modulePath)}` ``. Record `export * as ns from` (a `NamespaceExport` clause) and `export =` (an `ExportAssignment` with `isExportEquals === true`) explicitly during the `moduleFacts` walk so they resolve to `unresolvable` with their own reasons rather than falling through to the generic `no export named` message. A `null` from `factsFor` already pushes `unparseable in-repo module`; keep that reason string exactly as it is so nothing downstream that matches on it breaks.
 
@@ -725,7 +726,7 @@ describe("namespace bindings: member-precise, and nothing else", () => {
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "namespace bindings"
 ```
 
-Expected: FAIL. The two member cases and the three reporting cases report `environment-free`. The four foils (`pureOne`, both AC-10b cases, both provenance-module cases) PASS already — record that in the commit message, since a foil that was already green is exactly what makes the reds meaningful.
+Expected: FAIL, with a non-zero FAILING count (not `skipped` — see the `-t` constraint above). The two member cases and the three reporting cases report `environment-free`. The four foils (`pureOne`, both AC-10b cases, both provenance-module cases) PASS already — record that in the commit message, since a foil that was already green is exactly what makes the reds meaningful.
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`:
 
@@ -867,7 +868,7 @@ describe("unclassifiable propagation: a construct in a HELPER reaches its caller
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "unclassifiable propagation"
 ```
 
-Expected: FAIL. The five propagation cases report `environment-free`. The three foils (`a helper WITHOUT the construct`, both AC-12 branches) and `a reason is reported once` PASS already.
+Expected: FAIL, with a non-zero FAILING count (not `skipped` — see the `-t` constraint above). The five propagation cases report `environment-free`. The three foils (`a helper WITHOUT the construct`, both AC-12 branches) and `a reason is reported once` PASS already.
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`, inside `reaches`'s `visit`, evaluate `unclassifiableWithin(node, f)` on each visited node and push each reason as `` `${reason} in ${relative(root, path)}` `` into `unresolved`. Leave `classifyTests`'s own-extent `ownUnresolved` call and its precedence exactly as they are — the propagated path is additive, and the own-extent path keeps outranking `environment-touching`. De-duplicate `unresolved` before joining it into `detail`. Do NOT move the `if (visit(start, home, homePath)) return "environment-touching";` short-circuit: that ordering is what makes the second AC-12 branch true and it is the measured performance requirement (spec §1.1 item 6).
 
