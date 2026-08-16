@@ -341,6 +341,29 @@ describe("classifyChild — the §3.4 verdict table, verbatim", () => {
     }
   });
 
+  it("a NON-NUMERIC exit status is infra whatever its flavour — null or undefined", () => {
+    // Round 4's P0. The runner assigns `null` on a non-numeric death, so a
+    // `=== null` test looked total; `statement-removal` on that assignment
+    // leaves the variable `undefined`, which passed the null test and then
+    // satisfied `!== 0`, scoring a SIGNAL-KILLED child as a detected mutant —
+    // and the liveness control can take the same false kill, which is the one
+    // reading that must never be fabricated.
+    for (const kind of ["playwright", "vitest"] as const) {
+      for (const exitStatus of [null, undefined]) {
+        const verdict = classifyChild({
+          kind,
+          sentinelPresent: true,
+          exitStatus,
+          ...(kind === "playwright" ? { report: fresh } : {}),
+        });
+        const label = `${kind}/${String(exitStatus)}`;
+        expect(verdict, label).not.toBe("KILLED");
+        expect(verdict, label).not.toBe("DID_NOT_KILL");
+        expect(typeof verdict === "object" && verdict.infra, label).toMatch(/exit status/i);
+      }
+    }
+  });
+
   it("signal death — no numeric exit status: infra, never KILLED", () => {
     for (const sentinelPresent of [true, false]) {
       const verdict = classifyChild({

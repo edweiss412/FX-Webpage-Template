@@ -159,8 +159,11 @@ export type ChildClassification = "KILLED" | "DID_NOT_KILL" | { infra: string };
 export function classifyChild(input: {
   kind: "playwright" | "vitest";
   sentinelPresent: boolean;
-  /** `null` means the child produced NO numeric status: a signal, an OOM, a spawn failure. */
-  exitStatus: number | null;
+  /**
+   * The child's exit status, or a non-number when it produced none: a signal, an
+   * OOM, a spawn failure. `undefined` is admitted DELIBERATELY — see the check.
+   */
+  exitStatus: number | null | undefined;
   report?: ReportEvidence;
 }): ChildClassification {
   if (!input.sentinelPresent) {
@@ -171,7 +174,14 @@ export function classifyChild(input: {
     };
   }
 
-  if (input.exitStatus === null) {
+  // Anything that is not a NUMBER, rather than `=== null` (diff review round 4).
+  // The runner assigns null on a non-numeric death, so `=== null` looked total —
+  // but `statement-removal` on that assignment leaves the variable `undefined`,
+  // which slipped past the null test and then satisfied `!== 0`, scoring a
+  // signal-killed child as a detected mutant. The control can take the same
+  // false kill. A trust boundary states what it ACCEPTS (a number) rather than
+  // enumerating the ways a value can be absent.
+  if (typeof input.exitStatus !== "number") {
     return {
       infra:
         "the child produced no numeric exit status (signal, OOM, or spawn failure). " +

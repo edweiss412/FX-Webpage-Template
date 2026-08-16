@@ -136,7 +136,10 @@ function runChild(root: string, suite: DecidingSuite, manifestPath: string | nul
   if (suite.kind === "playwright") rmSync(reportPath, { force: true });
 
   const spawnedAt = Date.now();
-  let exitStatus: number | null;
+  // Initialised to the CONSERVATIVE value, not left unassigned: if either arm's
+  // assignment is ever removed, the child reads as "no numeric status" and is
+  // classified infra, rather than inheriting `undefined` and being scored KILLED.
+  let exitStatus: number | null = null;
   try {
     execFileSync(file, args, {
       cwd: root,
