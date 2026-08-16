@@ -13,13 +13,27 @@
 // fails by default rather than needing anyone to remember to add a row. An enumerated cover
 // re-opens the moment someone adds a file.
 //
-// CLOSURE SET (the mutation families this recognizer is claimed to cover, declared up front):
+// CLOSURE SET (the mutation families this recognizer is claimed to cover, declared up front).
+// Each family is closed by a PREDICATE over node shape, not by a list of spellings, and every
+// variant below is pinned by its own planted fixture:
 //   1. re-wrap      — `error: serializeError(x)` at any walked `log.*` call site.
 //   2. alias        — the same through a renamed import (`import { serializeError as s }`),
 //                     caught by resolving the IMPORT BINDING rather than matching a bare name.
-//   3. spread-carrier — the property reaching the fields object through an object spread,
-//                     including the conditional-spread form the picker resolvers use
-//                     (`...(d === undefined ? {} : { error: serializeError(d) })`).
+//   3. spread-carrier — the property reaching the fields object through an object spread. All
+//                     four short-circuit forms count, because all four are ordinary authoring:
+//                     `cond ? {} : {...}` (both picker resolvers), `cond && {...}`, `x || {...}`,
+//                     `x ?? {...}`, nested combinations included.
+//   4. transparent wrapper — any of the above with a TYPE-ONLY wrapper that changes the AST node
+//                     while leaving the runtime value identical: `as T`, `satisfies T`, `!`,
+//                     `(...)`, and the legacy `<T>x`. Applied at all three positions a wrapper
+//                     can appear: the fields argument, the spread expression, and the `error`
+//                     initializer.
+//
+// Families 3-and-4 beyond the conditional/paren forms were added in diff review R1, which probed
+// three evading variants (`as`, `satisfies`, `... (cond && {...})`) against the shipped scanner
+// and showed each compiling clean while persisting "[object Object]". The repair is the
+// PREDICATE above, swept across every position a wrapper can occupy, rather than three patches
+// for the three reported spellings.
 //
 // DOCUMENTED LIMITS, not gaps to widen the recognizer for: a helper that wraps and then forwards
 // (interprocedural flow), and a computed/dynamic property name. Both are outside the threat
@@ -69,27 +83,61 @@ function serializeErrorBindings(sourceFile: SourceFile): Set<string> {
 }
 
 /**
- * Strip parentheses. `...(cond ? {} : {...})` REQUIRES them to parse, so the spread's expression
- * is a ParenthesizedExpression and not the conditional itself — the shape both picker resolvers
- * use. Missing this is what the planted spread-carrier fixture caught.
+ * Strip every wrapper that changes the TYPE view of an expression without changing the value
+ * that reaches runtime: parentheses, `as T`, `satisfies T`, `!`, and the legacy `<T>x` form.
+ *
+ * This is one shape, not four special cases, and it is why the sweep is written as a predicate
+ * rather than a list: each of these leaves `serializeError(e)` executing exactly as before while
+ * changing the AST node the scanner sees. `...(cond ? {} : {...})` also REQUIRES parentheses to
+ * parse, which is the instance the planted spread-carrier fixture caught before the tree did.
  */
-function unwrapParens(node: Node): Node {
+function unwrapTransparent(node: Node): Node {
   let current = node;
-  while (Node.isParenthesizedExpression(current)) current = current.getExpression();
-  return current;
+  for (;;) {
+    if (
+      Node.isParenthesizedExpression(current) ||
+      Node.isAsExpression(current) ||
+      Node.isSatisfiesExpression(current) ||
+      Node.isNonNullExpression(current) ||
+      Node.isTypeAssertion(current)
+    ) {
+      current = current.getExpression();
+      continue;
+    }
+    return current;
+  }
 }
 
-/** Every object literal that contributes properties to `fields`, spreads resolved one level in. */
+/**
+ * Every expression a spread can be carrying an object literal through. All four short-circuit
+ * forms are ordinary authoring, not obfuscation: `cond ? {} : {...}`, `cond && {...}`,
+ * `x || {...}`, and `x ?? {...}` all appear in idiomatic conditional-property code. Recursive, so
+ * a nested combination resolves.
+ */
+function spreadCandidates(expression: Node): Node[] {
+  const node = unwrapTransparent(expression);
+  if (Node.isConditionalExpression(node)) {
+    return [node.getWhenTrue(), node.getWhenFalse()].flatMap(spreadCandidates);
+  }
+  if (Node.isBinaryExpression(node)) {
+    const operator = node.getOperatorToken().getKind();
+    if (
+      operator === SyntaxKind.AmpersandAmpersandToken ||
+      operator === SyntaxKind.BarBarToken ||
+      operator === SyntaxKind.QuestionQuestionToken
+    ) {
+      return [node.getLeft(), node.getRight()].flatMap(spreadCandidates);
+    }
+  }
+  return [node];
+}
+
+/** Every object literal that contributes properties to `fields`, spreads resolved through. */
 function contributingObjectLiterals(root: ObjectLiteralExpression): ObjectLiteralExpression[] {
   const literals: ObjectLiteralExpression[] = [root];
   for (const property of root.getProperties()) {
     if (!Node.isSpreadAssignment(property)) continue;
-    const spread = unwrapParens(property.getExpression());
-    // `...{ error: ... }` and `...(cond ? {} : { error: ... })` both carry the property through.
-    const candidates = Node.isConditionalExpression(spread)
-      ? [spread.getWhenTrue(), spread.getWhenFalse()].map(unwrapParens)
-      : [spread];
-    for (const candidate of candidates) {
+    for (const candidate of spreadCandidates(property.getExpression())) {
       if (Node.isObjectLiteralExpression(candidate))
         literals.push(...contributingObjectLiterals(candidate));
     }
@@ -113,15 +161,17 @@ export function findDoubleSerializedSites(sourceFile: SourceFile): Finding[] {
 
     const secondArgument = call.getArguments()[1];
     if (!secondArgument) continue;
-    const fields = unwrapParens(secondArgument);
+    const fields = unwrapTransparent(secondArgument);
     if (!Node.isObjectLiteralExpression(fields)) continue;
 
     for (const literal of contributingObjectLiterals(fields)) {
       for (const property of literal.getProperties()) {
         if (!Node.isPropertyAssignment(property)) continue;
         if (property.getName() !== "error") continue;
-        const initializer = property.getInitializer();
-        if (!initializer || !Node.isCallExpression(initializer)) continue;
+        const initializerNode = property.getInitializer();
+        if (!initializerNode) continue;
+        const initializer = unwrapTransparent(initializerNode);
+        if (!Node.isCallExpression(initializer)) continue;
         const wrapper = initializer.getExpression();
         if (!Node.isIdentifier(wrapper) || !wrappers.has(wrapper.getText())) continue;
         findings.push({
@@ -178,6 +228,75 @@ export function spreadCarrier(detail: unknown) {
 }
 `;
 
+/**
+ * Diff review R1's three probed evaders, plus the rest of the same shape swept in with them.
+ * Each type-only wrapper leaves `serializeError(e)` executing unchanged; each short-circuit
+ * spread carries the property into the fields object exactly like the conditional form.
+ */
+const AS_ASSERTION_FIXTURE = `
+import { serializeError } from "@/lib/log/serializeError";
+import { log } from "@/lib/log";
+
+export function asAssertion(e: unknown) {
+  void log.error("as-wrapped", { source: "probe", error: serializeError(e) as unknown });
+}
+`;
+
+const SATISFIES_FIXTURE = `
+import { serializeError } from "@/lib/log/serializeError";
+import { log } from "@/lib/log";
+
+export function satisfiesWrapped(e: unknown) {
+  void log.error("satisfies-wrapped", { source: "probe", error: serializeError(e) satisfies unknown });
+}
+`;
+
+const NON_NULL_FIXTURE = `
+import { serializeError } from "@/lib/log/serializeError";
+import { log } from "@/lib/log";
+
+export function nonNull(e: unknown) {
+  void log.error("non-null-wrapped", { source: "probe", error: serializeError(e)! });
+}
+`;
+
+const LOGICAL_AND_SPREAD_FIXTURE = `
+import { serializeError } from "@/lib/log/serializeError";
+import { log } from "@/lib/log";
+
+export function logicalAnd(detail: unknown) {
+  void log.warn("logical-and spread", {
+    source: "probe",
+    ...(detail !== undefined && { error: serializeError(detail) }),
+  });
+}
+`;
+
+const NULLISH_SPREAD_FIXTURE = `
+import { serializeError } from "@/lib/log/serializeError";
+import { log } from "@/lib/log";
+
+export function nullish(fallback: Record<string, unknown> | undefined, e: unknown) {
+  void log.info("nullish spread", {
+    source: "probe",
+    ...(fallback ?? { error: serializeError(e) }),
+  });
+}
+`;
+
+const WRAPPED_FIELDS_FIXTURE = `
+import { serializeError } from "@/lib/log/serializeError";
+import { log } from "@/lib/log";
+
+export function wrappedFields(e: unknown) {
+  // The wrapper on the FIELDS ARGUMENT rather than on the error value.
+  void log.error("as-wrapped fields object", { source: "probe", error: serializeError(e) } as {
+    source: string;
+    error: unknown;
+  });
+}
+`;
+
 const ALLOWED_FIXTURE = `
 import { serializeError } from "@/lib/log/serializeError";
 import { log } from "@/lib/log";
@@ -201,6 +320,13 @@ describe("no double-serialized log.* error fields (AC-7)", () => {
       ["re-wrap", BANNED_FIXTURE],
       ["alias", ALIAS_FIXTURE],
       ["spread-carrier", SPREAD_FIXTURE],
+      // Diff review R1's probed evaders and the rest of their shape.
+      ["as-assertion", AS_ASSERTION_FIXTURE],
+      ["satisfies", SATISFIES_FIXTURE],
+      ["non-null", NON_NULL_FIXTURE],
+      ["logical-and-spread", LOGICAL_AND_SPREAD_FIXTURE],
+      ["nullish-spread", NULLISH_SPREAD_FIXTURE],
+      ["wrapped-fields-argument", WRAPPED_FIELDS_FIXTURE],
     ] as const;
 
     for (const [family, source] of banned) {
