@@ -51,6 +51,15 @@ const CONTACT_CELL_DEAD_SPACE_PX = 34;
 const CHIP_CLEARANCE_MIN_PX = 9.5;
 /** `px-3` on the transport cell — the inset the chip-width comparison cannot see. */
 const CONTACT_CELL_INSET_PX = 12;
+/**
+ * The §2.2.3 budget DECOMPOSED, because the total alone does not pin the
+ * distribution: `gap-1 py-2` and `gap-2 py-1.5` both sum to 34 (2x8+4 == 2x6+8),
+ * so an ordinary one-line retune of the shared `TransportCell` moves every gap
+ * in the cell while the aggregate, the clearance, the horizontal inset and the
+ * short-cell ordering all stay green. Each component is asserted on its own.
+ */
+const CELL_PAD_Y_PX = 8; // `py-2`, per edge
+const CELL_GAP_PX = 4; // `gap-1`, eyebrow-to-body and name-to-phone
 
 type Rect = {
   label: string;
@@ -418,6 +427,25 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
         driverCell.height - contentHeight,
         `contact-cell dead space must be exactly ${CONTACT_CELL_DEAD_SPACE_PX}px: cell ${driverCell.height}px, content ${contentHeight}px`,
       ).toBeCloseTo(CONTACT_CELL_DEAD_SPACE_PX, 0);
+
+      // Each component of that 34px, independently. The mutant this rejects is
+      // `gap-1 py-2` -> `gap-2 py-1.5`: same total, different cell.
+      expect(
+        eyebrow.y - driverCell.y,
+        `cell top padding must be ${CELL_PAD_Y_PX}px (py-2)`,
+      ).toBeCloseTo(CELL_PAD_Y_PX, 0);
+      expect(
+        driverCell.y + driverCell.height - (mailto.y + mailto.height),
+        `cell bottom padding must be ${CELL_PAD_Y_PX}px (py-2)`,
+      ).toBeCloseTo(CELL_PAD_Y_PX, 0);
+      expect(
+        body.y - (eyebrow.y + eyebrow.height),
+        `eyebrow-to-body gap must be ${CELL_GAP_PX}px (gap-1)`,
+      ).toBeCloseTo(CELL_GAP_PX, 0);
+      expect(
+        tel.y - (nameRow.y + nameRow.height),
+        `name-to-phone gap must be ${CELL_GAP_PX}px (gap-1) — the grouping the entry filed`,
+      ).toBeCloseTo(CELL_GAP_PX, 0);
 
       // Horizontal inset, for the same reason: the chips are measured against the
       // BODY, and body and chips expand together, so dropping the cell's `px-3`
