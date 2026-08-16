@@ -11,7 +11,9 @@
  * mismatching Origin override the Fetch-Metadata verdict would wrongly REJECT
  * `same-origin` + mismatching origin. Both shapes fail here.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import ts from "typescript";
 import { premiseHolds } from "../_shared/premise";
 
 const headerMap = new Map<string, string>();
@@ -277,5 +279,84 @@ describe("the designated refusal exports", () => {
         action: "c",
       }),
     );
+  });
+});
+
+/**
+ * TWO STRUCTURAL PROPERTIES OF THE GATE MODULE, pinned executably rather than
+ * in prose. Both were load-bearing claims that only a comment carried.
+ */
+describe("gate-module invariants", () => {
+  const MODULE_PATH = "lib/auth/sameOriginServerAction.ts";
+  const source = readFileSync(MODULE_PATH, "utf8");
+  const sf = ts.createSourceFile(MODULE_PATH, source, ts.ScriptTarget.Latest, true);
+
+  it("reads ONLY non-forwardable request signals — the gate is proxy-independent", () => {
+    // A DERIVED cover, not a denylist. It collects every header name the module
+    // actually reads and asserts the whole SET, so it fails on any new read at
+    // all — including a forwardable one nobody thought to ban. `x-forwarded-host`
+    // and `host` are rewritten by every proxy in the path, so a gate built on
+    // them inherits that proxy's behaviour; `sec-fetch-site` is a forbidden
+    // request header page JavaScript cannot set, and `origin` is only ever
+    // compared against a build-time constant.
+    const read = new Set<string>();
+    const visit = (n: ts.Node): void => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.expression.name.text === "get"
+      ) {
+        const arg = n.arguments[0];
+        if (arg && ts.isStringLiteral(arg)) read.add(arg.text);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    expect([...read].sort()).toEqual(["origin", "sec-fetch-site"]);
+  });
+
+  it("every designated refusal export emits a code-carrying warn — no dark refusal", async () => {
+    // Fail-by-default: the export list is DERIVED from the module rather than
+    // typed out here, so a fifth refusal export added later is covered the
+    // moment it lands. Invariant 10's rule is that no mutation surface is
+    // silently dark, and a refusal branch that returns without emitting is
+    // exactly that.
+    const mod: Record<string, unknown> = await import("@/lib/auth/sameOriginServerAction");
+    const refusalExports = Object.keys(mod)
+      .filter((name) => name.startsWith("rejectCrossOrigin"))
+      .sort();
+    premiseHolds(
+      "the module exports at least one rejectCrossOrigin* helper, or this assertion ranges over nothing",
+      refusalExports.length > 0,
+    );
+
+    for (const name of refusalExports) {
+      logMock.warn.mockClear();
+      const fn = mod[name] as (action: string) => unknown;
+      await fn(`probe_${name}`);
+      const call = logMock.warn.mock.calls.at(-1);
+      expect(call, `${name} emitted nothing — a dark refusal branch`).toBeDefined();
+      const fields = call?.[1] as Record<string, unknown> | undefined;
+      expect(typeof fields?.code, `${name} emitted no code`).toBe("string");
+      expect(String(fields?.code), `${name}'s code is not a durable SHOUTY literal`).toMatch(
+        /^[A-Z][A-Z0-9_]+$/,
+      );
+      expect(fields?.action, `${name} did not attribute the emit to its caller`).toBe(
+        `probe_${name}`,
+      );
+      // No secret rides the emit: the field set is closed to the three the
+      // forensic query needs.
+      expect(Object.keys(fields ?? {}).sort()).toEqual(["action", "code", "source"]);
+    }
+
+    // The throwing member of the set carries the same contract on its own
+    // refusal branch, which cannot be reached the same way.
+    logMock.warn.mockClear();
+    headerMap.set("sec-fetch-site", "cross-site");
+    await expect(assertSameOriginServerAction("probe_assert", "probe_source")).rejects.toThrow(
+      FORBIDDEN_INTERRUPT,
+    );
+    const assertFields = logMock.warn.mock.calls.at(-1)?.[1] as Record<string, unknown> | undefined;
+    expect(Object.keys(assertFields ?? {}).sort()).toEqual(["action", "code", "source"]);
   });
 });
