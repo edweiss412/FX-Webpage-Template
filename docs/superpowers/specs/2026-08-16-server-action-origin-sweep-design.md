@@ -26,12 +26,14 @@ Each row is a settled decision with its ratifying evidence. Reviewers verify the
 | 3 | **Admin-gated actions refuse via Next's `forbidden()` interrupt.** That is the refusal channel these surfaces already use for an authed-but-not-admin caller: `resolveAdminIdentity` calls it at `lib/auth/requireAdmin.ts:273`, and `requireAdmin` (`lib/auth/requireAdmin.ts:294`) reaches it through that resolver; the helper is enabled by `authInterrupts` (`next.config.ts:43`). `forbidden()` returns `never`, so one shared helper typechecks against every admin return shape — `Promise<void>`, `Promise<never>`, and every typed-result union — with zero union changes and zero client churn. | §3.3; `resolveAdminIdentity` at `lib/auth/requireAdmin.ts:273` |
 | 4 | **Crew picker actions refuse with `{ ok: false, code: "PICKER_INVALID_INPUT" }`, mirroring their already-gated siblings.** No new returned literal, no catalog change — `PICKER_INVALID_INPUT` is catalogued and is exactly what `rejectCrossOrigin` returns today (`lib/auth/picker/clearIdentity.ts:57`). | §3.4; reference spec §1.1 row 9 |
 | 5 | **One new forensic code `SERVER_ACTION_ORIGIN_REJECTED`, riding `log.warn` only — never returned, never rendered, no catalog row.** The scanner-exemption for codes inside `log.*` spans is ratified precedent: `PICKER_ORIGIN_REJECTED` ships on main inside a `log.warn` span and `x1` is green (`lib/auth/picker/clearIdentity.ts:60`; `PRODUCER_RE` matches returned literals only after `stripLogEmissionCalls`, `lib/messages/__internal__/codeProducers.ts:14`). Picker-family sites keep the existing `PICKER_ORIGIN_REJECTED` so picker CSRF stays one forensic query. | §3.3–3.4 |
-| 6 | **`headers()` throwing (no request scope) means allow.** A direct server-side invocation — a Vitest suite calling the action as a function, an internal server-to-server call — has no request and can carry no victim cookies, so CSRF is unreachable there; refusing would break 35 of the 37 existing suites that import these actions (§2.3 probe) for zero security gain. The catch is scoped to the `headers()` call alone. This is a deliberate, fenced widening of the shipped helper, pinned by a new truth-table row (§6A). | §3.2, §7 |
-| 7 | **Read-only actions are not gated.** A cross-site POST to a read-only action mutates nothing, and the same-origin policy already prevents the attacker reading the response. The three read-only units are registry-exempted with an AST tripwire, not silently skipped (§3.5). | §3.5, §7 |
+| 6 | **`headers()` throwing (no request scope) means allow.** A direct server-side invocation — a Vitest suite calling the action as a function, an internal server-to-server call — has no request and can carry no victim cookies, so CSRF is unreachable there; refusing would break the 72 existing suites that import these actions without mocking `next/headers` (§2.3 probe) for zero security gain. The catch is scoped to the `headers()` call alone. This is a deliberate, fenced widening of the shipped helper, pinned by a new truth-table row (§6A). | §3.2, §7 |
+| 7 | **Read-only actions are not gated.** A cross-site POST to a read-only action mutates nothing, and the same-origin policy already prevents the attacker reading the response. The three read-only units are named by the sibling guard's own `read-only` rows and re-verified with its own strict predicate, not silently skipped (§3.5). | §3.5, §7 |
 | 8 | **Mutating route handlers (including `app/api/admin/**`) are out of scope.** Different transport, different entry; the backlog entry fences this explicitly. | `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP` entry text |
 | 9 | **The three inline `.tsx` form-action wrappers are exempted as verified delegators, not edited.** Each unconditionally delegates in its FIRST statement to a module action this arc gates, so the callee's first-line gate runs on the same request headers before any mutation. This mirrors the invariant-10 `ADMIN_SURFACE_EXEMPTIONS` "delegator to a registered surface" pattern, and the meta-test verifies the delegation shape in the AST rather than trusting the registry row (§3.5–3.6). Keeping them unedited also keeps `components/` out of the diff. | §3.5–3.6; AGENTS.md invariant 10 (`ADMIN_SURFACE_EXEMPTIONS`) |
 | 10 | **Behavioral proof is per-shape representative, structural proof is per-action.** The meta-test pins gate-first placement for all 56 units; the helper's truth table pins the gate's decision; three representative per-shape tests pin refusal value + no-mutation + emit for each refusal idiom. Per-action behavioral suites for 47 actions would multiply review scope with no marginal proof — the composition (placement × helper behavior × per-shape refusal) covers the class. Do not file rounds demanding per-action behavioral tests. | §6 |
 | 11 | **The census counts in this spec are dated at-authoring-time measurements; the executable source of truth going forward is the meta-test.** A count drifting after a future action lands is not a spec defect — the meta-test is the derivation that gates. | §2.2, §3.6 |
+| 12c | **Each gate idiom is an ACCEPT-SET over AST structure, and every exemption claim is quantified over the whole body.** Both were settled by spec review round 1, which probed three silent-acceptance holes in a "contains a call to the helper" predicate: a polarity flip on the live `clearIdentityCore`, a dropped `await`, and a first-statement-only exemption. The repair direction is narrowing — say what is accepted and reject the rest — never adding another rejected form to a denylist. | §3.5, §3.6; spec review R1 findings 1–3 |
+| 12d | **The read-only set is derived from `ADMIN_SURFACE_EXEMPTIONS`, not re-declared.** The same three units already carry `kind: "read-only"` rows there, and one hand-maintained copy is one drift surface. | `ADMIN_SURFACE_EXEMPTIONS`, `tests/log/mutationSurface/exemptions.ts:62` |
 | 12a | **The class-B refusal helper's return type is the structural literal, not an imported alias.** `CleanupStaleEntryResult` is module-private (declared without `export`), so no shared helper can annotate against it, and widening it to `export` is churn on a surface this arc otherwise leaves alone. Do not file "should import the named type". | §3.4; `lib/auth/picker/cleanupStaleEntry.ts:26` |
 | 12b | **Gating cannot break a page render, and that is derived rather than argued.** A scan of every Next entry file under `app/`, and then of every `.ts`/`.tsx` under `app/`, `components/`, and `lib/`, finds exactly two render-time invocations of any census unit, both read-only and both exempted; every to-be-gated call site is a client-component interaction handler. Do not re-derive this from the diff. | §2.4 |
 | 12 | **`isSameOriginServerAction` is enrolled in the source-mutation guard registry as part of this arc.** It is a guard surface with an importable module and a referring suite (`tests/auth/sameOriginServerAction.test.ts`, shipped by the reference arc), i.e. registry-expressible; enrolment precedes the diff review per the AGENTS.md convergence contract, and the diff-review brief states the score plus the unaccepted-survivor set. | §6E; AGENTS.md "Convergence criterion" bullet 4 |
@@ -61,9 +63,9 @@ Per-unit signals were probed with `scanBody` (`tests/log/mutationSurface/enumera
 
 ### 2.3 The test-context probe (drives Resolved scope #6)
 
-`isSameOriginServerAction` reads `next/headers` `headers()`, which throws outside a request scope. 37 existing test suites import the target action modules and invoke them directly as functions; only 2 of the 37 mock `next/headers` today (probe: per-suite `rg 'vi\.mock\("next/headers"'` over the import graph). Without Resolved scope #6, gating 47 actions would force a `headers()` mock into ~35 suites — a large mechanical diff whose only purpose is to feed the gate a signal that "this is not a browser request," which is exactly what the thrown error already says. The catch-allow branch encodes that fact once, in the helper, where the truth table pins it.
+`isSameOriginServerAction` reads `next/headers` `headers()`, which throws outside a request scope. Re-derived over the 26 modules that contain at least one to-be-gated unit: **74** suites import or `vi.mock` one of them, and exactly **2** of the 74 mock `next/headers` — `tests/auth/picker/selectIdentity.test.ts:20` and `tests/auth/picker/cleanupStaleEntry.test.ts:13`, each replacing the module with `{ cookies: vi.fn() }`. (Across the full 56-unit census the count is three, the extra one being `tests/auth/picker/clearIdentity.test.ts:27`, whose units are class D and already gated.) Without Resolved scope #6, gating 47 actions would force a `headers()` mock into the other 72 suites — a large mechanical diff whose only purpose is to feed the gate a signal that "this is not a browser request," which is exactly what the thrown error already says. The catch-allow branch encodes that fact once, in the helper, where the truth table pins it.
 
-The one shipped precedent agrees: the already-gated `clearIdentity.ts` suite added a same-origin `headers()` default when the reference arc landed (`tests/auth/picker/clearIdentity.test.ts:27`) — workable for one suite, not for thirty-five.
+The one shipped precedent agrees: the already-gated `clearIdentity.ts` suite added a same-origin `headers()` default when the reference arc landed (`tests/auth/picker/clearIdentity.test.ts:27`) — workable for one suite, not for seventy-two.
 
 ### 2.4 The render-path probe (drives Resolved scope #7, and is the reason the read-only class is safe to exempt AND necessary to exempt)
 
@@ -76,7 +78,7 @@ app/admin/dev/page.tsx:68   const fixtures = await listFixtures();
 app/admin/dev/page.tsx:78   result = await getStagedResult(selected);
 ```
 
-Widened to every `.ts`/`.tsx` under `app/`, `components/`, and `lib/` outside the 31 defining files (887 in total), every call site of a to-be-gated unit sits in a **client** component and fires on user interaction:
+Widened to every `.ts`/`.tsx` under `app/`, `components/`, and `lib/` — 887 scanned, 856 of them outside the 31 defining files — every call site of a to-be-gated unit sits in a **client** component and fires on user interaction:
 
 | Call site | Unit called |
 | --- | --- |
@@ -115,8 +117,8 @@ The discriminator is **destructive vs read-only**, NOT admin-gated vs not. All t
 | **B — crew destructive, typed picker result** | 4 | Gate first-line via the picker idiom — refusal logs `PICKER_ORIGIN_REJECTED` and returns `{ ok: false, code: "PICKER_INVALID_INPUT" }` (§3.4) |
 | **C — crew destructive, useActionState** (`confirmUnpublishAction`) | 1 | Gate first-line — refusal logs `SERVER_ACTION_ORIGIN_REJECTED` and returns `{ status: "neutral" }`, the action's own missing-field refusal value (`app/show/[slug]/unpublish/actions.ts:43`) (§3.4) |
 | **D — already gated** (the `clearIdentity` family) | 3 | Unchanged: `clearIdentity` (gate at `lib/auth/picker/clearIdentity.ts:81`), `clearIdentityAndSkip` (gate at `lib/auth/picker/clearIdentity.ts:107`), `clearIdentityCore` (gate at `lib/auth/picker/clearIdentity.ts:211`) |
-| **E — admin-gated but read-only** | 3 | Registry-exempt `read-only`, with an AST tripwire (§3.5) |
-| **F — inline `.tsx` pure delegators** | 3 | Registry-exempt `delegates-to-gated`, AST-verified (§3.5) |
+| **E — admin-gated but read-only** | 3 | Exempt via the sibling guard's `read-only` rows, re-verified with the same strict predicate (§3.5) |
+| **F — inline `.tsx` pure delegators** | 3 | Exempt via `ORIGIN_GATE_DELEGATORS`, verified on all three conjuncts including whole-body non-mutation (§3.5) |
 
 42 + 4 + 1 = **47 newly gated actions**; 47 + 3 + 3 + 3 = 56.
 
@@ -170,7 +172,7 @@ export async function assertSameOriginServerAction(
 }
 ```
 
-`forbidden()` returns `never`, so the awaited call composes with every class-A return type (`Promise<void>`, `Promise<never>`, and each typed-result union) with no per-union refusal value to choose and no union widened. The victim of a forged top-level form POST sees the 403 boundary — the same page an authed-but-not-admin caller already gets from `requireAdmin` — with no mutation performed.
+`forbidden()` returns `never`, so the awaited call composes with every class-A return type (`Promise<void>`, `Promise<never>`, and each typed-result union) with no per-union refusal value to choose and no union widened. The victim of a forged top-level form POST sees the 403 boundary — the same page an authed-but-not-admin caller already gets from `requireAdmin` — and no mutation is performed.
 
 ### 3.3 Class A — admin actions
 
@@ -204,44 +206,77 @@ if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("selectI
 
 **Class C** (`confirmUnpublishAction`) opens with the same `if` idiom but returns its own established refusal value `{ status: "neutral" }` — the value it already returns for a missing/blank field (`app/show/[slug]/unpublish/actions.ts:43`) — after a `SERVER_ACTION_ORIGIN_REJECTED` `log.warn`. Neutral is the correct rendering: the confirm page's neutral state is deliberately non-committal (spec'd so CONSUMED never leaks), and no token is consumed because `prevalidateUnpublishBinding` is never reached. Note this action's authority is the emailed capability token, not a cookie, so the CSRF value of forging it is nil — it is gated anyway because it is destructive and the gate costs one line (uniform posture beats a per-action threat argument).
 
-### 3.5 Classes E and F — the exemption registry
+### 3.5 Classes E and F — the exemption sets
 
-New registry tests/auth/_originGateExemptions.ts (plain text: it does not exist yet):
+**The `read-only` set is DERIVED from the sibling guard, not re-declared.** The same three units are already carried as `kind: "read-only"` rows in the invariant-10 registry (`ADMIN_SURFACE_EXEMPTIONS` at `tests/log/mutationSurface/exemptions.ts:62`, whose `getStagedResult` row is `tests/log/mutationSurface/exemptions.ts:75`, `captureShowTelemetry` `tests/log/mutationSurface/exemptions.ts:79`, and `listFixtures` `tests/log/mutationSurface/exemptions.ts:80`). A second hand-maintained list of the same three units is a drift surface with no upside: the two walks would then be able to disagree about which units are read-only. So the origin walk reads `ADMIN_SURFACE_EXEMPTIONS`, filters to `kind === "read-only"` rows that resolve to a discovered non-route unit, and that is its read-only set. Adding a row there to dodge the origin gate is not a shortcut — it simultaneously claims the unit needs no observability, which the sibling guard verifies with the same predicate.
+
+**The new registry therefore carries only the delegator rows** — tests/auth/_originGateExemptions.ts (plain text: it does not exist yet):
 
 ```ts
-export type OriginGateExemption =
-  | { file: string; fn: string; reason: "read-only" }
-  | { file: string; fn: string; reason: "delegates-to-gated"; delegate: string };
+export type OriginGateDelegator = { file: string; fn: string; delegate: string };
 
-export const ORIGIN_GATE_EXEMPTIONS: OriginGateExemption[] = [
-  { file: "app/admin/_devCaptureAction.ts", fn: "captureShowTelemetry", reason: "read-only" },
-  { file: "app/admin/dev/actions.ts", fn: "getStagedResult", reason: "read-only" },
-  { file: "app/admin/dev/actions.ts", fn: "listFixtures", reason: "read-only" },
-  { file: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx", fn: "selectIdentityFormAction", reason: "delegates-to-gated", delegate: "selectIdentity" },
-  { file: "app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", fn: "clearIdentityAndSkipFormAction", reason: "delegates-to-gated", delegate: "clearIdentityAndSkip" },
-  { file: "components/auth/IdentityChip.tsx", fn: "clearIdentityFormAction", reason: "delegates-to-gated", delegate: "clearIdentity" },
+export const ORIGIN_GATE_DELEGATORS: OriginGateDelegator[] = [
+  { file: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx", fn: "selectIdentityFormAction", delegate: "selectIdentity" },
+  { file: "app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", fn: "clearIdentityAndSkipFormAction", delegate: "clearIdentityAndSkip" },
+  { file: "components/auth/IdentityChip.tsx", fn: "clearIdentityFormAction", delegate: "clearIdentity" },
 ];
 ```
 
-Rows are claims, and the meta-test makes each claim executable (§3.6): a `read-only` row must scan clean of direct write signals, and a `delegates-to-gated` row must actually delegate, in its first statement, to a gated action. The three delegators' first statements are already exactly that shape: `const result = await selectIdentity(formData);` (`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:86`), `await clearIdentityAndSkip(formData);` (`app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:38`), `return clearIdentity(formData);` (`components/auth/IdentityChip.tsx:35`).
+**Both exemption kinds are verified over the WHOLE body, never over its first statement.** That is the rule, and it is what makes each row an executable claim rather than a hopeful one:
+
+- **`read-only`** — `scanBody(node, { descend: true })` reports `writeBuilder === false` and `rpc === false`, AND the body contains no `logAdminOutcome` call at any depth. This is deliberately the SAME predicate the sibling guard applies to the same rows — `containsAnyLogAdminOutcomeCall` beside `scanBody` in `evaluateUnit` (`tests/log/_metaMutationSurfaceObservability.test.ts:164-170`), including its `descend: true` and its recursive admin-outcome check, both of which that guard added for cause. A weaker predicate — `descend: false`, or omitting `adminOutcome` — accepts 22 of this census's known-destructive units, among them `archiveShowAction`, `revokeAdminAction`, and `resetDevSchema`'s siblings (probed; the full list is in the review record). What this predicate does and does not prove is stated in the documented limits.
+- **`delegates-to-gated`** — three conjuncts, all required: (i) the wrapper's first non-directive statement contains a call to `delegate`; (ii) the resolved `delegate` unit itself satisfies a gate accept-set (§3.6); (iii) the wrapper's whole body is non-mutating under the SAME strict predicate as `read-only`. Conjunct (iii) is what makes the row sound. Without it the claim covers only the first statement, while the wrapper's safety depends on everything after it: `selectIdentityFormAction` continues past its delegate (`const result = await selectIdentity(formData);` then `if (!result.ok) return;` and a redirect), and `clearIdentityAndSkipFormAction` discards the delegate's returned refusal entirely and is safe today only because its body ends there. Under (iii), one ordinary appended mutation fails the walk instead of riding the exemption.
+
+All three live wrappers satisfy (iii) today (probed). Their first statements are `const result = await selectIdentity(formData);` (`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:86`), `await clearIdentityAndSkip(formData);` (`app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:38`), `return clearIdentity(formData);` (`components/auth/IdentityChip.tsx:35`).
+
+**Why the wrappers are not simply gated instead.** Gating them would add three `.tsx` edits and pull `components/` into the diff for no additional protection once (iii) holds — a wrapper that cannot mutate cannot be a CSRF primitive, whatever its delegate returns. If a wrapper ever does need to mutate, (iii) fails the walk and it takes a gate of its own; that is the designed outcome, not a gap (§7).
 
 ### 3.6 The meta-test — the census that cannot rot
 
 New structural test tests/auth/_metaServerActionOriginGate.test.ts (plain text: it does not exist yet), the derived cover this sweep files instead of an enumerated list. It reuses the invariant-10 engine (`collectSurfaceUnits`, `parse`, `scanBody`, `isLocallyRebound` from `tests/log/mutationSurface/enumerate.ts`) so the two walks can never disagree about what a Server Action is.
 
-For every unit from `collectSurfaceUnits(["app", "lib", "components"])` with `kind !== "route"`, exactly one of:
+For every unit from `collectSurfaceUnits(["app", "lib", "components"])` with `kind !== "route"`, exactly one of: gate-first under one of the two accept-sets below, or an exemption whose claim §3.5 verifies. Anything else fails the walk and names the unit.
 
-1. **Gate-first, admin idiom:** the first non-directive statement is `await assertSameOriginServerAction("<fn>", ...)` with the first argument a string literal equal to the unit's exported `fn` — a wrong name is a failure (the forensic emit must attribute correctly).
-2. **Gate-first, picker idiom:** the first non-directive statement is an `if` whose condition contains a call to `isSameOriginServerAction`.
-3. **Registry exemption** with its claim verified:
-   - `read-only`: `scanBody(node, { descend: false })` reports `writeBuilder === false` and `rpc === false` (tripwire — a later edit that adds a direct write to an exempted action fails the walk);
-   - `delegates-to-gated`: the unit's first non-directive statement contains a call to `delegate`, and the resolved `delegate` unit itself passes check 1 or 2.
+**The two gate idioms are ACCEPT-SETS keyed on AST structure, not "the statement mentions the gate".** A predicate that asks whether the first statement *contains a call to* the helper accepts a gate that cannot gate: flip the polarity, or drop the `await`, or let control fall past the refusal, and the token is still there. Each of those is a silently-ungated destructive action — the one outcome the consequence bound forbids — so the recognizer states what it accepts and rejects everything else.
 
-Plus, in either gate idiom, the called identifier must be imported from `@/lib/auth/sameOriginServerAction` and not locally rebound (mirroring `importBindingOk` / `isLocallyRebound`, `tests/log/mutationSurface/enumerate.ts:149`, `tests/log/mutationSurface/enumerate.ts:66`) — a local `const assertSameOriginServerAction = async () => {}` shadow is a failure, not a pass.
+**Accept-set A — admin idiom.** The first non-directive statement is an `ExpressionStatement` whose expression is an `AwaitExpression` whose operand is a `CallExpression` where:
 
-Registry hygiene (the reconcile-your-own-counts lesson): every registry row must match exactly one discovered unit (no orphans, no duplicates), and the test asserts `gated + exempted === discovered` so no unit can go unaccounted.
+- the callee is an `Identifier` named `assertSameOriginServerAction`;
+- that name is imported from `@/lib/auth/sameOriginServerAction` under that exact **export** name — the check reads `el.propertyName ?? el.name` for each named-import element, so `import { assertSameOriginServerAction as gate }` does not satisfy it — and is not locally rebound (`isLocallyRebound`, `tests/log/mutationSurface/enumerate.ts:66`);
+- there are exactly two arguments and the first is a `StringLiteral` equal to the unit's exported `fn`.
 
-**Executable premise** (the guard-premise discipline): fixture self-tests via the `makeFixture` pattern (`tests/log/_metaMutationSurfaceObservability.test.ts:37`) prove the detector discriminates — an ungated destructive fixture module FAILS the walk; a gate-first fixture passes; an `assertSameOriginServerAction` call whose name literal mismatches its function FAILS; a locally-shadowed gate FAILS; a `delegates-to-gated` fixture whose delegate is ungated FAILS.
+The `await` is load-bearing and therefore structural: `assertSameOriginServerAction` refuses by throwing the `forbidden()` interrupt, so an unawaited call yields a floating rejected promise and the body runs on to the mutation.
+
+**Accept-set B — picker idiom.** The first non-directive statement is an `IfStatement` where:
+
+- there is no `elseStatement`;
+- the condition, after unwrapping `ParenthesizedExpression`s, is a `PrefixUnaryExpression` with operator `!` whose operand, after the same unwrapping, is an `AwaitExpression` whose operand is a zero-argument `CallExpression` whose callee is an `Identifier` named `isSameOriginServerAction`, imported under that exact export name from `@/lib/auth/sameOriginServerAction` and not locally rebound;
+- the `thenStatement` terminates: a bare `ReturnStatement`, or a `Block` whose statements are exactly one `ReturnStatement` or one `ThrowStatement`.
+
+The polarity, the `await`, and the terminating branch are each individually sufficient to void the gate, so each is pinned rather than inferred. `if (await isSameOriginServerAction()) return reject(…)` — the polarity flip, which the shipped `clearIdentityCore` would still pass under a contains-a-call predicate while a cross-site request fell straight through to the cookie write — is rejected by this accept-set, as is a then-branch that merely logs.
+
+**Registry hygiene** (the reconcile-your-own-counts lesson): every delegator row matches exactly one discovered unit, every derived read-only row resolves to one discovered unit, no orphans, no duplicates, and the test asserts `gated + exempted === discovered` so no unit can go unaccounted.
+
+**Executable premise** (the guard-premise discipline): fixture self-tests via the `makeFixture` pattern (`tests/log/_metaMutationSurfaceObservability.test.ts:37`) prove the detector discriminates. Each accept-set gets one positive fixture and a negative fixture per clause it enforces, because a clause with no failing fixture is a claim nothing checks:
+
+| Fixture | Expected |
+| --- | --- |
+| ungated destructive module action | FAILS |
+| accept-set A, well-formed | passes |
+| accept-set A, `await` removed | FAILS |
+| accept-set A, name literal ≠ `fn` | FAILS |
+| accept-set A, imported under an alias | FAILS |
+| accept-set A, locally shadowed binding | FAILS |
+| accept-set A, gate is the second statement | FAILS |
+| accept-set B, well-formed | passes |
+| accept-set B, polarity flipped (`if (await …)`) | FAILS |
+| accept-set B, `await` removed | FAILS |
+| accept-set B, then-branch does not terminate | FAILS |
+| accept-set B, `else` present | FAILS |
+| `read-only`-claimed unit with a nested write builder | FAILS |
+| `read-only`-claimed unit with a `logAdminOutcome` call | FAILS |
+| delegator whose delegate is ungated | FAILS |
+| delegator that mutates after delegating | FAILS |
 
 ### 3.7 The census
 
@@ -313,9 +348,9 @@ Rows 7–14 are build-gated dev-panel scaffolding (`scripts/with-admin-dev-flag.
 
 **Class D — already gated (3):** `clearIdentity` (`lib/auth/picker/clearIdentity.ts:77`), `clearIdentityAndSkip` (`lib/auth/picker/clearIdentity.ts:103`), `clearIdentityCore` (`lib/auth/picker/clearIdentity.ts:209`).
 
-**Class E — admin-gated but read-only, registry-exempt (3):** `captureShowTelemetry` (`app/admin/_devCaptureAction.ts:116`; behind `requireDeveloper`, runs `queryEvents` / `queryAlerts` / `querySyncLog` and returns their rows — the file contains no `.insert(` / `.update(` / `.delete(` / `.upsert(` / `.rpc(` at all), `getStagedResult` (`app/admin/dev/actions.ts:311`; its own docblock declares it the read side of the GET-safety refactor and states that it NEVER invokes `dev_phase1_stage`), `listFixtures` (`app/admin/dev/actions.ts:450`; a `readdir` of the fixtures directory). All three are admin-gated — the exemption rests on read-only, not on the absence of a `require`-gate (§3.1).
+**Class E — admin-gated but read-only, exempt via the sibling guard's rows (3):** `captureShowTelemetry` (`app/admin/_devCaptureAction.ts:116`; behind `requireDeveloper`, runs `queryEvents` / `queryAlerts` / `querySyncLog` and returns their rows — the file contains no `.insert(` / `.update(` / `.delete(` / `.upsert(` / `.rpc(` at all), `getStagedResult` (`app/admin/dev/actions.ts:311`; its own docblock declares it the read side of the GET-safety refactor and states that it NEVER invokes `dev_phase1_stage`), `listFixtures` (`app/admin/dev/actions.ts:450`; a `readdir` of the fixtures directory). All three are admin-gated — the exemption rests on read-only, not on the absence of a `require`-gate (§3.1).
 
-**Class F — inline `.tsx` pure delegators, registry-exempt (3):** `selectIdentityFormAction` (`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:82` → `selectIdentity`), `clearIdentityAndSkipFormAction` (`app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:34` → `clearIdentityAndSkip`), `clearIdentityFormAction` (`components/auth/IdentityChip.tsx:31` → `clearIdentity`).
+**Class F — inline `.tsx` pure delegators, exempt via `ORIGIN_GATE_DELEGATORS` (3):** `selectIdentityFormAction` (`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:82` → `selectIdentity`), `clearIdentityAndSkipFormAction` (`app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:34` → `clearIdentityAndSkip`), `clearIdentityFormAction` (`components/auth/IdentityChip.tsx:31` → `clearIdentity`).
 
 ---
 
@@ -327,8 +362,8 @@ Each is executable; the plan's task markers reference these ids.
 - **AC-2 — refusal is observable, never silent.** Every refusal branch emits a code-carrying `log.warn`: `SERVER_ACTION_ORIGIN_REJECTED` for classes A and C, `PICKER_ORIGIN_REJECTED` for class B. No refusal path is dark, and no emit carries a secret (action name and source tag only).
 - **AC-3 — refusal uses each surface's established channel.** Class A interrupts with `forbidden()`; class B returns `{ ok: false, code: "PICKER_INVALID_INPUT" }`; class C returns `{ status: "neutral" }`. No new returned code, no catalog row, no union widened, no client change.
 - **AC-4 — the census cannot rot.** The structural meta-test (§3.6) derives its unit set from `collectSurfaceUnits(["app", "lib", "components"])`, and every discovered non-route unit is either gate-first or a verified registry exemption, with `gated + exempted === discovered`. A newly authored ungated destructive action fails the walk by default.
-- **AC-5 — exemption rows are claims the test checks, not assertions it trusts.** A `read-only` row whose action grows a direct write signal fails; a `delegates-to-gated` row whose first statement stops delegating, or whose delegate is itself ungated, fails; an orphan or duplicate row fails.
-- **AC-6 — the gate cannot be defeated by shadowing.** In either idiom the called identifier must be imported from `@/lib/auth/sameOriginServerAction` and not locally rebound; a local shadow fails the walk. The admin idiom's first argument must be a string literal equal to the exported function name, so a forensic emit cannot mis-attribute.
+- **AC-5 — exemption claims are verified over the whole body, not its first statement.** A `read-only` unit that grows a Supabase write, an `.rpc(` call, or a `logAdminOutcome` emit at any depth fails; a delegator whose first statement stops delegating, whose delegate is itself ungated, or that mutates anywhere in its body fails; an orphan or duplicate row fails. The read-only set is derived from `ADMIN_SURFACE_EXEMPTIONS`, so the two guards cannot disagree about it.
+- **AC-6 — a gate that cannot gate is not a gate.** Each idiom is an accept-set over AST structure (§3.6): the admin idiom requires the `await`, the exact export name (no alias, no local rebind), and a first argument equal to the function's own name; the picker idiom additionally requires the `!` polarity, the `await`, no `else`, and a terminating then-branch. A polarity flip, a dropped `await`, an aliased import, a local shadow, a non-terminating branch, or a mismatched name literal each fail the walk, and each has its own failing fixture.
 - **AC-7 — no request scope means allow, and only the `headers()` call is caught.** `isSameOriginServerAction()` resolves `true` when `headers()` throws; a fault raised anywhere else in the helper still propagates. Pinned by a truth-table row and its negative sibling (§6A).
 - **AC-8 — nothing on a render path is gated.** No `page.tsx` / `layout.tsx` / `route.ts` or any Server Component render path awaits a gated unit (§2.4 derivation). The three render-called units are class E and stay ungated.
 - **AC-9 — no existing suite is forced to change.** The full suite passes with no `next/headers` mock added to any suite that does not already have one (§6D).
@@ -368,9 +403,9 @@ Each is executable; the plan's task markers reference these ids.
 
 Each representative test derives its cross-site fixture from the truth table's reject rows (`sec-fetch-site: cross-site`, and the bypass shape `cross-site` + absent `Origin`), not an ad-hoc header set.
 
-**C — the structural meta-test** (§3.6), including its fixture self-tests. This is the per-action proof: all 47 gate lines, both idioms, name-literal pinning, import binding, registry reconciliation.
+**C — the structural meta-test** (§3.6), including its fixture self-tests. This is the per-action proof: all 47 gate lines against the two accept-sets — polarity, `await`, terminating refusal branch, exact export name with no alias and no local rebind, name-literal equal to `fn` — plus whole-body verification of every exemption claim and the `gated + exempted === discovered` reconciliation. Each accept-set clause has its own failing fixture, so no clause is a claim nothing checks.
 
-**D — existing suites: no churn expected.** Resolved scope #6 means the non-mocking suites keep passing (their direct calls hit the catch-allow branch). Both suites that mock `next/headers` already default to shapes the gate accepts (`tests/auth/picker/clearIdentity.test.ts:27` same-origin; `tests/auth/picker/selectIdentity.test.ts:20` mocks `cookies` only — its module-mock lacks a `headers` export, so the import itself keeps working and the gate's `headers()` call throws into the catch-allow). The plan verifies with a full `pnpm test` run, not by assumption; a suite that DOES need a mock added is a signal to re-read Resolved scope #6, not to add the mock silently.
+**D — existing suites: no churn expected.** Resolved scope #6 means the 72 non-mocking suites keep passing (their direct calls hit the catch-allow branch). The two that DO mock `next/headers` in the to-be-gated denominator are `tests/auth/picker/selectIdentity.test.ts:20` and `tests/auth/picker/cleanupStaleEntry.test.ts:13`; both replace the module with `{ cookies: vi.fn() }`, so the import keeps working and the gate's `headers()` call throws for want of a `headers` export, into the catch-allow. (`tests/auth/picker/clearIdentity.test.ts:27` mocks `{ cookies, headers }` with a same-origin default, but its units are class D — already gated, already passing.) The plan verifies with a full `pnpm test` run, not by assumption; a suite that DOES need a mock added is a signal to re-read Resolved scope #6, not to add the mock silently.
 
 **E — mutation enrolment** (Resolved scope #12): add a `GuardSurface` row to `tests/mutation/source/registry.ts` (`GuardSurface` is declared at `tests/mutation/source/registry.ts:13`) with `sourcePath: "lib/auth/sameOriginServerAction.ts"`, `suitePaths: ["tests/auth/sameOriginServerAction.test.ts"]`, an `operators` subset and a `scoreFloor` chosen at enrolment, a `control` edit that the suite genuinely notices (the field exists because a silently-inert overlay otherwise reports a perfect score), and an empty `accepted` array unless a survivor is dispositioned with its `BL-`/`DEF-` ref. `validateSurface` (`tests/mutation/source/registry.ts:57`) rejects an empty `operators` list, so the vacuous-pass shape cannot be authored. `pnpm mutation:guards` runs before the diff-review dispatch; the brief states the score and the unaccepted-survivor set.
 
@@ -381,7 +416,10 @@ Each representative test derives its cross-site fixture from the truth table's r
 - **Neither-signal requests are allowed** (inherited, reference spec §7). Reachable only by non-browser clients (no victim cookies → no CSRF) or pre-Fetch-Metadata browsers.
 - **No-request-context invocations are allowed** (new, Resolved scope #6). `headers()` throwing means there is no inbound HTTP request — direct function invocation from tests or server-internal code. An attacker cannot induce this state from the network; a browser request always has a request scope.
 - **`same-site` is rejected** (inherited). Single-origin app; revisit only if a sibling subdomain ever becomes a legitimate caller.
-- **Read-only actions are ungated** (§3.5). A forged POST to them mutates nothing and the response is unreadable cross-origin. The registry names all three; the AST tripwire fails the walk if one grows a direct write. A read-only action that delegates its reads through a helper that LATER gains a write would evade the tripwire — that is the same delegation-blindness limit `scanBody` carries for invariant 10, accepted with the same rationale.
+- **Read-only actions are ungated** (§3.5). A forged POST to them mutates nothing and the response is unreadable cross-origin. The set is the sibling guard's three `kind: "read-only"` rows, and the strict predicate fails the walk if one grows a Supabase write or an admin-outcome emit.
+- **What the strict predicate proves, stated exactly, because it is narrower than its name.** `writeBuilder`/`rpc`/`logAdminOutcome` are the only mutation signals `scanBody` models. It does not model a cookie write, a `redirect`, or a `signOut`, so "passes the strict predicate" is not "is read-only": run over this census it accepts 17 of the 56 units, including `selectIdentity`, which writes the picker identity cookie (probed). The exemption's basis is therefore the **closed, explicitly authored three-row set** — ratified independently by the invariant-10 guard, which requires the same rows to be observability-exempt for the same reason — and the per-row claim behind each. The predicate's job is narrower and worth having anyway: it is the regression detector that fails the walk when a later edit adds a modeled mutation to an exempted body. The same reading applies to the delegator rows' conjunct (iii). A read-only action that delegates its reads through a helper which LATER gains a write still evades it — the same delegation-blindness limit `scanBody` carries for invariant 10, accepted here with the same rationale.
+- **`forbidden()` renders the 403 boundary on a navigation or form POST; on a direct client call it surfaces as a rejected promise.** A class-A action invoked from a client component inside `useTransition` (for example the `resetValidationDataAction` call at `components/admin/MaintenanceResetButtons.tsx:121`) gets the interrupt as a rejection, and what the operator sees is that component's own error handling. This weakens nothing — no mutation ran and the forensic emit fired — and it cannot affect a legitimate same-origin call, which the gate allows. Related, and also status quo: this repo defines no forbidden-route boundary file, so Next renders its built-in 403 page, exactly as it already does for every authed-but-not-admin caller reaching `forbidden()` through `resolveAdminIdentity` today (`lib/auth/requireAdmin.ts:273`).
+- **A default-exported Server Action is closed upstream, not here.** `moduleDefaultExports` (`tests/log/mutationSurface/enumerate.ts:183`) already makes a default export from a `"use server"` module a failure of the invariant-10 walk, so an un-named action that evades per-function keying cannot exist to begin with. This walk deliberately adds no default-export branch rather than duplicating that rule.
 - **Route handlers are out of scope** (Resolved scope #8), including `app/api/admin/**`.
 - **The walk covers `app/`, `lib/`, `components/`** — the same roots as the invariant-10 meta-test (`tests/log/_metaMutationSurfaceObservability.test.ts:640`). A Server Action authored under a novel top-level root would evade both walks equally; adopting a new source root is a repo-structure event that revisits both tests.
 - **The read-only class and the render-called class coincide today by measurement, not by construction** (§2.4). Nothing prevents someone from later awaiting a gated action during a render, which would 403 that page for a visitor arriving from an external link. The gate's behavior in that case is correct-but-surprising, so the tripwire is placement, not prohibition: the exemption registry is the place such a unit must be declared, and a unit that is both render-called and destructive is a design question for whoever writes it, not a case this sweep can pre-answer.
@@ -396,7 +434,7 @@ Each representative test derives its cross-site fixture from the truth table's r
 | 42 class-A action sites across 23 source modules (§3.7 table) | one gate line each, first statement |
 | `lib/auth/picker/selectIdentity.ts`, `lib/auth/picker/cleanupStaleEntry.ts` | class-B gate lines (units 43–46 of §3.7) |
 | `app/show/[slug]/unpublish/actions.ts` | class-C gate line |
-| tests/auth/_originGateExemptions.ts (new) | exemption registry (§3.5) |
+| tests/auth/_originGateExemptions.ts (new) | the three delegator rows (§3.5); the read-only set is derived from `ADMIN_SURFACE_EXEMPTIONS`, not re-declared |
 | tests/auth/_metaServerActionOriginGate.test.ts (new) | structural meta-test + fixture self-tests (§3.6) |
 | `tests/auth/sameOriginServerAction.test.ts` | truth-table row + assert-helper cases (§6A) |
 | representative suites (3) | per-shape behavioral cases (§6B) |
