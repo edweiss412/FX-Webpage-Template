@@ -584,7 +584,6 @@ describe("parsePsOutput", () => {
   it.each([
     ["R2", `  700  xx  01:00 ${LS} node /x/vitest/dist/workers/forks.js`, "ppid"],
     ["R3", `  700  1  zzzz ${LS} node /x/vitest/dist/workers/forks.js`, "etimeSeconds"],
-    ["R5", "  700  1  01:00 not-a-date node /x/vitest/dist/workers/forks.js", "startedAt"],
   ])("%s: an unparsable field becomes null, not a dropped row", (_id, line, field) => {
     expect(parsePsOutput(`${line}\n`)[0]).toMatchObject({ kind: "parsed", [field]: null });
   });
@@ -613,9 +612,19 @@ describe("parsePsOutput", () => {
     }
   }, 20_000);
 
-  it("R5: with no parsable lstart the command still starts at the right token", () => {
-    const row = parsePsOutput("  700  1  01:00 /usr/bin/node /x/a.js\n")[0];
-    expect(row).toMatchObject({ kind: "parsed", startedAt: null, command: "/usr/bin/node /x/a.js" });
+  it("an unvalidatable lstart makes the ROW unparsable, not a row with a shifted command", () => {
+    // Emitting a parsed row here would slide a date fragment into `command`, where it becomes
+    // argv[0] and the row declines as not-a-worker: the right verdict for the wrong reason, and a
+    // reason no report would explain (round 14).
+    const row = parsePsOutput("  700  1  01:00 not-a-date node /x/vitest/dist/workers/forks.js\n")[0];
+    expect(row).toMatchObject({ kind: "unparsable" });
+    if (row?.kind === "unparsable") expect(row.problem).toContain("lstart");
+  });
+
+  it("a short line with no lstart field at all is likewise unparsable", () => {
+    expect(parsePsOutput("  700  1  01:00 /usr/bin/node /x/a.js\n")[0]).toMatchObject({
+      kind: "unparsable",
+    });
   });
 
   it("C2: empty ps output yields zero rows, not a throw", () => {
@@ -774,14 +783,22 @@ export function parsePsOutput(text: string): ProcRow[] {
     // before `command` rather than after: its value contains spaces, and only a known offset makes
     // it parseable without quoting. Probed over 400 live rows with zero failures.
     const lstart = parts.slice(3, 8).join(" ");
-    const hasLstart = LSTART.test(lstart);
+    if (!LSTART.test(lstart)) {
+      // The layout is UNKNOWN, not merely missing a field: `lstart` is five tokens wide, so if it
+      // does not validate we cannot say where `command` begins. Emitting a parsed row would put a
+      // date fragment in `command`, where it silently becomes `argv[0]` and the row declines as
+      // not-a-worker - the right verdict for the wrong reason (round 14). Under the LC_ALL=C pin
+      // this should never occur, which is exactly why it is worth reporting when it does.
+      rows.push({ kind: "unparsable", raw: line, problem: "lstart did not parse; row layout unknown" });
+      continue;
+    }
     rows.push({
       kind: "parsed",
       pid,
       ppid: rawPpid !== undefined && Number.isInteger(ppid) ? ppid : null,
       etimeSeconds: rawEtime === undefined ? null : parseEtime(rawEtime),
-      startedAt: hasLstart ? lstart : null,
-      command: parts.slice(hasLstart ? 8 : 3).join(" "),
+      startedAt: lstart,
+      command: parts.slice(8).join(" "),
     });
   }
   return rows;

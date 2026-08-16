@@ -413,7 +413,7 @@ does the clause this input feeds still have an ANSWER? "No" means the clause was
 | R2 | `ppid` absent or unparsable | NOT reapable (clause (b) undecidable for this row); retained and reported |
 | R3 | `etime` absent or unparsable | NOT reapable (the age clause is undecidable for this row); retained and reported |
 | R4 | `command` empty | NOT reapable (clause (a) cannot match); retained and reported |
-| R5 | `lstart` absent or unparsable | NOT reapable: the row carries no classification-time identity, so K2 has nothing to compare against and the target could not be signalled safely. Retained and reported. |
+| R5 | `startedAt` absent | NOT reapable: the row carries no classification-time identity, so K2 has nothing to compare against and the target could not be signalled safely. Retained and reported. **A `ps` LINE whose `lstart` does not validate is a different case and is R1, not this one:** `lstart` is five tokens wide, so a value that fails the shape check leaves the layout unknown and `command` unrecoverable. Emitting a parsed row there would slide a date fragment into `command`, where it becomes `argv[0]` and the row declines as not-a-worker — the right verdict for the wrong reason, and one no report would explain. |
 
 **Kill-time conditions.** These are ACTIONS, so the undecidable-stops-the-run rule above does not
 apply to them; §6.2 owns their exit status.
