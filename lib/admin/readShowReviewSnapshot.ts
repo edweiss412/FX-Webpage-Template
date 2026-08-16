@@ -46,11 +46,15 @@ export async function readShowReviewSnapshot(
       p_show_id: showId,
     });
     if (error) {
-      // Explicit fields, not the raw object: the log pipeline's serializeError
-      // stringifies a non-Error value, and the PostgREST error reaching this
-      // branch is a plain object — it rendered as '[object Object]' and made a
-      // CI gateway 502 undiagnosable (spec
+      // Explicit fields, not the raw object. This began as a workaround: the log
+      // pipeline's serializeError stringified non-Error values, so the plain
+      // PostgREST error reaching this branch rendered as '[object Object]' and
+      // made a CI gateway 502 undiagnosable (spec
       // docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md §2.4).
+      // Since fix/serialize-error-structure the raw object would serialize
+      // structurally, so the flat fields are now a RETAINED site-local choice —
+      // stable field names for the §12.4 slots below — not a workaround
+      // (docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md §1.1.6).
       // The SQLSTATE rides under `pgrstCode`; `code` is the §12.4 telemetry slot
       // and this read path deliberately stamps none.
       void log.error("get_admin_show_review_snapshot returned error", {

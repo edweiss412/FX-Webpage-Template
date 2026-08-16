@@ -806,31 +806,15 @@ plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then l
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
 
-### BL-SERIALIZE-ERROR-NON-ERROR-BRANCH-STRINGIFIES — a plain-object error still persists as "[object Object]"
+### BL-REPORT-CLIENT-ERROR-NON-ERROR-MESSAGE-ONLY — client boundary crashes collapse non-Error values to String(e)
 
-**Status:** OPEN · **Severity:** MEDIUM (diagnostic loss on every non-`Error` value logged) · **Class:** observability · **Effort:** M · **Filed:** 2026-08-15 (`fix/sync-log-emit-guard` PR #808, diff review R3)
+**Status:** OPEN · **Severity:** LOW (client-only mirror; server logging is structural since `fix/serialize-error-structure`) · **Class:** observability · **Effort:** S · **Filed:** 2026-08-16 (`fix/serialize-error-structure` spec §1.1.5)
 
-**Probe evidence.** `lib/log/serializeError.ts` is `error instanceof Error ? { name, message, stack } : String(error)`. The non-`Error` branch is `String(value)`, so any plain object collapses to the literal `"[object Object]"`. Supabase/PostgREST returned-errors are exactly that shape — plain parsed-JSON objects, never `Error` instances (`PostgrestBuilder.ts` returns them from the parsed body), and several call sites forward them straight to `log.*`:
+**Probe evidence.** `lib/observe/reportClientError.ts:11-14` — `toError` returns `{ message: String(e) }` for non-`Error` values, so a plain-object boundary crash reports `message: "[object Object]"` on the client-error wire. Same defect shape the serializeError arc repaired server-side.
 
-```
-lib/auth/picker/resolvePickerSelection.ts:56    ...(detail === undefined ? {} : { error: detail })
-lib/auth/picker/resolveShowPageAccess.ts:75     ...(detail === undefined ? {} : { error: detail })
-lib/log/emitIdentityLinkRenameUnlanded.ts:65    error: result.error
-lib/log/emitLeadRoleApplied.ts:76               error: result.error
-```
+**Why filed rather than fixed in that arc (class-sweep exception (c)).** The client wire is its own surface: `clientErrorTransport` CAPS, the dedup signature (`lib/observe/clientErrorTransport.ts:32`), and the `/api/observe/client-error` route contract would all move — a redesign of a surface the serializeError PR does not otherwise touch.
 
-Reproducing `serializeError` against a Supabase returned-error `{ message: "gateway 502", code: "PGRST301", … }`:
-
-```
-plain object (Supabase)   ->  "[object Object]"
-Error instance            ->  {"name":"Error","message":"boom","stack":"…"}
-```
-
-**This is NOT a regression from PR #808, and the distinction is the reason the row exists rather than a fix.** That PR removed a double-`serializeError` wrapper at 18 sites. Measured before and after at the same four sites: a plain object produced `"[object Object]"` BOTH ways (identical, unchanged), while an `Error` went from `"[object Object]"` to a full `{name, message, stack}`. The repair is strictly non-regressive and strictly better for `Error` values; what it did was make an INDEPENDENT pre-existing defect visible, namely that the helper's own non-`Error` branch discards structure.
-
-**Why filed rather than fixed in that PR (disposition reason (c) — a redesign of a surface the PR does not otherwise touch, spanning far more sites than its review scope).** `serializeError` is the single canonical error-shaping helper; changing its non-`Error` branch changes the shape of `context.error` for EVERY non-`Error` value logged anywhere in the app, which touches the `app_events.context` payload shape, the redaction pass in `sanitizeContext`, and `tests/log/serializeError.test.ts`, which pins the current contract deliberately. That is its own arc with its own review, not a rider on an emit-guard PR whose spec explicitly holds the helper's behavior constant (`docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md` §2.2 treats `serializeError`'s behavior as given).
-
-**The shape of the fix, when scheduled.** Preserve structure for non-`Error` values rather than stringifying: a plain object should serialize to its own enumerable fields (bounded depth, same truncation posture as the existing `stack` slice), with `String(value)` kept only for primitives. Sweep for the class, not these four sites: the defect is in the HELPER, so every `log.*` call that can receive a non-`Error` is an instance. Derive the site set rather than enumerating it — `tests/log/noDoubleSerializedLogError.test.ts` already walks `lib/`, `app/`, and `components/` for `log.*` call sites and is the natural place to hang a companion assertion.
+**Shape of the fix, when scheduled.** Reuse the structural posture: serialize non-`Error` crash values to bounded structure (or at minimum their own enumerable fields flattened into `detail`), respecting the wire CAPS.
 
 ### BL-SYNC-LOG-ATTRIBUTION-METATEST — structural guard that every sync_log writer names its show
 
