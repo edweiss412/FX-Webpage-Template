@@ -322,6 +322,54 @@ function boundNames(name: ts.BindingName): Array<[ts.Identifier, ts.Expression[]
   return out;
 }
 
+/** `=`, `||=`, `??=`, `+=` — every operator that WRITES its left operand. */
+function isAssignmentOperator(kind: ts.SyntaxKind): boolean {
+  return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+}
+
+/**
+ * The NAMES an assignment writes, paired with any defaults that run with them.
+ *
+ * The declaration side has `boundNames`; this is its expression-position twin,
+ * because a destructuring assignment writes exactly as a destructuring
+ * declaration binds. `({ url } = { url: process.env.X })` is live in the corpus
+ * (`tests/db/destructiveFileAnalysis.test.ts`), and the write pass matched only
+ * a bare `identifier = rhs` statement, so that provenance was dropped in silence
+ * (whole-diff R3 #3).
+ *
+ * A property or element access returns NOTHING, and that is not a gap: `obj.x =
+ * v` writes a property, not a binding, so there is no name for the walk to
+ * reach it through.
+ */
+function assignmentTargets(target: ts.Expression): Array<[ts.Identifier, ts.Expression[]]> {
+  const t = unwrap(target);
+  if (ts.isIdentifier(t)) return [[t, []]];
+  const out: Array<[ts.Identifier, ts.Expression[]]> = [];
+  if (ts.isObjectLiteralExpression(t)) {
+    for (const p of t.properties) {
+      if (ts.isShorthandPropertyAssignment(p)) {
+        const dflt = p.objectAssignmentInitializer;
+        out.push([p.name, dflt ? [dflt] : []]);
+      } else if (ts.isPropertyAssignment(p)) out.push(...assignmentTargets(p.initializer));
+      else if (ts.isSpreadAssignment(p)) out.push(...assignmentTargets(p.expression));
+    }
+    return out;
+  }
+  if (ts.isArrayLiteralExpression(t)) {
+    for (const el of t.elements) {
+      if (ts.isOmittedExpression(el)) continue;
+      out.push(...assignmentTargets(ts.isSpreadElement(el) ? el.expression : el));
+    }
+    return out;
+  }
+  // `[a = dflt] = xs` — the element's own default runs when the source has no
+  // value for it, exactly as a pattern default does in a declaration.
+  if (ts.isBinaryExpression(t) && t.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    for (const [id, defaults] of assignmentTargets(t.left)) out.push([id, [...defaults, t.right]]);
+  }
+  return out;
+}
+
 /** `const x = await import("m")` / `= import("m")` — the two spellings of a dynamic-import binding. */
 function isDynamicImportInitializer(init: ts.Expression | undefined): boolean {
   if (init === undefined) return false;
@@ -607,13 +655,28 @@ function moduleFacts(path: string): ModuleFacts | null {
     // whichever module-scope name happens to match. `cache = spawnSync(...)`
     // inside `init()` extends the module `cache` when that is what `cache`
     // denotes there, and extends only the local one when a local shadows it.
+    //
+    // Keyed on the assignment OPERATOR rather than on one statement shape. The
+    // old test was `ExpressionStatement > BinaryExpression(=) > Identifier`,
+    // which is a single spelling: `cache ||= x`, `(cache) = x`, `const r =
+    // (cache = x)`, and a destructuring or `for…of` target all wrote real
+    // provenance that was dropped in silence (whole-diff R3 #3).
+    if (ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)) {
+      for (const [id, defaults] of assignmentTargets(node.left)) {
+        writes.push({ name: id.text, at: node, value: node.right });
+        for (const dflt of defaults) writes.push({ name: id.text, at: node, value: dflt });
+      }
+    }
+    // `for (row of rows)` assigns to an EXISTING binding — a declaration in the
+    // head binds instead, and is registered by the declaration clause above.
     if (
-      ts.isExpressionStatement(node) &&
-      ts.isBinaryExpression(node.expression) &&
-      node.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      ts.isIdentifier(node.expression.left)
+      (ts.isForOfStatement(node) || ts.isForInStatement(node)) &&
+      !ts.isVariableDeclarationList(node.initializer)
     ) {
-      writes.push({ name: node.expression.left.text, at: node, value: node.expression.right });
+      for (const [id, defaults] of assignmentTargets(node.initializer)) {
+        writes.push({ name: id.text, at: node, value: node.expression });
+        for (const dflt of defaults) writes.push({ name: id.text, at: node, value: dflt });
+      }
     }
 
     ts.forEachChild(node, walk);

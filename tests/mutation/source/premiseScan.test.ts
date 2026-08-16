@@ -277,6 +277,132 @@ describe("every applicable default, not only the deepest (whole-diff R3 #2)", ()
   });
 });
 
+describe("a write is an assignment OPERATOR, not one statement shape (whole-diff R3 #3)", () => {
+  // The write pass matched `ExpressionStatement > BinaryExpression(=) >
+  // Identifier` — the single spelling. Every other assignment form lost the
+  // provenance it assigns, silently, and each of these is an ordinary edit of
+  // the assignment fixture that already existed.
+  const spawner = `import { spawnSync } from "node:child_process";
+    const spawning = () => spawnSync("git", []);`;
+
+  it("a logical-assignment operator", () => {
+    expect(
+      verdict(`${spawner}
+        let cache;
+        cache ||= spawning;
+        function read() { return cache; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a nullish-assignment operator", () => {
+    expect(
+      verdict(`${spawner}
+        let cache;
+        cache ??= spawning;
+        function read() { return cache; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a compound arithmetic assignment", () => {
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        let n = 0;
+        n += Number(spawnSync("git", []).status);
+        function read() { return n; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a chained assignment", () => {
+    expect(
+      verdict(`${spawner}
+        let a, b;
+        a = b = spawning;
+        function read() { return a; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a parenthesized target", () => {
+    expect(
+      verdict(`${spawner}
+        let cache;
+        (cache) = spawning;
+        function read() { return cache; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("an assignment that is not its own statement", () => {
+    expect(
+      verdict(`${spawner}
+        let cache;
+        const ready = (cache = spawning);
+        function read() { return cache; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a `for…of` head that assigns to an existing binding", () => {
+    expect(
+      verdict(`${spawner}
+        let row;
+        for (row of [spawning]) { void row; }
+        function read() { return row; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("an object destructuring assignment", () => {
+    // Not a decline. This exact shape is live in the corpus —
+    // tests/db/destructiveFileAnalysis.test.ts writes
+    // `({ url } = { url: process.env.TEST_DATABASE_URL! })` — so the reachable
+    // consequence of the old rule was a lost read of the environment, and
+    // declining would trade that silence for an exemption rather than an answer.
+    expect(
+      verdict(`${spawner}
+        let cache;
+        ({ cache } = { cache: spawning });
+        function read() { return cache; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("an array destructuring assignment", () => {
+    expect(
+      verdict(`${spawner}
+        let cache;
+        [cache] = [spawning];
+        function read() { return cache; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a destructuring assignment ELEMENT default", () => {
+    expect(
+      verdict(`${spawner}
+        let cache;
+        [cache = spawning] = [] as Array<() => unknown>;
+        function read() { return cache; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a PROPERTY write is not a binding write, and is not a decline either", () => {
+    // The foil: `obj.x = …` is resolvable — it writes a property, not a name —
+    // so declining it would be a demote invented out of an ordinary statement.
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        const obj: { x?: unknown } = {};
+        obj.x = spawnSync;
+        function read() { return obj; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-free");
+  });
+});
+
 describe("unclassifiable — recognized but unresolvable, and it reds", () => {
   it("a dynamic import whose specifier is not a literal", () => {
     expect(
