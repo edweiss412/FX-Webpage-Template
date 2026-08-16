@@ -504,7 +504,7 @@ export type CollectResult =
 /**
  * Whether a SlotSurvey can decide clause (c) at all.
  *
- * False for the §4.4 rows the `Decidable?` column marks "no" — C3 and C5 — and those rows say what
+ * False for the §4.4 rows the `Decidable?` column marks "no" (C3 and C5); those rows say what
  * the caller must then do. It is deliberately NOT modelled as "zero holders", because C3 and C4
  * are different conditions with different rows: one is the absence of an answer, the other is an
  * answer. Collapsing them was the round-2 defect.
