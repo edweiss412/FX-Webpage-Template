@@ -172,7 +172,7 @@ vi.mock("embla-carousel-react", async () => {
   return { default: useEmblaCarouselMock };
 });
 
-import { GalleryLightbox } from "@/components/diagrams/GalleryLightbox";
+import { DEMOTE_CHIP_VISIBLE_MS, GalleryLightbox } from "@/components/diagrams/GalleryLightbox";
 import type { GalleryItem } from "@/components/diagrams/Gallery";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 
@@ -801,5 +801,296 @@ describe("GalleryLightbox — transition inventory rows", () => {
 
     expect(activeLoaderUrls(container)).toEqual(new Set([originalUrlOf(fixture)]));
     expect(container.querySelector('[data-testid="lightbox-reset-chip"]')).not.toBeNull();
+  });
+});
+
+/**
+ * The sighted half of the demote signal (spec crew/2026-08-15-diagram-demote-notice-design
+ * §2.1-§2.3; AC-1, AC-2, AC-3, AC-4, AC-6).
+ *
+ * The demote already announces through the dialog's `role="log"` channel. These
+ * cases pin the other channel: a transient chip on the affected slide, so a
+ * sighted crew member who pinched a stage plot and got a soft image is told why
+ * — and told once, in lockstep with the announcement.
+ *
+ * The lifetime numbers here are SPEC LITERALS, not reads of the implementation:
+ * advancing by the exported constant would only prove the timer uses its own
+ * value. The constant is asserted to equal 6000 separately, so the constant,
+ * the DESIGN.md §5.5 row and this file cannot drift apart quietly.
+ */
+describe("GalleryLightbox — the demote's sighted chip", () => {
+  const CHIP = '[data-testid="lightbox-demote-chip"]';
+  const COPY = "Full detail unavailable";
+
+  /** Drive the :503 demote scenario and hand back the container. */
+  function demote(fixtureCount = 2): { container: HTMLElement; fixture: GalleryItem } {
+    const fixture = item(1);
+    const items = [fixture, ...Array.from({ length: fixtureCount - 1 }, (_, n) => item(n + 2))];
+    const { container } = open(items);
+    emitScale(2.4);
+    premiseHolds(
+      "the gesture pinned the original, so the failure under test is the zoom-triggered one",
+      activeLoaderUrls(container).has(originalUrlOf(fixture)),
+    );
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+    return { container, fixture };
+  }
+
+  test("renders the chip on the affected slide, in lockstep with the announcement (AC-1)", () => {
+    const fixture = item(1);
+    const spoken: string[] = [];
+    const { container } = render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[fixture, item(2)]}
+        startIndex={0}
+        onClose={() => {}}
+        onAnnounce={(message) => spoken.push(message)}
+      />,
+    );
+    emitScale(2.4);
+    premiseHolds("no chip before the failure", container.querySelector(CHIP) === null);
+
+    act(() => {
+      fireEvent.error(activeImage(container));
+    });
+
+    const chip = container.querySelector(CHIP);
+    expect(chip).not.toBeNull();
+    expect(chip!.textContent).toBe(COPY);
+    expect(chip!.getAttribute("aria-hidden")).toBe("true");
+    expect(chip!.className).toContain("pointer-events-none");
+    // CONTAINMENT: the chip belongs to the affected slide's figure, not to the
+    // viewport container — anchoring at the viewport would pin it in place while
+    // the slide it describes swipes away underneath it.
+    const figure = chip!.closest("figure");
+    expect(figure).not.toBeNull();
+    expect(figure!.contains(activeImage(container))).toBe(true);
+    // ONE event, two channels: the announcement is unchanged by the chip.
+    expect(spoken).toEqual([
+      `${fixture.alt}: full detail could not be loaded. Showing a less detailed view.`,
+    ]);
+  });
+
+  test("clears itself after the ratified lifetime, and not before (AC-2)", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = demote();
+      expect(container.querySelector(CHIP)).not.toBeNull();
+
+      // 5999 and 1 are spec §2.1 literals. A test that advanced by the exported
+      // constant would agree with any value the implementation happened to use.
+      act(() => {
+        vi.advanceTimersByTime(5999);
+      });
+      expect(container.querySelector(CHIP), "still visible at 5999ms").not.toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(container.querySelector(CHIP), "gone at 6000ms").toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("the exported constant is the ratified value (AC-2, drift guard)", () => {
+    expect(DEMOTE_CHIP_VISIBLE_MS).toBe(6000);
+  });
+
+  test("cancels its timer on unmount, leaving no pending work (AC-2)", () => {
+    vi.useFakeTimers();
+    try {
+      // The baseline is taken AFTER the mount, not before: the lightbox schedules
+      // timers of its own (the de-zoom settle, Embla), and a whole-count oracle
+      // would measure those instead of the chip's.
+      const fixture = item(1);
+      const { container } = open([fixture, item(2)]);
+      emitScale(2.4);
+      const mounted = vi.getTimerCount();
+      act(() => {
+        fireEvent.error(activeImage(container));
+      });
+      premiseHolds("the chip scheduled its own timer", vi.getTimerCount() === mounted + 1);
+      expect(container.querySelector(CHIP)).not.toBeNull();
+
+      cleanup();
+
+      // An absent act() warning is not a cleanup proof under React 19; the timer
+      // count is (precedent: tests/devcapture/useDevCapture.test.tsx:342). The
+      // chip's timer is gone; anything the lightbox left behind is pre-existing
+      // and not what this case claims.
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(mounted);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("no chip without a demote: a healthy original, and a fresh clamped-tier failure (AC-3)", () => {
+    const healthy = open([item(1), item(2)]);
+    emitScale(2.4);
+    act(() => {
+      fireEvent.load(activeImage(healthy.container));
+    });
+    expect(healthy.container.querySelector(CHIP)).toBeNull();
+    cleanup();
+
+    // The placeholder path, which is NOT a demote: no zoom intent, so there is
+    // no lower tier to fall back to and nothing to explain.
+    const placeholder = open([item(1), item(2)]);
+    act(() => {
+      fireEvent.load(activeImage(placeholder.container));
+    });
+    act(() => {
+      fireEvent.error(activeImage(placeholder.container));
+    });
+    premiseHolds(
+      "the slide really reached the placeholder",
+      placeholder.container.textContent?.includes("Image unavailable") === true,
+    );
+    expect(placeholder.container.querySelector(CHIP)).toBeNull();
+  });
+
+  test("stays out of the accessibility tree and leaves the focus order alone (AC-4)", () => {
+    const { container } = demote();
+    const chip = container.querySelector(CHIP)!;
+    expect(chip.getAttribute("aria-hidden")).toBe("true");
+    // Not focusable: no tabindex, not a button, and pointer-transparent.
+    expect(chip.getAttribute("tabindex")).toBeNull();
+    expect(chip.tagName).not.toBe("BUTTON");
+    expect(chip.querySelector("button, a, input, [tabindex]")).toBeNull();
+    // The dialog's own tab order is untouched — the same focusables, in order.
+    const focusables = [...container.querySelectorAll<HTMLElement>("button, [href], [tabindex]")];
+    expect(focusables.some((el) => chip.contains(el))).toBe(false);
+  });
+
+  test("a second demote replaces the chip and RESTARTS the window (AC-2, last-wins)", () => {
+    vi.useFakeTimers();
+    try {
+      const first = item(1);
+      const second = item(2);
+      const { container } = open([first, second]);
+      emitScale(2.4);
+      act(() => {
+        fireEvent.error(activeImage(container));
+      });
+      premiseHolds("the first demote showed a chip", container.querySelector(CHIP) !== null);
+
+      // Halfway through the first chip's window, demote the OTHER slide.
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+      act(() => emblaApis.at(-1)!.scrollTo(1));
+      emitScale(2.4);
+      act(() => {
+        fireEvent.error(activeImage(container));
+      });
+
+      // Exactly one chip, on the slide that just failed.
+      const chips = container.querySelectorAll(CHIP);
+      expect(chips.length).toBe(1);
+      expect(chips[0]!.closest("figure")!.contains(activeImage(container))).toBe(true);
+
+      // The window RESTARTED: a timer left running from the first demote would
+      // have expired 2999ms into this advance.
+      act(() => {
+        vi.advanceTimersByTime(5999);
+      });
+      expect(
+        container.querySelector(CHIP),
+        "second chip still inside its own window",
+      ).not.toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(container.querySelector(CHIP)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("clears when the demoted slide's clamped tier ALSO fails (AC-2b, clear 4)", () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = item(1);
+      const { container } = open([fixture, item(2)]);
+      emitScale(2.4);
+      const mounted = vi.getTimerCount();
+      act(() => {
+        fireEvent.error(activeImage(container));
+      });
+      premiseHolds("the demote showed a chip", container.querySelector(CHIP) !== null);
+      premiseHolds("the chip scheduled its own timer", vi.getTimerCount() === mounted + 1);
+
+      act(() => {
+        fireEvent.error(activeImage(container));
+      });
+
+      // "Full detail unavailable" floating over "Image unavailable" is a
+      // contradiction: the chip's premise died with the clamped tier.
+      premiseHolds(
+        "the second failure really reached the placeholder",
+        container.textContent?.includes("Image unavailable") === true,
+      );
+      expect(container.querySelector(CHIP)).toBeNull();
+      expect(
+        vi.getTimerCount(),
+        "the chip timer was cancelled, not left running",
+      ).toBeLessThanOrEqual(mounted);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("survives a swipe away and back with its REMAINING lifetime (compound)", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = demote();
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+
+      act(() => emblaApis.at(-1)!.scrollTo(1));
+      act(() => emblaApis.at(-1)!.scrollTo(0));
+
+      expect(container.querySelector(CHIP), "the chip travelled with its slide").not.toBeNull();
+      // The remainder, not a fresh window: a timer restarted by the swipe would
+      // still be showing at 2999ms past this point.
+      act(() => {
+        vi.advanceTimersByTime(2999);
+      });
+      expect(container.querySelector(CHIP)).not.toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(container.querySelector(CHIP)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("coexists with the Reset chip in a disjoint slot (compound)", () => {
+    const { container } = demote();
+    // The demote leaves the gesture and the scale alone, so Reset stays mounted.
+    const reset = container.querySelector('[data-testid="lightbox-reset-chip"]');
+    const chip = container.querySelector(CHIP);
+    expect(reset, "the zoom that triggered the demote keeps Reset mounted").not.toBeNull();
+    expect(chip).not.toBeNull();
+    // Disjoint slots: Reset owns top-2, the notice owns bottom-2.
+    expect(reset!.closest("div")!.className).toContain("top-2");
+    expect(chip!.className).toContain("bottom-2");
+  });
+
+  test("animates through duration TOKENS only, never literal milliseconds (AC-6)", () => {
+    const { container } = demote();
+    const cls = container.querySelector(CHIP)!.className;
+    // The full mechanism, not just the flavour: a duration utility with nothing
+    // transitioning animates nothing.
+    expect(cls).toContain("transition-opacity");
+    expect(cls).toMatch(/\bduration-(fast|normal|slow)\b/);
+    expect(cls).not.toMatch(/\d+ms/);
   });
 });

@@ -500,6 +500,7 @@ realtime reconnect backoff.
 | `AGENDA_RETRY_FALLBACK_MS` | 5000 | `components/admin/wizard/step3ReviewSections.tsx` |
 | `timer(60000)` | 60000 | `components/crew/RightNowHero.tsx` |
 | `duration(0)` | 0 | `components/crew/RightNowHero.tsx` |
+| `DEMOTE_CHIP_VISIBLE_MS` | 6000 | `components/diagrams/GalleryLightbox.tsx` |
 | `timer(150)` | 150 | `components/diagrams/GalleryLightbox.tsx` |
 | `duration(0.22)` | 0.22 | `components/layout/PageTransition.tsx` |
 | `DEBOUNCE_MS` | 100 | `components/realtime/ShowRealtimeBridge.tsx` |

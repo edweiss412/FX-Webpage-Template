@@ -1086,3 +1086,143 @@ describe("Gallery — failures during the 220 ms exit window (three-phase oracle
     expect(document.activeElement).toBe(successor);
   });
 });
+
+/**
+ * The demote chip's SESSION lifecycle (spec crew/2026-08-15-diagram-demote-notice-design
+ * §2.1 clear 3; AC-2b).
+ *
+ * These cases live here rather than in the zoomGate suite because the zoomGate
+ * harness mounts the lightbox directly with a no-op `onClose`: it can never
+ * exercise a real close, the retained instance a canceled exit produces, or the
+ * `openNonce` the parent increments on re-open. Those are the mechanisms under
+ * test, so the real parent drives them.
+ */
+describe("Gallery — the demote chip never survives a dialog session", () => {
+  const CHIP = '[data-testid="lightbox-demote-chip"]';
+
+  /**
+   * A fixture WITH a variant ladder. The demote branch needs somewhere to retreat
+   * to (`hasVariantTier`), and this file's default fixture ships `variants: []` —
+   * an originals-only entry, which by design goes straight to the placeholder.
+   */
+  function ladderItem(i: number): GalleryItem {
+    const key = `embedded-obj-${i}.png`;
+    return {
+      ...item(i),
+      variants: [
+        { width: 256, key: `${key}@256.webp` },
+        { width: 512, key: `${key}@512.webp` },
+        { width: 1024, key: `${key}@1024.webp` },
+      ],
+    };
+  }
+
+  /** Open the lightbox on slide 0 and demote it through the real zoom path. */
+  function openAndDemote(): HTMLImageElement {
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    const dialog = screen.getByTestId("diagrams-lightbox");
+    const activeImage = dialog
+      .querySelector('[data-testid="rzpp-component"]')!
+      .querySelector("img")!;
+    act(() => zoom.emit(2.5));
+    act(() => {
+      fireEvent.error(activeImage);
+    });
+    premiseHolds("the demote produced a chip", document.querySelector(CHIP) !== null);
+    return activeImage;
+  }
+
+  for (const [label, close] of [
+    [
+      "the Close button",
+      () => fireEvent.click(screen.getByRole("button", { name: /close gallery/i })),
+    ],
+    ["Escape", () => fireEvent.keyDown(window, { key: "Escape" })],
+    [
+      "a backdrop click",
+      () => {
+        const dialog = screen.getByTestId("diagrams-lightbox");
+        fireEvent.click(dialog);
+      },
+    ],
+  ] as const) {
+    test(`${label} clears the chip, and a re-open inside the exit window finds none`, () => {
+      open([ladderItem(1), ladderItem(2)]);
+      openAndDemote();
+
+      act(() => {
+        close();
+      });
+      premiseHolds("the exit window is open, so this is the retained instance", presence.exiting);
+
+      // Re-open INSIDE the window: the exit is canceled and the same instance is
+      // retained, which is exactly where a chip cleared only on unmount survives.
+      act(() => {
+        fireEvent.click(thumbButton(0));
+      });
+
+      expect(document.querySelector(CHIP), "no chip carried into the new session").toBeNull();
+    });
+  }
+
+  test("a demote DURING the exit window cannot repopulate the chip on re-open", () => {
+    open([ladderItem(1), ladderItem(2)]);
+    const activeImage = openAndDemote();
+
+    // Let the first chip go, so what this measures is the exit-window demote and
+    // not the one before it.
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /close gallery/i }));
+    });
+    premiseHolds("the exit window is open", presence.exiting);
+    premiseHolds("the retained slide can still fail", activeImage.isConnected);
+    premiseHolds("the close already cleared the chip", document.querySelector(CHIP) === null);
+
+    act(() => {
+      fireEvent.error(activeImage);
+    });
+
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+
+    expect(document.querySelector(CHIP), "an exit-window demote must not repopulate").toBeNull();
+  });
+
+  test("a failure that lands AFTER the re-entry commit still gets its chip", () => {
+    // The positive half of the closing gate, and the reason the nonce reset runs
+    // during render rather than in an effect: a DOM error event dispatched after
+    // the re-entry render must find `closingRef` already false. An effect-timed
+    // reset leaves a window where this live-session demote is silently dropped.
+    open([ladderItem(1), ladderItem(2)]);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    const dialog = screen.getByTestId("diagrams-lightbox");
+    const activeImage = dialog
+      .querySelector('[data-testid="rzpp-component"]')!
+      .querySelector("img")!;
+    act(() => zoom.emit(2.5));
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /close gallery/i }));
+    });
+    premiseHolds("the exit window is open", presence.exiting);
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    premiseHolds("the re-entry canceled the exit", !presence.exiting);
+    premiseHolds("no chip survived into the new session", document.querySelector(CHIP) === null);
+
+    act(() => {
+      fireEvent.error(activeImage);
+    });
+
+    expect(
+      document.querySelector(CHIP),
+      "a live-session demote gets its sighted signal",
+    ).not.toBeNull();
+  });
+});

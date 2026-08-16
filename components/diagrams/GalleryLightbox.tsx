@@ -49,6 +49,16 @@ type LightboxProps = {
   startIndex: number;
   onClose: () => void;
   /**
+   * Bumped by the Gallery on every closed-to-open transition.
+   *
+   * The dialog has no `open` prop to observe, and a re-open inside the 220ms
+   * exit window CANCELS the exit and retains this instance — so an unmount-based
+   * reset never runs and nothing else distinguishes "still exiting" from "open
+   * again". A changed nonce is that signal: frozen exit props never deliver one,
+   * a canceled-exit re-entry always does.
+   */
+  openNonce?: number;
+  /**
    * Where focus goes when the dialog closes, overriding the saved trigger.
    * Owned by the Gallery, which re-points it whenever a runtime failure removes
    * the current target (the closure rule, spec §4.2). A REF because the Gallery
@@ -106,6 +116,16 @@ function emblaDuration(prefersReducedMotion: boolean): number {
 // flash the Reset chip / live region announcement until the user has
 // clearly committed to zooming.
 const ZOOM_THRESHOLD = 1.01;
+
+/**
+ * How long the demote notice chip stays on the affected slide.
+ *
+ * Longer than the interaction that triggered it (the user is still mid-gesture),
+ * long enough to read eleven characters twice, and short enough that it is gone
+ * before it reads as permanent chrome. A demote fires at most once per slide per
+ * dialog session (`demotedRef` never re-pins), so the chip cannot loop.
+ */
+export const DEMOTE_CHIP_VISIBLE_MS = 6000;
 
 function isZoomed(scale: number): boolean {
   return scale > ZOOM_THRESHOLD;
@@ -215,6 +235,7 @@ export function GalleryLightbox({
   items,
   startIndex,
   onClose,
+  openNonce = 0,
   restoreTargetRef,
   announceEntries,
   onAnnounce,
@@ -279,6 +300,68 @@ export function GalleryLightbox({
    * A ref, not state, because the intent marker below must stay identity-stable.
    */
   const demotedRef = useRef<Set<string>>(new Set());
+  /**
+   * The slide whose ORIGINAL just failed, for the sighted half of the signal.
+   *
+   * State, not a ref: a ref cannot schedule a render, and the chip has to appear
+   * when the demote happens rather than whenever something unrelated re-renders.
+   * `demotedRef` keeps its own identity-stability contract and is not read here.
+   */
+  const [demotedNoticeId, setDemotedNoticeId] = useState<string | null>(null);
+  const demoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * The `openNonce` a close BEGAN at, or `null` if this session has not closed.
+   *
+   * The chip must not be re-populated by a demote landing in the exit window,
+   * where the retained slide can still fail and the user who closed the dialog
+   * is not looking at it. Comparing against the LIVE nonce is what makes the
+   * gate self-clearing: a re-open increments the nonce, so the gate opens by
+   * construction, with no ref written during render (`react-hooks/refs`) and no
+   * window where a live-session demote is dropped as an exit-window one.
+   */
+  const [closedAtNonce, setClosedAtNonce] = useState<number | null>(null);
+  const [lastNonce, setLastNonce] = useState(openNonce);
+
+  const clearDemoteNotice = useCallback(() => {
+    if (demoteTimerRef.current !== null) {
+      clearTimeout(demoteTimerRef.current);
+      demoteTimerRef.current = null;
+    }
+    setDemotedNoticeId(null);
+  }, []);
+
+  // Adjust-state-when-props-change, DURING RENDER rather than in an effect: DOM
+  // error events dispatch after the re-entry render commits, so an effect-timed
+  // reset would leave a window where a live-session demote is dropped. State
+  // only — the timer is cleared at every event-handler path that ends the chip's
+  // life, so there is never a live one to cancel here.
+  if (lastNonce !== openNonce) {
+    setLastNonce(openNonce);
+    setDemotedNoticeId(null);
+  }
+
+  /**
+   * The one close path. Chip state and its timer clear BEFORE the parent's
+   * callback runs: the parent nulls its index, `AnimatePresence` retains this
+   * instance with frozen props, and nothing inside here can observe that
+   * transition afterwards.
+   */
+  const handleClose = useCallback(() => {
+    setClosedAtNonce(openNonce);
+    clearDemoteNotice();
+    onClose();
+  }, [clearDemoteNotice, onClose, openNonce]);
+
+  // Ordinary cleanup. Conditions 3 and 4 make unmount a backstop, not the
+  // mechanism — but a timer outliving the tree is still a leak.
+  useEffect(() => {
+    return () => {
+      if (demoteTimerRef.current !== null) {
+        clearTimeout(demoteTimerRef.current);
+        demoteTimerRef.current = null;
+      }
+    };
+  }, []);
   // Stable identity: the library's transform subscription may hold the callback
   // it was given at subscribe time, so this must not be re-created per render.
   const markZoomIntent = useCallback((itemId: string) => {
@@ -437,7 +520,7 @@ export function GalleryLightbox({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        onClose();
+        handleClose();
         return;
       }
       if (!dialogRef.current?.contains(document.activeElement)) return;
@@ -474,7 +557,7 @@ export function GalleryLightbox({
     // see the R8 note above). Listing it re-bound this window listener on every
     // frame of a pinch, which is pure churn on the device that can least afford
     // it.
-  }, [onClose, scrollPrev, scrollNext]);
+  }, [handleClose, scrollPrev, scrollNext]);
 
   // Lock background scroll while open.
   useEffect(() => {
@@ -541,7 +624,7 @@ export function GalleryLightbox({
       // is the canonical four-point curve.
       transition={{ duration: motionDuration, ease: [0.25, 1, 0.5, 1] }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       <header className="flex items-center justify-between p-4">
@@ -565,7 +648,7 @@ export function GalleryLightbox({
         <button
           ref={closeRef}
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           aria-label="Close gallery"
           className="inline-flex size-11 items-center justify-center rounded-pill text-text-strong hover:bg-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
@@ -661,8 +744,35 @@ export function GalleryLightbox({
               return (
                 <figure
                   key={item.id}
-                  className="flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
+                  // `relative` is a positioning context only (no offsets, so it
+                  // is paint-identical): the demote chip anchors HERE rather
+                  // than at the viewport container, or it would hang in place
+                  // while the slide it describes swipes out from under it.
+                  className="relative flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
                 >
+                  {demotedNoticeId === item.id && !failedKeys.has(item.id) ? (
+                    /*
+                      The sighted twin of the `role="log"` announcement, and
+                      `aria-hidden` for exactly that reason: the region already
+                      carries this event to assistive tech with richer named
+                      copy, so an unlabeled visible twin would say it twice.
+
+                      Absolutely positioned like the Reset chip above, and for
+                      the same measured reason — a figure reflow mid-pinch slides
+                      the pinched detail out from under the user's fingers. Reset
+                      owns `top-2`; this owns `bottom-2`, and both can be up at
+                      once because a demote leaves the gesture and the scale
+                      alone. Motion is token-only (`duration-fast`), so the
+                      reduced-motion collapse comes for free.
+                    */
+                    <div
+                      aria-hidden="true"
+                      data-testid="lightbox-demote-chip"
+                      className="pointer-events-none absolute inset-x-0 bottom-2 z-dropdown mx-auto w-fit rounded-pill border border-border-strong bg-surface-raised px-4 py-1.5 text-sm font-medium text-text-strong shadow-tile transition-opacity duration-fast ease-out-quart transition-discrete starting:opacity-0"
+                    >
+                      Full detail unavailable
+                    </div>
+                  ) : null}
                   {available ? (
                     isActive ? (
                       // Active slide: wrapped in TransformWrapper so
@@ -884,6 +994,27 @@ export function GalleryLightbox({
                                 onAnnounce?.(
                                   `${item.alt || `Diagram ${i + 1}`}: full detail could not be loaded. Showing a less detailed view.`,
                                 );
+                                // The SIGHTED half of the same event, in the same
+                                // branch so the two channels cannot drift: one
+                                // demote, one chip, one announcement. Skipped
+                                // while the dialog is mid-close — the retained
+                                // slide can still fail there, and the user who
+                                // closed the dialog is not looking at it.
+                                if (closedAtNonce !== openNonce) {
+                                  if (demoteTimerRef.current !== null) {
+                                    clearTimeout(demoteTimerRef.current);
+                                  }
+                                  setDemotedNoticeId(item.id);
+                                  // Last demote wins: two chips would double-signal
+                                  // one event class, so the id is replaced and the
+                                  // window restarts.
+                                  demoteTimerRef.current = setTimeout(() => {
+                                    demoteTimerRef.current = null;
+                                    setDemotedNoticeId((current) =>
+                                      current === item.id ? null : current,
+                                    );
+                                  }, DEMOTE_CHIP_VISIBLE_MS);
+                                }
                                 return;
                               }
                               // Codex R2 HIGH: when the active image
@@ -939,6 +1070,11 @@ export function GalleryLightbox({
                                 next.add(item.id);
                                 return next;
                               });
+                              // "Full detail unavailable" over "Image
+                              // unavailable" is a contradiction: the chip's
+                              // premise is that a less-detailed view IS showing,
+                              // and it just died with the clamped tier.
+                              if (demotedNoticeId === item.id) clearDemoteNotice();
                             }}
                             className="size-full select-none object-contain"
                           />
