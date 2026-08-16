@@ -186,3 +186,46 @@ Representative non-member namespace uses: `Object.entries(roleRecognizeCopy)` (`
 4. **Every repaired form occurs zero times in the live domain.** The repair is therefore verdict-neutral on today's corpus — a checkable claim, not an argument — and the value is that the first ordinary refactor to introduce one of these forms does not silently blind the guard.
 5. **`computed member access on process` has zero instances repo-wide.** It is carried through the propagation change because it shares the mechanism with the dynamic-import rule, not because it was measured to matter.
 6. **A namespace-precise repair is required, not a module-closure one.** `NEG namespace, spawning sibling export untouched` is the foil: a module-closure rule would classify it environment-touching and reproduce the over-classification the canonical spec rejected by name.
+
+## Round-2 addendum — probes raised by round-1 review, independently reproduced
+
+Round-1 adversarial review raised ten behavioural claims about the same #827 tree. Each was re-measured here with the same harness rather than accepted as reported, because a relayed measurement is an assumption wearing a number.
+
+**Method.** Identical to probes 1 and 2 above: a throwaway module tree under `mkdtempSync`, then `classifyTests(root, "tests/probe.test.ts")`. The hook cases place the construct in a `beforeEach` or `beforeAll` body inside a `describe`; the producer case puts it in the argument to `describe.each`; the dynamic-namespace case binds `const ns = await import(<string literal>)` and then reads `ns.spawner()`.
+
+```
+C1 beforeEach body: non-literal import()                    ->  environment-free
+C2 beforeAll body: computed process access                  ->  environment-free
+C3 describe.each producer: non-literal import()             ->  environment-free
+C5 CONTROL own body                                         ->  unclassifiable (dynamic import() with a non-literal specifier)
+C6 CONTROL hook reaching provenance                         ->  environment-touching
+DYN-NS  const ns = await import(literal); ns.spawnHelper()  ->  environment-free
+DYN-DESTRUCTURED CONTROL                                    ->  environment-touching
+B8 local same-name PLUS export{x}from                       ->  environment-free
+B9 export namespace NS { spawning }                         ->  environment-free
+GARBAGE in-repo module                                      ->  environment-free
+```
+
+All ten reproduced. Consequences, each now carried by the parent spec:
+
+1. **The hook and `describe.each` paths discard every reason.** C1-C3 versus C5 isolates it exactly: the same construct reports from the test's own body and is silent through a hook, and C6 shows the hook path itself works for provenance. The cause is `classifyTests` testing the hook `reaches` result for a single value, so the repair is `reaches` returning its reasons rather than a scalar (parent spec §2.6).
+2. **A dynamic namespace binding is unrepaired.** DYN-NS against its destructured control shows the defect is the spelling, not the dynamic path.
+3. **An `extents`-first resolver would preserve the defect.** B8 is legal TypeScript holding both a non-exported local and a re-export of the same name; resolution order is therefore part of the contract (parent spec §2.2).
+4. **`export namespace` matches a modifier-keyed E1 predicate and resolves to an empty extent.** B9 is why E1 is keyed on the four registered declaration kinds instead.
+5. **Canonical unclassifiable form 4 is dead code.** GARBAGE parses fine — `ts.createSourceFile` is error-tolerant, `moduleFacts` returns null only when `!existsSync`, and `resolveSpecifier` has already `existsSync`-checked. The round-1 draft claimed this arc made it reachable; it does not, and the claim is retracted (parent spec §4 limit 8).
+
+## Round-2 addendum — export-form counts, by grain
+
+Round-1 review could not reproduce the "117 named re-export specifiers" figure and measured 54 by counting statements. Both numbers were right about different things, so the census was re-run reporting both grains explicitly. AST walk over every tracked `.ts`/`.tsx` (3,271 files):
+
+```
+   117  export-from:spec          (export { a, b } from "./m"  ->  2 specifiers)
+    46  export-local:spec
+    41  export-from:stmt
+    29  export-local:stmt
+     9  export-default-expr:stmt
+     4  export-local:spec:aliased
+     1  export-star-from:stmt
+```
+
+`export-from:spec:aliased`, `export-star-as:stmt` and `export-equals:stmt` are absent — zero repo-wide, which is what the parent spec's declined list rests on. The lesson is the reporting, not the value: a specifier count and a statement count for the same construct differ by nearly threefold here, and a table that does not say which one it holds is unreproducible by construction.
