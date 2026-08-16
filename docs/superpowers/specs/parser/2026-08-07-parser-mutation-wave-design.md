@@ -18,7 +18,7 @@ Five hardening projects, one per operator class, each fenced to its class:
 | ref-sub          | `refSub` (`operators.ts:70`)                                | 3314 (3094 / 220)           | literal detector → warn `REF_ERROR_LITERAL`     |
 | merged-cell      | `mergedCell` (`operators.ts:100`)                           | 2404 (2271 / 133)           | width discriminator → warn `ROW_CELLS_FUSED`    |
 | column-shift     | `columnShift` (`operators.ts:144`)                          | 211 (193 / 18)              | autocorrect + `LEADING_COLUMN_AUTOCORRECTED`    |
-| section-reorder  | `sectionReorder` (`operators.ts:228`)                       | 82 (58 / 24)                | harden venue scope (10); ratify + document 72   |
+| section-reorder  | `sectionReorder` (`operators.ts:228`)                       | 82 (58 / 24)                | harden venue scope (24 measured, 10 predicted); ratify + document 59 |
 
 Out of scope: `BL-SERVER-ACTION-ORIGIN-GATE` (parked for a dedicated auth pass, per its own trigger clause in `BACKLOG.md`); the two documented-finding operator classes (`header-typo` → audit #5, `blank-row:*` → audit #10 / `BL-EXPORT-BLANK-ROW-SEGMENTATION`); the source-mutation guard gate (`tests/mutation/source/registry.ts` — a DIFFERENT harness, program-text mutants, not touched here).
 
@@ -213,7 +213,7 @@ A legitimately indented section must not fire. The trigger requires ALL rows the
 
 ### 7.2 The one bug — `parseVenue`'s positional unknown-field scope
 
-Every lost signal in the 10 real-loss rows is `UNKNOWN_FIELD` + its paired `raw_unrecognized` entry, all from one emitter (`lib/parser/blocks/venue.ts:314`) gated by `inVenueFieldScope` (`venue.ts:77`): the flag flips on at the first resolved venue field and off only at a col-0 `VENUE_BLOCK_TERMINATORS` match (`venue.ts:81-99`), so the venue parser is the de-facto unknown-field detector for the ENTIRE document tail, with a coverage window defined by document POSITION rather than block identity. Swapping the VENUE block later — or a terminator-bearing block earlier — truncates the window and silently extinguishes up to 98% of a sheet's data-quality warnings.
+Every lost signal in the real-loss rows (predicted 10; **measured 24 in branch 5's collected run** — §7.4 amendment) is `UNKNOWN_FIELD` + its paired `raw_unrecognized` entry, all from one emitter (`lib/parser/blocks/venue.ts:314`) gated by `inVenueFieldScope` (`venue.ts:77`): the flag flips on at the first resolved venue field and off only at a col-0 `VENUE_BLOCK_TERMINATORS` match (`venue.ts:81-99`), so the venue parser is the de-facto unknown-field detector for the ENTIRE document tail, with a coverage window defined by document POSITION rather than block identity. Swapping the VENUE block later — or a terminator-bearing block earlier — truncates the window and silently extinguishes up to 98% of a sheet's data-quality warnings.
 
 **The venue scope owns 27 of the ledger's 39 REAL signal losses** (probe §13.5: 10 here + 17 in the data-cell classes; the remaining 12 are agenda-block resolution ×7, unknown-section-header ×4, section-header-no-fields ×1). The data-cell instances all close via their own class detectors (§4.3, §5, §6.4: the new warning fires regardless), so the bounded ledger target here is the 10 section-reorder rows — but the mechanism hardened is the one behind 27 of 39. An earlier location-based inference ("313 of 371 signal-loss rows share this mechanism") was REFUTED by the live-parser run (probe §13.5); do not re-derive it from the ledger's surface tables.
 

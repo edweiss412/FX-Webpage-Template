@@ -1,5 +1,12 @@
 # Branch 5: feat/mutation-section-order — venue-scope hardening + contract ratification
 
+> **CORRECTION 2026-08-16 — the counts in this file are refuted by measurement.** Branch 5
+> shipped the content-keyed near-miss detector, and the collected harness run closes **24**
+> `section-reorder` rows (not the 10 named below — those ten are a strict subset), leaves **59**
+> (not 72), opens 17 new holes, and drifts 1,002 of 1,088 fingerprints, so the ledger was
+> REGENERATED to 1,019 rows rather than edited. Every "10" and "72" below is the authored
+> prediction, kept for provenance. Authority: `00-overview.md` AC-W1 and
+> `docs/superpowers/specs/parser/probes/2026-08-16-newhole-mechanism.md`.
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development or superpowers:executing-plans. Read [00-overview.md](./00-overview.md) first — Stage 0 (worktree, claim `BL-MUTATION-SECTION-ORDER`, marker, push) precedes Task 1. Branches 1-4 merged.
 
 **Goal:** Make unknown-field emission coverage a function of block identity rather than document position (spec §7.2), closing the 10 real-loss rows; re-map the 72 ratified rows to a documented finding (spec §7.4).
@@ -151,14 +158,14 @@ Implementation notes for the engineer (the parity snapshots arbitrate every choi
 
 <!-- task: red=`pnpm exec vitest run tests/parser/mutation/knownHoles.test.ts` ac=AC-S3,AC-S4 -->
 
-- [ ] **Step 1:** Delete EXACTLY these 10 rows from `RAW_HOLES` (the §2.3 real-loss siteIds):
+- [ ] **Step 1:** ~~Delete EXACTLY these 10 rows from `RAW_HOLES` (the §2.3 real-loss siteIds):~~ **Superseded 2026-08-16** — regenerate `RAW_HOLES` from the harness's own collected alarms; the measured closure is 24 within this operator and 86 overall. The ten below are a strict subset, kept for provenance:
 
 ```bash
 perl -ni -e 'print unless /^section-reorder:(2025-03-dci-rpas-central:B1[459]|2025-04-asset-mgmt-cfo-coo:B1[45]|2025-06-ria-investment-forum:B[3478]|2025-10-consultants-roundtable:B22):/' tests/parser/mutation/knownHoles.ts
 ```
 
 - [ ] **Step 2 (PINNED — r1 F4):** `OPERATOR_FINDING_MAP["section-reorder"]` KEEPS the exact string `"BL-MUTATION-SECTION-ORDER"` — no map value change. `knownHoles.test.ts:153` validates SHAPE only (audit #N or BL- id), and the umbrella precedent (its comment at `knownHoles.test.ts:135-138`) is that an ARCHIVED row keeps its id resolvable — this PR's backlog close moves the row to `BACKLOG-archive.md` carrying the §7 ratification + 72-row documented-limit note, exactly like `BL-MUTATION-HARNESS-OPEN-HOLES` before it. Update the map's inline comment from "parser order-sensitivity" to "documented: source order ratified (spec 2026-08-07 §7; archived row)" and the suite's comment to name the archive location.
-- [ ] **Step 3:** Full harness: four buckets empty (72 section-reorder rows remain, documented; 10 gone). `knownHoles.test.ts` green.
+- [ ] **Step 3:** Full harness: four buckets empty (**59** section-reorder rows remain, documented; **24** gone — measured 2026-08-16, not the 72/10 predicted). `knownHoles.test.ts` green.
 - [ ] **Step 4:** Backlog: close `BL-MUTATION-SECTION-ORDER` (archive move carrying the §7 ratification + 72-row documented-limit note), remove the IN PROGRESS marker in the PR's last commit.
 - [ ] **Step 5:** Full suite + typecheck + lint + format; PR (parity evidence, ledger-regeneration record, re-map, substitute-review deviation); merge; `0  0`. Wave complete: verify AC-W1 against the MEASURED census. **Amended 2026-08-16 (implementation):** the "10-row shrink" and the `≈1,107` replay are both refuted — the collected harness run closes 86 holes, opens 17, drifts 1,002 fingerprints, and the ledger is regenerated to **1,019** rows (section-reorder 59, all kind `wrong`). See `00-overview.md` AC-W1 and `docs/superpowers/specs/parser/probes/2026-08-16-newhole-mechanism.md`.
 

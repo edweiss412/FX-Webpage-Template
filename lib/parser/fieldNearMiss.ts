@@ -231,6 +231,15 @@ function anchorNamespace(opener: string): string {
 export function detectFieldNearMisses(markdown: string, agg: ParseAggregator): void {
   const vocab = buildVocabulary();
   const freq = tokenDocFrequency(vocab);
+  // The ledger COUNTS occurrences (`markConsumed` increments), so the reader must DRAW THEM
+  // DOWN rather than ask `.has(...)`. A set test silences every row sharing a key on the
+  // strength of one resolution, and the key is a trimmed triple — so a document holding the
+  // same (opener, label, value) row twice had both occurrences suppressed by one resolution,
+  // one ordinary copy/paste edit away from a near-miss going silent (whole-diff r2 F1). The
+  // draw-down is over a LOCAL copy: `agg.consumed` is the writers' record of what the block
+  // parsers resolved, and a reader that consumed it in place would leave the aggregator
+  // saying something different depending on whether the detector had run.
+  const remaining = new Map(agg.consumed);
   for (const row of scanRowsWithOpener(markdown)) {
     const col0 = clean(row.cells[0] ?? "");
     if (!isCandidateLabel(col0)) continue;
@@ -239,7 +248,12 @@ export function detectFieldNearMisses(markdown: string, agg: ParseAggregator): v
     // `clean`ed cell text on both key components, exactly as every `markConsumed` call
     // site builds them — an uncleaned probe would miss a ledgered row and warn on it.
     const value = clean(row.cells[1] ?? "");
-    if (agg.consumed.has(consumptionKey(row.opener, col0, value))) continue;
+    const key = consumptionKey(row.opener, col0, value);
+    const left = remaining.get(key) ?? 0;
+    if (left > 0) {
+      remaining.set(key, left - 1);
+      continue;
+    }
     const block = anchorNamespace(row.opener);
     emitUnknownField(agg, { block, kind: block, key: col0, value, candidate: match.entry.raw });
   }

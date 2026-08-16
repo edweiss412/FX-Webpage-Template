@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { newAggregator } from "@/lib/parser/warnings";
+import { parseSheet } from "@/lib/parser";
 import { parseEventDetails, SECTION_HEADER_TOKENS } from "@/lib/parser/blocks/event";
 import { parseTransportation, TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
 import { premiseHolds } from "@/tests/_shared/premise";
@@ -124,5 +125,57 @@ describe("consumption ledger (spec §3.3)", () => {
     const agg = newAggregator();
     parseTransportation(v2md, "v2", undefined, agg);
     expect(hasEntry([...agg.consumed.keys()], "TRANSPORTATION", "Rental Pickup")).toBe(true);
+  });
+});
+
+describe("the ledger COUNTS occurrences, and the reader draws them down (whole-diff r2 F1)", () => {
+  // The writers count: `markConsumed` does `set(key, (get(key) ?? 0) + 1)`
+  // (`lib/parser/warnings.ts:75`). The reader originally asked `.has(key)`, which is a SET
+  // test, so a document holding the same (opener, label, value) triple TWICE had both rows
+  // silenced by ONE resolution. That is a near-miss of a field the sheet shows going silent
+  // with no signal at all — the one outcome the spec §1.1 item 8 consequence bound forbids —
+  // and it is reachable by a single ordinary copy/paste edit inside the committed corpus.
+  const FIXTURE = "fixtures/shows/exporter-xlsx/fintech.md";
+  const md = readFileSync(FIXTURE, "utf8");
+  const ROW = "| Load In: | Carlos Pineda |  |  |  |";
+
+  // The emitted label is read from `rawSnippet`'s "<label> | <value>" head, which is the
+  // field the emitter actually writes. An earlier draft of this case read a `key` property
+  // that `ParseWarning` does not carry: every extraction came back "", both assertions
+  // compared empty arrays, and the case failed even against the repaired parser. Scoped to
+  // this one label so an unrelated corpus emission cannot satisfy it.
+  const loadInWarnings = (doc: string): string[] =>
+    (parseSheet(doc, "fintech.md").warnings ?? [])
+      .filter((w) => w.code === "UNKNOWN_FIELD")
+      .map(
+        (w) =>
+          String((w as { rawSnippet?: unknown }).rawSnippet ?? "")
+            .split(" | ")[0]
+            ?.trim() ?? "",
+      )
+      .filter((label) => label === "Load In:");
+
+  it("the fixture really holds that row exactly once, and it is silent as shipped", () => {
+    // Premise, executable: if the row moved or the label changed, the duplication below
+    // would exercise nothing and the count assertion would pass vacuously.
+    const occurrences = md.split("\n").filter((l) => l.trim() === ROW.trim()).length;
+    premiseHolds(
+      `${FIXTURE} holds "${ROW.trim()}" exactly once (found ${occurrences})`,
+      occurrences === 1,
+    );
+    // And it is consumed today: `Load In:` is a near-miss of the vocabulary entry
+    // "Load In at Venue", so if it were NOT ledgered it would already be warning.
+    expect(loadInWarnings(md)).toEqual([]);
+  });
+
+  it("duplicating it warns exactly once — the second occurrence is not covered by the first", () => {
+    const lines = md.split("\n");
+    const at = lines.findIndex((l) => l.trim() === ROW.trim());
+    const dup = [...lines.slice(0, at + 1), lines[at]!, ...lines.slice(at + 1)].join("\n");
+    // Exactly one: the block parser resolves one occurrence, so one unit of the ledger's
+    // count is drawn down and the remaining occurrence is an unresolved near-miss. Asserting
+    // `toHaveLength(1)` fails in BOTH directions — 0 is the set-test bug it was written for,
+    // and 2 would mean the draw-down stopped covering the resolved row at all.
+    expect(loadInWarnings(dup)).toHaveLength(1);
   });
 });

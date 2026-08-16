@@ -94,9 +94,10 @@ export const OPERATOR_FINDING_MAP: Record<string, string> = {
   "blank-row:inject": "#10", // blank-row segmentation split (audit #10)
   "blank-row:remove": "#10", // blank-row segmentation fuse (audit #10)
   "merged-cell": "BL-MUTATION-MERGED-CELL", // exported merged-cell fusion
-  // VALUE UNCHANGED on purpose (wave plan 05-section-order Task 4 Step 2): the 72 rows
+  // VALUE UNCHANGED on purpose (wave plan 05-section-order Task 4 Step 2): the 59 rows
   // that remain still resolve through this id, and an ARCHIVED entry keeps its id
-  // resolvable exactly as BL-MUTATION-HARNESS-OPEN-HOLES did before it.
+  // resolvable exactly as BL-MUTATION-HARNESS-OPEN-HOLES did before it. (59, not the 72 the
+  // wave plan predicted — the collected run closed 24 of the 82, not 10.)
   "section-reorder": "BL-MUTATION-SECTION-ORDER", // documented: source order ratified (spec 2026-08-07 §7; archived row)
 };
 
