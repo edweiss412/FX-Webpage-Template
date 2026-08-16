@@ -7,7 +7,7 @@ Branch: `feat/diagram-demote-notice` · Spec: `docs/superpowers/specs/crew/2026-
 
 | Task | What landed |
 | --- | --- |
-| C1 | `DEMOTE_CHIP_VISIBLE_MS = 6000` + the DESIGN.md §5.5 row in the same commit; `demotedNoticeId` state set in the branch that announces; `relative` on the slide figure; the `aria-hidden`, `pointer-events-none` chip in the Reset chip's token family; four clear conditions; the `openNonce` counter in the parent gallery; 15 tests. |
+| C1 | `DEMOTE_CHIP_VISIBLE_MS = 6000` + the DESIGN.md §5.5 row in the same commit; the session-stamped `demotedNotice: { id, nonce }` state set in the branch that announces (a bare id at first — see the review section below); `relative` on the slide figure; the `aria-hidden`, `pointer-events-none` chip in the Reset chip's token family; four clear conditions; the `openNonce` counter in the parent gallery; 15 tests. |
 | C3 | Merge, full gates, impeccable dual gate, ledger archive, cross-model diff review, CI, merge. |
 
 ## Step-0 probe (recorded, per the plan)
@@ -69,6 +69,15 @@ implementation, not just the tests:
   `flushSync` around the re-open produces; the case now asserts the commit as its premise and then
   fires.
 
+R3 then found that the FIRST of those repairs had never reached the file: the edit script that
+rewrote the exit-window case aborted on a later assertion and wrote nothing, so the same finding was
+raised twice against an unchanged test while the commit message claimed it fixed. It is applied now,
+with two additions the second attempt earned: the case asserts the gate's OWN observable — no chip
+paints on the retained instance mid-exit, before any re-open — because after a re-open the session
+stamp would hide a leaked notice anyway, so a post-re-open assertion alone cannot tell a working gate
+from a deleted one. Probed by mutation: replacing `closedAtNonce !== openNonce` with `true` reds this
+case (1 failed / 40 passed), and the tree is restored.
+
 Fixing the second case surfaced a real defect in the implementation and changed it. The chip state
 was a bare id cleared by a render-phase adjustment against a `lastNonce` state value; in the same
 batch as a re-entry, that adjustment could wipe a demote set moments earlier — the live-session
@@ -90,7 +99,7 @@ with a live capture. Detector: the only hits are pre-existing `broken-image` fal
 | --- | --- | --- | --- |
 | A1 | P2 | Audit: `transition-discrete` on the chip is a no-op — that variant exists for discrete properties like `display`, and this chip toggles none. It advertises an exit treatment that cannot run, since React unmounts the node outright. | **FIXED in-branch.** Class removed; the comment now states that the fade is entry-only and that the instant unmount is the spec's deliberate choice. `starting:opacity-0` + `transition-opacity` still drive the mount ramp. |
 | C1 | P3 | Critique: the Reset chip centers via a flex wrapper; the demote chip centers itself with `inset-x-0 mx-auto w-fit`. Same result, different technique between two chips of one visual family. | **Accepted, with the reason.** Reset needs the wrapper because a pointer-transparent overlay has to re-enable pointer events on the button inside it; this chip is non-interactive and needs no wrapper, so adding one would be ceremony that exists only to match a shape whose cause does not apply. |
-| A2 | P3 | Audit: the render-phase nonce reset clears `demotedNoticeId` but not `demoteTimerRef`; the orphaned timer is superseded by the next demote's own `clearTimeout`. | **Accepted, no change.** Every path that ends the chip's life outside render (close, second failure, unmount) clears the timer in an event handler or effect; the callback is id-guarded, so the worst case is one no-op state set. Clearing it during render would reintroduce the ref write the amendment above exists to avoid. |
+| A2 | P3 | Audit: the render-phase nonce reset cleared chip state but not `demoteTimerRef`; the orphaned timer was superseded by the next demote's own `clearTimeout`. | **OVERTAKEN and moot.** The render-phase reset no longer exists — the notice is session-stamped and filtered at render (see the review section below), so there is nothing left to half-clear. The timer is still cleared at every event-handler and effect path, with an id-guarded callback as the backstop. |
 | C2 | — | Critique: the code comment said "eleven characters" for a 23-character string (inherited from spec §4 limit 1). | **FIXED in-branch** in the comment and in BOTH spec sites — §2.1's rationale and §4 limit 1, the second of which the first repair missed and cross-model diff review R1 caught. |
 
 P0: none. P1: none. P2: one, fixed in-branch. No `DEFERRED.md` entry is required because nothing at

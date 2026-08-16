@@ -1169,21 +1169,45 @@ describe("Gallery — the demote chip never survives a dialog session", () => {
   }
 
   test("a demote DURING the exit window cannot repopulate the chip on re-open", () => {
+    // NOT `openAndDemote()`: that helper already fails the original, so a second
+    // error on the same slide is the CLAMPED tier failing and lands in the
+    // placeholder branch — the demote branch and its gate would never run, and
+    // deleting the gate would leave this case green. The slide here reaches the
+    // exit window UNDEMOTED with zoom intent pinned, so the error below is a
+    // genuine first failure of the original.
     open([ladderItem(1), ladderItem(2)]);
-    const activeImage = openAndDemote();
+    act(() => {
+      fireEvent.click(thumbButton(0));
+    });
+    const dialog = screen.getByTestId("diagrams-lightbox");
+    const activeImage = dialog
+      .querySelector('[data-testid="rzpp-component"]')!
+      .querySelector("img")!;
+    act(() => zoom.emit(2.5));
+    premiseHolds(
+      "nothing has failed yet, so there is no chip",
+      document.querySelector(CHIP) === null,
+    );
 
-    // Let the first chip go, so what this measures is the exit-window demote and
-    // not the one before it.
     act(() => {
       fireEvent.click(screen.getByRole("button", { name: /close gallery/i }));
     });
     premiseHolds("the exit window is open", presence.exiting);
     premiseHolds("the retained slide can still fail", activeImage.isConnected);
-    premiseHolds("the close already cleared the chip", document.querySelector(CHIP) === null);
 
     act(() => {
       fireEvent.error(activeImage);
     });
+
+    // THE GATE'S OWN OBSERVABLE, asserted before any re-open: the retained
+    // instance is still rendering at the nonce this notice would carry, so
+    // without the gate a chip paints HERE, over a dialog the user is watching
+    // disappear. (After a re-open the stamp check would hide it anyway, which is
+    // why asserting only the post-re-open state cannot tell the two apart.)
+    expect(
+      document.querySelector(CHIP),
+      "no chip paints on the retained instance mid-exit",
+    ).toBeNull();
 
     act(() => {
       fireEvent.click(thumbButton(0));
@@ -1193,10 +1217,11 @@ describe("Gallery — the demote chip never survives a dialog session", () => {
   });
 
   test("a failure that lands AFTER the re-entry commit still gets its chip", () => {
-    // The positive half of the closing gate, and the reason the nonce reset runs
-    // during render rather than in an effect: a DOM error event dispatched after
-    // the re-entry render must find `closingRef` already false. An effect-timed
-    // reset leaves a window where this live-session demote is silently dropped.
+    // The positive half of the gate. A DOM error event dispatched after the
+    // re-entry render must find the session already advanced — with the shipped
+    // shape that means the notice it writes carries the LIVE nonce and renders.
+    // An implementation that cleared a closing flag in an effect would still be
+    // suppressing at this instant, which is what this case exists to reject.
     open([ladderItem(1), ladderItem(2)]);
     act(() => {
       fireEvent.click(thumbButton(0));
@@ -1216,7 +1241,7 @@ describe("Gallery — the demote chip never survives a dialog session", () => {
       // flushing passive effects, which is the exact window R4 F1 describes.
       // Firing the error in a plain act() either commits nothing yet (measured:
       // the exit is still in progress) or flushes effects first, and neither
-      // ordering can tell a render-time reset from an effect-timed one.
+      // ordering can tell a render-time mechanism from an effect-timed one.
       flushSync(() => {
         fireEvent.click(thumbButton(0));
       });
