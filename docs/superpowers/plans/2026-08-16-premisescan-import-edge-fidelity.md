@@ -20,6 +20,7 @@
 - **A `-t` filter that matches nothing EXITS 0 — probed, not assumed.** `npx vitest run tests/mutation/source/premiseScan.test.ts -t "no such block name xyzzy"` reports `Tests 22 skipped (22)` and exits `0`. Every `red=` below filters on a describe block that does not exist until that task's Step 1 writes it, so: (a) Step 1 always precedes the red observation — never reorder; (b) the red criterion is a non-zero **FAILING** count, never a non-zero exit and never `skipped`.
 - **Heavy-slot rule (AGENTS.md).** Every full harness run is `pnpm heavy pnpm mutation:guards`; every full suite run is `pnpm heavy pnpm test`. Scoped vitest runs with an explicit file list stay UNWRAPPED — Tasks 1-5 and 7 use such runs deliberately unwrapped; Task 6's `red=` is the harness itself and IS wrapped.
 - **AST only, never the type checker.** `premiseScan` builds source files with `ts.createSourceFile` and has no `ts.Program`. Introducing one would need a program build per module and blow AC-14.
+- **Every reporting case asserts its REASON, via `expectReported` — no bare `.toBe("unclassifiable")` anywhere.** Round-2 review counted 28 planned executions that asserted only the verdict, across Tasks 1, 3, 4 and 5; each would pass on a generic or misattributed reason while the arc's central reason-carrying contract went unproved. The rule is stated once here and enforced by the helper rather than by 28 hand-written checks, so a case added later inherits it: if a new case expects `unclassifiable`, it calls `expectReported(classificationWithModules(…), { construct, module })`. The only exception is a case whose subject IS the verdict lattice (AC-12's precedence branches), which asserts the verdict alone and says so inline.
 - **No bound expressed as a NUMBER.** Termination comes from the finite `(modulePath, exportName)` visited set (spec §2.5), never a depth counter.
 - impeccable-gate: N/A — no UI surface. No file under `app/`, `components/`, `app/globals.css`, `tailwind.config.*` or `DESIGN.md` is touched.
 
@@ -70,10 +71,12 @@ mkdir -p .claude/probe && git check-ignore -v .claude/probe
 npx tsx .claude/probe/importForms.ts        # spec §3.1 + §3.2 tables
 npx tsx .claude/probe/hookSeed.ts           # spec §3.11 rows A-E
 npx tsx .claude/probe/exportedDynamic.ts    # spec §3.12 exported-dynamic rows
-npx tsx .claude/probe/runtimeImportShapes.ts # spec §3.13 live/near populations
+REGISTRY_SRC=tests/mutation/source/registry.ts npx tsx .claude/probe/runtimeImportShapes.ts # spec §3.13
 REGISTRY_SRC=tests/mutation/source/registry.ts npx tsx .claude/probe/acceptSetCover.ts
 WIDE=1 REGISTRY_SRC=tests/mutation/source/registry.ts npx tsx .claude/probe/acceptSetCover.ts
 ```
+
+**Point every harness at the LIVE registry, not the gitignored snapshot.** The runtime-shape harness and the accept-set cover harness both read `REGISTRY_SRC`, which defaults to a registry SNAPSHOT taken under the gitignored probe directory at draft time; that snapshot held 31 `suitePaths` while the branch had already moved to 33. Re-anchoring against a stale snapshot is the moving-base defect this step exists to catch, wearing the step's own clothes — so each command above passes the tracked registry explicitly.
 
 Expected: spec §3.1, §3.2, §3.11, §3.12 and §3.13 unchanged, and §3.3b's live figure still zero misses. **NOT re-run here, and not claimed:** probe 3 (the §3.3/§3.4 population walk) whose source the probe record deliberately describes rather than reproduces, and the §3.6-§3.9 one-off narrowing probes. Those fed draft-time design decisions that AC-1 re-derives executably; if a §3.1/§3.2/§3.11/§3.13 row has moved, **the design is re-derived before implementation, not after.**
 
@@ -98,7 +101,14 @@ Write the seconds figure to `"$PROBE_DIR/corpus-pass-baseline.txt"`, where **`PR
 ```bash
 PROBE_DIR="$(git rev-parse --show-toplevel)/.claude/probe"; mkdir -p "$PROBE_DIR"
 # … run the measurement above, then:
-printf '%s\n' "<the corpus-pass seconds figure>" > "$PROBE_DIR/corpus-pass-baseline.txt"
+# Write it from the MEASUREMENT, never by transcription: a literal placeholder,
+# a copied figure, or any typo becomes NaN, and NaN fails both AC-14 comparisons
+# OPEN (`NaN > 30` and `NaN > base*3` are both false), so a 1.5s -> 29s
+# regression would pass the very gate that exists to catch it.
+npx tsx -e '…the measurement above…' | sed -n 's/.*corpus-pass=\([0-9.]*\)s.*/\1/p' \
+  > "$PROBE_DIR/corpus-pass-baseline.txt"
+grep -Eq '^[0-9]+(\.[0-9]+)?$' "$PROBE_DIR/corpus-pass-baseline.txt" \
+  || { echo "baseline is not a bare positive number"; exit 1; }
 ```
 
 The file is a gitignored scratch file in the worktree's probe directory — Task 6 Step 1 reads that file and fails on a ratio, so the baseline must be a recorded value rather than a remembered one. The pre-merge measurement on 2026-08-16 was `suites=29 tests=1314 corpus-pass=1.49s`; post-#827 the suite count is 31, so re-measure rather than reusing that number. Expected: the meta-contract PASSES with every declared count holding — 31 rows post-#827, the two added being `tests/mutation/source/premiseScan.test.ts` (declared `0`) and `tests/mutation/_metaPremiseContract.test.ts` (declared `1`).
@@ -118,7 +128,7 @@ git merge-base origin/main HEAD | cut -c1-12
 
 Spec §2.1, §2.2 rows E1-E4, §2.4, and §2.6 items 1 and 3. The structural task.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:111` why=`ANCHOR IS PRE-MERGE: :111 is the default-import registration on the tracked tree today (imports.set(clause.name.text, spec)); Task 0 merges #827 and re-anchors before this task runs. The defect is identical in both versions - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-4b,AC-5,AC-5d,AC-9,AC-9b,AC-9c,AC-9d,AC-10c -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:111` why=`ANCHOR IS PRE-MERGE: :111 is the default-import registration on the tracked tree today (imports.set(clause.name.text, spec)); Task 0 merges #827 and re-anchors before this task runs. The defect is identical in both versions - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-4b,AC-5,AC-5d,AC-9,AC-9b,AC-9c,AC-9d -->
 
 **Files:**
 
@@ -166,7 +176,9 @@ function resolveExport(
  * Write N helper modules plus a test importing them; return the classification.
  * `modules` is keyed by basename; a key containing a dot carries its own
  * extension ("data.json"), otherwise `.ts`. In every source string,
- * `__MODULE_<basename>__` is replaced by the generated specifier: with the
+ * `__MODULE_<basename>__` is replaced by the generated specifier, and
+ * `__MODULE_NOEXT_<basename>__` by the same specifier with its extension
+ * stripped (AC-5c's extensionless case): with the
  * extension included when it is not `.ts`, because `resolveSpecifier` only
  * reaches a non-TS file when the specifier spells it out.
  * split/join, not `replace`, so a module referenced twice substitutes twice.
@@ -198,7 +210,16 @@ function classificationsWithModules(
   }
   const subst = (text: string): string => {
     let out = text;
-    for (const [base, s] of Object.entries(spec)) out = out.split(`__MODULE_${base}__`).join(s);
+    for (const [base, s] of Object.entries(spec)) {
+      // `__MODULE_NOEXT_<base>__` yields the SAME specifier with its extension
+      // stripped. AC-5c's unresolved-specifier case needs an extensionless
+      // reference to an EXISTING `.mjs` sibling, same basename, so that it
+      // reports only because candidate generation is not widened. A fixture
+      // pointing at a different basename reports either way and cannot pin
+      // that settled decision.
+      out = out.split(`__MODULE_NOEXT_${base}__`).join(s.replace(/\.[^./]+$/, ""));
+      out = out.split(`__MODULE_${base}__`).join(s);
+    }
     return out;
   };
   for (const [key, src] of Object.entries(modules)) {
@@ -227,6 +248,26 @@ function classificationWithModules(
 
 function verdictWithModules(modules: Record<string, string>, testSrc: string): string {
   return classificationWithModules(modules, testSrc)?.verdict ?? "<no test found>";
+}
+
+/**
+ * EVERY case that expects a report goes through this, never through a bare
+ * `.toBe("unclassifiable")`. A verdict-only assertion passes on a generic or
+ * MISATTRIBUTED reason, and the whole contract of reporting is that the reader
+ * is told which construct, in which module (spec §2.6 item 2), so a
+ * verdict-only reporting case leaves the arc's central claim unproved.
+ *
+ * `construct` matches the reason text; `module` matches the module the
+ * construct was FOUND in, which for a barrel defect is the BARREL, not the
+ * importing test file.
+ */
+function expectReported(
+  c: TestClassification | undefined,
+  expected: { construct: RegExp; module: RegExp },
+): void {
+  expect(c?.verdict).toBe("unclassifiable");
+  expect(c?.detail ?? "").toMatch(expected.construct);
+  expect(c?.detail ?? "").toMatch(expected.module);
 }
 ```
 
@@ -358,25 +399,6 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
     ).toBe("environment-touching");
   });
 
-  it("an EXPORT beats a same-named non-exported local (AC-10c)", () => {
-    // Resolution order. An extents-first resolver answers with the local and
-    // preserves the silent free through the barrel: the diagnosed defect under
-    // a new name. Probe B8 measures this environment-free today.
-    expect(
-      verdictWithModules(
-        {
-          helper: `import { spawnSync } from "node:child_process";
-            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
-          barrel: `function spawnHelper(): number { return 0; }
-            void spawnHelper;
-            export { spawnHelper } from "__MODULE_helper__";`,
-        },
-        `import { spawnHelper } from "__MODULE_barrel__";
-         it("x", () => { spawnHelper(); });`,
-      ),
-    ).toBe("environment-touching");
-  });
-
   it("a data import is PURE, on a fixture that is RED today (AC-9)", () => {
     // Two conditions make this discriminating. The specifier must spell out the
     // extension, or resolveSpecifier never reaches the file at all. And the
@@ -496,7 +518,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
         `import { spawnHelper } from "__MODULE_page__";
          it("x", () => { spawnHelper(); });`,
       ),
-    ).toBe("unclassifiable");
+    ).toBe("unclassifiable"); // expectReported: construct /unsupported module shape|mdx/, module /page/
   });
 
   it("a renamed default CLASS resolves (AC-4b)", () => {
@@ -528,16 +550,18 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
   });
 
   it("an exported ENUM resolves (AC-5, E1 branch)", () => {
+    // Ask for the ENUM by name. A round-1 draft imported a sibling `useIt` that
+    // merely READ the enum, so the case passed even if EnumDeclaration were
+    // dropped from the E1 predicate entirely, it never requested the exported
+    // enum, which is the branch it claims to pin.
     expect(
       verdictWithModules(
         {
           helper: `import { spawnSync } from "node:child_process";
-            const r = String(spawnSync("echo", ["x"]).stdout);
-            export enum E { A = 0 }
-            export function useIt(): string { return r + E.A; }`,
+            export enum E { A = String(spawnSync("echo", ["x"]).stdout) as unknown as never }`,
         },
-        `import { useIt } from "__MODULE_helper__";
-         it("x", () => { useIt(); });`,
+        `import { E } from "__MODULE_helper__";
+         it("x", () => { void E; });`,
       ),
     ).toBe("environment-touching");
   });
@@ -614,19 +638,28 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"
 ```
 
-Expected: a non-zero FAILING count (never `skipped`). Red: `a renamed default import resolves`, `a default export that is an EXPRESSION resolves`, `export { x as y }` (the lookup asks the target for `runIt`), `an EXPORT beats a same-named non-exported local`, `a renamed default CLASS resolves`, and `an unrecognized module shape is REPORTED` — that last one fails by THROWING `EISDIR`, not by returning a wrong verdict. Also red: `a data import is PURE` — a `.json` target is parsed as TypeScript today, so the fixture measures `environment-touching` until the extension guard lands. Also red: `an .mdx target is REPORTED` — an `.mdx` target is likewise parsed as TypeScript today and measures `environment-touching`, so it reds against the expected `unclassifiable` until answer 3 lands; it is the twin of the `.json` case and the two differ in exactly the extension, which is what makes each discriminating. Already green, as foils: `a same-named default import` (name coincidence), `a pure default export stays free` — which passes by lookup MISS, not by purity, so record that rather than letting it read as evidence — `export { x }` local, the exported `const`, and the `.mjs` case. Record which cases were red.
+Expected: a non-zero FAILING count (never `skipped`). Red: `a renamed default import resolves`, `a default export that is an EXPRESSION resolves`, `export { x as y }` (the lookup asks the target for `runIt`), `a renamed default CLASS resolves`, and `an unrecognized module shape is REPORTED` — that last one fails by THROWING `EISDIR`, not by returning a wrong verdict. Also red: `a data import is PURE` — a `.json` target is parsed as TypeScript today, so the fixture measures `environment-touching` until the extension guard lands. Also red: `an .mdx target is REPORTED` — an `.mdx` target is likewise parsed as TypeScript today and measures `environment-touching`, so it reds against the expected `unclassifiable` until answer 3 lands; it is the twin of the `.json` case and the two differ in exactly the extension, which is what makes each discriminating. Already green, as foils: `a same-named default import` (name coincidence), `a pure default export stays free` — which passes by lookup MISS, not by purity, so record that rather than letting it read as evidence — `export { x }` local, the exported `const`, and the `.mjs` case. Record which cases were red.
 
-- [ ] **Step 4: Implement.** In `premiseScan.ts`:
+- [ ] **Step 4: Implement — and ONLY what this task's own tests require.** TDD invariant 1 is per task: a production behaviour whose failing test lives in a later task does not get written here. A round-1 draft implemented five such behaviours in this step (the E2 forward stub, static and dynamic namespace marking, `export { ns }` rejection, unresolved-in-repo-specifier reporting, and hook reason merging) and every one of them had its test in Task 2, 3, 4 or 5. Each has moved to the task that tests it; the note at the end of this step records where.
+
+In `premiseScan.ts`:
 
   1. Default-import registration becomes `imports.set(clause.name.text, { spec, imported: "default" })`.
-  1b. **Mark namespace bindings AT REGISTRATION, in this task, not in Task 4.** A static `NamespaceImport` records `{ spec, imported: "*", namespace: true }` on the existing import binding, and `bindPattern`'s identifier branch does the same for `const ns = await import("<literal>")`. Step 4.3 below tests `namespace` to decide that `export { ns }` reports, and Task 3's `export { ns }` case asserts it, so deferring the flag to Task 4 leaves both depending on a field nothing sets: the entry reads as an ordinary forward, the target answers `noSuchExport`, and the case is silently `environment-free`. Only the FLAG is set here. Task 4 consumes it for member resolution, the `bindingKey` member identity, and the non-member positions — none of which this task touches.
-  2. Add `exports` to `ModuleFacts`, mapping an EXPORTED name to either a local name or a node. Populate it in the same walk: for an `ExportDeclaration` without a `moduleSpecifier` whose clause is `NamedExports`, the exported name is `e.name.text` and the local name is `(e.propertyName ?? e.name).text` — the mirror of an import specifier, and the easiest thing here to get backwards; for a `VariableStatement`, `FunctionDeclaration`, `ClassDeclaration` or `EnumDeclaration` carrying an `export` modifier, map every identifier it binds to itself, reading the modifier from the STATEMENT in the variable case and walking object and array binding patterns and multiple declarators; for an `ExportAssignment` with `isExportEquals === false`, map `default` to the expression; for a declaration carrying both `export` and `default` — function OR class, named or anonymous — map `default` to the declaration. Skip anything `isTypeOnly`. **All four E1 declaration kinds are required**: probe §3.9 measures an exported class, an exported enum and a destructured `export const` each touching today, and the enrolled closure itself contains exported classes, so dropping a kind is a live regression.
-  3. Add `resolveExport(facts, exportName, active, done)` — **the same four-parameter signature the Interfaces block declares and Task 2 consumes**; a `visited` variant appeared in a round-1 draft and is not implementable against §2.5's active/done pair. **Consult `exports` FIRST and never `extents` on its own** — `extents` is reached only through an entry that has already established the name is exported. A local name resolves through module-scope `extents`; a recorded node resolves to `{ kind: "extent", nodes: [node] }`; a name that is a NON-namespace entry in `facts.imports` resolves to `{ kind: "forward", … }` (Task 2 follows it; until then treat `forward` as `unresolvable` with reason `forwarded export (not yet followed)`); a name that is a NAMESPACE entry resolves to `{ kind: "unresolvable", reason: "local re-export of a namespace binding" }`, because `export { ns }` exports the namespace object rather than a target export and forwarding it would answer `noSuchExport` and go silently pure (spec §2.2 E2, probe §3.9, population 0); a name in neither map resolves to `{ kind: "noSuchExport" }`, which is PURE on a direct request and adds no reason (spec §2.1).
-  4. Classify the resolved target **before any read**, three ways (spec §2.4): extension in `LANGUAGE_EXTENSIONS` → analyze as today; extension in `DATA_EXTENSIONS` → `data`, pure exactly as a bare specifier is; **anything else, including a DIRECTORY → `{ kind: "unresolvable", reason: \`unsupported module shape for ${spec}\` }`**. Never call `factsFor` on the last two, so a directory can no longer reach `readFileSync` and throw `EISDIR` — probe §3.9 measures that crash today. Do NOT widen `resolveSpecifier`'s candidate list. **But the miss is no longer silent** (spec §2.4b, which CLOSED the round-3 limit 5): an in-repo specifier — one starting `.`, `..` or `@/` — that fails to resolve reports `{ kind: "unresolvable", reason: \`unresolved in-repo specifier ${spec}\` }`, while a BARE specifier stays pure by L-2. Split on the specifier SHAPE, never on the null, because `resolveSpecifier` returns `null` for both.
-  5. Change `reaches` to return `Reach`, routing every `{ kind: "unresolvable", reason }` into `reasons`. **The path names the module the unresolvable was FOUND in, not the module being visited from** (spec §2.6 item 2): an unfollowable re-export is a defect of the BARREL, and naming the importing test file sends the reader to the wrong file. Task 3's `detail` assertion depends on this.
-  6. Update BOTH `reaches` call sites in `classifyTests`: the test-extent call takes `.verdict` and merges `.reasons`; the hook loop compares `.verdict === "environment-touching"` and merges `.reasons` too. Merge into `detail`, de-duplicated, alongside `ownUnresolved`. A test with non-empty `reasons` whose verdict is not `environment-touching` classifies `unclassifiable`.
-  7. Delete `moduleScopeExtent`.
-  8. Add `extname` and `relative` to the `node:path` import — the file imports only `dirname, join, resolve`.
+  2. Add `exports` to `ModuleFacts`, mapping an EXPORTED name to either a local name or a node. Populate it in the same walk: for an `ExportDeclaration` without a `moduleSpecifier` whose clause is `NamedExports`, the exported name is `e.name.text` and the local name is `(e.propertyName ?? e.name).text` — the mirror of an import specifier, and the easiest thing here to get backwards; for a `VariableStatement`, `FunctionDeclaration`, `ClassDeclaration` or `EnumDeclaration` carrying an `export` modifier, map every identifier it binds to itself, reading the modifier from the STATEMENT in the variable case and walking object and array binding patterns and multiple declarators; for an `ExportAssignment` with `isExportEquals === false`, map `default` to the expression; for a declaration carrying both `export` and `default` — function OR class, named or anonymous — map `default` to the declaration, and **only** `default`, since the declaration's own name is module-local under ES. Skip anything `isTypeOnly`. **All four E1 declaration kinds are required**: probe §3.9 measures an exported class, an exported enum and a destructured `export const` each touching today, and the enrolled closure itself contains exported classes, so dropping a kind is a live regression.
+  3. Add `resolveExport(facts, exportName, active, done)` — the same four-parameter signature the Interfaces block declares and Tasks 2-4 consume. **Consult `exports` FIRST and never `extents` on its own**; `extents` is reached only through an entry that has already established the name is exported. **VALUE branches are consulted before type-only** (spec §2.2): declaration merging makes `export interface x {}` beside `export const x = …` legal, and a type-first resolver returns pure and silently frees the value. A local name resolves through module-scope `extents`; a recorded node resolves to `{ kind: "extent", nodes: [node] }`; a name in neither map resolves to `{ kind: "noSuchExport" }`, which is PURE on a direct request and adds no reason (spec §2.1). `active` and `done` are threaded now and first exercised in Task 2.
+  4. Classify the resolved target **before any read**, three ways (spec §2.4): extension in `LANGUAGE_EXTENSIONS` → analyze as today; extension in `DATA_EXTENSIONS` → `data`, pure exactly as a bare specifier is; **anything else, including a DIRECTORY → `{ kind: "unresolvable", reason: `unsupported module shape for ${spec}` }`**. Never call `factsFor` on the last two, so a directory can no longer reach `readFileSync` and throw `EISDIR` — probe §3.9 measures that crash today. Do NOT widen `resolveSpecifier`'s candidate list.
+  5. Change `reaches` to return `Reach`, routing every `{ kind: "unresolvable", reason }` into `reasons`, and update the **test-extent call site only** — it takes `.verdict` and merges `.reasons`. **The path names the module the unresolvable was FOUND in, not the module being visited from** (spec §2.6 item 2). The HOOK call site keeps its current scalar comparison until Task 5, which is where its failing cases live.
+  6. Delete `moduleScopeExtent`.
+  7. Add `extname` and `relative` to the `node:path` import — the file imports only `dirname, join, resolve`.
+
+**Deliberately NOT implemented here, each with the task that tests it.** Until its task lands, each of these keeps today's behaviour, and this task's cases neither depend on nor assert any of them:
+
+| behaviour | implemented in | because its failing test is there |
+| --- | --- | --- |
+| E5/E6 forwarding, and the `forward` resolution kind | Task 2 | AC-5 E5/E6, AC-5b, AC-10, AC-10c |
+| the `namespace` field, namespace marking, member resolution, `export { ns }` rejection | Task 4 | AC-2, AC-2b, AC-2c, AC-3, AC-13 |
+| unresolved in-repo specifier reporting, and §2.4b's runtime rule | Task 3 | AC-5c |
+| hook-call reason merging, and the walk's hook seed | Task 5 | AC-11, AC-12, AC-12b |
 
 - [ ] **Step 5: Run the tests to verify they pass.**
 
@@ -651,7 +684,7 @@ git commit -m "fix(mutation): resolve cross-module EXPORTS, and carry traversal 
 
 Spec §2.2 rows E5 and E6, the `forward` branch Task 1 stubbed, and §2.5.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:291` why=`ANCHOR IS PRE-MERGE: :291 is the cross-module lookup on the tracked tree today (for (const ext of tf.extents.get(name) ?? [])), which reads local declarations only; Task 0 merges #827 and re-anchors. After Task 1 no ExportDeclaration carrying a moduleSpecifier is recorded at all, so a barrel re-exporting a spawning helper hits the forward stub and classifies unclassifiable instead of environment-touching; probe rows H1 reexport named/aliased/star/chain 2-deep/local reexport all measure environment-free on the unrepaired tree, and every touching case in this block reds until the forward branch follows the edge` ac=AC-5,AC-5b,AC-10 -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:291` why=`ANCHOR IS PRE-MERGE: :291 is the cross-module lookup on the tracked tree today (for (const ext of tf.extents.get(name) ?? [])), which reads local declarations only; Task 0 merges #827 and re-anchors. After Task 1 no ExportDeclaration carrying a moduleSpecifier is recorded at all, so a barrel re-exporting a spawning helper hits the forward stub and classifies unclassifiable instead of environment-touching; probe rows H1 reexport named/aliased/star/chain 2-deep/local reexport all measure environment-free on the unrepaired tree, and every touching case in this block reds until the forward branch follows the edge` ac=AC-5,AC-5b,AC-10,AC-10c -->
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
@@ -781,6 +814,25 @@ describe("forwarded exports: a re-export is followed to its source", () => {
           helper: SPAWNER,
           barrel: `import { spawnHelper } from "__MODULE_helper__";
                    export { spawnHelper };`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("an EXPORT beats a same-named non-exported local (AC-10c), moved here from Task 1, because it needs E5", () => {
+    // Resolution order. An extents-first resolver answers with the local and
+    // preserves the silent free through the barrel: the diagnosed defect under
+    // a new name. Probe B8 measures this environment-free today.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+          barrel: `function spawnHelper(): number { return 0; }
+            void spawnHelper;
+            export { spawnHelper } from "__MODULE_helper__";`,
         },
         `import { spawnHelper } from "__MODULE_barrel__";
          it("x", () => { spawnHelper(); });`,
@@ -963,6 +1015,10 @@ const SPAWNS = `import { spawnSync } from "node:child_process";
   export function spawner(): string { return String(spawnSync("echo", ["x"]).stdout); }`;
 
 describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", () => {
+  // Every case in this block reports, so every case goes through
+  // `expectReported` with the construct AND the module it was found in, the
+  // BARREL for a re-export defect, never the importing test file (spec §2.6
+  // item 2). A bare .toBe("unclassifiable") is not sufficient here.
   it.each([
     ["assignment position", `let m: any; m = await import("__MODULE_helper__"); it("x", async () => { (await m).spawner(); });`],
     ["embedded: awaited member call", `it("x", async () => { (await import("__MODULE_helper__")).spawner(); });`],
@@ -974,10 +1030,10 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     // whole point of REPORTING is that the reader is told WHICH construct and
     // WHICH module. Spec §2.6 item 2: the path names the module the construct
     // was FOUND in.
-    const c = classificationWithModules({ helper: SPAWNS }, testSrc);
-    expect(c?.verdict).toBe("unclassifiable");
-    expect(c?.detail).toMatch(/dynamic import|side-effect|unresolved in-repo specifier/);
-    expect(c?.detail).toMatch(/helper/);
+    expectReported(classificationWithModules({ helper: SPAWNS }, testSrc), {
+      construct: /dynamic import|side-effect|unresolved in-repo specifier/,
+      module: /helper/,
+    });
   });
 
   it("an EXPORTED embedded dynamic import REPORTS through the importer", () => {
@@ -1006,7 +1062,7 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     expect(
       verdictWithModules(
         { "helper.mjs": SPAWNS },
-        `import { spawner } from "./mod_MISSING_helper";\n it("x", () => { spawner(); });`,
+        `import { spawner } from "__MODULE_NOEXT_helper__";\n it("x", () => { spawner(); });`,
       ),
     ).toBe("unclassifiable");
   });
@@ -1019,18 +1075,11 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     ).toBe("environment-free");
   });
 
-  it("a LOCAL dynamic namespace resolves, the discriminating foil", () => {
-    // §2.3 binds this member-precisely and AC-2b pins it. The EXPORTED
-    // spellings are NOT foils: §2.2 REPORTS them, because once `ns` crosses a
-    // module boundary the importer holds a promise, not a namespace. A round-4
-    // draft listed them as foils that "resolve normally", contradicting §2.2.
-    expect(
-      verdictWithModules(
-        { helper: SPAWNS },
-        `it("x", async () => { const ns = await import("__MODULE_helper__"); ns.spawner(); });`,
-      ),
-    ).toBe("environment-touching");
-  });
+  // NOTE the LOCAL dynamic-namespace foil is NOT here. It expects
+  // `environment-touching`, which needs Task 4's member resolution; probe DYN-NS
+  // measures it environment-free today and nothing in this task changes that, so
+  // asserting it here would make this task's green command depend on a later one.
+  // It lives in Task 4 beside the other namespace cases.
 
   it.each([
     ["export const ns = await import()", `export const ns = await import("__MODULE_helper__");`, "ns"],
@@ -1112,23 +1161,6 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
     ).toBe("unclassifiable");
   });
 
-  it("`export { ns }` over a namespace import reports", () => {
-    // E2 forwarding would ask the target for an export named after the local
-    // alias, get noSuchExport, and go silently pure. Probe §3.9 measures free
-    // today; population 0 repo-wide, so reporting costs nothing.
-    expect(
-      verdictWithModules(
-        {
-          helper: SPAWNER,
-          barrel: `import * as helpers from "__MODULE_helper__";
-                   export { helpers };`,
-        },
-        `import { helpers } from "__MODULE_barrel__";
-         it("x", () => { helpers.spawnHelper(); });`,
-      ),
-    ).toBe("unclassifiable");
-  });
-
   it("a VALUE import of a type-only export is PURE, not unresolvable", () => {
     // NOT written as `import type { Thing }`: that form is filtered by
     // isInTypePosition before any resolution, so it would pass whatever §2.2
@@ -1163,13 +1195,13 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export forms"
 ```
 
-Expected: a non-zero FAILING count. The five reporting cases classify `environment-free` — each resolves to `noSuchExport`, which Task 1 makes pure — except `export { ns }`, which Task 1 Step 4.3 already reports, so that one is GREEN on arrival and is a regression pin rather than a red. Both foils are already green.
+Expected: a non-zero FAILING count. The five reporting cases classify `environment-free` — each resolves to `noSuchExport`, which Task 1 makes pure — The `export { ns }` case is NOT in this task; it moved to Task 4 with the namespace flag it depends on. Both foils are already green.
 
 - [ ] **Step 3: Implement.** In `moduleFacts`, record the declined forms explicitly so they resolve to `unresolvable` with their own reasons rather than falling through to `noSuchExport`: an `ExportDeclaration` whose clause is a `NamespaceExport` (`export * as ns from`); an `ExportAssignment` with `isExportEquals === true` (`export =`); and a `ModuleDeclaration` carrying an `export` modifier (`export namespace` / `export module`). E1's predicate is already the four registered declaration kinds — Task 1 Step 4.2 writes it that way — so nothing is narrowed here; that is why `export namespace` reaches this task's rule at all rather than resolving to an empty extent.
 
   **Implement spec §2.4b's rule in this same step**, since Step 1 authored its block: in `reaches`/`moduleFacts`, a literal `import()` whose enclosing node is NOT a direct local variable-declaration initializer — assignment position, embedded in a larger expression, or a bare statement — reports `{ kind: "unresolvable", reason: \`unbindable dynamic import of ${spec}\` }`; an in-repo static `import "./x"` with NO import clause reports likewise; an EXPORTED dynamic binding reports (spec §2.2); and an in-repo specifier that does not resolve reports (Task 1 Step 4.4). Live-domain population of every row is ZERO (spec §3.13), so `_metaPremiseContract` must stay green with no declared count moving — if one moves, the rule over-reached and the task stops.
 
-  The unfollowable re-export needs care, because `resolveSpecifier` returns `null` for TWO different things: a relative or `@/` specifier that does not exist, and a BARE specifier, which must stay pure by L-2 (spec §4 limit 6's neighbour). **Split by specifier SHAPE, not by the null**: only a specifier starting `.` or `@/` becomes `{ kind: "unresolvable", reason: \`unfollowable re-export of ${exportName} from ${spec}\` }`; a bare specifier stays pure exactly as today. `export { ns }` over a namespace binding is already handled by Task 1 Step 4.3.
+  The unfollowable re-export needs care, because `resolveSpecifier` returns `null` for TWO different things: a relative or `@/` specifier that does not exist, and a BARE specifier, which must stay pure by L-2 (spec §4 limit 6's neighbour). **Split by specifier SHAPE, not by the null**: only a specifier starting `.` or `@/` becomes `{ kind: "unresolvable", reason: \`unfollowable re-export of ${exportName} from ${spec}\` }`; a bare specifier stays pure exactly as today. `export { ns }` over a namespace binding is NOT handled here — it needs the `namespace` flag, which Task 4 Step 3.0-3.1 introduces, so its case lives in Task 4 beside the other namespace work.
 
 - [ ] **Step 4: Run the tests to verify they pass.**
 
@@ -1204,6 +1236,9 @@ Spec §2.3. The task that must not become a module-closure rule.
 
 ```ts
 describe("namespace bindings: member-precise, and nothing else", () => {
+  // The three non-member cases in this block report; each uses
+  // `expectReported` with construct /namespace .* no statically known member/
+  // and the module the namespace was imported from.
   const MIXED = `import { spawnSync } from "node:child_process";
     export function spawner(): string { return String(spawnSync("echo", ["x"]).stdout); }
     export function pureOne(): number { return 1; }`;
@@ -1265,6 +1300,23 @@ describe("namespace bindings: member-precise, and nothing else", () => {
       verdictWithModules({ helper: MIXED }, `import * as ns from "__MODULE_helper__";
         it("x", () => { ns.spawner(); ns.pureOne(); });`),
     ).toBe("environment-touching");
+  });
+
+  it("`export { ns }` over a namespace import reports", () => {
+    // E2 forwarding would ask the target for an export named after the local
+    // alias, get noSuchExport, and go silently pure. Probe §3.9 measures free
+    // today; population 0 repo-wide, so reporting costs nothing.
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          barrel: `import * as helpers from "__MODULE_helper__";
+                   export { helpers };`,
+        },
+        `import { helpers } from "__MODULE_barrel__";
+         it("x", () => { helpers.spawnHelper(); });`,
+      ),
+    ).toBe("unclassifiable");
   });
 
   it("a namespace member that is PURE stays free even when a sibling spawns", () => {
@@ -1341,8 +1393,10 @@ Expected: a non-zero FAILING count. Red: both member cases, the dynamic namespac
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`:
 
+  0. **Widen the binding TYPES first, or nothing below compiles.** The import-fact value type is `{ spec: string; imported: string }` on `4e40db2b3`; add `namespace?: boolean` to it and to every map that stores one — `ModuleFacts.imports`, `scopedImports`, the local `imports` map inside `moduleFacts`, and `bindPattern`'s parameter type. A round-1 draft placed the two registrations in Task 1 without the type change, and that task did not compile: `TS2353 'namespace' does not exist in type '{ spec: string; imported: string; }'` at both registration sites.
   1. Mark the static namespace import: `imports.set(b.name.text, { spec, imported: b.name.text, namespace: true })`.
   2. Mark the dynamic one: in `bindPattern`'s identifier branch, record `{ spec, imported: name.text, namespace: true }`. The destructured branch is unchanged.
+  2b. Resolve `export { ns }` over a namespace binding to `{ kind: "unresolvable", reason: `local re-export of a namespace binding (${local})` }` in `resolveExport`'s E2 branch — it exports the namespace OBJECT, not a target export, and forwarding it answers `noSuchExport` and goes silently pure (spec §2.2 E2, probe §3.9, population 0). This lands here rather than in Task 1 because it reads the `namespace` flag set above.
   3. In `reaches`, for a binding with `namespace === true`: FIRST, if `isProvenanceModule(binding.spec)` return touching — before any member inspection, preserving the shipped ordering. Otherwise inspect the reference's parent: a `PropertyAccessExpression` whose `expression` is this reference resolves the export named `p.name.text`; an `ElementAccessExpression` whose `argumentExpression` is a string literal resolves that export; **anything else pushes** `` `namespace ${name} used in a position with no statically known member, from ${spec}` `` **into `reasons`**.
   4. `extentIsProvenance` needs no edit — the binding keeps `kind: "import"`. **`bindingKey` DOES need one:** for a namespace reference the dedup identity is `(binding, resolved member)`, not `(binding)`. A namespace resolves one binding to many exports, so the shipped member-blind key lets the first-resolved member mark the binding seen and skips every other — a silent `environment-free` whose direction depends on source order (spec §2.3). Every other binding kind keeps the shipped key exactly.
 
@@ -1379,6 +1433,10 @@ Spec §2.6 items 2-3 and §2.7 — Half 2. Task 1 built the channel; this task f
 
 ```ts
 describe("unclassifiable propagation: a construct anywhere reachable reaches the verdict", () => {
+  // Every reporting case in this block uses `expectReported`, with the module
+  // being the one HOLDING the construct, for the cross-module case that is the
+  // loader module, not the test file. AC-12's precedence branches are the stated
+  // exception: their subject is the lattice, so they assert the verdict alone.
   it("a module-scope helper holding a non-literal dynamic import reports", () => {
     expect(
       verdict(`const specifier = "./x" + String(1);
@@ -1627,9 +1685,14 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
 
   it("a helper WITHOUT the construct stays free", () => {
     // The foil: propagation must not report every reachable helper.
+    //
+    // It must contain NO import at all. A round-1 draft used
+    // `return await import("./x")`, which after Task 3 is BOTH an embedded
+    // dynamic import and an unresolved in-repo specifier, so §2.4b reports it
+    // and the foil asserts a value no later task may restore.
     expect(
-      verdict(`async function loader(): Promise<unknown> { return await import("./x"); }
-        it("x", async () => { await loader(); });`),
+      verdict(`function loader(): number { return 1; }
+        it("x", () => { loader(); });`),
     ).toBe("environment-free");
   });
 
@@ -1739,10 +1802,14 @@ Make it a COMMAND that exits non-zero, not a figure to eyeball — a reading ins
 ```bash
 PROBE_DIR="$(git rev-parse --show-toplevel)/.claude/probe"   # defined in Task 0 Step 4
 BASE=$(cat "$PROBE_DIR/corpus-pass-baseline.txt")
+# Validate BEFORE comparing. Both AC-14 comparisons fail OPEN on NaN.
+grep -Eq '^[0-9]+(\.[0-9]+)?$' <<<"$BASE" && [ "$(echo "$BASE > 0" | bc)" = 1 ] \
+  || { echo "AC-14 FAIL: baseline '$BASE' is not a positive number"; exit 1; }
 npx tsx -e '
 import { classifyTests } from "./tests/mutation/source/premiseScan";
 import { GUARD_SURFACES } from "./tests/mutation/source/registry";
 const base = Number(process.argv[1]);
+if (!Number.isFinite(base) || base <= 0) { console.error(`AC-14 FAIL: baseline ${process.argv[1]} is not a positive number`); process.exit(1); }
 const ROOT = process.cwd();
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();
 const t0 = Date.now();
@@ -1877,7 +1944,7 @@ git commit -m "docs(backlog): graduate BL-PREMISESCAN-IMPORT-EDGE-FIDELITY"
 | AC-9c unrecognized shape REPORTED | Task 1, `an unrecognized module shape is REPORTED, not purified` |
 | AC-9d `.mdx` REPORTED, not purified | Task 1, `an .mdx target is REPORTED, not purified` — AC-9's twin, same payload, extension the only difference |
 | AC-10 cycles terminate, diamonds do not | Task 2, the cycle case (asserting the REASON) + the PURE diamond foil + the touching-diamond short-circuit pin |
-| AC-10c export beats same-named local | Task 1, `an EXPORT beats a same-named non-exported local` |
+| AC-10c export beats same-named local | Task 2, `an EXPORT beats a same-named non-exported local` — it needs E5 following, which Task 1 does not implement |
 | AC-11 propagation from every position | Task 5, four helper positions + three nested hook/producer cases + a TOP-LEVEL hook + cross-module, with the C6, top-level-pure and no-construct foils |
 | AC-12 precedence every direction | Task 5, own-extent and helper branches plus the TOP-LEVEL hook reaching provenance, in all four registrar spellings — the arc's only provenance silent free |
 | AC-12b top-level seed does not leak a nested hook | Task 5, the sibling-describe pair read by `testName` (not by first-classification) |
