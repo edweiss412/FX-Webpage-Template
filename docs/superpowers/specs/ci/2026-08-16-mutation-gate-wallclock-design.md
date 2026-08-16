@@ -301,16 +301,21 @@ Expected wall clock is **max over jobs ≈ 47 min + ~3 min setup ≈ 50 min**, a
 
 Partitioning without this leaves the incentive intact, which is the entry's actual complaint.
 
-Each shard job records its elapsed minutes and uploads it as an artifact named `elapsed-<job-family>-<shard index>` — **one artifact per matrix leg, uniquely named**. A final `budget` job (`needs:` every harness family, `if: always()`) downloads them and compares against a declared `SHARD_BUDGET_MINUTES = 60`:
+Each shard job records its elapsed **seconds** and uploads it as an artifact named `elapsed-<job-family>-<shard index>` — **one artifact per matrix leg, uniquely named**. A final `budget` job (`needs:` every harness family, `if: always()`) downloads them and compares against a declared `SHARD_BUDGET_SECONDS = 3600`:
 
-- **fails** when any shard exceeds the budget — a real signal, well below the 90-min job timeout, so the run still produces complete results while reporting that the shape is wrong;
+**Seconds, not minutes — amended after plan review R1.** The first draft declared `SHARD_BUDGET_MINUTES = 60` and computed elapsed with integer division. That loses the boundary in the wrong direction: 60m59s records as `60` and slips past an "above 60" comparison, so a shard already over budget reports as exactly at it. The same draft's snippet referenced a `START` variable it never set, which with the variable unset evaluates to epoch minutes and exits 0 — a plausible-looking number measuring nothing. Both are corrected here rather than left for the implementer to rediscover.
+
+
+- **fails** when any shard's elapsed seconds exceed the budget — a real signal, well below the 90-min job timeout, so the run still produces complete results while reporting that the shape is wrong;
 - **warns** (annotation, run still green) above 75 % of budget, which is the "approaching" signal nothing emits today.
 
-**The transport is fail-closed on completeness, which is the part that is easy to get wrong.** Matrix legs cannot use job *outputs* for this: outputs from matrix children share one name and overwrite each other nondeterministically, so the slow shard is precisely the value that can vanish, and AC-7 would pass on a partial set. Hence artifacts with per-leg names, plus an explicit count check — the `budget` job asserts it received exactly `SHARD_COUNT + SOURCE_SHARD_COUNT + 2` timing records and **fails when any is missing or duplicated**, naming the absent leg. A budget job that cannot see every shard reports that it cannot, rather than silently maximising over the shards that did report.
+The comparison is strictly above in both cases, so a shard at exactly budget passes and a shard one second over fails.
+
+**The transport is fail-closed on completeness, which is the part that is easy to get wrong.** Matrix legs cannot use job *outputs* for this: outputs from matrix children share one name and overwrite each other nondeterministically, so the slow shard is precisely the value that can vanish, and AC-7 would pass on a partial set. Hence artifacts with per-leg names, plus an explicit count check — the `budget` job asserts it received exactly `SHARD_COUNT + SOURCE_SHARD_COUNT + 2` timing records and **fails when any is missing or duplicated**, naming the absent leg. Completeness is checked BEFORE any maximum is taken, and a record that does not parse as a finite number is a failure rather than a zero. A budget job that cannot see every shard reports that it cannot, rather than silently maximising over the shards that did report.
 
 `notify` therefore takes `needs: [parser-shards, parser-gates, source-shards, source-gates, budget]`. Without `budget` in that list a budget-only failure files no tracking issue — the whole point of §3.5 — and worse, `notify`'s green branch could auto-close the standing issue (`.github/workflows/mutation-harness.yml:132-147`) on a run whose budget check had failed. The issue body names the specific failing leg(s) and, for a budget failure, the shard and its elapsed against budget.
 
-`SHARD_BUDGET_MINUTES` and `SOURCE_SHARD_COUNT` are declared once, in one module, and referenced everywhere else (the single-source-of-truth discipline in `docs/agents/spec-self-review.md:14`); §3.4.1 is what stops the workflow's own copies from drifting from them.
+`SHARD_BUDGET_SECONDS` and `SOURCE_SHARD_COUNT` are declared once, in one module, and referenced everywhere else (the single-source-of-truth discipline in `docs/agents/spec-self-review.md:14`); §3.4.1 is what stops the workflow's own copies from drifting from them.
 
 This converts "the nightly quietly got slower" into a named failure with a named remedy — raise `SOURCE_SHARD_COUNT` — and it keeps the cost of enrolling a surface at zero, which is the design's own success criterion.
 
@@ -323,7 +328,7 @@ This converts "the nightly quietly got slower" into a named failure with a named
 | `mutation-harness` wall clock | 166.0 min | ≤ 55 min |
 | Heaviest single job | 159.4 min (source gate) | ≤ 47 min |
 | Marginal wall clock of enrolling a mean-sized surface (103 mutants; the median is 67) | +9.3 min, on the critical path | ≈ 0 until a shard reaches budget |
-| Signal that the job is approaching its ceiling | none | annotation at 75 % of `SHARD_BUDGET_MINUTES`, failure at 100 % |
+| Signal that the job is approaching its ceiling | none | annotation above 75 % of `SHARD_BUDGET_SECONDS`, failure above 100 % |
 | `timeout-minutes` on the harness | 300 | 90 per shard job |
 
 ---
@@ -339,7 +344,7 @@ This converts "the nightly quietly got slower" into a named failure with a named
 - **AC-6a** For BOTH matrices, the new integrity meta-test asserts the workflow's index list equals exactly `0..COUNT-1` for its TypeScript constant (`SOURCE_SHARD_COUNT`; `SHARD_COUNT` at `tests/parser/mutation/shardPartition.ts:11`), and the shard FILE set equals the same range. Raising either constant without updating its matrix fails this test — the executable form of §3.4.1. Fails by default: the test derives the expected range from the constant, so it cannot be satisfied by a stale literal.
 - **AC-6b** The same test pins each leg's REALIZED EXECUTION TARGET, not only its declaration: every shard leg interpolates `${{ matrix.shard }}` rather than a fixed index, substituting each index yields exactly that index's shard file, each gates leg names its own gates file and no shard file, the union of realized targets is the 14 files this workflow owns with no duplicate, and no matrix carries `include:`/`exclude:`. **Falsification test for this AC:** a workflow whose every leg runs shard 0 must FAIL it — index lists and file sets alone do not catch that, and it would hide both failures currently live on `main`.
 - **AC-6c** The `budget` job receives exactly one timing record per harness leg and **fails naming the absent leg** when any is missing or duplicated; it never maximises over a partial set. `notify` lists `budget` in `needs`, so a budget-only failure files a tracking issue and cannot be auto-closed by a green sibling.
-- **AC-7** A shard exceeding `SHARD_BUDGET_MINUTES` fails the budget job; a shard above 75 % emits an annotation and stays green. Verified against a CONSTRUCTED over-budget record, not only against a live run — a budget check that has never been observed failing is not known to fail.
+- **AC-7** A shard whose elapsed seconds exceed `SHARD_BUDGET_SECONDS` fails the budget job; a shard above 75 % emits an annotation and stays green; a shard at exactly budget passes. The budget check is an importable function with its own unit suite, not a terminal CLI script — a script that cannot be imported cannot be tested. Verified against a CONSTRUCTED over-budget record, not only against a live run — a budget check that has never been observed failing is not known to fail.
 - **AC-8** `permissions: contents: read` on every harness job; `issues: write` only on `notify`.
 - **AC-9** Real CI on the implementing branch via the existing path-filtered `pull_request` trigger (`.github/workflows/mutation-harness.yml:27-36`) — per the "local-passes-CI-fails is its own bug class" rule in `AGENTS.md`, local green is necessary and not sufficient. **Green is measured against the merge-base, not against zero**, because `mutation-harness` is red on `main` for two pre-existing reasons unrelated to this arc (§2.7).
 
