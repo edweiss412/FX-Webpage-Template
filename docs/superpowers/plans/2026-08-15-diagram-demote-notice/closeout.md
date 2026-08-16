@@ -7,7 +7,7 @@ Branch: `feat/diagram-demote-notice` · Spec: `docs/superpowers/specs/crew/2026-
 
 | Task | What landed |
 | --- | --- |
-| C1 | `DEMOTE_CHIP_VISIBLE_MS = 6000` + the DESIGN.md §5.5 row in the same commit; the session-stamped `demotedNotice: { id, nonce }` state set in the branch that announces (a bare id at first — see the review section below); `relative` on the slide figure; the `aria-hidden`, `pointer-events-none` chip in the Reset chip's token family; four clear conditions; the `openNonce` counter in the parent gallery; 16 tests. |
+| C1 | `DEMOTE_CHIP_VISIBLE_MS = 6000` + the DESIGN.md §5.5 row in the same commit; the session-stamped `demotedNotice: { id, nonce }` state set in the branch that announces (a bare id at first — see the review section below); `relative` on the slide figure; the `aria-hidden`, `pointer-events-none` chip in the Reset chip's token family; four clear conditions; the `openNonce` counter in the parent gallery; 17 tests. |
 | C3 | Merge, full gates, impeccable dual gate, ledger archive, cross-model diff review, CI, merge. |
 
 ## Step-0 probe (recorded, per the plan)
@@ -20,14 +20,14 @@ unclassified`), which is what the inventory gate reads.
 
 ## Test evidence
 
-- `tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` — 11 new cases (AC-1 containment +
+- `tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` — 12 new cases (AC-1 containment +
   announce lockstep, AC-2 with the ratified 5999/1 literals and the constant asserted separately,
   timer-cancel oracles, AC-3 both non-demote paths, AC-4, last-wins restart, clear-4, swipe-return
   remaining lifetime, Reset coexistence, AC-6 full class contract).
 - `tests/components/diagrams/gallery.failedItem.test.tsx` — 5 session cases through the REAL parent:
   all three close initiators, the exit-window repopulation block, and the positive re-entry ordering
   (the case that fails against an effect-timed reset).
-- All 16 observed RED before implementation (a 17th, the inactive-branch clear-4 route, was added in review round 5 and is mutation-killed) (11 + 5, counted from the runtime selection: `-t "demote's sighted chip"` reports 11 passed, `-t "never survives a dialog session"` reports 5); `tests/components/diagrams/` green at 153.
+- 17 cases in total, re-derived from the runner rather than counted by hand: `vitest -t "demote's sighted chip"` reports 12 and `-t "never survives a dialog session"` reports 5. Sixteen were observed RED before implementation; the seventeenth (the inactive-branch clear-4 route) was added in diff review round 5 and is mutation-killed (11 + 5, counted from the runtime selection: `-t "demote's sighted chip"` reports 11 passed, `-t "never survives a dialog session"` reports 5); `tests/components/diagrams/` green at 153.
 - `tests/docs/_metaInteractionTimingInventory.test.ts` observed failing by name
   (`DEMOTE_CHIP_VISIBLE_MS = 6000` not listed) before the §5.5 row landed; green both directions in
   the same commit.
@@ -131,6 +131,18 @@ table above is empty: the grammar's cross-check ties that field to the P0/P1 cou
 P2 and P3 dispositions are recorded in the table regardless.
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
+
+## Impeccable re-runs on post-review UI deltas (plan C3.4)
+
+Every review repair that touched a UI file got the pair again, scoped to that delta. Recorded here
+because the plan requires the trail, not just the final verdict.
+
+| Delta | Halves | Result |
+| --- | --- | --- |
+| The session-stamped `{ id, nonce }` state (R2 repair) | critique + audit, one scoped run | No findings either half. The audit hand-traced demote/close/re-open, demote/swipe, two demotes in one session, a timer firing after a re-open, and a demote in the exit window, and confirmed a stale notice can only ever be suppressed by the render stamp, never leaked. |
+| The inactive-branch clear (R5 repair) | critique + audit, one scoped run | No findings either half. The audit confirmed the per-`map` guard cannot clear another slide's notice, that last-demote-wins still holds when an older slide fails late, and that no branch nulls the state while leaving the timer armed. One P3 noted and declined: the guard line is duplicated across the two branches, matching the file's existing `setFailedKeys` shape. |
+
+Neither re-run changed the gate's headline: P0 none, P1 none.
 
 ## Documented limits carried forward
 
