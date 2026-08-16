@@ -4457,3 +4457,61 @@ describe("enrolment survivors - batch B", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 });
+
+/**
+ * Mutation-enrolment survivors, batch C — the prose-vs-command heuristic
+ * (plan Task 4). Its only observable surface is `scanBinaryIndirection`, which
+ * asks `looksLikePsqlCommandLine` whether a JS string literal is a command.
+ */
+describe("enrolment survivors - batch C", () => {
+  // Kills regex-quantifier-bound:1797:45 (`-{1,2}` widened to `-{1,3}` in the
+  // backtick head check). A backtick span is a markdown code span in prose and
+  // a command substitution in code; what separates them is the outer string
+  // starting with a bare program name that then takes a FLAG. POSIX and GNU
+  // spell flags with one or two dashes and no more, so a three-dash word is not
+  // a flag and cannot vouch for the string.
+  test("a three-dash word is not a flag, so a backtick span stays prose", () => {
+    const source = "const c = 'runner ---x `psql -qAt mydb`';\n";
+    expect(scanBinaryIndirection(source, "x.mjs")).toHaveLength(0);
+    // The control: the same string with a real one-dash flag IS a command.
+    const real = "const c = 'runner -x `psql -qAt mydb`';\n";
+    expect(scanBinaryIndirection(real, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  // Kills relational-boundary:1825:26 (`site.tokens.length <= 3` mutated to
+  // `< 3`). `psql -- mydb postgres` is a real, flagless invocation: `--` ends
+  // option parsing, so `mydb` is DBNAME and `postgres` is USERNAME, and no
+  // startup file is suppressed. It carries exactly three argv tokens, the
+  // heuristic's stated argv-length bound, so it must still read as a command.
+  test("a flagless psql at exactly the three-token bound is still a command", () => {
+    const source = 'const c = "psql -- mydb postgres";\n';
+    expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  // Kills relational-boundary:1827:49 (`words <= 8` mutated to `< 8`). With no
+  // preceding words the heuristic admits a terse command inside a string of at
+  // most eight words. This one is exactly eight, so it must read as a command;
+  // the nine-word control must not.
+  test("a terse psql in a string of exactly eight words is still a command", () => {
+    const eight = 'const c = "cd /srv && psql mydb && echo ok";\n';
+    expect(scanBinaryIndirection(eight, "x.mjs").length).toBeGreaterThan(0);
+    const nine = 'const c = "cd /srv && psql mydb && echo all ok";\n';
+    expect(scanBinaryIndirection(nine, "x.mjs")).toHaveLength(0);
+  });
+
+  // Boundary pin for the four index-guard equivalence rows
+  // (relational-boundary:1754:12 and 1755:12 in `isStrongPrefixWord`, and their
+  // twins 1771:16 and 1772:16 in `prefixIsCommandish`). Each widened guard
+  // reaches a lookback that is out of range, where `?? ""` yields the empty
+  // string, the local `basename("")` yields `""`, and the anchored WRAPPERS
+  // alternation matches nothing — the same `false` the short-circuit produced.
+  // The pin is the behaviour that rests on it: at index 0 a word vouches for
+  // the command only through its OWN spelling, never through a lookback, so an
+  // English word vouches for nothing and a wrapper still vouches for itself.
+  test("the first preceding word vouches only through its own spelling", () => {
+    const prose = 'const c = "parses psql mydb rows";\n';
+    expect(scanBinaryIndirection(prose, "x.mjs")).toHaveLength(0);
+    const wrapper = 'const c = "sudo psql mydb";\n';
+    expect(scanBinaryIndirection(wrapper, "x.mjs").length).toBeGreaterThan(0);
+  });
+});
