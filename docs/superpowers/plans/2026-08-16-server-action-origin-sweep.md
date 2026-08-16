@@ -296,7 +296,38 @@ Ordered; each item gates the next. Two project rules bear on the tail of this li
 **Do not re-propose** the archive-before-gates ordering (R7's repair — it gives up invariant 12 and leaves the row unclaimed through gates, review, and CI), the archive-as-last-authored-commit ordering (R8's repair — R9 showed it has no terminal path, because the final round's own corpus row must be committed after it), or a claim that the post-review commit is exempt because it carries no code (the original draft — refuted at R7). Each was tried; this is where they land.
 
 1. **Impeccable dual-gate.** The diff edits `.ts` action files under `app/` outside `app/api/` and three `.tsx` files including one under `components/`, so the impeccable critique gate AND the impeccable audit gate both run on the diff (v3 setup gates: the skill's context load of PRODUCT.md + DESIGN.md, then the register-reference read). No rendered element, token, or copy changes — the expected finding surface is nil — but the gate runs and the result is recorded here honestly, including a zero. P0/P1 fixed or `DEFERRED.md`'d; findings and dispositions recorded in this section.
+
+   **RESULT — both halves RAN, both DEGRADED (single-context).** Setup gates completed: `context.mjs` loaded PRODUCT.md + DESIGN.md (run from the skill's own base directory — this repo gitignores `.claude/`, so the documented `.claude/skills/impeccable/scripts/context.mjs` path does not resolve in a fresh worktree), then the **product** register reference (design SERVES the product: admin + crew app UI, not a marketing surface).
+
+   ⚠️ **DEGRADED: single-context (assessment sub-agents dispatched and never returned).** Assessment A and Assessment B were dispatched as two isolated sub-agents per the critique contract's hard invariant. Neither returned within ~20 minutes and neither appeared in the live agent listing — the recorded `#809` failure mode on this project (`feedback_critique_subagents_idle_without_returning`). They were treated as unobtainable and both assessments re-run inline, which the contract permits only with this banner. The banner is the point: a silent degraded critique is a failed critique.
+
+   **Assessment B — deterministic evidence (this ran fully; nothing about it is degraded).**
+
+   | Probe | Result |
+   | --- | --- |
+   | `detect.mjs --json` over all three `.tsx` files | `[]`, exit 0 — clean |
+   | `.tsx` diff | 3 files, **22 insertions, 0 deletions** |
+   | Changed-line classification | 6 import / 11 comment / 5 guard statement / **0 anything-else** |
+   | `app/globals.css`, `tailwind.config.ts`, `DESIGN.md`, `postcss.config.mjs` | **empty diff** |
+   | Added lines containing `className` | **0** |
+   | Em dashes / apostrophe literals in added user-visible copy | **0** (every added non-code line is a comment) |
+   | Browser visualization | **SKIPPED**, with reason: these are Server Components behind an authenticated/tokened route, no dev server may be started (machine-wide heavy-phase semaphore, AGENTS.md), and the diff adds no rendered element. Recorded rather than silently omitted. |
+
+   **Assessment A — design review (inline).** The one question worth asking of this diff is not how it looks, it is **what a crew member sees when the new refusal branch fires**, and that was traced rather than assumed:
+
+   - `selectIdentityFormAction` and `clearIdentityAndSkipFormAction` are `Promise<void>`. The refusal returns void, so no `redirect(...)` runs and the surface re-renders unchanged. The person who *did not* make the request sees nothing — correct, since the request was never theirs.
+   - `clearIdentityFormAction` returns `rejectCrossOriginPicker(...)` → `{ ok: false, code: "PICKER_INVALID_INPUT" }`. `AvatarMenu` maps **any** `!result.ok` to `setSwitchStatus("error")` (`components/auth/AvatarMenu.tsx:124`) and renders `messageFor("PICKER_SWITCH_FAILED").crewFacing` (`components/auth/AvatarMenu.tsx:461`). Catalogued human copy; the returned `code` is never rendered. **Invariant 5 upheld, and no new state is introduced** — the refusal lands in a failure state the menu already owned.
+
+   Nielsen heuristics were scored against the three surfaces as they now stand; the diff moves **none** of them, because it adds no element, state, affordance, or copy. Recording per-heuristic numbers here would assert a measurement of surfaces this arc did not change, so what is recorded instead is the honest delta: **no heuristic moved**. Cognitive load: unchanged, no decision point gains an option. Emotional journey: unchanged on every legitimate path; the only new path is unreachable by a legitimate user.
+
+   **Audit dimensions (inline).** Accessibility — unchanged (no new interactive target, so no new tap-target or ARIA surface; the `min-h-tap-min` floor is untouched). Performance — unchanged; the guard adds one `headers()` read ahead of work that already awaited I/O, and it *shortens* the cross-origin path. Theming — unchanged, zero token references added. Responsive — unchanged, zero layout or `className` lines. Anti-patterns — none: no gradient text, no glass, no side-stripe, no eyebrow, no card grid; nothing was added that could carry a tell.
+
+   **Findings: P0 = 0, P1 = 0, P2 = 0, P3 = 0.** No dispositions to record, and none invented to look thorough. Two things the gate did surface as *worth doing* were folded into the branch as executable guards rather than filed as design findings, because both are correctness rather than presentation: the gate's proxy-independence and the no-dark-refusal contract now have guards with mutants proving each discriminates (commit `03e5a8c2c`).
+
+   **One process finding, recorded rather than dispositioned:** the critique contract's mandatory dual-sub-agent orchestration is unreliable on this project, and this is the second recorded instance. It is not a finding against this diff and needs no `DEFERRED.md` row here — `feedback_critique_subagents_idle_without_returning` already carries it.
 2. **Fill the machine closeout marker, BEFORE review.** After step 1 has actually run, add the bare-anchored marker line to this section: a line reading `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` with the REAL counts (`RAN-DEGRADED` if a half degraded; `dispositions=recorded` iff `p0+p1>0`). **Never fabricated** — the gate has not run in the spec+plan arc, so no `RAN` claim is honest yet, and `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design until the implementation arc fills it.
+
+   impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=0 dispositions=none
 
    **Then commit, here.** Steps 1 and 2 both write tracked text into this document — the findings-and-dispositions record and the marker line — and without a commit site of their own they would either sit uncommitted and risk never reaching the pushed branch, or ride into a later commit whose contents are supposed to be something else. Commit them as `docs(plan): record the invariant-8 dual-gate result and fill the closeout marker`.
 3. **Full local gates:** `pnpm heavy pnpm test` (no exception now — step 2 filled the invariant-8 marker, so `tests/docs/_metaInvariant8Closeout.test.ts` is green here, unlike at Task 10), `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`, `pnpm heavy pnpm mutation:guards`.
