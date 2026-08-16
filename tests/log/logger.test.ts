@@ -45,6 +45,21 @@ describe("logger", () => {
     expect(err.message).toBe("mail [email-redacted] now");
   });
 
+  test("plain-object error persists structurally with nested email values redacted (AC-7)", async () => {
+    const calls = capture();
+    await log.error("supabase write failed", {
+      source: "s",
+      error: {
+        message: "duplicate key",
+        details: "Key (email)=(eve@corp.io) exists",
+        code: "23505",
+      },
+    });
+    const err = calls[0]!.record.context.error as Record<string, unknown>;
+    expect(err.code).toBe("23505");
+    expect(err.details).toBe("Key (email)=([email-redacted]) exists");
+  });
+
   test("threshold: error/warn always persist; debug never; info only with code/persist", async () => {
     const calls = capture();
     await log.error("a", { source: "s" });
