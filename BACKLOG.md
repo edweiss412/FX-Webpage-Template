@@ -320,6 +320,23 @@ Memory at the same instant: 14.86 GB rss of 18 GB, `Pages free: 4015`, compresso
 
 **First scheduled step:** measure the longest legitimate `mutation:guards` wall clock on this machine (the nightly is already at 138-180 min per `BL-MUTATION-HARNESS-WALLCLOCK-CEILING` below, so the ceiling is not small), then pick the shape. The two entries share a surface and should be read together — that one is about a job that runs too long, this one about processes that never stop.
 
+## BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH — the mutation harness bounds a child only while its parent lives
+
+**Status:** OPEN · **Severity:** MEDIUM (it is the PRODUCER of the orphans `BL-HEAVY-ORPHAN-WORKER-LIFETIME` cleans up after; that entry bounds the consequence, this one prevents it) · **Class:** local capacity / process hygiene · **Effort:** M · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, class-sweep of the heavy-orphan spec) · **Reachability: PROBED** — probe P2 below was run on this machine, and the eleven orphans of the 2026-08-16 incident were all children of this harness.
+
+Every lifetime bound in the mutation harness is enforced BY THE PARENT: the per-mutant ceiling by `spawnSync` (`tests/mutation/source/runner.ts:176`), the group reap by `killProcessGroup` (`tests/mutation/source/runner.ts:199`), and `childRun` has no bound at all (`tests/mutation/source/childRun.ts:18`). So a live parent bounds its child well and a dead parent bounds nothing — which is exactly the shape of the 2026-08-16 incident. Four components, filed as ONE entry because they share a surface, a cause and a repair:
+
+1. **No parent-death watchdog in the child.** A `getppid() === 1` poll inside the child would close it. macOS has no `prctl(PDEATHSIG)` equivalent, so polling is the only form available.
+2. **`setpgrp` makes the child immune to session teardown.** `GROUP_LEADER_ARGV` (`tests/mutation/source/runner.ts:146`) puts each mutation child in its own process group so the parent can reap a grandchild that outlived it. Probed 2026-08-16 with the harness in its own group and killed by `kill -9 -<pgid>`: a same-group child (`harness_pgid=78464 child_pgid=78464`) died with the group; a `setpgrp`'d one (`harness_pgid=78818 child_pgid=78820`) SURVIVED and reparented to `ppid=1`. The 2026-08-15 change traded a child that dies with its session for a parent that can reap a hung grandchild — a real improvement on the hazard it targeted, and a regression on this one.
+3. **`childRun` bounds nothing.** `execFileSync` with no `timeout` and no process group (`tests/mutation/source/childRun.ts:18`), unlike its sibling `runSuite` which has both (`tests/mutation/source/runner.ts:176`, `tests/mutation/source/runner.ts:183`). The two were explicitly repaired together for stdio (`tests/mutation/source/childRun.ts:20-23`) but not for lifetime.
+4. **A stale comment naming a function that does not exist.** `tests/mutation/source/runner.test.ts:37` names `reapOrphans`; no such symbol exists in the tree. Behaviorally inert, but it misdescribes the mechanism to the next reader of exactly this code, so it is repaired by whoever takes components 1-3 rather than on its own.
+
+**Class-sweep exception (c)** — the repair is a redesign of a surface the heavy-orphan PR does not otherwise touch, and one that converged through review on 2026-08-15; reaching for it there would relitigate a settled decision at the cost of the rounds it already took. `BL-HEAVY-ORPHAN-WORKER-LIFETIME` covers the CONSEQUENCE (such a child is a reapable orphan by that design's predicate), so this entry is about prevention, not exposure.
+
+**Timeline note, so this is not misread as the incident's cause:** both 2026-08-15 commits merged to `main` at 13:58:50 CDT (`d18e9b4d5`, `35d5c0e58`), and every orphan in the 08-16 census started between 02:33 and 12:03 on 08-15 — all BEFORE that merge. Component 2 is a forward-looking finding, not a post-mortem one.
+
+**First scheduled step:** decide whether the watchdog (component 1) makes the process group (component 2) unnecessary, since a child that exits on parent death does not need to be reachable by a group signal. If it does, the repair is a simplification rather than an addition.
+
 ## BL-MUTATION-HARNESS-WALLCLOCK-CEILING — the nightly job's wall clock grows with every enrolled surface and nothing bounds it
 
 **Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, Task 5 enrolment). **Class:** CI capacity. **Effort:** M. **Class-sweep exception:** (c) — the repair is a redesign of the harness's execution model (sharding) on a surface this branch only enrols into. **Reachability:** PROBED — three measured runs, below.
