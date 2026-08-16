@@ -93,6 +93,11 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/help-refanchor-a11y (2026-08-15): the /help/errors copy-link a11y row, all three
+  // filed findings shipped in one arc. The entry left the tab-stop question open on
+  // purpose; the owner ratified that the copy-links STAY tabbable, so it graduates with a
+  // skip path rather than the tabindex removal a reader might have assumed.
+  { id: "BL-HELP-REFANCHOR-A11Y-PASS", provenance: "fix/help-refanchor-a11y" },
   // fix/changes-feed-batch-flake (2026-08-15): the e2e flake row whose own filed theory was
   // refuted rather than confirmed — the repair is a wait helper that recovers once from the
   // admin error boundary, not the fixture isolation the entry proposed.

@@ -26,6 +26,21 @@
 4. **Onboarding `tx.logSync` and the `recoveryTx.insertSyncLog` sites stay unguarded by construction.** They write through the transaction's OWN connection: no independent failure mode, and their rows are tx-bound by design. Guarding them would convert designed atomicity into the exact semantics change limit 1 fences.
 5. **No CI-time completeness recognizer for FUTURE sink sites ships here** (ship-and-fence). That design already exists six rounds deep as `BL-SYNC-LOG-ATTRIBUTION-METATEST`, with two open definitional questions; a second ad-hoc walker would fork the writer-set definition, which is the two-copies-drift shape. The regression this accepts is BOUNDED: a new unguarded site regresses to today's shipped behavior, a LOUD failure of the observed operation, never a silent one. That entry gains a scope line recording that the walker, when built, also asserts guard-presence.
 
+## BL-HELP-REFANCHOR-A11Y-PASS — the `/help/errors` copy-link got its whole-surface a11y pass — CLOSED 2026-08-15 (`fix/help-refanchor-a11y`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Severity (as filed):** low · **Class:** A11Y / HELP SURFACE · **Effort (as shipped):** S, as estimated — one shared component plus one page edit
+**Filed:** 2026-08-09 from the invariant-8 dual gate on `feat/mutation-merged-cell`; the first two findings surfaced on `feat/mutation-ref-sub` and were recorded in the wave closeout §12 without a ledger row.
+
+All three filed findings shipped as one arc, each repaired once, exactly as the entry predicted a whole-surface pass would go. The entry's "~217" renders was 219 at implementation — ordinary catalog growth, and nothing depended on the literal.
+
+1. **Per-code accessible names.** `RefAnchor`'s `aria-label` composes from the entry's catalog code, so the 219 copy-links expose 219 distinct names instead of one shared "Copy link to this section". Composed from `id` rather than `children` because `id` IS the catalog code by the `VALID_ID` contract and is a string by type.
+2. **Perceivable copy confirmation.** An unconditionally mounted sr-only `role="status" aria-live="polite"` region follows the heading and announces `Link copied` — the `FinalizeAnnouncer` pattern the entry itself pointed at. The announcement is settlement-gated: only a RESOLVED clipboard write announces, and the clear window is armed at settlement rather than at click, so a slow clipboard cannot have its confirmation truncated and a failed one cannot produce a false success.
+3. **The tab-stop question, answered.** The entry left open whether the copy-links belong in the tab order. The owner ratified that they STAY — they are real controls — so the remedy is a skip path, not `tabindex="-1"`. `/help/errors` now renders a skip link ("Skip to the report button") as the first focusable element the page contributes, targeting a `tabIndex={-1}` wrapper around the report Callout. Verified in a real browser: activating it moves focus to `#report`, and the next Tab lands on the report button.
+
+**Two documented-limit families carried forward** (spec §4, not defects): copy FAILURE is silent — a rejected or unavailable clipboard announces nothing, leaving the default fragment navigation as the fallback, because announcing failure needs failure copy with its own catalog questions; and NO VISIBLE confirmation ships — the confirmation is screen-reader-only by ratified scope, so sighted-user confirmation remains the browser's own fragment navigation. Re-open trigger for the second: operator or user feedback that the copy affordance feels dead.
+
+**Spec:** `docs/superpowers/specs/2026-08-15-help-refanchor-a11y.md` (spec-APPROVED, codex-guard R6) · **Plan:** `docs/superpowers/plans/2026-08-15-help-refanchor-a11y/plan.md` (plan-APPROVED, codex-guard R5) · **Closeout:** `docs/superpowers/plans/2026-08-15-help-refanchor-a11y/closeout.md` (invariant-8 gate: critique RAN-DEGRADED, audit RAN, 0 P0, 0 P1).
+
 ## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button now carries its own boundary — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-14 · PR #787 · **Effort (as shipped):** S at the constant, M across the class
