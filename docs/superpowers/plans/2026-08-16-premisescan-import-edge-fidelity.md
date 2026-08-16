@@ -88,7 +88,7 @@ console.log(`suites=${suites.length} tests=${n} corpus-pass=${((Date.now() - t0)
 npx vitest run tests/mutation/_metaPremiseContract.test.ts 2>&1 | tail -6
 ```
 
-Record the `corpus-pass` figure — Task 6 compares against it as a ratio. The pre-merge measurement on 2026-08-16 was `suites=29 tests=1314 corpus-pass=1.49s`; post-#827 the suite count is 31, so re-measure rather than reusing that number. Expected: the meta-contract PASSES with every declared count holding — 31 rows post-#827, the two added being `tests/mutation/source/premiseScan.test.ts` (declared `0`) and `tests/mutation/_metaPremiseContract.test.ts` (declared `1`).
+Write the seconds figure to a gitignored scratch file, `corpus-pass-baseline.txt`, in the worktree's probe directory — Task 6 Step 1 reads that file and fails on a ratio, so the baseline must be a recorded value rather than a remembered one. The pre-merge measurement on 2026-08-16 was `suites=29 tests=1314 corpus-pass=1.49s`; post-#827 the suite count is 31, so re-measure rather than reusing that number. Expected: the meta-contract PASSES with every declared count holding — 31 rows post-#827, the two added being `tests/mutation/source/premiseScan.test.ts` (declared `0`) and `tests/mutation/_metaPremiseContract.test.ts` (declared `1`).
 
 - [ ] **Step 5: Note the corpus base-sha split.** The merge moves `git merge-base origin/main HEAD`, so rows already written under `docs/review-rounds/fix/premisescan-import-edges/` for the pre-merge base sit beside a second file keyed on the post-merge one. That is intended — round counts are per merge-base — but Task 7 must read BOTH.
 
@@ -105,7 +105,7 @@ git merge-base origin/main HEAD | cut -c1-12
 
 Spec §2.1, §2.2 rows E1-E4, §2.4, and §2.6 items 1 and 3. The structural task.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:111` why=`ANCHOR IS PRE-MERGE: :111 is the default-import registration on the tracked tree today (imports.set(clause.name.text, spec)); Task 0 merges #827 and re-anchors before this task runs. The defect is identical in both versions - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-9,AC-9b,AC-10c -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:111` why=`ANCHOR IS PRE-MERGE: :111 is the default-import registration on the tracked tree today (imports.set(clause.name.text, spec)); Task 0 merges #827 and re-anchors before this task runs. The defect is identical in both versions - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-4b,AC-5,AC-9,AC-9b,AC-9c,AC-10c -->
 
 **Files:**
 
@@ -120,18 +120,23 @@ Spec §2.1, §2.2 rows E1-E4, §2.4, and §2.6 items 1 and 3. The structural tas
 type ExportResolution =
   | { kind: "extent"; nodes: ts.Node[] }
   | { kind: "forward"; spec: string; exportName: string }
-  | { kind: "notAModule" }
-  | { kind: "noSuchExport" }
+  | { kind: "data" }                       // .json / .mdx -> pure, like a bare specifier
+  | { kind: "noSuchExport" }               // pure on a direct request, benign miss on a star branch
   | { kind: "unresolvable"; reason: string };
 
 type Reach = { verdict: Verdict; reasons: string[] };
 
-const LANGUAGE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs"] as const;
+// §2.4's three answers. `.jsx` is HERE because it is analyzed today (probe §3.9);
+// omitting it would make this repair introduce a silent free.
+const LANGUAGE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs", ".jsx"] as const;
+const DATA_EXTENSIONS = [".json", ".mdx"] as const;
+// Every other shape resolveSpecifier lands on, a directory included, is REPORTED.
 
 function resolveExport(
   facts: ModuleFacts,
   exportName: string,
-  visited: Set<string>,
+  active: Set<string>,                 // pairs on the CURRENT path: a repeat is a cycle
+  done: Map<string, ExportResolution>, // COMPLETED pairs: a repeat is a diamond, reuse the answer
 ): ExportResolution;
 ```
 
@@ -333,6 +338,92 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
     ).toBe("environment-free");
   });
 
+  it("a renamed default CLASS resolves (AC-4b)", () => {
+    // An E4 branch AC-4's default-FUNCTION fixture never reaches. Probe §3.9
+    // measures this environment-free today.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export default class { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }`,
+        },
+        `import K from "__MODULE_helper__";
+         it("x", () => { new K().go(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("an exported CLASS resolves (AC-5, E1 branch)", () => {
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export class C { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }`,
+        },
+        `import { C } from "__MODULE_helper__";
+         it("x", () => { new C().go(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("an exported ENUM resolves (AC-5, E1 branch)", () => {
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            const r = String(spawnSync("echo", ["x"]).stdout);
+            export enum E { A = 0 }
+            export function useIt(): string { return r + E.A; }`,
+        },
+        `import { useIt } from "__MODULE_helper__";
+         it("x", () => { useIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a DESTRUCTURED exported const resolves (AC-5, E1 branch)", () => {
+    // The modifier is on the VariableStatement and the names come out of a
+    // binding pattern; an implementation reading only simple identifiers misses it.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export const { stdout: out } = spawnSync("echo", ["x"]);`,
+        },
+        `import { out } from "__MODULE_helper__";
+         it("x", () => { void out; });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("an unrecognized module shape is REPORTED, not purified (AC-9c)", () => {
+    // A directory reached through resolveSpecifier's bare-base candidate. This
+    // THROWS EISDIR today (probe §3.9); a guard that only moved the extension
+    // test before the read would turn the crash into a silent pure instead.
+    expect(
+      verdictWithModules(
+        { "d/index.tsx": `export const x = 1;` },
+        `import { x } from "__MODULE_d__";
+         it("x", () => { void x; });`,
+      ),
+    ).toBe("unclassifiable");
+  });
+
+  it("an explicit `.jsx` target stays ANALYZED (AC-9b)", () => {
+    // Probed environment-touching TODAY. An allowlist omitting .jsx would make
+    // this repair introduce the very silent free the arc exists to close.
+    expect(
+      verdictWithModules(
+        {
+          "helper.jsx": `import { spawnSync } from "node:child_process";
+            export function spawnHelper() { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
   it("a `.mjs` target stays ANALYZED (AC-9b)", () => {
     // AC-9's foil. The live tests/ci/phantomGapExecuted.test.ts edge is a named
     // import of an in-repo .mjs module; an over-reaching allowlist turns it into
@@ -362,10 +453,10 @@ Expected: a non-zero FAILING count (never `skipped`). Red: `a renamed default im
 - [ ] **Step 4: Implement.** In `premiseScan.ts`:
 
   1. Default-import registration becomes `imports.set(clause.name.text, { spec, imported: "default" })`.
-  2. Add `exports` to `ModuleFacts`, mapping an EXPORTED name to either a local name or a node. Populate it in the same walk: for an `ExportDeclaration` without a `moduleSpecifier` whose clause is `NamedExports`, the exported name is `e.name.text` and the local name is `(e.propertyName ?? e.name).text` — the mirror of an import specifier, and the easiest thing here to get backwards; for a `VariableStatement`, `FunctionDeclaration`, `ClassDeclaration` or `EnumDeclaration` carrying an `export` modifier, map each bound identifier to itself, reading the modifier from the STATEMENT in the variable case; for an `ExportAssignment` with `isExportEquals === false`, map `default` to the expression; for a declaration carrying both `export` and `default`, map `default` to the declaration. Skip anything `isTypeOnly`.
-  3. Add `resolveExport(facts, exportName, visited)`. **Consult `exports` FIRST and never `extents` on its own** — `extents` is reached only through an entry that has already established the name is exported. A local name resolves through module-scope `extents`; a recorded node resolves to `{ kind: "extent", nodes: [node] }`; a name that is an entry in `facts.imports` resolves to `{ kind: "forward", … }` (Task 2 follows it; until then treat `forward` as `unresolvable` with reason `forwarded export (not yet followed)`); a name in neither map resolves to `{ kind: "noSuchExport" }`, which is PURE and adds no reason (spec §2.1).
-  4. Guard the module boundary on extension **before any read**: in `reaches`, once `resolveSpecifier` returns a target, if its extension is not in `LANGUAGE_EXTENSIONS`, `continue` — pure, exactly as a bare specifier is. `factsFor` is never called, so a directory can never reach `readFileSync` and throw `EISDIR` (spec §4 limit 6).
-  5. Change `reaches` to return `Reach`, routing every `{ kind: "unresolvable", reason }` into `reasons` as `` `${reason} in ${relative(root, path)}` ``.
+  2. Add `exports` to `ModuleFacts`, mapping an EXPORTED name to either a local name or a node. Populate it in the same walk: for an `ExportDeclaration` without a `moduleSpecifier` whose clause is `NamedExports`, the exported name is `e.name.text` and the local name is `(e.propertyName ?? e.name).text` — the mirror of an import specifier, and the easiest thing here to get backwards; for a `VariableStatement`, `FunctionDeclaration`, `ClassDeclaration` or `EnumDeclaration` carrying an `export` modifier, map every identifier it binds to itself, reading the modifier from the STATEMENT in the variable case and walking object and array binding patterns and multiple declarators; for an `ExportAssignment` with `isExportEquals === false`, map `default` to the expression; for a declaration carrying both `export` and `default` — function OR class, named or anonymous — map `default` to the declaration. Skip anything `isTypeOnly`. **All four E1 declaration kinds are required**: probe §3.9 measures an exported class, an exported enum and a destructured `export const` each touching today, and the enrolled closure itself contains exported classes, so dropping a kind is a live regression.
+  3. Add `resolveExport(facts, exportName, visited)`. **Consult `exports` FIRST and never `extents` on its own** — `extents` is reached only through an entry that has already established the name is exported. A local name resolves through module-scope `extents`; a recorded node resolves to `{ kind: "extent", nodes: [node] }`; a name that is a NON-namespace entry in `facts.imports` resolves to `{ kind: "forward", … }` (Task 2 follows it; until then treat `forward` as `unresolvable` with reason `forwarded export (not yet followed)`); a name that is a NAMESPACE entry resolves to `{ kind: "unresolvable", reason: "local re-export of a namespace binding" }`, because `export { ns }` exports the namespace object rather than a target export and forwarding it would answer `noSuchExport` and go silently pure (spec §2.2 E2, probe §3.9, population 0); a name in neither map resolves to `{ kind: "noSuchExport" }`, which is PURE on a direct request and adds no reason (spec §2.1).
+  4. Classify the resolved target **before any read**, three ways (spec §2.4): extension in `LANGUAGE_EXTENSIONS` → analyze as today; extension in `DATA_EXTENSIONS` → `data`, pure exactly as a bare specifier is; **anything else, including a DIRECTORY → `{ kind: "unresolvable", reason: \`unsupported module shape for ${spec}\` }`**. Never call `factsFor` on the last two, so a directory can no longer reach `readFileSync` and throw `EISDIR` — probe §3.9 measures that crash today. Do NOT widen `resolveSpecifier`'s candidate list; an extensionless `.mjs` specifier stays unresolved and pure, filed as spec §4 limit 5.
+  5. Change `reaches` to return `Reach`, routing every `{ kind: "unresolvable", reason }` into `reasons`. **The path names the module the unresolvable was FOUND in, not the module being visited from** (spec §2.6 item 2): an unfollowable re-export is a defect of the BARREL, and naming the importing test file sends the reader to the wrong file. Task 3's `detail` assertion depends on this.
   6. Update BOTH `reaches` call sites in `classifyTests`: the test-extent call takes `.verdict` and merges `.reasons`; the hook loop compares `.verdict === "environment-touching"` and merges `.reasons` too. Merge into `detail`, de-duplicated, alongside `ownUnresolved`. A test with non-empty `reasons` whose verdict is not `environment-touching` classifies `unclassifiable`.
   7. Delete `moduleScopeExtent`.
   8. Add `extname` and `relative` to the `node:path` import — the file imports only `dirname, join, resolve`.
@@ -557,10 +648,29 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     ).toBe("environment-free");
   });
 
-  it("a DIAMOND re-export graph resolves, and is not mistaken for a cycle", () => {
-    // The foil for the cycle case: the pair (helper, spawnHelper) is reached
-    // twice, once per side. A visited-set repeat means "already answered", not
-    // "cycle"; getting that wrong makes an ordinary barrel shape a false report.
+  it("a PURE diamond resolves, and is not mistaken for a cycle", () => {
+    // The shared target must be PURE or the repeat never happens: with a
+    // touching target the first branch short-circuits on provenance and the
+    // second never reaches the shared module, so the case proves nothing.
+    // Probe §3.9 measures this exact shape.
+    expect(
+      verdictWithModules(
+        {
+          d: `export function x(): number { return 1; }`,
+          b: `export * from "__MODULE_d__";`,
+          c: `export * from "__MODULE_d__";`,
+          a: `export * from "__MODULE_b__";
+              export * from "__MODULE_c__";`,
+        },
+        `import { x } from "__MODULE_a__";
+         it("t", () => { x(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("a TOUCHING diamond still short-circuits on the first branch", () => {
+    // The pure diamond's companion: pins that the short-circuit is intact, so
+    // the pure case cannot be satisfied by removing it.
     expect(
       verdictWithModules(
         {
@@ -597,13 +707,13 @@ describe("forwarded exports: a re-export is followed to its source", () => {
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"
 ```
 
-Expected: a non-zero FAILING count. Every `environment-touching` case reports `unclassifiable` — Task 1's `forwarded export (not yet followed)` stub, routed through Task 1's reasons channel. The cycle case fails on its `detail` assertion (it reports the stub reason, not `re-export cycle`), which is why that case asserts the reason and not only the verdict. Already green, as foils: `does NOT forward default`, the benign miss, the pure re-export, and the mixed barrel.
+Expected: a non-zero FAILING count. **The red reason differs per case and the plan states which, because a wrong rationale is how a red gets accepted for the wrong cause.** After Task 1, a module's `exports` map records only LOCAL forms — no `ExportDeclaration` carrying a `moduleSpecifier` is recorded at all — so E5 and E6 cases resolve `noSuchExport` and classify **`environment-free`**. Only `import-then-export { x }` reaches Task 1's `forwarded export (not yet followed)` stub and reports `unclassifiable`. The cycle case therefore fails on its VERDICT (it is `environment-free`, not `unclassifiable`), and its `detail` assertion is the second gate that stops the stub reason from being mistaken for cycle detection. Already green, as foils: `does NOT forward default`, the benign miss, the pure re-export, the mixed barrel, and the PURE diamond.
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`:
 
   1. In `moduleFacts`, record every `ExportDeclaration` that HAS a `moduleSpecifier`: for `NamedExports`, exported `e.name.text` → `{ spec, sourceName: (e.propertyName ?? e.name).text }`; for no clause (`export *`), append `spec` to a `starExports: string[]` on `ModuleFacts`. Skip `isTypeOnly` on the declaration and on each specifier.
   2. In `resolveExport`, return `{ kind: "forward", spec, exportName: sourceName }` for a recorded forwarded name. For a name in neither the local nor the forwarded map, try each `starExports` entry in turn — skipping the star pass entirely when `exportName === "default"`, which a star export never forwards — and return `noSuchExport` if no branch carries it.
-  3. In `reaches`, follow a `forward`: resolve its `spec` against the CURRENT module's path, apply Task 1's extension guard, load the target's facts, and call `resolveExport` again, threading `visited` keyed `` `${targetPath}#${exportName}` ``. **A repeat contributes nothing and the walk continues** — it does NOT mean a cycle; that is what a diamond produces. A genuine cycle is a walk that exhausts every path with nothing resolved, and only that returns `{ kind: "unresolvable", reason: "re-export cycle" }`. For a star fan-out, follow every candidate, treat `noSuchExport` as a benign miss, and stop at the first provenance.
+  3. In `reaches`, follow a `forward`: resolve its `spec` against the CURRENT module's path, apply Task 1's three-way target classification, load the target's facts, and call `resolveExport` again, threading BOTH structures keyed `` `${targetPath}#${exportName}` ``. **`active` holds the pairs on the current path — re-entering one is a back edge and IS the cycle**, returning `{ kind: "unresolvable", reason: "re-export cycle" }`. **`done` holds completed pairs with their answers — re-reaching one is a DIAMOND, so the memoized answer is reused and the walk continues.** A single set cannot tell them apart: treat every repeat as a cycle and an ordinary diamond falsely reports; ignore every repeat and a true cycle falls through to `noSuchExport` purity. For a star fan-out, follow every candidate, treat `noSuchExport` as a benign miss, and stop at the first provenance.
   4. No depth counter, by design.
 
 - [ ] **Step 4: Run the tests to verify they pass.**
@@ -633,7 +743,7 @@ Spec §2.2's declined list and §4 limits 1, 2 and 4. **Scope note:** the canoni
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
-**Interfaces:** Consumes `resolveExport`, `Reach`, `classificationWithModules`. Produces no new helper — this task only makes four forms resolve to `unresolvable` with their own reason strings.
+**Interfaces:** Consumes `resolveExport`, `Reach`, `classificationWithModules`. Produces no new helper — this task only makes the remaining declined forms resolve to `unresolvable` with their own reason strings.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -688,14 +798,34 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
     ).toBe("unclassifiable");
   });
 
-  it("a type-only export is PURE, not unresolvable", () => {
-    // The foil: a type reaches nothing at runtime, so declining to model it as a
-    // value must not make it loud.
+  it("`export { ns }` over a namespace import reports", () => {
+    // E2 forwarding would ask the target for an export named after the local
+    // alias, get noSuchExport, and go silently pure. Probe §3.9 measures free
+    // today; population 0 repo-wide, so reporting costs nothing.
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          barrel: `import * as helpers from "__MODULE_helper__";
+                   export { helpers };`,
+        },
+        `import { helpers } from "__MODULE_barrel__";
+         it("x", () => { helpers.spawnHelper(); });`,
+      ),
+    ).toBe("unclassifiable");
+  });
+
+  it("a VALUE import of a type-only export is PURE, not unresolvable", () => {
+    // NOT written as `import type { Thing }`: that form is filtered by
+    // isInTypePosition before any resolution, so it would pass whatever §2.2
+    // decides about type-only exports and could not discriminate the rule it is
+    // the foil for. This imports the name in a VALUE position, so it genuinely
+    // reaches resolveExport and pins that a type-only export resolves pure.
     expect(
       verdictWithModules(
         { helper: `export type Thing = { a: number };\n${SPAWNER}` },
-        `import type { Thing } from "__MODULE_helper__";
-         it("x", () => { const t: Thing = { a: 1 }; void t; });`,
+        `import { Thing } from "__MODULE_helper__";
+         it("x", () => { void Thing; });`,
       ),
     ).toBe("environment-free");
   });
@@ -719,9 +849,11 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export forms"
 ```
 
-Expected: a non-zero FAILING count. The four reporting cases classify `environment-free` — each resolves to `noSuchExport`, which Task 1 makes pure. Both foils are already green.
+Expected: a non-zero FAILING count. The five reporting cases classify `environment-free` — each resolves to `noSuchExport`, which Task 1 makes pure — except `export { ns }`, which Task 1 Step 4.3 already reports, so that one is GREEN on arrival and is a regression pin rather than a red. Both foils are already green.
 
-- [ ] **Step 3: Implement.** In `moduleFacts`, record the three declined forms explicitly so they resolve to `unresolvable` with their own reasons rather than falling through to `noSuchExport`: an `ExportDeclaration` whose clause is a `NamespaceExport` (`export * as ns from`); an `ExportAssignment` with `isExportEquals === true` (`export =`); and a `ModuleDeclaration` carrying an `export` modifier (`export namespace` / `export module`). Narrow E1's predicate to the four registered declaration kinds so the namespace case cannot match it. An unfollowable re-export needs no new form — it is an E5 `forward` whose `resolveSpecifier` returns null, which becomes `{ kind: "unresolvable", reason: \`unfollowable re-export of ${exportName} from ${spec}\` }`.
+- [ ] **Step 3: Implement.** In `moduleFacts`, record the declined forms explicitly so they resolve to `unresolvable` with their own reasons rather than falling through to `noSuchExport`: an `ExportDeclaration` whose clause is a `NamespaceExport` (`export * as ns from`); an `ExportAssignment` with `isExportEquals === true` (`export =`); and a `ModuleDeclaration` carrying an `export` modifier (`export namespace` / `export module`). E1's predicate is already the four registered declaration kinds — Task 1 Step 4.2 writes it that way — so nothing is narrowed here; that is why `export namespace` reaches this task's rule at all rather than resolving to an empty extent.
+
+  The unfollowable re-export needs care, because `resolveSpecifier` returns `null` for TWO different things: a relative or `@/` specifier that does not exist, and a BARE specifier, which must stay pure by L-2 (spec §4 limit 6's neighbour). **Split by specifier SHAPE, not by the null**: only a specifier starting `.` or `@/` becomes `{ kind: "unresolvable", reason: \`unfollowable re-export of ${exportName} from ${spec}\` }`; a bare specifier stays pure exactly as today. `export { ns }` over a namespace binding is already handled by Task 1 Step 4.3.
 
 - [ ] **Step 4: Run the tests to verify they pass.**
 
@@ -746,7 +878,7 @@ git commit -m "fix(mutation): report the export forms the resolver declines to f
 
 Spec §2.3. The task that must not become a module-closure rule.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "namespace bindings"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:113` why=`ANCHOR IS PRE-MERGE: :113 is the namespace-import registration on the tracked tree today (imports.set(b.name.text, spec)); Task 0 merges #827 and re-anchors. The binding is recorded under the LOCAL alias, so resolveExport is asked for an export named after the alias and answers noSuchExport, and the member identifier is not even a reference (isReferenceIdentifier returns false for a property-access name); probe rows H1 namespace member, H1 namespace destructured and DYN-NS all measure environment-free, and every touching case here reds until a namespace-marked import binding resolves ns.member to the export named member` ac=AC-2,AC-2b,AC-3,AC-7,AC-13 -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "namespace bindings"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:113` why=`ANCHOR IS PRE-MERGE: :113 is the namespace-import registration on the tracked tree today (imports.set(b.name.text, spec)); Task 0 merges #827 and re-anchors. The binding is recorded under the LOCAL alias, so resolveExport is asked for an export named after the alias and answers noSuchExport, and the member identifier is not even a reference (isReferenceIdentifier returns false for a property-access name); probe rows H1 namespace member, H1 namespace destructured and DYN-NS all measure environment-free, and every touching case here reds until a namespace-marked import binding resolves ns.member to the export named member` ac=AC-2,AC-2b,AC-2c,AC-3,AC-6,AC-7,AC-13 -->
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
@@ -796,6 +928,26 @@ describe("namespace bindings: member-precise, and nothing else", () => {
     expect(
       verdictWithModules({ helper: MIXED },
         `it("x", async () => { const { spawner } = await import("__MODULE_helper__"); spawner(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("the namespace dedup identity includes the MEMBER: pure first (AC-2c)", () => {
+    // The traversal dedups by the BINDING a reference resolves to. A namespace
+    // resolves the SAME binding to DIFFERENT exports, so a member-blind key
+    // marks it seen on ns.pureOne() and never visits ns.spawner().
+    expect(
+      verdictWithModules({ helper: MIXED }, `import * as ns from "__MODULE_helper__";
+        it("x", () => { ns.pureOne(); ns.spawner(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("the namespace dedup identity includes the MEMBER: spawn first (AC-2c)", () => {
+    // Both orders are required: a member-blind key fails in exactly one of them
+    // depending on which reference the walk meets first, so a single-order
+    // fixture can pass while the hole remains.
+    expect(
+      verdictWithModules({ helper: MIXED }, `import * as ns from "__MODULE_helper__";
+        it("x", () => { ns.spawner(); ns.pureOne(); });`),
     ).toBe("environment-touching");
   });
 
@@ -876,7 +1028,7 @@ Expected: a non-zero FAILING count. Red: both member cases, the dynamic namespac
   1. Mark the static namespace import: `imports.set(b.name.text, { spec, imported: b.name.text, namespace: true })`.
   2. Mark the dynamic one: in `bindPattern`'s identifier branch, record `{ spec, imported: name.text, namespace: true }`. The destructured branch is unchanged.
   3. In `reaches`, for a binding with `namespace === true`: FIRST, if `isProvenanceModule(binding.spec)` return touching — before any member inspection, preserving the shipped ordering. Otherwise inspect the reference's parent: a `PropertyAccessExpression` whose `expression` is this reference resolves the export named `p.name.text`; an `ElementAccessExpression` whose `argumentExpression` is a string literal resolves that export; **anything else pushes** `` `namespace ${name} used in a position with no statically known member, from ${spec}` `` **into `reasons`**.
-  4. `extentIsProvenance` and `bindingKey` need no edit — the binding keeps `kind: "import"`.
+  4. `extentIsProvenance` needs no edit — the binding keeps `kind: "import"`. **`bindingKey` DOES need one:** for a namespace reference the dedup identity is `(binding, resolved member)`, not `(binding)`. A namespace resolves one binding to many exports, so the shipped member-blind key lets the first-resolved member mark the binding seen and skips every other — a silent `environment-free` whose direction depends on source order (spec §2.3). Every other binding kind keeps the shipped key exactly.
 
 - [ ] **Step 4: Run the tests to verify they pass.**
 
@@ -980,6 +1132,43 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
     ).toBe("unclassifiable");
   });
 
+  it("a TOP-LEVEL hook reaching PROVENANCE classifies touching (AC-12)", () => {
+    // The arc's only PROVENANCE silent free. classifyTests seeds its walk with
+    // an empty hook list and only adds hooks at a `describe`, so a file whose
+    // beforeEach sits at top level has none attached to any test. Probe §3.5
+    // measures this environment-free today; 6 of the 31 enrolled suites are
+    // shaped this way.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         beforeEach(() => { spawnHelper(); });
+         it("x", () => { expect(1).toBe(1); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a TOP-LEVEL hook holding a construct reports (AC-11)", () => {
+    expect(
+      verdict(`const specifier = "./x" + String(1);
+        beforeAll(async () => { await import(specifier); });
+        it("x", () => { expect(1).toBe(1); });`),
+    ).toBe("unclassifiable");
+  });
+
+  it("a TOP-LEVEL hook with a PURE body stays free", () => {
+    // The foil: attaching top-level hooks must not mark every test in every
+    // file that has one: and 6 enrolled suites have one.
+    expect(
+      verdict(`function pure(): number { return 1; }
+        beforeEach(() => { pure(); });
+        it("x", () => { expect(1).toBe(1); });`),
+    ).toBe("environment-free");
+  });
+
   it("a hook reaching PROVENANCE still classifies touching (C6 foil)", () => {
     // The foil for the three hook cases: the hook path already carried
     // provenance correctly, so what the repair adds is the reason channel and
@@ -1056,9 +1245,14 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "unclassifiable propagation"
 ```
 
-Expected: a non-zero FAILING count. Red: the four helper-position cases, the three hook and producer cases, and the cross-module case. Already green, as foils: the C6 provenance hook, the no-construct helper, and both AC-12 branches. `a reason is reported once` is also green at authoring time — it exists to catch the double-report the merge could introduce, so it is a regression pin rather than a red.
+Expected: a non-zero FAILING count. Red: the four helper-position cases, the three nested hook and producer cases, the cross-module case, and **both TOP-LEVEL cases** — the provenance one especially, which is `environment-free` today and is the arc's only provenance silent free. Already green, as foils: the C6 nested provenance hook, the top-level PURE hook, the no-construct helper, and both AC-12 helper/own-extent branches. `a reason is reported once` is also green at authoring time — a regression pin for the double-report the merge could introduce, not a red.
 
-- [ ] **Step 3: Implement.** Inside `reaches`'s `visit`, evaluate `unclassifiableWithin(node, f)` on each visited node and push each reason as `` `${reason} in ${relative(root, path)}` `` into `reasons`. Task 1 already merges `reasons` at both call sites and de-duplicates before writing `detail`; leave `classifyTests`'s own-extent `ownUnresolved` call and its precedence exactly as they are — the propagated path is additive and the own-extent path keeps outranking `environment-touching`. Do NOT move the provenance short-circuit in `visit`: that ordering is what makes AC-12's second branch true.
+- [ ] **Step 3: Implement.** Two changes:
+
+  1. Inside `reaches`'s `visit`, evaluate `unclassifiableWithin(node, f)` on each visited node and push each reason into `reasons`, naming the module the node belongs to (Task 1 Step 5's rule). Task 1 already merges `reasons` at both call sites and de-duplicates before writing `detail`.
+  2. **Collect the file's TOP-LEVEL hooks and seed the walk with them.** `classifyTests` starts `walk(facts.sf, [])` and only ever adds hooks when it meets a `describe`, so a top-level `beforeEach` is attached to nothing. Gather the hook calls that are direct statements of the `SourceFile` and pass them as the walk's initial `hooks` array. Vitest applies a top-level hook to every test in the file, so this is the correct reading rather than an over-reach — and it is the only change in this arc that repairs a PROVENANCE silent free rather than a reason one.
+
+  Leave `classifyTests`'s own-extent `ownUnresolved` call and its precedence exactly as they are — the propagated path is additive and the own-extent path keeps outranking `environment-touching`. Do NOT move the provenance short-circuit in `visit`: that ordering is what makes AC-12's helper branch true.
 
 - [ ] **Step 4: Run the tests to verify they pass.**
 
@@ -1106,7 +1300,26 @@ console.log(`suites=${suites.length} tests=${n} corpus-pass=${((Date.now() - t0)
 '
 ```
 
-Expected: under the contract's 30 s budget **and within 2× Task 0 Step 4's baseline**. Both bounds are required — the 30 s ceiling alone admits a 1.5 s → 29 s regression, and the documented scope-walk regression was 3.7×. Record both figures in the commit message. A pass outside the ratio means the provenance short-circuit moved; revisit Task 5 Step 3 rather than relaxing the bound.
+Make it a COMMAND that exits non-zero, not a figure to eyeball — a reading instruction is the defect AC-1 was repaired to remove. Task 0 Step 4 writes its figure to a gitignored scratch file under the worktree's probe directory, `corpus-pass-baseline.txt`; this step reads it:
+
+```bash
+BASE=$(cat "$PROBE_DIR/corpus-pass-baseline.txt")
+npx tsx -e '
+import { classifyTests } from "./tests/mutation/source/premiseScan";
+import { GUARD_SURFACES } from "./tests/mutation/source/registry";
+const base = Number(process.argv[1]);
+const ROOT = process.cwd();
+const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();
+const t0 = Date.now();
+for (const s of suites) classifyTests(ROOT, s);
+const secs = (Date.now() - t0) / 1000;
+console.log(`corpus-pass=${secs.toFixed(2)}s baseline=${base.toFixed(2)}s ratio=${(secs / base).toFixed(2)}x`);
+if (secs > 30) { console.error("AC-14 FAIL: over the 30s budget"); process.exit(1); }
+if (secs > base * 3) { console.error("AC-14 FAIL: over 3x the baseline"); process.exit(1); }
+' "$BASE"
+```
+
+Expected: exit 0. **Both bounds are required** — the 30 s ceiling alone admits a 1.5 s → 29 s regression, and the documented scope-walk regression was 3.7×. The band is 3× rather than 2× because this is an unwrapped `tsx` run on a box running many arcs concurrently, so a 2× band on a ~1.5 s figure measures scheduler noise rather than the scanner. Record both figures in the commit message. A failure means the provenance short-circuit moved; revisit Task 5 Step 3 rather than relaxing the bound.
 
 - [ ] **Step 2: Re-derive the surviving accepted rows.** Do not hand-adjust line numbers.
 
@@ -1163,7 +1376,7 @@ git commit -m "test(infra): re-derive the premiseScan ledger and retire the acce
 
 ### Task 7: Graduation — the new limit's row, the ledger, the round corpus
 
-<!-- task: red=`npx vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerInProgress.test.ts:51` why=`:51 is the isArchive predicate the rule rests on - an archive holds finished work, so moving BL-PREMISESCAN-IMPORT-EDGE-FIDELITY into BACKLOG-archive.md with its IN PROGRESS marker still attached (Step 2) reds this suite; stripping the marker in the same edit session (Step 3) greens the same command, which is what proves the marker came off before the merge` ac=AC-8 -->
+<!-- task: red=`npx vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerInProgress.test.ts:52` why=`:52 is the isArchive predicate the rule rests on (:51 is its doc comment) - an archive holds finished work, so moving BL-PREMISESCAN-IMPORT-EDGE-FIDELITY into BACKLOG-archive.md with its IN PROGRESS marker still attached (Step 2) reds this suite; stripping the marker in the same edit session (Step 3) greens the same command, which is what proves the marker came off before the merge` ac=AC-1 -->
 
 **Files:** `BACKLOG.md`, `BACKLOG-archive.md`, `docs/review-rounds/fix/premisescan-import-edges/`.
 
@@ -1208,19 +1421,22 @@ git commit -m "docs(backlog): graduate BL-PREMISESCAN-IMPORT-EDGE-FIDELITY"
 | AC-1 verdict-neutral | Task 6 Step 6 (mechanical, merge-base keyed, discrimination proven) + the `_metaPremiseContract` run ending every task |
 | AC-2 namespace member edges | Task 4, `ns.member` and `ns["member"]` |
 | AC-2b dynamic namespace | Task 4, `a DYNAMIC namespace binding resolves` + its destructured foil |
+| AC-2c namespace dedup includes the member | Task 4, both orders (pure-first and spawn-first) |
 | AC-3 member-precise, not module-wide | Task 4, `a namespace member that is PURE stays free even when a sibling spawns` |
 | AC-4 default named `default` | Task 1, `a renamed default import resolves` + the same-name foil |
-| AC-5 every accepted export form | Task 1 (E1-E4, incl. the `export const` statement-modifier case) + Task 2 (E5-E6, chain, import-then-export) with the MIXED-barrel foil |
+| AC-4b renamed default CLASS | Task 1, `a renamed default CLASS resolves` |
+| AC-5 every accepted export BRANCH | Task 1 (E1's four kinds separately — const incl. destructured, function, class, enum — plus E3/E4) + Task 2 (E5-E6, chain, import-then-export) with the MIXED-barrel foil |
 | AC-5b star-export ambiguity | Task 2, `the branch that HAS the name wins` + the benign-miss foil |
 | AC-6 AC-10b direct | Task 4, `AC-10b stays quiet through a direct import` |
 | AC-7 AC-10b via namespace | Task 4, `AC-10b stays quiet through a namespace` |
-| AC-8 declined forms REPORTED | Task 3, four forms + two foils; the unparseable form is out of scope (spec §4 limit 8), filed in Task 7 Step 1 |
+| AC-8 declined forms REPORTED | Task 3, five forms (incl. `export { ns }`) + a VALUE-position type-only foil; the unparseable form is out of scope (spec §4 limit 8), filed in Task 7 Step 1 |
 | AC-9 non-language targets pure | Task 1, `a data import is PURE, and the specifier carries the extension` |
-| AC-9b `.mjs` stays analyzed | Task 1, `a .mjs target stays ANALYZED` — AC-9's foil |
-| AC-10 cycles terminate, diamonds do not | Task 2, the cycle case (asserting the REASON) + the diamond foil |
+| AC-9b `.mjs` and `.jsx` stay analyzed | Task 1, `a .mjs target stays ANALYZED` and `an explicit .jsx target stays ANALYZED` — AC-9's foils |
+| AC-9c unrecognized shape REPORTED | Task 1, `an unrecognized module shape is REPORTED, not purified` |
+| AC-10 cycles terminate, diamonds do not | Task 2, the cycle case (asserting the REASON) + the PURE diamond foil + the touching-diamond short-circuit pin |
 | AC-10c export beats same-named local | Task 1, `an EXPORT beats a same-named non-exported local` |
-| AC-11 propagation from every position | Task 5, four helper positions + three hook/producer cases + cross-module, with the C6 and no-construct foils |
-| AC-12 precedence both directions | Task 5, the two AC-12 branches |
+| AC-11 propagation from every position | Task 5, four helper positions + three nested hook/producer cases + a TOP-LEVEL hook + cross-module, with the C6, top-level-pure and no-construct foils |
+| AC-12 precedence every direction | Task 5, own-extent and helper branches plus the TOP-LEVEL hook reaching provenance — the arc's only provenance silent free |
 | AC-13 provenance-module precedence | Task 4, both `node:child_process` namespace cases |
 | AC-14 performance, ratio-bounded | Task 6 Step 1 against Task 0 Step 4 |
 | AC-15 mutation gate, acceptance retired | Task 6 Steps 2-5 |

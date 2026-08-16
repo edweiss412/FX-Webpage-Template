@@ -8,7 +8,7 @@
 | Decision | Why |
 | --- | --- |
 | The target is the **unmerged #827 tree**, obtained with `git show origin/fix/scanner-scope-totality:tests/mutation/source/premiseScan.ts`. Measuring `main`'s 446-line copy would measure a scanner nobody will ship. | Parent spec §7 |
-| The harnesses ran from a **gitignored `.claude/probe/` directory** in the branch worktree and are reproduced below rather than committed as runnable scripts. They are draft-time measurements; nothing re-runs them and no gate depends on them. | Same posture as the two 2026-08-04 probes beside this file |
+| The harnesses ran from a **gitignored `.claude/probe/` directory** in the branch worktree. They are draft-time measurements; nothing re-runs them and no gate depends on them. **What is reproduced here is stated per probe rather than claimed in general:** probes 1 and 2 give the runner plus the complete fixture table, which is enough to rebuild them; probe 3's AST walker is DESCRIBED, not reproduced, and its iteration completeness therefore cannot be checked from this document alone. A round-1 draft said the harnesses "are reproduced below" without that distinction — a claim wider than the artifact, corrected after cross-model review found the seed-filter defect below that such a claim would have hidden. | Same posture as the two 2026-08-04 probes beside this file |
 | The measurement is a **draft-time input**. The parent spec's AC-1 re-derives the live-domain figure executably; the numbers here are not a gate. | Parent spec §6 |
 
 ## Question
@@ -132,7 +132,17 @@ H2 unclassifiable AND environment-touching in one test     ->  unclassifiable (d
 
 An independent AST walk — not the scanner — over a seed set and its transitive in-repo closure, mirroring `resolveSpecifier`'s candidate order (`${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `base`) so the closure matches the one the scanner would walk. Each import and export declaration is classified by AST form and tagged `inrepo` or `bare` by whether the specifier resolves inside the repository.
 
-Two seed sets: the enrolled `suitePaths` parsed out of `tests/mutation/source/registry.ts`, and `git ls-files tests`.
+Two seed sets: the enrolled `suitePaths` parsed out of `tests/mutation/source/registry.ts`, and the tracked files under `tests/`.
+
+**The second seed set's filter, stated exactly, because a round-1 draft described it as plain `git ls-files tests` and it is not.** Against `ac9a40cd8`:
+
+```
+git ls-files tests                                    2498
+  filtered to .ts/.tsx        (what round 1 measured)  2314
+  filtered to the language set (§2.4)                  2326
+```
+
+The round-1 figure was the `.ts`/`.tsx` subset, so it silently omitted **12 `.js`/`.mjs` files that §2.4 itself calls language modules** — `tests/codexGuard/fixtures/fake-codex.mjs`, four `tests/cross-cutting/redirect-guard-probes/*.mjs`, `tests/drive/pin15ExportProbe.mjs`, three `tests/e2e/*.mjs` bundles, `tests/e2e/helpers/useServerDirectivePlugin.mjs`, and three `tests/styles/__fixtures__/font-escapes/**` `.js` files. Re-measured over the full 2,326-seed set, the closure grows from 3,207 to 3,221 modules and **every in-repo count below is unchanged** — namespace 22, default 40, named re-export 117, local export list 28, `export *` 1, aliased named import 133, namespace-in-non-member-position 41. Only two bare-specifier counts move (`named:bare` 9,215 → 9,223, `namespace:bare` 24 → 27), and bare specifiers are pure by L-2. The conclusion survives; the declared domain and the measured domain now match.
 
 **Probe correction (v1 → v2).** The first run parsed every file with `ts.ScriptKind.TS`, including `.tsx`. TSX content parsed as TS yields a garbage tree, and it inflated the "namespace used in a non-member position" figure from the true **41** to **68** — `COPY.EDIT_SAVED_CONFIRM` in a JSX expression was mis-read as a non-member use. Every figure below is from the corrected run, which selects `ts.ScriptKind.TSX` by extension. The import and export counts were unaffected (declarations parse identically either way); only the namespace-position figure moved. Worth recording because `premiseScan` itself parses with a fixed `ts.ScriptKind.TS` — no enrolled suite is `.tsx` today, so it is a latent limit rather than a live defect, and it is outside this arc's scope.
 
@@ -154,7 +164,7 @@ dynamic import() with a non-literal specifier   0
 computed member access on process               0
 ```
 
-**Near domain** (2,314 seeds from `git ls-files tests`, 3,207 in-repo modules reached; the last two rows come from a second walk that also follows `export … from` and literal dynamic-import edges and therefore reaches 3,255):
+**Near domain** (2,314 `.ts`/`.tsx` seeds; 2,326 and 3,221 modules over the full language set, with every in-repo count identical — see Method; the last two rows come from a second walk that also follows `export … from` and literal dynamic-import edges and therefore reaches 3,255):
 
 | form (in-repo edges only) | count |
 | --- | --- |
@@ -229,3 +239,46 @@ Round-1 review could not reproduce the "117 named re-export specifiers" figure a
 ```
 
 `export-from:spec:aliased`, `export-star-as:stmt` and `export-equals:stmt` are absent — zero repo-wide, which is what the parent spec's declined list rests on. The lesson is the reporting, not the value: a specifier count and a statement count for the same construct differ by nearly threefold here, and a table that does not say which one it holds is unreproducible by construction.
+
+## Round-2 addendum — accept-set completeness pre-flight
+
+**Question.** Under the spec's E1-E6 export rules, does every import edge that resolves TODAY still resolve? A name the new resolver cannot find answers `noSuchExport`, which is pure — so a miss would be a silent demotion that moves no declared count and emits no reason.
+
+**Method.** An independent AST walk, not the scanner. For each module in the closure, compute the exported names under E1-E6 — the four registered declaration kinds carrying an `export` modifier (reading the modifier from the `VariableStatement` for the variable case), local and forwarded `NamedExports`, both `ExportAssignment` forms, and `NamespaceExport` — then follow `export *` targets against a `(module, name)` visited set. For each named or default import edge whose specifier resolves in-repo to a language module, look the imported name up. Type-only declarations and specifiers are skipped, as the spec skips them.
+
+```
+live domain (post-#827 registry): 90 modules, 230 named/default import edges checked
+  noSuchExport MISSES: 0
+
+near-domain (git ls-files tests):  3,207 modules, 9,381 named/default import edges checked
+  noSuchExport MISSES: 0
+```
+
+**Conclusion.** The accept-set covers every import edge the corpus contains, at both scopes. This is the derived cover the class-sweep rule asks for: the claim is checked against the corpus rather than argued from a list of remembered forms.
+
+## Round-2 addendum — two mechanical facts the plan rests on
+
+**Where export modifiers live.** Parsed directly, because E1's predicate depends on it:
+
+```
+export const a = 1, b = 2   ->  VariableStatement export=true;  its VariableDeclarations export=false; binds a, b
+export function f() {}      ->  FunctionDeclaration  export=true
+export default function d() -> FunctionDeclaration  export=true default=true
+export namespace NS { … }   ->  ModuleDeclaration    export=true      <- matches a naive predicate
+export type T = number      ->  TypeAliasDeclaration export=true      <- matches a naive predicate
+export interface I { … }    ->  InterfaceDeclaration export=true      <- matches a naive predicate
+export { plain }            ->  ExportDeclaration    (no modifier)
+export default 42           ->  ExportAssignment     isExportEquals=false
+export = f                  ->  ExportAssignment     isExportEquals=true
+```
+
+An E1 predicate written as "carries an `export` modifier" therefore admits `export namespace`, `export type` and `export interface`, none of which register an extent — which is why E1 is keyed on the four registered declaration kinds instead. And `export const` must be read from the STATEMENT: its declarations carry no modifier at all.
+
+**Hoisting the test helpers is scanner-neutral.** The plan's Task 1 moves helpers to module scope inside `premiseScan.test.ts`, which is itself an enrolled suite declared `0`. Measured on the #827 tree, before and after adding module-scope helpers of the shape the plan specifies:
+
+```
+AS SHIPPED               : tests=56 touching=0 unclassifiable=0
+WITH MODULE-SCOPE HELPERS: tests=56 touching=0 unclassifiable=0
+```
+
+The declared `0` holds because `node:fs` is deliberately not a provenance and the helpers read no `process.env`. The plan still runs the check, because the reasoning is only as good as the `ENVIRONMENT_SOURCES` list it rests on.
