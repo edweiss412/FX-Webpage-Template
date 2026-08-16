@@ -407,6 +407,12 @@ const infraRegistry = [
       "show_change_log read (service-role, images EXCLUDED); one try/catch; returned {error} → infra_error('show_change_log read failed'); thrown → infra_error('show_change_log read threw'); .limit-bounded.",
   },
   {
+    helper: "lookupStagedRow",
+    path: "lib/admin/lookupStagedRow.ts",
+    contract:
+      "pending_syncs staged-row read for the staged crew preview (session-bound client, RLS engaged; selects staged_id, drive_file_id, parse_result, source_anchors, staged_modified_time, maybeSingle). Client construction, thrown mid-await and RETURNED {error} all map to infra_error; a healthy maybeSingle() miss ({data:null,error:null}) maps to not_found (never infra_error, or AC-4's required 404 becomes an error surface); a row maps to found with the snake_case columns renamed. Behavioral coverage in the bespoke describe block below.",
+  },
+  {
     helper: "queryWatchChannels",
     path: "lib/observe/query/watch.ts",
     contract:
@@ -1067,6 +1073,115 @@ describe("META §B Supabase call-boundary contract", () => {
         "00000000-0000-0000-0000-0000000000aa",
       );
       expect(result).toEqual({ kind: "infra_error" });
+    });
+  });
+});
+
+/**
+ * BESPOKE behavioral block for `lookupStagedRow` (staged crew preview, spec §2.1
+ * step 3). The registry rows above are grep/static coverage; the PROOFS are
+ * describe blocks like this one.
+ *
+ * Six arms. Four must yield `infra_error` — a synchronously throwing `.from()`,
+ * a builder that rejects mid-await, a builder that RESOLVES `{ data: null,
+ * error: <object> }` (an implementation mapping returned errors to `not_found`
+ * fails here), and a client constructor that throws. Two pin the NON-infra
+ * semantics the route test can only reach through its module mock: a healthy
+ * `maybeSingle()` miss is `not_found` (mapping it to `infra_error`, or throwing
+ * on it, would turn AC-4's required 404 into an error surface), and a row is
+ * `found` with the snake_case columns renamed.
+ *
+ * The client is injected per arm with `vi.doMock` after `vi.resetModules()`, so
+ * these arms are independent of the shared throwing client above.
+ */
+describe("lookupStagedRow infra contract", () => {
+  const STAGED_ID = "3f1c9b7e-0000-4000-8000-0000000000aa";
+
+  type Terminal = () => Promise<{ data: unknown; error: unknown }>;
+
+  async function callWithClient(makeClient: () => unknown): Promise<unknown> {
+    vi.resetModules();
+    vi.doMock("@/lib/supabase/server", () => ({
+      createSupabaseServerClient: async () => makeClient(),
+    }));
+    const { lookupStagedRow } = await import("@/lib/admin/lookupStagedRow");
+    return lookupStagedRow(STAGED_ID);
+  }
+
+  /** A builder whose terminal `maybeSingle()` is supplied by the arm. */
+  function builderClient(maybeSingle: Terminal): unknown {
+    const builder: Record<string, unknown> = {};
+    const passthrough = () => builder;
+    for (const method of ["select", "eq", "in", "is", "not", "order", "limit", "returns"]) {
+      builder[method] = passthrough;
+    }
+    builder.maybeSingle = maybeSingle;
+    return { from: () => builder };
+  }
+
+  test("from() throwing synchronously → infra_error", async () => {
+    const result = await callWithClient(() => ({
+      from: () => {
+        throw new Error("META: simulated from() fault");
+      },
+    }));
+    expect(result).toEqual({ kind: "infra_error" });
+  });
+
+  test("a builder that rejects mid-await → infra_error", async () => {
+    const result = await callWithClient(() =>
+      builderClient(async () => {
+        throw new Error("META: simulated mid-await rejection");
+      }),
+    );
+    expect(result).toEqual({ kind: "infra_error" });
+  });
+
+  test("a RESOLVED { data: null, error: <object> } → infra_error, never not_found", async () => {
+    const result = await callWithClient(() =>
+      builderClient(async () => ({ data: null, error: { message: "permission denied" } })),
+    );
+    expect(result).toEqual({ kind: "infra_error" });
+  });
+
+  test("createSupabaseServerClient throwing at construction → infra_error", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/supabase/server", () => ({
+      createSupabaseServerClient: async () => {
+        throw new Error("META: simulated construction fault");
+      },
+    }));
+    const { lookupStagedRow } = await import("@/lib/admin/lookupStagedRow");
+    expect(await lookupStagedRow(STAGED_ID)).toEqual({ kind: "infra_error" });
+  });
+
+  test("a healthy maybeSingle() miss → not_found", async () => {
+    const result = await callWithClient(() =>
+      builderClient(async () => ({ data: null, error: null })),
+    );
+    expect(result).toEqual({ kind: "not_found" });
+  });
+
+  test("a row → found, with the snake_case columns renamed", async () => {
+    const row = {
+      staged_id: STAGED_ID,
+      drive_file_id: "drive-file-1",
+      parse_result: { show: { title: "Summit" } },
+      source_anchors: { schedule: { title: "SCHEDULE", gid: 7 } },
+      staged_modified_time: "2026-06-20T10:00:00.000Z",
+    };
+    const result = await callWithClient(() =>
+      builderClient(async () => ({ data: row, error: null })),
+    );
+    expect(result).toEqual({
+      kind: "found",
+      row: {
+        stagedId: row.staged_id,
+        driveFileId: row.drive_file_id,
+        parseResult: row.parse_result,
+        sourceAnchors: row.source_anchors,
+        stagedModifiedTime: row.staged_modified_time,
+      },
     });
   });
 });

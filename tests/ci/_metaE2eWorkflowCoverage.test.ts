@@ -128,6 +128,10 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/rowactions-geometry.spec.ts": PATH_GATED,
   "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
+  // Staged crew preview (spec 2026-08-15-step3-crew-preview §7): app-dependent
+  // (dev server + seeded pending_syncs row), so wiring it into a workflow belongs
+  // to the BL-E2E-APP-DEPENDENT-SPECS-CI-DARK batch, not to this arc.
+  "tests/e2e/staged-preview.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
   "tests/e2e/attention-modal-gallery.spec.ts":
     "runs in dev-gate-e2e.yml via a project-only --project invocation (invisible to the scanner), which since 2026-08-09 carries a PATH-FILTERED pull_request trigger over the tested surfaces PLUS the daily schedule backstop for out-of-filter drift (24h bound). Not PR-blocking-capable: the job is absent on non-matching PRs, so it cannot join the required set. Gate-placement decision ratified at BL-DEV-GATE-GALLERY-SPEC-ROT close-out (BACKLOG-archive.md): the spec's value is the built ADMIN_DEV_PANEL_ENABLED=true artifact, so the dedicated project stays.",

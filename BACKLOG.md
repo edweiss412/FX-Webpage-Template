@@ -390,18 +390,6 @@ So "retain the live row" is not obviously right at `:337`: the fallback runs whe
 
 **Promotion prerequisite:** the ruling above. If it lands as "defect", the fix mirrors arc C's: thread the live row and prefer it, with no-match falling back to today's behaviour.
 
-## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3
-
-**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
-
-Step 3 reviews a staged parse through its own section cards, not through the surface the crew will actually see. A C-style full preview would render `CrewShell` from the staged `parse_result`, which needs a `parse_result → ShowForViewer` adapter. Verified 2026-08-02: no such adapter exists.
-
-The adapter is the substance of the work, not the rendering — `getShowForViewer` builds its projection from persisted rows, and a staged parse is neither persisted nor viewer-scoped, so the adapter has to decide what a preview means for viewer name aliases, per-viewer visibility filters, and the admin-preview branch before any of it renders. UI surface, so Opus-owned with the invariant-8 dual gate.
-
-**Status:** OPEN.
-
----
-
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
 **Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
@@ -665,17 +653,42 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader
+## BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH — a debug-level log can never persist, and the rejection is silent
 
-**Status:** OPEN · **Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+**Status:** OPEN · **Severity:** LOW · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-15 (`feat/admin-ui-surfaces`, from the `BL-OPS-LOG-DASHBOARD-BANNER` audit)
 
-The durable sink is built and written (`lib/log/persist.ts:16` → `app_events`), but **its only reader is developer-gated.** Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, `app/admin/dev/telemetry/page.tsx`, which calls `requireDeveloperIdentity()` at `:24`. The `lib/observe/query/*` modules are non-logging copies feeding the `pnpm observe` CLI, not a surface. **No admin-dashboard surface reads `app_events` at all** — the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row.
+`LogLevel` includes `"debug"` (`lib/log/types.ts:2`), but the `app_events` CHECK accepts only three values:
 
-Consequence: Doug must leave the dashboard to see operator telemetry and, as a non-developer, likely cannot reach the page at all. Everything the other two children emit lands somewhere he cannot look.
+```sql
+level         text not null check (level in ('info','warn','error')),
+```
 
-**Why M and DESIGN-GATED, not S:** this is a new admin surface, not a query change. What belongs on a dashboard banner — which severities, what recency window, what dismissal behavior, whether it is a banner at all rather than a panel or a bell-badge source — is a product decision, and it is Opus/UI work under the invariant-8 dual gate. Do not implement it as "render the telemetry table on the dashboard."
+(`supabase/migrations/20260629000002_app_events.sql:4`.) So a `debug`-level persist is CHECK-rejected by Postgres, and `persistAppEvent` swallows the returned error by contract — it records the fault for `/api/health` and writes to console, never throwing over the caller (`lib/log/persist.ts:12-40`, invariant 9). The row simply never lands.
 
-**Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+**Reachability:** the type admits the value at every `log.*` call site, so nothing but convention stops a `debug` emit; no current producer uses one (which is why this is LOW, not MEDIUM).
+
+**The decision this needs, and why it was filed rather than fixed:** which side moves. Widen the CHECK to accept `debug` (and accept that the forensic log gains a chatty tier with a 60-day retention window), or narrow `LogLevel` to the three values the sink actually stores (and give `debug` callers a console-only path that is honest about not persisting). That is a product decision about what the run log is for, not a repair — class-sweep disposition exception (a).
+
+## BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE — screenshots-drift and admin-layout-e2e both flipped across a markdown-only delta
+
+**Status:** OPEN · **Severity:** LOW (advisory jobs; neither is a required context) · **Class:** CI-INFRA / flake · **Effort:** M · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, PR #812)
+
+**This entry CORRECTS a wrong filing made minutes earlier on the same PR.** `BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE` claimed the `dashboard-overview-light.webp` drift was a stale baseline that main's component churn had outrun. The next run REFUTED that: the byte comparison passed at a head whose only delta was one markdown file.
+
+**Probe evidence — two advisory jobs, two heads, identical product code.**
+
+| job                 | head                   | delta vs the other head       | result                                                                      |
+| ------------------- | ---------------------- | ----------------------------- | --------------------------------------------------------------------------- |
+| `screenshots-drift` | `b5aa6ef7`             | —                             | FAIL (`dashboard-overview-light.webp`, Bin 77670 -> 82600)                  |
+| `screenshots-drift` | `f6c3ac55`             | one commit, `BACKLOG.md` only | PASS                                                                        |
+| `admin-layout-e2e`  | `b5aa6ef7`, `3bc1ad28` | —                             | PASS                                                                        |
+| `admin-layout-e2e`  | `f6c3ac55`             | one commit, `BACKLOG.md` only | FAIL (`rowactions-geometry.spec.ts:368`, submenu scroll-into-view geometry) |
+
+A markdown-only commit cannot change a WebP's bytes or a submenu's scroll geometry, so BOTH results are non-deterministic at a fixed tree. They flip in OPPOSITE directions across the same pair of heads, which also rules out "one bad runner": whatever varies is per-job, not per-head.
+
+**Why it matters even though neither job is required:** an advisory job that flips at a fixed tree teaches operators to ignore it, which is exactly how a real regression in either surface ships unnoticed. The byte-comparison discipline in AGENTS.md pins the Docker image AND the host architecture for this reason; a residual non-determinism inside that pinned environment is the interesting part.
+
+**First scheduled step is a probe, not a repair:** re-run each job N times at ONE fixed sha (`workflow_dispatch` is already enabled on these workflows) and record the pass rate. That distinguishes a genuinely flaky capture/geometry from a runner-population bimodality (`feedback_screenshot_capture_runner_bimodality` documents the latter shape on the screenshot job specifically). Only then is the repair direction decidable.
 
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 23 app-dependent e2e specs are named by no CI workflow
 

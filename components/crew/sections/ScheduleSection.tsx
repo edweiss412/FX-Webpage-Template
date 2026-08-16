@@ -85,7 +85,7 @@ type ScheduleSectionProps = {
   showId: string;
   /** Per-request tile ledger, threaded from _CrewShell. */
   ledger: TileRenderLedger;
-  cardReport?: CardReportContext;
+  cardReport?: CardReportContext | null;
 };
 
 export function ScheduleSection({

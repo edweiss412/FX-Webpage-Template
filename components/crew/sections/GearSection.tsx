@@ -82,7 +82,7 @@ type GearSectionProps = {
   showId: string;
   /** Per-request tile ledger, threaded from _CrewShell. */
   ledger: TileRenderLedger;
-  cardReport?: CardReportContext;
+  cardReport?: CardReportContext | null;
 };
 
 type Discipline = "audio" | "video" | "lighting" | "scenic" | "other";

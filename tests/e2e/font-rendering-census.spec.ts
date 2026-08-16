@@ -94,6 +94,10 @@ const PARAMETERISED = new Map<string, string>([
   ["/admin/show/[slug]", "needs a seeded show slug"],
   ["/admin/show/[slug]/preview/[crewId]", "needs a seeded show and crew member"],
   ["/admin/show/staged/[stagedId]", "needs a staged ingestion"],
+  [
+    "/admin/wizard/preview/[stagedId]",
+    "needs a staged ingestion whose parse_result carries a roster",
+  ],
   ["/show/[slug]/[shareToken]", "needs a published show and its share token"],
   ["/show/[slug]/unpublish", "needs a published show"],
 ]);

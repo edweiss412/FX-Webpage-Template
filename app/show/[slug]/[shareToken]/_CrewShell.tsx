@@ -132,6 +132,15 @@ export type CrewShellProps = {
     role: string;
     shareToken: string;
   } | null;
+  /**
+   * Staged-preview posture (spec 2026-08-15-step3-crew-preview §2.6). `true`
+   * only on the admin staged-preview route, whose `showId` names no persisted
+   * show: it suppresses all five emission surfaces (alert write, both `after()`
+   * registrations, the realtime bridge, the footer report affordance, and every
+   * card report trigger). Absent everywhere else, so the crew route and the
+   * published admin preview are behaviourally unchanged (AC-8).
+   */
+  staticPreview?: boolean;
 };
 
 // R3-HIGH-1: viewer-independent CONSTANT message — the per-domain detail lives
@@ -151,12 +160,17 @@ export async function CrewShell({
   rawSection,
   slug = "",
   identityChip,
+  staticPreview = false,
 }: CrewShellProps) {
   // ── Producer contract 1: section-independent projection-fetch alert ──
   // Fires BEFORE the section model so the always-on observability write is
   // never gated on which section the viewer requested (Task 16).
   const failedKeys = Object.keys(data.tileErrors).sort();
-  if (failedKeys.length > 0) {
+  if (staticPreview) {
+    // Posture items 1-2 (spec §2.6): a staged preview has no persisted show, so
+    // neither the raise nor the deferred resolve may run. The `after()` guard
+    // skips REGISTRATION rather than registering a no-op callback.
+  } else if (failedKeys.length > 0) {
     try {
       // not-subject-to-meta: best-effort observability write, fail-quiet
       await upsertAdminAlert({
@@ -329,7 +343,12 @@ export async function CrewShell({
   // and threaded to every section → CardHeaderActions. Mirrors the footer's
   // report override below: crew viewer files as crew; admin preview-as files as
   // admin with the previewed-viewer crewPreview context.
-  const cardReport = buildCardReportContext(viewer, ctx.viewerName, ctx.viewerCrew?.role ?? null);
+  // Posture item 5 (spec §2.6): explicit `null` is the DISABLED state; omitting
+  // the prop would fall through to the DEFAULT_CARD_REPORT parameter default and
+  // every trigger would still mount.
+  const cardReport = staticPreview
+    ? null
+    : buildCardReportContext(viewer, ctx.viewerName, ctx.viewerCrew?.role ?? null);
 
   // Per-request tile ledger. Created ONCE here, in the component body, never
   // inside the after() callback: that runs after the render lifecycle and would
@@ -439,16 +458,20 @@ export async function CrewShell({
   // condition is a different observation. The callback RETURNS the promise so
   // the runtime keeps the function alive until the write settles; a voided call
   // would let a serverless freeze drop the row.
-  try {
-    after(() =>
-      sweepTileRenderAlerts(tileLedger, {
-        showId,
-        sheetName: data.show.title,
-        viewerKey,
-      }),
-    );
-  } catch {
-    // no request scope (unit tests): skip; the next real request sweeps
+  // Posture item 2 (spec §2.6): skip REGISTRATION under staticPreview — the
+  // sweep writes against a show id that has no row.
+  if (!staticPreview) {
+    try {
+      after(() =>
+        sweepTileRenderAlerts(tileLedger, {
+          showId,
+          sheetName: data.show.title,
+          viewerKey,
+        }),
+      );
+    } catch {
+      // no request scope (unit tests): skip; the next real request sweeps
+    }
   }
 
   return (
@@ -504,10 +527,17 @@ export async function CrewShell({
         budgetVisible={budgetVisible}
         sectionNodes={sectionNodes}
       />
-      <ShowRealtimeBridge showId={showId} slug={slug} renderVersion={data.viewerVersionToken} />
+      {/* Posture item 3 (spec §2.6): the bridge fetches a subscriber token and a
+          version for a show with no row, so it is not mounted at all. */}
+      {staticPreview ? null : (
+        <ShowRealtimeBridge showId={showId} slug={slug} renderVersion={data.viewerVersionToken} />
+      )}
       <Footer
         asOf={null}
-        showId={showId}
+        // Posture item 4 (spec §2.6): the footer's report block is
+        // `{showId ? … }`-guarded (components/layout/Footer.tsx:186), so a null
+        // showId IS its absent form.
+        showId={staticPreview ? null : showId}
         showSlug={slug}
         // Per-viewer report-button override, ported verbatim from
         // _ShowBody.tsx:520-539: under the admin preview-as flow the footer's
