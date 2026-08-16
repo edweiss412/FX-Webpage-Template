@@ -31,6 +31,18 @@ export type Theme = "light" | "dark";
 export const THEME_STORAGE_KEY = "fxav-theme";
 
 /**
+ * What both controls say when the choice cannot be saved.
+ *
+ * ONE string, imported by both, for the reason the whole hook exists: a note
+ * that read one way in the header and another in the avatar menu would be two
+ * answers to the same question. Plain language and no mechanism — the reader is
+ * a crew member on a phone in a hallway, not a browser engineer, and "your
+ * localStorage write was blocked" tells them nothing they can act on. What they
+ * can act on is knowing the choice will not survive the next load.
+ */
+export const THEME_PERSIST_FAILED_NOTE = "This device won't remember this choice.";
+
+/**
  * The currently-applied theme, read from the DOM.
  *
  * The no-FOUC script stamps `data-theme` UNCONDITIONALLY, so post-hydration the

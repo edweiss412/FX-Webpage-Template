@@ -182,7 +182,7 @@ jobs:
       - name: Run the crew e2e spec set (both projects, :3000 only)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/crew-e2e-report.json
-        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts tests/e2e/font-binding.spec.ts tests/e2e/font-rendering-census.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/theme-toggle.spec.ts tests/e2e/right-now-transitions.spec.ts --reporter=list,json
+        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts tests/e2e/font-binding.spec.ts tests/e2e/font-rendering-census.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/theme-toggle.spec.ts tests/e2e/theme-persistence-note.spec.ts tests/e2e/right-now-transitions.spec.ts --reporter=list,json
       # Collected is not executed. A `beforeEach` calling test.skip() skips every case at RUNTIME
       # while --list still counts them, so the wiring guard, its skip registry and this job's exit
       # code all stay green on a suite that ran nothing (whole-diff review R10). This step reads
