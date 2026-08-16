@@ -977,16 +977,91 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [
       // ---- equivalent: cannot change observable behavior (spec §2.4) -------
       {
-        siteId: "statement-removal:77:7:continue;>(removed)",
+        // Line-keyed siteIds re-derived after the enforcement-pair arc's edits
+        // shifted corpus.ts by two lines (an import and a ProblemKind member).
+        siteId: "statement-removal:79:7:continue;>(removed)",
         kind: "equivalent",
         reason:
-          "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:79), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
+          "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:81), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
       },
       {
-        siteId: "relational-boundary:144:25:<><=",
+        siteId: "relational-boundary:146:25:<><=",
         kind: "equivalent",
         reason:
-          'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:146 continues before parseRow sees it',
+          'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:148 continues before parseRow sees it',
+      },
+    ],
+  },
+  {
+    // Enrolled by the enforcement-pair arc (its spec §6.3, dogfood): enrolment
+    // precedes this surface's own round-1 diff review, and the run's score
+    // feeds the brief's GUARD SURFACE: line that the new codex-guard dispatch
+    // gate checks.
+    id: "reviewRoundFiling",
+    sourcePath: "lib/reviewRounds/filing.ts",
+    suitePaths: ["tests/reviewRounds/filing.test.ts", "tests/docs/_metaReviewRoundEconomy.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Inverts the none decision: every non-none Mechanizable entry reads as
+    // none, so the parity duty never fires anywhere.
+    control: {
+      from: "const isNone = /^none\\b/i.test(remainder);",
+      to: "const isNone = !/^none\\b/i.test(remainder);",
+    },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior ------------------
+      // Re-derived after the diff R1/R2 repairs reshaped the walkers: label
+      // collection is PARAGRAPH-scoped (line-opening strong children), and
+      // fieldName/beginsWithDecline fire only on paragraph nodes - so every
+      // guard flip below descends into subtrees those recognizers are inert
+      // over. Site ids re-keyed to the post-repair lines.
+      {
+        siteId: "logical-connector:69:28:||>&&",
+        kind: "equivalent",
+        reason:
+          'visibleText\'s code/html guard: both node types are mdast LITERALS (a value, no children), so they fail every typed branch below and land on the final `return ""` either way',
+      },
+      {
+        siteId: "logical-connector:117:30:||>&&",
+        kind: "equivalent",
+        reason:
+          "renderedFieldLabels' inner flip leaves `|| delete` intact; only code/html stop being skipped, and both are childless literals that are not paragraphs, so the paragraph-scoped collector extracts nothing",
+      },
+      {
+        siteId: "logical-connector:117:54:||>&&",
+        kind: "equivalent",
+        reason:
+          "the outer flip lets `delete` descend, but its children are phrasing nodes and collection happens only under a `paragraph` branch - a struck label is skipped as a non-strong paragraph CHILD before the guard is ever consulted (pinned by the struck-label test)",
+      },
+      {
+        siteId: "logical-connector:149:30:||>&&",
+        kind: "equivalent",
+        reason:
+          "hasNestedMechanizable's inner flip: code/html are childless literals and fieldName answers null for every non-paragraph node, so descending finds nothing",
+      },
+      {
+        siteId: "logical-connector:149:54:||>&&",
+        kind: "equivalent",
+        reason:
+          "the outer flip lets `delete` descend; a delete's children are phrasing nodes, never paragraphs, so fieldName stays null throughout",
+      },
+      {
+        siteId: "logical-connector:166:30:||>&&",
+        kind: "equivalent",
+        reason:
+          "declinesAnywhere's inner flip: code/html are childless literals and beginsWithDecline answers false for every non-paragraph node",
+      },
+      {
+        siteId: "logical-connector:166:54:||>&&",
+        kind: "equivalent",
+        reason:
+          "the outer flip lets `delete` descend; its phrasing children are never paragraphs, so beginsWithDecline stays false throughout - the struck-decline fixtures stay green",
+      },
+      {
+        siteId: "statement-removal:258:5:current = null;>(removed)",
+        kind: "equivalent",
+        reason:
+          "both heading branches reassign `current` immediately after their close() call, and after the final close() nothing reads it - the null is hygiene against a future reader, not reachable state",
       },
     ],
   },
@@ -1187,6 +1262,65 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // collapses every block namespace onto one and the row-scan cases red immediately.
     control: { from: 'opener = clean(cells[0] ?? "")', to: 'opener = ""' },
     accepted: [],
+  },
+  // ---- the browser-mutant mode's own modules (browser spec §6) ------------
+  //
+  // Promotion P2 applied to itself: the new decision logic is guard code whose
+  // defect class is exactly "reports OK while the output moved" — a validation
+  // that stops rejecting a drifted anchor, a verdict table that folds an infra
+  // fault into KILLED — so both modules were authored as importable lib-shaped
+  // units with referring suites and enrolled BEFORE this arc's first review
+  // dispatch, per AGENTS.md's convergence-criterion bullet 4. What the registry
+  // CANNOT express is stated rather than enrolled symbolically: the spawn
+  // boundary in tests/mutation/browser/runner.ts needs a real Playwright child,
+  // the same shape limit the step3-a11y filing recorded, so its pure seams live
+  // in the two modules below and the residual wrapper is covered by the wiring
+  // meta-test plus the enrolment run itself.
+  {
+    id: "browserRegistry",
+    sourcePath: "tests/mutation/browser/registry.ts",
+    suitePaths: ["tests/mutation/browser/registry.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Turns the empty-mutants rejection into an unreachable comparison, so a
+    // surface that would generate no mutants at all validates cleanly — the
+    // vacuous-gate hole, at authoring time.
+    control: {
+      from: "if (surface.mutants.length === 0) {",
+      to: "if (surface.mutants.length === -1) {",
+    },
+    accepted: [],
+  },
+  {
+    id: "browserMutate",
+    sourcePath: "tests/mutation/browser/mutate.ts",
+    suitePaths: ["tests/mutation/browser/mutate.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Inverts the §3.4 table's detection row: every mutant that a suite
+    // REJECTED would be scored as survival, which is the single edit that turns
+    // this mode's score inside out.
+    control: {
+      from: 'if (input.exitStatus !== 0) return "KILLED";',
+      to: 'if (input.exitStatus !== 0) return "DID_NOT_KILL";',
+    },
+    // ONE equivalent, and it is the only one of the surface's first-run
+    // survivors that was blessed rather than repaid: the other eight were real
+    // coverage gaps and are now killed by cases in mutate.test.ts, each proven
+    // against its own mutant before the row was written.
+    accepted: [
+      {
+        siteId: "integer-literal:88:44:2>3",
+        kind: "equivalent",
+        reason:
+          "the JSON.stringify indent argument in buildManifest. It changes only whitespace inside " +
+          "the manifest, and every consumer of that file parses it — the esbuild overlay plugin, " +
+          "the tap-target spec's @source assembly, and the browser-mode vitest config all call " +
+          "JSON.parse (or parseManifest, which does). No caller reads the manifest as bytes, so no " +
+          "verdict can differ. Pinning the exact serialization instead would assert a formatting " +
+          "detail nothing depends on, which is a tautological pin rather than coverage",
+      },
+    ],
   },
   {
     id: "interactiveScanCore",
