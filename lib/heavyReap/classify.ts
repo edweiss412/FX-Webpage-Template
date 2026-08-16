@@ -46,13 +46,30 @@ export type Decision =
 
 export type Classification = { decisions: Decision[]; configNotes: string[] };
 
-/** Clause (a): node as argv[0], a declared entrypoint as the LAST token. */
+/**
+ * Clause (a): node as argv[0], a declared entrypoint as the LAST token.
+ *
+ * There is deliberately NO minimum token count. A `tokens.length < 2` guard reads as
+ * safety and is DEAD: a one-token command has `argv0 === last`, and no string can both
+ * have `node` as its basename and end with one of the entrypoint suffixes, so the two
+ * clauses below already reject every single-token command. Carrying it cost an
+ * equivalent mutant that no case could ever kill — a permanent ledger row bought with a
+ * line that decides nothing. Removing it is the narrowing repair, and the single-token
+ * cases in the suite pin the behavior it was believed to provide.
+ */
 function workerShape(command: string): string | null {
   const tokens = command.split(/\s+/).filter((t) => t.length > 0);
   const argv0 = tokens[0];
-  const last = tokens[tokens.length - 1];
-  if (argv0 === undefined || last === undefined || tokens.length < 2) return null;
+  if (argv0 === undefined) return null;
   if (basename(argv0) !== "node") return null;
+  // The last token is taken by reduce rather than by index, and that is a mutation-score
+  // decision rather than a style one. `tokens` is provably non-empty here, so any INDEXED
+  // read needs an `undefined` check that `noUncheckedIndexedAccess` demands and no input
+  // can ever reach — a statement whose deletion changes nothing at runtime, which is an
+  // equivalent mutant no case can kill. Reduce over a non-empty array is typed `string`
+  // with no such check, and its own mutants are all reachable: swapping the accumulator
+  // for the element yields the FIRST token, which the entrypoint cases notice.
+  const last = tokens.reduce((_, token) => token);
   return WORKER_ENTRYPOINTS.find((e) => last.endsWith(e)) ?? null;
 }
 

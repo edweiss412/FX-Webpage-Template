@@ -81,6 +81,18 @@ describe("classify: clause (a) is structural, never containment", () => {
     expect(only([worker({ command })])).toMatchObject({ reap: false, because: "not-a-worker" });
   });
 
+  it.each([
+    ["a bare node", "node"],
+    ["an absolute node path", NODE],
+    ["a lone entrypoint with no interpreter", FORKS],
+  ])("declines %s: one token can never satisfy both clauses", (_label, command) => {
+    // These pin what the removed `tokens.length < 2` guard was believed to provide. A
+    // one-token command has argv0 === last, and no string both has `node` as its basename
+    // and ends with an entrypoint suffix, so the two real clauses already reject every
+    // single-token command. The guard was dead code and an unkillable equivalent mutant.
+    expect(only([worker({ command })])).toMatchObject({ reap: false, because: "not-a-worker" });
+  });
+
   it("declines a node process whose entrypoint is not the last token", () => {
     expect(only([worker({ command: `${NODE} ${FORKS} --reporter=json` })])).toMatchObject({
       reap: false,
