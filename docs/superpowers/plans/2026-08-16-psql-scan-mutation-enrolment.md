@@ -127,8 +127,8 @@ Run: `pnpm heavy pnpm exec tsx probe-survivors.ts` (~20 min under a heavy slot).
 
 <!-- task: red=`pnpm exec tsx single-mutant.ts 'relational-boundary:528:47:>>>='` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:528` why=`red observed as the checker's SURVIVED exit 1 - the deciding suite does not yet discriminate this mutant, the designated batch-A kill ratified at spec review R2; the same command exits 0 (KILLED) once the [["-", "-X"], false] case lands` ac=AC-1,AC-2 -->
 
-- [ ] **Step 1: Read each of the 8 sites in context** (the enclosing function, its callers, what the suite can observe through the exported API). Write the intended verdict + one-line argument per site into a scratch disposition table before touching the suite.
-- [ ] **Step 2: KILL cases** inside `describe("enrolment survivors - batch A", ...)`. The 528:47 case is settled by spec §2.4 (probed at spec review): a row in the `argvSuppressesStartupFiles` idiom:
+- [x] **Step 1: Read each of the 8 sites in context** (the enclosing function, its callers, what the suite can observe through the exported API). Write the intended verdict + one-line argument per site into a scratch disposition table before touching the suite.
+- [x] **Step 2: KILL cases** inside `describe("enrolment survivors - batch A", ...)`. The 528:47 case is settled by spec §2.4 (probed at spec review): a row in the `argvSuppressesStartupFiles` idiom:
 
 ```ts
     // Bare `-` is positional (DBNAME), not a flag cluster: option parsing ends.
@@ -138,8 +138,8 @@ Run: `pnpm heavy pnpm exec tsx probe-survivors.ts` (~20 min under a heavy slot).
 
 For the comment-range sites (`586`/`587`, `635`, `695`, `761`): the observable surface is the exemption-marker mechanics — construct source-string fixtures (multi-line comments, comment-start columns at exact boundaries, brace matching at depth edges) and assert through `scanSource` / `collectPsqlUsage` verdicts (which exemption applies, which site is reported). Derive each expected value from the real comment/brace grammar, not from what `scan.ts` returns today. Each case's comment names the site id it kills.
 
-- [ ] **Step 3: Prove each kill.** Case passes on the clean tree (`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`), THEN the checker reports KILLED for that site (site id single-quoted). Record each `{siteId → KILLED, case name}` pair.
-- [ ] **Step 4: EQUIVALENT verdicts** (spec §2.2 bar) — draft the ledger row text now; it lands in the registry in Task 6:
+- [x] **Step 3: Prove each kill.** Case passes on the clean tree (`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`), THEN the checker reports KILLED for that site (site id single-quoted). Record each `{siteId → KILLED, case name}` pair.
+- [x] **Step 4: EQUIVALENT verdicts** (spec §2.2 bar) — draft the ledger row text now; it lands in the registry in Task 6:
 
 ```ts
 {
@@ -153,7 +153,7 @@ Add the family's boundary-pin case to the batch block (Global Constraints, batch
 
 If a site survives the §2.3 bar as an ACCEPTED-GAP (expected: zero): file its `BL-` follow-up entry in `BACKLOG.md` IN THIS SAME batch commit — the entry names the §2.3 class-sweep exception ((a) or (c)) and what would close it — and the drafted ledger row's `ref` names that entry (spec §2.3: "its ref names the follow-up entry filed in the same PR"; the registry's `validateSurface` + `tests/docs/_metaLedgerReferentialIntegrity.test.ts` enforce shape and resolution).
 
-- [ ] **Step 5: Full deciding suite green; observe the marker's green** (the designated site's checker now exits 0); **commit** with the batch's disposition table in the message: `test(cross-cutting): batch A survivor dispositions - <k> killed, <e> equivalent`.
+- [x] **Step 5: Full deciding suite green; observe the marker's green** (the designated site's checker now exits 0); **commit** with the batch's disposition table in the message: `test(cross-cutting): batch A survivor dispositions - <k> killed, <e> equivalent`.
 
 ### Task 3: Batch B — shell text scanner (7 survivors)
 

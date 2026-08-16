@@ -4234,3 +4234,143 @@ describe("R40 — hypothetical gaps closed cheaply; the rest are documented limi
     WALK_TIMEOUT_MS,
   );
 });
+
+/**
+ * Mutation-enrolment survivors, batch A — the tokenizer and the comment-range
+ * infrastructure (`docs/superpowers/plans/2026-08-16-psql-scan-mutation-enrolment.md`
+ * Task 2). Each case names the `relational-boundary` site id it kills; the three
+ * sites this batch blesses as equivalent carry a boundary pin instead, asserting
+ * the ORIGINAL behaviour the equivalence argument rests on.
+ */
+describe("enrolment survivors - batch A", () => {
+  // Kills relational-boundary:528:47 (`token.length > 1` mutated to `>= 1`).
+  // A bare `-` is not a flag cluster. getopt(3) and psql alike read it as a
+  // NON-OPTION argument, so it is the DBNAME positional and option parsing
+  // stops there — the `-X` after it is never reached. Under the mutant `-`
+  // enters the cluster branch, `"-".slice(1)` is empty, nothing matches, and
+  // the loop walks on to credit the later `-X`.
+  test("a bare `-` is the DBNAME positional, so a later -X is not credited", () => {
+    expect(argvSuppressesStartupFiles(["-", "-X"])).toBe(false);
+    // The control: the same `-X` IS credited when nothing positional precedes it.
+    expect(argvSuppressesStartupFiles(["-X", "-"])).toBe(true);
+  });
+
+  // Kills relational-boundary:586:35 (`l < to.line` mutated to `l <= to.line`).
+  // The closing line of a block comment is comment-qualified only up to the
+  // `*/`; everything after it is ordinary code. A marker sitting in STRING DATA
+  // after the terminator is not in a comment and grants nothing. The mutant
+  // records the closing line as comment-qualified to end-of-line, which adopts
+  // the string's contents as an exemption reason.
+  test("a marker in string data after `*/` on the closing line is not in a comment", () => {
+    const source = [
+      "/* a",
+      `b */ const s = "${EXEMPTION_MARKER} fake reason";`,
+      'execFileSync("psql", ["-qAt", dsn]);',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  // Kills relational-boundary:695:69 (`at >= from` mutated to `at > from`).
+  // A middle line of a multi-line comment is comment-qualified from column 0,
+  // so a marker written flush-left on that line IS inside the comment. The
+  // mutant excludes exactly the column-0 case and loses the exemption.
+  test("a marker flush-left on a middle line of a block comment still exempts", () => {
+    const source = [
+      "/* a",
+      `${EXEMPTION_MARKER} runs in a throwaway container`,
+      '*/ execFileSync("psql", ["-qAt", dsn]);',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBe("runs in a throwaway container");
+  });
+
+  /**
+   * CR is a LineTerminator in ECMAScript (spec table "White Space and Line
+   * Terminators": U+000A, U+000D, U+2028, U+2029), so the TypeScript scanner
+   * counts a lone `\r` as a line break while `text.split("\n")` does not. A
+   * block comment written with CR line endings therefore spans more SCANNER
+   * lines than the per-line array has entries — the exact condition the two
+   * `out.length` bounds in `jsCommentRangesPerLine` exist to hold. Neither
+   * fixture may end in a newline: a trailing `\n` adds an array entry and puts
+   * the bound back in range.
+   */
+  const CR = String.fromCharCode(13);
+
+  // Kills relational-boundary:586:50 (`l < out.length` mutated to `<=`).
+  // to.line is 2 and the per-line array holds 1 entry, so the mutant's extra
+  // iteration writes past the end and the scan throws instead of reporting.
+  test("a CR-delimited block comment spanning past the line array still reports its site", () => {
+    const source = `/* a${CR}b${CR}c */ execFileSync("psql", ["-qAt", dsn]);`;
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  // Kills relational-boundary:587:17 (`to.line < out.length` mutated to `<=`).
+  // Same shape one line shorter: to.line is 1 and the array holds 1 entry, so
+  // the closing-line write is the one that goes out of bounds.
+  test("a CR-delimited block comment closing past the line array still reports its site", () => {
+    const source = `/* a${CR}b */ execFileSync("psql", ["-qAt", dsn]);`;
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  // Boundary pin for the relational-boundary:695:83 equivalence row
+  // (`at < to` mutated to `at <= to`). The marker starts at exactly the column
+  // the comment ends at, which is the only column the widened bound admits.
+  // The original reports no exemption because the marker is not contained; the
+  // mutant contains it but then slices the reason over an EMPTY range and falls
+  // through to the same verdict. This pins the original half of that argument.
+  test("a marker beginning exactly where the comment ends grants no exemption", () => {
+    const source = [
+      "/* a",
+      `*/${EXEMPTION_MARKER} still not a reason`,
+      'execFileSync("psql", ["-qAt", dsn]);',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  // Boundary pin for the relational-boundary:635:23 equivalence row
+  // (`i < line.length` mutated to `<=`). The argument is that the extra
+  // iteration reads `undefined` and changes nothing; its premise is that the
+  // loop already covers index `line.length - 1`. Here the closing quote IS the
+  // last character of its line, so the quote state must clear before the next
+  // line — otherwise the `#` below reads as string data and the exemption is
+  // lost.
+  test("a quote closing at end-of-line clears, so the next line's `#` is a comment", () => {
+    const source = [
+      'A="x"',
+      `# ${EXEMPTION_MARKER} throwaway container, no HOME`,
+      'psql -qAt "$A"',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "s.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBe("throwaway container, no HOME");
+  });
+
+  // Boundary pin for the relational-boundary:761:25 equivalence row
+  // (`i < text.length` mutated to `<=`). Same shape: the extra iteration reads
+  // `undefined` and matches no branch. Its premise is that an UNCLOSED
+  // substitution consumes the text to its final character — the fallback
+  // `text.length - 1` — rather than stopping short and hiding the invocation.
+  test("an unclosed command substitution still exposes the psql call inside it", () => {
+    const source = ["X=$(psql -qAt mydb", ""].join("\n");
+    const sites = sitesIn(source, "s.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.nested).toBe(true);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+});
