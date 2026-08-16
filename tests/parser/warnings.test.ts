@@ -16,6 +16,7 @@ import {
   UNKNOWN_SECTION_HEADER,
   BLOCK_DISAPPEARED,
 } from "@/lib/parser/warnings";
+import { parseSheet } from "@/lib/parser";
 import { parseVenue } from "@/lib/parser/blocks/venue";
 import { parseCrew } from "@/lib/parser/blocks/crew";
 import { detectVersion } from "@/lib/parser/schema";
@@ -165,13 +166,14 @@ describe("emitUnknownField", () => {
 // and is a typo. "Hotal Contact Info" → venue.contact_info — the block is "venue".
 
 describe("TYPO_NORMALIZED warning", () => {
-  it("emits TYPO_NORMALIZED for 'Hotal Contact Info' typo in venue context", () => {
+  it("emits TYPO_NORMALIZED for 'Hotal Contact Info' typo inside the venue block", () => {
     // "Hotal Contact Info" resolves to venue.contact_info via the TYPO_ALIASES set.
-    // We set up a venue block first so the UNKNOWN_FIELD guard (name !== null) passes,
-    // then add the typo row.
+    // The gate is VENUE-BLOCK MEMBERSHIP (field-near-miss spec §2.1) since the positional
+    // scope window was retired, so the table has to OPEN on a `VENUE` cell — the v2
+    // three-column shape. A v4 two-column table opens on `VENUE NAME`, which is a
+    // different namespace, and a typo row there is deliberately silent.
     const md = [
-      "| VENUE NAME | Test Venue |",
-      "| VENUE ADDRESS | 123 Main St |",
+      "| VENUE | VENUE NAME | Test Venue |",
       "| Hotal Contact Info | Some Contact |",
     ].join("\n");
 
@@ -189,9 +191,10 @@ describe("TYPO_NORMALIZED warning", () => {
   });
 
   it("does NOT emit TYPO_NORMALIZED for correct spelling 'Hotel Contact Info'", () => {
+    // Byte-identical to the case above apart from the spelling, so the silence is the
+    // typo-alias arm of the gate and not the block-membership arm.
     const md = [
-      "| VENUE NAME | Test Venue |",
-      "| VENUE ADDRESS | 123 Main St |",
+      "| VENUE | VENUE NAME | Test Venue |",
       "| Hotel Contact Info | Some Contact |",
     ].join("\n");
 
@@ -205,59 +208,72 @@ describe("TYPO_NORMALIZED warning", () => {
 
 // ── 2. UNKNOWN_FIELD + raw_unrecognized ────────────────────────────────────────
 //
-// A row label that doesn't resolve to any canonical fires UNKNOWN_FIELD and
-// populates agg.rawUnrecognized. The guard requires at least one known venue
-// field to already be set (prevents false positives from other blocks).
+// `parseVenue` no longer emits either. The positional scope window it used to carry was
+// replaced by the content-keyed near-miss detector, which runs ONCE at the `parseSheet`
+// document seam (field-near-miss spec §2.1/§2.2), so a DIRECT block-parser call receives
+// no replacement emission and both assertions below are ZERO. The positive coverage lives
+// at the seam — the two full-parse cases in this describe — and, corpus-wide, in
+// tests/parser/fieldNearMissBaseline.test.ts.
+
+const VENUE_JUNK_DOC = [
+  "| VENUE NAME | Acme Hall |",
+  "| VENUE ADDRESS | 456 Oak Ave |",
+  "| FOO BAR | some value |",
+].join("\n");
 
 describe("UNKNOWN_FIELD warning + raw_unrecognized capture", () => {
-  it("emits UNKNOWN_FIELD for unrecognized label in venue block", () => {
+  it("parseVenue alone emits no UNKNOWN_FIELD — the detector owns the code", () => {
+    const agg = newAggregator();
+    const venue = parseVenue(VENUE_JUNK_DOC, "v4", agg);
+
+    // Non-vacuity: the venue block really parsed, so silence is the removed emitter and
+    // not a document the parser ignored wholesale.
+    expect(venue?.name).toBe("Acme Hall");
+    expect(agg.warnings.filter((w) => w.code === "UNKNOWN_FIELD")).toHaveLength(0);
+  });
+
+  it("parseVenue alone pushes no rawUnrecognized entry", () => {
+    // The `raw_unrecognized` push lives INSIDE emitUnknownField, so it moved with it.
+    const agg = newAggregator();
+    const venue = parseVenue(VENUE_JUNK_DOC, "v4", agg);
+    // Non-vacuity in its OWN body, not borrowed from the sibling case above: without it this
+    // passes against a parser that ignored the document wholesale.
+    expect(venue?.name).toBe("Acme Hall");
+    expect(agg.rawUnrecognized).toEqual([]);
+  });
+
+  it("the full parse is SILENT on 'FOO BAR' — office-side junk has no near-miss target", () => {
+    // The designed outcome, not a regression (spec §1.1.1 + §1.1.8): `FOO BAR` matches no
+    // vocabulary entry, and reporting vocabulary-less rows is the rejected coverage-audit
+    // product. The next case proves the seam still emits when there IS a target.
+    const parsed = parseSheet(VENUE_JUNK_DOC, "constructed-venue-junk.md");
+    expect(parsed.warnings.filter((w) => w.code === "UNKNOWN_FIELD")).toHaveLength(0);
+    expect(parsed.raw_unrecognized).toEqual([]);
+  });
+
+  it("the full parse emits exactly one UNKNOWN_FIELD for a genuine near-miss row", () => {
+    // `Address:` is the corpus's own colon-contact shape and nearly matches VENUE ADDRESS.
+    // It sits in an UNRECOGNIZED block (`Timestamp`), which the retired positional window
+    // could only have reached by accident of position. That the emission carries a
+    // `candidate` is what proves it came from the detector: the removed emitters never
+    // supplied one.
     const md = [
       "| VENUE NAME | Acme Hall |",
       "| VENUE ADDRESS | 456 Oak Ave |",
-      "| FOO BAR | some value |",
+      "",
+      "| Timestamp | 1/7/2025 0:00 |",
+      "| Address: | 123 Main St |",
     ].join("\n");
 
-    const agg = newAggregator();
-    parseVenue(md, "v4", agg);
-
-    const unknownWarnings = agg.warnings.filter((w) => w.code === "UNKNOWN_FIELD");
-    expect(unknownWarnings.length).toBeGreaterThanOrEqual(1);
-
-    const w = unknownWarnings[0]!;
-    expect(w.severity).toBe("warn");
-    expect(w.code).toBe("UNKNOWN_FIELD");
-    expect(w.blockRef?.kind).toBe("venue");
-    expect(w.rawSnippet).toContain("FOO BAR");
-  });
-
-  it("populates rawUnrecognized for unrecognized venue row", () => {
-    const md = [
-      "| VENUE NAME | Acme Hall |",
-      "| VENUE ADDRESS | 456 Oak Ave |",
-      "| FOO BAR | some value |",
-    ].join("\n");
-
-    const agg = newAggregator();
-    parseVenue(md, "v4", agg);
-
-    expect(agg.rawUnrecognized.length).toBeGreaterThanOrEqual(1);
-
-    const entry = agg.rawUnrecognized.find((r) => r.key === "FOO BAR");
-    expect(entry).toBeDefined();
-    expect(entry?.block).toBe("venue");
-    expect(entry?.key).toBe("FOO BAR");
-    expect(entry?.value).toBe("some value");
-  });
-
-  it("does NOT emit UNKNOWN_FIELD before any venue field is seen (avoids false positives from other blocks)", () => {
-    // A row with an unknown label BEFORE any venue field is resolved should not fire
-    const md = ["| FOO BAR | some value |", "| VENUE NAME | Acme Hall |"].join("\n");
-
-    const agg = newAggregator();
-    parseVenue(md, "v4", agg);
-
-    const unknownWarnings = agg.warnings.filter((w) => w.code === "UNKNOWN_FIELD");
-    expect(unknownWarnings.length).toBe(0);
+    const parsed = parseSheet(md, "constructed-near-miss.md");
+    const uf = parsed.warnings.filter((w) => w.code === "UNKNOWN_FIELD");
+    expect(uf).toHaveLength(1);
+    expect(uf[0]!.blockRef?.name).toBe("Address:");
+    expect(uf[0]!.blockRef?.kind).toBe("timestamp");
+    expect(uf[0]!.candidate).toBe("VENUE ADDRESS");
+    expect(parsed.raw_unrecognized).toEqual([
+      { block: "timestamp", key: "Address:", value: "123 Main St" },
+    ]);
   });
 });
 
@@ -315,12 +331,13 @@ describe("UNKNOWN_ROLE_TOKEN warning", () => {
 //   - TYPO_NORMALIZED: no known-typo aliases appear in its rows (Hotal/DIagrams etc.)
 //   - UNKNOWN_ROLE_TOKEN: all role tokens are canonical RoleFlag values
 //
-// NOTE: UNKNOWN_FIELD fires for hotel-reference rows that appear between the
-// real venue fields and the TRANSPORTATION header in this fixture (lines 46-50:
-// "HOTELS FOR DOUG'S DRIVE BACK", "Holiday Inn Express..." etc.). These ARE
-// genuinely unrecognized rows within the venue field scope — correct behavior.
-// The no-false-positives invariant only covers TYPO_NORMALIZED and
-// UNKNOWN_ROLE_TOKEN for this fixture; UNKNOWN_FIELD is tested separately above.
+// NOTE: UNKNOWN_FIELD used to fire for the hotel-reference rows sitting between the real
+// venue fields and the TRANSPORTATION header in this fixture ("HOTELS FOR DOUG'S DRIVE
+// BACK", "Holiday Inn Express...") — swept in by the positional venue scope window, which
+// has since been retired. Those rows match no vocabulary entry, so the content-keyed
+// detector is silent on them and this fixture's UNKNOWN_FIELD set is now pinned corpus-wide
+// in tests/parser/fieldNearMissBaseline.test.ts. The no-false-positives invariant here still
+// covers only TYPO_NORMALIZED and UNKNOWN_ROLE_TOKEN.
 
 describe("No false positives on clean corpus fixture (2026-03)", () => {
   const FIXTURE = "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md";

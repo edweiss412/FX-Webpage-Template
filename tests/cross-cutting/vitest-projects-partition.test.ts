@@ -253,8 +253,8 @@ describe("vitest projects split — partition is complete and correctly wired", 
       }
       expect(
         nightlyCount,
-        "exactly the 15 nightly files (9 parser harness + 4 source-mutation shards + the source-mutation gates file + the browser-mutant gate) live in no default project",
-      ).toBe(15);
+        "exactly the 16 nightly files (10 parser harness + 4 source-mutation shards + the source-mutation gates file + the browser-mutant gate) live in no default project",
+      ).toBe(16);
       // Anti-collapse floors, computed from RESOLVED membership (not the
       // matchesParallel helper): exact-once alone permits massive drift, since
       // every file could pile into one project and still be admitted exactly
@@ -356,11 +356,18 @@ describe("vitest projects split — partition is complete and correctly wired", 
     }
   });
 
-  it("the mutation harness files (8 shards + gates) are NOT in the parallel set", () => {
+  it("the mutation harness files (8 shards + gates + swap sweep) are NOT in the parallel set", () => {
     const harnessFiles = allTestFiles.filter((f) =>
       /^tests\/parser\/mutationHarness\..+\.test\.ts$/.test(f),
     );
-    expect(harnessFiles.length, "shard+gates files must exist").toBe(9); // 8 shards + gates
+    // 10 = 8 shards + gates + `venueSwapSweep`, the near-miss detector's 497-swap emission
+    // -invariance sweep (spec parser/2026-08-15-field-near-miss-detector-design.md AC-N2).
+    // It is nightly-only DELIBERATELY, not by naming accident: measured at ~97s, which is
+    // nightly-scale against a unit gate the repo keeps under five minutes. The merge-gating
+    // half of AC-N2 is `tests/parser/venueSwapInvariance.test.ts`'s 10 NAMED swaps, which
+    // does run in the default suite; the exhaustive sweep runs here and on any PR that
+    // touches the harness, via mutation-harness.yml's path filter.
+    expect(harnessFiles.length, "shard+gates+sweep files must exist").toBe(10);
     for (const f of harnessFiles) {
       expect(projectOf(f), `${f} must live in NO default project`).toBe("none");
     }
