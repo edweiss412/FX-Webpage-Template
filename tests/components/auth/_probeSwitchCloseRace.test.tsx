@@ -33,12 +33,20 @@ function Harness({ action }: { action: () => Promise<{ ok: boolean }> }) {
   };
   return (
     <div>
-      <button data-testid="trigger" onClick={openMenu}>open</button>
-      <button data-testid="close" onClick={() => setOpen(false)}>close</button>
+      <button data-testid="trigger" onClick={openMenu}>
+        open
+      </button>
+      <button data-testid="close" onClick={() => setOpen(false)}>
+        close
+      </button>
       {open ? (
         <div data-testid="popover">
-          <button data-testid="submit" aria-disabled={pending} onClick={submit}>switch</button>
-          {status === "error" ? <div role="alert">Couldn't switch. Please try again.</div> : null}
+          <button data-testid="submit" aria-disabled={pending} onClick={submit}>
+            switch
+          </button>
+          {status === "error" ? (
+            <div role="alert">{"Couldn't switch. Please try again."}</div>
+          ) : null}
         </div>
       ) : null}
     </div>
