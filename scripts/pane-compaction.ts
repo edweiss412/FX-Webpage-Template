@@ -308,7 +308,22 @@ export function main(argv: string[], s: Surface): number {
     return 1;
   }
 
-  const roster = s.roster();
+  // An unreadable roster is a DEGRADED report, not a stack trace and not an
+  // empty one. Letting the read throw would end the process on whatever `herdr`
+  // printed; returning an empty roster silently would be worse still, since a
+  // report of no panes and a report of no ANSWER look identical to a reader and
+  // `--check` would say 0, meaning "nothing needs you". The envelope carries a
+  // `degraded` channel for exactly this, and untrusted is exit 2.
+  let roster: RosterPane[];
+  try {
+    roster = s.roster();
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    const reason = `herdr roster unreadable: ${detail}`;
+    if (opts.json) s.out(JSON.stringify(reportEnvelope([], [reason]), null, 2));
+    else s.out(`refusing: ${reason}`);
+    return 2;
+  }
 
   if (SENDING.has(opts.mode)) {
     const target = opts.target;
@@ -452,9 +467,18 @@ export function realSurface(): Surface {
   return {
     roster: () => {
       const run = sh("herdr", ["pane", "list"]);
-      const parsed = JSON.parse(run.stdout) as {
-        result?: { panes?: Array<Record<string, unknown>> };
-      };
+      // Named failures, because the caller turns these into the report's
+      // `degraded` reason and a raw SyntaxError would tell an operator nothing
+      // about which of the two actually happened.
+      if (run.exitCode !== 0) {
+        throw new Error(`herdr pane list exited ${run.exitCode}: ${run.stderr.trim()}`);
+      }
+      let parsed: { result?: { panes?: Array<Record<string, unknown>> } };
+      try {
+        parsed = JSON.parse(run.stdout) as typeof parsed;
+      } catch {
+        throw new Error("herdr pane list did not return JSON");
+      }
       const panes = parsed.result?.panes ?? [];
       // The arc name is the pane's `label` — probed against `herdr pane list`,
       // whose entries carry no `name` key at all (that is `herdr agent list`).
