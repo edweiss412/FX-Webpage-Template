@@ -77,9 +77,9 @@ Two effects separate sites from edits, pulling opposite ways: `published-review-
 
 **Marker-command project sweep** (run 2026-08-16, after plan review R3/R4 both landed on this):
 every `red=` command in this plan was checked against `vitest.projects.ts` for project
-restriction, and each resolves under the DEFAULT projects — `openShowReviewModal.unit.test.ts`,
-`_metaModalWaitHelper.test.ts`, `_metaPremiseContract.test.ts`, `printInfraRecoveries.test.ts`,
-`_metaE2eWorkflowCoverage.test.ts`. The only mutation-project-only suite this plan touches is
+restriction, and each resolves under the DEFAULT projects: the helper unit suite, the new
+modal-wait meta-test, `tests/mutation/_metaPremiseContract.test.ts`, the new printer suite, and
+`tests/ci/_metaE2eWorkflowCoverage.test.ts`. The only mutation-project-only suite this plan touches is
 `tests/mutation/guardSurfaces.gate.test.ts` (`vitest.projects.ts:87`, `vitest.projects.ts:91`),
 and it appears in NO marker — it is verified by its own
 `VITEST_INCLUDE_MUTATION_HARNESS=1 … --project mutation` command in Task 8's body. Collection
