@@ -46,7 +46,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/auth/picker/resetPickerEpoch.ts:30",
+    site: "lib/auth/picker/resetPickerEpoch.ts:32",
     contextKeys: ["admin_email_hash", "new_epoch", "show_id"],
     code: "PICKER_EPOCH_RESET",
     scope: "per-show",

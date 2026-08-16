@@ -56,7 +56,9 @@ vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: vi.fn(async () =>
 // so a "cross-site" case would be ALLOWED rather than refused and would prove
 // nothing. The default below is same-origin, so every pre-existing case above
 // still passes the gate and keeps exercising the real body.
-const originHeaders = vi.hoisted(() => new Map<string, string>([["sec-fetch-site", "same-origin"]]));
+const originHeaders = vi.hoisted(
+  () => new Map<string, string>([["sec-fetch-site", "same-origin"]]),
+);
 vi.mock("next/headers", () => ({
   headers: async () => ({ get: (k: string) => originHeaders.get(k.toLowerCase()) ?? null }),
 }));

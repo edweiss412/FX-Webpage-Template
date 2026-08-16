@@ -86,7 +86,7 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
     showId: SHOW_ID,
     context: { show_id: SHOW_ID, stale_epoch: 1, stale_crew_member_id: CREW_ID },
   },
-  // 7. lib/auth/picker/resetPickerEpoch.ts:27-34
+  // 7. lib/auth/picker/resetPickerEpoch.ts:29-36
   {
     code: "PICKER_EPOCH_RESET",
     showId: SHOW_ID,
