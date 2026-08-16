@@ -1131,7 +1131,7 @@ function isClassified(
 }
 
 describe("§11 source-marker audit — every conditional-render site in Step3ReviewModal.tsx is classified", () => {
-  test("exactly 17 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
+  test("exactly 18 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
     // 16 sites as of the announcer bundle (see the pre-rebase comment in git
     // history for the per-era split) + 3 from dev-modal-capture §2.3: the
     // viewerIsDeveloper section head, the busy glyph swap ternary, and the
@@ -1144,8 +1144,12 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     // had to stop being conditionals — which is why this count moved rather
     // than a new site being classified. Both remain deliberate-instant: there
     // is now even less to animate, since only the text changes.
+    //
+    // PLUS 1 (2026-08-15-step3-crew-preview §2.8): the "Open crew preview"
+    // footer link, rendered only when the ordinary row carries a `stagedId`.
+    // Deliberate-instant — a static anchor with no state and no animation.
     const hits = findConditionalLines(MARKER_AUDIT_SRC);
-    expect(hits.length).toBe(17);
+    expect(hits.length).toBe(18);
   });
 
   test("every conditional-render site carries either the §11 instant marker or an animation/transition class on the line above it", () => {
