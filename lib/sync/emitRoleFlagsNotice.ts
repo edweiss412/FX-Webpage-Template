@@ -3,7 +3,6 @@ import { emitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
 import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
 import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
-import { serializeError } from "@/lib/log/serializeError";
 import type { RoleFlagsNotice } from "@/lib/sync/phase2";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 
@@ -115,7 +114,7 @@ export async function flushDeferredApplyEmits(
         source: ctx.source,
         code: "ROLE_FLAGS_NOTICE_EMIT_FAILED",
         showId: notice.showId,
-        error: serializeError(error),
+        error: error,
       });
       await escalation.catch(() => {
         /* best-effort: the escalation itself must never throw out of a finally */
@@ -136,7 +135,7 @@ export async function flushDeferredApplyEmits(
         code: "IDENTITY_LINK_RENAME_UNLANDED_EMIT_FAILED",
         showId: entry.showId,
         driveFileId: entry.driveFileId,
-        error: serializeError(error),
+        error: error,
       });
       await escalation.catch(() => {
         /* best-effort: the escalation itself must never throw out of a finally */
@@ -167,7 +166,7 @@ export async function flushDeferredApplyEmits(
         source: ctx.source,
         code: "SHADOW_REBUILD_EXHAUSTED_EMIT_FAILED",
         driveFileId: entry.driveFileId,
-        error: serializeError(error),
+        error: error,
       });
       await escalation.catch(() => {
         /* best-effort: the escalation itself must never throw out of a finally */

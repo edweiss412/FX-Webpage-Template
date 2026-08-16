@@ -46,7 +46,7 @@ function SubmitButton({
   // text-strong (actionable contrast), differentiation is by weight, not hue.
   const frame = quiet
     ? "border border-transparent bg-transparent"
-    : "border border-border-strong bg-surface";
+    : "border border-text-faint bg-surface";
   return (
     <button
       type="submit"

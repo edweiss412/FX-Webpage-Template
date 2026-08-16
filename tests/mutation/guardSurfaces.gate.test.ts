@@ -39,6 +39,18 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // four sign-not-magnitude and two guarded-branch equivalents — all six with
   // control-flow arguments, which is why the surface now carries NO accepted gap.
   taskContract: { equivalent: 22 },
+  // The 2026-08-15 arms surfaces, enrolled with EMPTY ledgers. Both are pure
+  // classifiers over literal fixtures, so every survivor is repayable by a test
+  // rather than blessable: a row appearing here later is a coverage regression
+  // to explain, not a number to bump.
+  // citationIntent swept clean: 21/21 killed, no blessed survivor, so a row
+  // appearing here later is a coverage regression to repair.
+  citationIntent: {},
+  // redContract: SEVEN reachability arguments — the GATE bound that only ever
+  // runs on GATE_ANY hits, three one-past-the-end scan bounds, and the two
+  // extent-containment equalities a marker line can never occupy. No
+  // accepted-gap: every other survivor of the first run was repaid by a test.
+  redContract: { equivalent: 7 },
   // Counted from the surface, not read back off its ledger: `scripts/lib/
   // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
   // always present -- two in the tip comparator, one in the age loop -- and
@@ -108,6 +120,31 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
+  // Counted from the surface: 42 reachability / control-flow arguments and NO accepted
+  // gap. The triage ran 84 -> 54 -> 45 -> 44 -> 43 -> 42 survivors, repaying 42 of them
+  // with tests rather than blessing them. The last TWO came off because whole-diff review
+  // refuted their equivalence arguments with probes: R1's compared a marker width instead
+  // of an indent, and R2's assumed a one-token union forced identical digit runs, which
+  // SET tokenization does not (multiplicity is discarded). Both are now killed by the
+  // shapes those probes used. So a 43rd row is a coverage regression to argue rather than
+  // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
+  // first, needing its own backlog entry.
+  specLintNumerics: { equivalent: 50 },
+  // The interactive-scan surfaces, enrolled 2026-08-15. `tapTargetScan` carries
+  // NO blessed survivor: its whole body is one map over the shared core's
+  // verdicts, and the census suite kills its single mutant, so a row appearing
+  // here later is a coverage regression to repair rather than a number to bump.
+  tapTargetScan: {},
+  // The shared core is this arc's mutation-relevant surface: the in-scope
+  // predicate, the resolver and both token grammars live here, and three suites
+  // decide its verdicts. Its eleven blessed survivors are all ONE shape — a
+  // mutation whose only effect is on a value no consumer can distinguish: an
+  // empty string added to a token list nothing counts, a loop's off-the-end read
+  // of `undefined`, a 2px shift against a 24px gap, a consistent relabelling
+  // under a symmetric `min`. Across two rounds SIXTY-SEVEN other survivors were
+  // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
+  // repay rather than a number to bump.
+  interactiveScanCore: { equivalent: 11 },
   // feat/mutation-playwright-component-mode (2026-08-15): the browser mode's own
   // two modules, enrolled before the arc's first review dispatch. Both declare an
   // EMPTY ledger and a floor of 1 — a row appearing here later is a coverage

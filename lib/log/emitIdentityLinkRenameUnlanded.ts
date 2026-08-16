@@ -1,5 +1,4 @@
 import { log } from "@/lib/log";
-import { serializeError } from "@/lib/log/serializeError";
 import { persistAppEventStrict } from "@/lib/log/persist";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 
@@ -63,7 +62,7 @@ export async function emitIdentityLinkRenameUnlanded(
         removedName: entry.pair.removedName,
         addedName: entry.pair.addedName,
         reason: entry.reason,
-        error: serializeError(result.error),
+        error: result.error,
       });
     }
   }

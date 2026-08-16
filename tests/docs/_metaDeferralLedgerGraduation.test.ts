@@ -93,6 +93,15 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/help-refanchor-a11y (2026-08-15): the /help/errors copy-link a11y row, all three
+  // filed findings shipped in one arc. The entry left the tab-stop question open on
+  // purpose; the owner ratified that the copy-links STAY tabbable, so it graduates with a
+  // skip path rather than the tabindex removal a reader might have assumed.
+  { id: "BL-HELP-REFANCHOR-A11Y-PASS", provenance: "fix/help-refanchor-a11y" },
+  // fix/changes-feed-batch-flake (2026-08-15): the e2e flake row whose own filed theory was
+  // refuted rather than confirmed — the repair is a wait helper that recovers once from the
+  // admin error boundary, not the fixture isolation the entry proposed.
+  { id: "BL-CHANGES-FEED-MODAL-BATCH-FLAKE", provenance: "fix/changes-feed-batch-flake" },
   // feat/diagram-viewing-polish (2026-08-11): the three diagram-viewing rows the
   // 2026-08-10 decision round bundled, each closing by a DIFFERENT route, which
   // is why they are three rows and not one. The progress-affordance row
@@ -141,6 +150,17 @@ const BACKLOG_GRADUATED = [
   // exclusion (email-canonicalization) is execution-proven via the run-excluded
   // oracle registry, so every exclusion is gated elsewhere by construction.
   { id: "BL-CI-UNIT-GATE-EXCLUSIONS", provenance: "ci/unit-gate-exclusions" },
+  // feat/speclint-prose-count-parity (2026-08-11): graduates RESOLVED by shipping
+  // all three measured shapes as advisory spec:lint codes. One of the three is a
+  // partial graduation stated as such rather than waived — shape (c)'s
+  // wedge-remeasure anchor is not boundedly expressible (three probe-refuted
+  // designs), so it stays covered by the RULE half of the entry's own filing and
+  // is pinned as a NO-FLAG fixture. The archived section carries the corpus
+  // measurement and the arms' documented limits.
+  {
+    id: "BL-SPECLINT-PROSE-COUNT-PARITY",
+    provenance: "feat/speclint-prose-count-parity",
+  },
   {
     id: "BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST",
     provenance: "test/libdata-call-boundary-metatest",
