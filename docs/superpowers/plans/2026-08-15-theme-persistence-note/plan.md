@@ -85,9 +85,9 @@ Commit: `feat(crew-page): persist-failure note bubble on the standalone theme to
 
 <!-- task: red=`pnpm vitest run tests/components/auth/avatarMenu.test.tsx` ac=AC-1,AC-4,AC-6 -->
 
-RED: new cases in the EXISTING suite `tests/components/auth/avatarMenu.test.tsx` (verified present at plan time). What is red and why: the popover panel has no status sibling today. Cases: container present-and-empty when the menu is open, pre-failure (AC-4); blocked write via the theme row → note renders, menu still open; the status node is NOT a descendant of the `role="menu"` element and the menu's owned children are unchanged (AC-6, assert via DOM containment); close and re-open the popover with the flag set → note rendered on re-open (hook state survives, spec §2.1); repeated-failure and recovery rows as in N2.
+RED: new cases in the EXISTING suite `tests/components/auth/avatarMenu.test.tsx` (verified present at plan time). What is red and why: the popover panel has no status sibling today. Cases: the announcer present-and-empty BEFORE the menu is even opened, pre-failure (AC-4); blocked write via the theme row → note renders, menu still open; the status node is NOT a descendant of the `role="menu"` element and the menu's owned children are unchanged (AC-6, assert via DOM containment); close and re-open the popover with the flag set → note rendered on re-open (hook state survives, spec §2.1); repeated-failure and recovery rows as in N2.
 
-GREEN: sibling status region after the menu element per spec §2.2. Commit: `feat(crew-page): persist-failure note in the avatar-menu popover`
+GREEN: sibling regions per spec §2.2 as amended 2026-08-16 — the VISIBLE note inside the popover (a plain paragraph, no live-region role, above the `role="menu"` element because main's switch-person alert pins the slot after it) plus an always-mounted `sr-only` `role="status"` announcer at the component root, outside the popover's conditional render. The second node is not a flourish: `tests/components/_metaLiveRegionMounting.test.ts` (`BL-ANNOUNCE-REGION-UNMOUNT-CLASS`) fails a live region mounted inside `{open ? … : null}`, because it arrives with its message and is never announced. Commit: `feat(crew-page): persist-failure note in the avatar-menu popover`
 
 ### Task N4 — dual gate + ledger + close
 

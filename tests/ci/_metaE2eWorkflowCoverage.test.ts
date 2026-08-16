@@ -179,6 +179,11 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // WebKit), so it is paths-ignore-gated like its three siblings rather than unseen.
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
+  // Named in crew-e2e.yml's run command beside theme-toggle — the two cover the
+  // same control from opposite ends (persistence behavior, and the geometry of
+  // the note that reports a failed persist), so they are paths-ignore-gated the
+  // same way rather than PR-covered.
+  "tests/e2e/theme-persistence-note.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/theme-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
 };
