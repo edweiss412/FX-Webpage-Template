@@ -40,7 +40,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ledgerFiles, optsFor, type LedgerFamily } from "@/scripts/lib/ledger-fields";
+import { LEDGER_FAMILIES, ledgerFiles, optsFor, type LedgerFamily } from "@/scripts/lib/ledger-fields";
 import { premise } from "@/tests/_shared/premise";
 
 import {
@@ -1355,12 +1355,28 @@ const duplicateIds = (text: string, familyOpts: ExtractOpts): Duplicate[] => {
  * (demonstrated by the reviewer against the shipped algorithm). Routing the
  * plant through `ledgerFiles` + `optsFor` puts the discovery and opts-resolution
  * wiring itself under the plant.
+ *
+ * ONE code path, by construction (diff review R3). The R1 repair took
+ * `families?` and branched — `families ? f(root, families) : f(root)` — which
+ * left the DEFAULT branch, the one production actually runs, unpinned: the
+ * reviewer exhibited two mutations (dropping DEFERRED from default discovery,
+ * and defaulting opts to `BACKLOG_OPTS`) that every plant survived because the
+ * fixture only ever drove the explicit branch. Repaired by NARROWING rather
+ * than by adding a second plant: `families` now DEFAULTS to `LEDGER_FAMILIES`
+ * and both call sites take the same single path, so the divergent branch does
+ * not exist to regress. `ledgerFiles(root, LEDGER_FAMILIES)` and
+ * `optsFor(file, LEDGER_FAMILIES)` are exactly what the no-arg forms do
+ * (`scripts/lib/ledger-fields.ts`), so behavior is unchanged — but a mutation
+ * to this path now reds the live lane and the fixture plant together.
  */
-const duplicatesUnder = (root: string, families?: readonly LedgerFamily[]): string[] => {
-  const files = families ? ledgerFiles(root, families) : ledgerFiles(root);
+const duplicatesUnder = (
+  root: string,
+  families: readonly LedgerFamily[] = LEDGER_FAMILIES,
+): string[] => {
+  const files = ledgerFiles(root, families);
   const offenders: string[] = [];
   for (const file of files) {
-    const opts = families ? optsFor(file, families) : optsFor(file);
+    const opts = optsFor(file, families);
     const text = readFileSync(join(root, file), "utf8");
     for (const { id, lines } of duplicateIds(text, opts)) {
       offenders.push(`${file}: ${id} at lines ${lines.join(", ")}`);
