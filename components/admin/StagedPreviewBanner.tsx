@@ -103,10 +103,17 @@ export function StagedPreviewBanner({ stagedId, roster, selectedId }: StagedPrev
               Previewing from the sheet (not published yet)
             </span>
           </p>
+          {/* Deliberately NOT the inverted-amber `bg-warning-text text-warning-bg`
+              pair: DESIGN.md §14 reserves that as the confirm-go recipe for
+              DESTRUCTIVE mutations, and this is a plain navigation. It also renders
+              as the same underlined "Back to setup" affordance the §2.7 failure
+              surfaces use, so the exit reads identically everywhere in this arc.
+              `text-text-strong` on `warning-bg` is 17.4:1 light / 12.0:1 dark
+              (DESIGN.md §1.2), comfortably AAA. */}
           <Link
             data-testid="staged-preview-banner-exit"
             href="/admin"
-            className={`${TARGET_BASE} bg-warning-text text-warning-bg`}
+            className={`${TARGET_BASE} text-text-strong underline underline-offset-2`}
           >
             Back to setup
           </Link>
@@ -118,7 +125,10 @@ export function StagedPreviewBanner({ stagedId, roster, selectedId }: StagedPrev
             : `Viewing as ${selected.name}`}
         </p>
 
-        <div
+        {/* A labelled navigation landmark: without it the picker reads as a bare
+            run of person names with no stated purpose (impeccable audit, a11y). */}
+        <nav
+          aria-label="Preview as another crew member"
           data-testid="staged-preview-picker-inline"
           className="flex flex-wrap items-center gap-2"
         >
@@ -130,7 +140,7 @@ export function StagedPreviewBanner({ stagedId, roster, selectedId }: StagedPrev
               isCurrent={entry.id === selected.id}
             />
           ))}
-        </div>
+        </nav>
 
         {disclosedEntries.length > 0 ? (
           <details data-testid="staged-preview-picker-more">

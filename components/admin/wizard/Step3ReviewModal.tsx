@@ -64,6 +64,7 @@ import {
   tierForItem,
   type ReviewerAction,
 } from "@/lib/admin/step3ReviewItemTiers";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
@@ -570,7 +571,7 @@ export function Step3ReviewModal({
               rel="noopener noreferrer"
               className="inline-flex min-h-tap-min items-center rounded-sm px-2 text-sm font-semibold text-accent-on-bg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
-              Open crew preview
+              Open crew preview <NewTabHint />
             </a>
           ) : null}
           {/* Re-apply resolution footer (spec §4.4): the ONLY resolution path
