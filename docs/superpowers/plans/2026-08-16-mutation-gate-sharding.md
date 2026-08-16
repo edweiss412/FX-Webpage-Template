@@ -603,7 +603,7 @@ import { SHARD_COUNT } from "../parser/mutation/shardPartition";
 import { SOURCE_SHARD_COUNT } from "./source/shardPartition";
 
 const ROOT = join(__dirname, "..", "..");
-type Step = { run?: string };
+type Step = { run?: string; with?: { script?: string } };
 type Job = {
   strategy?: { matrix?: Record<string, unknown>; "fail-fast"?: boolean };
   needs?: string[];
@@ -798,17 +798,21 @@ describe("mutation-harness matrices are pinned to their constants", () => {
     }
   });
 
-  it("the tracking issue reports each job's RESULT, not merely its name (AC-6)", () => {
-    // Checking for the job NAME is non-discriminating: a body listing all five
-    // names as static labels, or names appearing only in step names and `if:`
-    // conditions, satisfies it while the issue still cannot say which family
-    // failed. What has to reach the body is each job's RESULT EXPRESSION.
-    const notifySteps = JSON.stringify(wf.jobs["notify"]?.steps ?? []);
+  it("the tracking issue reports each job's RESULT, in the BODY (AC-6)", () => {
+    // Scoped to the github-script BODY, not the serialized step object. A step
+    // NAME like `Report needs.parser-shards.result`, or the same expression in
+    // an `if:` condition, satisfies a whole-object substring search while the
+    // body itself reports nothing -- the sibling-contamination shape the
+    // anti-tautology rule exists to stop.
+    const bodies = (wf.jobs["notify"]?.steps ?? [])
+      .map((s) => s.with?.script ?? "")
+      .filter((b) => b.length > 0);
+    expect(bodies.length, "notify runs no github-script step").toBeGreaterThan(0);
+    const body = bodies.join("\n");
     for (const job of [...FAMILIES.map((f) => f.job), ...GATES.map((g) => g.job), "budget"]) {
-      expect(
-        notifySteps,
-        `the issue body never reports ${job}'s result, only (at most) its name`,
-      ).toContain(`needs.${job}.result`);
+      expect(body, `the issue body never reports ${job}'s result`).toContain(
+        `needs.${job}.result`,
+      );
     }
   });
 });
@@ -831,18 +835,19 @@ Replace the single job with four families plus `budget` (Task 5 supplies the bud
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      # FIRST step of the job, BEFORE checkout and setup. $GITHUB_ENV lives
+      # outside the workspace, so the value survives checkout.
+      - name: Stamp job start
+        run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - name: Run source-mutation shard ${{ matrix.shard }}
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
-          START_EPOCH: ${{ github.run_id }}
-        run: |
-          start=$(date +%s)
-          echo "start=$start" >> "$GITHUB_ENV"
-          pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.shard${{ matrix.shard }}.test.ts
+        run: pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.shard${{ matrix.shard }}.test.ts
       - name: Record elapsed seconds
         if: always()
-        run: |
-          echo "$(( $(date +%s) - start ))" > elapsed.txt
+        run: echo "$(( $(date +%s) - SHARD_START ))" > elapsed.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -850,7 +855,9 @@ Replace the single job with four families plus `budget` (Task 5 supplies the bud
           path: elapsed.txt
 ```
 
-**Seconds, and `start` explicitly captured.** An earlier draft wrote `(( ($(date +%s) - START) / 60 ))` with `START` never set: with the variable unset the expression evaluates to epoch minutes and exits 0, so every record would have been a plausible-looking number that measured nothing. Integer minutes also lose the boundary — 60m59s records as `60` and slips past an "above 60" comparison. Recording seconds and comparing in seconds removes both.
+**The stamp is the job's FIRST step, so the record is job wall clock.** An earlier draft captured the start inside the vitest step, which measures only the test and excludes checkout plus `./.github/actions/setup`. That understates the quantity §4 actually targets: 1,200 s of setup plus a 3,000 s test is a 3,000 s record that passes a 3,600 s budget while the job took 4,200 s — a complete, finite, plausible record that no completeness or parse guard can catch. Stamping before checkout is what makes the recorded number the same number the workflow's `timeout-minutes` bounds.
+
+**Seconds, and the start explicitly captured.** An earlier draft wrote `(( ($(date +%s) - START) / 60 ))` with `START` never set: with the variable unset the expression evaluates to epoch minutes and exits 0, so every record would have been a plausible-looking number that measured nothing. Integer minutes also lose the boundary — 60m59s records as `60` and slips past an "above 60" comparison. Recording seconds and comparing in seconds removes both.
 
 Artifacts, not job outputs: matrix children share one output name and overwrite each other nondeterministically, so the slow shard is exactly the value that would vanish.
 
@@ -1041,13 +1048,19 @@ Expected: PASS, 11 tests.
   it("the budget job is invoked with the canonical constants (AC-7)", () => {
     const run = runsOf("budget").find((r) => r.includes("check-shard-budget")) ?? "";
     expect(run, "the budget job runs no budget script").not.toBe("");
-    // END-ANCHORED, not `toContain`: `--budget-seconds 36000` CONTAINS "3600",
-    // so a substring check passes while the one-hour ceiling is silently ten
-    // hours. Each value must be the whole argument, not a prefix of it.
-    const arg = (flag: string, value: number) => new RegExp(`${flag} ${value}(?![0-9])`);
-    expect(run).toMatch(arg("--budget-seconds", SHARD_BUDGET_SECONDS));
-    expect(run).toMatch(arg("--parser-shards", SHARD_COUNT));
-    expect(run).toMatch(arg("--source-shards", SOURCE_SHARD_COUNT));
+    // WHOLE-TOKEN equality, not a substring and not a digit-boundary regex.
+    // `toContain("3600")` accepts `36000`; a `(?![0-9])` lookahead still accepts
+    // `3600.5`, which the CLI parses as a finite budget differing from the
+    // constant. Take the token after the flag and compare it exactly.
+    const tokens = run.split(/\s+/);
+    const argValue = (flag: string): string | undefined => {
+      const i = tokens.indexOf(flag);
+      expect(i, `the budget job passes no ${flag}`).toBeGreaterThanOrEqual(0);
+      return tokens[i + 1];
+    };
+    expect(argValue("--budget-seconds")).toBe(String(SHARD_BUDGET_SECONDS));
+    expect(argValue("--parser-shards")).toBe(String(SHARD_COUNT));
+    expect(argValue("--source-shards")).toBe(String(SOURCE_SHARD_COUNT));
   });
 ```
 
@@ -1323,7 +1336,17 @@ Registry-count reconciliation, also run now: `GUARD_SURFACES` holds **18** rows 
 
 **Placeholder scan.** None.
 
-**Anti-tautology.** Nine assertions were rewritten across two review rounds after being found true by construction, and each now carries the mutant that proves otherwise. The weight case holds the source fixed and varies suites and ledger size, asserting the delta, with both formula mutants run at Task 1 Step 5. The makespan case asserts equality behind an executable `premise` rather than a `>=` any additive packing satisfies. Totality and disjointness are asserted over the four slices built the way the shard FILES build them, not over the assignment map's own size. Task 4's realized-target union extracts EVERY target per leg rather than the first, and compares as a sorted set and by length. The template normalizer covers every index-bearing site per family and was probed against all eight live parser shards. The constant-pinning assertions are end-anchored regexes, because `--budget-seconds 36000` contains `3600`. The notify guard requires each job's `needs.<job>.result` expression, not its bare name, which a static label would satisfy. And Task 5's CLI probes now include the warn band and two missing-argument cases, without which deleting the annotation or hard-coding a default would leave everything green.
+**Falsified at plan time, against the reviewer's own counterexamples.** The two repairs that had already failed once were re-probed rather than asserted:
+
+```
+--budget-seconds 3600    accepted=True     --parser-shards 8    accepted=True
+--budget-seconds 36000   accepted=False    --parser-shards 8.5  accepted=False
+--budget-seconds 3600.5  accepted=False    --parser-shards 80   accepted=False
+notify step NAME carries the expression, body does not -> False
+notify BODY carries the expression                     -> True
+```
+
+**Anti-tautology.** Twelve assertions were rewritten across two review rounds after being found true by construction, and each now carries the mutant that proves otherwise. The weight case holds the source fixed and varies suites and ledger size, asserting the delta, with both formula mutants run at Task 1 Step 5. The makespan case asserts equality behind an executable `premise` rather than a `>=` any additive packing satisfies. Totality and disjointness are asserted over the four slices built the way the shard FILES build them, not over the assignment map's own size. Task 4's realized-target union extracts EVERY target per leg rather than the first, and compares as a sorted set and by length. The template normalizer covers every index-bearing site per family and was probed against all eight live parser shards. The constant-pinning assertions are end-anchored regexes, because `--budget-seconds 36000` contains `3600`. The notify guard requires each job's `needs.<job>.result` expression, not its bare name, which a static label would satisfy. And Task 5's CLI probes now include the warn band and two missing-argument cases, without which deleting the annotation or hard-coding a default would leave everything green.
 
 **Expected-failure honesty.** Both full-gate checkpoints (Task 2 Step 8, Task 7 Step 5) expect the known merge-base failure rather than a pass. `pnpm mutation:guards` is red at the merge base on `interactionTimingScan`'s unaccepted survivor, which this arc explicitly does not fix; demanding PASS would have required fixing out-of-scope work for the task to complete.
 
