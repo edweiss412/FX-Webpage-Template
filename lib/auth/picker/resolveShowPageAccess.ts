@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
-import { log, serializeError } from "@/lib/log";
+import { log } from "@/lib/log";
 import { decodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
 import {
   resolvePickerSelection,
@@ -72,7 +72,7 @@ function infraError(
     source: "auth.picker.resolveShowPageAccess",
     code: "PICKER_RESOLVER_LOOKUP_FAILED",
     site,
-    ...(detail === undefined ? {} : { error: serializeError(detail) }),
+    ...(detail === undefined ? {} : { error: detail }),
   });
   return INFRA_ERROR;
 }

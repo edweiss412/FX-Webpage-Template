@@ -394,7 +394,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
               onClick={onCancelClick}
               disabled={isResolving}
               data-testid="admin-allowlist-revoke-cancel-button"
-              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text underline-offset-2 hover:text-text-strong disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>

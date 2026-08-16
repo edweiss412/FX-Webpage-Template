@@ -10,7 +10,7 @@ import {
   clearIdentityCore,
 } from "@/lib/auth/picker/clearIdentity";
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
@@ -20,7 +20,17 @@ vi.mock("next/navigation", () => ({
     throw error;
   },
 }));
-vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+// `headers` joins `cookies` here because the same-origin gate
+// (lib/auth/sameOriginServerAction.ts) reads Fetch Metadata off the request. The
+// default below is same-origin, so every pre-existing case still passes the gate
+// and continues to exercise the real body.
+vi.mock("next/headers", () => ({ cookies: vi.fn(), headers: vi.fn() }));
+
+const headerMap = new Map<string, string>();
+const setHeaders = (h: Record<string, string>): void => {
+  headerMap.clear();
+  for (const [k, v] of Object.entries(h)) headerMap.set(k.toLowerCase(), v);
+};
 
 const logMock = vi.hoisted(() => ({
   warn: vi.fn(),
@@ -88,6 +98,14 @@ beforeEach(() => {
   supabaseMock.throwOnCreate = false;
   logMock.info.mockClear();
   logMock.error.mockClear();
+  // R2-F4: `warn` needs clearing too, or one endpoint's PICKER_ORIGIN_REJECTED
+  // emit satisfies the NEXT endpoint's assertion and the per-endpoint AC-2 proof
+  // stops being independent.
+  logMock.warn.mockClear();
+  setHeaders({ "sec-fetch-site": "same-origin" });
+  vi.mocked(headers).mockResolvedValue({
+    get: (k: string) => headerMap.get(k.toLowerCase()) ?? null,
+  } as unknown as Awaited<ReturnType<typeof headers>>);
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(cookies).mockResolvedValue({
     get: (name: string) =>
@@ -466,5 +484,67 @@ describe("clearIdentityAndSkip — guest sign-out (spec §4.3)", () => {
     await expect(clearIdentity(fdFull())).resolves.toEqual({ ok: true });
     expect(supabaseMock.createClient).not.toHaveBeenCalled();
     expect(supabaseMock.signOut).not.toHaveBeenCalled();
+  });
+});
+
+describe("same-origin gate (BL-SERVER-ACTION-ORIGIN-GATE)", () => {
+  beforeEach(() => {
+    // R5-F1: the cookie MUST hold the target selection. With an empty cookie
+    // clearIdentityCore deletes nothing and never calls cookieSet, so
+    // `expect(cookieSet).not.toHaveBeenCalled()` would pass VACUOUSLY and a
+    // guard-AFTER-mutation mutant (gate moved below the delete) would escape.
+    // Seeded, that mutant decodes the envelope, deletes the selection, and calls
+    // cookieStore.set before rejecting — so the assertion genuinely fails on it.
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
+  });
+
+  test("clearIdentity refuses cross-site, writes no cookie, emits the forensic code for ITS OWN action", async () => {
+    setHeaders({ "sec-fetch-site": "cross-site" });
+    const r = await clearIdentity(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
+    expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(cookieSet).not.toHaveBeenCalled(); // seeded cookie holds SHOW_ID → a late-gate mutant WOULD write
+    // R6-F1: assert the emit's `action`, not just `code`. Deleting clearIdentity's
+    // OWN guard makes it delegate to clearIdentityCore, whose guard emits
+    // action:"clearIdentityCore" — so this fails, killing the "gate only core,
+    // drop the wrapper guards" mutant that a code-only assertion let survive.
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED", action: "clearIdentity" }),
+    );
+  });
+
+  test("clearIdentityAndSkip refuses cross-site WITHOUT signing out, writes no cookie, emits for ITS OWN action", async () => {
+    setHeaders({ "sec-fetch-site": "cross-site" });
+    const r = await clearIdentityAndSkip(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
+    expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(supabaseMock.signOut).not.toHaveBeenCalled(); // R1-F6: the external mutation stays untouched
+    expect(cookieSet).not.toHaveBeenCalled();
+    // R6-F1: dropping AndSkip's own guard makes it fall through to core
+    // (action:"clearIdentityCore"), failing here.
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED", action: "clearIdentityAndSkip" }),
+    );
+  });
+
+  test("clearIdentityCore refuses cross-site, writes no cookie, emits for ITS OWN action", async () => {
+    setHeaders({ "sec-fetch-site": "cross-site" });
+    const r = await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
+    expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(cookieSet).not.toHaveBeenCalled();
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED", action: "clearIdentityCore" }),
+    );
+  });
+
+  test("documented bypass: cross-site with NO Origin header is refused (no mutation)", async () => {
+    setHeaders({ "sec-fetch-site": "cross-site" }); // origin deliberately absent (spec §2.1)
+    const r = await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
+    expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(cookieSet).not.toHaveBeenCalled(); // seeded cookie → the documented bypass mutates nothing
   });
 });

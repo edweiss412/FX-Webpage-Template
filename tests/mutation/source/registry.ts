@@ -647,6 +647,322 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [],
   },
   {
+    id: "specLintNumerics",
+    sourcePath: "lib/specLint/numerics.ts",
+    suitePaths: ["tests/specLint/numerics.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Inverts the nearest-predecessor scan in qualifierBoundStarts, so a dated
+    // qualifier binds a number that FOLLOWS it instead of the one before it. The
+    // SYNTHETIC mixed-line pair asserts both directions of that binding, so the
+    // suite cannot miss this.
+    control: { from: "if (n.end > q.index) continue;", to: "if (n.end < q.index) continue;" },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior (spec §2.4) -------
+      //
+      // Three families, and each argument rests on control flow or on the accept-set
+      // in this file rather than on "no test happens to notice".
+      //
+      // FAMILY 1 — redundant `lastIndex` resets. Every `while ((m = RE.exec(x)) !== null)`
+      // loop in this module runs to exhaustion, and `exec` sets `lastIndex` back to 0 when
+      // it returns null. So on entry the regex's `lastIndex` is ALREADY 0 and the explicit
+      // assignment cannot change what the next scan sees. The paired `0 > 1` mutants of the
+      // same assignments are NOT here: starting a scan at index 1 skips a match at index 0,
+      // which is observable, and each is killed by a column-0 fixture.
+      {
+        siteId: "statement-removal:23:5:re.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason:
+          "rangesOn's exec loop runs to exhaustion, and exec resets lastIndex to 0 on the null result, so the assignment is redundant on entry",
+      },
+      {
+        siteId: "statement-removal:151:3:QUANTITY_RE.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in quantityRanges",
+      },
+      {
+        siteId: "statement-removal:169:3:DATED_QUALIFIER_RE.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in qualifierBoundStarts",
+      },
+      {
+        siteId: "statement-removal:729:3:CARDINAL_RE.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in cardinalsOn",
+      },
+      {
+        siteId: "statement-removal:981:5:DIGIT_SEQ_RE.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in templateCandidates",
+      },
+      {
+        siteId: "statement-removal:1037:5:LEXICON.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason: "same exhaustion argument, in the hit scan",
+      },
+      // FAMILY 2 — inputs the accept-set cannot produce.
+      {
+        siteId: "integer-literal:169:34:0>1",
+        kind: "equivalent",
+        reason:
+          "starting the qualifier scan at index 1 can only skip a qualifier at index 0, and a qualifier at index 0 has no preceding number to bind (every number range ends at >= 1), so the bound set is identical",
+      },
+      {
+        siteId: "relational-boundary:30:87:<><=",
+        kind: "equivalent",
+        reason:
+          "i === r.end is unreachable: for a span range, end is the closing backtick's position, which cannot start a numeric match; for an exclusion range, end sits immediately after a digit or hex character, so no \\b-anchored match can begin there",
+      },
+      {
+        siteId: "integer-literal:69:10:50>51",
+        kind: "equivalent",
+        reason:
+          "fifty's value is read only through the 2..40 claim-range gate, which rejects 50 and 51 alike, so nothing downstream ever sees it. forty's twin IS killed, because 41 crosses that gate",
+      },
+      {
+        siteId: "integer-literal:154:49:0>1",
+        kind: "equivalent",
+        reason:
+          "QUANTITY_RE is `\\b(...)\\b`, so capture group 1 spans the whole match: m[1] === m[0]",
+      },
+      {
+        siteId: "relational-boundary:174:17:>>>=",
+        kind: "equivalent",
+        reason:
+          "n.end === q.index needs the qualifier to begin at the character immediately after a digit, but the qualifier is \\bat…, and a digit-to-letter transition is not a word boundary",
+      },
+      {
+        siteId: "relational-boundary:175:37:>>>=",
+        kind: "equivalent",
+        reason: "two matches from one global scan cannot share an end offset, so > and >= agree",
+      },
+      {
+        siteId: "integer-literal:677:28:1>2",
+        kind: "equivalent",
+        reason:
+          "with a slash, slash >= 0 so both -1 and -2 are false and the else branch runs; without one, slice(-1 + 1) is slice(0), so forms becomes [path, path] and the alternation is unchanged",
+      },
+      {
+        siteId: "statement-removal:470:7:inWord = false;>(removed)",
+        kind: "equivalent",
+        reason:
+          "the same branch has already set lastWord to the empty string, so a next identifier character appends to nothing and produces exactly the word a fresh start would; whitespace clears inWord on its own path",
+      },
+      {
+        siteId: "integer-literal:583:23:0>1",
+        kind: "equivalent",
+        reason:
+          "a frame count of exactly one means the single open frame is a TEMPLATE, and a template frame is left only by its closing backtick or by pushing an interpolation, so the state at that point is `template` and the following return already yields null; the two conditions can never disagree",
+      },
+      {
+        siteId: "statement-removal:573:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          'falls through to the string-escape test (c is `$`, not a backslash) and then to `closers[c] === state`, and `closers["$"]` is undefined, which is not a scan state',
+      },
+      {
+        siteId: "statement-removal:578:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          'the state is already `code` when it falls through, and the only remaining test is `closers["`"] === state`, which compares `template` against `code`',
+      },
+      {
+        siteId: "statement-removal:504:9:inClass = false;>(removed)",
+        kind: "equivalent",
+        reason:
+          "already false on every path that reaches it: the regex state is entered only from code, and it is left only by the branch that requires !inClass -- a regex still inside a character class at the newline or at end of input returns null instead",
+      },
+      {
+        siteId: "statement-removal:549:9:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "falls through to the delimiter tests with c === backslash, which is neither `[` nor `]` nor `/`, so every branch is skipped and the next statement is the continue at the end of the same block",
+      },
+      {
+        siteId: "statement-removal:557:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          'falls through to the string-escape test (c is not a backslash; that case returned above) and then to `closers[c] === state`, which no regex-state character can satisfy: the closer map\'s values are single, double and template, never regex, and on the closing slash the state is already code and `closers["/"]` is undefined',
+      },
+      {
+        siteId: "statement-removal:566:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          'the only statement after it is the closer check, and a backslash can never be a closer: `closers["\\\\"]` is undefined, which equals no scan state, so falling through changes nothing',
+      },
+      {
+        siteId: "integer-literal:1098:30:1>2",
+        kind: "equivalent",
+        reason:
+          "column - 2 tests the character BEFORE the hit, and it lands in a comma-joined run exactly when the hit itself does. Inside a run, only a non-FIRST group can be noun-followed (the first is always followed by the comma), so such a hit starts at least two characters past the run's start and its predecessor is still inside. Outside every run, a run's own end is a non-digit (the pattern closes on \\b), so a digit hit begins at least one character past it and the predecessor index equals the exclusive end -- outside either way",
+      },
+      {
+        siteId: "integer-literal:824:30:0>1",
+        kind: "equivalent",
+        reason:
+          "unreachable: both call sites pass a line index BULLET_RE has already matched, so `first` is never null",
+      },
+
+      {
+        siteId: "relational-boundary:1029:25:<><=",
+        kind: "equivalent",
+        reason:
+          "the extra iteration reads model.lines[idx] === undefined, which every consumer coerces to the string 'undefined': it holds no digit, so the hit scan produces nothing",
+      },
+      {
+        siteId: "relational-boundary:1135:25:<><=",
+        kind: "equivalent",
+        reason:
+          "same one-past-the-end argument in the shape (b) pass: 'undefined' carries no digit and no number-word, so cardinalsOn returns an empty list and the iteration continues",
+      },
+      {
+        siteId: "relational-boundary:1187:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the extra outer index makes the inner loop's `j = i + 1 < candidates.length` false immediately, so no pair is formed",
+      },
+      // FAMILY 3 — offsets and orderings that cannot move an outcome.
+      {
+        siteId: "integer-literal:1035:40:1>2",
+        kind: "equivalent",
+        reason:
+          "the span range's START: the character before a span's content is its opening backtick, which cannot be a digit, so widening the range leftward admits nothing. Its END twin IS killed, by a fixture whose digit is the span's last character",
+      },
+      {
+        siteId: "integer-literal:1143:40:1>2",
+        kind: "equivalent",
+        reason: "same opening-backtick argument for the shape (b) span ranges",
+      },
+      {
+        siteId: "integer-literal:1143:59:1>2",
+        kind: "equivalent",
+        reason:
+          "the shape (b) span range's END: a cardinal is recognized only when followed by whitespace, and the character after a span's last content character is the closing backtick, so a cardinal ending at the boundary is rejected whether or not the range covered it",
+      },
+      {
+        siteId:
+          "statement-removal:1068:3:mismatches.sort((a, b) => a.first.docLine - b.first.docLine || a.first.column - b.first.column);>(removed)",
+        kind: "equivalent",
+        reason:
+          "mismatches is built by iterating a Map whose insertion order is first-hit order, which is document order already, so the sort reorders nothing. Its comparator's `||` mutant IS killed, because an inconsistent comparator can still swap an already-ordered pair",
+      },
+      {
+        siteId: "relational-boundary:1091:49:>>>=",
+        kind: "equivalent",
+        reason: "an entry with zero constants contributes an empty inner loop either way",
+      },
+      {
+        siteId: "statement-removal:1104:9:boundCache.set(h.docLine, bound);>(removed)",
+        kind: "equivalent",
+        reason:
+          "memoization only: without the write, qualifierBoundStarts is recomputed for the same line and returns the same set",
+      },
+      {
+        siteId: "integer-literal:1153:20:1>2",
+        kind: "equivalent",
+        reason: "the listIdx < 0 guard rejects -1 and -2 alike",
+      },
+      {
+        siteId: "relational-boundary:1160:17:<><=",
+        kind: "equivalent",
+        reason: "a resolved listIdx is always >= 1, so < 0 and <= 0 select identically",
+      },
+      {
+        siteId: "integer-literal:1160:19:0>1",
+        kind: "equivalent",
+        reason: "same argument: listIdx is either -1 or >= 1, so < 0 and < 1 select identically",
+      },
+      {
+        siteId: "statement-removal:925:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "falling through calls countListItems(model, -1, …), which reads undefined, fails BULLET_RE against the coerced 'undefined' and returns 0 — which the very next guard rejects anyway",
+      },
+      {
+        siteId: "integer-literal:1002:24:0>1",
+        kind: "equivalent",
+        reason:
+          "the union === 0 branch is unreachable: a candidate must contain a digit, so its token set is never empty",
+      },
+      {
+        siteId: "integer-literal:747:22:0>1",
+        kind: "equivalent",
+        reason:
+          "the fallback head is read only when NO word in the window is plural, so isPluralWord drops the claim either way (words[1] may be undefined, which .test coerces to 'undefined' and rejects)",
+      },
+      {
+        siteId: "relational-boundary:748:38:>=>>",
+        kind: "equivalent",
+        reason:
+          "skipping k === 0 matters only when words[0] is the sole plural word, and the fallback head IS words[0], so the selected head is identical",
+      },
+      {
+        siteId: "integer-literal:748:41:0>1",
+        kind: "equivalent",
+        reason: "same argument as the loop bound beside it",
+      },
+      {
+        siteId: "relational-boundary:755:74:<=><",
+        kind: "equivalent",
+        reason:
+          "m.index === markerEnd needs a cardinal at the character immediately after a list marker, and BULLET_RE requires whitespace there",
+      },
+      {
+        siteId: "relational-boundary:1220:61:<><=",
+        kind: "equivalent",
+        reason:
+          "the inventory comparator's raws are Map keys and therefore distinct, so the equal-operand input that separates < from <= cannot occur",
+      },
+      {
+        siteId: "integer-literal:1220:72:1>2",
+        kind: "equivalent",
+        reason: "Array.prototype.sort reads a comparator result's SIGN, never its magnitude",
+      },
+      {
+        siteId: "relational-boundary:1220:82:>>>=",
+        kind: "equivalent",
+        reason: "same distinct-keys argument as its sibling comparison",
+      },
+      {
+        siteId: "integer-literal:1220:92:1>2",
+        kind: "equivalent",
+        reason: "same sign-not-magnitude argument",
+      },
+      {
+        siteId: "integer-literal:1220:96:0>1",
+        kind: "equivalent",
+        reason:
+          "the final tiebreak is reached only when two raws are equal, which distinct Map keys make impossible",
+      },
+      {
+        siteId: "integer-literal:852:16:0>1",
+        kind: "equivalent",
+        reason:
+          "blanks' initial value is dead: the loop starts AT the first bullet, whose branch assigns blanks = 0 before any blank line can be seen",
+      },
+      {
+        siteId: "statement-removal:888:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "falling through reaches the leading-whitespace branch, which continues on the same lines for the same reason",
+      },
+      {
+        siteId: "integer-literal:1140:97:1>2",
+        kind: "equivalent",
+        reason:
+          "markerEnd's non-bullet sentinel: `m.index <= -1` and `m.index <= -2` are both false for every real index",
+      },
+      {
+        siteId: "relational-boundary:991:33:>>>=",
+        kind: "equivalent",
+        reason:
+          'the empty-token filter can never drop anything: the tokenizer replaces every RUN of non-alphanumerics with ONE space and then trims, so split(" ") cannot yield an empty string',
+      },
+      // ---- accepted-gap: none. Every survivor above carries a reachability or
+      // control-flow argument, so this surface blesses no uncovered behaviour.
+    ],
+  },
+  {
     id: "reviewRoundCorpus",
     sourcePath: "lib/reviewRounds/corpus.ts",
     suitePaths: ["tests/docs/_metaReviewRoundEconomy.test.ts"],
@@ -831,5 +1147,124 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "the operands are never independently true: a site is `unclassified` if and only if its value is null, because the push sites guarantee it — so `||` and `&&` select the same rows",
       },
     ],
+  },
+  {
+    id: "interactiveScanCore",
+    sourcePath: "tests/styles/interactiveScanCore.ts",
+    // All three suites: the core's own unit + fixture cases, plus the two
+    // guards that consume it. A mutant that survives the unit cases can still
+    // be killed by the census it silently changes, and vice versa.
+    suitePaths: [
+      "tests/styles/interactiveScanCore.test.ts",
+      "tests/styles/_metaSubtleOnInteractive.test.ts",
+      "tests/styles/_metaTapTargetFloor.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Universal -> existential on the path set: a floor on ANY render
+    // alternative would clear, which is exactly the branch-ancestry defect the
+    // path model exists to prevent.
+    control: {
+      from: "el.paths.length > 0 && el.paths.every((path) => pathHasFloor(path))",
+      to: "el.paths.length > 0 && el.paths.some((path) => pathHasFloor(path))",
+    },
+    // Five equivalents, all one shape: the mutation's only effect is on a value
+    // no consumer can distinguish. The first run's other 56 survivors were real
+    // coverage gaps and were repaid with tests, not with rows.
+    accepted: [
+      {
+        siteId: "relational-boundary:141:50:>>>=",
+        kind: "equivalent",
+        reason:
+          'tokenize\'s filter becomes a no-op, so the only extra member is the empty string. Its four consumers are all existential (the floor scan and two recipe checks inside `pathHasFloor`, plus `defeaterPresent`) and both predicates reject "": baseToken("") is not sr-only and utilityPx("") is null in `tokenIsFloor`, and neither regex in `tokenIsDefeater` matches. tokenize is module-private, so no length or .every consumer exists',
+      },
+      {
+        siteId: "integer-literal:141:52:0>1",
+        kind: "equivalent",
+        reason:
+          'the same filter in the other direction: it now also drops 1-character tokens. The shortest string any predicate in this module can match is 3 characters ("p-3" in `verticalPaddingPx`, "h-4" via the utility regex in `utilityPx`, "-m-1" in the negative-margin test inside `pathHasFloor`), so a 1-character token evaluates false whether it is kept or dropped',
+      },
+      {
+        siteId: "relational-boundary:153:21:<><=",
+        kind: "equivalent",
+        reason:
+          "one extra iteration of baseToken's scan reads raw[raw.length], which is undefined in JS rather than a throw, so all three comparisons in the loop body are false and neither `depth` nor `lastSep` changes; the return reads only those two",
+      },
+      {
+        siteId: "relational-boundary:180:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the same off-the-end iteration in variantPrefixes: no branch in the loop body fires on undefined, and the function returns exactly what the loop accumulated with no post-loop push, so a trailing prefix cannot be appended",
+      },
+      {
+        siteId: "relational-boundary:236:16:<><=",
+        kind: "equivalent",
+        reason:
+          'themeBlocks\' brace walk: the loop bound only decides where an UNBALANCED block stops, and both consumers erase the difference. `String.slice` clamps an end past the length, and `indexOf("@theme", end)` is -1 for every end at or past the length, so the extra iteration (which reads `undefined` and matches neither brace) cannot change the returned string',
+      },
+      {
+        siteId: "logical-connector:312:50:&&>||",
+        kind: "equivalent",
+        reason:
+          'only two operand combinations reach this line. With allowPseudo=false the scope is necessarily "element" (pseudo and descendant returned already), so both `false && X` and `false || (scope === "pseudo")` are false; the single allowPseudo=true call site filters on `t.startsWith("before:")`, and any such token has "before" among its variant prefixes, so both operators are true. The combination the operators disagree on is unreachable',
+      },
+      {
+        siteId: "equality-flip:380:21:===>!==",
+        kind: "equivalent",
+        reason:
+          'a consistent relabelling of the two padding accumulators: "t" writes bottom and "b" writes top, while "" and "y" still write both, so after any token sequence the pair is exactly the original pair transposed. Its only consumer is `Math.min(top ?? 0, bottom ?? 0) * 2`, which is symmetric in the two',
+      },
+      {
+        siteId: "integer-literal:383:26:0>1",
+        kind: "equivalent",
+        reason:
+          "the missing-side fallback can only ever be 0 or 1, so it moves the returned padding by at most 2px. The sole consumer compares `ASSUMED_TEXT_ROW_PX + padding` against FLOOR_PX with a 24px gap (20 -> 22 against 44), and the base is pinned at 20 because any readable declared height is already a floor token or a rule-8 defeater. No input can cross the floor",
+      },
+      {
+        siteId: "integer-literal:383:39:0>1",
+        kind: "equivalent",
+        reason:
+          "the mirror of the row above, on the other accumulator, with the same 2px-against-24px argument",
+      },
+      {
+        siteId: "integer-literal:394:15:0>1",
+        kind: "equivalent",
+        reason:
+          "the bleed initializer survives only when NO `before:-inset*` token matches or every match is horizontal — any real vertical bleed overwrites it last-wins. In that case the recipe computes 20 + 2*1 = 22 against a floor of 44, so the changed initial value cannot reach a verdict",
+      },
+      {
+        siteId: "integer-literal:285:34:0>1",
+        kind: "equivalent",
+        reason:
+          "lengthPx's zero-length return value is only ever null-checked or compared against FLOOR_PX=44 (the `spacingTokens` map build, `tokenIsFloor`, and both arms of `tokenIsDefeater`). 0 and 1 are both non-null and both under 44, and no consumer does arithmetic on it",
+      },
+    ],
+  },
+  // NOT ENROLLED: tests/styles/subtleInteractiveScan.ts.
+  //
+  // It was enrolled on 2026-08-14 and the harness rejected it by its own
+  // no-mutants condition: the module produced ZERO mutants, so the row asserted
+  // nothing while looking like coverage. The cause is structural, not an
+  // oversight to patch — the module is a filter over `interactiveScanCore`
+  // (enrolled below) plus two data declarations, and the declared operator set
+  // is control-flow shaped: no relational, equality or logical operator, no
+  // integer literal, no regex quantifier, no removable statement. Every
+  // decision it makes belongs to the core, which IS mutated, through the suite
+  // that also decides this module's verdicts. Restructuring the module to grow
+  // mutation sites would be gaming the operator set, and a vacuous row is worse
+  // than an honest absence: the gate's no-mutants condition exists to say so.
+  {
+    id: "tapTargetScan",
+    sourcePath: "tests/styles/tapTargetScan.ts",
+    suitePaths: ["tests/styles/_metaTapTargetFloor.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Clears everything: the census rows all go stale, which is the failure a
+    // guard that silently passes would produce.
+    control: {
+      from: 'state: heightFloorSatisfied(el) && !defeaterPresent(el) ? "clear" : "unclassified",',
+      to: 'state: "clear",',
+    },
+    accepted: [],
   },
 ];

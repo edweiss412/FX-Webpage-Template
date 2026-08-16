@@ -168,10 +168,16 @@ describe("monitoring-only quiet interactive pill (monitoring-badge-expand §3.1)
     // moves the border (not a fade toward the page bg).
     for (const cls of [
       "bg-surface-sunken",
-      "text-text-subtle",
       "border",
       "border-border",
       "hover:border-border-strong",
+      // NOTE: `text-text-subtle` was in this list until 2026-08-14. The pill is
+      // a <button>, and DESIGN §1.1a retired subtle as a resting colour for
+      // action targets outside three carve-out families; the pill claims none.
+      // Its quiet-vs-urgent separation is carried by the fill and the hollow
+      // dot, and the residual hierarchy question is filed as
+      // BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT.
+      "text-text",
     ]) {
       expect(pill.className.split(/\s+/)).toContain(cls);
     }
