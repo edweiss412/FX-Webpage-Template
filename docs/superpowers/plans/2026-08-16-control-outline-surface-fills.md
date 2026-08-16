@@ -9,7 +9,7 @@ guard's intended lifecycle rather than a dodge: `tests/docs/_metaInvariant8Close
 admits exactly three marker forms — RAN, `N/A — no UI surface`, and a template form — and at
 plan-authoring time NONE of them is true. This diff has a UI surface, so N/A would be a lie, and
 the gate has not run, so RAN would be a lie. A unit that names both halves must record their
-OUTCOME; this plan has no outcome yet. Task 6 writes the marker and the names together.
+OUTCOME; this plan has no outcome yet. Task 5 writes the marker and the names together.
 -->
 
 **Goal:** Ship the Option B ruling. DESIGN.md §1.2a's control-outline predicate becomes fill-equals-container; the 21 button/link elements standing on card and panel fills swap `border-border-strong` → `border-text-faint`; the switch tracks — **five render paths, not three** (spec §3.1) — keep their recipe unchanged in both states.
@@ -28,12 +28,12 @@ Spec §5.2 **cut the switch-track classifier** after five mechanisms and five st
 
 - Invariant 1 (TDD): every task in the red-contract region is failing test → minimal implementation → passing test → commit.
 - Invariant 2 (advisory locks): **N/A** — no `pg_advisory*` surface, no RPC, no DB. `tests/auth/advisoryLockRpcDeadlock.test.ts` untouched.
-- Invariant 5: N/A — no user-visible copy changes. Task 3 edits a source COMMENT only.
-- Invariant 8: **APPLIES** — the diff touches `app/**` (non-API), `components/**` and `DESIGN.md`. Task 6 runs both halves and writes the marker in that same commit.
+- Invariant 5: N/A — no user-visible copy changes. Task 2 edits a source COMMENT only (step 2.4a).
+- Invariant 8: **APPLIES** — the diff touches `app/**` (non-API), `components/**` and `DESIGN.md`. Task 5 runs both halves and writes the marker in that same commit.
 - Invariant 9: N/A — no Supabase call added or edited.
 - Invariant 10: N/A — no mutating route, no `"use server"` action.
 - Invariant 11: all work in this worktree, never the main checkout.
-- Invariant 12: the `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` in-progress marker comes off in **Task 8**, which is the PR's LAST commit, before the merge — never in a post-merge turn.
+- Invariant 12: the `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` in-progress marker comes off in **Task 7**, which is the PR's LAST commit, before the merge — never in a post-merge turn.
 - Conventional commits, one per task.
 - No migration → `validation-schema-parity` checklist **N/A**. No §12.4 catalog change → the three-lockstep rule is **N/A**.
 - Heavy phases (`pnpm test`, `pnpm build`, `pnpm mutation:guards`) run under `pnpm heavy`; the scoped vitest runs named per task stay unwrapped.
@@ -47,16 +47,26 @@ Spec §5.2 **cut the switch-track classifier** after five mechanisms and five st
 
 ### Mutation-family closure, and why AC-8 is a disjunction
 
-`tests/mutation/source/registry.ts:1243-1255` carries a `NOT ENROLLED` note for **`tests/styles/subtleInteractiveScan.ts`** — a filter over `interactiveScanCore` plus two data declarations. Enrolled on 2026-08-14, it produced **ZERO mutants**, and the harness rejected the row by its own no-mutants condition, so the row "asserted nothing while looking like coverage." Its rule: *"Restructuring the module to grow mutation sites would be gaming the operator set, and a vacuous row is worse than an honest absence."*
+`tests/mutation/source/registry.ts:1243-1255` carries a `NOT ENROLLED` note for **`tests/styles/subtleInteractiveScan.ts`** — enrolled on 2026-08-14, it produced **ZERO mutants**, and the harness rejected the row by its own no-mutants condition, so the row "asserted nothing while looking like coverage." Its rule: *"Restructuring the module to grow mutation sites would be gaming the operator set, and a vacuous row is worse than an honest absence."* `tests/styles/tapTargetScan.ts` is the row immediately AFTER that note and **is enrolled**, at `scoreFloor: 0.9` — do not cite it as the zero-mutant case.
 
-`tests/styles/tapTargetScan.ts` is the row immediately AFTER that note and **is enrolled**, at `scoreFloor: 0.9`. Do not cite it as the zero-mutant case.
+**Outcome A (mutants exist) is the EXPECTED branch, and this was measured rather than reasoned.** An earlier draft predicted the no-mutants branch by analogy to `subtleInteractiveScan`, and plan review R2 refuted it by running the live enumerator against a minimal conforming one-row implementation of Task 1.1:
 
-After spec §5.2's cut, this arc's census-reader module is the `subtleInteractiveScan` shape and then some — a census array plus one function that resolves it, with no branching decision left in it. **Outcome B (no mutants) is the expected branch**, so:
+```
+integer-literal:2:47:1>2
+logical-connector:5:72:&&>||
+equality-flip:5:59:===>!==
+equality-flip:5:83:===>!==
+COUNT=4
+```
 
-- **Outcome A — mutants exist.** Keep the row. Convergence for any review of the pin is the score plus an empty unaccepted-survivor set, both machine-computed.
-- **Outcome B — no mutants.** Remove the row, record the honest absence with the harness output, in the `subtleInteractiveScan` style. Do NOT restructure the module to manufacture sites.
+The analogy failed because the shapes differ where it counts. `subtleInteractiveScan` is a pure filter over a predicate; **this module carries 21 numeric `line` literals and a `file === r.file && line === r.line` comparison**, which is an integer-literal site per row plus an equality-flip and a logical-connector site in the resolver. The full census necessarily adds many more integer-literal sites than the one-row probe shows.
 
-AC-8 is satisfied by EITHER branch, and the meta-test inventory above says "may extend" for the same reason. A plan whose acceptance criteria can only be met by its unexpected branch is a plan that fails on success.
+So the plan expects a real score, and **any prose claiming this module has "no equality, logical, or integer-literal site" is false and must not be written.**
+
+- **Outcome A — mutants exist (expected).** Keep the row. Convergence for any review of the pin is the score plus an empty unaccepted-survivor set, both machine-computed. Survivors are either killed by strengthening the suite or accepted with a stated reason.
+- **Outcome B — the harness reports its no-mutants condition (not expected; handle it if it happens).** Remove the row and record the honest absence with the harness output, in the `subtleInteractiveScan` style. Do NOT restructure the module to manufacture sites.
+
+AC-8 is satisfied by EITHER branch, and the inventory says "may extend", because a plan whose acceptance criteria can only be met by one branch fails the moment the harness disagrees — which is exactly what R2 demonstrated about the earlier draft.
 
 ### Four pre-dispatch mutants for the string-presence pin
 
@@ -67,7 +77,7 @@ Task 1's suite asserts class-token presence, so all four are run and recorded in
 | (a) value emptied | one census row's `border-text-faint` deleted from source | suite REDS on that row's "carries" assertion |
 | (b) expected content plus appended suffix | one census row set to `border-text-faint-x` | suite REDS — the whole-token match does not accept the suffixed form |
 | (c) present but not live | `border-text-faint` added inside a JSX **comment** in a census file whose element was reverted | suite REDS — the scanner reads elements, not raw text, so a comment cannot satisfy the assertion. This is the mutant that proves the pin is not a grep |
-| (d) discriminating parameter varied | the census resolved against an empty temp dir | the PREMISE reds (universe below floor), not the assertion — the case the premise exists for |
+| (d) discriminating parameter varied | the suite's `rootDir` pointed at an empty temp dir | the PREMISE reds (universe 0, below the floor of 200) BEFORE any row assertion runs. This only holds because the premise reads the same `rootDir` the resolver does — R2 F1 caught an earlier draft where the premise read `cwd` while the mutant varied the resolver's argument, so the premise passed at 362 and the row assertions failed instead. The mutant is the check that premise and case share an input |
 
 ### Acceptance criteria (spec traceability)
 
@@ -77,12 +87,12 @@ Task 1's suite asserts class-token presence, so all four are run and recorded in
 - **AC-4** (spec §5.3): the suite proves its own premise, asserts its census cardinality independently, requires every row to resolve, and carries a negative control with its own premise.
 - **AC-5** (spec §4.1): DESIGN.md §1.2a states the fill-equals-container predicate and names both OUT families, with the switch tracks at five paths.
 - **AC-6** (spec §6): DESIGN.md records the tracks' OFF ring at 1.43:1 light / 1.75:1 dark.
-- **AC-7** (spec §4.3): the `GalleryLightbox` chip comment names the token actually present.
+- **AC-7** (spec §4.3): the `GalleryLightbox` chip comment names the token actually present, updated in the SAME commit as the swap.
 - **AC-8** (spec §5.4): EITHER a registry row exists and `pnpm mutation:guards` reports a score at or above its floor with an empty unaccepted-survivor set, OR the harness reported the no-mutants condition and the honest absence is recorded with its output. Both are passes.
 - **AC-9** (spec §5.1): NO new ratio assertion and NO new DESIGN.md §1.2 table row. A diff that adds one has over-reached the ruling.
 - **AC-10** (spec §3.2, §6): the residue the cover cannot see is filed with its probe transcripts.
 - **AC-11** (spec §5.2, §6): the forward-guard ambition is filed with §5.2's five-escape table as its evidence.
-- **AC-12** (spec §4.2): nothing outside the census moves — the 29 non-target `border-border-strong` occurrences in the 16 touched files survive.
+- **AC-12** (spec §4.2, §4.3): nothing outside the census moves. The 16 touched files hold 51 textual `border-border-strong` occurrences; Task 2 removes 22 targets AND the now-false `GalleryLightbox` comment mention, so **28** survive — including `components/diagrams/GalleryLightbox.tsx:773`, which keeps its token.
 
 ### Plan-time probe record (run 2026-08-16 on the live tree)
 
@@ -93,11 +103,11 @@ scanInteractiveElements(process.cwd())   -> 362 elements (357 hasClassName, 13 u
 filter border-border-strong              -> 24   (21 swap elements + 3 cover-visible tracks)
 filter border-accent-edge                -> 3    (the cover-visible tracks only)
 swap source occurrences                  -> 22   across 21 elements in 16 files
-textual border-border-strong, 16 files   -> 51   (22 target + 29 that MUST remain)
+textual border-border-strong, 16 files   -> 51   (22 target + 1 stale comment + 28 that MUST remain)
 switch-track recipe, source-wide         -> 5 render paths (spec §3.1)
 ```
 
-The 29-vs-22 gap is what Task 2's fence is for: the census pin alone checks its own 21 rows and would not notice an implementer swapping a card, a chip, or one of the deliberately filed form fields.
+The gap between the 22 target edits and the 51 textual occurrences is what Task 2's fence is for: the census pin alone checks its own 21 rows and would not notice an implementer swapping a card, a chip, or one of the deliberately filed form fields.
 
 ---
 
@@ -109,7 +119,7 @@ The 29-vs-22 gap is what Task 2's fence is for: the census pin alone checks its 
 
 - [ ] **1.1** Create the `controlOutlineScan` module under `tests/styles/`, exporting exactly two things: `CENSUS`, the 21 spec §4.2 rows as `readonly { file: string; line: number }[]`, each with its spec citation in a comment; and `resolveCensus(rootDir: string)`, which runs `scanInteractiveElements` and returns, per census row, the element found at that `file`+`line` or `null`. **No predicate, no registry, no classification helper** (AC-3). Identity is `file`+`line` because file alone is not unique — `RoleMappingRow`, `BellPanel`, `StagedReviewCard`, `Step3ReviewModal` and `step3ReviewSections` each contribute two census rows out of 6-21 interactive elements in the same file.
 - [ ] **1.2** Create the `_metaControlOutlineFill` suite under `tests/styles/` with these cases:
-  - *premise* — `premise("scanner reaches the component tree", scanInteractiveElements(cwd).length, 200)`, executed unconditionally, never inside a `.each` callback. Measured universe 362.
+  - *premise, on the SAME input the rows are resolved from* — the suite resolves against one `rootDir`, and the premise asserts `premise("scanner reaches the component tree", scanInteractiveElements(rootDir).length, 200)` for that same `rootDir`, executed unconditionally and never inside a `.each` callback. Measured universe 362. Taking the premise from `cwd` while resolving rows from `rootDir` would make it a premise about an ADJACENT input, which the premise rule forbids and which mutant (d) below is designed to catch.
   - *census cardinality, asserted independently of the census* — `expect(CENSUS.length).toBe(21)` against the **literal 21**, not against anything derived from `CENSUS`. Without this, deleting a row deletes its test case and the suite still passes: the premise still sees 362, the unresolved pin still sees 13, and every surviving row still resolves. This is the vacuous-iteration failure and it is the single most important case in the suite.
   - *row identities are unique* — `new Set(CENSUS.map(r => `${r.file}:${r.line}`)).size === 21`, so a duplicated row cannot stand in for a deleted one and keep the count at 21.
   - *every row resolves* — for each census row, assert `resolveCensus` found an element. A renamed file or moved element must RED here rather than silently drop out of the iteration.
@@ -154,7 +164,31 @@ The 29-vs-22 gap is what Task 2's fence is for: the census pin alone checks its 
 - [ ] **2.2** Do NOT touch any of the FIVE switch-track render paths (spec §3.1) — `components/admin/PublishedToggle.tsx:305`, `components/admin/settings/AutoPublishToggle.tsx:136`, `components/admin/settings/NotifyToggle.tsx:144`, `components/admin/telemetry/AutoRefreshControl.tsx:106`, `components/admin/settings/DeveloperToggleButton.tsx:97`. None of their files is in the 16 above, so this is a "stay out" instruction, not an in-file exclusion.
 - [ ] **2.3** **The 16 touched files hold 51 textual `border-border-strong` occurrences; you are editing 22 of them, and 29 must survive.** They are cards, chips, tiles, popovers, alert plates and the deliberately filed form fields (spec §3.2a) — including `components/admin/BellPanel.tsx:836` and `components/admin/BellPanel.tsx:847`, `components/admin/wizard/step3ReviewSections.tsx:4171`, and `components/diagrams/GalleryLightbox.tsx:773`. A file-wide find-replace is a defect. The census pin checks only its own 21 rows and will NOT notice an extra swap; step 2.5 is what does.
 - [ ] **2.4** GREEN: `pnpm vitest run tests/styles/_metaControlOutlineFill.test.ts` passes every case.
-- [ ] **2.5** **Fence, run explicitly (AC-12):** `grep -rc "border-border-strong" <the 16 files>` must total **29**, down from 51. A total below 29 means a non-target occurrence was swapped; above 29 means a target edit was missed. Record the command and its output in the commit.
+- [ ] **2.4a** **Fix the `GalleryLightbox` comment in THIS commit** (spec §4.3 says the comment moves with the swap, and a separate commit would leave a false citation in the tree between them). `components/diagrams/GalleryLightbox.tsx:686` says `` `border-border-strong` gives the chip slight visual primacy over the chevrons when active (critique MED-5) ``; after 2.1 that token is not on the chip. Name `border-text-faint` and record that MED-5's intent is STRENGTHENED, not overturned (1.59/1.50 → 3.35/3.53 on `surface-raised`). Then `grep -n "border-border-strong" components/diagrams/GalleryLightbox.tsx` must return **exactly one line, `773`** — the non-interactive overlay chip, outside the census, which keeps its token. Zero hits means 773 was wrongly swapped; two or more means the comment or the chip was missed.
+- [ ] **2.5** **Fence, authored as one executable command (AC-12).** Run it and paste the output into the commit:
+
+  ```sh
+  git grep -c 'border-border-strong' -- \
+    'app/admin/settings/roles/RoleMappingRow.tsx' \
+    'app/admin/show/[slug]/ResetPickerEpochButton.tsx' \
+    'components/admin/ArchiveShowButton.tsx' \
+    'components/admin/BellPanel.tsx' \
+    'components/admin/Mi11GateActions.tsx' \
+    'components/admin/RoleRecognizeControl.tsx' \
+    'components/admin/StagedPreviewBanner.tsx' \
+    'components/admin/StagedReviewCard.tsx' \
+    'components/admin/UnignoreButton.tsx' \
+    'components/admin/showpage/ShareHub.tsx' \
+    'components/admin/telemetry/HealthAlertResolveButton.tsx' \
+    'components/admin/telemetry/HealthAlertsPanel.tsx' \
+    'components/admin/wizard/Step3ReviewModal.tsx' \
+    'components/admin/wizard/step3ReviewSections.tsx' \
+    'components/diagrams/GalleryLightbox.tsx' \
+    'components/shared/ReportModal.tsx' \
+    | awk -F: '{s+=$2} END {print s}'
+  ```
+
+  It must print **28**, down from 51 before this task (measured at plan time). Below 28 means a non-target occurrence was swapped; above 28 means a target edit or the comment was missed. `git grep -c` emits `path:count` per file and the `awk` sums them, so this is one command with one number — not a placeholder and not a per-file listing a reader has to add up.
 - [ ] **2.6** `pnpm exec eslint .` (canonical-Tailwind rule) and `pnpm format:check`.
 - [ ] **2.7** Commit: `fix(admin): move control outlines on surface fills to the text ramp`.
 
@@ -164,76 +198,68 @@ The 29-vs-22 gap is what Task 2's fence is for: the census pin alone checks its 
 
 <!-- tasks: depth=3 -->
 
-> These six tasks are in a PLAIN region, deliberately. The `red-contract` fields are not declared
+> These five tasks are in a PLAIN region, deliberately. The `red-contract` fields are not declared
 > for them because none has a production line whose absence makes a command fail: two edit
-> root-level prose (`DESIGN.md`, `BACKLOG.md`), one edits a source comment, one drives an external
-> harness whose "unmeasured" state is not a red, and one is a skill-driven human gate. The linter
+> root-level prose (`DESIGN.md`, `BACKLOG.md`), one drives an external harness whose "unmeasured"
+> state is not a red, and one is a skill-driven human gate. The linter
 > also correctly refuses a root-level bare filename as a `red-target`. Declaring the fields anyway
 > would be a marker asserting a red it cannot point at — which is exactly the defect the
 > red-contract grammar exists to catch.
 
-### Task 3: GalleryLightbox comment correction
-
-<!-- task: red=`pnpm vitest run tests/styles/_metaControlOutlineFill.test.ts` ac=AC-7 -->
-
-- [ ] **3.1** `components/diagrams/GalleryLightbox.tsx:686` carries a comment reading `` `border-border-strong` gives the chip slight visual primacy over the chevrons when active (critique MED-5) ``. After Task 2 that token is no longer on the chip. Update the comment to name `border-text-faint` and record that the MED-5 intent is STRENGTHENED, not overturned (1.59/1.50 → 3.35/3.53 on `surface-raised`, spec §4.3).
-- [ ] **3.2** **Verify precisely — the file legitimately retains one occurrence.** After Tasks 2 and 3, `grep -n "border-border-strong" components/diagrams/GalleryLightbox.tsx` must return **exactly one line, `773`** — the non-interactive overlay chip, which is outside the census and keeps its token. Zero hits would mean line 773 was wrongly swapped; two or more means the comment or the chip was missed.
-- [ ] **3.3** Commit: `docs(diagrams): correct the lightbox chip's outline-token comment`.
-
-### Task 4: Mutation-registry enrolment — attempted, both outcomes pre-committed
+### Task 3: Mutation-registry enrolment — attempted, both outcomes pre-committed
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-8 -->
 
-**Do 4.1-4.2 first and let the harness decide the branch. Do not pre-judge it.**
+**Do 3.1-3.2 first and let the harness decide the branch. Do not pre-judge it.**
 
-- [ ] **4.1** Draft one `GuardSurface` row for the new census-reader module, copying the shape of the `tapTargetScan` row at `tests/mutation/source/registry.ts:1256`: `sourcePath`, `suitePaths` (Task 1's suite), `operators`, `scoreFloor`, and a `control` edit the suite MUST notice (the control proves the overlay is live — a harness whose overlay silently failed reports a PERFECT score with every mutant run against clean source).
-- [ ] **4.2** Run `pnpm heavy pnpm mutation:guards`. Record the full output.
-- [ ] **4.3** **Outcome A — the row yields mutants.** Record score and the full survivor list; for every survivor either strengthen the suite or add an `accepted` row with its reason. The unaccepted-survivor set must be empty. Keep the row.
-- [ ] **4.4** **Outcome B — the harness reports its no-mutants condition (the expected branch).** REMOVE the row. Do NOT restructure the census-reader module to manufacture mutation sites — the registry's own comment names that as gaming the operator set, and a vacuous row is worse than an honest absence. Add a registry COMMENT in the **`subtleInteractiveScan`** style (`tests/mutation/source/registry.ts:1243`) recording the attempt, the zero-mutant output, and the structural reason: a census array plus one resolver over an already-enrolled core has no relational, equality, logical, integer-literal, regex-quantifier or removable-statement site.
-- [ ] **4.5** Either way, paste the harness output into the commit message — the outcome is evidence, not a claim. Both branches satisfy AC-8.
-- [ ] **4.6** Commit: `test(styles): enrol the control-outline pin` (A) or `test(styles): record the control-outline pin as a no-mutants surface` (B).
+- [ ] **3.1** Draft one `GuardSurface` row for the new census-reader module, copying the shape of the `tapTargetScan` row at `tests/mutation/source/registry.ts:1256`: `sourcePath`, `suitePaths` (Task 1's suite), `operators`, `scoreFloor`, and a `control` edit the suite MUST notice (the control proves the overlay is live — a harness whose overlay silently failed reports a PERFECT score with every mutant run against clean source).
+- [ ] **3.2** Run `pnpm heavy pnpm mutation:guards`. Record the full output.
+- [ ] **3.3** **Outcome A — the row yields mutants.** Record score and the full survivor list; for every survivor either strengthen the suite or add an `accepted` row with its reason. The unaccepted-survivor set must be empty. Keep the row.
+- [ ] **3.4** **Outcome B — the harness reports its no-mutants condition (the expected branch).** REMOVE the row. Do NOT restructure the census-reader module to manufacture mutation sites — the registry's own comment names that as gaming the operator set, and a vacuous row is worse than an honest absence. Add a registry COMMENT in the **`subtleInteractiveScan`** style (`tests/mutation/source/registry.ts:1243`) recording the attempt, the zero-mutant output, and the structural reason: a census array plus one resolver over an already-enrolled core has no relational, equality, logical, integer-literal, regex-quantifier or removable-statement site.
+- [ ] **3.5** Either way, paste the harness output into the commit message — the outcome is evidence, not a claim. Both branches satisfy AC-8.
+- [ ] **3.6** Commit: `test(styles): enrol the control-outline pin` (A) or `test(styles): record the control-outline pin as a no-mutants surface` (B).
 
-### Task 5: DESIGN.md §1.2a predicate rewrite
+### Task 4: DESIGN.md §1.2a predicate rewrite
 
 <!-- task: red=`pnpm spec:lint DESIGN.md` ac=AC-5,AC-6,AC-9 -->
 
-- [ ] **5.1** Rewrite the predicate at `DESIGN.md:181` per spec §4.1's quoted text: fill-equals-container, with both OUT families named — weight-bearing accent fills, and the switch tracks at **five** render paths (spec §3.1), never three.
-- [ ] **5.2** Replace the sentence at `DESIGN.md:236` that calls surface-filled controls the open question and gives a stale count of 23. The question is closed. State the ruling and its date.
-- [ ] **5.3** Add the switch-track OFF ring documented limit (1.43:1 light / 1.75:1 dark) per spec §6, naming all five paths.
-- [ ] **5.4** **Add NO new §1.2 ratio row** (AC-9). `text-faint` against all four neutral grounds is already at `DESIGN.md:141`. Confirm by diff that §1.2's table is untouched.
-- [ ] **5.5** `pnpm spec:lint DESIGN.md` clean of hard findings; `pnpm vitest run tests/styles/secondary-action-contrast.test.ts` still green.
-- [ ] **5.6** Commit: `docs(design): ratify the fill-equals-container control-outline predicate`.
+- [ ] **4.1** Rewrite the predicate at `DESIGN.md:181` per spec §4.1's quoted text: fill-equals-container, with both OUT families named — weight-bearing accent fills, and the switch tracks at **five** render paths (spec §3.1), never three.
+- [ ] **4.2** Replace the sentence at `DESIGN.md:236` that calls surface-filled controls the open question and gives a stale count of 23. The question is closed. State the ruling and its date.
+- [ ] **4.3** Add the switch-track OFF ring documented limit (1.43:1 light / 1.75:1 dark) per spec §6, naming all five paths.
+- [ ] **4.4** **Add NO new §1.2 ratio row** (AC-9). `text-faint` against all four neutral grounds is already at `DESIGN.md:141`. Confirm by diff that §1.2's table is untouched.
+- [ ] **4.5** `pnpm spec:lint DESIGN.md` clean of hard findings; `pnpm vitest run tests/styles/secondary-action-contrast.test.ts` still green.
+- [ ] **4.6** Commit: `docs(design): ratify the fill-equals-container control-outline predicate`.
 
-### Task 6: Invariant-8 impeccable dual-gate
+### Task 5: Invariant-8 impeccable dual-gate
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaInvariant8Closeout.test.ts` ac=AC-1,AC-5 -->
 
-- [ ] **6.1** Canonical v3 setup gates: the skill's context load (PRODUCT.md + DESIGN.md), then the register reference read (the brand or product register, per the skill).
-- [ ] **6.2** Run the FIRST half of the invariant-8 dual gate (the critique half) on the affected diff.
-- [ ] **6.3** Run the SECOND half (the audit half) on the affected diff.
-- [ ] **6.4** Record every finding and its disposition in §12 below. P0 and P1 findings are fixed or explicitly deferred with a `DEFERRED.md` entry.
-- [ ] **6.5** Pre-code mechanical checklist, re-verified post-swap: em-dash ban in user-visible copy (no copy changed — confirm), apostrophe literals, 44px tap targets untouched, canonical type/token classes, no new colour token introduced.
-- [ ] **6.6** In the SAME commit, write BOTH: (a) the `impeccable-gate:` marker line at the top of this file in the RAN form `impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>` — `dispositions=recorded` iff `p0 + p1 > 0`, which the guard cross-checks; and (b) the verbatim names of both gate halves in §12, which is what makes this unit "declare" the gate. Replace the explanatory comment at the top of this file with the marker. Then the `red=` command above must pass.
-- [ ] **6.7** Commit: `docs(design): record the invariant-8 dual-gate findings for the outline swap`.
+- [ ] **5.1** Canonical v3 setup gates: the skill's context load (PRODUCT.md + DESIGN.md), then the register reference read (the brand or product register, per the skill).
+- [ ] **5.2** Run the FIRST half of the invariant-8 dual gate (the critique half) on the affected diff.
+- [ ] **5.3** Run the SECOND half (the audit half) on the affected diff.
+- [ ] **5.4** Record every finding and its disposition in §12 below. P0 and P1 findings are fixed or explicitly deferred with a `DEFERRED.md` entry.
+- [ ] **5.5** Pre-code mechanical checklist, re-verified post-swap: em-dash ban in user-visible copy (no copy changed — confirm), apostrophe literals, 44px tap targets untouched, canonical type/token classes, no new colour token introduced.
+- [ ] **5.6** In the SAME commit, write BOTH: (a) the `impeccable-gate:` marker line at the top of this file in the RAN form `impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>` — `dispositions=recorded` iff `p0 + p1 > 0`, which the guard cross-checks; and (b) the verbatim names of both gate halves in §12, which is what makes this unit "declare" the gate. Replace the explanatory comment at the top of this file with the marker. Then the `red=` command above must pass.
+- [ ] **5.7** Commit: `docs(design): record the invariant-8 dual-gate findings for the outline swap`.
 
-### Task 7: File the residue and the forward-guard ambition
+### Task 6: File the residue and the forward-guard ambition
 
 <!-- task: red=`pnpm vitest run tests/docs/` ac=AC-10,AC-11 -->
 
-- [ ] **7.1** Add a `BL-` entry covering both families from spec §3.2: text-entry fields (`components/admin/BellPanel.tsx:836`, `components/admin/BellPanel.tsx:847`, `components/admin/wizard/step3ReviewSections.tsx:4171`) and outlines painted on a nested child (`components/admin/OnboardingWizard.tsx:240`, `components/admin/ShowRowActions.tsx:650`, `components/admin/wizard/CrewRowActions.tsx:273`, `components/admin/wizard/VenueMapTile.tsx:123`).
-- [ ] **7.2** That entry carries **Reachability:** PROBED with spec §3.2's transcripts inline (the scanner admits `<input>` only at `type="checkbox"`/`"radio"` per `tests/styles/interactiveScanCore.ts:868`; nested-child elements report `strong=false`), the class-sweep exception **(a)** with its reason per family, and `components/admin/wizard/VenueMapTile.tsx:123` named FIRST as the closest to the 21.
-- [ ] **7.3** Add a SECOND `BL-` entry for the forward-guard ambition (spec §5.2, §6), carrying §5.2's five-mechanism / five-escape table verbatim so the next attempt starts from five closed escapes. **Reachability:** PROBED — every escape was demonstrated against a live mechanism during spec review.
-- [ ] **7.4** Commit: `docs(backlog): file the control-outline residue and the forward-guard ambition`.
+- [ ] **6.1** Add a `BL-` entry covering both families from spec §3.2: text-entry fields (`components/admin/BellPanel.tsx:836`, `components/admin/BellPanel.tsx:847`, `components/admin/wizard/step3ReviewSections.tsx:4171`) and outlines painted on a nested child (`components/admin/OnboardingWizard.tsx:240`, `components/admin/ShowRowActions.tsx:650`, `components/admin/wizard/CrewRowActions.tsx:273`, `components/admin/wizard/VenueMapTile.tsx:123`).
+- [ ] **6.2** That entry carries **Reachability:** PROBED with spec §3.2's transcripts inline (the scanner admits `<input>` only at `type="checkbox"`/`"radio"` per `tests/styles/interactiveScanCore.ts:868`; nested-child elements report `strong=false`), the class-sweep exception **(a)** with its reason per family, and `components/admin/wizard/VenueMapTile.tsx:123` named FIRST as the closest to the 21.
+- [ ] **6.3** Add a SECOND `BL-` entry for the forward-guard ambition (spec §5.2, §6), carrying §5.2's five-mechanism / five-escape table verbatim so the next attempt starts from five closed escapes. **Reachability:** PROBED — every escape was demonstrated against a live mechanism during spec review.
+- [ ] **6.4** Commit: `docs(backlog): file the control-outline residue and the forward-guard ambition`.
 
-### Task 8: Ledger archive and marker removal (LAST commit)
+### Task 7: Ledger archive and marker removal (LAST commit)
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-1 -->
 
-- [ ] **8.1** Archive `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS`, removing its `**Status:** IN PROGRESS · **Branch:** …` marker in the SAME commit — archives categorically reject in-flight entries, so the marker cannot ride along (invariant 12).
-- [ ] **8.2** The archived entry states the correction that `BACKLOG.md:243` has wrong: the tracks' OFF-state boundary is NOT "pinned in §1.2 against `--color-accent-edge`". §1.2 pins the ON half; the OFF half has no ratio row and no test pin (spec §3.1). Do not let a false claim outlive the arc that disproved it.
-- [ ] **8.3** Add the `StagedPreviewBanner` picker link to `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`'s site list at 2.79 dark (spec §4.4), and **derive** that entry's new counts from the edited list rather than retyping them.
-- [ ] **8.4** `pnpm vitest run tests/docs/` — ledger, closeout and review-round meta-tests green.
-- [ ] **8.5** Commit: `docs(backlog): archive BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS`. **This is the PR's last commit before the merge.**
+- [ ] **7.1** Archive `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS`, removing its `**Status:** IN PROGRESS · **Branch:** …` marker in the SAME commit — archives categorically reject in-flight entries, so the marker cannot ride along (invariant 12).
+- [ ] **7.2** The archived entry states the correction that `BACKLOG.md:243` has wrong: the tracks' OFF-state boundary is NOT "pinned in §1.2 against `--color-accent-edge`". §1.2 pins the ON half; the OFF half has no ratio row and no test pin (spec §3.1). Do not let a false claim outlive the arc that disproved it.
+- [ ] **7.3** Add the `StagedPreviewBanner` picker link to `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`'s site list at 2.79 dark (spec §4.4), and **derive** that entry's new counts from the edited list rather than retyping them.
+- [ ] **7.4** `pnpm vitest run tests/docs/` — ledger, closeout and review-round meta-tests green.
+- [ ] **7.5** Commit: `docs(backlog): archive BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS`. **This is the PR's last commit before the merge.**
 
 <!-- tasks: end -->
 
@@ -250,4 +276,4 @@ The 29-vs-22 gap is what Task 2's fence is for: the census pin alone checks its 
 
 ## 12. Invariant-8 gate findings and dispositions
 
-<!-- filled by Task 6, together with the marker line at the top of this file -->
+<!-- filled by Task 5, together with the marker line at the top of this file -->
