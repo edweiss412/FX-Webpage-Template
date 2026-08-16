@@ -18,7 +18,8 @@
 - **Shell quoting:** survivor site ids contain `<` and `>` (`relational-boundary:528:47:>>>=`), which zsh parses as redirections. EVERY command that passes a site id single-quotes it: `pnpm exec tsx single-mutant.ts 'relational-boundary:528:47:>>>='`. This applies to every checker invocation in every task.
 - Canonical sequence (spec §3.4 + §4.3): **merge checkpoint → source fixes (none expected; §2.4 bar) → finalize survivor ids → dispositions → enrolment → full-run acceptance.** Nothing that can move `scan.ts` line positions happens after ids are finalized. **Mid-arc restart protocol (the §2.4 contingency):** if a batch task uncovers original-misbehaves scanner behavior (spec §2.4 bar: a probe showing the ORIGINAL returns a wrong verdict), STOP batch work; land the source fix with its test; re-run the survivor probe (Task 1 Step 4); re-key every already-drafted ledger row and re-prove every already-landed kill against the new ids (kill cases survive by content — only checker site ids change); then resume. The gate's `stale-ledger-row` + `unaccepted-survivor` conditions make skipping this loud, not silent.
 - Kill-case shape (spec §2.1): exported-function verdict on constructed input, expected value derived from the real contract (psql option grammar / shell / YAML), case names its site id, single-mutant red proof recorded in the commit message.
-- **Batch case placement:** each batch's new cases live in one `describe("enrolment survivors - batch <X>", ...)` block in the deciding suite. When a batch blesses an equivalence family, the block ALSO carries at least one boundary-pin case asserting the ORIGINAL behavior the equivalence argument rests on (e.g. the `""` collapse at index 0) — a real regression pin, so the block is never empty whatever the verdict mix.
+- **Batch case placement:** each batch's new cases live in one `describe("enrolment survivors - batch <X>", ...)` block in the deciding suite. When a batch blesses an equivalence family, the block ALSO carries at least one boundary-pin case asserting the ORIGINAL behavior the equivalence argument rests on (e.g. the `""` collapse at index 0) — a real regression pin.
+- **Batch marker anchoring (plan review R2):** each batch task's `red=` is the single-mutant checker on that batch's DESIGNATED kill site — a site the plan's analysis expects to kill. The red is the checker's observed `SURVIVED` (exit 1: the deciding suite does not discriminate the mutant — a real coverage defect of the production surface, not a task-local artifact); the same command greens (`KILLED`, exit 0) when the batch's case lands. Two documented contingencies: (a) if the batch's Step-1 analysis blesses the designated site as EQUIVALENT, re-anchor the marker to a site the batch DID kill — edit this plan file's marker in the batch's own commit, recording why in the commit message; (b) if a batch kills NOTHING (every site equivalent — expected for none of the four), remove its marker in that commit and record the dispositions in the Task-6 ledger, whose enrolment cycle proves them machine-wise (`stale-ledger-row`/`unaccepted-survivor`).
 - Equivalent-row reasons (spec §2.2): reachability/indistinguishability argument with citation; "hard to test" is banned. Accepted-gap (spec §2.3): expected count ZERO; each row needs a resolvable `BL-`/`DEF-` ref and a named class-sweep exception.
 - Acceptance criteria are spec §8; task markers below cite them: AC-1 (every survivor gets exactly one disposition), AC-2 (every kill has a shaped case with a red proof), AC-3 (equivalent/accepted-gap rows meet the §2.2/§2.3 bars), AC-4 (registry row + both fail-by-default declarations land), AC-5 (full gate run passes), AC-6 (BACKLOG graduation).
 - impeccable-gate: N/A — no UI surface.
@@ -31,9 +32,7 @@
 
 ---
 
-<!-- tasks: depth=3 red-contract -->
-
-### Task 1: Baseline — merge checkpoint, single-mutant checker, survivor-id finalization
+### Task 1 (setup, outside the checked task region): Baseline — merge checkpoint, single-mutant checker, survivor-id finalization
 
 **Files:**
 
@@ -45,16 +44,13 @@
 - Produces: (a) `pnpm exec tsx single-mutant.ts '<siteId>'` — prints `{siteId, suiteExit, verdict}`; exit 0 iff the deciding suite KILLED the mutant; every kill proof in Tasks 2-5 uses this. (b) The FINAL 31-site id list all later tasks key on.
 - Consumes: `enumerateSites`/`siteId` (`tests/mutation/source/operators.ts`), `applyMutant` (`tests/mutation/source/generate.ts`), `runControl` (`tests/mutation/source/runner.ts` — runs ONE hand-written mutant text against the surface's suites, returns the child exit code), `runSurface` (`tests/mutation/source/runner.ts`).
 
-<!-- task: red=`pnpm exec tsx single-mutant.ts 'relational-boundary:510:21:<><='` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:510` why=`red now because the checker script does not exist (tsx exits non-zero on a missing file); green when the checker exists and reports this probe-KILLED site as KILLED (exit 0) - the same command, observed both ways in this task's own steps` ac=AC-2 -->
-
 - [ ] **Step 1: Merge origin/main** (PR #807 lands `browserRegistry`/`browserMutate` rows in `tests/mutation/source/registry.ts`; a conflict there is mechanical — keep both sides' rows).
 
 ```bash
 git fetch origin && git merge origin/main --no-edit
 ```
 
-- [ ] **Step 2: Observe the marker's red** — run the checker command from the task marker (site id single-quoted). It exits non-zero: the script does not exist yet.
-- [ ] **Step 3: Write the checker** (exact content; substitute the absolute worktree path for `<WORKTREE>`):
+- [ ] **Step 2: Write the checker** (exact content; substitute the absolute worktree path for `<WORKTREE>`):
 
 ```ts
 // single-mutant.ts, run ONE mutant by site id against the deciding suite
@@ -93,7 +89,7 @@ console.log(JSON.stringify({ siteId: id, suiteExit: code, verdict }));
 process.exit(code === 0 ? 1 : 0);
 ```
 
-- [ ] **Step 4: Decide whether ids must regenerate.** `git diff --stat HEAD@{1} HEAD -- tests/cross-cutting/`. Re-run the survivor probe if EITHER `scan.ts` (ids move) OR the deciding suite (the kill/survive verdicts themselves can change — an upstream case can kill a former survivor without moving one line of source) changed in the merge. Probe script (untracked; same shape as the spec §9 run):
+- [ ] **Step 3: Decide whether ids must regenerate.** `git diff --stat HEAD@{1} HEAD -- tests/cross-cutting/`. Re-run the survivor probe if EITHER `scan.ts` (ids move) OR the deciding suite (the kill/survive verdicts themselves can change — an upstream case can kill a former survivor without moving one line of source) changed in the merge. Probe script (untracked; same shape as the spec §9 run):
 
 ```ts
 // probe-survivors.ts, regenerate scoped survivor list
@@ -113,8 +109,10 @@ console.log(JSON.stringify({ killed: run.killed, survivors: run.survivors }, nul
 
 Run: `pnpm heavy pnpm exec tsx probe-survivors.ts` (~20 min under a heavy slot). If neither file changed, spec §9's ids stand — record that in the commit message. If the list changed, the NEW list is canonical downstream (batch membership follows the enclosing function, not the stale line number).
 
-- [ ] **Step 5: Observe the marker's green** — the checker command from the marker now prints `verdict: "KILLED"`, exit 0 (`relational-boundary:510:21:<><=` was KILLED in the §9 probe). Then calibrate the other direction: `pnpm exec tsx single-mutant.ts 'relational-boundary:528:47:>>>='` prints `verdict: "SURVIVED"`, exit 1. A checker that cannot reproduce a declared survivor must not be trusted for kill proofs; stop and debug (most likely: wrong worktree path, or a Step-4 id shift).
-- [ ] **Step 6: Commit** (merge commit and/or a `docs(plan):` note commit recording the id-list decision and both calibration outputs).
+- [ ] **Step 4: Calibrate the checker in BOTH directions** — `pnpm exec tsx single-mutant.ts 'relational-boundary:510:21:<><='` prints `verdict: "KILLED"`, exit 0 (probe-KILLED site); `pnpm exec tsx single-mutant.ts 'relational-boundary:528:47:>>>='` prints `verdict: "SURVIVED"`, exit 1 (declared survivor). A checker that cannot reproduce both directions must not be trusted for kill proofs; stop and debug (most likely: wrong worktree path, or a Step-3 id shift).
+- [ ] **Step 5: Commit** (merge commit and/or a `docs(plan):` note commit recording the id-list decision and both calibration outputs).
+
+<!-- tasks: depth=3 red-contract -->
 
 ### Task 2: Batch A — tokenizer + comment infrastructure (8 survivors)
 
@@ -127,7 +125,7 @@ Run: `pnpm heavy pnpm exec tsx probe-survivors.ts` (~20 min under a heavy slot).
 - Consumes: the Task-1 checker; spec §2 decision procedure.
 - Produces: verdicts for — `relational-boundary:528:47` (argv short-flag branch), `586:35` / `586:50` / `587:17` (`jsCommentRangesPerLine` multiline record loop), `635:23` (`commentIndexPerLine`), `695:69` / `695:83` (`exemptionOnLines`), `761:25` (`matchBrace`). Ledger-row drafts for any equivalents (land in Task 6).
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t 'enrolment survivors - batch A'` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:528` why=`red now because no test matches the batch-A describe name (vitest exits non-zero with zero matched tests); green when the batch block lands - and the block is never empty: it holds the 528:47 kill fixture ratified at spec review R2 plus the batch's other kills and boundary pins` ac=AC-1,AC-2 -->
+<!-- task: red=`pnpm exec tsx single-mutant.ts 'relational-boundary:528:47:>>>='` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:528` why=`red observed as the checker's SURVIVED exit 1 - the deciding suite does not yet discriminate this mutant, the designated batch-A kill ratified at spec review R2; the same command exits 0 (KILLED) once the [["-", "-X"], false] case lands` ac=AC-1,AC-2 -->
 
 - [ ] **Step 1: Read each of the 8 sites in context** (the enclosing function, its callers, what the suite can observe through the exported API). Write the intended verdict + one-line argument per site into a scratch disposition table before touching the suite.
 - [ ] **Step 2: KILL cases** inside `describe("enrolment survivors - batch A", ...)`. The 528:47 case is settled by spec §2.4 (probed at spec review): a row in the `argvSuppressesStartupFiles` idiom:
@@ -153,7 +151,7 @@ For the comment-range sites (`586`/`587`, `635`, `695`, `761`): the observable s
 
 Add the family's boundary-pin case to the batch block (Global Constraints, batch case placement).
 
-- [ ] **Step 5: Full deciding suite green; observe the marker's green** (the `-t` command now matches the batch block); **commit** with the batch's disposition table in the message: `test(cross-cutting): batch A survivor dispositions - <k> killed, <e> equivalent`.
+- [ ] **Step 5: Full deciding suite green; observe the marker's green** (the designated site's checker now exits 0); **commit** with the batch's disposition table in the message: `test(cross-cutting): batch A survivor dispositions - <k> killed, <e> equivalent`.
 
 ### Task 3: Batch B — shell text scanner (7 survivors)
 
@@ -166,13 +164,13 @@ Add the family's boundary-pin case to the batch block (Global Constraints, batch
 - Consumes: Task-1 checker.
 - Produces: verdicts for `relational-boundary:1214:26` / `1223:22` (pipeline splitter's `command.length > 0` push guards in `scanShellText` — the mutants admit EMPTY pipeline stages, shifting `followedBy` indexing that the bare-shell stdin detection reads), `1304:30` / `1314:19` (joined-string raw-offset mapping in the same function), `1394:46` (the `env -S` attached-script slice guard), `1568:22` / `1569:26` (`mapRawToLines` delimiter skip: `raw.length > 0` and `raw.length > i` opening/closing quote bounds).
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t 'enrolment survivors - batch B'` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1214` why=`red now because no test matches the batch-B describe name; green when the block lands with the batch's kills and boundary pins (never empty per the batch case placement rule)` ac=AC-1,AC-2 -->
+<!-- task: red=`pnpm exec tsx single-mutant.ts 'relational-boundary:1214:26:>>>='` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1214` why=`red observed as the checker's SURVIVED exit 1 for the designated batch-B kill (the empty-pipeline-stage push guard); greens when the batch's pipeline fixture lands - re-anchor per the batch marker anchoring contingency if analysis blesses this site instead` ac=AC-1,AC-2 -->
 
 - [ ] **Step 1: Read the 7 sites** (same procedure as Task 2 Step 1). `scanShellText` is not exported, but its verdicts flow through suite-imported exports: `scanShellIndirection` (shell fixtures), `scanSource` / `collectPsqlUsage` (template literals), and `scanWorkflowIndirection` (YAML `run:` bodies). Pick per site the export whose fixture most directly reaches the guarded branch — e.g. a pipeline fixture (`printf 'x' | bash`) for the 1214/1223 stage-splitting pair; a multi-fragment template for 1304/1314; an `env -S'psql ...'` fixture for 1394; a quoted/backticked string at the exact delimiter boundary for the 1568/1569 pair.
 - [ ] **Step 2: KILL cases** — boundary fixtures at the exact `<` vs `<=` / `>` vs `>=` edge each site guards; assert the reported site's line/verdict, deriving expected line numbers from the fixture's own layout. Name the site id per case.
 - [ ] **Step 3: Prove each kill** (clean-tree pass + checker KILLED, ids single-quoted), record pairs.
 - [ ] **Step 4: EQUIVALENT rows** for sites Step 1 shows are boundary-unreachable, with boundary-pin cases per the placement rule.
-- [ ] **Step 5: Suite green; marker green; commit** `test(cross-cutting): batch B survivor dispositions - <k> killed, <e> equivalent`.
+- [ ] **Step 5: Suite green; marker green (designated site KILLED); commit** `test(cross-cutting): batch B survivor dispositions - <k> killed, <e> equivalent`.
 
 ### Task 4: Batch C — prose-vs-command heuristic (7 survivors)
 
@@ -185,12 +183,12 @@ Add the family's boundary-pin case to the batch block (Global Constraints, batch
 - Consumes: Task-1 checker.
 - Produces: verdicts for `relational-boundary:1754:12` / `1755:12` (`isStrongPrefixWord` index guards), `1771:16` / `1772:16` (the same guard shape in `prefixIsCommandish`), `regex-quantifier-bound:1797:45` (backtick `commandShaped` flag regex `{1,2}`), `relational-boundary:1825:26` (`site.tokens.length <= 3` terse-command token cap), `1827:49` (`words <= 8` no-prefix word cap).
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t 'enrolment survivors - batch C'` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1754` why=`red now because no test matches the batch-C describe name; green when the block lands - never empty: it carries at minimum the index-guard family's boundary-pin case or the 1825/1827 terse-command boundary kills` ac=AC-1,AC-3 -->
+<!-- task: red=`pnpm exec tsx single-mutant.ts 'relational-boundary:1825:26:<=><'` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1825` why=`red observed as the checker's SURVIVED exit 1 for the designated batch-C kill (the tokens.length <= 3 terse-command cap, boundary fixture at exactly 3 tokens); greens when that case lands - re-anchor per the contingency if analysis blesses it instead` ac=AC-1,AC-3 -->
 
 - [ ] **Step 1: The index-guard family (`1754`/`1755`/`1771`/`1772`).** Spec §2.2's worked example is the template: at the boundary index, `before[index - 1] ?? ""` yields `""`, `basename("")` is `""`, and `WRAPPERS.test("")` is false — the same result the short-circuit produced. Verify the argument PER SITE (the `index > 1` twins guard `before[index - 2]`; confirm the same collapse). If it holds, write four ledger rows sharing the argument shape, each citing its own guard (spec §2.4 family rule), plus one boundary-pin case in the batch block. If any site's collapse does NOT hold, construct the distinguishing prefix-word fixture and kill it instead.
 - [ ] **Step 2: `1797:45` (`{1,2}` mutated to `{1,3}`).** The mutant accepts a three-dash word (`---x`) as flag-shaped inside the backtick `commandShaped` head check. Determine whether a `scanSource` fixture (a backtick span whose ONLY flag-shaped word has three dashes) flips the span's command-shaped status and therefore a reported verdict. Kill if observable; else §2.2 row with the reachability argument.
 - [ ] **Step 3: The terse-command bounds — actual code (plan review R1 F5 correction):** `1825:26` is `site.tokens.length <= 3 &&` and `1827:49` is `(site.precedingWords.length === 0 ? words <= 8 : hasStrongPrefix)` in the `isTerseCommand` clause. Boundary kills: a FLAGLESS literal-string command with exactly 3 tokens and no preceding words in an outer text of at most 8 words currently certifies as a terse command (`psql "$DSN" mydb` shapes); under the `< 3` mutant a 3-token command stops certifying — assert the verdict flip through `scanSource` on the literal. Same construction at exactly 8 outer words for `1827:49` (under `< 8`, the 8-word text stops certifying). Derive both fixtures from the bounds' stated values in the source (the 12-word cap prose elsewhere in the file describes a DIFFERENT bound — do not conflate).
-- [ ] **Step 4: Prove kills; suite green; marker green; commit** `test(cross-cutting): batch C survivor dispositions - <k> killed, <e> equivalent`.
+- [ ] **Step 4: Prove kills; suite green; marker green (designated site KILLED); commit** `test(cross-cutting): batch C survivor dispositions - <k> killed, <e> equivalent`.
 
 ### Task 5: Batch D — indirection + workflow scanners (9 survivors)
 
@@ -203,12 +201,12 @@ Add the family's boundary-pin case to the batch block (Global Constraints, batch
 - Consumes: Task-1 checker.
 - Produces: verdicts for `regex-quantifier-bound:2107:21` (the `INTERPRETER_POSITIONAL_BINDING` regex's `-{1,2}` — consumed by `scanShellIndirection`, plan review R1 F6 correction), `relational-boundary:2155:54` / `2167:54` (the backslash-continuation `logical`/`spliced` join bounds in `scanShellIndirection`), `regex-quantifier-bound:2210:40` (binding-value flag regex `{1,2}` in the same function), `relational-boundary:2455:31` (`resolveRunShells` alias-resolution depth guard — PRIVATE; observable only through `scanWorkflowIndirection` on YAML with shell aliases), `2587:35` (aliased-args resolution depth guard), `regex-quantifier-bound:2684:32` (block-scalar header regex `[0-9+-]{0,2}`), `relational-boundary:2697:32` (alias `range[0]` anchor comparison), `2788:48` (`bindsPsql` — a FUNCTION-LOCAL helper of `scanWorkflowIndirection`; observable only through workflow `env:` binding fixtures).
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t 'enrolment survivors - batch D'` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2107` why=`red now because no test matches the batch-D describe name; green when the block lands with the batch's kills and boundary pins (never empty per the batch case placement rule)` ac=AC-1,AC-2 -->
+<!-- task: red=`pnpm exec tsx single-mutant.ts 'regex-quantifier-bound:2107:21:{1,2}>{1,3}'` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2107` why=`red observed as the checker's SURVIVED exit 1 for the designated batch-D kill (the INTERPRETER_POSITIONAL_BINDING dash bound: a three-dash word must NOT read as an interpreter flag); greens when that fixture lands - re-anchor per the contingency if analysis blesses it instead` ac=AC-1,AC-2 -->
 
 - [ ] **Step 1: Read the 9 sites.** Suite-imported observable surfaces (plan review R1 F6 correction): `scanShellIndirection` and `scanWorkflowIndirection` are ALREADY imported; `scanJsSource` and `scanWorkflowSource` are exported but NOT currently imported — importing one is permitted when it is the natural verdict surface for a site. `resolveRunShells` and `bindsPsql` are private/function-local: their sites are reachable ONLY through `scanWorkflowIndirection` fixtures (YAML aliases for 2455/2587/2697; `env:` psql bindings for 2788; block-scalar headers for 2684).
 - [ ] **Step 2: KILL cases** — per-site boundary fixtures: dash-count edges for the `{1,2}` quantifiers (a three-dash word where the grammar's max is two), continuation-join edges for 2155/2167 (a backslash-newline glued word at the exact bound), alias-depth and anchor-position edges for the workflow sites, and an `env:` value at the exact boundary `bindsPsql`'s `>` guards. Expected values derive from the real grammar (YAML block-scalar headers, shell backslash-newline removal, workflow `env:` semantics) — the suite's R3-R11 describe blocks are the idiom to extend.
 - [ ] **Step 3: Prove kills; EQUIVALENT rows** where reading shows unreachability, with boundary pins.
-- [ ] **Step 4: Suite green; marker green; commit** `test(cross-cutting): batch D survivor dispositions - <k> killed, <e> equivalent`.
+- [ ] **Step 4: Suite green; marker green (designated site KILLED); commit** `test(cross-cutting): batch D survivor dispositions - <k> killed, <e> equivalent`.
 
 ### Task 6: Enrolment — registry row, both declarations, floor, full-gate acceptance
 
