@@ -135,41 +135,38 @@ pattern. Two probes say why:
   syntax**, not the specifier wherever it appears. The convergence-gate hook made the same repair
   for the same reason.
 
-**The pattern, and its self-test, ship together.** Three holes were found in it across two probes
-and one review round, so it is written down rather than described:
+**The guard parses; it does not pattern-match.** Four review rounds and two of my own probes each
+found a different hole in a hand-rolled regex over source text — use-versus-mention against
+backticked prose, a missed side-effect `import "x";`, the bare `child_process` alias without the
+`node:` prefix, and finally an ordinary **multiline** import, which `[^;\n]*?` cannot span and which
+occurs throughout the live repo (`tests/reports/unknownOutcome.test.ts:3-9`).
 
-```
-(?:^|\s)(?:
-    import\b[^;\n]*?\bfrom\s*   # import X from "..."
-  | import\s*                      # import "..."         (side-effect; hole 1)
-  | import\s*\(                   # await import("...")
-  | require\s*\(                  # require("...")
-)\s*["'`](?:node:)?child_process["'`]   # bare alias        (hole 2)
-```
+Four widenings of one recognizer is the ratchet the repair-direction rule names, so this is a
+**narrowing**: the guard uses the TypeScript AST — `ts.createSourceFile` and node inspection, the
+idiom already used at `tests/specLint/canonicalClassCallee.test.ts:222` — and asks whether the
+module imports `child_process` or `node:child_process` through any of: `ImportDeclaration` (covering
+both named and side-effect forms, on one line or many), `ImportEqualsDeclaration` with an external
+module reference, a dynamic `import()` call, or a `require()` call. There are no grammar corners
+left to widen because the parser resolves the grammar.
 
-Hole 1 was mine: the first draft matched only `import ... from`, `import(` and `require(`, so a
-side-effect `import "node:child_process";` walked past. Hole 2 was plan round 3's: Node resolves
-`child_process` and `node:child_process` to the same module, so omitting the optional prefix let an
-ordinary import bypass the guard entirely. Hole 3 was the use-versus-mention error above.
-
-The guard carries this eight-case table as its **own self-test, positive and negative**, per the
-scanner rule in `docs/agents/writing-plans.md` — a scanner's claims are planted as executable
-shapes in both directions, in the same commit as any widening:
+Probed, ten cases, both directions:
 
 | case | matches |
 | --- | --- |
 | `import { execFileSync } from "node:child_process"` | yes |
 | `import { execFileSync } from "child_process"` | yes |
+| multiline `import {\n  execFileSync,\n} from "node:child_process"` | yes |
 | `import "child_process"` | yes |
 | `require("child_process")` | yes |
 | `await import("child_process")` | yes |
+| `import type { ChildProcess } from "child_process"` | yes |
 | backticked prose `` `node:child_process` `` | **no** |
 | `const s = "child_process"` | **no** |
 | `import x from "./my-child_process-helper"` | **no** |
 
-Probed against the live corpus: `ledger-git.ts` → 1 match (allowlisted), every other file → 0.
-Without the negative rows a later "simplification" back to the bare specifier passes every positive
-case and reds the whole corpus, which is how this guard was born.
+Live corpus: `scripts/lib/ledger-git.ts` is the only file that imports it. The ten cases ship as the
+guard's own self-test, positive and negative, in the same commit — the scanner rule from
+`docs/agents/writing-plans.md`.
 
 Plus the **walker sanity floor** (`>= 7`; the directory holds 7 `.ts` files today, 8 once the core
 lands), which is the guard's own premise and without which a mis-rooted walk passes vacuously; and
