@@ -254,9 +254,9 @@ inner fill at all — its inner neighbour IS the plate, which is why the
 `StagedPreviewBanner` picker link is the one row under 3:1 on BOTH edges. On the four neutral grounds above, both sides clear. On a
 TINTED plate they do not, and the measured numbers are recorded here rather than
 implied away — `warning-bg` 3.04 light / **2.79** dark, `info-bg` **2.87** light
-/ 3.48 dark, `danger-bg` **2.88** light / 3.19 dark. Fourteen shipped controls stand on such a plate, across thirteen sites (the data-quality card, the maintenance and reap actions, the
-per-show alert resolve, the re-sync and show-row actions, the step-3 review and
-archived-tab offers).
+/ 3.48 dark, `danger-bg` **2.88** light / 3.19 dark. Fourteen shipped controls stand on such a plate, across thirteen sites; the enumerated list is
+in `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` and is not duplicated here, because a summary that
+drifts from the list it summarises is worse than a pointer.
 
 Two things follow, and the second is why this is a recorded position and not a
 defect. First, the outer edge dips to 2.79–2.88:1 in exactly one theme per

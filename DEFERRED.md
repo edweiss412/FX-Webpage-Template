@@ -64,11 +64,11 @@ instances are the confirm-row Cancels at `components/admin/ArchiveShowButton.tsx
 faintest element on screen.
 
 **Probed 2026-08-16** with the derived cover in the queue row (a query, not a list): **30**
-elements against a universe of 362, **thirteen of them crew-facing**, counted by render chain rather than by directory —
-`app/me/meShowSections.tsx:174`, `:213`, `:258`;
-`app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233`;
-`app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103`, `:121`;
-`components/crew/SectionChipLink.tsx:48`; `components/crew/primitives/PersonRow.tsx:196`, `:213`.
+elements against a universe of 362, **thirteen of them crew-facing** when counted by render chain
+rather than by directory. The site list lives in the queue row
+(`BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`) and is deliberately NOT copied here: a count
+beside a partial copy of its own list is how this arc produced four consecutive review findings,
+and the fix for that is one list, not a better copy.
 
 **Why deferred rather than swept — reason (b), plus (a) and (c).** Spec §2.1 and §6 fence it in
 both directions, verbatim: _"Widening the swap to `border-border` is NOT the repair. `border-border`
