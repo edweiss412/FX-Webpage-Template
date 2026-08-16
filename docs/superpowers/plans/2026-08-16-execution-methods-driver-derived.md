@@ -259,6 +259,9 @@ describe("generated execution-methods module (spec §2.4)", () => {
   it("version sentinel: the committed module matches the installed driver", () => {
     const raw = readFileSync(DRIVER_PACKAGE_JSON, "utf8");
     const installed = (JSON.parse(raw) as { version: string }).version;
+    // The suite's one environment-touching test (premise-contract classification,
+    // Task 6): its premise is that the installed driver actually yielded a version.
+    premiseHolds("installed driver package.json yields a version", installed.length > 0);
     expect(
       POSTGRES_TYPES_VERSION,
       "stale generated module -- run: pnpm gen:execution-methods",
@@ -606,6 +609,7 @@ The marker's `red=` is the enrolment gate itself: it is red whenever the new sur
 
 **Files:**
 - Modify: `tests/mutation/source/registry.ts` (one `GuardSurface` row)
+- Modify: `tests/mutation/_metaPremiseContract.test.ts` (`EXPECTED_ENV_TOUCHING` row for the enrolled suite) and `tests/mutation/guardSurfaces.gate.test.ts` (`EXPECTED_LEDGER_KINDS` row for the new surface id) — both hand-keyed companion registries red until their row lands (plan review R2 finding 1)
 - Possibly modify: tests/db/executionMethodsManifest.test.ts (fixtures added to kill survivors)
 
 - [ ] **Step 1: Add the registry row**
@@ -637,22 +641,29 @@ Following the analyzer row's shape (`tests/mutation/source/registry.ts:533-541`)
   },
 ```
 
-- [ ] **Step 2: Run the registry meta-test, then the gate**
+- [ ] **Step 2: Add the two mandatory companion-registry rows (plan review R2 finding 1)**
+
+Enrolment touches TWO more hand-keyed registries, and each reds until its row lands — observe both reds after Step 1, then add the rows:
+
+- `tests/mutation/_metaPremiseContract.test.ts` — `EXPECTED_ENV_TOUCHING` must declare a count for every enrolled suitePath (asserted at `tests/mutation/_metaPremiseContract.test.ts:137-142`). Add `"tests/db/executionMethodsManifest.test.ts": 1` — the version sentinel is the suite's one environment-touching test (it reads the driver package.json from disk); every other test is a pure fixture call. If the classifier counts differently, reconcile by reading its verdicts, not by bumping the number blind. The sentinel test itself must then carry its premise (the `premiseHolds` line is already in the Task 2 snippet) or a reasoned exemption per the contract.
+- `tests/mutation/guardSurfaces.gate.test.ts` — `EXPECTED_LEDGER_KINDS` must declare a kind-count row for every `GuardSurface.id` (asserted at `tests/mutation/guardSurfaces.gate.test.ts:150-155`). Add `executionMethodsDerivation: {}` (the row starts with `accepted: []`; update the kind counts in the same commit as any survivor disposition so the two stay in lockstep).
 
 Run: `pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts tests/mutation/_metaPremiseContract.test.ts`
-Expected: PASS (row well-formed; the suite's premise usage satisfies the premise contract — if the premise-contract test demands a different helper form for any arm, repair the suite to comply, not the meta-test).
+Expected: PASS after both rows land (row well-formed; the suite's premise usage satisfies the premise contract — if the premise-contract test demands a different helper form for any arm, repair the suite to comply, not the meta-test).
+
+- [ ] **Step 3: Run the gate**
 
 Run: `pnpm heavy mutation:guards`
 Expected: the new surface reports a score and a survivor list. For each unaccepted survivor: kill it with a new derivation fixture where it exposes a real gap, or add an `accepted` row with a reachability argument where it is equivalent (registry conventions; deletion of dead code beats blessing it). Iterate until zero unaccepted survivors.
 
-- [ ] **Step 3: Tighten the floor and re-run**
+- [ ] **Step 4: Tighten the floor and re-run**
 
-Set `scoreFloor` to measured-minus-0.05. Re-run `pnpm heavy mutation:guards`; expected green. Record the measured score, the survivor dispositions, and the run duration — the diff-review round-1 brief must state them (spec §5).
+Set `scoreFloor` to measured-minus-0.05. Re-run `pnpm heavy mutation:guards`; expected green. Record the measured score, the survivor dispositions, and the run duration in the Execution evidence section — the diff-review round-1 brief must state them (spec §5).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add tests/mutation/source/registry.ts tests/db/executionMethodsManifest.test.ts
+git add tests/mutation/source/registry.ts tests/mutation/_metaPremiseContract.test.ts tests/mutation/guardSurfaces.gate.test.ts tests/db/executionMethodsManifest.test.ts
 git commit -m "test(db): enrol executionMethodsDerivation in the mutation gate"
 ```
 
