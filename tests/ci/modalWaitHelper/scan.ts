@@ -31,6 +31,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
+import { stripCommentsForFile } from "../../_shared/stripComments";
+
 /**
  * A `/admin` route carrying a `show` query parameter in ANY parameter position.
  *
@@ -104,6 +106,18 @@ export type CandidateOrigin =
 export type Candidate = SourceLine & {
   origin: CandidateOrigin;
   exemptReason: string | null;
+  /**
+   * True when this line is a COMMENT — it mentions the route, it does not
+   * navigate to it.
+   *
+   * Resolved through the repo's shared `stripCommentsForFile`, which is a real
+   * TypeScript parse rather than a `startsWith("//")` test. That matters beyond
+   * convention: a line in the INTERIOR of a block comment need not begin with
+   * `*`, so the hand-rolled predicate this replaces would have read it as code.
+   * The stripper blanks comment spans in place and preserves line structure, so
+   * a line whose stripped form is empty was pure comment.
+   */
+  isComment: boolean;
 };
 
 export type ProductOpenSurface = {
@@ -174,8 +188,17 @@ export function scanForViolations(root: string = process.cwd()): ScanResult {
   const exemptions: Exemption[] = [];
 
   for (const file of e2eSpecFiles(root)) {
-    const lines = readLines(join(root, file));
+    const raw = readFileSync(join(root, file), "utf8");
+    const lines = raw.split("\n");
+    // Comment-aware, through the shared stripper. A COMMENTED-OUT navigation is
+    // not a navigation, and flagging one is a false positive in the direction
+    // the premise proof exists to protect: commenting a line out while a fixture
+    // is reseeded is ordinary authoring, inside the threat fence. Probed before
+    // this guard existed in comment-aware form — a `// await page.goto(…)` and a
+    // block-commented one both reported as violations.
+    const stripped = stripCommentsForFile(raw, file).split("\n");
     lines.forEach((text, index) => {
+      if ((stripped[index] ?? "").trim() === "") return;
       if (!GOTO_CALL.test(text) || !MODAL_ROUTE_PATTERN.test(text)) return;
       const site: SourceLine = { file, line: index + 1, text: text.trim() };
       const reason = exemptionReasonAt(lines, index);
@@ -246,9 +269,12 @@ export function enumerateCandidates(root: string = process.cwd()): Candidate[] {
 
   const candidates: Candidate[] = [];
   for (const file of e2eSpecFiles(root)) {
-    const lines = readLines(join(root, file));
+    const raw = readFileSync(join(root, file), "utf8");
+    const lines = raw.split("\n");
+    const stripped = stripCommentsForFile(raw, file).split("\n");
     lines.forEach((text, index) => {
       const site = {
+        isComment: text.trim() !== "" && (stripped[index] ?? "").trim() === "",
         file,
         line: index + 1,
         text: text.trim(),

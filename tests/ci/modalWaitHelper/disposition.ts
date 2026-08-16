@@ -40,9 +40,16 @@ export type DispositionRule = {
   match: (candidate: Candidate) => boolean;
 };
 
-/** A comment or JSDoc line: it mentions the route, it does not navigate to it. */
-const isProse = (text: string): boolean =>
-  text.startsWith("//") || text.startsWith("*") || text.startsWith("/*");
+/**
+ * A comment line: it mentions the route, it does not navigate to it.
+ *
+ * Read off the candidate, which resolves it through the repo's shared
+ * `stripCommentsForFile` (a real TypeScript parse). A local
+ * `startsWith("//")` idiom here was both a single-source violation
+ * (`tests/cross-cutting/_metaStripCommentsSingleSource.test.ts`) and less
+ * correct: a line INSIDE a block comment need not begin with `*`.
+ */
+const isProse = (candidate: Candidate): boolean => candidate.isComment;
 
 /** A `test(...)` / `test.describe(...)` title string. */
 const isTestTitle = (text: string): boolean => /^(?:test|describe)(?:\.\w+)*\(\s*[`"']/.test(text);
@@ -100,7 +107,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason: "comment or JSDoc mention of the route; navigates nothing",
     },
     expectedCount: 17,
-    match: (c) => isProse(c.text),
+    match: (c) => isProse(c),
   },
   {
     id: "a/test-title",
@@ -214,7 +221,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason: "a comment mentioning page.goto(); navigates nothing",
     },
     expectedCount: 3,
-    match: (c) => isProse(c.text),
+    match: (c) => isProse(c),
   },
   {
     id: "b/crew-and-picker-routes",
@@ -280,7 +287,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason: "comment or JSDoc mention of the legacy route; navigates nothing",
     },
     expectedCount: 16,
-    match: (c) => isProse(c.text),
+    match: (c) => isProse(c),
   },
   {
     id: "c/test-title",
@@ -302,7 +309,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     },
     expectedCount: 13,
     match: (c) =>
-      !isProse(c.text) &&
+      !isProse(c) &&
       !isTestTitle(c.text) &&
       !/^\["\/admin\/show\//.test(c.text) &&
       /\/admin\/show\/staged\/|\/admin\/show\/[^"'`]*\/preview\//.test(c.text),
@@ -377,7 +384,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason: "a comment naming a row testid; activates nothing",
     },
     expectedCount: 1,
-    match: (c) => isProse(c.text),
+    match: (c) => isProse(c),
   },
   {
     id: "d/reference-not-activation",
@@ -390,7 +397,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     expectedCount: 25,
     match: (c) =>
       !/\.click\(/.test(c.text) &&
-      !isProse(c.text) &&
+      !isProse(c) &&
       !inFile(c, "published-review-modal.prefetch.spec.ts"),
   },
 
@@ -415,7 +422,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason: "a comment about reload behavior; re-navigates nothing",
     },
     expectedCount: 2,
-    match: (c) => isProse(c.text),
+    match: (c) => isProse(c),
   },
   {
     id: "e/non-show-routes",
@@ -427,7 +434,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     },
     expectedCount: 18,
     match: (c) =>
-      !isProse(c.text) &&
+      !isProse(c) &&
       [
         "admin-nav-layout-dimensions.spec.ts",
         "bell-panel-layout.spec.ts",

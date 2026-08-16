@@ -177,16 +177,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // and were repaid with cases in the deciding suite, each proven against its
       // own mutant (testid-window bound and its same-line edge, the quoted
       // data-testid capture group, the product surface's own line number, and the
-      // two-rule ambiguity threshold). Re-run: 55/57 with exactly these two left,
-      // so a THIRD row here is a gap to repay rather than a number to bump.
+      // two-rule ambiguity threshold). Re-run: 55/57 with exactly these two left.
+      // Making the scan comment-aware then grew the surface to 61 sites; every
+      // one of the four new sites is killed, so the score is 59/61 = 0.9672 with
+      // these same two rows. A THIRD row here is a gap to repay, not a number to
+      // bump.
       {
-        siteId: "statement-removal:142:9:continue;>(removed)",
+        siteId: "statement-removal:156:9:continue;>(removed)",
         kind: "equivalent",
         reason:
           "Drops the `continue` after `visit(child)` in walkSourceFiles, so a DIRECTORY falls through to the `child.endsWith('.ts') || child.endsWith('.tsx')` test below it. No directory in app/ or components/ ends in .ts or .tsx, so the extra test is always false and the walk's output is identical. Observable only for a directory literally named `*.ts`, which the tree does not contain.",
       },
       {
-        siteId: "integer-literal:309:83:0>1",
+        siteId: "integer-literal:335:83:0>1",
         kind: "equivalent",
         reason:
           "Changes the `?? 0` fallback in classifyCandidates' count increment to `?? 1`. The branch is unreachable: countsByRule is pre-seeded with a 0 entry for EVERY rule at construction (`new Map(rules.map((rule) => [rule.id, 0]))`), so `countsByRule.get(hit.id)` never returns undefined and the nullish fallback never evaluates.",

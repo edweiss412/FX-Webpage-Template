@@ -166,6 +166,29 @@ describe("modal-wait guard — premise proof (BL-GUARD-PREMISE-REACHABILITY)", (
     expect(violations.map((v) => v.line)).toEqual([6]);
   });
 
+  test("STAYS QUIET on a COMMENTED-OUT goto, line and block", () => {
+    // The false-positive direction, and a real defect until this case landed:
+    // commenting a navigation out while a fixture is reseeded is ordinary
+    // authoring inside the threat fence, and both spellings reported as
+    // violations. Resolved through the shared stripCommentsForFile, so the
+    // block-comment INTERIOR — which need not begin with `*` — is covered too.
+    const root = fixtureRoot(
+      "commented-out",
+      [
+        "// disabled while the fixture is reseeded:",
+        "// await page.goto(`/admin?show=${slug}`);",
+        "/*",
+        "  await page.goto(`/admin?show=${other}`);",
+        "*/",
+        'test("live", async ({ page }) => {',
+        "  await openShowReviewModal(page, slug);",
+        "});",
+      ].join("\n"),
+    );
+    const { violations } = scanForViolations(root);
+    expect(violations, "a commented-out navigation is not a navigation").toEqual([]);
+  });
+
   test("STAYS QUIET on a goto of a different /admin route", () => {
     const root = fixtureRoot(
       "other-route",
@@ -325,6 +348,7 @@ describe("modal-wait guard — the live corpus", () => {
       line: 1,
       text: "await page.goto(`/admin?show=${slug}`);",
       exemptReason: null,
+      isComment: false,
     };
     const always = { origin: "a-route-literal" as const, expectedCount: 1, match: () => true };
     const result = classifyCandidates(
@@ -418,6 +442,7 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
       line: 1,
       text: "await somethingNew(page, `/admin?show=${slug}`);",
       exemptReason: null,
+      isComment: false,
     };
     const result = classifyCandidates([orphan], DISPOSITION_RULES);
     expect(result.undisposed).toHaveLength(1);
