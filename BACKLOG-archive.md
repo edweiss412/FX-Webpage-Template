@@ -1,3 +1,60 @@
+## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3 — CLOSED 2026-08-16 (`feat/admin-ui-surfaces`, SHIPPED)
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
+
+Step 3 reviews a staged parse through its own section cards, not through the surface the crew will actually see. A C-style full preview would render `CrewShell` from the staged `parse_result`, which needs a `parse_result → ShowForViewer` adapter. Verified 2026-08-02: no such adapter exists.
+
+The adapter is the substance of the work, not the rendering — `getShowForViewer` builds its projection from persisted rows, and a staged parse is neither persisted nor viewer-scoped, so the adapter has to decide what a preview means for viewer name aliases, per-viewer visibility filters, and the admin-preview branch before any of it renders. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+---
+
+**Shipped 2026-08-16 (PR #812).** The entry's own read of the work was right: the adapter was the substance, not the rendering.
+
+`lib/data/stagedShowForViewer.ts` reproduces, for staged data, every viewer-dependent transform `readShowDataForViewer` applies between the raw rows and the projection, reusing the live helpers rather than hand-rolling variants (`normalizeDateRestriction`, `effectiveViewerDateRestriction`, `hotelVisibleToViewer`, `resolveTransportOwners`, `aggregateDays`, `financialsVisible`). The three questions this entry said the adapter had to settle before anything could render were settled as: viewer identity is a minted surrogate roster (`staged-crew-<index>`) the adapter resolves itself, so the projection's fail-closed `UnmatchedViewerError` is never reached; per-viewer visibility filters run exactly as the live projection runs them, including the hotel alias filter and the three-way run-of-show intersection; and the admin-preview branch is the viewer kind the route passes, so the budget gate follows the PREVIEWED member's flags.
+
+Two things the entry did not anticipate, both of which became the arc's real work:
+
+- **`asParseResult` validates CONTAINERS only** (`lib/db/coerceJsonbObject.ts:133`), so every nested field is untrusted on arrival. The adapter normalizes each family to the projection's runtime grain, and cross-model review round 1 then found the sharper half of that rule: a wrong-typed union DISCRIMINANT may never be defaulted to another VALID member (a corrupt `RoomKind` silently hid the General Session room). It drops its owning entry instead. The module header states the rule and its two ratified exceptions.
+- **A throw inside a descendant Server Component's render never passes through the page function's try/catch**, so the segment ships its own `error.tsx`. That is the structural guarantee that no malformed staged row can reach the generic admin error boundary, and it is proved by a real-server e2e arm because jsdom cannot exercise Next's segment routing at all.
+
+`CrewShell` gained a `staticPreview` posture suppressing all five emission surfaces (alert write, both `after()` registrations, the realtime bridge, the footer report affordance, every card report trigger); the prop is absent everywhere else, so both existing callers are byte-identical in behavior.
+
+Spec: `docs/superpowers/specs/step3-onboarding/2026-08-15-step3-crew-preview-and-opslog-disposition-design.md` (APPROVED R4). Plan: `docs/superpowers/plans/step3-onboarding/2026-08-15-step3-crew-preview.md` (APPROVED R6, closeout §12). Invariant-8 gate: `critique=RAN-DEGRADED audit=RAN p0=0 p1=2 dispositions=recorded`.
+
+**Deliberately NOT shipped, and still true as scope:** the preview is wizard-scoped (step-3 staged rows). Generalizing it to the admin show-review staged modal is a non-goal (spec §5); the same adapter would serve it.
+
+## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader — CLOSED 2026-08-15 (`feat/admin-ui-surfaces`, RESOLVED — WON'T BUILD)
+
+**Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+
+The durable sink is built and written (`lib/log/persist.ts:16` → `app_events`), but **its only reader is developer-gated.** Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, `app/admin/dev/telemetry/page.tsx`, which calls `requireDeveloperIdentity()` at `:24`. The `lib/observe/query/*` modules are non-logging copies feeding the `pnpm observe` CLI, not a surface. **No admin-dashboard surface reads `app_events` at all** — the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row.
+
+Consequence: Doug must leave the dashboard to see operator telemetry and, as a non-developer, likely cannot reach the page at all. Everything the other two children emit lands somewhere he cannot look.
+
+**Why M and DESIGN-GATED, not S:** this is a new admin surface, not a query change. What belongs on a dashboard banner — which severities, what recency window, what dismissal behavior, whether it is a banner at all rather than a panel or a bell-badge source — is a product decision, and it is Opus/UI work under the invariant-8 dual gate. Do not implement it as "render the telemetry table on the dashboard."
+
+**Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
+---
+
+**Resolution 2026-08-15 — WON'T BUILD.** Ratified by the user after they challenged the entry's own premise ("sync health is already surfaced elsewhere in UI"). The challenge was correct, and the audit that settled it is spec §3.2 of `docs/superpowers/specs/step3-onboarding/2026-08-15-step3-crew-preview-and-opslog-disposition-design.md`.
+
+**The principle it now stands on (§3.1, ratified):** a dev-only surface's content graduates to an admin surface only when the AUDIENCE of that surface can act on it. `app_events` is the forensic run log; its Doug-actionable content must reach Doug through the alerting pipeline, and the log itself stays dev-only.
+
+**Audit summary (§3.2, verified on this branch).** Every Doug-actionable event class already reaches an admin surface:
+
+- **Bell alerts** — `admin_alerts` via `upsertAdminAlert`, a 37-code union (`lib/adminAlerts/upsertAdminAlert.ts:3-40`) covering the sync/content faults Doug acts on (`DRIVE_FETCH_FAILED`, `SHEET_UNAVAILABLE`, `PARSE_ERROR_LAST_GOOD`, `SYNC_STALLED`, `ONBOARDING_SHEET_UNREADABLE`, `OPENING_REEL_*`, `RESYNC_*`, the email-delivery codes).
+- **Stall escalation** — persistent cron failure fires `SYNC_STALLED` through `detectAndResolveStall`, invoked by `runNotify` (`lib/notify/runNotify.ts:22`), so "the nightly sync keeps failing" reaches the bell with no `app_events` reader in the path.
+- **Per-show status** — the dashboard `ShowsTable` sync column and the per-show `StatusStrip` carry per-show sync state; the nav `AppHealthIndicator` escalates positive → notice → degraded.
+
+The residue in `app_events` is dev-actionable or already paired with an admin-visible consequence at the point of impact: run-level `CRON_RUN_SUMMARY` warns/errors (transient by design; persistence escalates via `SYNC_STALLED`), `*_EMIT_FAILED` / `*_ALERT_WRITE_FAILED` (telemetry-about-telemetry — they cannot alert through the channel whose failure they record), `*_LOOKUP_FAILED` / `*_INFRA_FAULT` / `*_READ_RETURNED_ERROR` (the Doug-visible consequence is the degraded surface, which invariant 9 already requires the surface itself to render), and wizard/stage action failures (surfaced inline in the acting admin's UI at the moment of action).
+
+**Two prior retirements point the same way.** The dashboard banner/panel affordances this entry asked to re-create were deliberately removed TWICE: the global `AlertBanner` in favour of `NotifBell`, and `AppHealthPanel` in favour of the nav `AppHealthIndicator`. Both removals are recorded in comment blocks at `app/admin/page.tsx:104-107` and `app/admin/page.tsx:118-123`.
+
+**Re-open trigger (conjunctive).** A Doug-actionable event class is found landing in `app_events` with NO `admin_alerts` pairing AND no point-of-impact surface. Then design the surface for THAT class, not a generic log reader.
+
+**Filed on the way, not fixed here:** `BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH` (class-sweep disposition exception (a) — it needs its own decision on desired behavior).
+
 ## BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a stale restore is now impossible, and a failing run refreshes its own cache — CLOSED 2026-08-15 (`fix/screenshots-drift-cache`, SHIPPED)
 
 **Severity (as filed):** MEDIUM · **Class:** CI-INFRA · **Effort (as shipped):** S, as estimated · **Filed:** 2026-08-14 from a live main-branch incident

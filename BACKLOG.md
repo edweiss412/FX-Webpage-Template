@@ -390,18 +390,6 @@ So "retain the live row" is not obviously right at `:337`: the fallback runs whe
 
 **Promotion prerequisite:** the ruling above. If it lands as "defect", the fix mirrors arc C's: thread the live row and prefer it, with no-match falling back to today's behaviour.
 
-## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3
-
-**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
-
-Step 3 reviews a staged parse through its own section cards, not through the surface the crew will actually see. A C-style full preview would render `CrewShell` from the staged `parse_result`, which needs a `parse_result → ShowForViewer` adapter. Verified 2026-08-02: no such adapter exists.
-
-The adapter is the substance of the work, not the rendering — `getShowForViewer` builds its projection from persisted rows, and a staged parse is neither persisted nor viewer-scoped, so the adapter has to decide what a preview means for viewer name aliases, per-viewer visibility filters, and the admin-preview branch before any of it renders. UI surface, so Opus-owned with the invariant-8 dual gate.
-
-**Status:** OPEN.
-
----
-
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
 **Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
@@ -658,17 +646,47 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader
+## BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH — a debug-level log can never persist, and the rejection is silent
 
-**Status:** OPEN · **Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+**Status:** OPEN · **Severity:** LOW · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-15 (`feat/admin-ui-surfaces`, from the `BL-OPS-LOG-DASHBOARD-BANNER` audit)
 
-The durable sink is built and written (`lib/log/persist.ts:16` → `app_events`), but **its only reader is developer-gated.** Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, `app/admin/dev/telemetry/page.tsx`, which calls `requireDeveloperIdentity()` at `:24`. The `lib/observe/query/*` modules are non-logging copies feeding the `pnpm observe` CLI, not a surface. **No admin-dashboard surface reads `app_events` at all** — the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row.
+`LogLevel` includes `"debug"` (`lib/log/types.ts:2`), but the `app_events` CHECK accepts only three values:
 
-Consequence: Doug must leave the dashboard to see operator telemetry and, as a non-developer, likely cannot reach the page at all. Everything the other two children emit lands somewhere he cannot look.
+```sql
+level         text not null check (level in ('info','warn','error')),
+```
 
-**Why M and DESIGN-GATED, not S:** this is a new admin surface, not a query change. What belongs on a dashboard banner — which severities, what recency window, what dismissal behavior, whether it is a banner at all rather than a panel or a bell-badge source — is a product decision, and it is Opus/UI work under the invariant-8 dual gate. Do not implement it as "render the telemetry table on the dashboard."
+(`supabase/migrations/20260629000002_app_events.sql:4`.) So a `debug`-level persist is CHECK-rejected by Postgres, and `persistAppEvent` swallows the returned error by contract — it records the fault for `/api/health` and writes to console, never throwing over the caller (`lib/log/persist.ts:12-40`, invariant 9). The row simply never lands.
 
-**Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+**Reachability:** the type admits the value at every `log.*` call site, so nothing but convention stops a `debug` emit; no current producer uses one (which is why this is LOW, not MEDIUM).
+
+**The decision this needs, and why it was filed rather than fixed:** which side moves. Widen the CHECK to accept `debug` (and accept that the forensic log gains a chatty tier with a 60-day retention window), or narrow `LogLevel` to the three values the sink actually stores (and give `debug` callers a console-only path that is honest about not persisting). That is a product decision about what the run log is for, not a repair — class-sweep disposition exception (a).
+
+## BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE — the dashboard-overview baseline predates five days of dashboard component changes
+
+**Status:** OPEN · **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, from PR #812's CI)
+
+`screenshots-drift` fails on `public/help/screenshots/dashboard-overview-light.webp` (Bin 77670 -> 82600 bytes). The drift is INHERITED FROM MAIN, not caused by the PR that surfaced it.
+
+**Probe evidence.**
+
+```
+$ git log --oneline -1 -- public/help/screenshots/dashboard-overview-light.webp
+3f48fe674 test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)   # 2026-08-11
+$ git diff --name-only 3f48fe674 origin/main -- components/ app/admin/ | head
+components/admin/AppHealthPopover.tsx
+components/admin/BellPanel.tsx
+components/admin/OnboardingWizard.tsx
+...                                   # ~20 dashboard-rendered components
+```
+
+The manifest entry captures `/admin`'s `[data-testid=admin-dashboard]` (`scripts/help-screenshots.manifest.ts:50-56`), so any of those components changes the capture. The arc that surfaced it adds no element under that selector: its admin surfaces are a new `/admin/wizard/preview/[stagedId]` route and a link inside the step-3 review MODAL, which is not mounted on load.
+
+**Why it surfaced now rather than on the commit that caused it:** the screenshots workflow is path-gated, so it fires only on a PR that touches a watched path. The sibling PR open at the same time (#807, mutation-harness work) does not trigger it at all, and main's own push runs do not include the job.
+
+**Repair:** regenerate the baseline FROM THE PINNED DOCKER IMAGE with `--platform linux/amd64` — never from a dev machine. The byte-comparison discipline in AGENTS.md is the authority here: an arm64 host produces different bytes than the native-x64 CI runner even on an identical pinned image tag, so a local `pnpm screenshot:help` would replace one wrong baseline with another (and pollutes the tree meanwhile — `git restore public/help/screenshots/` after any local capture).
+
+**Not merge-blocking, verified rather than assumed:** the twelve required contexts on `main` are quality, unit-suite, x1..x6, validation-schema-parity, affordance-matrix-parity, postgrest-dml-lockdown, traceability-audit (`gh api repos/.../branches/main/protection`). `screenshots-drift` is not among them.
 
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 23 app-dependent e2e specs are named by no CI workflow
 
