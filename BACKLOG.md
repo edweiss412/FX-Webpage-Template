@@ -745,6 +745,20 @@ The `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` arc proved the class mechanism from two 
 
 **Deferral reason (c):** spans many sites and several workflows (`published-modal-e2e.yml`, `lifecycle-layout-e2e.yml`, …) — blowing the parent arc's review scope. **Reachability:** INFERRED, NOT PROBED per-spec — the class mechanism is CI-proven on the parent arc; the probe that settles each peer is its own workflow's failure history.
 
+---
+
+## BL-MODAL-WAIT-SKELETON-TOLERANT-SITES — two e2e waits the boundary helper cannot harden, because the Suspense skeleton wins the race
+
+**Status:** OPEN · **Severity:** LOW (two sites keep the exposure they have today; nothing regresses) · **Class:** e2e flake hardening · **Effort:** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's spec review round 3) · **Class-sweep exception:** (c) — the repair is a redesign of what these two tests wait on, which changes their assertions; the filing arc does not otherwise touch them. · **Reachability:** PROBED — the shared-testid mechanism below is read from source, not inferred.
+
+`published-review-modal.deeplink.spec.ts:344` and `published-review-modal.realtime.spec.ts:913` both wait on `MODAL_ANY` — the modal testid WITHOUT the `:has(…-title)` loaded qualifier — deliberately, because each is testing a state where either frame is legitimate (`:344` proves Esc closes whichever frame is up during a load; `:913` re-opens mid-close-transition). The Suspense skeleton renders through the same shell with the same `testIdBase` (`components/admin/showpage/ShowReviewModalSkeleton.tsx:51` → `components/admin/review/ReviewModalShell.tsx:584`), so `MODAL_ANY` matches it.
+
+That makes the boundary helper actively wrong at these two sites rather than merely unhelpful. The skeleton mounts immediately while the loader is still pending, so it WINS a modal-or-boundary race: `awaitReviewModalOrRecover` would return on the skeleton, emit no `infra-recovery` annotation, and let the test proceed as though nothing happened — converting a loud starve into a silent pass. The adoption arc therefore removed the `readySelector` option it had drafted for exactly these two callers and excluded both sites (spec `docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md` §2.5, limit 3b); `:344` is one of the structural guard's two pinned exemptions.
+
+**Cost of leaving it:** a transient boundary at either site still fails the test, but as the bare downstream timeout it produces today — the deeplink case at its focus poll, the realtime case at its freshness evaluate — with no annotation and no `show_review_snapshot_failed` hint in the message.
+
+**What a repair needs:** a way to distinguish "skeleton, loader still pending" from "skeleton, loader already failed" — e.g. racing the boundary for the REMAINDER of the timeout after the skeleton is observed, rather than returning on first match. That is a contract change to the helper plus an assertion change in both specs, and it wants its own spec. **Re-open trigger:** either spec actually flaking on this signature in CI.
+
 ## BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE — should the show-review snapshot read absorb one bounded retry before throwing to the boundary?
 
 **Status:** OPEN · **Severity:** LOW (rare, recoverable via the boundary's own Retry) · **Class:** product posture decision · **Effort:** S · **Filed:** 2026-08-15
