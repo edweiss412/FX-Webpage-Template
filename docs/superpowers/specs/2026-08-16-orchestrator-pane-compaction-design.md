@@ -196,9 +196,11 @@ Keyed on **structure**, never spelling:
 - A round-corpus row (`stage`, `round`, `status`, `verdict`, `findingCount`). **Absent is normal**
   — an arc that never dispatched a review has no corpus file — and is read as `no review in
   flight`, not as a fault.
-- A `gh` outcome that is either a parsed check state, or the recognized no-PR signature
-  (non-zero exit **and** stderr matching `no pull requests found for branch`). Any other non-zero
-  exit is a `gh` fault, **not** "no PR" (§3.9, §4.5 rule 5).
+- A `gh` outcome, **in any of its three forms** — a parsed check state, the recognized no-PR
+  signature (non-zero exit **and** stderr matching `no pull requests found for branch`), or a
+  fault. All three are *accepted observations*; the accept-set does not classify them. **Rule 5
+  alone decides what a fault produces** (§4.5), so that rule stays reachable and independently
+  testable. Round 3 found the previous wording consuming faults here, which made rule 5 dead code.
 
 Anything else yields `UNDETERMINED` **naming the offending field**. Terminal titles and pane labels
 are display strings, never parsed for meaning.
@@ -217,9 +219,9 @@ deterministic; exclusivity was an unnecessary claim and is withdrawn.
 | 1 | CI green, PR unmerged | PR open ∧ all checks green | **Hard `WAIT`** |
 | 2 | CI failing, PR open | PR open ∧ any check failed | High |
 | 3 | Mid-task, tree dirty | working tree not clean | High |
-| 4 | Triage pending | newest corpus row carries a non-APPROVE verdict ∧ no commit since that row | High |
+| 4 | Triage pending | newest corpus row carries a non-APPROVE verdict ∧ no commit whose author date is **after that row's `endedAt`** | High |
 | 5 | Polling CI | PR open ∧ any check pending | Low |
-| 6 | Review verdict recorded | clean ∧ newest corpus row APPROVE ∧ no commit since | Low |
+| 6 | Review verdict recorded | clean ∧ newest corpus row APPROVE | Low |
 | 7 | Task boundary | clean ∧ newest commit within `RECENT_COMMIT_WINDOW` | Lowest |
 | 8 | **Fallback: quiescent** | anything reaching here | Low |
 
@@ -230,10 +232,16 @@ totality guarantee: it has no predicate, so no pane can fall through.
 Row 1 is a hard `WAIT` at every pressure including critical. AGENTS.md makes merge the same-turn
 successor of CI-green, and PR #482 sat `CLEAN` and unmerged for five hours on this gap.
 
-**Inference error may only demote.** Where two rows both match and the ordering is uncertain, the
-classifier takes the **more expensive** cost, never the cheaper. A wrong inference therefore
-produces a missed compaction, never a compaction at a bad position — which is what keeps §7 limit 2
-inside the §6 bound.
+**Inference error may only demote — within the eligible band.** Where two rows both match and the
+ordering is uncertain, the classifier takes the **more expensive** cost, never the cheaper.
+
+**This does not extend to the critical band, and §7 limit 2 no longer claims it does.** Rule 9
+returns `FORCE` for `t >= 8` whatever the position cost, so at critical pressure a wrong inference
+*can* produce a compaction at an expensive position. That is deliberate: at `t >= 8` the
+alternative is not "no compaction", it is auto-compaction at a position nobody chose, which is
+strictly worse. Row 1 (CI green, PR unmerged) remains the one position that outranks `FORCE`,
+because there the correct action is to merge rather than to compact. Round 3 found the previous
+wording asserting an unqualified demote-only bound that rule 9 contradicts.
 
 ### 4.5 Precedence
 
@@ -431,9 +439,13 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
    target would not compact — a **no-op**, surfaced by step 5's timeout. The failure mode is a
    missed compaction, never a damaged target. An implementation probe on a throwaway pane closes
    this at build time and is a Task-7 step.
-2. **Position is inferred and can be wrong.** §4.4's demote-only rule bounds the consequence: an
-   uncertain position takes the more expensive cost, so error yields a missed compaction, never a
-   compaction at a bad position.
+2. **Position is inferred and can be wrong.** In the eligible band §4.4's demote-only rule bounds
+   the consequence to a missed compaction. **In the critical band it does not**, and this limit no
+   longer claims otherwise: rule 9 returns `FORCE` regardless of position cost, so a wrong
+   inference at `t >= 8` can compact at an expensive position. The bound that holds there is
+   different and weaker — at critical pressure the counterfactual is auto-compaction at an
+   unchosen position, so a deliberate compaction at a mis-inferred position is still no worse than
+   doing nothing. Only row 1 outranks `FORCE`, because there the right action is to merge.
 3. **A checkpoint can be queued and then abandoned** if step 2 times out. The consequence is a
    marker update the target performs later, with no compaction — harmless, and the abort is
    surfaced.
@@ -487,10 +499,15 @@ on the case's own inputs.
 
 - **AC-1** `pnpm panes:compact` reports every roster pane with a verdict and position evidence.
 - **AC-2** Pressure `t < 5` yields `HOLD`, provided §4.5 rules 1-7 did not fire.
-- **AC-3** CI-green-with-PR-unmerged yields `WAIT` at every pressure including critical.
-- **AC-4** Input outside the §4.3 accept-set yields `UNDETERMINED` naming the field.
+- **AC-3** CI-green-with-PR-unmerged yields `WAIT` at every pressure including critical, provided
+  §4.5 rules 1-6 did not fire.
+- **AC-4** Input outside the §4.3 accept-set yields `UNDETERMINED` naming the field, provided §4.5
+  rules 1-2 did not fire — an unowned or non-arc pane is reported as such even when its marker is
+  malformed (AC-5, AC-16).
 - **AC-5** A pane in no purview registry is reported `UNOWNED`, **including when its marker is
   malformed**; a pane in two registries is reported `UNOWNED` contested. Neither is driven.
+  Provided §4.5 rule 1 did not fire — a pane that is not an arc is `NOT-AN-ARC` (AC-16), which
+  outranks ownership because ownership is meaningless for a pane with no branch.
 - **AC-6** `--drive` without `--fire` sends nothing and prints §5.2 verbatim.
 - **AC-7** `--fire` rejects `--all` and requires a named target.
 - **AC-8** `--check` exits per §5.3 aggregation; exit 2 is never an all-clear.
@@ -502,11 +519,14 @@ on the case's own inputs.
 - **AC-13** `--fire` recomputes the verdict immediately before sending and refuses, exiting 1
   without sending, when a §5.5 condition fails.
 - **AC-14** The checkpoint never instructs a commit, and the driver never commits.
-- **AC-15** A `gh` failure other than the recognized no-PR signature yields `UNDETERMINED`.
+- **AC-15** A `gh` failure other than the recognized no-PR signature yields `UNDETERMINED`,
+  provided §4.5 rules 1-4 did not fire. The accept-set admits all three `gh` forms as observations
+  (§4.3); rule 5 alone classifies the fault, so this AC is exercised distinctly.
 - **AC-16** A pane whose agent name resolves to no worktree branch is `NOT-AN-ARC`, never
   `UNDETERMINED`, and never driven.
 - **AC-17** A pane whose marker `sessionId` does not match its live `agent_session.value` —
-  including when the pane reports none — yields `UNDETERMINED` and is never driven.
+  including when the pane reports none — yields `UNDETERMINED` and is never driven, provided §4.5
+  rules 1-3 did not fire. An **absent** marker cannot mismatch: rule 4 no-ops (§4.3, AC-19).
 - **AC-18** The driver emits no `\x1b` byte under any input, and `/compact` is never sent when
   §5.2 step 3's verification fails.
 
