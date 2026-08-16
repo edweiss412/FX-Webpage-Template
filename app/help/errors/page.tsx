@@ -60,6 +60,20 @@ export default function ErrorsPage() {
         it? There is a report button at the foot of the page.
       </p>
 
+      {/* BL-HELP-REFANCHOR-A11Y-PASS finding 3: this page renders a copy-link
+          beside every catalog entry, so a keyboard-only reader crosses ~219
+          stops before reaching the report button. This is the first focusable
+          element the page fragment contributes — it must precede the jump-list
+          nav, whose family anchors would otherwise come first. Class recipe is
+          the layout skip link's verbatim (app/help/layout.tsx), which already
+          carries the tap floor and the canonical tokens. */}
+      <a
+        href="#report"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-overlay focus:inline-flex focus:min-h-tap-min focus:items-center focus:rounded-md focus:border focus:border-border-strong focus:bg-surface-raised focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-text-strong focus:shadow-tile focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+      >
+        Skip to the report button
+      </a>
+
       <nav aria-label="Jump to an error category" className="my-6">
         <p className="mb-2 font-semibold text-text-strong">Jump to a section</p>
         <ul className="grid list-none grid-cols-1 gap-x-8 gap-y-1 pl-0 sm:grid-cols-2">
@@ -97,18 +111,25 @@ export default function ErrorsPage() {
         </Fragment>
       ))}
 
-      <Callout type="note">
-        {/* AC-11.11 r12 (2026-08-09 spec §2.5) retires the r11 mailto stopgap:
+      {/* The skip link's target. `tabIndex={-1}` for the Safari/VoiceOver
+          combos that do not move focus on fragment navigation without it — the
+          same caveat the layout documents on <main id="main">. The wrapper is
+          deliberately tight around the Callout so the next Tab after the jump
+          lands on the report button rather than on a catalog entry. */}
+      <div id="report" tabIndex={-1}>
+        <Callout type="note">
+          {/* AC-11.11 r12 (2026-08-09 spec §2.5) retires the r11 mailto stopgap:
             the trailing CTA is the §13.1 surface-5 report button, rendered ONCE
             here rather than under every entry (audit Chunk 4). The button
             captures whichever code anchor the reader arrived on, so the prose
             does not ask them to retype it. */}
-        <p className="mb-3">
-          Read your code&rsquo;s explanation above. If it keeps happening after that, report it and
-          Eric will pick it up.
-        </p>
-        <HelpReportCta />
-      </Callout>
+          <p className="mb-3">
+            Read your code&rsquo;s explanation above. If it keeps happening after that, report it
+            and Eric will pick it up.
+          </p>
+          <HelpReportCta />
+        </Callout>
+      </div>
     </>
   );
 }
