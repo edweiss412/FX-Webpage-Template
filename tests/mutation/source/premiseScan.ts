@@ -568,8 +568,10 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           }
           continue;
         }
-        for (const ext of binding.extent) {
-          if (visit(ext, f, path)) return true;
+        if (binding.kind === "local") {
+          for (const ext of binding.extent) {
+            if (visit(ext, f, path)) return true;
+          }
         }
       }
       return false;
