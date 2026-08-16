@@ -1189,7 +1189,23 @@ export const GUARD_SURFACES: GuardSurface[] = [
       from: 'if (input.exitStatus !== 0) return "KILLED";',
       to: 'if (input.exitStatus !== 0) return "DID_NOT_KILL";',
     },
-    accepted: [],
+    // ONE equivalent, and it is the only one of the surface's first-run
+    // survivors that was blessed rather than repaid: the other eight were real
+    // coverage gaps and are now killed by cases in mutate.test.ts, each proven
+    // against its own mutant before the row was written.
+    accepted: [
+      {
+        siteId: "integer-literal:88:44:2>3",
+        kind: "equivalent",
+        reason:
+          "the JSON.stringify indent argument in buildManifest. It changes only whitespace inside " +
+          "the manifest, and every consumer of that file parses it — the esbuild overlay plugin, " +
+          "the tap-target spec's @source assembly, and the browser-mode vitest config all call " +
+          "JSON.parse (or parseManifest, which does). No caller reads the manifest as bytes, so no " +
+          "verdict can differ. Pinning the exact serialization instead would assert a formatting " +
+          "detail nothing depends on, which is a tautological pin rather than coverage",
+      },
+    ],
   },
   {
     id: "interactiveScanCore",

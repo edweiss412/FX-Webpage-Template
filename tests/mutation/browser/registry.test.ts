@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { premiseHolds } from "../../_shared/premise";
 import {
@@ -130,6 +130,19 @@ describe("browser registry — per-edit anchor rules", () => {
     ).toMatch(/occurs 2 times/i);
   });
 
+  it("rejects an EMPTY anchor as its own problem, not as an occurrence count", () => {
+    // `"x".split("")` reports one boundary per character, so an empty `from`
+    // can never be read as a count. Without the dedicated rejection the edit
+    // validates CLEAN and `applyEdits` later prepends `to` to the file — a
+    // mutant nobody declared, applied silently. (Enrolment survivor
+    // `statement-removal:92:7`, repaid with this case rather than a ledger row.)
+    expect(
+      reject({
+        mutants: [{ key: "k", edits: [{ file: alpha, from: "", to: "x" }], reason: "r" }],
+      }),
+    ).toMatch(/from is empty/i);
+  });
+
   it("rejects an edit that changes nothing", () => {
     expect(
       reject({
@@ -257,6 +270,30 @@ describe("browser registry — deciding-suite rules", () => {
         ],
       }),
     ).toMatch(/config/i);
+  });
+
+  it("STOPS at a missing playwright config instead of walking a directory that is not there", () => {
+    // The filter check below reads `dirname(config)` off disk. The existing
+    // case above uses a config in a REAL directory, so a fall-through still
+    // lands on a readable dir and its assertion holds either way — which is
+    // exactly why enrolment survivor `statement-removal:148:7` (the `continue`)
+    // lived. Point the config at an ABSENT directory and the fall-through turns
+    // a reported problem into a thrown ENOENT the gate never catches.
+    const config = "tests/e2e/no-such-directory/absent.config.ts";
+    premiseHolds(
+      "the fixture's parent directory really is absent — that is what the fall-through would walk",
+      !existsSync(dirname(config)),
+    );
+    let problems: string[] = [];
+    expect(() => {
+      problems = validateBrowserSurface({
+        ...VALID(),
+        suites: [
+          { kind: "playwright", config, filter: REAL_FILTER, project: "standalone-chromium" },
+        ],
+      });
+    }, "a missing config must be REPORTED, never thrown").not.toThrow();
+    expect(problems.join(" | ")).toMatch(/config/i);
   });
 
   it("rejects a filter that matches no spec file beside its config", () => {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -113,6 +113,54 @@ describe("applyEdits — the substitution itself", () => {
     expect(message).toMatch(/also-absent/);
   });
 
+  it("refuses an EMPTY anchor, and says it does not occur rather than silently prepending", () => {
+    // Two enrolment survivors in one case. `edit.from === "" ? 0 : ...` is what
+    // stops `"x".split("")` reporting a per-character-boundary count: read as 1
+    // instead, the edit passes the uniqueness check and `replace("")` PREPENDS
+    // `to` to the file (`integer-literal:44:44`). And the message selector must
+    // key on ZERO, or an absent anchor is reported as "occurs 0 times"
+    // (`integer-literal:47:35`) — a description of a state that cannot exist.
+    let message = "";
+    try {
+      applyEdits(files(), [{ file: A, from: "", to: "INJECTED" }]);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    premiseHolds("the empty-anchor case actually threw rather than applying", message !== "");
+    expect(message).toMatch(/does not occur/);
+    expect(message, "an absent anchor must not be described as occurring").not.toMatch(
+      /occurs \d+ times/,
+    );
+  });
+
+  it("does not let a REFUSED edit feed the next edit on the same file", () => {
+    // The `continue` after a failed anchor (`statement-removal:50:7`). Without
+    // it, the refused edit still writes its half-applied text into the working
+    // map, and the NEXT edit on that file then anchors against text the caller
+    // never wrote — so the second edit silently succeeds and its miss vanishes
+    // from the report. Both misses must be named.
+    const text = "x rounded-pill y rounded-pill z\n";
+    const seed = new Map([[A, text]]);
+    premiseHolds(
+      "edit 1's anchor is genuinely ambiguous and edit 2 anchors on what edit 1 WOULD have written",
+      text.split("rounded-pill").length - 1 === 2 && !text.includes("Q"),
+    );
+    let message = "";
+    try {
+      applyEdits(seed, [
+        { file: A, from: "rounded-pill", to: "Q" },
+        { file: A, from: "Q", to: "R" },
+      ]);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    premiseHolds("the composed-refusal case actually threw", message !== "");
+    expect(message, "edit 1's ambiguity must be reported").toMatch(/occurs 2 times/);
+    expect(message, "edit 2 must NOT see text edit 1 was refused permission to write").toMatch(
+      /does not occur/,
+    );
+  });
+
   it("throws when an edit names a file the caller did not read", () => {
     expect(() => applyEdits(files(), [{ file: "gamma.tsx", from: "a", to: "b" }])).toThrow(
       /gamma\.tsx/,
@@ -180,6 +228,28 @@ describe("reportEvidence — a fresh report with executed tests", () => {
     expect(evidence.fresh).toBe(false);
   });
 
+  it("treats a report written in the SAME millisecond as the spawn as fresh", () => {
+    // The boundary is `>=`, not `>` (`relational-boundary:134:25`). A browser
+    // boot makes a same-millisecond write vanishingly rare, which is precisely
+    // why an off-by-one here would sit undetected — and then, on the one run
+    // that hit it, classify a real execution as an infra fault and abort a
+    // 20-minute gate for nothing.
+    const path = write("boundary.json", { stats: { expected: 1 } });
+    const mtimeMs = statSync(path).mtimeMs;
+    expect(reportEvidence({ path, spawnedAt: mtimeMs }).fresh).toBe(true);
+  });
+
+  it("counts a stats object missing every executed key as ZERO, never as a default", () => {
+    // `?? 0` on each of expected / unexpected / flaky (`integer-literal:141:41`,
+    // `:67`, `:88`). Any non-zero default manufactures execution evidence for a
+    // run that recorded none — and executed-count is the exact signal §3.4 uses
+    // to separate survival from a silent no-op, so a fabricated 1 turns "nothing
+    // observed this mutant" into "this mutant survived".
+    const spawnedAt = Date.now() - 1000;
+    const path = write("emptystats.json", { stats: { skipped: 7 } });
+    expect(reportEvidence({ path, spawnedAt }).executed).toBe(0);
+  });
+
   it("reports an absent file as absent rather than throwing", () => {
     expect(reportEvidence({ path: join(dir, "nope.json"), spawnedAt: 0 })).toEqual({
       present: false,
@@ -218,7 +288,17 @@ describe("classifyChild — the §3.4 verdict table, verbatim", () => {
   it("row 2 — sentinel present, exit 0, no fresh report or zero tests: infra, never survival", () => {
     // A silent no-op run can never count as survival evidence: it would report
     // a mutant SURVIVED that no test ever observed.
-    for (const report of [absentReport, noTests, { present: true, fresh: false, executed: 56 }]) {
+    // `present:false, fresh:true` is the shape that separates the three arms:
+    // they are ALTERNATIVES, not a conjunction, and a `&&` on the first
+    // connector (`logical-connector:192:15`) agrees with every other row while
+    // letting an ABSENT report with a live timestamp fall through to the
+    // executed check and score as survival.
+    for (const report of [
+      absentReport,
+      noTests,
+      { present: true, fresh: false, executed: 56 },
+      { present: false, fresh: true, executed: 5 },
+    ]) {
       const verdict = classifyChild({
         kind: "playwright",
         sentinelPresent: true,
