@@ -84,12 +84,12 @@ it("stretch=false (default) → button not w-full; stretch → form + button w-f
 it("quiet=false (default) → bordered; quiet → borderless transparent (recessive secondary)", () => {
   const action = vi.fn().mockResolvedValue({ ok: true });
   const { rerender } = render(<UndoChangeButton changeLogId="c" undoAction={action} />);
-  expect(screen.getByTestId("change-feed-undo").className).toMatch(/border-border-strong/);
+  expect(screen.getByTestId("change-feed-undo").className).toMatch(/border-text-faint/);
   rerender(<UndoChangeButton changeLogId="c" undoAction={action} quiet />);
   const q = screen.getByTestId("change-feed-undo");
   expect(q.className).toMatch(/border-transparent/);
   expect(q.className).toMatch(/bg-transparent/);
-  expect(q.className).not.toMatch(/border-border-strong/);
+  expect(q.className).not.toMatch(/border-text-faint/);
 });
 
 // ---- Task 4: success announcement (spec §3.3a) ----

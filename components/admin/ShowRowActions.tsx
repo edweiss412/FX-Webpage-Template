@@ -929,7 +929,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                     restoreResyncFocusRef.current = true;
                     setHeldShrink(null);
                   }}
-                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3.5 text-[13px] font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-bg px-3.5 text-[13px] font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Keep current version
                 </button>
@@ -1010,7 +1010,12 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                 }
                 dismissMenu(false);
               }}
-              className={`${MENU_ITEM_CLASS} text-text-subtle`}
+              // No colour override: this row used to rest at `text-text-subtle` so it
+              // read as an overflow note rather than an action. The subtle-on-interactive
+              // policy (DESIGN §1.1a) retired that — it IS an action, and MENU_ITEM_CLASS
+              // already sets `text-text`. The distinction it carried in colour is carried
+              // by its copy.
+              className={MENU_ITEM_CLASS}
             >
               {`… and ${overflowCrewCount} more (open the show)`}
             </Link>

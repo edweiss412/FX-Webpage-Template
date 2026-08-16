@@ -480,7 +480,7 @@ export function Step3ReviewModal({
                   disabled={devCapture.state === "busy"}
                   aria-disabled={devCapture.state === "busy" ? "true" : undefined}
                   onClick={() => devCapture.run()}
-                  className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
+                  className="inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm text-text transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
                 >
                   {/* §11: instant — deliberate (busy glyph swap; spec 2026-07-22 §7.4 all-instant) */}
                   {devCapture.state === "busy" ? (

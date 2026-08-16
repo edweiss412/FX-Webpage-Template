@@ -13,25 +13,26 @@
  * wired into <SignInOrSkipGate> Mode B (Task C5, P-R29 Fix-3).
  *
  * Why the thin wrapper around `clearIdentity`:
- *   React 19 `<form action>` expects `(FormData) => void | Promise<void>`;
- *   Pin-2's `clearIdentity` returns `Promise<ClearIdentityResult>`. The
- *   typed result is discarded here, and that is a KNOWN GAP rather than a
- *   safe simplification. The original claim - that failures either succeed as
- *   `action: 'noop'` or are absorbed into a `code` - was disproven by probe on
- *   2026-08-10: `clearIdentity` can resolve `{ ok: false, code:
- *   'PICKER_RESOLVER_LOOKUP_FAILED' }`, and discarding it makes a failed clear
- *   look exactly like a successful one. Surfacing it needs a failure state the
- *   menu does not have; tracked by BL-IDENTITY-CLEAR-FAILURE-IS-SILENT.
+ *   Only a Server Component can declare a Server Action, and `AvatarMenu` is a
+ *   client island — so the action is declared here and passed down as a prop.
+ *   The wrapper RETURNS the typed `ClearIdentityResult` rather than discarding
+ *   it. It used to return `Promise<void>`, which made a failed clear look
+ *   exactly like a successful one: nothing re-rendered, the menu did not move,
+ *   and the crew member read that as "switched" while still being that person
+ *   (BL-IDENTITY-CLEAR-FAILURE-IS-SILENT, probed 2026-08-10). The menu now owns
+ *   a failure state and needs the result to drive it; it adapts this to React
+ *   19's `void | Promise<void>` form-action slot on its own side.
  */
 
 import { clearIdentity } from "@/lib/auth/picker/clearIdentity";
+import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 import { AvatarMenu } from "@/components/auth/AvatarMenu";
 
-async function clearIdentityFormAction(formData: FormData): Promise<void> {
+async function clearIdentityFormAction(formData: FormData): Promise<ClearIdentityResult> {
   "use server";
   // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker clearIdentity,
   // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
-  await clearIdentity(formData);
+  return clearIdentity(formData);
 }
 
 /**

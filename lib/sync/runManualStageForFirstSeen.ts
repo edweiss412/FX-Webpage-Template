@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import type { DriveListedFile } from "@/lib/drive/list";
-import { log, serializeError } from "@/lib/log";
+import { log } from "@/lib/log";
 import type { ParseResult } from "@/lib/parser/types";
 import {
   makeSnapshotAssetsForApply,
@@ -374,7 +374,7 @@ export async function runManualStageForFirstSeen(
           source: "sync.runManualStageForFirstSeen",
           code: "SYNC_LOG_EMIT_FAILED",
           driveFileId,
-          error: serializeError(sinkError),
+          error: sinkError,
         });
         // Invariant 10 (prod diff review R1 P0): this catch runs INSIDE the caller's held
         // advisory lock, and app_events emits must never extend that window. Fire-and-forget
