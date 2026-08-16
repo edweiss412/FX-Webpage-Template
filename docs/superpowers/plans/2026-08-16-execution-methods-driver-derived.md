@@ -650,9 +650,19 @@ Following the analyzer row's shape (`tests/mutation/source/registry.ts:533-541`)
   },
 ```
 
-- [ ] **Step 2: Add the two mandatory companion-registry rows (plan review R2 finding 1)**
+- [ ] **Step 2: OBSERVE both companion-registry reds (plan review R4 finding 1)**
 
-Enrolment touches TWO more hand-keyed registries, and each reds until its row lands — observe both reds after Step 1, then add the rows:
+With the registry row from Step 1 in place and NO companion rows yet, run both owning commands and observe each fail on its equality assertion — the guaranteed red of the same commands Step 3 turns green:
+
+Run: `pnpm vitest run tests/mutation/_metaPremiseContract.test.ts`
+Expected: FAIL — "declares a count for every enrolled suite" (`tests/mutation/_metaPremiseContract.test.ts:137-142`) rejects the newly enrolled suite with no `EXPECTED_ENV_TOUCHING` key.
+
+Run: `pnpm heavy mutation:guards`
+Expected: FAIL — "declares expected ledger-kind counts for every enrolled surface" (`tests/mutation/guardSurfaces.gate.test.ts:150-155`) rejects `executionMethodsDerivation` with no `EXPECTED_LEDGER_KINDS` key. This red is UNCONDITIONAL (an equality over key sets), not score-dependent.
+
+- [ ] **Step 3: Add the two mandatory companion-registry rows (plan review R2 finding 1)**
+
+Enrolment touches TWO more hand-keyed registries; add the rows the Step 2 reds demanded:
 
 - `tests/mutation/_metaPremiseContract.test.ts` — `EXPECTED_ENV_TOUCHING` must declare a count for every enrolled suitePath (asserted at `tests/mutation/_metaPremiseContract.test.ts:137-142`). Add `"tests/db/executionMethodsManifest.test.ts": 0` — the classifier's provenance set counts `node:child_process`, ledger-git, and `process.env` reads as environment-touching (`tests/mutation/source/premiseScan.ts:28` and `tests/mutation/source/premiseScan.ts:211`); a bare `node:fs` read is pure to it, so the version sentinel classifies environment-free and the suite's declared count is ZERO (plan review R3 finding 1, probe-verified against the exact sentinel snippet). The sentinel keeps its `premiseHolds` line regardless — it states the read's premise for the human reader even though the classifier does not demand it. If the classifier's verdicts differ at implementation time, reconcile by reading them, not by bumping the number blind.
 - `tests/mutation/guardSurfaces.gate.test.ts` — `EXPECTED_LEDGER_KINDS` must declare a kind-count row for every `GuardSurface.id` (asserted at `tests/mutation/guardSurfaces.gate.test.ts:150-155`). Add `executionMethodsDerivation: {}` (the row starts with `accepted: []`; update the kind counts in the same commit as any survivor disposition so the two stay in lockstep).
@@ -660,16 +670,16 @@ Enrolment touches TWO more hand-keyed registries, and each reds until its row la
 Run: `pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts tests/mutation/_metaPremiseContract.test.ts`
 Expected: PASS after both rows land (row well-formed; the suite's premise usage satisfies the premise contract — if the premise-contract test demands a different helper form for any arm, repair the suite to comply, not the meta-test).
 
-- [ ] **Step 3: Run the gate**
+- [ ] **Step 4: Run the gate**
 
 Run: `pnpm heavy mutation:guards`
 Expected: the new surface reports a score and a survivor list. For each unaccepted survivor: kill it with a new derivation fixture where it exposes a real gap, or add an `accepted` row with a reachability argument where it is equivalent (registry conventions; deletion of dead code beats blessing it). Iterate until zero unaccepted survivors.
 
-- [ ] **Step 4: Tighten the floor and re-run**
+- [ ] **Step 5: Tighten the floor and re-run**
 
 Set `scoreFloor` to measured-minus-0.05. Re-run `pnpm heavy mutation:guards`; expected green. Record the measured score, the survivor dispositions, and the run duration in the Execution evidence section — the diff-review round-1 brief must state them (spec §5).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add tests/mutation/source/registry.ts tests/mutation/_metaPremiseContract.test.ts tests/mutation/guardSurfaces.gate.test.ts tests/db/executionMethodsManifest.test.ts docs/superpowers/plans/2026-08-16-execution-methods-driver-derived.md
