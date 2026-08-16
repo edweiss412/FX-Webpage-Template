@@ -199,46 +199,6 @@ The **nineteen** isolating mutants, as an operator list ready to enrol — every
 
 **First scheduled step:** run the mode against its ready first customer — the nineteen isolating mutants enumerated in `BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT`, each already run locally and reverted. All nineteen should be killed; any survivor is new information. Landing this row's mode is that entry's un-defer trigger.
 
-## BL-TESTFAST-RACES-TRANSIENT-MUTANT-FILE — a probe writes a temp test file into the tree while the other project is globbing
-
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** test-harness race (local false failure). **Effort:** S. **Class-sweep exception:** (c) — a harness surface the filing PR does not otherwise touch. **Reachability:** PROBED — observed, with the writer named and the victims cleared standalone.
-
-`tests/cross-cutting/pgCronCiVacuity.test.ts:159` writes a real file into the repo — `tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts` — runs it as a mutant, and removes it. `scripts/test-fast.mjs` runs the SERIAL and PARALLEL projects concurrently (that concurrency is the whole point of `test:fast`), so the other project's file glob can pick the transient up mid-run and execute it outside its harness.
-
-Observed once, in a full `pnpm test:fast`:
-
-```
-FAIL tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts > INERT MECHANISM PROBE
-Error: live case "INERT MECHANISM PROBE" issued NO database query — it is not a live case.
-FAIL tests/cross-cutting/pg-cron-coverage.test.ts
-```
-
-The failure is maximally confusing: the named file **does not exist** by the time anyone looks, and `pg-cron-coverage.test.ts` passes 8/8 standalone immediately afterwards. Nothing in the output says "this was a temp file".
-
-**Not a CI problem** — CI runs the projects in separate jobs, so the glob never overlaps. It costs local runs only, which is why it can persist.
-
-**First scheduled step:** write the mutant outside the globbed tree (a temp dir passed to vitest) rather than into `tests/`, or give it an extension the projects' `include` patterns do not match. Either removes the race outright; excluding the basename by name would leave the next such probe exposed.
-
-## BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS — the psql startup-file guard parses local `.next-*` build output and blows its own stack
-
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** guard usability (local-only false failure). **Effort:** XS. **Class-sweep exception:** (c) — a guard surface the filing PR does not otherwise touch. **Reachability:** PROBED, with a bisect that named the cause.
-
-`tests/cross-cutting/psqlStartupFiles/scan.ts:315`'s `IGNORED_AT_ROOT` skips `.next`, but this repo's own Playwright config builds into `.next-dev`, `.next-prod`, `.next-prod-flip` and `.next-screenshots-help` (`playwright.config.ts` webServer entries). Those are not skipped, so the walk hands megabytes of generated bundle JS to the TypeScript AST scan and it dies:
-
-```
-RangeError: Maximum call stack size exceeded
- ❯ visit tests/cross-cutting/psqlStartupFiles/scan.ts:535:9
- ❯ forEachChildInBinaryExpression typescript.js:32647:12
-```
-
-**19 of the guard's 745 cases fail** — including its own structural cases ("the walk is not vacuous", "the walk read every directory"), which is the confusing part: the failures read like a real psql violation and name no file.
-
-**Probed by bisect, all four steps:** the same commit passes 745/745 in a freshly-created worktree that has never built; it fails in a worktree that has; clearing `test-results/` and `.next/` does NOT fix it; moving the four `.next-*` directories aside DOES (745/745). So the trigger is the directory set, not the diff and not the environment more broadly.
-
-**CI is unaffected** — a fresh checkout has no `.next-*` — which is exactly why this can sit here indefinitely and cost each developer the same half-hour bisect.
-
-**First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
-
 ## BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT — the "no action needed" pill now reads louder than the "needs you" one
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique P2). **Class:** visual hierarchy. **Effort:** S. **Class-sweep exception:** (a) — the repair is a product decision this PR cannot settle. **Reachability:** PROBED — both branches are in `components/admin/showpage/PublishedReviewModal.tsx` at the alert pill (`data-testid` suffix `-alert-pill`), and the arithmetic is on the shipped class strings.
