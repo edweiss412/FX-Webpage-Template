@@ -39,6 +39,9 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { ledgerFiles, optsFor } from "@/scripts/lib/ledger-fields";
+import { premise } from "@/tests/_shared/premise";
+
 import {
   entryTerminal,
   extractEntries,
@@ -1261,5 +1264,161 @@ describe("graduated entries carry no in-flight marker", () => {
       const section = next === -1 ? rest : rest.slice(0, next + 1);
       expect(section, `${id}'s section does not name ${provenance}`).toContain(provenance);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Within-file id uniqueness (BL-ARCHIVE-DUPLICATE-ENTRY-IDS, 2026-08-15).
+//
+// `ledgerIds()` returns a Set (_ledgerMdast.ts:426), so every cross-file lane
+// in this suite is blind BY CONSTRUCTION to an id that appears twice inside one
+// file. The archive had 43 such pairs — not union-merge duplicates (a pairwise
+// body diff of all 43 measured a best similarity ratio of 0.12, i.e. zero
+// verbatim pairs) but the archive's own resolution convention: a terminal
+// record heading followed by the preserved original entry carrying a SECOND
+// id-bearing heading. Both mint the same id, so every heading-extraction
+// pipeline counts the entry twice.
+//
+// Spec: docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md
+// Census transcript:
+// docs/superpowers/plans/2026-08-15-archive-duplicate-ids/dup-census-2026-08-15.txt
+//
+// The repaired form (§2.3, the convention going forward): the terminal record
+// keeps the id-bearing heading; the preserved original's heading becomes a bold
+// PARAGRAPH line with identical text. A bold paragraph mints nothing — heading
+// lanes see headings only, and body-defined-id minting requires a bold
+// LIST-ITEM lead (_ledgerMdast.ts:360-375).
+// ---------------------------------------------------------------------------
+
+/** Every mdast heading depth. */
+const ALL_DEPTHS: readonly number[] = [1, 2, 3, 4, 5, 6];
+
+type Duplicate = { id: string; lines: number[] };
+
+/**
+ * Ids minted more than once within one ledger text.
+ *
+ * TWO passes, and the split is the whole design:
+ *
+ * - DOMAIN: the family's RATIFIED levels. This alone decides WHICH ids are
+ *   judged, so a level-2 `## CI speedup …` prose heading in the null-prefix
+ *   DEFERRED family (live at DEFERRED-archive.md, two of them) can never
+ *   false-positive — `CI` is not a DEFERRED entry at level 3, so it is out of
+ *   domain no matter how many times it appears.
+ * - SCAN: EVERY depth, with the family's prefix rule. A duplicate parked at any
+ *   depth collides with an in-domain id, including a one-character `####` typo
+ *   — the shape that hid two live BACKLOG pairs from a levels-[2,3] scan. The
+ *   wider scan adds no false-positive surface beyond what the family grammar
+ *   already tolerates, because the domain pass alone bounds the judged set.
+ *
+ * Exported shape is a LIST, not a Set: `extractEntries` returns one row per
+ * id-heading, which is exactly the visibility `ledgerIds` throws away.
+ */
+const duplicateIds = (text: string, familyOpts: ExtractOpts): Duplicate[] => {
+  const domain = new Set(extractEntries(text, familyOpts).map((e) => e.id));
+  const scan = extractEntries(text, {
+    requirePrefix: familyOpts.requirePrefix,
+    levels: ALL_DEPTHS,
+  });
+  const byId = new Map<string, number[]>();
+  for (const entry of scan) {
+    byId.set(entry.id, [...(byId.get(entry.id) ?? []), entry.line]);
+  }
+  return [...byId.entries()]
+    .filter(([id, lines]) => lines.length > 1 && domain.has(id))
+    .map(([id, lines]) => ({ id, lines }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+};
+
+describe("within-file ledger id uniqueness", () => {
+  it("no ledger file mints the same id on more than one heading", () => {
+    // Discovery through the REGISTRY (ledgerFiles + optsFor), never an
+    // enumerated filename list: a family added to LEDGER_FAMILIES brings its
+    // base+archive pair into this lane by default rather than going dark.
+    const files = ledgerFiles(process.cwd());
+    premise("ledger discovery reaches the registered families' files", files.length, 3);
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      for (const { id, lines } of duplicateIds(read(file), optsFor(file))) {
+        offenders.push(`${file}: ${id} at lines ${lines.join(", ")}`);
+      }
+    }
+    expect(
+      offenders,
+      "an id is minted by more than one heading in the same ledger file — demote the " +
+        "preserved original's heading to a bold line (spec §2.3, " +
+        "docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md)",
+    ).toEqual([]);
+  });
+
+  it("plants: the lane fires on every duplicate shape and stays quiet on the rest", () => {
+    // Executable plants through the SAME duplicateIds the live walk uses (the
+    // r40 architecture): removing a lane's WIRING breaks a plant, not just a
+    // code-reading claim. Unconditional execution — never inside `.each`.
+    const FUTURE_OPTS: ExtractOpts = { requirePrefix: null, levels: [4] };
+    const fires = (text: string, opts: ExtractOpts): string[] =>
+      duplicateIds(text, opts).map((d) => d.id);
+
+    // --- FIRE rows ---------------------------------------------------------
+    // Same-level duplicate: the plain union-merge shape.
+    expect(fires("## BL-X — a\n\nbody.\n\n## BL-X — b\n\nbody.\n", BACKLOG_OPTS)).toEqual(["BL-X"]);
+    // Cross-level: terminal record at ##, preserved original at ###. The live
+    // BACKLOG shape, 35 pairs of it.
+    expect(fires("## BL-X — RESOLVED\n\nbody.\n\n### BL-X — original\n\nbody.\n", BACKLOG_OPTS)).toEqual(
+      ["BL-X"],
+    );
+    // DEFERRED family: ## stub + ### original. Invisible to levels [3] alone,
+    // which is why the SCAN pass spans depths — four live pairs.
+    expect(
+      fires("## DEF-STUB-1 — RESOLVED\n\nbody.\n\n### DEF-STUB-1 — original\n\nbody.\n", DEFERRED_OPTS),
+    ).toEqual(["DEF-STUB-1"]);
+    // A family registered at a NON-default level still fires: the lane reads
+    // levels off the registry rather than assuming [2,3]/[3].
+    expect(fires("#### FUT-1 — a\n\nbody.\n\n#### FUT-1 — b\n\nbody.\n", FUTURE_OPTS)).toEqual([
+      "FUT-1",
+    ]);
+    // The one-character depth typo: `####` is outside BOTH families' ratified
+    // levels, so a levels-[2,3] scan passes this silently. Without this plant a
+    // revert to the narrower scan satisfies every other row here.
+    expect(fires("## BL-X — RESOLVED\n\nbody.\n\n#### BL-X — original\n\nbody.\n", BACKLOG_OPTS)).toEqual(
+      ["BL-X"],
+    );
+
+    // --- STAYS-QUIET rows, each with the pin it protects -------------------
+    // PIN: the domain rule. Two `## CI …` prose section headings in the
+    // null-prefix DEFERRED family — the LIVE shape (DEFERRED-archive.md has
+    // exactly this pair). `CI` mints at level 2 only, never at the family's
+    // ratified level 3, so it is out of domain. The premise makes the row
+    // non-vacuous: without it, this passes even if the scan saw nothing at all.
+    const ciText = "## CI speedup — phase 2\n\nbody.\n\n## CI unit-suite sharding\n\nbody.\n";
+    premise(
+      "the CI-prose plant reaches the scan pass (else the quiet row proves nothing)",
+      extractEntries(ciText, { requirePrefix: null, levels: ALL_DEPTHS }).filter(
+        (e) => e.id === "CI",
+      ).length,
+      1,
+    );
+    expect(fires(ciText, DEFERRED_OPTS)).toEqual([]);
+
+    // PIN: the REPAIRED form. One heading plus the demoted bold paragraph line
+    // carrying identical text. If a bold paragraph ever started minting an id,
+    // this arc's 43 repairs would all reopen.
+    const repaired = "## BL-X — RESOLVED\n\nbody.\n\n**BL-X — original**\n\nbody.\n";
+    premise(
+      "the repaired plant's survivor heading still mints (else the quiet row is vacuous)",
+      extractEntries(repaired, { requirePrefix: "BL-", levels: ALL_DEPTHS }).length,
+      0,
+    );
+    expect(fires(repaired, BACKLOG_OPTS)).toEqual([]);
+
+    // PIN: distinct ids at the same level are not a collision.
+    const twoIds = "## BL-X — a\n\nbody.\n\n## BL-Y — b\n\nbody.\n";
+    premise(
+      "the two-id plant mints both ids (else the quiet row is vacuous)",
+      extractEntries(twoIds, { requirePrefix: "BL-", levels: ALL_DEPTHS }).length,
+      1,
+    );
+    expect(fires(twoIds, BACKLOG_OPTS)).toEqual([]);
   });
 });

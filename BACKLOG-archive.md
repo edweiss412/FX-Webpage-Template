@@ -2714,9 +2714,9 @@ screen-disposition 2026-08-04: DEMOTE — probed file-backed store, worst case i
 a validation-only surface, un-defer trigger preserved in the guard file and here.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-### BL-RATE-LIMIT-SNAPSHOT-DURABILITY — DB-backed snapshot store for rate-limit fixture seed/restore
+**BL-RATE-LIMIT-SNAPSHOT-DURABILITY — DB-backed snapshot store for rate-limit fixture seed/restore**
 
 **Filed:** 2026-05-28 from M12 Phase 0.E close-out §6 finding 3 (R9 durability residual).
 
@@ -2762,9 +2762,9 @@ vitest-bound, both directions run live, and the row asks for a relocation with n
 it. Counts corrected on the way out: five importers, not four; five hardcoded paths, not three.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-## BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/
+**BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/**
 
 **Status:** OPEN · **Severity:** low · **Class:** module placement · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.3) · **Effort:** M
 
@@ -2811,9 +2811,9 @@ screen-disposition 2026-08-04: DEMOTE — fail-open by construction (the viewer 
 zero corpus instances of the date-partitioned shape, and #610 already ratified not changing it.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
+**BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold**
 
 **Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH
 
@@ -2873,9 +2873,9 @@ case is a conservative under-measurement, and the limit now lives in this record
 trigger intact.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-## BL-FITWITHINCLIP-CLIP-SCROLL-STALE — a SCROLLING clip ancestor is never re-measured on scroll
+**BL-FITWITHINCLIP-CLIP-SCROLL-STALE — a SCROLLING clip ancestor is never re-measured on scroll**
 
 **Effort:** S
 
@@ -2955,7 +2955,7 @@ Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §
 The original entry follows, its in-flight marker stripped — an archive cannot hold work in
 flight (invariant 12). Nothing else is edited.
 
-## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — the wizard Phase D apply discards its capability notice
+**BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — the wizard Phase D apply discards its capability notice**
 
 **Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #7, review R1 finding 1) · **Class:** audit emission gap (onboarding Phase D) · **Effort:** S-M (a post-commit sink on the finalize-cas route)
 
@@ -2998,7 +2998,7 @@ Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §
 The original entry follows, its in-flight marker stripped — an archive cannot hold work in
 flight (invariant 12). Nothing else is edited.
 
-## BL-IDENTITYLINK-LANDED-VS-REQUESTED — the notice and feed consume requested rename pairs, not landed ones
+**BL-IDENTITYLINK-LANDED-VS-REQUESTED — the notice and feed consume requested rename pairs, not landed ones**
 
 **Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #8, review R1 finding 2) · **Class:** sync audit fidelity (cron + staged, shared) · **Effort:** M (the reconciler must report what it landed)
 
@@ -3040,7 +3040,7 @@ Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §
 The original entry follows, its in-flight marker stripped — an archive cannot hold work in
 flight (invariant 12). Nothing else is edited.
 
-## BL-UNDO-SELECTIONS-RESET-AT-DROP — any crew undo resets `selections_reset_at` to null
+**BL-UNDO-SELECTIONS-RESET-AT-DROP — any crew undo resets `selections_reset_at` to null**
 
 **Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #9, review R1 finding 3) · **Class:** undo lifecycle fidelity · **Effort:** S (one column through `before_image` + the Direction A re-insert)
 
@@ -3091,7 +3091,7 @@ xAdvance of 1292 units, so a width assertion can never see the feature work.
 
 ## BL-ADMIN-NOJS-LOADING-CONFLICT — RESOLVED (2026-08-03, `fix/nojs-loading-shell-notice`)
 
-### BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming
+**BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming**
 
 Filed 2026-06-10 (discovered during mobile needs-attention T5 e2e run; pre-existing since M12.11 `f2f7f7b4`). The `admin-banner.spec.ts` "no-JS native summary" e2e fails on main: with `javaScriptEnabled:false` the admin dashboard never leaves the `app/admin/loading.tsx` skeleton because React streams suspense content into a hidden div swapped by an inline `$RC()` script that needs JS. No CI workflow runs Playwright, so it went unnoticed. Structurally: the no-JS banner contract and instant loading skeletons are incompatible as shipped. Options when picked up: drop the no-JS contract test, gate loading.tsx behind JS detection (not really possible server-side), or accept skeleton-only no-JS rendering and retarget the test. Technical home: `tests/e2e/admin-banner.spec.ts:261` + `app/admin/loading.tsx`.
 
@@ -3180,7 +3180,7 @@ Shipped as a one-shot flash-then-fade on the panel card of each registry section
 
 The original entry, unedited, follows.
 
-## BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters
+**BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters**
 
 **Filed:** 2026-07-24 (retroactive — deferred in PR #505's body 2026-07-20, never filed) · **Class:** UI refinement · **Effort:** S
 
@@ -3192,7 +3192,7 @@ Impeccable P3 from `admin-modal-realtime-refresh`: an optional "updated just now
 
 ## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
 
-### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors
+**BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors**
 
 **Filed:** 2026-06-28 (cross-model review of PR #179) · **Class:** data fidelity · **Effort:** S · **Resolved:** 2026-08-03
 
@@ -3224,7 +3224,7 @@ Documented in full at `docs/superpowers/specs/step3-onboarding/2026-08-03-finali
 
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
-## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access
+**BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access**
 
 **Filed:** 2026-08-02 (docs/citation-rot-financials-vocab, spec review R2 finding 3) · **Class:** docs/copy (§12.4 catalog) · **Severity:** low · **Effort:** S
 
@@ -3232,13 +3232,13 @@ Master spec §12.4 `ROLE_FLAGS_NOTICE` helpfulContext (`docs/superpowers/specs/2
 
 ## BL-ADMIN-PARSEPANEL-ORPHANED — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
-## BL-ADMIN-PARSEPANEL-ORPHANED — ParsePanel/StagedReviewCard live-scope mount orphaned
+**BL-ADMIN-PARSEPANEL-ORPHANED — ParsePanel/StagedReviewCard live-scope mount orphaned**
 
 Since the show-page→modal pivot (#476) nothing imports `components/admin/ParsePanel.tsx` (its per-show mount was deleted; whole-parse review was deliberately dropped from published shows in 65d5be75a in favor of MI-11 holds in the Changes feed). `StagedReviewCard` remains live in the onboarding wizard; the live-scope `ParsePanel` wrapper is dead code. Surfaced during published-show-alerts (2026-07-19, spec §14). **Fix (when prioritized):** delete ParsePanel or re-home it explicitly; sweep `tests/e2e/_metaEmphasisRenderContract` style registries on removal.
 
 ## BL-HELP-STRIP-COPYLINK-STALE — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
-### BL-HELP-STRIP-COPYLINK-STALE — help prose still describes the retired strip copy-link
+**BL-HELP-STRIP-COPYLINK-STALE — help prose still describes the retired strip copy-link**
 
 **Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** DOCS
 
@@ -3248,7 +3248,7 @@ Pre-existing debt from `docs/superpowers/specs/2026-07-20-share-hub-design.md:10
 
 ## BL-UNPUBLISH-TO-HELD — RESOLVED (2026-08-03, `docs/graduate-bl-unpublish-to-held` — already shipped 2026-07-01; row filed on a false verification)
 
-## BL-UNPUBLISH-TO-HELD — no inverse action returning a published show to Held
+**BL-UNPUBLISH-TO-HELD — no inverse action returning a published show to Held**
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:291` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** admin lifecycle gap. **Effort:** M (new RPC + state-machine review).
 
@@ -3260,7 +3260,7 @@ The existing M12.13 token-unpublish ARCHIVES the show; there is no published→H
 
 ## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — RESOLVED — WON'T BUILD (2026-08-03, `docs/close-v1-override-wont-build`)
 
-## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — no admin force-classify for a genuine legacy-v1 sheet
+**BL-VERSION-AMBIGUOUS-V1-OVERRIDE — no admin force-classify for a genuine legacy-v1 sheet**
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md:171` defers it by name in §10, with no row anywhere). **Class:** operator escape hatch. **Effort:** M.
 
@@ -3492,7 +3492,7 @@ This id was never opened as a row — `DEFERRED-archive.md`'s COLLAPSE-REGION-1 
 
 **Resolution:** both guard layers now refuse static `env:` blocks carrying off-allowlist pairs. One shared registry in the scanner module — `ENV_KEY_ALLOWLIST`, VALUE-PINNED and PAIR-KEYED GOVERNANCE-BOUND rows (`key → { values: [{ text: exact scalar text, governs: [covered spec paths THAT PAIR gates] }], reason }`) seeded from the 35 live keys (38 pairs). Governance hangs off the VALUE, never the key: a key-level list cannot see two live values of one row swap between the claiming site and a parked one, which leaves a value-gated spec self-skipping green — and one shared predicate `offAllowlistEnvKeys` (`Object.hasOwn` membership + pinned-value-text membership; expressions pin as text). Scanner: scope-correct rejection — workflow-root env governs the file, job env its job, a run-step's env its own claims — with reason `env block sets unmodelled key(s): <sorted keys>`; a `uses:`/composite step handed dirty env poisons the job fail-closed through the generalized `envPoisoned` mechanism (reason and census why-string both name the static source now). Census: `runBlocksOf` gained an allowlist parameter and per-scope poison seeding; composite dirt poisons onward, workflow run-step dirt stays block-local. Mutation families pinned per layer, not uniformly in both: S1–S3 and S7 (scope/traversal, fail-open flip, precision twins, value-pin) in BOTH self-suites; S4–S6 and S8 (reason strings, multi-key completeness, allowlist hygiene, governance) in the SCANNER self-suite only, because reasons, the registry and the governance derivation are scanner-side concepts the census does not model (S7 = value-pin deletion, from the R2 live mutant `MODAL_PREFETCH_E2E=0` — a green run with no tests under a key-name-only registry; S8 = governance-binding deletion, from the R3 relocation / R4 prose-laundering / R5 duplicate-substitution live mutants — governance derives from the scan's own covered-claim crediting via `envPairGovernance` + `governanceViolations`); pair-level stale-row + live-completeness (both directions: declared→live and live→declared) + governance-equality + reason hygiene keeps the registry from rotting in either direction. Spec: docs/superpowers/specs/ci/2026-08-02-ci-static-env-injection-design.md (§7 = review record). Original entry below.
 
-## BL-CI-STATIC-ENV-INJECTION — a workflow/job/step `env:` block can select a fake executable and the coverage scanner still counts the spec
+**BL-CI-STATIC-ENV-INJECTION — a workflow/job/step `env:` block can select a fake executable and the coverage scanner still counts the spec**
 
 **Filed:** 2026-08-01 (R1 adversarial review of the cross-step-env-guard spec, `docs/superpowers/specs/ci/2026-08-01-ci-cross-step-env-guard-design.md` §5 L3). **Class:** CI guard soundness. **Effort:** S–M.
 
@@ -3506,7 +3506,7 @@ Static env injection is a FAIL-OPEN residual of `tests/ci/_workflowCoverageScan.
 
 ## BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — RESOLVED (2026-08-02, `docs/citation-rot-financials-vocab`)
 
-### BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow
+**BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow**
 
 **Status:** OPEN — fallout from c7c5625c2, found while shipping PR #610 · **Severity:** very low · **Class:** DOC HYGIENE
 
@@ -3536,7 +3536,7 @@ retiring spec itself, where the old name is legitimate history.
 
 ## BL-MASTERSPEC-FINANCIALS-VOCAB — RESOLVED (2026-08-02, `docs/citation-rot-financials-vocab`)
 
-## BL-MASTERSPEC-FINANCIALS-VOCAB — reconcile stale LEAD-only financials-gate prose in the master spec
+**BL-MASTERSPEC-FINANCIALS-VOCAB — reconcile stale LEAD-only financials-gate prose in the master spec**
 
 **Filed:** 2026-07-17 (role-flags-notice-lead-only-doug, owner scope decision) · **Class:** docs (canonical-spec consistency) · **Effort:** S (doc-only grep-sweep)
 
@@ -3548,7 +3548,7 @@ Pre-existing `2026-07-15-extend-role-scope-vocab` debt: that spec added the `FIN
 
 **Resolution:** the syntactic 19-spelling matcher in `tests/cross-cutting/no-absolute-self-redirect-audit.ts` is replaced by TWO-PRONG type-checker resolution over walked roots extended to `app/** + lib/**` plus the permitted root middleware/proxy surfaces (ts/tsx/js): prong 1 flags every call whose resolved signature's declaration is `redirect` on a container named `NextResponse`/`Response`; prong 2 flags every OTHER reference to that method OR to the class object carrying it — property/element access, binding elements, destructuring-assignment members (via the vendored compiler's `getTypeOfAssignmentPattern`), and naked `NextResponse`/`Response` value flows — type-decided, never allow-listable. All four residual classes this entry filed (helper return, class field, re-export, dynamic dispatch) are caught, plus the families the spec/plan reviews and the whole-diff rounds (each recorded in the spec's disposition blocks) surfaced on the way: twelve typed value-flow shapes, ten literal-typed computed-key extraction shapes, union-typed keys, eight destructuring-assignment forms, ten whole-receiver structural-laundering shapes, namespace carriers, import-call carriers, re-export carriers, CommonJS require and import-equals carriers, and global-object carriers (symbol-based provenance over direct references, local aliases, and single-file helper returns; deeper environment indirection stays under the deliberate-evasion concession) — the spec §6 closure tables are the canonical enumeration (grown across the whole-diff rounds), pinned by fixtures + the E1 escape pin in `tests/cross-cutting/no-absolute-self-redirect.test.ts`. Former limits receiver-as-any, widened computed keys, and `Reflect.get` are CAUGHT at the naked class-object reference their erasure must spell; the sole remaining type-erasure limit, pinned AS BEHAVIOR (E1), is string-mediated dynamic access (eval shape). Plain-JS modules are fenced out of the walked roots by a sentinel (tsconfig `include` is TS-only + `checkJs` off, so `tsc --noEmit` gives JS no backstop). Spec: docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md (spec APPROVE r4, plan APPROVE r3, then whole-diff-driven closures recorded in the spec's disposition blocks; probe harness committed: self-contained probes beside the spec, the importing mutant corpus under tests/cross-cutting/redirect-guard-probes/). Original entry below.
 
-## BL-SOUND-REDIRECT-GUARD — the self-redirect guard is a known-spellings tripwire, not a sound analysis
+**BL-SOUND-REDIRECT-GUARD — the self-redirect guard is a known-spellings tripwire, not a sound analysis**
 
 **Status:** OPEN · **Severity:** low (the tree is clean; this is about future-proofing) · **Surfaced:** `fix/picker-flow-app-bugs` review rounds 1-5 (2026-07-25)
 
@@ -3562,7 +3562,7 @@ Pre-existing `2026-07-15-extend-role-scope-vocab` debt: that spec added the `FIN
 
 **Resolution:** both guard layers now model job-scoped cross-step env state. Census: `RunBlock` gained `poisoned`; `runBlocksOf` walks each job's steps in order with one recursive walker — comment-stripped `GITHUB_ENV`/`GITHUB_PATH` mention poisons every later same-job block; local composite actions splice at the use site (poison flows both directions, nesting recurses with a PATH-scoped cycle guard); unknown, non-composite (javascript/docker), and cyclic `./` refs poison fail-closed; poisoned classifying blocks route registry-or-loud (`environment poisoned by an earlier same-job GITHUB_ENV/GITHUB_PATH write`). Scanner: per-job `envPoisoned` threaded across ALL step chunks with a new rejection reason (`earlier same-job step writes GITHUB_ENV/GITHUB_PATH`) placed after the unmodelled-override gate and after the shape gates that decide whether the file or job can run at all, plus a recursive `localActionPoisons` resolver (quote-stripped refs, composite-only, cycle fail-closed) fed by a `localActions` manifest map. Mutation-family closure F1–F8 pinned by fixtures in both self-suites; R1 adversarial review contributed F7 (non-composite opaque actions) and F8 (nested composite recursion) via live escaping mutants, corrected the GITHUB_PATH write semantics in every example, and split static `env:` injection out as `BL-CI-STATIC-ENV-INJECTION` (a fail-open residual at the time; CLOSED since by `test/ci-static-env-injection` and graduated to this archive — do not re-file it against the active queue). Spec: docs/superpowers/specs/ci/2026-08-01-ci-cross-step-env-guard-design.md (§7 = review record). Original entry below.
 
-## BL-CI-GITHUB-ENV-CROSS-STEP-STATE — an earlier step's GITHUB_ENV/GITHUB_PATH write can neuter a later step's playwright invocation, and neither guard layer sees it
+**BL-CI-GITHUB-ENV-CROSS-STEP-STATE — an earlier step's GITHUB_ENV/GITHUB_PATH write can neuter a later step's playwright invocation, and neither guard layer sees it**
 
 **Filed:** 2026-07-31 (R12 adversarial review of `feat/ci-dark-descoped-guards`, class-sweep spillover). **Class:** CI guard soundness. **Effort:** M.
 
@@ -3574,7 +3574,7 @@ R12 closed the WITHIN-run-block shell-state class in both guard layers (the invo
 
 **Resolution:** the remaining sound direction from the entry — a probe that sabotages the query-count mechanism and asserts the guard notices — shipped as two execute-the-suite probes in `tests/cross-cutting/pgCronCiVacuity.test.ts`: an injected inert live case must red the mutant suite BY NAME (per-case attribution wired), and with the observe argument stripped it must red via the aggregate afterAll message (backstop present). Mutation-family closure measured live: MF-1 whole-mechanism deletion (the `1c1ae148e` state), MF-2 observe-arg drop, and MF-4 aggregate-branch deletion all escaped every prior guard and are now each caught; MF-3 increment-drop was already caught by the existing reachable-DB probe. The meaningfulness proxy stays fenced OFF (a `psql("SELECT 1")` body still passes — reviewer territory by four-round ratification). Spec: `docs/superpowers/specs/ci/2026-08-01-pg-cron-mechanism-sabotage-probe-design.md`. Original entry below.
 
-### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case
+**BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case**
 
 **Status:** OPEN · **Severity:** LOW (guard completeness; no live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR3 of the CI-dark cluster, adversarial R4)
 
@@ -3596,7 +3596,7 @@ R12 closed the WITHIN-run-block shell-state class in both guard layers (the invo
 
 **Resolution:** the tripwire now parses each ledger with remark + remark-gfm and evaluates the terminal-word + veto semantics on the mdast — `tests/docs/_ledgerMdast.ts` (provenance-mapped id extraction, id-heading-to-id-heading partition, disposition-table flatten, seven lanes behind one `entryTerminal` evaluator). The full r15–r40 plant corpus rides the walker verdict-preserving; the owner-split r22–r41 containment hardening (`tests/components/admin/sheetIconLinkContainment.test.ts`) was restored from snapshot `a1cfce98d` with a two-row PR-#640 reconcile and its sheet-icon spec §7.10 paragraph in lockstep; the three r41 open findings were re-derived by probe (both ledger classes REPRODUCED and fixed — reordered field rows now caught, hyphenated-id false positives closed by line-global token maximality; the census-expression-shapes probe found no escaping variant). Spec: docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md (eleven adversarial rounds, r11 APPROVE). Original entry below.
 
-## BL-LEDGER-GUARD-MDAST-REWRITE — port the graduation tripwire from regexes onto the remark/mdast AST
+**BL-LEDGER-GUARD-MDAST-REWRITE — port the graduation tripwire from regexes onto the remark/mdast AST**
 
 **Filed:** 2026-07-31 (branch `feat/sheet-icon-link-affordance-class`, whole-diff rounds 22-30). **Class:** test infrastructure. **Effort:** M.
 
@@ -4979,7 +4979,7 @@ Cheap partial if it ever bites in practice: strip a trailing occurrence from the
 
 **Status:** CLOSED-REFUTED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** The mandated empirical probe (5 Playwright cases, spec §2 of `docs/superpowers/specs/2026-07-31-archive-lifecycle-race-cluster-design.md`) refuted the inferred mechanism: with the archive action's POST response HELD 3s after the server fully processed it (RPC committed, broadcast published), the same-tab UI recorded ZERO state changes during the hold — Next's app-router action queue serializes router.refresh() behind the in-flight action, so the "realtime invalidation swaps Archive→Unarchive while useFormStatus is pending" scenario cannot occur same-tab. 8/8 unforced runs settled first. The measured residue was a 6ms post-settle painted frame (enabled Unarchive inside the still-open popover, one commit before the §4 close; unclickable even by Playwright actionability), eliminated by switching the ShareHub §4 lifecycle-close effect to useLayoutEffect (close commits pre-paint). Cross-tab (armed, not pending) the §4 close behaves as designed, same 6ms frame, same fix; covered by the restored compound e2e case. Original entry below for provenance.
 
-## BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE — realtime invalidation can swap Archive→Unarchive while the archive form is still pending
+**BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE — realtime invalidation can swap Archive→Unarchive while the archive form is still pending**
 
 **Status:** OPEN · **Severity:** MEDIUM (destructive-control race; needs probe before design) · **Class:** cross-surface lifecycle race — surfaced by the archive-row-menu-idiom spec R15 adversarial round (2026-07-24); inferred from code paths, NOT yet empirically probed.
 
@@ -4989,7 +4989,7 @@ Scenario: the archive RPC's show invalidation publishes before the server action
 
 **Status:** CLOSED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** Probe Case C confirmed the duplicate (stale tab's no-op archive → two SHOW_ARCHIVED rows for one transition). Fixed FAMILY-WIDE per the class-sweep rule: archive_show / publish_show (+\_publish_show_core) / unpublish_show now return a performed/no-op boolean discriminator (migration `20260801000000_lifecycle_rpc_performed_discriminator.sql`, single-transaction DROP+recreate; unarchive_show already boolean — contract introduced by 20260602000002, preserved through the 20260718000001 refactor); `LifecycleResult` carries required `performed`; all three admin actions gate `logAdminOutcome` on it (revalidates still run on ok so a stale surface heals). Layered coverage: `tests/db/lifecycle_rpc_performed.test.ts` (RPC discriminator + no-op side-effect probes) and no-op zero-emission cases in `tests/log/adminOutcomeBehavior.test.ts`. Original entry below for provenance.
 
-## BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — no-op repeat archive emits a duplicate SHOW_ARCHIVED event
+**BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — no-op repeat archive emits a duplicate SHOW_ARCHIVED event**
 
 **Status:** OPEN · **Severity:** LOW (forensic telemetry cosmetics) · **Class:** idempotent-no-op observability — surfaced by the archive-row-menu-idiom spec R15 adversarial round (2026-07-24).
 
@@ -5228,7 +5228,7 @@ From the impeccable audit of `feat/crew-warning-attachment` (2026-07-23), pre-ex
 
 Original entry (provenance):
 
-## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a §12 closeout
+**BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a §12 closeout**
 
 Descoped out of the 2026-07-24 dev-row copy close-out after three consecutive whole-diff
 review rounds on the same vector. The change shipped
@@ -5359,7 +5359,7 @@ Current surface files: `components/admin/wizard/Step3Review.tsx`, `Step3ReviewMo
 
 The hub's own `fixed inset-0 z-20` backdrop painted over its NON-POSITIONED trigger siblings and swallowed their taps; a trigger click only appeared to work because the backdrop's handler closed the popover, which is why focus was never restored. Closed with a THREE-term elevation gate on the triggers (`open && !busy && !attentionMenuOpen`), the menu term threaded PublishedReviewModal → StatusStrip → ShareHub. The third term is load-bearing: the attention menu's panel is z-20 in the same band, and an unconditional elevation is the regression share-hub-fidelity-fixes §3 already had to fix once. Real-browser proof in `tests/e2e/admin-lifecycle-layout.spec.ts` (T-BACKDROP-TRIGGERS (a) hit test, (b) a real click that pre-fix could not even dispatch — Playwright reported the backdrop intercepting pointer events).
 
-### BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS — the hub backdrop swallows taps on its own triggers
+**BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS — the hub backdrop swallows taps on its own triggers**
 
 **Status:** OPEN · **Severity:** LOW (near-invisible in use) · **Class:** stacking-context misconception.
 
@@ -5375,7 +5375,7 @@ With the hub open, the `fixed inset-0 z-20` backdrop wins the hit test over both
 
 Filed by the popover-overlay registry as `unverified-gap`, then MEASURED: at 390×560 the panel overhung the clipping modal panel by 55px with a 54px stranded tail, so the suspicion was right. The scroller now takes the shared `useFitWithinClip`, capping `max-h-96` against the clip edge, and gains `role="group"` + `aria-label="Show issues"` + `tabIndex={0}` so a monitoring-only list (all read-only rows, zero focusable descendants) is still keyboard-reachable. Registry row flipped to `fit-within-clip`.
 
-### BL-ATTENTION-MENU-PANEL-CLIP — attention menu is an anchored, capped scroller inside the clipping panel
+**BL-ATTENTION-MENU-PANEL-CLIP — attention menu is an anchored, capped scroller inside the clipping panel**
 
 **Status:** OPEN · **Severity:** UNVERIFIED (needs measurement before triage) · **Class:** same as `BL-SHAREHUB-ARM-VIEWPORT-REVEAL`, which graduated to `BACKLOG-archive.md` when it shipped.
 
@@ -5391,7 +5391,7 @@ NOT fixed on suspicion: whether it strands content depends on measured geometry,
 
 Same class on the anchored refusal banner: measured overhang 43.7px past a 220px clip, with `overflow-y: visible` so the tail was simply cut. Now capped by `useFitWithinClip`, made a real scroll container (`overflow-y-auto`), and given `aria-label="Publish error details"` + `tabIndex={0}`. The finalize hint shares the popover testid but is an in-flow chip and deliberately did NOT acquire the treatment — pinned as a mode boundary.
 
-### BL-PUBLISHED-TOGGLE-OVERLAY-CLIP — published-toggle error overlay can be cut by the panel clip
+**BL-PUBLISHED-TOGGLE-OVERLAY-CLIP — published-toggle error overlay can be cut by the panel clip**
 
 **Status:** OPEN · **Severity:** LOW · **Class:** as above, weaker variant.
 
@@ -5403,7 +5403,7 @@ Same class on the anchored refusal banner: measured overhang 43.7px past a 220px
 
 The armed Archive confirm now names the show, in owner-ratified copy: `Crew links for “{name}” stop working now and won’t come back until you re-publish and issue a new link.`, with the armed group labelled `Confirm archiving “{name}”`. A blank-safe guard (absent / empty / whitespace) renders today's strings byte-identically, so every non-hub call site and any partial data during editing is unchanged, and the prop is consumed ONLY in the `asRow` armed branch. A no-truncation pin keeps a pathological title fully visible — eliding the show's name on a destructive confirm is the failure mode that matters.
 
-### BL-SHAREHUB-CONFIRM-NAMES-SHOW — armed Archive confirm does not name the show it will archive
+**BL-SHAREHUB-CONFIRM-NAMES-SHOW — armed Archive confirm does not name the show it will archive**
 
 **Status:** OPEN · **Severity:** LOW · **Class:** destructive-confirm context.
 
@@ -5419,7 +5419,7 @@ Fix shape: include the show title in the armed confirm copy in `components/admin
 
 Closed as a MEASURED ARTIFACT, not a product leak. Root cause: the open-focus effect's `panelRef.current?.focus()` makes jsdom run `Selection._associateRange`, which arms a `setTimeout(0)` of its own; under fake timers that macrotask is never drained, so it shows up in `getTimerCount()`. A real browser has no such timer. No component change was warranted; the delta-based assertion style stays (a global zero-count assertion is unusable in jsdom by construction) and the root cause is now recorded at the delta baseline so the next reader does not re-bisect it.
 
-### BL-SHAREHUB-OPEN-TIMER-LEAK — opening the hub arms a timer that survives unmount
+**BL-SHAREHUB-OPEN-TIMER-LEAK — opening the hub arms a timer that survives unmount**
 
 **Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** RESOURCE HYGIENE
 
@@ -5433,7 +5433,7 @@ Consequence today is limited to test hygiene: it makes a global `vi.getTimerCoun
 
 The duplicated leading-edge rAF throttle extracted to `lib/popover/rafCoalescer.ts` and adopted by both consumers, with the pending flag cleared BEFORE running so events landing mid-frame can schedule the next one. Adoption is held by an AST meta-test that resolves callees through the TypeScript type checker rather than matching identifier text, so a same-named local const, a shadowing function parameter, and a decoy-module import all fail it (each demonstrated as a reverted mutant). Both consumers' cleanups now cancel through the shared instance.
 
-### BL-POPOVER-SHARED-RAF-COALESCER — one coalescer helper for both popover consumers
+**BL-POPOVER-SHARED-RAF-COALESCER — one coalescer helper for both popover consumers**
 
 **Filed:** 2026-07-25 (impeccable audit P2) · **Class:** code duplication / drift risk · **Effort:** S
 
@@ -5591,9 +5591,9 @@ This is **pre-existing and project-wide**: `--color-accent-on-bg` is the link/em
 Moved out of the open queue 2026-08-02. Its own heading said `✅ FULLY CLOSED`, but the
 graduation guard reads a terminal word only in leading position, so `FULLY CLOSED` /
 `FULLY RESOLVED` / `ALREADY SHIPPED` all classify as OPEN while reading as closed to a
-human. Filed as BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND. Entry preserved verbatim below.
+human. Filed as BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND. Entry preserved verbatim below (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-#### BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK — Drive-under-lock class — ✅ FULLY CLOSED (both instances fixed)
+**BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK — Drive-under-lock class — ✅ FULLY CLOSED (both instances fixed)**
 
 **✅ RESOLVED (2026-06-22).** Both instances of the Drive-under-lock class are fixed and the advisory-lock guard now enforces the whole `lib/sync` / `lib/drive` / `lib/asset` subtree with **no allowlist** (the `knownDriveUnderLockPaths` exemption was removed). History retained below.
 
@@ -5707,7 +5707,7 @@ The third suggestion, a scoped `retry: 1`, was NOT taken: retries mask nondeterm
 
 Pinned by `tests/cross-cutting/db-test-timeout-floor.test.ts` — the floor against both the authored and the RESOLVED runtime config (so a CLI override cannot pass on the strength of the file alone), plus a filesystem-walked ban on `vi.waitFor` in DB-touching files, which fails by default for a newly added one. `vi.waitFor` in `tests/components/**` and `tests/admin/**` is deliberately untouched: those poll an in-process React state flush with no I/O in it.
 
-### BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate
+**BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate**
 
 **Filed:** 2026-06-26 (surfaced during PR #121 — the `unit-suite` matrix-shard landing; see memory `project_ci_speedup_pr_d_matrix_shard`). **NOT introduced by sharding:** a re-run of the same commit passed (confirming a flake, not a fault), and sharding _reduces_ per-leg DB load. These tests would flake the same way on the pre-split monolithic gate under the same runner noise.
 
@@ -5730,7 +5730,7 @@ A few DB-concurrency tests intermittently **time out** (Vitest "Test/Hook timed 
 
 The case now enumerates exhaustively behind a non-colliding anchor (assignment is first-wins, so the old `| VENUE NAME |` anchor shadowed every `venue.name` typo), and its oracle is ONE strict deep-equality comparison of the whole returned object against an expectation derived from each case's own inputs — reached after four review rounds each found a mutant escaping a weaker property-listing assertion (anchor corruption; trim cases with no routing assertion; a third field corrupted with a non-sentinel marker; a stray field set to `null` / `""` / a non-string). Guards: a derived coverage floor over assignable canonicals, a per-alias volume floor of `alias.length * 10` (measured ratios 53.8-56.6), and non-vacuity. The case carries its own 30000ms timeout because the exhaustive loop measures ~3.6s against vitest's 5000ms default — shipping it without that would have manufactured the very flake this entry reported. Spec: `docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md`. Original entry below.
 
-## BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE — a venue field-alias generator case fails on some seeds
+**BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE — a venue field-alias generator case fails on some seeds**
 
 **Status:** OPEN · **Severity:** low · **Surfaced:** full-suite run during `fix/picker-flow-app-bugs` close-out (2026-07-25)
 
@@ -5759,7 +5759,7 @@ This branch retired the entry, corrected both docstrings, and added one narrow g
 
 **A BL-citation freshness guard was considered and refused on measurement:** of 113 distinct `BL-` ids cited from `lib/`, `tests/`, `scripts/`, `app/`, **70 already resolve archive-only**, essentially all legitimate historical provenance. Such a guard ships as a 70-row allowlist — the same drift-prone hand-maintained artifact this entry itself declined to build. Spec: `docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md` §2.7. Original entry below.
 
-## BL-KNOWN-SECTIONS-WALKER — real auto-drift enforcement for the known-section-header registry
+**BL-KNOWN-SECTIONS-WALKER — real auto-drift enforcement for the known-section-header registry**
 
 **Status:** OPEN · **Severity:** low (defense-in-depth; today's guard is a hand-maintained pin) · **Class:** TEST-ENFORCEMENT GAP
 
@@ -5793,7 +5793,7 @@ Both live instances were already archived when this was filed
 live ledgers after the fix, the only terminal-classified open entry is the pre-existing
 ratified exception `BL-CI-STALE-BRANCH-PROTECTION-COMMENT`.
 
-#### BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND — two spellings hide a terminal status from the graduation guard
+**BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND — two spellings hide a terminal status from the graduation guard**
 
 **Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-08-02, the plans-ledger merge (`chore/backlog-ledger-integrity`)
 
@@ -6080,7 +6080,7 @@ The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked r
 
 ## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — RESOLVED (2026-08-03, `feat/needs-attention-holds-rollup`)
 
-## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — pending MI-11 holds do not surface on the needs-attention page
+**BL-NEEDS-ATTENTION-HOLDS-ROLLUP — pending MI-11 holds do not surface on the needs-attention page**
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md:285` lists it under §11 Deferred as a "BACKLOG candidate", and no row was created). **Class:** UX completeness. **Effort:** M (blocked on a read path).
 
