@@ -109,6 +109,9 @@ export function Gallery({
 }: GalleryProps) {
   const [expanded, setExpanded] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // Incremented on every closed-to-open transition; see the lightbox's
+  // `openNonce` prop for why a boolean or the index itself will not do.
+  const [openNonce, setOpenNonce] = useState(0);
   // M9 C6b R1 P1: track per-thumbnail runtime load failures so a
   // proxy 4xx/5xx falls back to the same `item.available === false`
   // placeholder branch as parse-time-known-unavailable items.
@@ -355,6 +358,11 @@ export function Gallery({
                     // a frozen channel — the narrow form of the very race
                     // `lightboxOpenRef` exists to close.
                     lightboxOpenRef.current = true;
+                    // The re-open signal the lightbox has no `open` prop to see.
+                    // A re-open inside the exit window CANCELS the exit and
+                    // retains that instance, so this counter is the only thing
+                    // that tells it a new session began.
+                    setOpenNonce((n) => n + 1);
                     setLightboxIndex(i);
                     // A buffer left over from an exit this open just cancelled is
                     // drained by the effect above, one commit later — see its
@@ -450,6 +458,7 @@ export function Gallery({
             snapshotRevisionId={snapshotRevisionId}
             items={items}
             startIndex={lightboxIndex}
+            openNonce={openNonce}
             onClose={() => {
               lightboxOpenRef.current = false;
               setLightboxIndex(null);

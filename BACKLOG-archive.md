@@ -83,6 +83,66 @@ The failure is maximally confusing: the named file **does not exist** by the tim
 
 **First scheduled step:** write the mutant outside the globbed tree (a temp dir passed to vitest) rather than into `tests/`, or give it an extension the projects' `include` patterns do not match. Either removes the race outright; excluding the basename by name would leave the next such probe exposed.
 
+## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown — CLOSED 2026-08-16 (`feat/diagram-demote-notice`, SHIPPED)
+
+**Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
+
+The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
+back to the clamped tier rather than showing "Image unavailable"
+(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
+The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
+nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
+again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
+backwards from the usual one.
+
+**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
+`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
+keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
+entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
+shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
+the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
+(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
+up first — one decision covers both.
+
+**What shipped.** A transient chip on the affected slide — "Full detail unavailable", `aria-hidden`, `pointer-events-none`, absolutely positioned at the slide figure's bottom edge in the Reset chip's token family — set in the SAME branch that already announced the demote, so the sighted and screen-reader channels report one event once each. It clears four ways: a 6000ms timer, a second demote replacing it (last wins), the dialog closing at any of its three initiators, and the demoted slide's clamped tier failing too (a "Full detail unavailable" chip floating over "Image unavailable" is a contradiction, and the chip's premise died with the tier).
+
+**Two mechanisms exist because the dialog has no `open` prop to observe.** The parent unmounts the lightbox by nulling its index, and `AnimatePresence` retains the exiting child with FROZEN props, so nothing inside the lightbox can see a close after the fact. The clear therefore runs at the close INITIATORS, and the re-open signal is an `openNonce` the parent increments on every closed-to-open transition — the only observable difference between "still exiting" and "open again" when a re-open inside the 220ms window cancels the exit and retains the instance.
+
+**Limits carried forward** (spec §4, not defects): the chip names no diagram and explains nothing further (the richer named copy is the sr channel's); a demote inside the exit window may show no chip, because the user who closed the dialog is not looking at the slide; the chip does not persist across dialog sessions, so a one-time failure never reads as a permanent banner; and simultaneous demotes collapse to the latest, which carries the same message.
+
+**Proof, not assertion:** 17 tests — 12 in the zoom-gate suite (containment against the affected slide's own figure, the announce count unchanged, the lifetime pinned by the spec's 5999/1 literals rather than by reading the constant back, timer-cancel oracles, last-wins restart, swipe-away-and-back with its REMAINING lifetime, Reset coexistence) and 5 driven through the REAL parent gallery (sixteen observed red before implementation; the seventeenth was added under review and is mutation-killed), because the lightbox-only harness mounts with a no-op `onClose` and can never exercise a close, a canceled exit, or a retained instance. The `DEMOTE_CHIP_VISIBLE_MS` constant and its DESIGN.md §5.5 row land in one commit, with the inventory gate observed failing by name in between.
+
+---
+
+## BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal — CLOSED 2026-08-16 (`feat/theme-persistence-note`, SHIPPED)
+
+**Severity (as filed):** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S
+
+**Probed, not theorized.** With `localStorage.setItem` throwing (restrictive in-app browser, private mode, third-party-storage block):
+
+```
+after-toggle-with-storage-blocked: dark:dark  stored null
+next-load/os-light:                light
+```
+
+The user picks dark, the page turns dark, and the next load is light again with nothing said.
+
+**Why it is filed rather than fixed here.** `components/layout/useAppliedTheme.ts` absorbs the write failure deliberately — throwing would take the whole control down over a preference, and the fallback (follow the OS) is the conservative answer. What is missing is the SIGNAL, and what the signal should say is a product-copy decision this arc cannot settle: a toast is heavy for a preference, an inline note next to a toggle inside a popover has nowhere to live, and "your browser will not remember this" is the kind of technical explanation `PRODUCT.md` §5 rules out of the UI. Class-sweep disposition exception (a): needs a product decision.
+
+**Reachability:** PROBED — the failure mode is reachable in any embedded webview with storage partitioning, which is exactly where crew open a link from a group thread.
+
+**What shipped.** Both theme controls now say so when the device will not remember the choice. `useAppliedTheme` gained `persistFailed` (set in the `setTheme` catch, cleared by a later successful write, preserved across the mount sync so a pre-mount blocked click is not silently wiped); `ThemeToggle` renders an always-mounted `role="status"` anchored bubble whose TEXT is conditional; the avatar-menu popover renders the same copy from the same exported const, as a sibling of its `role="menu"` element. The silent absorb stayed exactly as filed — this arc added the signal, not a throw.
+
+**The copy answers the filing's own open question.** "This device won't remember this choice." — no mechanism, no "localStorage", no error code, which is what `PRODUCT.md` §5 asks for and what the filing said the arc could not settle alone. It was settled by the spec, ratified before implementation.
+
+**Limits carried forward, not defects** (spec §4): the note is per-control-instance and per-page-session and cannot survive a reload (nothing here can persist — that IS the failure); repeated failures while it is already shown do not re-announce, and a popover re-open renders it without re-announcing (a polite region announces content CHANGES); the bubble overlays what sits under the toggle while the failed state persists. Two open follow-ups carry the parts that need a decision rather than an implementation: `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE` (a dismiss control is a product decision) and `BL-THEME-NOTE-BUBBLE-TEXT-ALIGN` (the alignment is in a ratified spec class list, so changing it is a spec edit).
+
+**Proof, not assertion:** 5 hook cases including the pre-effect mount-sync window rendered through `createRoot` + `flushSync` with a premise assertion so it cannot pass vacuously; 8 toggle cases including the always-mounted-container pin (the repo's own measured "inserted status announces nothing" trap); 5 avatar-menu cases including DOM containment against `role="menu"`; and a real-browser Playwright spec asserting viewport containment at 320px and wrapper-equals-button geometry on two consumers, observed RED before implementation and green after.
+
+---
+
+---
+
 ## BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE — the dashboard-overview baseline predates five days of dashboard component changes — CLOSED 2026-08-16 (`docs/ci-flake-ledger-correction`, REFUTED)
 
 **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, from PR #812's CI)
