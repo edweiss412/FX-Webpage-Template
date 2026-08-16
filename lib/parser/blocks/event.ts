@@ -31,7 +31,8 @@
  */
 
 import { clean, presence, splitRow } from "./_helpers";
-import { type ParseAggregator, emitEmptySection, emitUnknownField } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection, markConsumed } from "@/lib/parser/warnings";
+import { openerByLine } from "./_rowScan";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
@@ -150,6 +151,29 @@ export function parseEventDetails(
 
   const section = markdown.slice(headerMatch.index);
   const lines = section.split("\n");
+  // Ledger key component (§3.3): the PHYSICAL pipe-run opener, which is what the near-miss
+  // detector probes with. Taking `lines[0]` — the row EVENT_DETAILS_HEADER_RE matched — was
+  // wrong whenever the semantic header is not itself the first row of its run: the mark then
+  // landed under a key the detector never looks up, and a resolved, autocorrected row was
+  // reported unrecognized under a neighbouring block's namespace (whole-diff r4 P1, probed
+  // with `Stage Size` → `Stage-Size`). `openerByLine` applies `scanRowsWithOpener`'s own rule
+  // from the document start, so writer and reader cannot disagree.
+  // Built LAZILY and only when there is a ledger to write to: `openerByLine` walks the whole
+  // document, and `parseEventDetails` is called ~31 times by the PR-D1 vocabulary sweep with
+  // no aggregator at all, where an eager scan pushed that case past its 30s timeout. Nobody
+  // keeping a ledger means nobody needs the keys.
+  let openersByDocLine: string[] | null = null;
+  const headerDocLine = markdown.slice(0, headerMatch.index).split("\n").length - 1;
+  const openerForOffset = (offset: number): string => {
+    // The no-aggregator early return is what makes this lazy IN PRACTICE. A call site
+    // evaluates its arguments before `markConsumed` can no-op, so deferring the scan behind
+    // `??=` alone still paid for it on every caller that keeps no ledger — measured, not
+    // reasoned: a runtime probe counted the whole-document split happening with the
+    // aggregator omitted (whole-diff r6 P2). With no ledger the key is unused by definition.
+    if (!agg) return "";
+    openersByDocLine ??= openerByLine(markdown);
+    return openersByDocLine[headerDocLine + offset] ?? "";
+  };
   let inBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
@@ -180,10 +204,28 @@ export function parseEventDetails(
     // Also break on GENERAL SESSION / BREAKOUT headers
     if (/^GENERAL SESSION\b/.test(col0) || /^BREAKOUT \d/.test(col0)) break;
 
+    // Label resolution is hoisted ABOVE the `if (col1)` value filter so the consumption
+    // ledger can mark at the RESOLUTION decision (spec §3.3), not at the write site. The
+    // corpus carries curated rows with EMPTY values — the east-coast DETAILS block's
+    // `Room Diagram` is one of seven — which never reach a write; write-site marking left
+    // them unledgered and the detector then called a correctly named field a near-miss of
+    // itself. The branch structure below is unchanged, so no payload moves.
+    const exactCanon = CANONICAL_KEY_MAP[col0Lower];
+    // Consulted only on an exact miss, exactly as the branch below orders it.
+    const fix =
+      exactCanon === undefined
+        ? gatedVocabCorrect(col0.toUpperCase(), EVENT_LABEL_VOCAB, EVENT_GATE_OPTS)
+        : null;
+    const fuzzyCanon = fix?.corrected ? CANONICAL_KEY_MAP[fix.match.toLowerCase()] : undefined;
+    // Both curated event sites: the CANONICAL_KEY_MAP exact hit and the gatedVocabCorrect
+    // acceptance. The `toCanonicalKey` fallback below deliberately does NOT mark.
+    if (exactCanon !== undefined || fuzzyCanon !== undefined) {
+      markConsumed(agg, openerForOffset(i), col0, col1);
+    }
+
     // Two-column row: col0 is label, col1 is value
     if (col1) {
       const val = presence(col1);
-      const exactCanon = CANONICAL_KEY_MAP[col0Lower];
       if (exactCanon !== undefined) {
         // Known label — unchanged write; a REAL value claims the canonical so fuzzy can't
         // shadow it (an empty/sentinel exact value does NOT claim — see PR-D1 contract).
@@ -197,37 +239,32 @@ export function parseEventDetails(
         // would have matched `CANONICAL_KEY_MAP[col0Lower]` above, since EVENT_LABEL_VOCAB is
         // derived solely from the map's keys. If it ever did occur it falls through to the
         // fallback below, which is the safe default.)
-        const fix = gatedVocabCorrect(col0.toUpperCase(), EVENT_LABEL_VOCAB, EVENT_GATE_OPTS);
         if (fix?.corrected) {
-          const canon = CANONICAL_KEY_MAP[fix.match.toLowerCase()];
-          if (canon && val) {
+          if (fuzzyCanon && val) {
             // Defer; apply post-loop unless an exact label claims this canonical. Among fuzzy
             // siblings: last-write-wins with the SAME sentinel-aware precedence as exact labels
             // (a sentinel never displaces a real candidate), so `rawLabel` tracks the winning value.
-            const prev = fuzzyCandidates.get(canon);
+            const prev = fuzzyCandidates.get(fuzzyCanon);
             const incomingIsSentinel = shouldHideGenericOptional(val);
             const prevIsReal = prev !== undefined && !shouldHideGenericOptional(prev.value);
             if (!(incomingIsSentinel && prevIsReal)) {
-              fuzzyCandidates.set(canon, { rawLabel: col0, value: val });
+              fuzzyCandidates.set(fuzzyCanon, { rawLabel: col0, value: val });
             }
           }
         } else {
           // Genuinely-unknown label (no fuzzy hit, tie-aborted, or below-minLen): preserve the
           // existing normalize-and-keep fallback. Defense-in-depth (§3.4): never let an
           // unknown label normalize into a financial/internal key (PO#/Budget/Invoice/…).
-          // A kept fallback key is rendered by nothing, so ALSO surface it to the operator via
-          // UNKNOWN_FIELD (kept + visible). Sensitive-looking labels stay silently dropped and
-          // are NOT flagged — flagging would leak the value through the warning rawSnippet.
-          // (unknown-label coverage)
+          //
+          // STORAGE ONLY — no UNKNOWN_FIELD here. Surfacing the row to the operator is
+          // `detectFieldNearMisses`' job at the document seam (field-near-miss spec §2.1),
+          // and it reports only rows whose LABEL nearly matches a field we know, so a
+          // vocabulary-less label is now deliberately silent. This fallback deliberately
+          // does NOT mark the consumption ledger either: a self-slug write resolves no real
+          // field, which is why `Stage`/`Storage` stay near-miss candidates (§3.3).
           const key = toCanonicalKey(col0);
           if (key && val && !isSensitiveCanonicalKey(key)) {
             writeField(result, key, val);
-            emitUnknownField(agg, {
-              block: "event_details",
-              kind: "details",
-              key: col0,
-              value: val,
-            });
           }
         }
       }
@@ -334,11 +371,25 @@ function harvestFormLayout(
     corrected: boolean;
     rawLabel: string;
     value: string | null;
+    // Ledger key components (§3.3): the enclosing table's opening first-cell text, and the
+    // row's value cell as `clean`ed raw text (NOT the `presence()`-processed `value` above —
+    // the ledger key must be built from the same cell text the detector reads).
+    opener: string;
+    rawValue: string;
   }[] = [];
   const flush = (): void => {
     if (run.filter((r) => r.canon !== null).length >= 3) {
       for (const r of run) {
         if (r.canon === null) continue; // closed-vocab: skip unknown labels entirely
+        // Curated resolution (spec §3.3): `resolveKnownCanon` is the harvest's exact-map +
+        // gated-fuzzy resolution, and the run anchored, so this row IS claimed by the parser.
+        // Marked above every value filter below (empty value, TRUE/FALSE checklist booleans,
+        // no-op fill) per the resolution-site rule. A row `resolveKnownCanon` rejects — an
+        // unknown label, or a HARVEST_EXCLUDED_CANON key (`floor_plan` / `room_diagram`,
+        // which read as PROSE questions in a form block) — resolves to null and is skipped
+        // above, so it stays a near-miss candidate. That exclusion must hold: the corpus's
+        // form-layout `Room Diagram` rows are baselined to fire.
+        markConsumed(agg, r.opener, r.rawLabel, r.rawValue);
         if (isSensitiveCanonicalKey(r.canon)) continue; // defense-in-depth (map has none)
         if (!r.value) continue; // never clobber/fill with an empty form value
         if (/^(TRUE|FALSE)$/i.test(r.value)) continue; // INTERNAL checklist booleans, not field values
@@ -364,13 +415,25 @@ function harvestFormLayout(
     }
     run = [];
   };
+  // Ledger key component (§3.3): the first-cell text of the row that opens the current pipe
+  // table, tracked by the same rule `parseContacts` uses. A table can hold several runs (a
+  // separator or a non-2-cell row ends a run without ending the table), and they all share
+  // the one opener — the run is a parsing unit, the table is the physical block the detector
+  // will locate a candidate row in.
+  let tableOpener = "";
+  let inTable = false;
   for (const line of markdown.split("\n")) {
     const t = line.trim();
     if (!t.startsWith("|")) {
+      inTable = false;
       flush();
       continue;
     }
     const cells = splitRow(t);
+    if (!inTable) {
+      inTable = true;
+      tableOpener = clean(cells[0] ?? "");
+    }
     if (cells.length !== 2 || cells.every((c) => /^[\s:|*-]*$/.test(c))) {
       flush();
       continue;
@@ -386,6 +449,8 @@ function harvestFormLayout(
       corrected: resolved?.corrected ?? false,
       rawLabel: col0,
       value: presence(cells[1] ?? ""),
+      opener: tableOpener,
+      rawValue: clean(cells[1] ?? ""),
     });
   }
   flush();

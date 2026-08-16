@@ -581,18 +581,6 @@ viewer reports seeing the whole show expanded when they expected their day marke
 
 alert-audience-split (spec §6.7) makes health-alert resolution developer-gated at every PRODUCT surface (the dev-gated `resolveHealthAlertFormAction` plus HEALTH_CODES rejects on the three legacy user-facing resolve surfaces: `resolveAdminAlertFormAction`, `app/api/admin/admin-alerts/[id]/resolve`, `app/api/admin/show/[slug]/alerts/[id]/resolve`). This is app-surface defense-in-depth + UI coherence, NOT a DB-enforced trust boundary: `admin_alerts` still GRANTs UPDATE to `authenticated` and its RLS policy allows any `public.is_admin()` caller to update rows (`supabase/migrations/20260501002000_rls_policies.sql`), so a non-developer admin could in principle `PATCH admin_alerts.resolved_at` directly through PostgREST, bypassing the app layer. We ACCEPT this (Doug is the trusted business owner, not an adversary; role filtering is UX not security). **Fix (when prioritized):** revoke direct `admin_alerts` UPDATE from `authenticated`/`anon` and route ALL resolution — doug alerts included — through `SECURITY DEFINER` RPCs with an `is_developer()` check for health codes. Materially larger, whole-resolve-path change; deferred as a cross-reference of the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` admin_alerts-class DML lockdown item.
 
-### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
-
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
-
-Reordering two adjacent top-level blocks silently reorders the parser's output arrays, because the parser preserves source order. **Order-sensitivity was DISCOVERED by the harness on 2026-07-06** and section-reorder was reclassified cosmetic → corrupting as a result — this class exists because the harness found something no one had posited, which is the strongest evidence in the set that the remaining classes are worth detecting.
-
-**Ledgered blast radius: 82 holes** (58 `wrong` / 24 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`, reproducing the umbrella's own stated "58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS`" exactly. Linkage: `OPERATOR_FINDING_MAP["section-reorder"] = "BL-MUTATION-SECTION-ORDER"` (`tests/parser/mutation/knownHoles.ts:88`), pinned by `knownHoles.test.ts`.
-
-**Shape (M):** this one is the least like the others and should be spec'd before it is built — the honest question is whether output order should be NORMALIZED (making the reorder a non-event) rather than detected, and that is a parser-contract decision, not a heuristic. If detection is chosen instead, it carries the same warn-severity `ParseWarning` code plus §12.4 lockstep triple and warning-card copy row as its siblings.
-
-**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
-
 ### BL-PARSER-FIELD-PROVENANCE-MODEL — per-field provenance/confidence for the P0-2 zero-signal residuals
 
 **Status:** OPEN · **Severity:** medium · **Class:** PARSER ROBUSTNESS / DATA PROVENANCE · **Effort:** L · **Filed:** 2026-08-06 (L-wave, spec §2.1.5)
@@ -1090,6 +1078,43 @@ helper at DESCRIBE scope -> ["environment-free"]
 
 **Fix:** scope-aware extent resolution in `premiseScan`, with the AC-10b `reportEnvelope`/`res` collision kept as a regression case so the repair cannot trade a false negative for the false positive it replaced. Until then the recognizer's contract is "module-scope helpers only", which no current caller states.
 
+### BL-NEARMISS-CANDIDATE-RENDER — the near-miss card asks Doug to judge a suggestion no surface displays
+
+**Severity:** MEDIUM (the card functions; the arc's whole point is unrealized in UI) · **Class:** UI / warning-card copy-behavior mismatch · **Filed:** 2026-08-15 (`feat/mutation-section-order`, impeccable dual-gate finding F1, deferred half) · **Effort:** S
+
+**Probed, not theorized.** The detector computes the matched candidate and attaches it structurally — `lib/parser/warnings.ts:427`, `if (opts.candidate !== undefined) warning.candidate = opts.candidate;` — and the emitted message carries it as `; looks like '<candidate>'`. But `rg -n '\.candidate\b' components/ app/` returns only `NeedsAttentionInbox.tsx:92,105,106` `item.candidateTitle`, an unrelated show-title field. **Zero render sites for `ParseWarning.candidate`.** The card's only concrete example is the hard-coded `'Stage'` / `'Stage Size'` pair in `helpfulContext`, which is the wrong pair for nearly every one of the 65 live emissions.
+
+**Why it is filed rather than fixed in the filing branch.** Rendering the candidate is a change to `components/` — a surface `feat/mutation-section-order` does not otherwise touch, so it would pull the invariant-8 dual gate onto a new rendered component and a fresh design pass. That is class-sweep disposition exception **(c)**: the repair is a redesign of a surface the PR does not otherwise touch. The copy half WAS repaired in that branch — every clause inviting Doug to Report "if our suggestion is wrong" is gone, so the shipped card names only what is on screen and is honest as it stands. That is what makes this schedulable rather than urgent.
+
+**Work:** render `ParseWarning.candidate` on the near-miss card (and the wizard's step-3 row, which already derives its own per-row label from `rawSnippet` at `components/admin/wizard/step3ReviewSections.tsx:3067`), then re-edit `helpfulContext`/`longExplanation` to point at the shown suggestion instead of the invented `'Stage'` example — which also closes gate finding F2's residue, since the worked example exists only because there is nothing real to point at. Guard the render, or it regresses to the same silent mismatch.
+
+### BL-TYPO-NORMALIZED-V4-VENUE-SHAPE — the re-keyed venue gate is unreachable on the current template, and the miss is silent
+
+**Severity:** MEDIUM (a SILENT miss, not a conservative demote — nothing at all is emitted, so the operator gets no signal to act on) · **Class:** parser signal reachability · **Filed:** 2026-08-15 (`feat/mutation-section-order`, found by the implementer during the field-near-miss detector task and confirmed by its reviewer) · **Effort:** S (the code is one predicate; the DECISION is the work)
+
+**Probed, not theorized.** Same typo-alias row, same parser, differing only in the shape of the table that holds it:
+
+```
+$ pnpm exec tsx --tsconfig tsconfig.json <probe>          # row: | Hotal Contact Info | Ashley M |
+v2 (| VENUE | opener)        opener="VENUE"        gate=true   warnings=[…, TYPO_NORMALIZED]
+v4 (| VENUE NAME | opener)   opener="VENUE NAME"   gate=false  warnings=[…]            <- no TYPO_NORMALIZED
+```
+
+(The other codes in both rows are unrelated document-shape noise from the two-row probe document; the discriminating difference is `TYPO_NORMALIZED` alone.)
+
+**Mechanism.** The field-near-miss detector work re-keyed `TYPO_NORMALIZED` from the retired positional scope window to venue-BLOCK MEMBERSHIP (`lib/parser/blocks/venue.ts:103`), per that spec's §2.1 "the §2.2 mapping's `venue` block". The predicate is `matchesSectionHeader` (`lib/parser/blocks/_sectionHeaderMatch.ts:44`), which is whole-cell equality after `normalizeHeader` — so `"VENUE NAME" !== "VENUE"`. A v2 three-column block opens on a standalone `VENUE` cell (`fixtures/shows/raw/2025-10-consultants-roundtable.md:96`) and passes the gate. A v4 two-column block opens on `VENUE NAME` (`fixtures/shows/raw/2026-03-rpas-central-four-seasons.md:40`) and does not.
+
+**Why this is a filing and not a documented limit.** On the v4 shape a registered typo alias inside the venue table now produces NOTHING: no `TYPO_NORMALIZED` (gate false), no `FIELD_LABEL_AUTOCORRECTED` (the alias resolves EXACTLY through `resolveAliasFull`, so the scoped fuzzy path never sees a `corrected` hit), and no `UNKNOWN_FIELD` (the label resolved, so it is not a near-miss candidate). The ledger filing bar sends a hypothetical to a limits record when its worst case is conservative behavior PLUS a surfaced signal; here there is no surfaced signal, so the screen does not cover it.
+
+**Reachable live surface.** The v4 template plus a registered typo alias placed in the venue table — e.g. `Hotal Contact Info` (`lib/parser/aliases.ts:27`) in the `VENUE NAME`-opened block of any 2026 sheet. v4 is the CURRENT template: the three most recent corpus fixtures (2026-03, 2026-04, 2026-05) all carry it. **Nothing regresses on today's fixtures** — the corpus `TYPO_NORMALIZED` census is 0 both before and after the re-key, because every corpus `Hotal Contact Info` row sits in a hotel block, not a venue one. The loss is on a shape that exists and is current but carries no typo instance yet.
+
+**Class-sweep exception (a) — needs a product/design decision this PR cannot settle.** Two candidate repairs, and choosing between them is the work:
+
+1. **A second predicate at the gate only** — also treat a table whose opener resolves to a `venue.*` canonical as the venue block. Contained to `venue.ts`, changes no emitted `kind`, but makes venue-block membership mean two different things in two places, which is the drift the single-predicate design deliberately removed.
+2. **Widen `anchorNamespace`'s venue arm** (`lib/parser/fieldNearMiss.ts:213`) so the v4 shape maps to `"venue"` for everyone. One definition of the venue block, but it changes `kind` on REAL `UNKNOWN_FIELD` emissions — `kind` is a routing key with three consumers (anchor resolution, the swap oracle, the persisted `block` column), so this moves the committed 65-row baseline and is a design call, not a refactor.
+
+**Fix:** pick an option, then pin the v4 direction in `tests/parser/fieldNearMissBaseline.test.ts` alongside the existing both-directions v2 cases, so the shape that is currently silent becomes an asserted one.
+
 ## BL-E2E-WORKFLOW-PATHS-COVERAGE-GENERIC — a workflow-invoked spec can sit outside that workflow's `paths:` filter
 
 **Status:** OPEN. · **Filed:** 2026-08-15, backfill from the review-round filing `docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md` (plan §, candidate 3 / R4-F2), per the enforcement-pair spec §4 candidate 1 · **Severity:** medium · **Class:** CI wiring · **Effort:** S
@@ -1179,3 +1204,45 @@ class-sweep exception (c). May share one lint surface with
 **Reachability: PROBED, cross-branch.** Both failures appear identically on two unrelated PR heads: `chore/round-economy-enforcement-pair` (run 31942707419, job 95154111932) and `fix/local-harness-false-failures` (the sibling run one hour earlier). Neither branch touches `scripts/scan-interaction-timings.ts`, its two suites, or any file under `lib/parser`/`tests/parser` — `git diff origin/main...HEAD` is empty on all of them for the first branch, and the second is a harness-only change. The shard-4 drift is in the data-gap alarm domain that `0be765a4c` ("register SYNC_LOG_EMIT_FAILED as a non-gap code and re-pin the shifted alert-producer sites") touched on main; the survivor in (1) was already present in a baseline run taken before that branch made any edit.
 
 **Why it is a row and not a shrug.** The gate is not a required context, so it merges red indefinitely, and its own memory record is that CI's run — not a local one — is what finds real survivors. A gate that is always red cannot deliver that signal. **First scheduled step:** decide per failure whether the surface is genuinely uncovered (repay with a test) or the ledger is stale (re-key), then re-run the workflow on main via `workflow_dispatch` to confirm a clean baseline; the shard-4 half likely needs the alarm ledger re-pinned by whoever owns the non-gap-code change.
+
+## BL-SPECLINT-CITED-SYMBOL-EXISTENCE — spec:lint proves a cited FILE exists and stops there, so a cited symbol that does not can survive to dispatch
+
+**Status:** OPEN. · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (spec §, candidate a) · **Severity:** LOW (review-round cost; no product surface) · **Class:** review-round reduction (tooling) · **Effort:** S-M
+
+**Probed, not theorized.** Three findings across two spec rounds of the field-near-miss arc were a cited symbol that does not exist at the cited path, while `spec:lint` passed on every one because the FILE existed: `parseEvent` (the export is `parseEventDetails`), a `broken` property on `GuardSurface` (no such field on the type), and a `ParseWarning` shape claim against `lib/parser/warnings.ts`. Each cost a round on an artifact whose own self-review rule already says "grep each cited name against the live codebase" — the rule binds the author's memory and nothing gates it.
+
+**Work:** extend the spec:lint citation pass so a `file.ts:NN` citation naming an identifier in its surrounding prose also proves that identifier resolves at that path — a boundary-matched grep is enough for the measured misses, since all three were names that appear nowhere in the cited file. The `PROBE DOMAIN` is the live `docs/superpowers/specs/**` corpus; a citation whose identifier cannot be extracted unambiguously demotes to silence rather than firing, per the guard-narrowing rule.
+
+## BL-SPEC-PROBE-RUNNABILITY — a committed `probes/*.ts` entrypoint can rot the day it lands and nothing executes it
+
+**Status:** OPEN. · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (spec §, candidate b) · **Severity:** LOW (review-round cost; the probes are evidence artifacts, not product) · **Class:** review-round reduction (tooling) · **Effort:** S
+
+**Probed, not theorized.** Spec round 4 finding F5 of the field-near-miss arc was stale relative imports in a committed probe under `docs/superpowers/specs/parser/probes/`: the probe was the cited evidence for a spec claim and could not run as committed. The reviewer found it; nothing else could, because no step ever executes these files. Probes are the repo's answer to "settled by probe, not by argument" (the admissibility contract), so a probe that does not run degrades the mechanism the contract rests on.
+
+**Work:** a CI or pre-dispatch step that executes every `docs/superpowers/specs/**/probes/*.ts` entrypoint and fails on a non-zero exit. Cheap because the set is small and the probes are self-contained by construction. Open question the implementing arc settles: whether a probe that needs a live DB or a network fixture declares itself skippable in a header line, or is moved out of the executed set.
+
+## BL-PLANLINT-CONSTRUCTED-FIXTURE-SATISFIABILITY — a plan-embedded fixture snippet is asserted against, never executed
+
+**Status:** OPEN. · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (plan §, its single candidate) · **Severity:** LOW (review-round cost; no product surface) · **Class:** review-round reduction (tooling) · **Effort:** M
+
+**Probed, not theorized.** Two rounds on one arc died on the same shape: plan round 4's constructed markdown document had a header shape its named parser does not open a block on, and spec round 6's `FOO BAR` snippet was the same defect one stage earlier. In both the plan asserted what the parser WOULD emit for an embedded snippet, and in both the snippet could not produce it. A three-line `tsx` probe run at plan-authoring time settles either one.
+
+**Work:** at plan self-review, execute every embedded markdown snippet through the parser the plan names for it and pin the actual emission in the plan body. Mechanizing it means deciding how a snippet declares its parser — a fenced-block info string (` ```md parser=parseVenue `) is the obvious candidate and the implementing arc owns that call. Distinct from `BL-SPEC-PROBE-RUNNABILITY`: that one runs committed probe FILES, this one runs snippets embedded in prose.
+
+## BL-SHRINK-SIZED-BY-HARNESS-CLOSURE — a hole-shrink list authored by hand is sized before the harness has been asked
+
+**Status:** OPEN. · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (diff §, candidate b) · **Severity:** MEDIUM (the wrong number reached a merged plan and was only corrected by a 2-hour harness cycle) · **Class:** mutation-harness process · **Effort:** S
+
+**Probed, not theorized.** `tests/parser/mutation/knownHoles.ts` already carries branch 4's rule — size a shrink by the harness's own `fixedHoles` set, never by an operator's row count — and the `2026-08-08-parser-mutation-wave` plan shipped a hand-authored ten-id deletion list anyway. The measured closure was **86** holes: 24 `section-reorder` (the plan's ten a strict subset), plus 49 `blank-row`, 10 `header-typo` and 3 `merged-cell` that the arc was not aiming at, because position-blindness reaches every operator. The correction cost a full harness cycle and the arc's own review rounds carried the stale counts forward for three rounds.
+
+**Work:** a plan-time step that runs the harness under `COLLECT_MUTATION_ALARMS` and derives the deletion list from `fixedHoles` BEFORE the plan names any id, so the authored list is a rendering of the measured set rather than a claim about it. The rule exists; only its ordering relative to plan authoring is unenforced.
+
+## BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET — the detector's type-(b) subset test is undecided at equal size, and no corpus row reaches it
+
+**Status:** OPEN. · **Filed:** 2026-08-16 (`feat/mutation-section-order`, from the `fieldNearMiss` source-mutation gate's accepted-gap row) · **Severity:** LOW (a demote, not a corruption: the worst case is one near-miss going unreported, never a wrong autocorrect) · **Class:** parser signal reachability · **Effort:** S
+
+**Probed, not theorized.** `matchVocabulary`'s type-(b) arm skips a vocabulary entry when `candTokens.size > entry.tokens.size` (`lib/parser/fieldNearMiss.ts:156`), admitting subsets of equal or smaller size. Widening that to `>=` — rejecting equal size too — survives the suite, because no case exercises the equal-size boundary. A subset of EQUAL size is set equality, which reaches type (b) only when the two normalized forms differ: a reordered or re-punctuated spelling of the same tokens, which type (a)'s insertion-order equality scan misses.
+
+**Reachability: PROBED as ZERO on the corpus.** Every col0 label in all 20 fixtures under `fixtures/shows/raw` and `fixtures/shows/exporter-xlsx` was matched against the live vocabulary: no label produces a type-(b) hit whose token-set size equals its entry's. Every live type-(b) match is a STRICT subset, so the boundary is undecided by the shipped inputs rather than decided wrongly.
+
+**Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.

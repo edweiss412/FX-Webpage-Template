@@ -1321,16 +1321,34 @@ export const MESSAGE_CATALOG = {
   UNKNOWN_FIELD: {
     code: "UNKNOWN_FIELD",
     warningClass: "parse_warning",
+    // Near-miss framing (field-near-miss detector spec §5): the row is no longer
+    // "one we don't recognize" — the content-keyed detector only fires when the label
+    // NEARLY matches a field we show, so every one of these six strings names the
+    // suggestion and the rename that fixes it. No `_<candidate>_` placeholder: the
+    // card renders `messageFor(code)` with NO params (PerShowActionableWarnings.tsx,
+    // NoteWarningCard.tsx) and `title`/`triggerContext`/`longExplanation` are never
+    // interpolated at all (lookup.ts messageFor), so a placeholder would render
+    // literally. The matched candidate rides `ParseWarning.candidate` + the warning
+    // message instead (warnings.ts emitUnknownField).
+    // NO string asks Doug to judge "our suggestion" (impeccable gate F1): the matched
+    // candidate is computed and attached but NOTHING renders it, so a card inviting him
+    // to report a wrong guess would be asking about a guess he was never shown. Rendering
+    // it is filed as BL-NEARMISS-CANDIDATE-RENDER; until it ships, the copy names only
+    // what is on screen. `helpfulContext` documents BOTH card controls (gate F4) because
+    // the Ignore button still renders for this code
+    // (DataQualityWarningControls.tsx:108, gated on the always-present rawSnippet), and
+    // every action string leads with the imperative rather than system state (gate F5).
     dougFacing:
-      "We found a row labeled _<key>_ in _<sheet-name>_ that doesn't match a section we recognize. We kept it as-is and nothing's broken. Want to flag it to us?",
+      "Rename the row labeled _<key>_ in _<sheet-name>_ so it matches the row we show. It nearly matches one now, which is why it isn't showing on the crew page.",
     crewFacing: null,
-    followUp: "Doug → optional Report",
+    followUp: "Doug → rename the row in the sheet (or optional Report)",
     helpfulContext:
-      "Your sheet has a row we didn't recognize; we kept it as-is and nothing on the crew page is affected. The Report button on this card flags it to us; Ignore hides this notice.",
-    triggerContext: "Appears when a row's label doesn't match anything we know how to show.",
-    title: "Unrecognized row in sheet",
+      "Rename this row in your sheet so it matches the row we show. It nearly matches one now (like 'Stage' for 'Stage Size'), which is why it isn't showing on the crew page. Report flags it to us; Ignore hides this notice.",
+    triggerContext:
+      "Appears when a row's label nearly matches a row we know how to show, but doesn't match it exactly.",
+    title: "Row we couldn't match",
     longExplanation:
-      "We found a row that doesn't match any section we read (CLIENT, DATES, CREW, and so on). It isn't breaking anything; we kept the row exactly as it is. If it's something you want handled, use Report; otherwise you can ignore this.",
+      "A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page: a row labeled 'Stage' where we show 'Stage Size', for example. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.",
     helpHref: "/help/errors#UNKNOWN_FIELD",
   },
   UNKNOWN_DAY_RESTRICTION: {

@@ -38,4 +38,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-02-parser-determinism-pair.md`](./2026-08-02-parser-determinism-pair.md) | 2026-08-02 |
 | [`2026-08-07-parser-mutation-wave-design.md`](./2026-08-07-parser-mutation-wave-design.md) | 2026-08-07 |
 | [`2026-08-09-warning-shape-mutation-stability.md`](./2026-08-09-warning-shape-mutation-stability.md) | 2026-08-09 |
+| [`2026-08-15-field-near-miss-detector-design.md`](./2026-08-15-field-near-miss-detector-design.md) | 2026-08-15 |
 | [`probes`](./probes) | 2026-08-07 |
