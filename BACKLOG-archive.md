@@ -3000,7 +3000,7 @@ its place is a behavioral test per instance, on all four.
 Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.3 and §9.
 
 The original entry follows, its in-flight marker stripped — an archive cannot hold work in
-flight (invariant 12). Nothing else is edited.
+flight (invariant 12). Nothing else is edited (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
 **BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — the wizard Phase D apply discards its capability notice**
 
@@ -3043,7 +3043,7 @@ scope under class-sweep exception (c) and filed as `BL-CAPABILITY-LOSS-SURVIVING
 Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.1 and §2.2.
 
 The original entry follows, its in-flight marker stripped — an archive cannot hold work in
-flight (invariant 12). Nothing else is edited.
+flight (invariant 12). Nothing else is edited (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
 **BL-IDENTITYLINK-LANDED-VS-REQUESTED — the notice and feed consume requested rename pairs, not landed ones**
 
@@ -3085,7 +3085,7 @@ information no longer exists anywhere.
 Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.4 and §8.
 
 The original entry follows, its in-flight marker stripped — an archive cannot hold work in
-flight (invariant 12). Nothing else is edited.
+flight (invariant 12). Nothing else is edited (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
 **BL-UNDO-SELECTIONS-RESET-AT-DROP — any crew undo resets `selections_reset_at` to null**
 
@@ -3225,7 +3225,7 @@ Shipped as a one-shot flash-then-fade on the panel card of each registry section
 
 **The entry's premise below was WRONG, and it was load-bearing.** It claims the spec ratified a silent-by-design posture. It did not: `docs/superpowers/specs/2026-07-19-admin-modal-realtime-refresh.md:75` says only that the bridge component renders `null`, and line 173 says its transition inventory is N/A because the bridge adds no visual states. Both are statements about the BRIDGE, not about the surface it refreshes. Nobody had weighed a cue and rejected it, so this was a new design decision rather than a reversal of one. The un-defer signal was never reached either: the user was shown the options and chose the cue directly.
 
-The original entry, unedited, follows.
+The original entry, unedited, follows (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
 **BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters**
 

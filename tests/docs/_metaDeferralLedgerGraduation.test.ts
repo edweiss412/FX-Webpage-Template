@@ -34,12 +34,13 @@
 // marker grammar). What remains HERE is the ledger half, enforceable and true.
 //
 // Spec: docs/superpowers/specs/2026-07-24-settings-devrow-copy-close.md §9 T8.
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ledgerFiles, optsFor } from "@/scripts/lib/ledger-fields";
+import { ledgerFiles, optsFor, type LedgerFamily } from "@/scripts/lib/ledger-fields";
 import { premise } from "@/tests/_shared/premise";
 
 import {
@@ -1330,20 +1331,45 @@ const duplicateIds = (text: string, familyOpts: ExtractOpts): Duplicate[] => {
     .sort((a, b) => a.id.localeCompare(b.id));
 };
 
+/**
+ * The whole lane, over a ROOT and a family registry — the live call and the
+ * registry plant drive this same function.
+ *
+ * Parameterised deliberately (diff review R1 F2). An earlier revision inlined
+ * the walk in the live `it` and handed `FUTURE_OPTS` straight to
+ * `duplicateIds` in the plant. That plant proved `duplicateIds` honors the opts
+ * it is given, but NOT that the live loop routes `optsFor(file)` per file — so
+ * a one-line regression hardcoding `BACKLOG_OPTS` in the live walk would miss a
+ * registered non-default-level family while every plant stayed green
+ * (demonstrated by the reviewer against the shipped algorithm). Routing the
+ * plant through `ledgerFiles` + `optsFor` puts the discovery and opts-resolution
+ * wiring itself under the plant.
+ */
+const duplicatesUnder = (root: string, families?: readonly LedgerFamily[]): string[] => {
+  const files = families ? ledgerFiles(root, families) : ledgerFiles(root);
+  const offenders: string[] = [];
+  for (const file of files) {
+    const opts = families ? optsFor(file, families) : optsFor(file);
+    const text = readFileSync(join(root, file), "utf8");
+    for (const { id, lines } of duplicateIds(text, opts)) {
+      offenders.push(`${file}: ${id} at lines ${lines.join(", ")}`);
+    }
+  }
+  return offenders;
+};
+
 describe("within-file ledger id uniqueness", () => {
   it("no ledger file mints the same id on more than one heading", () => {
     // Discovery through the REGISTRY (ledgerFiles + optsFor), never an
     // enumerated filename list: a family added to LEDGER_FAMILIES brings its
     // base+archive pair into this lane by default rather than going dark.
-    const files = ledgerFiles(process.cwd());
-    premise("ledger discovery reaches the registered families' files", files.length, 3);
+    premise(
+      "ledger discovery reaches the registered families' files",
+      ledgerFiles(process.cwd()).length,
+      3,
+    );
 
-    const offenders: string[] = [];
-    for (const file of files) {
-      for (const { id, lines } of duplicateIds(read(file), optsFor(file))) {
-        offenders.push(`${file}: ${id} at lines ${lines.join(", ")}`);
-      }
-    }
+    const offenders = duplicatesUnder(process.cwd());
     expect(
       offenders,
       "an id is minted by more than one heading in the same ledger file — demote the " +
@@ -1373,8 +1399,11 @@ describe("within-file ledger id uniqueness", () => {
     expect(
       fires("## DEF-STUB-1 — RESOLVED\n\nbody.\n\n### DEF-STUB-1 — original\n\nbody.\n", DEFERRED_OPTS),
     ).toEqual(["DEF-STUB-1"]);
-    // A family registered at a NON-default level still fires: the lane reads
-    // levels off the registry rather than assuming [2,3]/[3].
+    // A family registered at a NON-default level still fires. NOTE this row
+    // only pins `duplicateIds` itself; the REGISTRY WIRING that would route
+    // such a family's opts in the live walk is pinned separately by the
+    // fixture-root plant below — handing FUTURE_OPTS in directly cannot see a
+    // live loop that hardcodes BACKLOG_OPTS (R1 F2).
     expect(fires("#### FUT-1 — a\n\nbody.\n\n#### FUT-1 — b\n\nbody.\n", FUTURE_OPTS)).toEqual([
       "FUT-1",
     ]);
@@ -1420,5 +1449,56 @@ describe("within-file ledger id uniqueness", () => {
       1,
     );
     expect(fires(twoIds, BACKLOG_OPTS)).toEqual([]);
+  });
+
+  it("plant: a registered non-default-level family is covered through the real discovery path", () => {
+    // The wiring plant (diff review R1 F2). Everything above hands opts to
+    // `duplicateIds` directly, so none of it can observe HOW the live walk
+    // obtains those opts. This row drives `duplicatesUnder` — the same function
+    // the live `it` calls — against a throwaway root with a family registered
+    // ONLY here, so `ledgerFiles(root, families)` must discover the pair and
+    // `optsFor(file, families)` must resolve its levels for the row to pass.
+    //
+    // The kill this adds: hardcode `BACKLOG_OPTS` (or any fixed opts) in
+    // `duplicatesUnder` and this row reds, because `FUT-1` sits at level 4 and
+    // mints nothing under `{ requirePrefix: "BL-", levels: [2, 3] }`.
+    //
+    // `ledgerFiles`/`optsFor` take `families` as a parameter precisely so a
+    // test can register a family against a fixture root without mutating
+    // module state (`scripts/lib/ledger-fields.ts`), which is also what proves
+    // the registry is consulted rather than a widened filename regex.
+    const root = mkdtempSync(join(tmpdir(), "ledger-uniqueness-"));
+    try {
+      const dupe = "#### FUT-1 — terminal record\n\nbody.\n\n#### FUT-1 — original\n\nbody.\n";
+      writeFileSync(join(root, "FUTURE.md"), "#### FUT-2 — solo\n\nbody.\n");
+      writeFileSync(join(root, "FUTURE-archive.md"), dupe);
+      const families = [
+        { name: "FUTURE", opts: { requirePrefix: null, levels: [4] } },
+      ] as const satisfies readonly LedgerFamily[];
+
+      // PREMISE: discovery must actually reach BOTH fixture files, else a green
+      // result below would mean "found nothing to look at", not "found nothing
+      // wrong" — the exact vacuity this plant exists to rule out.
+      premise(
+        "the fixture root's registered family pair is discovered",
+        ledgerFiles(root, families).length,
+        1,
+      );
+
+      expect(duplicatesUnder(root, families)).toEqual([
+        "FUTURE-archive.md: FUT-1 at lines 1, 5",
+      ]);
+
+      // Negative, same fixture: registered at the DEFERRED default level 3, the
+      // level-4 headings mint nothing and the duplicate is out of domain. This
+      // is what makes the positive attributable to opts ROUTING rather than to
+      // discovery alone.
+      const wrongLevel = [
+        { name: "FUTURE", opts: { requirePrefix: null, levels: [3] } },
+      ] as const satisfies readonly LedgerFamily[];
+      expect(duplicatesUnder(root, wrongLevel)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
