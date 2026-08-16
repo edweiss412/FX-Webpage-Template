@@ -160,6 +160,23 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // suite reaches no member of ENVIRONMENT_SOURCES — no child process, no
   // ledger-git, no process.env, and no filesystem read at all.
   "tests/log/serializeError.test.ts": 0,
+  // The two surfaces the mutation-gate sharding arc enrols (2026-08-16). Both
+  // measured 0 with the scanner, and the enrolment's red cycle reported
+  // "expected +0 to be undefined" here before these rows existed.
+  //
+  // shardBudget's 0 is a genuine 0: lib/ci/shardBudget.ts is pure decision logic
+  // with no `process` and no I/O -- that separation is why it is enrollable at
+  // all -- and the suite drives literal record arrays through it.
+  "tests/ci/shardBudget.test.ts": 0,
+  // shardPartition's 0 is a SCANNER-RULE 0 and a known under-count, recorded
+  // rather than papered over. The suite imports no member of
+  // ENVIRONMENT_SOURCES directly, which is what the scanner classifies on, but
+  // every case reaches the filesystem TRANSITIVELY: `weightOf` readFileSync's
+  // each enrolled surface's source to generate its mutants. The count is the
+  // scanner's own measurement under its own rule, not a claim that these cases
+  // are hermetic. Widening the rule to transitive reachability is a change to
+  // the scanner with its own before/after numbers, not a number to adjust here.
+  "tests/mutation/source/shardPartition.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

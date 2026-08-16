@@ -1587,4 +1587,41 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  {
+    // The two guard surfaces the mutation-gate sharding arc itself ships
+    // (wall-clock spec docs/superpowers/specs/ci/2026-08-16-mutation-gate-wallclock-design.md).
+    // Enrolled BEFORE this arc's first whole-diff review dispatch, so the
+    // convergence criterion is a mutation score plus an empty unaccepted-survivor
+    // set -- both machine-computed -- rather than reviewer imagination.
+    //
+    // The budget checker's DECISION LOGIC is here and its CLI is a separate file
+    // (scripts/check-shard-budget.ts) deliberately: `phantomGapExecuted` below
+    // records what the combined shape costs, scoring 0.27 with 18 of 19 survivors
+    // in code no referring suite could execute through an import.
+    id: "shardBudget",
+    sourcePath: "lib/ci/shardBudget.ts",
+    suitePaths: ["tests/ci/shardBudget.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Turns the strictly-above budget comparison into at-or-above, which the
+    // exactly-at-budget case is built to notice.
+    control: { from: "r.seconds > budgetSeconds)", to: "r.seconds >= budgetSeconds)" },
+    accepted: [],
+  },
+  {
+    id: "sourceShardPartition",
+    sourcePath: "tests/mutation/source/shardPartition.ts",
+    suitePaths: ["tests/mutation/source/shardPartition.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Drops the `accepted` term from the weight, which the delta case in the
+    // suite is built to notice: it holds the SOURCE fixed and varies only the
+    // suite count and ledger size, so the mutant moves the asserted delta from
+    // 4 to 2 rather than leaving a self-consistent number.
+    control: {
+      from: "surface.accepted.length * (suites - 1) + suites",
+      to: "suites",
+    },
+    accepted: [],
+  },
 ];

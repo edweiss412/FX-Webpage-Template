@@ -177,4 +177,19 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // were repaid with fixtures sitting exactly on NODES_MAX, so the re-run is
   // 65/65 with an empty ledger.
   serializeErrorStructure: {},
+  // The mutation-gate sharding arc's own two guard surfaces, enrolled 2026-08-16
+  // BEFORE its first whole-diff review dispatch, so the convergence criterion is
+  // a score plus an empty unaccepted-survivor set rather than reviewer
+  // imagination. Both declare an EMPTY ledger, deliberately.
+  //
+  // sourceShardPartition: every branch in the partition is decided by
+  // tests/mutation/source/shardPartition.test.ts, so a row appearing here later
+  // is a coverage regression to repair, not a number to bump.
+  sourceShardPartition: {},
+  // shardBudget: the module is pure decision logic with the CLI deliberately in
+  // a separate file, so every branch is reachable through the referring suite
+  // and a row appearing here is a gap to repay. The separation is not a style
+  // choice -- phantomGapExecuted above records that the combined shape scored
+  // 0.27, with 18 of 19 survivors in code no import can reach.
+  shardBudget: {},
 };
