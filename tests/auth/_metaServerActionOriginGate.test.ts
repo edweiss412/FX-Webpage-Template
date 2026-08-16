@@ -351,6 +351,19 @@ function checkExemptionSet(input: {
       problems.push(`${keyOf(row)}: exemption row names a unit registered in AUDITABLE_MUTATIONS`);
       continue;
     }
+    // The parameter precondition applies to EXEMPT units exactly as it does to
+    // gated ones. An exemption says "this body only reads"; it never said the
+    // signature may execute arbitrary code ahead of that body. Round 4 found
+    // exempt units skipping this check entirely.
+    const exemptFn = fnLikeOf(unit);
+    if (exemptFn && !parametersAreInert(exemptFn)) {
+      problems.push(
+        `${keyOf(row)}: exempt unit has a parameter that can EXECUTE (a non-identifier binding, or an ` +
+          `initializer that is not a side-effect-free literal). Parameter initializers run before the ` +
+          `first body statement, so this is upstream of everything the exemption claims to be safe.`,
+      );
+    }
+
     const tripped = readOnlyTripwire(unit);
     if (tripped) problems.push(tripped);
 
@@ -417,17 +430,28 @@ function checkExemptionSet(input: {
  * That is the cost, and it is the feature.
  */
 const EXEMPT_BODY_DIGESTS: Readonly<Record<string, string>> = {
-  "app/admin/_devCaptureAction.ts::captureShowTelemetry": "bcec173f302ecbff",
-  "app/admin/dev/actions.ts::getStagedResult": "361704f14af36b13",
-  "app/admin/dev/actions.ts::listFixtures": "0754b8457e646bf2",
+  "app/admin/_devCaptureAction.ts::captureShowTelemetry": "0b90cb8f84d14916",
+  "app/admin/dev/actions.ts::getStagedResult": "86363e522ba602d9",
+  "app/admin/dev/actions.ts::listFixtures": "0f5d870b45ad6d32",
 };
 
-/** Whitespace-normalized digest of a unit's body, so reformatting is not a false alarm. */
+/**
+ * Whitespace-normalized digest of a unit's PARAMETER LIST and body, so
+ * reformatting is not a false alarm but a signature edit is.
+ *
+ * The parameter list is in the digest because parameter initializers run BEFORE
+ * the first body statement — the same execution position the accept-sets pin for
+ * gated units. Diff review round 4 found the asymmetry: exempt units were
+ * excluded from the walk before `parametersAreInert` ever ran, and a
+ * mutation-bearing default parameter left the body digest untouched. Freezing
+ * the body alone froze the wrong span.
+ */
 function bodyDigest(unit: SurfaceUnit): string {
   const fn = fnLikeOf(unit);
   if (!fn || !fn.body) return "no-body";
+  const params = fn.parameters.map((prm) => prm.getText()).join(",");
   return createHash("sha256")
-    .update(fn.body.getText().replace(/\s+/g, " ").trim())
+    .update(`${params}|${fn.body.getText()}`.replace(/\s+/g, " ").trim())
     .digest("hex")
     .slice(0, 16);
 }
@@ -1095,6 +1119,38 @@ describe("the exempt-body freeze — fixture self-tests (the round-3 attack)", (
       MODULE_HEAD +
       "export async function readIt() {\n  await requireDeveloper();\n\n  return await queryEvents();\n}\n";
     expect(check(reformatted, READ_ONLY)).toEqual([]);
+  });
+
+  test("a call-valued DEFAULT PARAMETER on an exempt unit FAILS — the round-4 escape", () => {
+    // Parameter initializers run before the first body statement, so this is the
+    // same execution position the accept-sets pin for gated units. Exempt units
+    // used to skip the check entirely, and the digest covered only the body — so
+    // this edit left the digest untouched and the exemption intact.
+    const withParam =
+      MODULE_HEAD +
+      "export async function readIt(_spy = pwn()) {\n  await requireDeveloper();\n  return await queryEvents();\n}\n";
+    const problems = check(withParam, withParam); // digest deliberately MATCHES
+    expect(problems.join("\n")).toContain("parameter that can EXECUTE");
+  });
+
+  test("an inert default parameter on an exempt unit is fine", () => {
+    const inert =
+      MODULE_HEAD +
+      "export async function readIt(limit = 50) {\n  await requireDeveloper();\n  return await queryEvents();\n}\n";
+    expect(check(inert, inert)).toEqual([]);
+  });
+
+  test("a SIGNATURE edit alone moves the digest, even with the body untouched", () => {
+    // The other half of the round-4 repair: the frozen span now covers the
+    // parameter list, so a signature change re-triggers the read-only review
+    // rather than sliding under a body-only hash.
+    const before =
+      MODULE_HEAD +
+      "export async function readIt(a: string) {\n  await requireDeveloper();\n  return await queryEvents();\n}\n";
+    const after =
+      MODULE_HEAD +
+      "export async function readIt(a: string, b = 1) {\n  await requireDeveloper();\n  return await queryEvents();\n}\n";
+    expect(check(after, before).join("\n")).toContain("the exempt body CHANGED");
   });
 
   test("an exempt row with NO pinned digest FAILS rather than passing silently", () => {
