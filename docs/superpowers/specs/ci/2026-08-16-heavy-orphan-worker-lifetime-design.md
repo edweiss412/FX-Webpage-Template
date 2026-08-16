@@ -409,7 +409,7 @@ does the clause this input feeds still have an ANSWER? "No" means the clause was
 
 | ID | Condition | Behavior |
 | --- | --- | --- |
-| R1 | `pid` absent or unparsable | the row cannot be acted on at all; retained as an `UnparsableRow`, counted, reported, never reaped |
+| R1 | the LINE cannot be parsed into a row at all: `pid` absent or unparsable, OR an `lstart` that fails the shape check and so leaves the layout unknown | the row cannot be acted on; retained as an `UnparsableRow` naming which of the two it was, counted, reported, never reaped |
 | R2 | `ppid` absent or unparsable | NOT reapable (clause (b) undecidable for this row); retained and reported |
 | R3 | `etime` absent or unparsable | NOT reapable (the age clause is undecidable for this row); retained and reported |
 | R4 | `command` empty | NOT reapable (clause (a) cannot match); retained and reported |
@@ -441,9 +441,9 @@ failures — so the collector gets it for free and the pre-signal read is the on
 and not of `ps`. Probed on this machine: `LC_ALL=zh_CN.UTF-8` yields FOUR tokens
 (`日  8/16 13:09:23 2026`) and `LC_ALL=C` yields five (`Sun Aug 16 13:09:23 2026`). Without the
 pin, an operator's locale shifts a token between `startedAt` and `command`. The failure would be
-SAFE rather than silent — the shape check rejects the value, R5 declines the row, and clause (a)
-then fails too because `argv[0]` is no longer a node path — but "safe" here means the reaper goes
-blind on every row, which is a worse outcome than the leak it exists to fix. Both invocations pin
+SAFE rather than silent — the shape check rejects the value and the LINE becomes an R1 unparsable
+row naming `lstart`, so every row is reported rather than mis-parsed — but "safe" here means the
+reaper goes blind on every row, which is a worse outcome than the leak it exists to fix. Both invocations pin
 the locale; the shape check stays as the guard that the pin is working. Round 3 found the previous draft using `etime` and `ppid`,
 and both are wrong:
 
@@ -490,7 +490,7 @@ export type ParsedRow = {
   command: string;
 };
 
-/** A `ps` line that could not yield even a pid (R1). */
+/** A `ps` line that could not be parsed into a row: no pid, or an `lstart` of unknown shape (R1). */
 export type UnparsableRow = { kind: "unparsable"; raw: string; problem: string };
 
 export type ProcRow = ParsedRow | UnparsableRow;
