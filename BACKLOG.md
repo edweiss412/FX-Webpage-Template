@@ -73,6 +73,7 @@ Five sites in the tree are invisible for that reason today:
 
 ## BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES — derive the execution-method set from postgres.js's types instead of hand-typing it
 
+**Status:** IN PROGRESS · **Branch:** test/execution-methods-driver-derived
 **Severity:** MEDIUM (a silent miss admits an unchecked wipe; the failure mode is acceptance, not rejection) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-15 (`chore/guard-completeness-wave`, diff review R6)
 
 `EXECUTION_METHODS` in `tests/db/_destructiveFileAnalysis.ts` is a hand-typed name list. Rule 1's property-call leg asks whether a method is in that set; a driver method the list omits is simply not an execution site, so a discovered file can run destructive SQL on an unchecked client and the analyzer returns `ok:true`.
