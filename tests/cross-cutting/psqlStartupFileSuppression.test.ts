@@ -4374,3 +4374,86 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 });
+
+/**
+ * Mutation-enrolment survivors, batch B — the shell text scanner (plan Task 3).
+ * One kill; the other six sites are blessed as equivalent and carry the
+ * boundary pins their arguments rest on.
+ */
+describe("enrolment survivors - batch B", () => {
+  // Kills relational-boundary:1214:26 (`command.length > 0` mutated to `>= 0`
+  // in the pipeline splitter). A newline after `|` continues the pipeline —
+  // POSIX shell grammar allows linebreaks after `|`, so this is one pipeline
+  // whose second stage is a bare `bash`, and the printf argument IS the script
+  // that bash will run. The mutant pushes an EMPTY command for that newline,
+  // which becomes `commands[position + 1]` for the `|` stage, so the bare-shell
+  // stdin detection looks at the empty stage instead of `bash` and reports
+  // nothing.
+  test("a pipeline broken across lines after `|` still exposes the stdin script", () => {
+    const source = ["printf 'psql -qAt mydb' |", "bash", ""].join("\n");
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Boundary pin for the relational-boundary:1223:22 equivalence row
+  // (`command.length > 0` mutated to `>= 0` in the trailing flush). The mutant
+  // can only APPEND an empty command, never insert one, so the pin is that a
+  // text ending in an operator still reports the command before it.
+  test("a command terminated by a trailing `;` is still reported", () => {
+    const sites = sitesIn("psql -qAt mydb ;\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Boundary pin for the relational-boundary:1304:30 equivalence row
+  // (`remaining.length > 0` mutated to `>= 0`). `ssh host` with no remote
+  // command leaves the joined-argument list empty — the reachable input the
+  // guard exists for. Nothing is scanned and no site is reported.
+  test("an ssh host with no remote command is not a site", () => {
+    expect(sitesIn("ssh database\n", "x.sh")).toHaveLength(0);
+  });
+
+  // Boundary pin for the relational-boundary:1314:19 equivalence row
+  // (`k > 0` mutated to `k >= 0` in the joined-string builder). The mutant
+  // prepends one separator to the joined string AND one entry to each parallel
+  // offset/line array, so every index shifts by exactly one and the mapping is
+  // unchanged. The pin is the mapping itself: a remote command continued onto a
+  // second physical line reports THAT line, not the `ssh` line.
+  test("an ssh remote command on a continuation line reports its own physical line", () => {
+    const source = ["ssh database \\", "  psql -qAt mydb", ""].join("\n");
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(2);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Boundary pin for the relational-boundary:1394:46 equivalence row
+  // (`candidate.text.length > 2` mutated to `>= 2`). The conjunct that follows
+  // it, /^-[a-zA-Z]*S[\s\S]/, already requires a character AFTER the `S`, so a
+  // two-character `-S` is rejected either way. Both spellings are pinned: `-S`
+  // alone takes the NEXT word as its split-string, and the attached form
+  // carries the script itself.
+  test("`env -S` takes the next word, and the attached form carries its own script", () => {
+    const separate = sitesIn("env -S 'psql -qAt mydb'\n", "x.sh");
+    expect(separate).toHaveLength(1);
+    expect(separate[0]!.suppressesStartupFiles).toBe(false);
+    const attached = sitesIn("env -S'psql -qAt mydb'\n", "x.sh");
+    expect(attached).toHaveLength(1);
+    expect(attached[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Boundary pin for the relational-boundary:1568:22 and 1569:26 equivalence
+  // rows (the opening/closing delimiter bounds in `mapRawToLines`). Both
+  // mutants only widen a bound into a raw slice too short to hold a body, where
+  // the walk emits nothing either way. The pin is the mapping the bounds serve:
+  // a template literal whose psql text sits on a LATER physical line reports
+  // that line, which only holds if the delimiters are skipped correctly.
+  test("a template literal reports the physical line its psql text came from", () => {
+    const source = ["execSync(`echo one", "psql -qAt mydb`);", ""].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(2);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+});

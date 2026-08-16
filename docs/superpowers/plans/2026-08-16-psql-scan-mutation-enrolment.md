@@ -168,11 +168,11 @@ If a site survives the §2.3 bar as an ACCEPTED-GAP (expected: zero): file its `
 
 <!-- task: red=`pnpm exec tsx single-mutant.ts 'relational-boundary:1214:26:>>>='` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1214` why=`red observed as the checker's SURVIVED exit 1 for the designated batch-B kill (the empty-pipeline-stage push guard); greens when the batch's pipeline fixture lands - re-anchor per the batch marker anchoring contingency if analysis blesses this site instead` ac=AC-1,AC-2 -->
 
-- [ ] **Step 1: Read the 7 sites** (same procedure as Task 2 Step 1). `scanShellText` is not exported, but its verdicts flow through suite-imported exports: `scanShellIndirection` (shell fixtures), `scanSource` / `collectPsqlUsage` (template literals), and `scanWorkflowIndirection` (YAML `run:` bodies). Pick per site the export whose fixture most directly reaches the guarded branch — e.g. a pipeline fixture (`printf 'x' | bash`) for the 1214/1223 stage-splitting pair; a multi-fragment template for 1304/1314; an `env -S'psql ...'` fixture for 1394; a quoted/backticked string at the exact delimiter boundary for the 1568/1569 pair.
-- [ ] **Step 2: KILL cases** — boundary fixtures at the exact `<` vs `<=` / `>` vs `>=` edge each site guards; assert the reported site's line/verdict, deriving expected line numbers from the fixture's own layout. Name the site id per case.
-- [ ] **Step 3: Prove each kill** (clean-tree pass + checker KILLED, ids single-quoted), record pairs.
-- [ ] **Step 4: EQUIVALENT rows** for sites Step 1 shows are boundary-unreachable, with boundary-pin cases per the placement rule; any ACCEPTED-GAP follows the batch-A Step-4 same-commit filing mechanics (`BL-` entry + ledger `ref`).
-- [ ] **Step 5: Suite green; marker green (designated site KILLED); commit** `test(cross-cutting): batch B survivor dispositions - <k> killed, <e> equivalent`.
+- [x] **Step 1: Read the 7 sites** (same procedure as Task 2 Step 1). `scanShellText` is not exported, but its verdicts flow through suite-imported exports: `scanShellIndirection` (shell fixtures), `scanSource` / `collectPsqlUsage` (template literals), and `scanWorkflowIndirection` (YAML `run:` bodies). Pick per site the export whose fixture most directly reaches the guarded branch — e.g. a pipeline fixture (`printf 'x' | bash`) for the 1214/1223 stage-splitting pair; a multi-fragment template for 1304/1314; an `env -S'psql ...'` fixture for 1394; a quoted/backticked string at the exact delimiter boundary for the 1568/1569 pair.
+- [x] **Step 2: KILL cases** — boundary fixtures at the exact `<` vs `<=` / `>` vs `>=` edge each site guards; assert the reported site's line/verdict, deriving expected line numbers from the fixture's own layout. Name the site id per case.
+- [x] **Step 3: Prove each kill** (clean-tree pass + checker KILLED, ids single-quoted), record pairs.
+- [x] **Step 4: EQUIVALENT rows** for sites Step 1 shows are boundary-unreachable, with boundary-pin cases per the placement rule; any ACCEPTED-GAP follows the batch-A Step-4 same-commit filing mechanics (`BL-` entry + ledger `ref`).
+- [x] **Step 5: Suite green; marker green (designated site KILLED); commit** `test(cross-cutting): batch B survivor dispositions - <k> killed, <e> equivalent`.
 
 ### Task 4: Batch C — prose-vs-command heuristic (7 survivors)
 
