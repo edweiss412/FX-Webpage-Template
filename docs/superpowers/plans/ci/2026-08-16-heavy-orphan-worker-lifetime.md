@@ -107,9 +107,9 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The directory runs **125 cases** (28 classify + 24 collect + 62 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 125 are green. Both states observed, both edits reverted.
+- The directory runs **126 cases** (28 classify + 24 collect + 63 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 126 are green. Both states observed, both edits reverted.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
-- Thirteen cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
+- Fourteen cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
 - Seven cases drive `readIdentity` against a real `ps` at its K1/K6 boundary, including both status-1 spellings (stdout and stderr diagnostics) and a hanging read bounded by its timeout. One further case drives the production `stillAlive` against a process that exits mid-window, which is the only way K4's settle is observable.
 
@@ -1354,35 +1354,67 @@ describe("the CLI, executed end to end", () => {
   }, 180_000);
 
   it("AC-6: --all combined with --kill widens the REPORT and NOT the kill set", () => {
-    // Each invocation gets its OWN pair: a second run against the same pids would find them
-    // already dead and kill nothing, which would make the comparison pass vacuously.
-    const killedSet = (flags: string[]): { killed: string[]; out: string; kid: number } => {
+    // The BYSTANDER is the load-bearing row: reported only under `--all`, declined, and NOT a
+    // descendant of the reaped root, so it is not already a target. An implementation that added
+    // every `--all`-visible row to the kill set would signal it, which the previous version of
+    // this case could not detect because its only extra row was already a target (round 12).
+    const run = (flags: string[]) => {
       const root = spawnOrphan();
       const kid = spawnOrphan();
+      const bystanderParent = spawnOrphan();
+      const bystander = spawnOrphan();
       try {
         const table: Row[] = [
           { pid: root.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
-          // Declined AND not orphan-shaped, so only `--all` reports it; it is also a recorded
-          // descendant, so it is a legitimate TARGET. What must not differ is the kill set.
           { pid: kid.pid, ppid: root.pid, etime: OLD, command: WORKER_CMD },
+          { pid: bystanderParent.pid, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
+          { pid: bystander.pid, ppid: bystanderParent.pid, etime: OLD, command: WORKER_CMD },
         ];
         const { out } = runCli(flags, table);
-        const killed = (out.match(/killed pid=(\d+)/g) ?? []).map((m) =>
-          m.replace(`${root.pid}`, "ROOT").replace(`${kid.pid}`, "KID"),
-        );
-        return { killed: killed.sort(), out, kid: kid.pid };
+        const killed = (out.match(/killed pid=(\d+)/g) ?? [])
+          .map((m) =>
+            m
+              .replace(`${root.pid}`, "ROOT")
+              .replace(`${kid.pid}`, "KID")
+              .replace(`${bystander.pid}`, "BYSTANDER"),
+          )
+          .sort();
+        return { killed, out, bystanderAlive: bystander.alive(), bystander: bystander.pid };
       } finally {
         root.kill();
         kid.kill();
+        bystanderParent.kill();
+        bystander.kill();
       }
     };
 
-    const plain = killedSet(["--kill"]);
-    const withAll = killedSet(["--kill", "--all"]);
+    const plain = run(["--kill"]);
+    const withAll = run(["--kill", "--all"]);
     expect(plain.killed).toEqual(["killed pid=KID", "killed pid=ROOT"]);
-    expect(withAll.killed).toEqual(plain.killed); // --all changed the report and nothing else
-    expect(withAll.out).toContain(`skip ${withAll.kid} (has-live-parent)`);
-    expect(plain.out).not.toContain("has-live-parent");
+    expect(withAll.killed).toEqual(plain.killed);
+    expect(withAll.out).toContain(`skip ${withAll.bystander} (has-live-parent)`);
+    expect(plain.out).not.toContain(`skip ${plain.bystander}`);
+    expect(withAll.bystanderAlive).toBe(true); // observed on the process, not only in the report
+  }, 240_000);
+
+  it("AC-6: --all ALONE is non-destructive even with a candidate present", () => {
+    // The `--all`-only case must contain a REAPABLE row, or `shouldKill = flags.kill || flags.all`
+    // has nothing to signal and passes vacuously (round 12).
+    const owned = spawnOrphan();
+    try {
+      const table: Row[] = [
+        { pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
+        "garbage-line-with-no-pid",
+      ];
+      const { out, code } = runCli(["--all"], table);
+      expect(out).toContain(`REAPABLE pid=${owned.pid}`);
+      expect(out).toContain("skip unparsable");
+      expect(out).not.toMatch(KILL_LINE);
+      expect(owned.alive()).toBe(true);
+      expect(code).toBe(0);
+    } finally {
+      owned.kill();
+    }
   }, 180_000);
 
   it("AC-6: --all adds the non-orphan and the unparsable row, each with its reason", () => {
