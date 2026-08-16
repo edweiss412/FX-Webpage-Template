@@ -107,7 +107,7 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The directory runs **146 cases** (28 classify + 24 collect + 83 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 146 are green. Both states observed, both edits reverted.
+- The directory runs **150 cases** (28 classify + 24 collect + 87 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 150 are green. Both states observed, both edits reverted.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
 - Fourteen cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
@@ -517,6 +517,17 @@ if ((mode === "hang" && !identityRead) || (mode === "identity-hang" && identityR
   setTimeout(() => {}, 60_000);
 } else if (!identityRead) {
   const rows = JSON.parse(process.env.FAKE_PS_TABLE ?? "[]");
+  // The reaper is this process's PARENT, so injecting a worker-shaped row for `process.ppid` is
+  // the only way an end-to-end case can reach the `self` decline: the CLI's pid is not knowable
+  // before it is launched.
+  if (process.env.FAKE_PS_INCLUDE_SELF === "1") {
+    rows.push({
+      pid: process.ppid,
+      ppid: 1,
+      etime: "1-05:29:53",
+      command: "/usr/bin/node /x/node_modules/vitest/dist/workers/forks.js",
+    });
+  }
   process.stdout.write(
     rows
       .map((r) =>
@@ -1433,6 +1444,46 @@ describe("the CLI, executed end to end", () => {
     }
   }, 180_000);
 
+  it("§6.2: EVERY candidate is reported, not just the first", () => {
+    const a = spawnOrphan();
+    const b = spawnOrphan();
+    try {
+      const table: Row[] = [
+        { pid: a.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
+        { pid: b.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
+      ];
+      const { out } = runCli([], table);
+      expect(out).toContain(`REAPABLE pid=${a.pid}`);
+      expect(out).toContain(`REAPABLE pid=${b.pid}`);
+      expect(out).toContain("2 candidate(s)");
+    } finally {
+      a.kill();
+      b.kill();
+    }
+  }, 180_000);
+
+  it("§6.2: EVERY orphan-shaped decline reason reaches the default report", () => {
+    const LS = "Sun Aug 16 09:35:23 2026";
+    const table: Row[] = [
+      { pid: 777010, ppid: 1, etime: "00:10", command: WORKER_CMD }, // too-young
+      { pid: 777011, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" }, // not-a-worker
+      // R3: an unparsable etime on an orphan-shaped worker row, which declines as undecidable.
+      `777012 1 zzzz ${LS} /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js`,
+    ];
+    const { out } = runCli([], table);
+    expect(out).toContain("skip 777010 (too-young)");
+    expect(out).toContain("skip 777011 (not-a-worker)");
+    expect(out).toContain("skip 777012 (undecidable)");
+  }, 180_000);
+
+  it("AC-4: the reaper reports ITSELF as a decline rather than reaping it", () => {
+    // The fixture injects a worker-shaped row for its own parent, which IS the CLI process.
+    const { out, code } = runCli(["--kill"], [], { FAKE_PS_INCLUDE_SELF: "1" });
+    expect(out).toMatch(/skip \d+ \(self\)/);
+    expect(out).toContain("0 candidate(s)");
+    expect(code).toBe(0);
+  }, 180_000);
+
   it("§6.2: the default counts EVERY row, including one it does not print", () => {
     const table: Row[] = [
       { pid: 777001, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
@@ -1644,6 +1695,28 @@ describe("the CLI, executed end to end", () => {
     const table: Row[] = [{ pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD }];
     const { out } = runCli(["--kill", "--quiet"], table, { FAKE_PS_IDENTITY_GONE: String(owned.pid) });
     expect(out).not.toContain("already-gone");
+  }, 180_000);
+
+  it("--quiet suppresses EVERY decline kind, and --all does not re-enable them", () => {
+    const owned = spawnOrphan();
+    const LS = "Sun Aug 16 09:35:23 2026";
+    try {
+      const table: Row[] = [
+        { pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
+        { pid: 777020, ppid: 1, etime: "00:10", command: WORKER_CMD }, // too-young
+        { pid: 777021, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" }, // not-a-worker
+        { pid: 777022, ppid: 777021, etime: OLD, command: WORKER_CMD }, // has-live-parent
+        `777023 1 zzzz ${LS} /usr/bin/node /x/vitest/dist/workers/forks.js`, // undecidable
+        "garbage-line-with-no-pid", // unparsable
+      ];
+      // --all is the widest report there is, so if quiet is ever ignored this is where it shows.
+      const { out } = runCli(["--kill", "--all", "--quiet"], table);
+      expect(out).not.toContain("skip ");
+      expect(out).toContain("6 rows read"); // summaries survive
+      expect(out).toContain("1 candidate(s)");
+    } finally {
+      owned.kill();
+    }
   }, 180_000);
 
   it("--quiet keeps C1 visible", () => {
