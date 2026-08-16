@@ -2,9 +2,17 @@
 //
 // The logger serializes exactly ONCE. `buildRecord` (lib/log/logger.ts) runs
 // `serializeError(fields.error)` on its way to the record, so a call site that ALSO wraps the
-// value hands `serializeError` a plain object; its non-Error branch is `String(value)`, and the
-// persisted diagnostic collapses to the literal string "[object Object]". The field exists to
-// carry the failure, and double-serializing silently destroys it.
+// value hands `serializeError` a plain object. Until fix/serialize-error-structure that
+// non-Error branch was `String(value)` and the persisted diagnostic collapsed to the literal
+// string "[object Object]" — double-serializing silently destroyed the field. The branch is
+// STRUCTURAL now, so a re-serialized Error survives; the ban stands because it is shape drift
+// (a `{name,message,stack}` object where a raw value belongs) plus redundant work, and this
+// scanner is what enforces it statically rather than any runtime assertion.
+//
+// The residual DESTRUCTIVE vector moved: flattening BEFORE the helper — `String(e)` or
+// `JSON.stringify(e)` in the `error` initializer — still collapses structure, so this scanner
+// flags that family too (spec
+// docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md §2.6).
 //
 // Spec: docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md §2.2, AC-7.
 //
@@ -31,7 +39,8 @@
 //
 // Families 3-and-4 beyond the conditional/paren forms were added in diff review R1, which probed
 // three evading variants (`as`, `satisfies`, `... (cond && {...})`) against the shipped scanner
-// and showed each compiling clean while persisting "[object Object]". The repair is the
+// and showed each compiling clean while persisting "[object Object]" under the collapse-era
+// helper (structure survives that path today; the ban is unchanged). The repair is the
 // PREDICATE above, swept across every position a wrapper can occupy, rather than three patches
 // for the three reported spellings.
 //
@@ -45,6 +54,12 @@
 // by construction, not by another case. A finding claiming a new VALUE-SHAPE evasion is refuted
 // by that predicate; only the two limits below remain open, and both are outside the fence.
 //
+// `mentionsFlattener` (the pre-flatten family) is the SAME closed question over the same finite
+// tree, asked of a different accept-set: global `String(...)` and `JSON.stringify(...)`. It is
+// not a grammar parser either, so the narrowing argument above covers it unchanged, and a
+// finding proposing a third flattening spelling is an accept-set proposal against the spec's
+// §2.6 derivation rather than a value-shape evasion.
+//
 // The structural traversal (which object literals contribute to `fields`, and which spread forms
 // carry one) is still shape-based, because that is a question about STRUCTURE, not value — it
 // decides where to look, not what counts once you are looking.
@@ -56,7 +71,10 @@
 //
 // CONSEQUENCE BOUND. Every input is either handled correctly or reported; there is no
 // silent-wrong path. A false positive is a LOUD failure a contributor resolves by unwrapping the
-// call (which is the fix in every real case) or by taking the limit to the spec.
+// call (which is the fix in every real case) or by taking the limit to the spec. The cost of a
+// MISSED site is now split by family: a missed WRAPPER site drifts the persisted shape and does
+// redundant work (structure survives), while a missed PRE-FLATTEN site still destroys it — which
+// is why the flattener family was added alongside the helper redesign rather than instead of it.
 //
 // THREAT MODEL FENCE. Ordinary authoring mistakes by a contributor who is not trying to evade
 // the guard — copying a neighbouring emit that still wrapped, or reaching for the helper out of
@@ -171,8 +189,9 @@ function contributingObjectLiterals(root: ObjectLiteralExpression): ObjectLitera
  *
  * Sound in the direction that matters. If `serializeError` appears anywhere in the value that
  * reaches `error`, then on at least one path the logger receives an already-serialized object
- * and re-serializes it to "[object Object]". A conditional carrier is not a special case of
- * that — it IS that, on one branch.
+ * and re-serializes it — historically to "[object Object]", structurally since
+ * fix/serialize-error-structure, and drifted in shape either way. A conditional
+ * carrier is not a special case of that — it IS that, on one branch.
  *
  * The cost is a possible false positive: an expression that mentions the helper without its
  * result reaching `error`. That is a LOUD failure a contributor resolves by hoisting the call,
@@ -191,10 +210,42 @@ function mentionsWrapper(initializer: Node, wrappers: Set<string>): boolean {
   return false;
 }
 
-/** Report every `log.<level>(msg, { ... error: <anything mentioning serializeError> ... })`. */
+/**
+ * Does the VALUE expression for `error` mention a structure-flattening call --
+ * global `String(...)` or `JSON.stringify(...)` -- anywhere in its subtree?
+ * Same closed-question-over-a-finite-tree shape as mentionsWrapper: once the
+ * helper preserves structure, a call site flattening BEFORE the helper is the
+ * residual regression vector (spec §2.6). Scoped to object-literal fields
+ * arguments like every other family here; variable-carried fields objects are
+ * the parent suite's documented limit (spec §4 limit 10).
+ */
+function mentionsFlattener(initializer: Node): boolean {
+  const calls: Node[] = [...initializer.getDescendantsOfKind(SyntaxKind.CallExpression)];
+  if (Node.isCallExpression(initializer)) calls.push(initializer);
+  for (const node of calls) {
+    if (!Node.isCallExpression(node)) continue;
+    const callee = node.getExpression();
+    if (Node.isIdentifier(callee) && callee.getText() === "String") return true;
+    if (
+      Node.isPropertyAccessExpression(callee) &&
+      callee.getName() === "stringify" &&
+      Node.isIdentifier(callee.getExpression()) &&
+      callee.getExpression().getText() === "JSON"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Report every `log.<level>(msg, { ... error: <anything mentioning serializeError or a
+ * structure flattener> ... })`.
+ */
 export function findDoubleSerializedSites(sourceFile: SourceFile): Finding[] {
+  // No early return on an empty wrapper set: the pre-flatten family needs no
+  // serializeError import to reach the logger with the structure already gone.
   const wrappers = serializeErrorBindings(sourceFile);
-  if (wrappers.size === 0) return [];
 
   const findings: Finding[] = [];
   for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -216,7 +267,8 @@ export function findDoubleSerializedSites(sourceFile: SourceFile): Finding[] {
         if (property.getName() !== "error") continue;
         const initializerNode = property.getInitializer();
         if (!initializerNode) continue;
-        if (!mentionsWrapper(initializerNode, wrappers)) continue;
+        const preSerialized = wrappers.size > 0 && mentionsWrapper(initializerNode, wrappers);
+        if (!preSerialized && !mentionsFlattener(initializerNode)) continue;
         findings.push({
           file: sourceFile.getFilePath(),
           line: property.getStartLineNumber(),
@@ -374,6 +426,36 @@ export function nested(e: unknown) {
 }
 `;
 
+/**
+ * Pre-flatten family (spec §2.6). Once the helper preserves structure, the residual
+ * regression vector is a call site that flattens BEFORE the logger ever sees the value:
+ * `String(e)` and `JSON.stringify(e)` both hand `buildRecord` a string, so the structure
+ * is already gone by the time `serializeError` runs and there is nothing left to preserve.
+ */
+const STRING_FLATTEN_FIXTURE = `
+import { log } from "@/lib/log";
+
+export function stringFlatten(e: unknown) {
+  void log.error("string-flattened", { source: "probe", error: String(e) });
+}
+`;
+
+const JSON_STRINGIFY_FLATTEN_FIXTURE = `
+import { log } from "@/lib/log";
+
+export function jsonFlatten(e: unknown) {
+  void log.warn("json-flattened", { source: "probe", error: JSON.stringify(e) });
+}
+`;
+
+const WRAPPED_FLATTEN_FIXTURE = `
+import { log } from "@/lib/log";
+
+export function wrappedFlatten(e: unknown) {
+  void log.error("as-wrapped flatten", { source: "probe", error: String(e) as unknown });
+}
+`;
+
 const ALLOWED_FIXTURE = `
 import { serializeError } from "@/lib/log/serializeError";
 import { log } from "@/lib/log";
@@ -381,6 +463,11 @@ import { log } from "@/lib/log";
 export function raw(err: unknown) {
   // The correct shape: the logger serializes this exactly once.
   void log.error("raw error", { source: "probe", error: err });
+}
+
+export function messageExtract(err: { message: string }) {
+  // Property reads are legitimate site-local extraction, never flagged.
+  void log.error("extracted", { source: "probe", error: err.message });
 }
 
 export function consoleDirect(e: unknown) {
@@ -405,6 +492,11 @@ describe("no double-serialized log.* error fields (AC-7)", () => {
       ["nullish-spread", NULLISH_SPREAD_FIXTURE],
       ["wrapped-fields-argument", WRAPPED_FIELDS_FIXTURE],
       ["nested-argument", NESTED_ARGUMENT_FIXTURE],
+      // Pre-flatten family (spec §2.6): flattening BEFORE the logger destroys the
+      // structure the redesigned helper exists to preserve.
+      ["string-flatten", STRING_FLATTEN_FIXTURE],
+      ["json-stringify-flatten", JSON_STRINGIFY_FLATTEN_FIXTURE],
+      ["wrapped-flatten", WRAPPED_FLATTEN_FIXTURE],
     ] as const;
 
     for (const [family, source] of banned) {
