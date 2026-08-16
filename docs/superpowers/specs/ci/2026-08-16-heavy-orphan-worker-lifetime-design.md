@@ -112,7 +112,7 @@ Each row is settled. Re-opening one needs new evidence, not a re-reading.
 | Trigger 1 lives in `package.json`'s `heavy` script and fails open by construction, so `scripts/with-heavy-slot.py` stays unedited and admission is never blocked by the reaper. | §6.1, §12 |
 | Clause (a) matches on argv STRUCTURE — node as `argv[0]` plus a last-token path suffix — never on containment. Containment was measured producing a live false positive and is not coming back. | §4.2(a) |
 | An exemption clause that cannot be EVALUATED stops the whole run. "Proceed with fewer exemptions" is rejected: it concludes a process is unexempt from a failure to check. | §4.4, §8 AC-3b |
-| The subtree kill is best-effort over the RECORDED set and the reaper is idempotent-and-repeated, not transactional. Descendants created after collection are next run's ordinary orphans. | §4.4, §7 L-5, §8 AC-5 |
+| The subtree kill is best-effort over the RECORDED set and the reaper is idempotent-and-repeated, not transactional. What that costs is K5. | §4.4, §7 L-5, §8 AC-5 |
 | Every §4.4 condition has an ID, and §6.2 and §8 CITE those IDs instead of paraphrasing the behavior. Three rounds found a summary sentence contradicting its own table; single-sourcing each behavior is the defense that closes the class, and re-introducing a paraphrase re-opens it. | §4.4 preamble, §6.2, §8 |
 | Target identity is (pid, start time, command). `etime` is excluded because it increases by definition; `ppid` is excluded because this run's own kills change it. Kill order is root-first for the same reason. | §4.4 K2, §8 AC-5b |
 | Reaping is a local-machine concern only. Nothing here runs in CI, and no CI job is added. | §6 |
@@ -200,7 +200,7 @@ Three units, each independently testable:
 | Unit | Responsibility | Depends on |
 | --- | --- | --- |
 | lib/heavyReap/classify.ts (new) | PURE decision function: given process rows (parsable and not), a slot survey, and a config carrying the clock reading, return a decision for EVERY row plus the collection problems and config notes the reporter needs. No I/O, no clock. | nothing |
-| lib/heavyReap/collect.ts (new) | Read the world: run `ps`, parse it into rows; read `/tmp/fx-heavy-slots/slot-*` into a `SlotSurvey`. Reports its own failure rather than returning an empty world. | node `child_process`, `fs` |
+| lib/heavyReap/collect.ts (new) | Read the world: run `ps`, parse it into rows; read `/tmp/fx-heavy-slots/slot-*` into a `SlotSurvey`. Distinguishes its own failure from an empty world (C1 vs C2, C3 vs C4). | node `child_process`, `fs` |
 | scripts/heavy-reap.ts (new) | Adapter: collect → classify → report or kill. Owns the flag set and the exit status, both defined in §6.2. | both above |
 
 The split is the point. classify.ts is where every rule lives and it never touches the machine,
@@ -379,10 +379,15 @@ src = {i for i, l in enumerate(lines) if re.match(r"^\| (C[1-8]|R[1-5]|K[1-5]) \
 verbs = re.compile(r"exit non-zero|non-zero.exit|reap(s|ing)? (nothing|NOTHING)|exit status|exits? 0"
                    r"|unaffected|tolerated|never reaped|not reapable|stops the run|is blocked"
                    r"|kills nothing|non-destructive|failed kill|partial kill|identity-changed"
-                   r"|already-gone|ESRCH|surviving pids")
+                   r"|already-gone|ESRCH|surviving pids"
+                   # added after round 9, each from a phrase that actually escaped the set above
+                   r"|ordinary orphans|next run|empty world|recorded survivor|is reported|are reported")
 for i, l in enumerate(lines):
+    t = l.strip()
+    if "re.compile" in l or t.startswith('r"') or t.startswith("#"):
+        continue  # the scan's own definition, quoted in this document
     if i not in src and verbs.search(l):
-        print(f"{i+1}: {l.strip()[:120]}")
+        print(f"{i+1}: {t[:120]}")
 EOF
 ```
 
@@ -390,8 +395,12 @@ Every hit it reports must be one of five things, and anything else is a defect: 
 ID, a POINTER to the section that owns the behavior, a DEFINITION of a term the tables use, a
 HISTORICAL note recording a claim this spec corrected, or a claim OWNED by the section making it
 and described by no row (AC-8's trigger-1 properties and §9's consequence bound are the two of
-those). The scan does not decide which; it bounds where to look, which is the part that kept
-failing. That is a structural repair, not a formatting choice: three consecutive review rounds
+those). The scan does not decide which; it bounds where to look, which is the part that kept failing. It
+is an AID, not a gate: it is a verb-list regex, so a paraphrase using none of its verbs is not
+reported, and round 9 demonstrated exactly that with three escaping phrases. Those phrases were
+added to the set — a widening justified by concrete escapes rather than by imagination — and the
+limit itself is permanent: naming a further escaping phrase is admissible, naming the possibility
+of one is not. That is a structural repair, not a formatting choice: three consecutive review rounds
 found a summary sentence contradicting the table it summarized (round 1 F1/F4, round 2 F2/F5,
 round 3 F1/F2). The class is "a normative claim restated in prose drifts from its source", and the
 defense that closes it is to have exactly one statement of each behavior and make every other
@@ -670,20 +679,29 @@ surfaced signal files here rather than as a review round.
   can reparent between collection and kill; and the producer this design targets does exactly this
   by construction — `tests/mutation/source/runner.ts:141-143` records that by the time `spawnSync`
   returns, every descendant has been reparented to init and no parent-based walk can find them.
-  What the design guarantees is therefore narrower and is what AC-5 states: the RECORDED set is
-  killed and any recorded survivor is reported. Anything missed becomes an ordinary orphan and is
-  a candidate on the next run. The reaper is idempotent and repeated, not transactional, and that
-  is the whole answer to this limit.
+  What the design guarantees is therefore narrower, and is stated by AC-5 and by rows K4 and K5.
+  The reaper is idempotent and repeated rather than transactional, and that is the whole answer to
+  this limit.
 - **L-6 — adversarial process manipulation is out of scope.** A process that rewrites its own argv
   to impersonate an exempt shape, or reparents itself to dodge clause (b), defeats this. The
   threat model is ordinary orphaning by killed sessions and crashed harnesses.
-- **L-8 — pid reuse cannot be fully closed by a single process.** Between classification and the
-  signal, a target can exit and its pid be recycled onto an unrelated process. K2 narrows the
-  window to one syscall pair by re-reading the identity triple (pid, start time, command) and
-  requiring a match, and makes the residue observable through K2. A recycled process
-  that started at the same clock second AND runs the same command would still pass; that is
-  undetectable without kernel support macOS does not offer, and is bounded by how rarely a pid
-  recycles within one second on a machine with a 99 999 pid space.
+- **L-8 — pid reuse cannot be closed by a single process, and the residue is SILENT.** K2 re-reads
+  the identity triple immediately before signalling, which narrows the window from the whole run to
+  the gap between that read and the `kill` syscall. It does not close it, and — corrected here after
+  round 9 — the residue inside that gap is **not** observable: if the target exits and its pid is
+  recycled after the final read, the signal reaches an unrelated process, K2 reports no mismatch,
+  and nothing appears in the report. Making it observable would need an atomic check-and-signal
+  (a pidfd, a process handle) that macOS does not offer.
+
+  **This is the one place the consequence bound does not reach, and §9 says so explicitly.** The
+  bound governs what the reaper DECIDES about processes it classified; a pid recycled after the
+  final identity read is not a process the reaper ever classified, and no decision it made was
+  wrong. That is a real limit rather than a reclassification of the same guarantee, and the
+  exposure it leaves is: a kill lands on an unrelated process that acquired the pid within
+  microseconds of the check, on a machine with a 99 999 pid space. Two things bound it further —
+  K2 already eliminates every recycle before the check, which is the whole run minus a syscall, and
+  the reaper only ever signals pids it first found orphaned, worker-shaped and hours old.
+
 - **L-7 — clause (c) trusts the slot directory.** A stale or hand-edited slot file naming a live
   unrelated pid would exempt that pid's descendants. AGENTS.md already forbids hand-editing slot
   state and `FX_HEAVY_SLOT_DIR` in production sessions; the failure direction is inaction.
@@ -714,7 +732,8 @@ to say something §4.4 does not, it says only that.
   present in the collection snapshot — in the order §4.4 specifies, and K4's verification re-scan
   reports any recorded pid still alive. K5 is outside this criterion by construction.
 - **AC-5b** — K2 holds: no pid is signalled whose identity triple (pid, start time, command) has
-  changed since classification. `etime` and `ppid` are NOT part of that triple, and a target whose
+  changed since classification. The residual window between that check and the syscall is L-8, and
+  this criterion deliberately does not claim it. `etime` and `ppid` are NOT part of that triple, and a target whose
   `etime` advanced or whose `ppid` changed because this run killed its parent is still signalled.
 - **AC-6** — Each invocation in §6.2's table behaves as its row states, and the two properties
   that table exists to guarantee hold: `--all` widens only the report and never what is killed, and
@@ -747,7 +766,10 @@ Convergence criterion for every review dispatch on this arc:
   reported through the §5 channel for its condition class; and whenever an exemption clause cannot
   be EVALUATED, the run reaps nothing and says so (§4.4's C-rows). Never silently
   killed, never silently omitted from the report, and never reaped on the strength of a check that
-  did not run. A decline is a DOCUMENTED LIMIT (§7), not a finding.
+  did not run. **Scope:** the bound governs the reaper's decisions about processes it CLASSIFIED.
+  It does not reach a pid recycled between K2's identity read and the `kill` syscall, which is L-8
+  and is silent by construction rather than by omission. A decline is a DOCUMENTED LIMIT (§7), not
+  a finding.
 - **`PROBE DOMAIN:`** the live process table on this machine
   (`ps -eo pid,ppid,etime,%cpu,rss,command`), the live slot directory `/tmp/fx-heavy-slots/slot-*`
   and its metadata files, `package.json`'s `heavy` script, and `tests/mutation/**` plus the
