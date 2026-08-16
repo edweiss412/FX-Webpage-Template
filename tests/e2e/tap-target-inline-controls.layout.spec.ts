@@ -493,8 +493,16 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
       });
       expect(wide.ok, wide.ok ? "" : wide.error).toBe(true);
       if (!wide.ok) return;
-      assertFloor(wide.tel, floor, `site 6 (tel: chip, ${WIDE_VIEWPORT.width}px)`);
-      assertFloor(wide.mailto, floor, `site 7 (mailto: chip, ${WIDE_VIEWPORT.width}px)`);
+      // NO floor assertion here, deliberately. `mobile-safari` is an `isMobile`
+      // WebKit profile (devices["iPhone 14"]), and resizing one to a desktop
+      // width makes WebKit report a uniformly SCALED box rather than a relaid
+      // one: the chips measured 43.1199951171875px against a 44px token, which
+      // is exactly 44 x 0.98 — the emulation's shrink-to-fit, not a CSS change.
+      // The floor is a real-device claim and it is asserted above at 390px,
+      // which is the width these targets are actually tapped at. What this block
+      // exists to cover is the `items-start` relationship (spec §2.2 puts it
+      // live at BOTH column counts), and that is a comparison BETWEEN two boxes
+      // in the same scaled frame, so the scale divides out of it.
       expect(
         wide.vehicleCell.height,
         `the short Vehicle cell stretched at ${WIDE_VIEWPORT.width}px: ${wide.vehicleCell.height}px vs driver ${wide.driverCell.height}px`,
