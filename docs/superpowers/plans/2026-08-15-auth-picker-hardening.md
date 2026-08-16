@@ -190,37 +190,41 @@ describe("same-origin gate (BL-SERVER-ACTION-ORIGIN-GATE)", () => {
     );
   });
 
-  test("clearIdentity refuses cross-site, writes no cookie, emits the forensic code", async () => {
+  test("clearIdentity refuses cross-site, writes no cookie, emits the forensic code for ITS OWN action", async () => {
     setHeaders({ "sec-fetch-site": "cross-site" });
     const r = await clearIdentity(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
     expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
     expect(cookieSet).not.toHaveBeenCalled(); // seeded cookie holds SHOW_ID → a late-gate mutant WOULD write
+    // R6-F1: assert the emit's `action`, not just `code`. If clearIdentity's OWN guard is deleted, it
+    // delegates to clearIdentityCore whose guard emits action:"clearIdentityCore", so this fails, killing
+    // the "gate only core, drop the wrapper guards" mutant. `code` alone let that mutant survive.
     expect(logMock.warn).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED" }),
+      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED", action: "clearIdentity" }),
     );
   });
 
-  test("clearIdentityAndSkip refuses cross-site WITHOUT signing out, writes no cookie, emits", async () => {
+  test("clearIdentityAndSkip refuses cross-site WITHOUT signing out, writes no cookie, emits for ITS OWN action", async () => {
     setHeaders({ "sec-fetch-site": "cross-site" });
     const r = await clearIdentityAndSkip(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
     expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
     expect(supabaseMock.signOut).not.toHaveBeenCalled(); // R1-F6: external mutation untouched
     expect(cookieSet).not.toHaveBeenCalled();
+    // R6-F1: dropping AndSkip's own guard makes it fall through to core (action:"clearIdentityCore"), failing here.
     expect(logMock.warn).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED" }),
+      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED", action: "clearIdentityAndSkip" }),
     );
   });
 
-  test("clearIdentityCore refuses cross-site, writes no cookie, emits", async () => {
+  test("clearIdentityCore refuses cross-site, writes no cookie, emits for ITS OWN action", async () => {
     setHeaders({ "sec-fetch-site": "cross-site" });
     const r = await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
     expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
     expect(cookieSet).not.toHaveBeenCalled();
     expect(logMock.warn).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED" }),
+      expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED", action: "clearIdentityCore" }),
     );
   });
 
@@ -235,7 +239,7 @@ describe("same-origin gate (BL-SERVER-ACTION-ORIGIN-GATE)", () => {
 
 The `tests/auth/picker/clearIdentity.test.ts:228` no-emit pin is unchanged (it runs under the same-origin default, so the gate passes and it exercises the real body).
 
-RED premise (production line, not scaffolding): the gate call `if (!(await isSameOriginServerAction())) return rejectCrossOrigin(...)` is ABSENT from all three actions (Step 3 adds it), so a cross-site request currently falls through to the real body, decodes the SEEDED cookie, deletes the `SHOW_ID` selection, calls `cookieSet`, and returns `{ ok: true }` / redirects — the `{ ok: false, code: "PICKER_INVALID_INPUT" }` assertion fails, `cookieSet`/`signOut` fire, and `logMock.warn` never sees `PICKER_ORIGIN_REJECTED`. Every failure is caused by the missing production gate line, not by an unresolved import or undefined symbol (Step 1a supplies every symbol the tests use). Anti-tautology (R5-F1): because the cookie is SEEDED with the target selection, the `cookieSet` spy distinguishes the correct gate (rejects first, no write) from a guard-order regression (deletes + writes, THEN rejects) — the mutant the plan claims to kill now genuinely fails the suite; `signOut` (independent of cookie contents) similarly catches a signOut-before-gate mutant on `clearIdentityAndSkip`; the emit spy proves the forensic code FIRED. All three endpoints are pinned independently, so gating only one action cannot pass the suite (F2).
+RED premise (production line, not scaffolding): the gate call `if (!(await isSameOriginServerAction())) return rejectCrossOrigin(...)` is ABSENT from all three actions (Step 3 adds it), so a cross-site request currently falls through to the real body, decodes the SEEDED cookie, deletes the `SHOW_ID` selection, calls `cookieSet`, and returns `{ ok: true }` / redirects — the `{ ok: false, code: "PICKER_INVALID_INPUT" }` assertion fails, `cookieSet`/`signOut` fire, and `logMock.warn` never sees `PICKER_ORIGIN_REJECTED`. Every failure is caused by the missing production gate line, not by an unresolved import or undefined symbol (Step 1a supplies every symbol the tests use). Anti-tautology (R5-F1 + R6-F1): because the cookie is SEEDED with the target selection, the `cookieSet` spy distinguishes the correct gate (rejects first, no write) from a guard-order regression (deletes + writes, THEN rejects); `signOut` (independent of cookie contents) similarly catches a signOut-before-gate mutant on `clearIdentityAndSkip`; the emit spy asserts the forensic code AND the per-endpoint `action` value. The `action` assertion is what makes each wrapper's OWN guard load-bearing (R6-F1): `clearIdentity` and `clearIdentityAndSkip` delegate to `clearIdentityCore` (`lib/auth/picker/clearIdentity.ts:52`, `lib/auth/picker/clearIdentity.ts:81` — AndSkip short-circuits on `!result.ok` before signOut), so deleting a wrapper's own guard makes it fall through to core's guard, which emits `action:"clearIdentityCore"` and fails that endpoint's `action:"<wrapper>"` assertion. This is why the closed guard mutant set (guard-absent, guard-order-swapped, and guard-deleted-per-wrapper-leaving-core) is fully killed — a `code`-only assertion (R2..R5) let the last one survive.
 
 - [ ] **Step 2: Run tests, verify they fail** — Run `pnpm vitest run tests/auth/picker/clearIdentity.test.ts`; expected FAIL on the new cases (gate absent), existing cases green.
 
@@ -378,6 +382,19 @@ it("renders an in-menu alert on failure, as a sibling of role=menu, and keeps th
   expect(popover).toBeInTheDocument(); // stayed open
 });
 
+it("renders the alert for ANY ok:false code, not just one (R6-F2, kills the code-narrowing mutant)", async () => {
+  // Spec §4.3: any ok:false shows the generic alert. clearIdentity can return PICKER_INVALID_INPUT
+  // (malformed FormData or the origin gate), NOT only PICKER_RESOLVER_LOOKUP_FAILED. A mutant that
+  // narrows `if (!result.ok)` to `if (!result.ok && result.code === "PICKER_RESOLVER_LOOKUP_FAILED")`
+  // survives every fixture that uses that one code; a DIFFERENT failure code catches it.
+  const action = vi.fn(async () => ({ ok: false as const, code: "PICKER_INVALID_INPUT" as const }));
+  renderWith(action);
+  openMenu();
+  act(() => { fireEvent.click(screen.getByTestId("avatar-menu-switch-person")); });
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent?.trim()).toBe(EXPECTED); // same generic copy regardless of code
+});
+
 it("renders NO alert when the clear succeeds (awaits the transition before asserting absence, F5)", async () => {
   const action = vi.fn(async () => ({ ok: true as const }));
   renderWith(action);
@@ -468,6 +485,7 @@ Anti-tautology + mutant-to-layer mapping (F4). `EXPECTED` is derived from `messa
 - **(c) placement** (copy in a `title` attribute, inside `role="menu"`, wrapped in another element, before the menu, or not the last popover child) is killed by the scoped `getByRole("alert")` + the full placement pins: `menu.contains(alert)===false`, `popover.contains(alert)===true`, `menu.nextElementSibling===alert`, `popover.lastElementChild===alert` (R3-F3).
 - **(d) rendered suffix** (component appends to the rendered text) is killed by the exact-equality assertion (`textContent.trim() === EXPECTED`).
 - **ok true↔false** is killed by the success case (no alert) vs the failure case (alert present).
+- **code-narrowing** (R6-F2: `if (!result.ok)` narrowed to a specific `result.code`) is killed by the "ANY ok:false code" test, which drives a failure with `PICKER_INVALID_INPUT` (not `PICKER_RESOLVER_LOOKUP_FAILED`) and still asserts the alert — pinning the spec §4.3 any-`ok:false` generic-alert contract.
 
 RED premise (production line): Step 2 widens the prop type AND rebinds the form to a void-returning `onSwitchSubmit` wrapper (R4-F1: `<form action={clearAction}>` cannot compile once `clearAction` returns `Promise<ClearIdentityResult>`, since React 19's form-action slot requires `void | Promise<void>`; the wrapper is the only type-compatible binding, so it is a compile prerequisite, not deferrable). After Step 2 the suite compiles, but `AvatarMenu` renders no alert node, sets no `aria-disabled`, and does not reset on open, so at Step 3 the failure test's `findByRole("alert")` throws and the keyboard test's `aria-disabled` assertion fails. The FormData-seam test passes even at RED because the wrapper already forwards the form's inputs. Every RED failure traces to missing production BEHAVIOR that Step 4 adds (the alert node, the `aria-disabled` attribute, reset-on-open), never to an unresolved import or type error (all resolved in Step 2).
 
