@@ -55,20 +55,47 @@ export function readAppliedTheme(): Theme {
 }
 
 export type AppliedTheme =
-  | { mounted: false; theme: "light"; isDark: false; setTheme: (next: Theme) => void }
-  | { mounted: true; theme: Theme; isDark: boolean; setTheme: (next: Theme) => void };
+  | {
+      mounted: false;
+      theme: "light";
+      isDark: false;
+      persistFailed: false;
+      setTheme: (next: Theme) => void;
+    }
+  | {
+      mounted: true;
+      theme: Theme;
+      isDark: boolean;
+      persistFailed: boolean;
+      setTheme: (next: Theme) => void;
+    };
 
 export function useAppliedTheme(): AppliedTheme {
-  const [state, setState] = useState<{ mounted: boolean; theme: Theme }>({
+  const [state, setState] = useState<{
+    mounted: boolean;
+    theme: Theme;
+    persistFailed: boolean;
+  }>({
     mounted: false,
     theme: "light",
+    persistFailed: false,
   });
 
   useEffect(() => {
     // Post-mount sync of the SSR-stable placeholder with the actually-applied
     // theme.
+    //
+    // FUNCTIONAL update, not a wholesale replace: the standalone toggle has a
+    // reachable pre-mount click window (`ThemeToggle.tsx`, the read-the-DOM-at-
+    // click-time comment), so a blocked write can already have set
+    // `persistFailed` by the time this runs. Replacing state here would clear a
+    // true report the user never saw.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setState({ mounted: true, theme: readAppliedTheme() });
+    setState((prev) => ({
+      mounted: true,
+      theme: readAppliedTheme(),
+      persistFailed: prev.persistFailed,
+    }));
 
     // AND a live subscription, which an earlier version argued was "ceremony
     // without correctness". Measured otherwise: with no stored choice, a phone
@@ -93,15 +120,17 @@ export function useAppliedTheme(): AppliedTheme {
       if (stored === "light" || stored === "dark") return;
       const next: Theme = event.matches ? "dark" : "light";
       document.documentElement.dataset.theme = next;
-      setState({ mounted: true, theme: next });
+      // This path writes no storage, so it says nothing about persistence:
+      // whatever the last write reported stays reported.
+      setState((prev) => ({ mounted: true, theme: next, persistFailed: prev.persistFailed }));
     };
     query.addEventListener("change", onOsChange);
     return () => query.removeEventListener("change", onOsChange);
   }, []);
 
   function setTheme(next: Theme): void {
-    setState({ mounted: true, theme: next });
     document.documentElement.dataset.theme = next;
+    let persistFailed = false;
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
@@ -110,10 +139,25 @@ export function useAppliedTheme(): AppliedTheme {
       // above still applies the theme for this tab; only persistence across
       // reloads is lost, and a thrown error here would take the whole control
       // down over a preference.
+      //
+      // What changed 2026-08-15: the absorb stays, but it no longer stays
+      // QUIET. The controls render a small note from this flag, because "the
+      // page turned dark and the next load is light again" is the user finding
+      // out by being surprised.
+      persistFailed = true;
     }
+    // A later successful write CLEARS a previous failure: storage can come
+    // back, and a stale warning would then be a lie.
+    setState({ mounted: true, theme: next, persistFailed });
   }
 
   return state.mounted
-    ? { mounted: true, theme: state.theme, isDark: state.theme === "dark", setTheme }
-    : { mounted: false, theme: "light", isDark: false, setTheme };
+    ? {
+        mounted: true,
+        theme: state.theme,
+        isDark: state.theme === "dark",
+        persistFailed: state.persistFailed,
+        setTheme,
+      }
+    : { mounted: false, theme: "light", isDark: false, persistFailed: false, setTheme };
 }
