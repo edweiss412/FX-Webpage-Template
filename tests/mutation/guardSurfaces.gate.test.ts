@@ -108,6 +108,12 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
+  // feat/mutation-playwright-component-mode (2026-08-15): the browser mode's own
+  // two modules, enrolled before the arc's first review dispatch. Both declare an
+  // EMPTY ledger and a floor of 1 — a row appearing here later is a coverage
+  // regression to repair, not a number to update.
+  browserRegistry: {},
+  browserMutate: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

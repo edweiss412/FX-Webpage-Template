@@ -744,4 +744,47 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  // ---- the browser-mutant mode's own modules (browser spec §6) ------------
+  //
+  // Promotion P2 applied to itself: the new decision logic is guard code whose
+  // defect class is exactly "reports OK while the output moved" — a validation
+  // that stops rejecting a drifted anchor, a verdict table that folds an infra
+  // fault into KILLED — so both modules were authored as importable lib-shaped
+  // units with referring suites and enrolled BEFORE this arc's first review
+  // dispatch, per AGENTS.md's convergence-criterion bullet 4. What the registry
+  // CANNOT express is stated rather than enrolled symbolically: the spawn
+  // boundary in tests/mutation/browser/runner.ts needs a real Playwright child,
+  // the same shape limit the step3-a11y filing recorded, so its pure seams live
+  // in the two modules below and the residual wrapper is covered by the wiring
+  // meta-test plus the enrolment run itself.
+  {
+    id: "browserRegistry",
+    sourcePath: "tests/mutation/browser/registry.ts",
+    suitePaths: ["tests/mutation/browser/registry.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Turns the empty-mutants rejection into an unreachable comparison, so a
+    // surface that would generate no mutants at all validates cleanly — the
+    // vacuous-gate hole, at authoring time.
+    control: {
+      from: "if (surface.mutants.length === 0) {",
+      to: "if (surface.mutants.length === -1) {",
+    },
+    accepted: [],
+  },
+  {
+    id: "browserMutate",
+    sourcePath: "tests/mutation/browser/mutate.ts",
+    suitePaths: ["tests/mutation/browser/mutate.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Inverts the §3.4 table's detection row: every mutant that a suite
+    // REJECTED would be scored as survival, which is the single edit that turns
+    // this mode's score inside out.
+    control: {
+      from: 'if (input.exitStatus !== 0) return "KILLED";',
+      to: 'if (input.exitStatus !== 0) return "DID_NOT_KILL";',
+    },
+    accepted: [],
+  },
 ];

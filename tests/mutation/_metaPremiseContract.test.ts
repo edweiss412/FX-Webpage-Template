@@ -92,6 +92,15 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // blindness to nested helpers is the wider class, probed and filed as
   // BL-PREMISESCAN-NESTED-HELPER-SCOPE.
   "tests/ci/phantomGapExecuted.test.ts": 3,
+  // The browser mode's two deciding suites (2026-08-15). Both declare 0, and the
+  // declaration is honest rather than convenient: each builds the scratch trees it
+  // reads under mkdtempSync and drives pure functions, touching no member of
+  // ENVIRONMENT_SOURCES (child_process, ledger-git, process.env) — node:fs is
+  // deliberately not provenance, by the same rule the corpus suite is declared 0
+  // under. The suite that DOES spawn children, overlayWiring.test.ts, is not a
+  // deciding suite for any enrolled surface and is therefore not scanned here.
+  "tests/mutation/browser/registry.test.ts": 0,
+  "tests/mutation/browser/mutate.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();
