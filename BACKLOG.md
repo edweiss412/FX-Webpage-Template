@@ -237,6 +237,58 @@ Eleven shipped controls stand on such a plate, across ten sites: `components/adm
 
 **First scheduled step:** decide whether tinted plates get their own outline token. If yes, the shape is a per-plate `border-*` in the same recipe rather than a new global token, because the neutral grounds already clear and moving the shared token would push them the other way.
 
+## BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER — two families of low-contrast outline the element-level cover cannot see in either direction
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (a resting boundary at 1.4-1.8:1, on surfaces whose peers moved to 3.35:1 on 2026-08-16) · **Class:** visual boundary / DESIGN scope · **Effort:** S per site, M as a class · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §3.2) · **Class-sweep exception:** (a) — the repair needs a design decision this PR cannot settle, stated per family below · **Reachability:** PROBED — every claim below is a transcript, not an argument.
+
+The 2026-08-16 ruling swapped the 21 controls a DERIVED cover found: interactive elements whose OWN className `tests/styles/interactiveScanCore.ts` statically resolves. Two families sit outside that cover **in both directions** — the census will never flag them and never exempt them — so they are recorded here rather than hand-added to a swap set that is otherwise entirely derived.
+
+**Family B first, because one of its members has the strongest claim to have belonged in the 21.**
+
+- `components/admin/wizard/VenueMapTile.tsx:123` — a `<span>` painted as a button visual inside an anchor. A resting outline on a neutral fill; its ONLY difference from the 21 is that the paint lands on a child. Named first deliberately.
+- `components/admin/OnboardingWizard.tsx:240` — the done-branch pill inside the `Link` at `:251`.
+- `components/admin/ShowRowActions.tsx:650` and `components/admin/wizard/CrewRowActions.tsx:273` — open-state menu-trigger visuals.
+
+**Probe.** The scanner attributes a className to the interactive element. Where the border is painted on a child `<span>`, the interactive element's own class list is clean and the element reports `strong=false`, so the cover never sees the outline at all. Two switch tracks have the identical shape and were promoted into the ruling's exemption family for exactly this reason (spec §3.1) — the mechanism is live, not hypothetical.
+
+**Family A — text-entry fields.**
+
+- `components/admin/BellPanel.tsx:836` and `:847` — `type="number"` fields, `min-h-tap-min w-20 rounded-sm border border-border-strong bg-surface`.
+- `components/admin/wizard/step3ReviewSections.tsx:4200` — a `<textarea>` (spec §3.2 cites `:4171`; the live line moved under the 2026-08-16 sibling merges).
+
+**Probe.** The rule is explicit and narrow: `tests/styles/interactiveScanCore.ts:868-870` admits an `<input>` **only** when its `type` is `checkbox` or `radio`. The scanner does see inputs — nine repo-wide, all checkboxes and radios — but a `type="number"` field and a `<textarea>` are outside its vocabulary by that rule. `scanInteractiveElements` over `components/admin/BellPanel.tsx` returns rows tagged `a`, `button` and `div`, and zero inputs.
+
+**Why each family is filed rather than repaired, and why "same defect, different file" is not the reason.** Both differ from the 21 in element kind and in whether the outline is a resting boundary at all.
+
+- **Family A:** whether an `<input>`'s border is a "control outline" under §1.2a is an open question. The user ruled against a mockup of BUTTONS resting on cards; a text field's border is arguably a field affordance rather than a control boundary, and moving it silently would answer a question the ruling did not ask.
+- **Family B:** the closed state of these nested-child outlines is `border-border`, a DIFFERENT token doing a different job (§1.2a preserves it for tile edges, dividers and hover chrome). Whether an open/active STATE treatment is a resting outline or a state cue is the second unanswered question.
+
+**Why `VenueMapTile.tsx:123` was not simply included.** Including it would make the swap set "the 21 the cover found, plus one the cover did not, chosen by hand" — a hand-extended list is exactly the enumerated cover the arc refused everywhere else. It goes here, named first.
+
+**First scheduled step:** answer the two design questions — is a text field's border a control outline, and is an open-state child outline a resting boundary — then apply each answer as a derived sweep over its own family, starting with `VenueMapTile.tsx:123`.
+
+## BL-CONTROL-OUTLINE-FORWARD-GUARD — a guard that keeps the control-outline population correct going forward, with five escapes already closed
+
+**Status:** OPEN · **Severity:** LOW (no shipped defect; this is a regression-prevention ambition) · **Class:** guard design / design-system enforcement · **Effort:** L · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §5.2, §6) · **Class-sweep exception:** (c) — the repair is a redesign of a surface the shipping PR does not otherwise touch, and a guard that consumed five review rounds without converging does not belong in a 22-token-edit diff · **Reachability:** PROBED — every escape below was demonstrated against a LIVE mechanism during spec review, not reasoned about.
+
+The 2026-08-16 arc ships a **regression pin** (`tests/styles/_metaControlOutlineFill.test.ts`): the 21 elements it swapped carry `border-text-faint` and no longer carry `border-border-strong`. That is a changelog assertion over a closed set the PR itself defines. It does **not** stop a future arc from adding a NEW control at `border-border-strong`, and the spec does not pretend otherwise.
+
+The forward guard was attempted in five forms across five review rounds and escaped structurally each time. The table is carried here verbatim so the next attempt starts from five CLOSED escapes rather than from scratch:
+
+| Round | Mechanism                                                 | The escape that killed it                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| draft | some branch carries `border-accent-edge`                  | move a track's OFF fill to `bg-surface`: green, while the recorded 1.43/1.75 becomes an unrecorded 1.59/1.60. And `border-accent-edge` is not toggle-exclusive — `DESIGN.md:35` gives it the active step pill and the show-day progress segment                                                                                                                                                                |
+| R1 F2 | existential: has an `ON` branch AND has an `OFF` branch   | append a third branch `border-border-strong bg-surface`: green at 1.59/1.60. An existential predicate is a denylist in disguise                                                                                                                                                                                                                                                                                |
+| R2 F1 | universal accept-set: EVERY branch is an `ON` or an `OFF` | "tokens include" is not "tokens are": `border-border-strong bg-surface-sunken bg-warning-bg` still includes the `OFF` pair while `bg-warning-bg` wins the cascade (1.44/1.19)                                                                                                                                                                                                                                  |
+| R3 F2 | (as above, exactness attempted)                           | exactness requires deciding which of two paint tokens on one branch wins — that is the CSS cascade, i.e. a CSS evaluator in a test helper                                                                                                                                                                                                                                                                      |
+| R5 F1 | enumerated five-row FILE registry                         | membership binds the exemption to the FILE, not the ELEMENT. Refactor a registered toggle so its track moves onto a nested span — **the live `components/admin/telemetry/AutoRefreshControl.tsx:106` pattern** — and the outer control becomes a plain `border-border-strong bg-surface` at 1.59/1.60: cover still three elements, file-set equality still true, recipe still present in the file, guard green |
+
+**The reason, stated once so the next attempt does not re-derive it.** Deciding "is this element a switch track" is a question about rendered structure and effective paint, and `scanInteractiveElements` reports neither — it reports an interactive element's own statically-resolvable class strings. Every mechanism above tried to recover structure from that projection, and each recovered a slightly larger subset while leaving the next mutation available. R5's escape is composed entirely of two patterns already live in this repository, so the finding rate did not decay.
+
+**AGENTS.md gives three repair directions when successive rounds each widen a recognizer:** narrow it, file the documented limit, or take the `2d9d0ba11`-style kill. Narrowing was tried twice (R3, R5). The arc took the kill, and this is the filing half of it.
+
+**First scheduled step:** decide whether the guard needs a signal the scanner does not currently produce — a rendered-structure or effective-paint input, e.g. a real-browser computed-style pass over a seeded admin route — rather than a sixth predicate over the same projection. If the answer is no, close this entry as a documented limit instead of attempting a sixth mechanism.
+
 ## BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR — three native-input rows are targeted through a label that carries no floor
 
 **Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, whole-diff review R1 F5). **Class:** accessibility / tap target. **Effort:** S per site, M as a class. **Class-sweep exception:** (a) — the repair needs a decision the current PR cannot settle, stated per site below. **Reachability:** PROBED — the markup is read out in each census row, and the guard now names all three as `under-floor-filed`.
@@ -1112,6 +1164,29 @@ a term-grep of the repaired text cannot see.
 
 **Reachability:** PROBED in the originating filing (R2-F3/R5, two live escapes each costing a
 round). Filed under class-sweep exception (c).
+
+## BL-SPECLINT-ENUMERATED-UNIVERSAL-PARITY — a spec asserting a universal over an enumerated population owes the command that enumerates it
+
+**Status:** OPEN. · **Filed:** 2026-08-16, from
+`docs/review-rounds/fix/control-outline-surface-fills/119895a7c756.md` (spec §, Mechanizable) ·
+**Severity:** medium · **Class:** spec-lint arm · **Effort:** M
+
+A spec:lint arm that flags a quantified claim over a population the same document enumerates,
+when no probe command sits with it. `NUMERIC_NOUN_MISMATCH` does not reach this class because
+the quantified noun is a CLASS TOKEN, not a number — "every one of the 21 lands on a neutral
+ground", "every swapped control carries `transition-colors duration-fast`", "hover changes the
+fill, not the outline". Each was one grep away and each cost a round.
+
+The repair the originating arc found is the arm's likely shape and is worth carrying: re-wording
+the universal never worked, because the failure is a universal in one section contradicting a
+measurement in ANOTHER. Removing the duplicate did work — one section owns the numbers and every
+other section references it. So the arm's useful output may be "this universal restates a
+measurement stated elsewhere" rather than "this universal has no probe".
+
+**Reachability:** PROBED — three live escapes in the originating filing (R1 F3, R1 F4, R3 F3),
+each a false universal in normative spec text, plus R2 F2 one level down. Filed under class-sweep
+exception (c): a spec:lint arm is a redesign of a surface the originating PR does not otherwise
+touch.
 
 ## BL-SPECLINT-BL-DISPOSITION-CLOSEOUT-ARM — a spec dispositioning `BL-` ids owes a closeout naming each id's terminal state
 
