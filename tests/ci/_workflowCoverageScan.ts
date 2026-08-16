@@ -1217,6 +1217,73 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     values: [{ text: "${{ secrets.GH_APP_TOKEN }}", governs: [] }],
     reason: "GitHub App token read by the branch-protection drift detector",
   },
+  // The mutation-harness budget job's four inputs (wall-clock spec §3.4). They
+  // are passed as `env:` rather than argv deliberately: a YAML mapping has
+  // unique keys by construction, so there is no `=` form, no duplicate form and
+  // no ordering for a guard to model -- the three spellings that defeated three
+  // successive argv guards over rounds 4-6. That choice is what puts them here.
+  // All four govern nothing: mutation-harness.yml runs `vitest --project
+  // mutation`, which claims no e2e spec, so no spec self-skips on their absence.
+  ELAPSED_DIR: {
+    values: [{ text: "elapsed", governs: [] }],
+    reason:
+      "Directory the budget job downloads every leg's elapsed-seconds artifact into, read by " +
+      "scripts/check-shard-budget.ts. Inert on its own: naming a directory selects and skips " +
+      "nothing, and an absent or empty one fails the checker's completeness pass LOUD rather " +
+      "than reading as 'every shard was fast' -- completeness is checked BEFORE any maximum " +
+      "precisely so a missing record cannot pass as a fast one.",
+  },
+  SHARD_BUDGET_SECONDS: {
+    values: [{ text: "3600", governs: [] }],
+    reason:
+      "Per-shard wall-clock budget the checker compares each leg against, in SECONDS against a " +
+      "per-job timeout-minutes: 90. Declared in seconds because an integer-minute record cannot " +
+      "express 60m59s, so a shard already over budget would be recorded at the threshold and " +
+      "evade an 'above' comparison. A wrong value here can only make the budget job wrong, never " +
+      "a mutation shard silently green: the shards run and score independently of it.",
+  },
+  PARSER_SHARD_COUNT: {
+    values: [{ text: "8", governs: [] }],
+    reason:
+      "Parser-harness shard count, passed in so the checker derives the expected leg-name set " +
+      "rather than listing it -- a second copy of the number would be free to drift while every " +
+      "test still passed, since the suite supplies its own fixtures. The integrity meta-test " +
+      "pins this mapping to the TypeScript constant with toBe, so the set has one origin. A " +
+      "malformed value must not yield a SMALLER expected set: expectedLegNames throws on a " +
+      "non-positive-integer instead, which is how an absent leg cannot stop being absent.",
+  },
+  SOURCE_SHARD_COUNT: {
+    values: [{ text: "4", governs: [] }],
+    reason:
+      "Source-mutation shard count, same derive-don't-list contract and same integrity pin as " +
+      "PARSER_SHARD_COUNT (tests/mutation/source/shardPartition.ts SOURCE_SHARD_COUNT). Raising " +
+      "the partition is the sanctioned response to an over-budget shard; raising timeout-minutes " +
+      "is not, and the notify job's copy says so.",
+  },
+  // The notify job's two inputs. Both are expression TEXT here: what an
+  // expression resolves to at runtime is out of universe (spec §5 LS1).
+  ALL_GREEN: {
+    values: [
+      {
+        text: "${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') && !contains(needs.*.result, 'timed_out') }}",
+        governs: [],
+      },
+    ],
+    reason:
+      "Whether every matrix leg succeeded, deciding which branch of the notify job runs (open " +
+      "or close the tracking issue). Enumerates all four non-success conclusions rather than " +
+      "negating success: a leg that is cancelled, skipped or timed out is NOT a green harness, " +
+      "and timed_out is the specific outcome this arc exists to make legible. Governs no spec " +
+      "-- it gates issue bookkeeping after the run, never whether a test executes.",
+  },
+  BUDGET_REPORT: {
+    values: [{ text: "${{ needs.budget.outputs.report }}", governs: [] }],
+    reason:
+      "The budget job's republished report, so the tracking issue can name WHICH leg went over " +
+      "and by how long. Before it, a budget failure's entire content lived only in that job's " +
+      "log -- which is the silent-failure shape this arc was filed against. Governs no spec: it " +
+      "is issue-body text.",
+  },
 };
 
 /**
