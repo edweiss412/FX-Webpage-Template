@@ -148,6 +148,11 @@ const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> =
     reason: "Bootstrap/session crew copy; marker-free.",
   },
   {
+    file: "components/auth/AvatarMenu.tsx",
+    reason:
+      "PICKER_SWITCH_FAILED.crewFacing only, named as a literal at the single render site, so exactly one code can flow there; marker-free.",
+  },
+  {
     file: "components/shared/ReportModal.tsx",
     reason: "Report-flow copy; codes marker-free.",
   },
