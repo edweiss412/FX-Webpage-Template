@@ -148,7 +148,7 @@ The round-1 figure was the `.ts`/`.tsx` subset, so it silently omitted **12 `.js
 
 ## Results — probe 3: population
 
-**Live domain, measured twice.** PR #827 enrols `premiseScan` itself, so the domain grows when it lands: 29 enrolled suites / 86 in-repo modules against the registry on `main`, and 31 suites / 90 modules against `git show origin/fix/scanner-scope-totality:tests/mutation/source/registry.ts` (the two added suites are `tests/mutation/source/premiseScan.test.ts` and `tests/mutation/_metaPremiseContract.test.ts`). **Every count below is zero in both.** The figures shown are the post-#827 ones, which are the binding domain at implementation time:
+**Live domain, measured twice.** PR #827 enrols `premiseScan` itself, so the domain grows when it lands: 29 enrolled suites / 86 in-repo modules against the registry on `main`, and, at the round-3 re-measurement against `git show origin/fix/scanner-scope-totality:tests/mutation/source/registry.ts`, **33 unique `suitePaths` across 40 registry rows** / 90 modules (it read 31 when this arc was drafted; the branch has enrolled two more surfaces since, which is the moving base §Target tree records) (the two added suites are `tests/mutation/source/premiseScan.test.ts` and `tests/mutation/_metaPremiseContract.test.ts`). **Every count below is zero in both.** The figures shown are the post-#827 ones, which are the binding domain at implementation time:
 
 ```
 namespace:inrepo                                0
@@ -720,7 +720,7 @@ for (const r of reported.slice(0, 20)) console.log("     ", r);
 **Method.** An AST walk over each domain's closure, classifying every `import()` call by what encloses it and every static import by whether it has a clause and whether its specifier resolves. Source inlined below.
 
 ```
-LIVE DOMAIN (31 enrolled suites + closure, 90 modules)
+LIVE DOMAIN (33 enrolled suites + closure, 90 modules)
   NONE — zero unmodelled runtime-import shapes, of any row
 
 NEAR DOMAIN (git ls-files tests + closure, 3,269 modules)
