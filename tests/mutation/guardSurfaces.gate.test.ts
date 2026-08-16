@@ -150,6 +150,11 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
+  // W-NEARMISS (2026-08-15). Both rows enrolled with an EMPTY ledger and both are
+  // expected to STAY empty: a row appearing here later is a coverage regression to
+  // explain, not a number to update.
+  fieldNearMiss: {},
+  rowScanOpener: {},
   // Counted from the surface: 42 reachability / control-flow arguments and NO accepted
   // gap. The triage ran 84 -> 54 -> 45 -> 44 -> 43 -> 42 survivors, repaying 42 of them
   // with tests rather than blessing them. The last TWO came off because whole-diff review

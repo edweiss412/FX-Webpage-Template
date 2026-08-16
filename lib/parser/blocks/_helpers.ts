@@ -37,6 +37,12 @@ export function parseTableRows(markdown: string): string[][] {
   return rows;
 }
 
+// The opener-tagged scan (`scanRowsWithOpener` / `ScannedRow`) lives in `./_rowScan.ts`,
+// not here: it is enrolled in the source-mutation registry, which mutates a whole file,
+// and this one carries 144 mutation sites of date normalization and cell cleaning that
+// the detector's suites do not decide. Deliberately NOT re-exported — that would make the
+// two modules mutually importing.
+
 /** Split a markdown table row line into trimmed cells. Drops the leading/trailing empty cells from `|cell|cell|`. */
 export function splitRow(line: string): string[] {
   const parts = line.split("|");

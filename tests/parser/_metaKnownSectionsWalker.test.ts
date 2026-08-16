@@ -37,6 +37,8 @@ const INDEX_FILE = join(process.cwd(), "lib/parser/index.ts");
 // blocks/*.ts that is neither here nor a token-exporter FAILS.
 const NO_SECTION_OPENER: Record<string, string> = {
   "_helpers.ts": "pure helpers; no col0 section detection",
+  "_rowScan.ts":
+    "tags each row with its block's OPENING first-cell text verbatim; it recognizes no header and owns no token set (the near-miss detector's vocabulary comes from sectionHeaderTokens.ts)",
   "hotelConfTokens.ts":
     "pure hotel conf-token strip + street-address regex policy; no col0 section detection",
   "_dimsToken.ts":
