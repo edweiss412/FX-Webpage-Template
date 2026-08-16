@@ -66,6 +66,7 @@ the root of this directory alongside the dated product specs.
 | [`2026-07-19-spec-lint.md`](./2026-07-19-spec-lint.md) | `pnpm spec:lint` — the governing spec: citations, numerics, copy, sections, task contract. |
 | [`2026-08-09-task-enrollment-multi-region-design.md`](./2026-08-09-task-enrollment-multi-region-design.md) | Multi-region task enrollment — amends the task-region grammar. |
 | [`2026-08-15-spec-lint-intent-red-arms.md`](./2026-08-15-spec-lint-intent-red-arms.md) | Citation-intent tiers with relocation hints, and the declared red-contract grammar plus `--exec-red`. |
+| [`2026-08-16-orchestrator-pane-compaction-design.md`](./2026-08-16-orchestrator-pane-compaction-design.md) | `pnpm panes:compact` — an orchestrator classifies the panes under its purview by context pressure and arc position, then drives a probe-verified checkpoint-then-compact protocol. |
 
 ## Conventions
 
