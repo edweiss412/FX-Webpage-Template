@@ -175,15 +175,26 @@ logMock.warn.mockClear(); // R2-F4: the harness clears info+error but NOT warn (
                           // without this, one endpoint's emit satisfies the next endpoint's assertion, so per-endpoint AC-2 proof is not independent.
 ```
 
-- [ ] **Step 1b: Write failing tests** — a new `describe` block; a gate-reject case for EACH of the three exported actions (each asserting no mutation AND the forensic emit — AC-2 for all three, R2-F3/F2), plus the documented-bypass regression. Uses the existing `fd({...})` FormData helper (`tests/auth/picker/clearIdentity.test.ts:63-69`), `logMock`, `cookieSet`, and `supabaseMock.signOut` — all already exposed by the harness. The file imports `test` (not `it`), so use `test(`:
+- [ ] **Step 1b: Write failing tests** — a new `describe` block; a gate-reject case for EACH of the three exported actions (each asserting no mutation AND the forensic emit — AC-2 for all three, R2-F3/F2), plus the documented-bypass regression. Uses the existing `fd({...})` FormData helper (`tests/auth/picker/clearIdentity.test.ts:63-69`), `logMock`, `cookieSet`, `supabaseMock.signOut`, the module `existingCookie` let + `encodePickerCookie`/`KEY`/`CREW_ID` consts — all already in the harness. The file imports `test` (not `it`), so use `test(`.
+
+  **R5-F1 (fixture MUST be able to express the mutation).** Each rejection test FIRST seeds a NON-EMPTY picker cookie holding the target `SHOW_ID` selection. This is load-bearing: with an empty/undefined cookie, `clearIdentityCore` deletes nothing and never calls `cookieSet`, so `expect(cookieSet).not.toHaveBeenCalled()` passes VACUOUSLY — a guard-AFTER-mutation mutant (gate placed after the delete) would escape because there is nothing to delete. Seeding `SHOW_ID` makes a late-gate mutant decode the envelope, delete the selection, and call `cookieStore.set` BEFORE rejecting, so the assertion genuinely fails on that mutant. The correct gate (first statement) rejects before touching the cookie, so `cookieSet` stays uncalled and the test passes. A `beforeEach` inside the describe seeds the cookie for all four cases:
 
 ```ts
 describe("same-origin gate (BL-SERVER-ACTION-ORIGIN-GATE)", () => {
+  beforeEach(() => {
+    // R5-F1: non-empty cookie carrying the target selection, so a guard-AFTER-mutation
+    // mutant WOULD call cookieSet (delete + write) and be caught. Empty cookie = vacuous pass.
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
+  });
+
   test("clearIdentity refuses cross-site, writes no cookie, emits the forensic code", async () => {
     setHeaders({ "sec-fetch-site": "cross-site" });
     const r = await clearIdentity(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }));
     expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
-    expect(cookieSet).not.toHaveBeenCalled();
+    expect(cookieSet).not.toHaveBeenCalled(); // seeded cookie holds SHOW_ID → a late-gate mutant WOULD write
     expect(logMock.warn).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ code: "PICKER_ORIGIN_REJECTED" }),
@@ -213,17 +224,18 @@ describe("same-origin gate (BL-SERVER-ACTION-ORIGIN-GATE)", () => {
     );
   });
 
-  test("documented bypass: cross-site with NO Origin header is refused", async () => {
+  test("documented bypass: cross-site with NO Origin header is refused (no mutation)", async () => {
     setHeaders({ "sec-fetch-site": "cross-site" }); // origin deliberately absent (§2.1)
     const r = await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
     expect(r).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+    expect(cookieSet).not.toHaveBeenCalled(); // seeded cookie → the documented bypass mutates nothing
   });
 });
 ```
 
 The `tests/auth/picker/clearIdentity.test.ts:228` no-emit pin is unchanged (it runs under the same-origin default, so the gate passes and it exercises the real body).
 
-RED premise (production line, not scaffolding): the gate call `if (!(await isSameOriginServerAction())) return rejectCrossOrigin(...)` is ABSENT from all three actions (Step 3 adds it), so a cross-site request currently falls through to the real body, mutates, and returns `{ ok: true }` / redirects — the `{ ok: false, code: "PICKER_INVALID_INPUT" }` assertion fails, `cookieSet`/`signOut` fire, and `logMock.warn` never sees `PICKER_ORIGIN_REJECTED`. Every failure is caused by the missing production gate line, not by an unresolved import or undefined symbol (Step 1a supplies every symbol the tests use). Anti-tautology: per endpoint the mutation spy proves NO write happened AND the emit spy proves the forensic code FIRED — a guard-order regression that revoked before refusing, or a silent rejection with no emit, fails on that endpoint specifically (all three are pinned independently, so rejecting only one action cannot pass the suite — F2).
+RED premise (production line, not scaffolding): the gate call `if (!(await isSameOriginServerAction())) return rejectCrossOrigin(...)` is ABSENT from all three actions (Step 3 adds it), so a cross-site request currently falls through to the real body, decodes the SEEDED cookie, deletes the `SHOW_ID` selection, calls `cookieSet`, and returns `{ ok: true }` / redirects — the `{ ok: false, code: "PICKER_INVALID_INPUT" }` assertion fails, `cookieSet`/`signOut` fire, and `logMock.warn` never sees `PICKER_ORIGIN_REJECTED`. Every failure is caused by the missing production gate line, not by an unresolved import or undefined symbol (Step 1a supplies every symbol the tests use). Anti-tautology (R5-F1): because the cookie is SEEDED with the target selection, the `cookieSet` spy distinguishes the correct gate (rejects first, no write) from a guard-order regression (deletes + writes, THEN rejects) — the mutant the plan claims to kill now genuinely fails the suite; `signOut` (independent of cookie contents) similarly catches a signOut-before-gate mutant on `clearIdentityAndSkip`; the emit spy proves the forensic code FIRED. All three endpoints are pinned independently, so gating only one action cannot pass the suite (F2).
 
 - [ ] **Step 2: Run tests, verify they fail** — Run `pnpm vitest run tests/auth/picker/clearIdentity.test.ts`; expected FAIL on the new cases (gate absent), existing cases green.
 
