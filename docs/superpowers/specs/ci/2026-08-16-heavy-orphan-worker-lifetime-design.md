@@ -353,7 +353,7 @@ single-line JSDoc, then another table's rows):
 python3 - <<'EOF'
 import re
 lines = open("docs/superpowers/specs/ci/2026-08-16-heavy-orphan-worker-lifetime-design.md").read().split("\n")
-src = {i for i, l in enumerate(lines) if re.match(r"^\| (C[1-4]|R[1-4]|K[1-6]) \|", l.strip())}
+src = {i for i, l in enumerate(lines) if re.match(r"^\| (C[1-4]|R[1-5]|K[1-6]) \|", l.strip())}
 verbs = re.compile(r"exit non-zero|non-zero.exit|reap(s|ing)? (nothing|NOTHING)|exit status|exits? 0"
                    r"|unaffected|tolerated|never reaped|not reapable|stops the run|is blocked"
                    r"|kills nothing|non-destructive|failed kill|partial kill|identity-changed"
@@ -451,8 +451,9 @@ and both are wrong:
 recorded descendants. Killing the root first stops it spawning, and because `ppid` is not part of
 the identity tuple, the reparenting that kill causes cannot invalidate any pending target.
 
-Identity is read per TARGET, not for the whole table: `ps -o lstart=,command= -p <pid>` at
-immediately before the signal, and compared against the identity the BULK read already carried.
+The classification-time identity comes from the BULK read, for every row at once. Only the
+PRE-SIGNAL read is per target: `ps -o lstart=,command= -p <pid>`, taken immediately before the
+signal and compared against what the bulk row carried.
 `lstart`'s value contains spaces, which is why an earlier draft kept it out of the bulk parser
 entirely; putting it BEFORE `command` instead makes it a fixed five-token field at a known offset,
 so the parser stays simple and the classification-time identity comes for free. Cost: at most one
