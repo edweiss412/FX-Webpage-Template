@@ -858,22 +858,31 @@ plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then l
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
 
-### BL-SYNC-LOG-EMIT-UNGUARDED — a failed observability write can fail the sync it observes
+### BL-SERIALIZE-ERROR-NON-ERROR-BRANCH-STRINGIFIES — a plain-object error still persists as "[object Object]"
 
-**Status:** IN PROGRESS · **Branch:** fix/sync-log-emit-guard · **Severity:** MEDIUM (availability of manual sync under a transient DB fault) · **Class:** error handling · **Effort:** S · **Filed:** 2026-08-10
+**Status:** OPEN · **Severity:** MEDIUM (diagnostic loss on every non-`Error` value logged) · **Class:** observability · **Effort:** M · **Filed:** 2026-08-15 (`fix/sync-log-emit-guard` PR #808, diff review R3)
 
-**Probe evidence.** `lib/sync/runScheduledCronSync.ts:2273` is `await deps.logSync?.(entry);` — no try/catch. `logSync` is called from inside the lock callback at `lib/sync/runScheduledCronSync.ts:3339` and `lib/sync/runScheduledCronSync.ts:3346` (both in `processOneFile_unlocked`, which `withShowLock` invokes), and the installed sink is `writeSyncLog`, which opens its OWN postgres connection (`lib/sync/syncLog.ts:51`). A transient connection fault at emit time therefore throws out of the lock callback and rolls the sync transaction back: **the log write can fail the thing it exists to observe.**
+**Probe evidence.** `lib/log/serializeError.ts` is `error instanceof Error ? { name, message, stack } : String(error)`. The non-`Error` branch is `String(value)`, so any plain object collapses to the literal `"[object Object]"`. Supabase/PostgREST returned-errors are exactly that shape — plain parsed-JSON objects, never `Error` instances (`PostgrestBuilder.ts` returns them from the parsed body), and several call sites forward them straight to `log.*`:
 
-**Why it is filed now.** The behavior predates this work, but `fix/sync-log-show-id-duration` widened its blast radius from two entry points to ten — every manual re-sync path now installs the sink. Surfaced by the invariant-8 critique on that branch.
+```
+lib/auth/picker/resolvePickerSelection.ts:56    ...(detail === undefined ? {} : { error: detail })
+lib/auth/picker/resolveShowPageAccess.ts:75     ...(detail === undefined ? {} : { error: detail })
+lib/log/emitIdentityLinkRenameUnlanded.ts:65    error: result.error
+lib/log/emitLeadRoleApplied.ts:76               error: result.error
+```
 
-**Why NOT fixed in that branch (disposition reason (a) — needs a product decision the PR cannot settle).** Both dispositions are defensible and the choice is not the implementer's:
+Reproducing `serializeError` against a Supabase returned-error `{ message: "gateway 502", code: "PGRST301", … }`:
 
-- **Guard the emit** (`try { await deps.logSync?.(entry) } catch { /* observability must not break the observed action */ }`) — a sync never fails because logging failed, but an observability outage becomes invisible, which is the exact failure mode the whole sync-log attribution arc exists to eliminate.
-- **Leave it loud** — a DB fault stops syncs, which is arguably correct since a sync that cannot record itself is a sync nobody can audit.
+```
+plain object (Supabase)   ->  "[object Object]"
+Error instance            ->  {"name":"Error","message":"boom","stack":"…"}
+```
 
-A middle option exists (guard, but emit a `log.error` with a durable code so the gap is itself observable) and is probably right — but it needs a §12.4 code and therefore its own scoped change.
+**This is NOT a regression from PR #808, and the distinction is the reason the row exists rather than a fix.** That PR removed a double-`serializeError` wrapper at 18 sites. Measured before and after at the same four sites: a plain object produced `"[object Object]"` BOTH ways (identical, unchanged), while an `Error` went from `"[object Object]"` to a full `{name, message, stack}`. The repair is strictly non-regressive and strictly better for `Error` values; what it did was make an INDEPENDENT pre-existing defect visible, namely that the helper's own non-`Error` branch discards structure.
 
-**Related, same emit path (fold into whichever fix lands):** each emit opens and closes a dedicated postgres connection while the per-show advisory lock is held, lengthening lock hold on every manual sync. Cheap to fix by reusing the transaction's connection for the sink, but that changes the sink's isolation semantics — the row would then roll back with a failed sync rather than recording the failure, which is a behavior decision, not a refactor.
+**Why filed rather than fixed in that PR (disposition reason (c) — a redesign of a surface the PR does not otherwise touch, spanning far more sites than its review scope).** `serializeError` is the single canonical error-shaping helper; changing its non-`Error` branch changes the shape of `context.error` for EVERY non-`Error` value logged anywhere in the app, which touches the `app_events.context` payload shape, the redaction pass in `sanitizeContext`, and `tests/log/serializeError.test.ts`, which pins the current contract deliberately. That is its own arc with its own review, not a rider on an emit-guard PR whose spec explicitly holds the helper's behavior constant (`docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md` §2.2 treats `serializeError`'s behavior as given).
+
+**The shape of the fix, when scheduled.** Preserve structure for non-`Error` values rather than stringifying: a plain object should serialize to its own enumerable fields (bounded depth, same truncation posture as the existing `stack` slice), with `String(value)` kept only for primitives. Sweep for the class, not these four sites: the defect is in the HELPER, so every `log.*` call that can receive a non-`Error` is an instance. Derive the site set rather than enumerating it — `tests/log/noDoubleSerializedLogError.test.ts` already walks `lib/`, `app/`, and `components/` for `log.*` call sites and is the natural place to hang a companion assertion.
 
 ### BL-SYNC-LOG-ATTRIBUTION-METATEST — structural guard that every sync_log writer names its show
 
@@ -898,6 +907,8 @@ A working draft exists in the shipping session's scratchpad; the design above is
 
 - **The signature-keyed accept-set is not yet decidable.** If "carries `logSync`" means a DIRECT property it excludes real entry points whose sink is nested — `runManualSyncForShow`/`_unlocked` via `processDeps.logSync` (`lib/sync/runManualSyncForShow.ts:48-72`), `applyStaged`/`_unlocked`/`applyStagedParse` via `firstPublishedTailDeps.logSync` (`lib/sync/applyStaged.ts:369`, `:950`, `:1152`, `:1940`, `:2073`). If nested properties count, a checker probe admitted five non-runners — `evaluateQualityRegression_unlocked` (`lib/sync/runScheduledCronSync.ts:316-381`), `runPhase1_unlocked` (`:2543-2549`), `runPhase2_unlocked` (`:2551-2557`), `prepareProcessOneFile` (`:2858`), `prepareOnboardingFiles` (`lib/sync/runOnboardingScan.ts:1194-1204`) — plus `runOnboardingScan`, whose production caller passes only `{ onProgress }` (`app/api/admin/onboarding/scan/route.ts:282-284`) while the callee opens its own logging transaction, leaving no truthful disposition.
 - **The three markers are not disjoint in the current tree.** Every run-level seed also reaches no per-file attempt, so `run-level-sync-log` and `sync-log-no-attempt` are both defensible at all eight seeds (`lib/sync/runScheduledCronSync.ts:3780`, `:3796`; the four `lib/onboarding/sessionLifecycle.ts` sites; `lib/sync/runOnboardingScan.ts:1134`; `app/api/drive/webhook/route.ts:224`). Either collapse them or find a predicate that separates them.
+
+**Scope addition (2026-08-15, `fix/sync-log-emit-guard` / PR #808).** When this walker is built it ALSO asserts GUARD-PRESENCE alongside attribution: every derived `sync_log` sink invocation must sit inside a try/catch that escalates under `SYNC_LOG_EMIT_FAILED`, not merely name its show. The emit-guard arc repaired every unguarded site on the live tree but deliberately shipped NO completeness recognizer for FUTURE sites (`docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md` §4 limit 6, ship-and-fence): a second ad-hoc walker would fork the writer-set definition designed here, which is the two-copies-drift shape. The two dimensions share one writer-set derivation, so they belong in one guard. The regression accepted in the meantime is bounded — a new unguarded site regresses to the pre-arc LOUD behavior (the sink throw propagates and fails the observed operation), never a silent one.
 
 **Promotion prerequisite:** none for scheduling, but the two questions above are the first work, not an afterthought — they are why this was descoped.
 
