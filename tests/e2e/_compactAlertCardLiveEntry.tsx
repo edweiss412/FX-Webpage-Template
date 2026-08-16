@@ -44,10 +44,22 @@ const UNBROKEN_TOKEN = "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
  * rather than being typed into the harness.
  *
  * The real <PerShowAlertResolveButton> cannot mount here: this bundle has no
- * Next runtime, and that component calls useRouter. Its classes are mirrored
- * verbatim from components/admin/PerShowAlertResolveButton.tsx, and
- * tests/components/admin/_metaResolveLabelSingleSource.test.ts keeps the label
- * strings themselves in exactly one module.
+ * Next runtime, and that component calls useRouter. Its class list is a
+ * MEASUREMENT-RELEVANT SUBSET of that component's, not a verbatim mirror — the
+ * claim was "verbatim" until whole-diff R5 probed it false (2026-08-16). The
+ * harness carries the utilities that set the label's box (`inline-flex`,
+ * `min-h-tap-min`, `items-center`, `rounded-sm`, the 1px border, `px-3`,
+ * `text-sm`, `font-medium`) and deliberately omits everything that cannot move
+ * a rect in a static shot: `justify-center self-start`, `transition-colors
+ * duration-fast`, hover, disabled, and the focus-ring and ring-offset
+ * utilities. It also paints `bg-surface` where production paints `bg-bg`, which
+ * is a fill, not a geometry.
+ *
+ * The border token DOES track production (both are `border-text-faint` since
+ * the 2026-08-16 swap), because a stale token name here is a false citation for
+ * the next reader even when nothing measured depends on it. What this file
+ * asserts is LABEL LAYOUT; `tests/components/admin/_metaResolveLabelSingleSource.test.ts`
+ * keeps the label strings themselves in exactly one module.
  */
 function harnessCode(): string {
   const fromQuery = new URLSearchParams(window.location.search).get("code");
