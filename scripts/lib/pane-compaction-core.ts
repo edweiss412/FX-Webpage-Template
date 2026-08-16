@@ -229,3 +229,76 @@ export function classifyGh(run: GhInvocation): GhOutcome {
   if (noPr) return { kind: "no-pr" };
   return { kind: "fault", detail: run.stderr.trim() || `gh exited ${run.exitCode}` };
 }
+
+// ---------------------------------------------------------------------------
+// §4.4 — the position gradient
+// ---------------------------------------------------------------------------
+
+/**
+ * How recent a commit must be to count as a task boundary.
+ *
+ * Stated here rather than inlined so a change is a spec change, per §4.2's
+ * precedent — spec round 3 caught this as an undefined phrase.
+ */
+export const RECENT_COMMIT_WINDOW_MS = 15 * 60_000;
+
+export type CorpusRow = { status: string; verdict: string | null; endedAt: string | null };
+
+export type PositionInputs = {
+  now: number;
+  clean: boolean;
+  lastCommitAt: number | null;
+  pr: { open: boolean; allGreen: boolean; anyFailed: boolean; anyPending: boolean } | null;
+  corpus: CorpusRow[];
+};
+
+export type Position = { row: number; cost: PositionCost };
+
+/**
+ * The newest review verdict, or null.
+ *
+ * Filtered on `status === "verdict"`, NOT on whether a timestamp parses. The
+ * live corpus holds a committed `no_verdict` row carrying a valid `endedAt`
+ * (`docs/review-rounds/docs/parser-mutation-wave/0da9f84b1634.jsonl`), and
+ * selecting it would let a wrapper failure supersede the real verdict — which
+ * flips row 4 (triage pending, High) to row 6 (verdict recorded, Low) and
+ * promotes the pane toward COMPACT.
+ */
+export function newestVerdictRow(rows: CorpusRow[]): CorpusRow | null {
+  let best: CorpusRow | null = null;
+  let bestAt = Number.NEGATIVE_INFINITY;
+  for (const row of rows) {
+    if (row.status !== "verdict") continue;
+    const at = row.endedAt === null ? Number.NaN : Date.parse(row.endedAt);
+    if (Number.isNaN(at)) continue; // excluded and nameable, never arbitrarily sorted
+    if (at > bestAt) {
+      bestAt = at;
+      best = row;
+    }
+  }
+  return best;
+}
+
+/** Spec §4.4. Ordered; FIRST MATCH WINS. Predicates may overlap; ordering decides. */
+export function positionFor(input: PositionInputs): Position {
+  const { pr } = input;
+  if (pr?.open === true && pr.allGreen) return { row: 1, cost: "HardWait" };
+  if (pr?.open === true && pr.anyFailed) return { row: 2, cost: "High" };
+  if (!input.clean) return { row: 3, cost: "High" };
+
+  const newest = newestVerdictRow(input.corpus);
+  const newestAt =
+    newest?.endedAt === undefined || newest?.endedAt === null ? null : Date.parse(newest.endedAt);
+  const commitSince =
+    newestAt !== null && input.lastCommitAt !== null && input.lastCommitAt > newestAt;
+
+  if (newest !== null && newest.verdict !== "APPROVE" && !commitSince) {
+    return { row: 4, cost: "High" };
+  }
+  if (pr?.open === true && pr.anyPending) return { row: 5, cost: "Low" };
+  if (newest !== null && newest.verdict === "APPROVE") return { row: 6, cost: "Low" };
+  if (input.lastCommitAt !== null && input.now - input.lastCommitAt <= RECENT_COMMIT_WINDOW_MS) {
+    return { row: 7, cost: "Lowest" };
+  }
+  return { row: 8, cost: "Low" }; // the totality guarantee: no predicate, never falls through
+}
