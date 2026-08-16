@@ -175,6 +175,19 @@ test.describe("staged crew preview (AC-6)", () => {
     await awaitPreview(page);
 
     expect(forbidden, `forbidden requests: ${forbidden.join(", ")}`).toEqual([]);
+
+    // POSITIVE CONTROL (diff review round 1): the assertion above is negative-only,
+    // so a detached listener or a narrowed pattern would keep it green forever.
+    // Drive one request that MUST match, and require the same listener to record it.
+    forbidden.length = 0;
+    await page.request.get("/api/report").catch(() => undefined);
+    await page.evaluate(async () => {
+      await fetch("/api/report", { method: "GET" }).catch(() => undefined);
+    });
+    expect(
+      forbidden.length,
+      "the request listener + pattern must fire on a real hit",
+    ).toBeGreaterThan(0);
   });
 
   test("a real segment throw routes to THIS segment's error.tsx", async ({ page }) => {

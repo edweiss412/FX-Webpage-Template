@@ -127,38 +127,42 @@ export function StagedPreviewBanner({ stagedId, roster, selectedId }: StagedPrev
 
         {/* A labelled navigation landmark: without it the picker reads as a bare
             run of person names with no stated purpose (impeccable audit, a11y). */}
-        <nav
-          aria-label="Preview as another crew member"
-          data-testid="staged-preview-picker-inline"
-          className="flex flex-wrap items-center gap-2"
-        >
-          {inlineEntries.map((entry) => (
-            <PickerEntry
-              key={entry.id}
-              entry={entry}
-              stagedId={stagedId}
-              isCurrent={entry.id === selected.id}
-            />
-          ))}
-        </nav>
+        <nav aria-label="Preview as another crew member" className="flex flex-col gap-2">
+          <div
+            data-testid="staged-preview-picker-inline"
+            className="flex flex-wrap items-center gap-2"
+          >
+            {inlineEntries.map((entry) => (
+              <PickerEntry
+                key={entry.id}
+                entry={entry}
+                stagedId={stagedId}
+                isCurrent={entry.id === selected.id}
+              />
+            ))}
+          </div>
 
-        {disclosedEntries.length > 0 ? (
-          <details data-testid="staged-preview-picker-more">
-            <summary className="inline-flex min-h-tap-min cursor-pointer items-center text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring">
-              {`Show ${disclosedEntries.length} more crew`}
-            </summary>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {disclosedEntries.map((entry) => (
-                <PickerEntry
-                  key={entry.id}
-                  entry={entry}
-                  stagedId={stagedId}
-                  isCurrent={entry.id === selected.id}
-                />
-              ))}
-            </div>
-          </details>
-        ) : null}
+          {/* INSIDE the landmark (diff review round 1): overflow entries in a
+              sibling of the nav would reach assistive tech as bare person-name
+              links with none of the picker's stated purpose. */}
+          {disclosedEntries.length > 0 ? (
+            <details data-testid="staged-preview-picker-more">
+              <summary className="inline-flex min-h-tap-min cursor-pointer items-center text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring">
+                {`Show ${disclosedEntries.length} more crew`}
+              </summary>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {disclosedEntries.map((entry) => (
+                  <PickerEntry
+                    key={entry.id}
+                    entry={entry}
+                    stagedId={stagedId}
+                    isCurrent={entry.id === selected.id}
+                  />
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </nav>
       </div>
     </aside>
   );

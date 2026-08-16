@@ -754,6 +754,94 @@ describe("buildStagedShowForViewer", () => {
     });
   });
 
+  describe("union discriminants are never reclassified (diff review round 1)", () => {
+    /**
+     * A wrong-typed SCALAR takes a null/empty default, but a wrong-typed union
+     * DISCRIMINANT must never become another VALID member: that is silently
+     * wrong rather than conservatively degraded. The cover is DERIVED — every
+     * `kind` leaf the fixture carries is enumerated by the same recursive walk
+     * the sweep uses, so a discriminant added to the fixture later is covered by
+     * default rather than needing a new hand-written case.
+     */
+    const RESTRICTION_EXCEPTIONS = [
+      /^crewMembers\.\d+\.date_restriction\.kind$/,
+      /^crewMembers\.\d+\.stage_restriction\.kind$/,
+    ];
+
+    function discriminantPaths(): string[] {
+      return enumerateLeafPaths(makeParse()).filter((p) => p.endsWith(".kind"));
+    }
+
+    test("the walk finds every discriminant family the adapter normalizes", () => {
+      const paths = discriminantPaths();
+      // Non-vacuousness premise: all four families are present in the fixture.
+      for (const re of [
+        /^rooms\.\d+\.kind$/,
+        /^contacts\.\d+\.kind$/,
+        /^runOfShow\..+\.entries\.\d+\.kind$/,
+        /^crewMembers\.\d+\.date_restriction\.kind$/,
+      ]) {
+        expect(
+          paths.some((p) => re.test(p)),
+          `no fixture path matched ${re}`,
+        ).toBe(true);
+      }
+    });
+
+    test("an unrecognized discriminant drops its owning entry, never reclassifies it", () => {
+      for (const path of discriminantPaths()) {
+        if (RESTRICTION_EXCEPTIONS.some((re) => re.test(path))) continue;
+
+        const clean = ok(build(makeParse(), { requestedViewerId: "staged-crew-2" }));
+        const parse = makeParse();
+        const original = readAtPath(parse, path);
+        writeAtPath(parse, path, "corrupt-kind");
+
+        const result = build(parse, { requestedViewerId: "staged-crew-2" });
+        expect(result.kind, `path ${path}`).toBe("ok");
+        if (result.kind !== "ok") continue;
+        assertShowForViewerGrain(result.data);
+
+        // The owning entry is GONE, not re-filed under a different valid member.
+        const segs = path.split(".");
+        const family = segs[0]!;
+        if (family === "rooms") {
+          expect(result.data.rooms.length, path).toBe(clean.data.rooms.length - 1);
+          expect(result.data.rooms.map((r) => r.kind)).not.toContain("corrupt-kind");
+        } else if (family === "contacts") {
+          expect(result.data.contacts.length, path).toBe(clean.data.contacts.length - 1);
+        } else if (family === "runOfShow") {
+          const day = segs[1]!;
+          const before = clean.data.runOfShow?.[day]?.entries.length ?? 0;
+          const after = result.data.runOfShow?.[day]?.entries.length ?? 0;
+          expect(after, path).toBe(before - 1);
+          // The surviving entries keep the kinds they had.
+          expect(result.data.runOfShow?.[day]?.entries.map((e) => e.kind)).not.toContain(
+            original as string,
+          );
+        }
+      }
+    });
+
+    test("a corrupt restriction kind falls back to none WITHOUT dropping the crew member", () => {
+      // Spec §2.2 ratifies this fallback (it mirrors the live projection at
+      // lib/data/getShowForViewer.ts:493-497); dropping the member instead would
+      // remove a person from the roster the picker offers.
+      const parse = makeParse();
+      writeAtPath(parse, "crewMembers.0.date_restriction.kind", "corrupt-kind");
+      const result = ok(build(parse));
+      expect(result.roster).toHaveLength(makeParse().crewMembers.length);
+      expect(result.data.crewMembers[0]!.dateRestriction).toEqual({ kind: "none" });
+    });
+
+    test("an unrecognized template_version passes through rather than being re-versioned", () => {
+      const parse = makeParse();
+      (parse.show as unknown as Record<string, unknown>).template_version = "v9";
+      const result = ok(build(parse));
+      expect(result.data.show.template_version).toBe("v9");
+    });
+  });
+
   describe("generative malformation sweep", () => {
     const SENTINEL_PATHS = [
       "show.dates.showDays.0",

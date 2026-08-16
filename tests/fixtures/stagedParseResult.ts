@@ -249,7 +249,12 @@ export function makeStagedParseFixture(): ParseResult {
         window: { start: "8:00 AM", end: "6:00 PM" },
       },
       "2026-06-25": {
-        entries: [{ start: "9:00 AM", title: "General Session" }],
+        entries: [
+          { start: "9:00 AM", title: "General Session" },
+          // An explicit `kind` so the discriminant sweep has a reachable
+          // AgendaEntryKind leaf (absence would make that arm vacuous).
+          { start: "5:00 PM", title: "Strike", kind: "strike" as const },
+        ],
         showStart: "9:00 AM",
         showEnd: null,
         window: null,

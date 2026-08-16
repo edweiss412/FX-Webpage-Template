@@ -117,6 +117,17 @@ test.each([STAGED_PICKER_INLINE_CAP, STAGED_PICKER_INLINE_CAP + 1, STAGED_PICKER
     const inline = container.querySelectorAll('[data-testid="staged-preview-picker-inline"] > *');
     expect(inline).toHaveLength(expectedInline);
 
+    // Every picker entry, inline or disclosed, must sit INSIDE the labelled nav
+    // landmark (diff review round 1: overflow entries in a sibling reached AT as
+    // bare person-name links).
+    const nav = container.querySelector("nav[aria-label]")!;
+    expect(nav).not.toBeNull();
+    const allEntries = container.querySelectorAll(
+      '[data-testid="staged-preview-picker-link"], [data-testid="staged-preview-picker-current"]',
+    );
+    expect(allEntries).toHaveLength(size);
+    for (const el of allEntries) expect(nav.contains(el)).toBe(true);
+
     const disclosure = container.querySelector('[data-testid="staged-preview-picker-more"]');
     if (!overflows) {
       expect(disclosure).toBeNull();

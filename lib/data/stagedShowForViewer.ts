@@ -19,6 +19,24 @@
  * dropped, and a wrong-typed required object drops the owning entry. The one
  * family that cannot default is `show.dates` (it drives day gating everywhere),
  * so a dates-shape failure returns `decode_error`. The adapter never throws.
+ *
+ * DISCRIMINANT RULE (whole-class, diff review round 1). A wrong-typed SCALAR takes
+ * the field's null/empty default, but a wrong-typed UNION DISCRIMINANT must never
+ * be defaulted to another VALID member: substituting one meaning for another is
+ * silently wrong, which is exactly what the consequence bound forbids (a corrupt
+ * `RoomKind` defaulting to "additional" hides the General Session room; a corrupt
+ * `ContactKind` files in-house AV under the venue; an omitted `AgendaEntryKind`
+ * demotes a strike row to ordinary agenda content). So an unrecognized
+ * discriminant DROPS its owning entry, and where the owning entry cannot be
+ * dropped (`show.template_version`) the raw value is carried through unchanged.
+ *
+ * TWO DELIBERATE EXCEPTIONS, both spec §2.2, and both a DECODE fallback rather
+ * than a reclassification: `date_restriction` and `stage_restriction` fall back to
+ * `{ kind: "none" }`, mirroring the live projection's own
+ * `decodeJsonbColumn<DateRestriction>(...) ?? { kind: "none" }`
+ * (lib/data/getShowForViewer.ts:493-497). Dropping a crew member over a corrupt
+ * restriction would remove a person from the roster the picker offers, a worse
+ * failure than the projection's own long-standing fallback.
  */
 import { aggregateDays } from "@/lib/crew/agendaDisplay";
 import { effectiveViewerDateRestriction } from "@/lib/crew/stageSchedule";
@@ -282,9 +300,12 @@ function toRooms(value: unknown): ProjectedRoomRow[] {
   const rows = objectArray(value, (entry) => {
     if (typeof entry.name !== "string") return null;
     const kind = entry.kind;
+    // DISCRIMINANT RULE (below): an unrecognized `kind` DROPS the room. Defaulting
+    // it to "additional" would silently reclassify the General Session room.
+    if (typeof kind !== "string" || !ROOM_KINDS.has(kind)) return null;
     return {
       // `id` is minted below so it follows ROSTER order, not source index.
-      kind: (typeof kind === "string" && ROOM_KINDS.has(kind) ? kind : "additional") as RoomKind,
+      kind: kind as RoomKind,
       name: entry.name,
       dimensions: str(entry.dimensions),
       floor: str(entry.floor),
@@ -338,10 +359,11 @@ function toTransportation(value: unknown): TransportationRow | null {
 function toContacts(value: unknown): ContactRow[] {
   return objectArray(value, (entry) => {
     const kind = entry.kind;
+    // DISCRIMINANT RULE (below): an unrecognized `kind` DROPS the contact rather
+    // than silently filing an in-house AV contact under the venue.
+    if (typeof kind !== "string" || !CONTACT_KINDS.has(kind)) return null;
     return {
-      kind: (typeof kind === "string" && CONTACT_KINDS.has(kind)
-        ? kind
-        : "venue") as ContactRow["kind"],
+      kind: kind as ContactRow["kind"],
       name: str(entry.name),
       email: str(entry.email),
       phone: str(entry.phone),
@@ -369,7 +391,15 @@ function toPullSheet(value: unknown): PullSheetCase[] | null {
   }));
 }
 
-function toAgendaEntry(entry: Record<string, unknown>): AgendaEntry {
+function toAgendaEntry(entry: Record<string, unknown>): AgendaEntry | null {
+  // DISCRIMINANT RULE (below): `kind` is OPTIONAL and absence MEANS "agenda"
+  // (lib/parser/types.ts, AgendaEntry), so dropping an unrecognized value would
+  // silently demote a strike or load-out row to ordinary agenda content. The
+  // entry goes instead.
+  const rawKind = entry.kind;
+  if (rawKind !== undefined && (typeof rawKind !== "string" || !AGENDA_ENTRY_KINDS.has(rawKind))) {
+    return null;
+  }
   const finish = str(entry.finish);
   const trt = str(entry.trt);
   const room = str(entry.room);
@@ -382,9 +412,7 @@ function toAgendaEntry(entry: Record<string, unknown>): AgendaEntry {
     ...(trt === null ? {} : { trt }),
     ...(room === null ? {} : { room }),
     ...(av === null ? {} : { av }),
-    ...(kind !== null && AGENDA_ENTRY_KINDS.has(kind)
-      ? { kind: kind as NonNullable<AgendaEntry["kind"]> }
-      : {}),
+    ...(kind === null ? {} : { kind: kind as NonNullable<AgendaEntry["kind"]> }),
   };
 }
 
@@ -469,12 +497,18 @@ export function buildStagedShowForViewer(
     invoice_notes: str(showRaw.invoice_notes),
   };
 
+  // DISCRIMINANT RULE (below), applied where the owning entry cannot be dropped:
+  // `show` is not droppable, and no crew-page surface reads `template_version`
+  // (grep across components/ returns zero), so an unrecognized value is carried
+  // through UNCHANGED rather than reclassified into one of the three known
+  // versions. Nothing downstream branches on it, so passing it through is
+  // type-widening only, and a future consumer sees the real value.
   const templateVersion = showRaw.template_version;
   const show: ShowRow = {
     title: strOr(showRaw.title, ""),
     client_label: strOr(showRaw.client_label, ""),
     client_contact: toClientContact(showRaw.client_contact),
-    template_version: (templateVersion === "v1" || templateVersion === "v2"
+    template_version: (typeof templateVersion === "string"
       ? templateVersion
       : "v4") as ShowRow["template_version"],
     venue: toVenue(showRaw.venue),

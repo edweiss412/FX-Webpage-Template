@@ -226,6 +226,28 @@ describe("CrewShell staticPreview posture (spec §2.6)", () => {
     expect(container.querySelector('[data-testid="crew-shell"]')).not.toBeNull();
   });
 
+  /**
+   * The endpoint list + the substring predicate, exercised against a POSITIVE
+   * control (diff review round 1: the suppression oracle below is negative-only,
+   * so a narrowed array or a broken predicate would keep it green forever).
+   */
+  const SUPPRESSED_ENDPOINTS = [
+    "/api/asset/agenda/",
+    "/api/asset/diagram/",
+    "/api/asset/reel/",
+    "/api/report",
+    "/api/realtime/",
+  ] as const;
+
+  test("the dormant-reference detector fires on a known-positive control", () => {
+    for (const endpoint of SUPPRESSED_ENDPOINTS) {
+      const planted = `<a href="${endpoint}123">x</a>`;
+      expect(planted, `detector must see ${endpoint}`).toContain(endpoint);
+    }
+    // And the list is the one the assertion below actually uses.
+    expect(SUPPRESSED_ENDPOINTS).toHaveLength(5);
+  });
+
   test("AC-2: no dormant reference to any suppressed endpoint survives in the HTML", async () => {
     const { data } = stagedProjection("staged-crew-0");
     const container = await renderShell({
@@ -236,15 +258,14 @@ describe("CrewShell staticPreview posture (spec §2.6)", () => {
     });
 
     // Catches hrefs and non-requesting references a network capture cannot see.
-    for (const endpoint of [
-      "/api/asset/agenda/",
-      "/api/asset/diagram/",
-      "/api/asset/reel/",
-      "/api/report",
-      "/api/realtime/",
-    ]) {
+    for (const endpoint of SUPPRESSED_ENDPOINTS) {
       expect(container.innerHTML).not.toContain(endpoint);
     }
+    // Positive control on THIS render: the same predicate over the same HTML
+    // with one endpoint planted must fire, so a vacuously-empty container or a
+    // broken predicate cannot pass as suppression.
+    const planted = `${container.innerHTML}<a href="/api/report">x</a>`;
+    expect(SUPPRESSED_ENDPOINTS.some((e) => planted.includes(e))).toBe(true);
     // Premise: the render is non-trivial, so "no match" is not "nothing rendered".
     expect(container.querySelector('[data-testid="crew-shell"]')).not.toBeNull();
     expect(container.textContent!.length).toBeGreaterThan(200);
