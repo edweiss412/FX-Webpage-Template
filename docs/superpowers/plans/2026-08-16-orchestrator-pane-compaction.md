@@ -1,6 +1,6 @@
 # Plan — orchestrator pane compaction
 
-**Spec:** `docs/superpowers/specs/2026-08-16-orchestrator-pane-compaction-design.md` (at `1fe55813e`)
+**Spec:** `docs/superpowers/specs/2026-08-16-orchestrator-pane-compaction-design.md` (at `0c4196269`, APPROVED at spec round 8)
 **Branch:** `feat/orchestrator-pane-compaction`
 
 impeccable-gate: N/A — no UI surface
@@ -99,12 +99,24 @@ That gap matters here specifically. Task 9's zero-`EXPECTED_ENV_TOUCHING` argume
 the injected seam every classifier test asserts against. A fixture-injected surface proves nothing
 if the code under test can also shell out behind it.
 
-Add a walker over `scripts/lib/` modelled on `_metaPureCore.test.ts`: the same single `FORBIDDEN`
-pattern (it covers bare imports, `from` clauses, `require()`, dynamic `import()`, template-literal
-specifiers and subpaths, because every form contains the quoted-or-backticked specifier); the same
-**walker sanity floor**, which is the guard's own premise and without which a mis-rooted walk
-passes vacuously; and exactly **one** allowlist entry, `scripts/lib/ledger-git.ts`, the deliberate
-spawn seam and the only file in the directory that really imports it (probed). An allowlist of one,
+Add a walker over `scripts/lib/`, modelled on `_metaPureCore.test.ts` but **not** copying its
+pattern. Two probes say why:
+
+- The specLint pattern bans `node:fs` and `node:process` as well, and three files here import
+  `node:fs` today (`ledger-fields.ts`, `ledger-git.ts`, `validation-env.ts`). Only
+  **`node:child_process`** is banned here, which is also the property the injected-seam argument
+  actually needs: a recorder wrapping the surface is blind to a *spawn*, not to a file read.
+- A bare-specifier regex is a **use-versus-mention** error. Probed: it matches the backticked
+  prose `` `node:child_process` `` in `scripts/lib/ledger-claims-core.ts:7`, a comment describing
+  the very rule. The guard would be red on the untouched corpus. It therefore matches **import
+  syntax** — an `import ... from`, `require(...)`, or dynamic `import(...)` whose specifier is
+  `node:child_process` — not the specifier wherever it appears. The convergence-gate hook made the
+  same repair for the same reason.
+
+Plus the **walker sanity floor** (`>= 7`; the directory holds 7 `.ts` files today, 8 once the core
+lands), which is the guard's own premise and without which a mis-rooted walk passes vacuously; and
+exactly **one** allowlist entry, `scripts/lib/ledger-git.ts`, the deliberate spawn seam and the only
+file that genuinely imports it (probed). An allowlist of one,
 named with its reason, is a claim; a silent skip is not.
 
 **Failure mode caught:** someone later adds a convenience `execFileSync` to the classifier core.
@@ -113,13 +125,13 @@ describes — and nothing fails.
 
 ## Task 2 — precedence: total and deterministic
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/precedence.test.ts` red-state=authored red-target=`scripts/lib/pane-compaction-core.ts` why=`classify does not exist, so the ten-rule ordered list has no implementation and the ordering cases cannot be expressed` ac=AC-4,AC-5,AC-11,AC-16,AC-17,AC-22 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/precedence.test.ts` red-state=authored red-target=`scripts/lib/pane-compaction-core.ts` why=`classify does not exist, so the twelve-rule ordered list has no implementation and the ordering cases cannot be expressed` ac=AC-4,AC-5,AC-11,AC-16,AC-17,AC-22 -->
 
 **AC-4**, **AC-5**, **AC-11**, **AC-16**, **AC-17** and **AC-22** all rest on the ordering. Implement spec §4.5 as an ordered list of **twelve** rules, first match wins. One case per rule,
 plus the ordering cases prior rounds found:
 
-- **Round 2:** an **unowned** pane with a malformed marker must report `UNOWNED` (rule 2), not
-  `UNDETERMINED` (rule 3) — ownership resolves from `paneId` alone and needs no marker.
+- **Spec round 2:** an **unowned** pane with a malformed marker must report `UNOWNED` (**rule 3**),
+  not `UNDETERMINED` (**rule 4**) — ownership resolves from `paneId` alone and needs no marker.
 - **Round 1:** a below-band pane with a missing marker field must be `UNDETERMINED`, not `HOLD` —
   validation precedes banding.
 
@@ -128,8 +140,9 @@ plus the ordering cases prior rounds found:
   found this asserted in a documented limit, the test matrix and an AC while no rule implemented
   it.
 
-Also rule 1 (`NOT-AN-ARC`, AC-16) and rule 5 (marker/session mismatch, AC-17) with all three
-session cases: matching, differing, and pane reporting none. And **rule 11**: `t >= 8` at a
+Also **rule 1** (`NOT-AN-ARC`, AC-16), **rule 2** (duplicate branch-resolving names, AC-22) and
+**rule 5** (marker/session mismatch, AC-17) with all three session cases: matching, differing, and
+pane reporting none. And **rule 11**: `t >= 8` at a
 High-cost position yields `WAIT`, not `FORCE` (AC-11) — the behavior change that makes the
 demote-only bound unconditional.
 
@@ -146,6 +159,14 @@ Per spec §4.3. `agent_session` **optional** — absent is a valid observation, 
 An absent round corpus reads as "no review in flight", not a fault. **An absent marker is likewise
 legitimate** (AC-20): 3 of 38 live worktrees have none, one of them a real branch, and the pane is
 classified from git and corpus signals alone rather than demoted.
+
+**The three-way is a TYPE, not a convention.** The surface returns a discriminated union —
+`{kind:"checks",…} | {kind:"no-pr"} | {kind:"fault",detail}` — so a fault cannot be *written* as a
+no-PR. With `strict` (`tsconfig.json:7`) an unhandled variant is a compile error rather than a
+silent fallthrough. Typed as `Checks | null` instead, both cases collapse to `null` and every test
+below would pass, because the tests would have been written against the same wrong type. This is
+the invariant-9 shape ("infra faults surface as discriminable typed results, never as a benign
+signal") applied to a call site the invariant's auth-scoped registries do not reach.
 
 The `gh` cases are the sharp ones (AC-15): the recognized no-PR signature (non-zero exit **and**
 stderr matching `no pull requests found for branch`) is admitted; a non-zero exit with **any other**
@@ -254,13 +275,31 @@ decision survives only when a structural defense lands with it.
 
 **Nonce: three properties, three replays (AC-19, AC-24).**
 
-**Single-use, and the ordering is asserted rather than implied.** `--compact` consumes the record
-**before** sending. Running it twice in a row is necessary but **not sufficient** — plan round 1
-was right that the sequential test passes whether consumption happens before the send or after a
-successful one, so it cannot prove the ordering the design claims. The discriminating case makes
-the **send throw**, then asserts the record is *already* consumed: under consume-after, the record
-would survive a failed send and stay replayable. That is the failure path the ordering exists to
-protect, and only that case distinguishes the two implementations.
+**Collision re-mint (spec §5.2).** `--checkpoint` mints a 128-bit random **and compares it against
+the marker's current `checkpointNonce`**, re-minting on collision. Randomness makes a repeat
+improbable, not impossible, and an unlucky repeat would let `--compact` accept the *previous*
+checkpoint. The test injects a generator that returns the marker's existing value on its first call
+and a distinct value on its second, then asserts the sent prompt carries the second — a real
+generator cannot be made to collide on demand, so the seam is what makes this case reachable at
+all. Plan round 2 caught the plan pinning a pre-collision spec revision and omitting this entirely.
+
+**Single-use, and the ordering is asserted by observation from inside the send.** `--compact`
+consumes the record **before** sending. Two weaker tests were proposed and both were refuted:
+
+- *Run it twice* — passes whether consumption happens before the send or after a successful one
+  (plan round 1).
+- *Make the send throw, then assert the record is gone* — passes for `try { send() } finally
+  { consume() }` too, which consumes **after entering** the send. Plan round 2 probed this and the
+  observations are identical.
+
+The discriminating observation has to be taken **while the send is executing**: the send spy reads
+the record file at the moment it is called and records what it saw. Consume-before shows the record
+already absent *at call time*; both consume-after shapes show it still present. No post-hoc
+assertion can separate them, because both end with the record gone.
+
+**Failure mode caught:** a `finally`-based implementation that looks correct, passes every
+end-state assertion, and still leaves a replayable record for the whole duration of a send that
+hangs rather than throwing.
 
 **No cross-orchestrator property is asserted, and no test pretends to establish one.** Round 6
 dropped the "exactly one `/compact` across competing orchestrators" claim after rounds 4, 5 and 6
@@ -269,11 +308,12 @@ compare-and-consume came out with the claim. A test asserting cross-orchestrator
 now be asserting something the spec deliberately does not promise.
 
 **`--resume`'s own predicate (AC-13, AC-23).** Refuses whenever **any** of §4.5 rules **1-8**
-fires — one case per rule, including duplicate agent names (round 5) and CI-green-with-PR-unmerged
-(round 6, which is pressure-INDEPENDENT and so was wrongly excluded as "banding"). Round 5 found the earlier hand-picked list
+fires — one case per rule, including duplicate agent names (spec round 5) and
+CI-green-with-PR-unmerged (spec round 6, which is pressure-INDEPENDENT and so was wrongly excluded
+as banding). The banding rules it does **not** apply are **9-12**, not 8-12. Round 5 found the earlier hand-picked list
 omitting exactly that one, which would have let `--resume` drive a pane rule 2 had classified
 `UNDETERMINED` *because* a later command cannot resolve its target. Asserted to apply **none** of
-the banding rules 8-12: a successful compaction drops pressure below eligibility, so
+the banding rules 9-12: a successful compaction drops pressure below eligibility, so
 `COMPACT`/`FORCE` is false exactly when `--resume` is correct.
 
 **Nonce verification (AC-19), four cases**, the fourth being the defect round 3 found:
@@ -348,9 +388,13 @@ non-zero count, the way `tests/scripts/ledgerGitSpawnSeam.test.ts` declares 16 f
 `realGitSurface`. The honest zero here matches `tests/scripts/ledgerClaims.test.ts` and
 `tests/db/destructiveFileAnalysis.test.ts`; it is not an exemption.
 
-**Assert at least one generated site per declared operator** before running the gate. `pnpm
-mutation:sites` prints the generated sites; the enrolment test requires every name in the surface's
-`operators` array to appear at least once. Without it a declared operator with no site on this
+**Assert at least one generated site per declared operator** before running the gate, by importing
+`enumerateSites` and `siteId` from `tests/mutation/source/operators` **in process** and grouping the
+returned sites by operator. Not via `pnpm mutation:sites`: probed, that command enumerates sites
+internally but prints only *accepted ledger rows* and staleness
+(`scripts/print-mutation-sites.ts:45-50`), so it cannot supply the evidence — round 2's finding, and
+my earlier citation read its header rather than its body. In-process is also what keeps this suite
+free of `node:child_process`, which is what makes its own `EXPECTED_ENV_TOUCHING: 0` true. Without it a declared operator with no site on this
 surface is dark, and the gate — which checks only that total mutants exceed zero — stays green.
 
 Then `pnpm heavy pnpm mutation:guards` (full-suite vitest — heavy phases take a slot), recording
@@ -402,7 +446,15 @@ phrasing**, so the strings below are copied, not paraphrased.
 
 1. Tasks 1-10, TDD each, one commit per task
 2. Self-review — re-run the numeric sweep and self-consistency sweep across the whole document
-3. **Adversarial review (cross-model)** — codex-guard `--stage plan`, then `--stage diff`
+3. **Adversarial review (cross-model)** — codex-guard `--stage plan`, then `--stage diff`.
+   **Any whole-diff repair that touches an enrolled source runs `pnpm mutation:sites <path>` and
+   re-pastes the accepted ids in the SAME commit.** A `siteId` is keyed by line, so any edit —
+   including a comment-only one — shifts every accepted row below it and the gate reports the whole
+   set stale by construction. `scripts/print-mutation-sites.ts:9-16` records this happening three
+   times in eight rounds on a prior arc, each costing a round to notice. This arc is exposed
+   because Task 9 must precede the whole-diff review, so review repairs land on an already-enrolled
+   source. (The surface enrols with an EMPTY `accepted` array, so nothing can go stale until the
+   first gate run classifies survivors.)
 4. Execution handoff / closeout — the spec stage passed `ROUND_THRESHOLD` (`4`,
    `lib/reviewRounds/constants.ts:11`), so the arc owes the round-economy filing that already
    exists beside the branch's corpus file: an `**Examined:**` line plus at least one of
