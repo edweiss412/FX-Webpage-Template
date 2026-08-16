@@ -87,6 +87,10 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // decided by the ambient one.
   "tests/reviewRounds/count.test.ts": 0,
   "tests/docs/_metaReviewRoundEconomy.test.ts": 0,
+  // Enrolled by reviewRoundFiling (enforcement-pair arc): parses literal
+  // markdown strings through remark and reaches no member of
+  // ENVIRONMENT_SOURCES.
+  "tests/reviewRounds/filing.test.ts": 0,
   // M-wave 2 W-GUARDS (2026-08-10): both guard-extractor suites are pure by
   // the same rule as the corpus suite — they read the live tree via node:fs
   // and walkSourceFiles, which is deliberately NOT provenance; neither touches
@@ -125,6 +129,21 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/styles/interactiveScanCore.test.ts": 0,
   "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
   "tests/styles/_metaTapTargetFloor.test.ts": 0,
+  // The browser mode's two deciding suites (2026-08-15). Both declare 0, and the
+  // declaration is honest rather than convenient: each builds the scratch trees it
+  // reads under mkdtempSync and drives pure functions, touching no member of
+  // ENVIRONMENT_SOURCES (child_process, ledger-git, process.env) — node:fs is
+  // deliberately not provenance, by the same rule the corpus suite is declared 0
+  // under. The suite that DOES spawn children, overlayWiring.test.ts, is not a
+  // deciding suite for any enrolled surface and is therefore not scanned here.
+  "tests/mutation/browser/registry.test.ts": 0,
+  "tests/mutation/browser/mutate.test.ts": 0,
+  // The serializeError contract suite, enrolled 2026-08-16
+  // (fix/serialize-error-structure). 0, and honestly so: every case builds its
+  // fixture in the test body and drives it through the imported helper, so the
+  // suite reaches no member of ENVIRONMENT_SOURCES — no child process, no
+  // ledger-git, no process.env, and no filesystem read at all.
+  "tests/log/serializeError.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

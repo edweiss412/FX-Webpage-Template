@@ -29,10 +29,14 @@ function sanitizeValue(value: unknown, seen: WeakSet<object>): Json | typeof DRO
         return s === DROP ? null : s;
       });
     }
-    const out: { [k: string]: Json } = {};
+    // Null-prototype accumulator: a plain {} loses an own "__proto__" key to
+    // the inherited setter (the value silently becomes the accumulator's
+    // prototype). Keys are redacted like values -- an email-bearing key is a
+    // leak channel once structure survives serialization.
+    const out: { [k: string]: Json } = Object.create(null) as { [k: string]: Json };
     for (const [k, v] of Object.entries(obj)) {
       const s = sanitizeValue(v, seen);
-      if (s !== DROP) out[k] = s;
+      if (s !== DROP) out[redactEmails(k)] = s;
     }
     return out;
   } finally {
