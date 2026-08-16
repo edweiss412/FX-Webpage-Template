@@ -107,25 +107,41 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The directory runs **117 cases** (27 classify + 20 collect + 59 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 117 are green. Both states observed, both edits reverted.
+- The directory runs **118 cases** (27 classify + 20 collect + 60 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 118 are green. Both states observed, both edits reverted.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
-- Eleven cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
+- Twelve cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
 - Seven cases drive `readIdentity` against a real `ps` at its K1/K6 boundary, including both status-1 spellings (stdout and stderr diagnostics) and a hanging read bounded by its timeout. One further case drives the production `stillAlive` against a process that exits mid-window, which is the only way K4's settle is observable.
 
 This pass earned its cost repeatedly. It found the SPEC defect this plan is written against — executing Task 1's clause-(c) case is how the unreachable slot clause was discovered (spec §4.2) — and it found plan defects that plan review round 1 then confirmed and extended: a Step 2 claiming the wrong red count, a mutation control the suite adapted to, missing subprocess timeouts, and a CLI whose `main()` no case executed.
 
-Consequence for the task markers: `lib/heavyReap/` and scripts/heavy-reap.ts do not exist, so Tasks 1-3 use the PATH-ONLY `red-target=` form (which requires an untracked path). Task 4's target is tracked, so it uses the colon form on package.json:56.
+**Consequence for the task markers: NONE of them can use the red-contract form, and the reason is
+worth stating once because it is not a style choice.**
+
+- Tasks 1-3 CREATE their production files. The path-only `red-target=` form is legal only while the
+  path is UNTRACKED (`lib/specLint/redContract.ts:112-116`), so such a marker is valid at plan time
+  and invalid the moment the task commits the file it names — Task 6 then runs `spec:lint` and
+  cannot reach its declared green. The colon form is not available either, since it needs a tracked
+  file with an in-range line and the file does not exist yet. **A plan that creates its own
+  production surface has no legal `red-target=` for the whole of its life.**
+- Task 4's surface is the `heavy` script at the repository ROOT, and a no-slash path is classified
+  as a bare shorthand and rejected outright (`lib/specLint/citations.ts:55`,
+  `lib/specLint/redContract.ts:110`), so no legal spelling exists there either.
+
+Both were probed at plan time and both are filed: `BL-SPECLINT-RED-TARGET-ROOT-FILE` and
+`BL-SPECLINT-RED-TARGET-PATH-ONLY-EXPIRES`. Every task therefore uses the v1 marker and states its
+red in prose, with the observed counts, immediately under it. That is weaker than a machine-checked
+declaration, and it is the strongest form the arm currently admits.
 
 ---
 
 ## Tasks
 
-<!-- tasks: depth=3 red-contract -->
+<!-- tasks: depth=3 -->
 
 ### Task 1: The classifier
 
-<!-- task: red=`pnpm vitest run tests/heavyReap/classify.test.ts` red-state=authored red-target=`lib/heavyReap/classify.ts` why=`lib/heavyReap/classify.ts does not exist, so every case fails at import resolution` ac=AC-1,AC-2,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/heavyReap/classify.test.ts` ac=AC-1,AC-2,AC-3,AC-4 -->
 
 **Files:**
 - Create: lib/heavyReap/classify.ts
@@ -430,7 +446,7 @@ git commit -m "feat(infra): classify orphaned heavy-phase workers"
 
 ### Task 2: The collector
 
-<!-- task: red=`pnpm vitest run tests/heavyReap/collect.test.ts` red-state=authored red-target=`lib/heavyReap/collect.ts` why=`lib/heavyReap/collect.ts does not exist, so every case fails at import resolution` ac=AC-7,AC-10 -->
+<!-- task: red=`pnpm vitest run tests/heavyReap/collect.test.ts` ac=AC-7,AC-10 -->
 
 **Files:**
 - Create: lib/heavyReap/collect.ts
@@ -741,7 +757,7 @@ git commit -m "feat(infra): collect and parse the process table"
 
 ### Task 3: The CLI adapter
 
-<!-- task: red=`pnpm vitest run tests/heavyReap/cli.test.ts` red-state=authored red-target=`scripts/heavy-reap.ts` why=`scripts/heavy-reap.ts does not exist, so the suite cannot import parseFlags, readCeiling, planTargets, executeKills or exitStatus` ac=AC-3b,AC-5,AC-5b,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/heavyReap/cli.test.ts` ac=AC-3b,AC-5,AC-5b,AC-6 -->
 
 **Files:**
 - Create: scripts/heavy-reap.ts
@@ -1248,6 +1264,38 @@ describe("the CLI, executed end to end", () => {
     }
   }, 180_000);
 
+  it("AC-6: --all combined with --kill widens the REPORT and NOT the kill set", () => {
+    // Each invocation gets its OWN pair: a second run against the same pids would find them
+    // already dead and kill nothing, which would make the comparison pass vacuously.
+    const killedSet = (flags: string[]): { killed: string[]; out: string; kid: number } => {
+      const root = spawnOrphan();
+      const kid = spawnOrphan();
+      try {
+        const table: Row[] = [
+          { pid: root.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
+          // Declined AND not orphan-shaped, so only `--all` reports it; it is also a recorded
+          // descendant, so it is a legitimate TARGET. What must not differ is the kill set.
+          { pid: kid.pid, ppid: root.pid, etime: OLD, command: WORKER_CMD },
+        ];
+        const { out } = runCli(flags, table);
+        const killed = (out.match(/killed pid=(\d+)/g) ?? []).map((m) =>
+          m.replace(`${root.pid}`, "ROOT").replace(`${kid.pid}`, "KID"),
+        );
+        return { killed: killed.sort(), out, kid: kid.pid };
+      } finally {
+        root.kill();
+        kid.kill();
+      }
+    };
+
+    const plain = killedSet(["--kill"]);
+    const withAll = killedSet(["--kill", "--all"]);
+    expect(plain.killed).toEqual(["killed pid=KID", "killed pid=ROOT"]);
+    expect(withAll.killed).toEqual(plain.killed); // --all changed the report and nothing else
+    expect(withAll.out).toContain(`skip ${withAll.kid} (has-live-parent)`);
+    expect(plain.out).not.toContain("has-live-parent");
+  }, 180_000);
+
   it("AC-6: --all adds the non-orphan and the unparsable row, each with its reason", () => {
     const table: Row[] = [
       { pid: 777001, ppid: 777002, etime: OLD, command: WORKER_CMD },
@@ -1719,14 +1767,10 @@ git commit -m "feat(infra): heavy-reap CLI, report by default and kill only on -
 
 <!-- task: red=`pnpm vitest run tests/heavyReap/triggerFailOpen.test.ts` ac=AC-8 -->
 
-**Why this task uses the v1 marker while Tasks 1-3 use the red-contract form.** Its production
-surface is the `heavy` script, which lives at the repository ROOT in package.json, and a
-`red-target=` cannot name it: the arm classifies a citation as a bare shorthand when the path
-contains no `/` (`lib/specLint/citations.ts:55`) and rejects bare shorthands in markers
-(`lib/specLint/redContract.ts:110`), so package.json:56 draws `RED_TARGET_INVALID` and no legal
-spelling of a root-level file exists. Probed at plan time and filed as
-`BL-SPECLINT-RED-TARGET-ROOT-FILE`. The red is therefore stated in prose below rather than declared
-in a field, and Step 2 pins it with the exact observed counts.
+**Why this task, like every other in this plan, uses the v1 marker:** see the note under the
+pre-draft verification pass. Its own instance is the root-file one,
+`BL-SPECLINT-RED-TARGET-ROOT-FILE`. The red is stated in prose below, and Step 2 pins it with the
+exact observed counts.
 
 **Files:**
 - Modify: package.json:56

@@ -320,6 +320,20 @@ Memory at the same instant: 14.86 GB rss of 18 GB, `Pages free: 4015`, compresso
 
 **First scheduled step:** measure the longest legitimate `mutation:guards` wall clock on this machine (the nightly is already at 138-180 min per `BL-MUTATION-HARNESS-WALLCLOCK-CEILING` below, so the ceiling is not small), then pick the shape. The two entries share a surface and should be read together — that one is about a job that runs too long, this one about processes that never stop.
 
+## BL-SPECLINT-RED-TARGET-PATH-ONLY-EXPIRES — a path-only `red-target=` is invalid the moment its task commits the file
+
+**Status:** OPEN · **Severity:** LOW (a plan that creates its own production surface cannot use the red-contract form at all; nothing ships wrong, but the machine-checked declaration is unavailable exactly where a TDD plan is most standard) · **Class:** tooling / spec-lint · **Effort:** S · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, found by plan review round 7) · **Reachability: PROBED** — the lifecycle below was traced through the shipped validator, not inferred.
+
+The path-only form "declares an absent production file" and is validated as such: `targetProblem` returns an error when the cited path IS tracked (`lib/specLint/redContract.ts:112-116`). That is correct at plan time. It is also the ONLY form available to a task that creates its production file, because the colon form requires a tracked file with an in-range line.
+
+**So the marker is valid exactly until the task it describes succeeds.** Task 1 declares `red-target=`lib/heavyReap/classify.ts``while the module is absent; Task 1 then commits that module; a later task in the same plan runs`pnpm spec:lint`and the marker is now`RED_TARGET_INVALID`. The plan cannot be simultaneously executed and lint-clean.
+
+Sibling of `BL-SPECLINT-RED-TARGET-ROOT-FILE` above: same validator, same consequence (no legal spelling exists for the whole life of the plan), different cause. Together they mean the red-contract form is currently usable only by a plan whose production surface ALREADY EXISTS and is not at the repository root.
+
+**Candidate repairs, for the implementing arc to weigh:** (a) accept a path-only target that is tracked when the plan's own task region declares it as created — the information is in the document; (b) treat the path-only form as a claim about plan-authoring time and stop validating trackedness after the fact; (c) add a `red-target-created=` variant whose contract is "absent now, created by this task", which is what these plans actually mean. (c) states the intent rather than inferring it, and leaves today's two forms untouched.
+
+**First scheduled step:** decide whether (a) is expressible without a recognizer over task prose — the enrollment grain rule (`docs/agents/spec-self-review.md:36`) forbids inferring task structure from headings, and "this task creates that file" would have to come from a declared field rather than from the `Files:` list.
+
 ## BL-SPECLINT-RED-TARGET-ROOT-FILE — a red-contract `red-target=` cannot name a repository-root file
 
 **Status:** OPEN · **Severity:** LOW (one plan region per affected arc falls back to the v1 marker; nothing ships wrong, but the stricter contract is unavailable exactly where a root-level config file is the production surface) · **Class:** tooling / spec-lint · **Effort:** S · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, hit while writing the heavy-orphan plan) · **Reachability: PROBED** — the finding below is a real `spec:lint` failure on a real plan, not a projection.

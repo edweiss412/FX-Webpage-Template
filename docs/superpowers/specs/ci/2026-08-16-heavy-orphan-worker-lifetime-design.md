@@ -449,7 +449,7 @@ classification, and again immediately before the signal FOR A TARGET THAT YIELDE
 whose classification read failed is K6, and one that reported the pid gone is K1, both decided on
 that evidence alone (§6.1's "at most two"). That keeps `lstart` — whose value contains spaces and
 would complicate whitespace-splitting the bulk `ps` output — out of the collection parser entirely,
-and costs one cheap read per target rather than per process.
+and costs at most two cheap reads per KILL TARGET rather than one per process.
 
 ---
 
