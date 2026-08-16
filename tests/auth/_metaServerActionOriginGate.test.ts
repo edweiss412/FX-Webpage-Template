@@ -42,6 +42,7 @@
  * change with a review, not a row somebody appends.
  */
 
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -327,8 +328,9 @@ function checkExemptionSet(input: {
   units: readonly SurfaceUnit[];
   siblingReadOnly: readonly ExemptionRow[];
   auditable: readonly ExemptionRow[];
+  digests: Readonly<Record<string, string>>;
 }): string[] {
-  const { exempt, units, siblingReadOnly, auditable } = input;
+  const { exempt, units, siblingReadOnly, auditable, digests } = input;
   const problems: string[] = [];
   const auditableKeys = new Set(auditable.map(keyOf));
 
@@ -351,6 +353,23 @@ function checkExemptionSet(input: {
     }
     const tripped = readOnlyTripwire(unit);
     if (tripped) problems.push(tripped);
+
+    // The FREEZE. Not a mutation predicate — it asks only whether this body is
+    // still the one whose read-only claim was ratified.
+    const pinned = digests[keyOf(row)];
+    if (pinned === undefined) {
+      problems.push(`${keyOf(row)}: exempt unit carries no pinned body digest`);
+    } else {
+      const actual = bodyDigest(unit);
+      if (actual !== pinned) {
+        problems.push(
+          `${keyOf(row)}: the exempt body CHANGED (pinned ${pinned}, now ${actual}). An exemption is a ` +
+            `claim that this body only reads; re-review that claim against the edit (spec §3.5/§7) and ` +
+            `update the pin in the same commit. This is deliberately not a mutation scan — no scanner ` +
+            `models every way to write state, so the walk pins the reviewed text instead.`,
+        );
+      }
+    }
   }
 
   // 2. The set EQUALS the sibling guard's own claim — the anti-drift device. A
@@ -369,6 +388,48 @@ function checkExemptionSet(input: {
     );
   }
   return problems;
+}
+
+// ── the exempt bodies are FROZEN, not scanned ─────────────────────────────
+
+/**
+ * Diff review round 3: an ordinary `cookies().set(...)` inserted into any of the
+ * three exempt bodies leaves the unit accepted — both registries still say
+ * `read-only`, the `scanBody` tripwire stays clear (it models write builders,
+ * `.rpc(` and `logAdminOutcome`, and nothing else), and reconciliation passes.
+ * Confirmed: all three rows, silently.
+ *
+ * THE REPAIR IS NOT ANOTHER MUTATION VERB. Teaching the tripwire `cookies().set`
+ * invites `signOut` next, then a filesystem write, then a delegation — the
+ * non-terminating question spec §3.5 stopped asking, and the ratchet the round-3
+ * narrowing exists to prevent.
+ *
+ * So the walk stops trying to decide whether an exempt body mutates and instead
+ * FREEZES it. Spec §7 already says the process for an exempt unit that grows a
+ * mutation is "review of that change"; this makes that executable rather than
+ * hopeful. The pin decides nothing about mutation — it only asks whether the
+ * body is still the one that was ratified — so it cannot be defeated by a verb
+ * nobody modelled, and it needs no widening when someone invents a new way to
+ * write state.
+ *
+ * A legitimate edit to one of these three reds the walk until the digest is
+ * updated, and updating it is the moment the read-only claim gets re-reviewed.
+ * That is the cost, and it is the feature.
+ */
+const EXEMPT_BODY_DIGESTS: Readonly<Record<string, string>> = {
+  "app/admin/_devCaptureAction.ts::captureShowTelemetry": "bcec173f302ecbff",
+  "app/admin/dev/actions.ts::getStagedResult": "361704f14af36b13",
+  "app/admin/dev/actions.ts::listFixtures": "0754b8457e646bf2",
+};
+
+/** Whitespace-normalized digest of a unit's body, so reformatting is not a false alarm. */
+function bodyDigest(unit: SurfaceUnit): string {
+  const fn = fnLikeOf(unit);
+  if (!fn || !fn.body) return "no-body";
+  return createHash("sha256")
+    .update(fn.body.getText().replace(/\s+/g, " ").trim())
+    .digest("hex")
+    .slice(0, 16);
 }
 
 // ── the discovery tripwire: fail CLOSED on what the engine cannot classify ──
@@ -621,6 +682,7 @@ describe("the live tree: every Server Action surface unit is gated or verifiably
       units: LIVE_UNITS,
       siblingReadOnly: SIBLING_READ_ONLY_ROWS,
       auditable: AUDITABLE_MUTATIONS,
+      digests: EXEMPT_BODY_DIGESTS,
     });
     expect(problems, problems.join("\n")).toEqual([]);
   });
@@ -906,6 +968,7 @@ describe("the exemption set's three assertions — fixture self-tests", () => {
         units: [unit],
         siblingReadOnly: [row],
         auditable: [],
+        digests: Object.fromEntries([unit].map((u: SurfaceUnit) => [keyOf(u), bodyDigest(u)])),
       }),
     ).toEqual([]);
   });
@@ -917,6 +980,7 @@ describe("the exemption set's three assertions — fixture self-tests", () => {
       units: [unit],
       siblingReadOnly: [row],
       auditable: [row],
+      digests: Object.fromEntries([unit].map((u: SurfaceUnit) => [keyOf(u), bodyDigest(u)])),
     });
     expect(problems.join("\n")).toContain("AUDITABLE_MUTATIONS");
   });
@@ -935,6 +999,7 @@ describe("the exemption set's three assertions — fixture self-tests", () => {
       units: [unit],
       siblingReadOnly: [row],
       auditable: [],
+      digests: Object.fromEntries([unit].map((u: SurfaceUnit) => [keyOf(u), bodyDigest(u)])),
     });
     expect(problems.join("\n")).toContain("NON-admin");
   });
@@ -947,6 +1012,7 @@ describe("the exemption set's three assertions — fixture self-tests", () => {
       units: [unit],
       siblingReadOnly: [],
       auditable: [],
+      digests: Object.fromEntries([unit].map((u: SurfaceUnit) => [keyOf(u), bodyDigest(u)])),
     });
     expect(problems.join("\n")).toContain("resolves to 0 discovered units");
   });
@@ -958,6 +1024,7 @@ describe("the exemption set's three assertions — fixture self-tests", () => {
       units: [unit],
       siblingReadOnly: [row],
       auditable: [],
+      digests: Object.fromEntries([unit].map((u: SurfaceUnit) => [keyOf(u), bodyDigest(u)])),
     });
     expect(problems.join("\n")).toContain("disagrees with the sibling guard");
   });
@@ -973,8 +1040,74 @@ describe("the exemption set's three assertions — fixture self-tests", () => {
         units: [unit],
         siblingReadOnly: [row, { file: "app/api/admin/x/route.ts", fn: "POST" }],
         auditable: [],
+        digests: Object.fromEntries([unit].map((u: SurfaceUnit) => [keyOf(u), bodyDigest(u)])),
       }),
     ).toEqual([]);
+  });
+});
+
+describe("the exempt-body freeze — fixture self-tests (the round-3 attack)", () => {
+  const READ_ONLY =
+    MODULE_HEAD +
+    "export async function readIt() {\n  await requireDeveloper();\n  return await queryEvents();\n}\n";
+  const WITH_COOKIE_WRITE =
+    MODULE_HEAD +
+    'export async function readIt() {\n  await requireDeveloper();\n  (await cookies()).set("pwned", "1");\n  return await queryEvents();\n}\n';
+
+  const check = (src: string, pinnedFrom: string): string[] => {
+    const pinUnit = unitFor("app/admin/dev/actions.ts", pinnedFrom);
+    const unit = unitFor("app/admin/dev/actions.ts", src);
+    const row = { file: unit.file, fn: unit.fn };
+    return checkExemptionSet({
+      exempt: [row],
+      units: [unit],
+      siblingReadOnly: [row],
+      auditable: [],
+      digests: { [keyOf(row)]: bodyDigest(pinUnit) },
+    });
+  };
+
+  test("an UNCHANGED exempt body passes", () => {
+    expect(check(READ_ONLY, READ_ONLY)).toEqual([]);
+  });
+
+  test("a cookie write inserted into an exempt body FAILS — the round-3 escape", () => {
+    // scanBody models write builders, `.rpc(` and logAdminOutcome, and nothing
+    // else, so `cookies().set` is invisible to it and both registries still say
+    // read-only. The freeze catches it without knowing what a cookie is.
+    const problems = check(WITH_COOKIE_WRITE, READ_ONLY);
+    expect(problems.join("\n")).toContain("the exempt body CHANGED");
+  });
+
+  test("the freeze catches a mutation verb NOBODY modelled", () => {
+    // The point of pinning text rather than scanning for verbs: this one is not
+    // a cookie, an rpc, a write builder, or an emit, and it still fails.
+    const exotic =
+      MODULE_HEAD +
+      "export async function readIt() {\n  await requireDeveloper();\n  await someFutureWriteApiNobodyHasInvented();\n  return await queryEvents();\n}\n";
+    expect(check(exotic, READ_ONLY).join("\n")).toContain("the exempt body CHANGED");
+  });
+
+  test("REFORMATTING alone does not fail — the digest is whitespace-normalized", () => {
+    // Otherwise every prettier run would red the walk and the pin would be
+    // updated reflexively, which is exactly how a review gate becomes a ritual.
+    const reformatted =
+      MODULE_HEAD +
+      "export async function readIt() {\n  await requireDeveloper();\n\n  return await queryEvents();\n}\n";
+    expect(check(reformatted, READ_ONLY)).toEqual([]);
+  });
+
+  test("an exempt row with NO pinned digest FAILS rather than passing silently", () => {
+    const unit = unitFor("app/admin/dev/actions.ts", READ_ONLY);
+    const row = { file: unit.file, fn: unit.fn };
+    const problems = checkExemptionSet({
+      exempt: [row],
+      units: [unit],
+      siblingReadOnly: [row],
+      auditable: [],
+      digests: {},
+    });
+    expect(problems.join("\n")).toContain("carries no pinned body digest");
   });
 });
 
