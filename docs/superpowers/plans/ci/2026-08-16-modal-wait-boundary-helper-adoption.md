@@ -523,14 +523,20 @@ computed directly with the harness's OWN operators (`enumerateSites` + `applyMut
 each mutant to `scan.ts` and running the deciding suite once per mutant, sequentially, behind a
 clean-source baseline that must pass first.
 
-    SITES 62   relational-boundary 2 · equality-flip 12 · logical-connector 9
+    SITES 60   relational-boundary 2 · equality-flip 11 · logical-connector 8
                integer-literal 16 · regex-quantifier-bound 0 · statement-removal 23
 
     first run  49/57 = 0.8596, EIGHT survivors
     repaid     55/57 = 0.9649, TWO survivors, both argued equivalent
     then       59/61 = 0.9672 after CI surfaced a comment-handling defect
-    final      60/62 = 0.9677 after review caught that origin (f) still read raw
-               text — every new site killed at each step, same two rows throughout
+    then       60/62 = 0.9677 after origin (f) stopped reading raw text
+    final      58/60 = 0.9667 at HEAD, after both scans moved to the stripped line
+    Every new site killed at every step; the SAME two equivalent rows throughout.
+
+A siteId is `operator:LINE:column:from>to`, so any edit to `scan.ts` relocates the accepted ids and
+the gate reports a stale-ledger-row. Diff review caught that twice on this arc — the ledger is a
+measurement OF A REVISION, not a standing claim, and it is re-run in the same commit as any source
+change.
     UNACCEPTED SURVIVOR SET: EMPTY.   scoreFloor 0.95, set from these runs.
 
 Six survivors were real coverage gaps and were repaid with cases, each written against the mutant

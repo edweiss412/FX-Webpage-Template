@@ -180,9 +180,16 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // two-rule ambiguity threshold). Re-run: 55/57 with exactly these two left.
       // Making the scan comment-aware then grew the surface to 61 sites; every
       // one of the four new sites is killed, so the score is 59/61 = 0.9672 with
-      // these same two rows. Excluding commented-out helper calls from origin (f)
-      // then took it to 62 sites and 60/62 = 0.9677, still these two. A THIRD row
-      // here is a gap to repay, not a number to bump.
+      // these same two rows, and it has stayed those two through every later
+      // revision: 59/61, 60/62, and 58/60 at HEAD. A THIRD row here is a gap to
+      // repay, not a number to bump.
+      //
+      // NOTE FOR THE NEXT EDITOR OF scan.ts: a siteId is
+      // `operator:LINE:column:from>to`, so ANY edit to that file relocates these
+      // ids and the gate then reports a stale-ledger-row for an id no generated
+      // site has. Diff review caught exactly that twice. Re-run the score and
+      // update both ids in the SAME commit as the source change — the ledger is
+      // a measurement of one revision, not a standing claim.
       {
         siteId: "statement-removal:156:9:continue;>(removed)",
         kind: "equivalent",
@@ -190,7 +197,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "Drops the `continue` after `visit(child)` in walkSourceFiles, so a DIRECTORY falls through to the `child.endsWith('.ts') || child.endsWith('.tsx')` test below it. No directory in app/ or components/ ends in .ts or .tsx, so the extra test is always false and the walk's output is identical. Observable only for a directory literally named `*.ts`, which the tree does not contain.",
       },
       {
-        siteId: "integer-literal:340:83:0>1",
+        siteId: "integer-literal:351:83:0>1",
         kind: "equivalent",
         reason:
           "Changes the `?? 0` fallback in classifyCandidates' count increment to `?? 1`. The branch is unreachable: countsByRule is pre-seeded with a 0 entry for EVERY rule at construction (`new Map(rules.map((rule) => [rule.id, 0]))`), so `countsByRule.get(hit.id)` never returns undefined and the nullish fallback never evaluates.",
