@@ -1,0 +1,273 @@
+# Server Action origin-gate sweep Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Close the logout/CSRF-class hole on every destructive Next.js Server Action in the repo — not just the crew picker's three, which `fix/auth-picker-hardening` already closed — and make the census a derivation a future action cannot escape.
+
+**Architecture:** The shipped `isSameOriginServerAction()` (`lib/auth/sameOriginServerAction.ts:31`) gains a scoped `headers()` catch-allow and four designated refusal exports, one per return shape in the census. 42 admin actions take `await assertSameOriginServerAction(fn, source)` as their first statement; 8 crew/wrapper actions take `if (!(await isSameOriginServerAction())) return <designated refusal>(fn)`. A new structural meta-test re-derives the census from the invariant-10 AST engine and requires every discovered unit to satisfy one of two AST accept-sets or to be one of three pinned exemptions, with `gated + exempted === discovered`.
+
+**Tech Stack:** Next.js 16 (React 19 Server Actions, `forbidden()` behind `experimental.authInterrupts`), TypeScript (strict: `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Vitest, the repo's TypeScript-AST surface enumerator (`tests/log/mutationSurface/enumerate.ts`).
+
+**Spec:** `docs/superpowers/specs/2026-08-16-server-action-origin-sweep-design.md` (APPROVE at spec review R4; `docs/review-rounds/fix/server-action-origin-sweep/119895a7c756.md`).
+
+## Global Constraints
+
+- **TDD per task** (invariant 1): failing test → minimal impl → passing test → commit. One task per commit; conventional-commits.
+- **No raw error codes in UI** (invariant 5): no new returned code anywhere. Class A refuses via `forbidden()`; the picker shapes return the catalogued `PICKER_INVALID_INPUT`; class C returns its existing `{ status: "neutral" }`. `SERVER_ACTION_ORIGIN_REJECTED` lives only inside `log.warn` spans.
+- **Invariant-8 dual gate:** the diff edits `.ts` action files under `app/` outside `app/api/` AND three `.tsx` files (two under `app/show/[slug]/[shareToken]/`, one under `components/`), so the impeccable critique gate AND the impeccable audit gate both run in THIS implementation arc against the real diff and the machine `impeccable-gate:` marker is filled at that closeout. No rendered element, token, or copy changes — each `.tsx` edit is one statement inside a Server Action body, above the component's render — so the expected finding surface is nil, but the gate runs and the marker is never fabricated.
+- **Worktree only** (invariant 11); commit per task (invariant 6); ledger marker off in the PR's last commit (invariant 12).
+- **The gate is always the FIRST statement** of the action body, ahead of the `require`-gate and ahead of any top-level `try`. Never after.
+
+## Meta-test inventory (declared)
+
+- **CREATES:** tests/auth/\_metaServerActionOriginGate.test.ts (plain text: created by Task 2) — the structural walk plus its fixture self-tests. **No new registry file:** the exemption is a closed three-name constant inside the walk (spec §3.5), and the delegator registry the earlier design carried was deleted by the spec's R3 narrowing.
+- **EXTENDS:** `tests/auth/sameOriginServerAction.test.ts` (the no-request-context truth-table row; cases for all four designated refusal exports). `tests/mutation/source/registry.ts` (one `GuardSurface` row, Task 11).
+- **`tests/log/_metaMutationSurfaceObservability.test.ts` — NO change, verified not assumed.** `evaluateUnit` short-circuits on `noTelemetryExempt` before it looks for an emit (`tests/log/_metaMutationSurfaceObservability.test.ts:179`), and the walk carries no unused-exemption rule, so a `no-telemetry:`-exempt wrapper that gains a coded `log.warn` still passes for the same reason it passed before. No `AUDITABLE_MUTATIONS`, `ADMIN_SURFACE_EXEMPTIONS`, or `KNOWN_UNINSTRUMENTED` row changes: the gate adds a BRANCH to existing surfaces, not a surface. The origin walk READS `ADMIN_SURFACE_EXEMPTIONS` (Task 2) but never writes it.
+- **`tests/cross-cutting/codes.test.ts` (`x1-catalog-parity`) — NO change.** `SERVER_ACTION_ORIGIN_REJECTED` appears only inside `log.warn` spans, which `stripLogEmissionCalls` removes before `PRODUCER_RE` runs (`lib/messages/__internal__/codeProducers.ts:14`); the shipped `PICKER_ORIGIN_REJECTED` is the precedent on main. No §12.4 row, no catalog row, no `pnpm gen:spec-codes`.
+- **`tests/auth/_metaInfraContract.test.ts` — NO change.** Nothing this arc adds constructs or calls a Supabase client; `lib/auth/sameOriginServerAction.ts` reads `next/headers` and calls `resolveSiteOrigin` only.
+- **"None applies" declarations:** no advisory-lock surface (below); no new e2e spec; no `admin_alerts` catalog row; no tile sentinel; no DB object, migration, CHECK, RPC, or `schema-manifest` change.
+
+## Advisory-lock holder topology
+
+**N/A, and load-bearing that it is N/A.** The gate calls `headers()` and `resolveSiteOrigin()` and nothing else — no `pg_advisory*`, no Supabase client, no transaction. It is the FIRST statement of each action, so it executes strictly before every `withShowLock` / in-RPC lock acquisition on every gated path; it acquires nothing and holds nothing. No hashkey gains a holder, no holder moves layer, `tests/auth/advisoryLockRpcDeadlock.test.ts` is untouched. The refusal emits are `log.warn` calls on a branch that returns or interrupts before any lock region is entered, so invariant 10's post-commit-outside-the-lock rule is satisfied vacuously.
+
+## Acceptance criteria
+
+The ids are the spec's (§4).
+
+- **AC-1** — gate-first on every one of the 50 gated actions.
+- **AC-2** — every refusal branch emits; none is dark; no secret is logged.
+- **AC-3** — each refusal uses its surface's established channel; no new returned code.
+- **AC-4** — the walk derives its unit set and reconciles it.
+- **AC-5** — the exemption set is closed and cross-checked against two registries.
+- **AC-6** — a gate that cannot gate is not accepted.
+- **AC-7** — no request scope means allow, with the catch scoped to `headers()`.
+- **AC-8** — nothing on a render path is gated.
+- **AC-9** — no existing suite is forced to add a `next/headers` mock.
+- **AC-10** — `pnpm mutation:guards` green with an empty unaccepted-survivor set.
+
+## File structure
+
+- `lib/auth/sameOriginServerAction.ts` (modify) — scoped `headers()` catch; the four designated refusal exports.
+- The 23 admin action modules (modify) — one gate line each, 42 in total (spec §3.7).
+- `lib/auth/picker/selectIdentity.ts`, `lib/auth/picker/cleanupStaleEntry.ts` (modify) — four picker gate lines.
+- `app/show/[slug]/unpublish/actions.ts` (modify) — one gate line.
+- `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx`, `components/auth/IdentityChip.tsx` (modify) — one gate line each (Resolved scope #9r).
+- `lib/auth/picker/clearIdentity.ts` (modify) — its module-local `rejectCrossOrigin` migrates to the designated `rejectCrossOriginPicker` export, emit preserved exactly.
+- tests/auth/\_metaServerActionOriginGate.test.ts (plain text: created by Task 2).
+- `tests/auth/sameOriginServerAction.test.ts`, `tests/mutation/source/registry.ts` (modify).
+- `BACKLOG.md` / `BACKLOG-archive.md` (modify at close).
+
+## Source-tag map (probed at plan time, not invented)
+
+Every gated action's `source` is the tag its own file already uses. Probed with `rg -o 'source: "[^"]+"' <file> | sort -u` across all 29 modules. Where a file has one tag, every action in it uses that tag and the `action` argument disambiguates — the same disambiguation the spec fixes for the two `acceptChangeAction`s.
+
+| Module | `source` |
+| --- | --- |
+| `app/admin/_actions/autoApplied.ts` | `admin.dashboard.autoApplied.accept` / `.acceptAll` / `.undo` (per action) |
+| `app/admin/actions.ts` | `admin.actions` (`resolveAdminAlertFormAction`), `app.admin.actions.resolveHealthAlert`, `admin.watchRetry` |
+| `app/admin/dev/actions.ts` | `admin.dev.parseAndStage` / `.resetDevSchema` / `.applyAttentionScenario` / `.clearAttentionScenario` (each `…FormAction` wrapper shares its callee's tag) |
+| `app/admin/onboarding/_actions/roleTokenStaged.ts` | `admin.onboarding.roleTokenStaged` |
+| `app/admin/onboarding/_actions/useRawStaged.ts` | `admin.onboarding.useRawStaged` |
+| `app/admin/settings/_actions/roleTokenMappings.ts` | `admin.settings.roleTokenMappings` |
+| `app/admin/settings/_actions/setAlertOnAutoPublish.ts` | `admin.settings.alertOnAutoPublish` |
+| `app/admin/settings/_actions/setAlertOnSyncProblems.ts` | `admin.settings.alertOnSyncProblems` |
+| `app/admin/settings/_actions/setAutoPublish.ts` | `admin.settings.autoPublish` |
+| `app/admin/settings/_actions/setDailyReviewDigest.ts` | `admin.settings.dailyReviewDigest` |
+| `app/admin/settings/_actions/validationReset.ts` | `admin.settings.validationReset` |
+| `app/admin/settings/admins/actions.ts` | `admin.settings.admins.grant` / `.revoke` |
+| `app/admin/settings/admins/developerActions.ts` | `admin.settings.admins.developer` |
+| `app/admin/show/[slug]/_actions/archive.ts` | `admin.show.archive` |
+| `app/admin/show/[slug]/_actions/feed.ts` | `admin.show.feed.mi11Approve` / `.mi11Reject` / `.undoChange` / `.accept` / `.acceptAll` |
+| `app/admin/show/[slug]/_actions/roleToken.ts` | `admin.show.roleToken` |
+| `app/admin/show/[slug]/_actions/setPublished.ts` | `admin.show.setPublished` |
+| `app/admin/show/[slug]/_actions/unarchive.ts` | `admin.show.unarchive` |
+| `app/admin/show/[slug]/_actions/useRaw.ts` | `admin.show.useRaw` |
+| `lib/auth/picker/resetCrewMemberSelection.ts` | `admin.picker.resetCrewMemberSelection` (`OUTCOME_SOURCE`, `lib/auth/picker/resetCrewMemberSelection.ts:24`) |
+| `lib/auth/picker/resetPickerEpoch.ts` | `admin.picker.resetEpoch` |
+| `lib/auth/picker/rotateShareToken.ts` | `admin.picker.rotateShareToken` |
+| `lib/onboarding/serverActions.ts` | `admin.onboarding.startOver` / `.rerunSetup` |
+| `app/show/[slug]/unpublish/actions.ts` | `show.unpublish.confirmAction` |
+| picker-family (`selectIdentity.ts`, `cleanupStaleEntry.ts`, `clearIdentity.ts`, the three `.tsx` wrappers) | `auth.picker.sameOriginGate`, carried inside the designated refusal exports rather than passed per site |
+
+## The ratchet — how 50 gate lines get red-then-green on ONE command
+
+The walk cannot land green (50 actions are ungated) and must not land last (invariant 1 forbids implementation before the test that exercises it — spec §5 fixes this). So Task 2 lands it with a `PENDING_GATE` array of module paths whose units the walk skips, and every later gate task removes its own modules from that array in the same commit that adds their gate lines. `pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts` is therefore RED at each gate task's start and GREEN at its end.
+
+Two properties make the ratchet honest rather than a place to hide:
+
+1. **A stale entry FAILS.** The walk asserts that every path still listed in `PENDING_GATE` contains at least one ungated unit, so a module that got gated but was left listed reds the suite.
+2. **The array's death is a task.** Task 10 asserts it is empty, deletes it and the branch that reads it, and asserts the walk's own source no longer contains the identifier. The shipped guard has no allowlist in it.
+
+## Plan-time probe record
+
+Run at plan time on this branch's HEAD; output pasted, not described.
+
+- **Census** — `collectSurfaceUnits(["app","lib","components"])` filtered to `kind !== "route"` reports `TOTAL_UNITS=56` and `FILES=31`, matching spec §3.7 row-for-row. Independently re-verified by the reviewer in all four spec rounds.
+- **Grep reconciliation** — `rg -l '"use server"' lib app | wc -l` → `38`; the directive filter prints 8 comment-only paths and `30` directive-bearing modules; `30 + 1` (`components/auth/IdentityChip.tsx`) `= 31`.
+- **Render-path scan** — across 103 Next entry files there are two render-time invocations, both class E (spec §2.4). Widened scan: 887 `.ts`/`.tsx` files, 856 outside the 31 defining files; every to-be-gated call site is in a client component.
+- **Source tags** — the table above.
+- **Parameter initializers** — across all 56 units exactly one exists, `parseAndStage`'s `prior: ParseResult | null = null` (`app/admin/dev/actions.ts:141`); no unit destructures a parameter. The accept-sets' parameter precondition therefore costs the live corpus nothing.
+- **Invariant-10 non-interference** — `tests/log/_metaMutationSurfaceObservability.test.ts:179` short-circuit read; `grep -n "both\|redundant\|conflict\|unused exemption\|unnecessary"` over that file returns no unused-exemption rule.
+- **Exemption cross-checks resolve** — the three read-only rows are `getStagedResult` at `tests/log/mutationSurface/exemptions.ts:75`, `captureShowTelemetry` at `tests/log/mutationSurface/exemptions.ts:79`, and `listFixtures` at `tests/log/mutationSurface/exemptions.ts:80`; the four dev `*FormAction` wrappers are excluded from them by that file's own note (`tests/log/mutationSurface/exemptions.ts:59-61`) and are in `AUDITABLE_MUTATIONS`.
+- **`spec:lint`** — `summary: 0 hard, 0 advisory` on the spec.
+- **`export default` closed upstream** — `moduleDefaultExports` (`tests/log/mutationSurface/enumerate.ts:183`) already fails the invariant-10 walk on a default-exported action, so this walk adds no default-export branch.
+- **`importBindingOk` is not reusable** — it hardcodes `log` / `logAdminOutcome` (`tests/log/mutationSurface/enumerate.ts:149-160`), so Task 2 writes its own import check, which must read `el.propertyName ?? el.name` so an aliased import fails.
+
+<!-- tasks: depth=3 red-contract -->
+
+### Task 1: helper — catch-allow plus the four designated refusal exports
+
+<!-- task: red=`pnpm vitest run tests/auth/sameOriginServerAction.test.ts` red-state=authored red-target=`lib/auth/sameOriginServerAction.ts:32` why=`headers() is awaited unguarded so a throw propagates instead of allowing, and the module exports no refusal helpers at all` ac=AC-2,AC-3,AC-7 -->
+
+**What is red and why:** the new cases fail because `lib/auth/sameOriginServerAction.ts:32` awaits `headers()` with no guard (a rejecting `headers` mock rejects the whole call rather than resolving `true`) and because the module exports none of `assertSameOriginServerAction`, `rejectCrossOriginPicker`, `rejectCrossOriginNeutral`, `rejectCrossOriginVoid`.
+
+- [ ] **Step 1 (RED).** Extend `tests/auth/sameOriginServerAction.test.ts`:
+  1. `headers()` mock REJECTS → `isSameOriginServerAction()` resolves `true`.
+  2. **Negative sibling, so the catch is scoped rather than swallowing:** `headers()` RESOLVES, `resolveSiteOrigin` (mocked from `@/lib/notify/siteOrigin`) throws → the call REJECTS. Without this, widening the `try` to the whole body would still pass case 1.
+  3. `assertSameOriginServerAction("x", "y")` cross-site → the `log.warn` spy records `code: "SERVER_ACTION_ORIGIN_REJECTED"` with `action: "x"` and `source: "y"`, AND the mocked `forbidden` from `next/navigation` is called. Two assertions, so a silent-refusal regression and an emit-only regression each fail a distinct one.
+  4. Same-origin → resolves, no emit, `forbidden` not called.
+  5. One case per remaining refusal export: `rejectCrossOriginPicker("a")` returns `{ ok: false, code: "PICKER_INVALID_INPUT" }` and emits `PICKER_ORIGIN_REJECTED` with `source: "auth.picker.sameOriginGate"` and `action: "a"`; `rejectCrossOriginNeutral("b")` returns `{ status: "neutral" }` and emits `SERVER_ACTION_ORIGIN_REJECTED`; `rejectCrossOriginVoid("c")` resolves `undefined` and emits `PICKER_ORIGIN_REJECTED`. Each asserts the returned value AND the emit, so neither can regress silently.
+  Cross-site fixtures derive from the suite's existing reject rows (`sec-fetch-site: cross-site`, and the filed bypass shape `cross-site` + absent `Origin`), never an ad-hoc header set.
+- [ ] **Step 2 (GREEN).** In `lib/auth/sameOriginServerAction.ts`: wrap ONLY the `await headers()` call in `try { … } catch { return true; }` with a comment naming spec §7; add the four exports exactly as spec §3.2 and §3.6 write them, importing `forbidden` from `next/navigation` and `log` from `@/lib/log`. The refusal exports take a single `action: string` and carry their own `source`, so no call site passes anything but a string literal.
+- [ ] **Step 3.** Suite green; `pnpm typecheck`; commit `feat(auth): scope the same-origin helper's headers() catch and add the four designated refusal exports`.
+
+**Premise (executable).** Case 2's discriminating power depends on `resolveSiteOrigin` actually being reached, which happens only when `sec-fetch-site` is absent AND `origin` is present. Assert that precondition on the case's own inputs immediately above it with `premiseHolds` (`tests/_shared/premise.ts:36`) — not once for the file, and never inside a `.each` callback.
+
+### Task 2: the structural walk, its closed exemption set, and the first gated module
+
+<!-- task: red=`pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts` red-state=authored red-target=`lib/onboarding/serverActions.ts:8` why=`startOverServerAction carries no same-origin gate, so the walk's live arm fails on the one module left outside PENDING_GATE` ac=AC-4,AC-5,AC-6 -->
+
+**What is red and why:** the walk covers `lib/onboarding/serverActions.ts` — the only to-be-gated module NOT in `PENDING_GATE` — and `startOverServerAction` at `lib/onboarding/serverActions.ts:8` has no gate, so the live arm fails on production code rather than on a fixture the test controls. The fixture self-tests fail alongside it.
+
+- [ ] **Step 1 (RED).** Create tests/auth/\_metaServerActionOriginGate.test.ts implementing spec §3.5-§3.6. It reuses `collectSurfaceUnits`, `parse`, `scanBody`, and `isLocallyRebound` from `tests/log/mutationSurface/enumerate.ts` so the two walks cannot disagree about what a Server Action is.
+  - Discovery: `collectSurfaceUnits(["app", "lib", "components"])`, `kind !== "route"`.
+  - `PENDING_GATE: readonly string[]` — every to-be-gated module except `lib/onboarding/serverActions.ts` (twenty-eight of them); their units are skipped. Plus the anti-stall assertion: every listed path still contains at least one ungated unit.
+  - **Parameter precondition, both accept-sets:** every parameter is a plain `Identifier` and any initializer is a side-effect-free literal (`null`, `undefined`, string/number/boolean, empty object/array). Parameter defaults run before the first body statement, so an unpinned one sits upstream of the gate.
+  - **Accept-set A:** first non-directive statement is `ExpressionStatement` → `AwaitExpression` → `CallExpression`; callee `Identifier` `assertSameOriginServerAction`, imported from `@/lib/auth/sameOriginServerAction` under that exact export name and not locally rebound; exactly two arguments, **both `StringLiteral`**, the first equal to the unit's `fn`.
+  - **Accept-set B:** first non-directive statement is an `IfStatement` with no `else`; condition (unwrapping parens) is `!` over `AwaitExpression` over a zero-argument call to the imported, unaliased, unrebound `isSameOriginServerAction`; `thenStatement` is a `ReturnStatement` or a `Block` of exactly one `ReturnStatement`, whose expression is a `CallExpression` with all-`StringLiteral` arguments whose callee is imported from `@/lib/auth/sameOriginServerAction` under one of the three designated refusal export names. **No body analysis of the callee** — resolution is by name against a closed set, which is the spec's R3 narrowing and must not be re-widened.
+  - **The exemption is the closed constant** `READ_ONLY_EXEMPT` (three rows, spec §3.5) with its three assertions: each resolves to exactly one discovered unit with `unit.admin === true`; the set equals the `kind: "read-only"` rows of `ADMIN_SURFACE_EXEMPTIONS` (`tests/log/mutationSurface/exemptions.ts:62`) that resolve to a discovered non-route admin unit; and no exempt unit appears in `AUDITABLE_MUTATIONS`.
+  - Import check: written locally (`importBindingOk` hardcodes `log` / `logAdminOutcome`), reading `el.propertyName ?? el.name` so an aliased import fails.
+  - Reconciliation: no orphan or duplicate rows, and `gated + exempted + pending === discovered`.
+  - **Fixture self-tests** via `makeFixture` (`tests/log/_metaMutationSurfaceObservability.test.ts:37`) — the table is spec §3.6's, one failing fixture per clause, including second-argument-is-a-call, parameter-default-is-a-call, destructured-parameter, arbitrary-return-expression, refusal-via-module-local-helper, aliased refusal import, and each of the three exemption assertions.
+- [ ] **Step 2 (GREEN).** Gate both actions in `lib/onboarding/serverActions.ts` (`startOverServerAction`, `rerunSetupServerAction`; sources `admin.onboarding.startOver` / `.rerunSetup`).
+- [ ] **Step 3.** Suite green; `pnpm typecheck`; commit `test(auth): structural same-origin gate walk over every Server Action surface unit`.
+
+### Task 3: the settings actions (eleven, across eight modules) plus the class-A behavioral test
+
+<!-- task: red=`pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts tests/admin/notify-toggle-actions.test.ts` red-state=authored red-target=`app/admin/settings/_actions/setAlertOnAutoPublish.ts:32` why=`the settings modules leave PENDING_GATE with no gate line, and setAlertOnAutoPublish reaches its app_settings UPDATE on a cross-site request` ac=AC-1,AC-2,AC-3 -->
+
+- [ ] **Step 1 (RED).** Remove the eight settings modules from `PENDING_GATE`. Add the class-A representative case to `tests/admin/notify-toggle-actions.test.ts`: with cross-site headers, `setAlertOnAutoPublish(true)` throws the mocked `forbidden()` interrupt, the Supabase `update` spy has **0** calls, and the emit fired with `action: "setAlertOnAutoPublish"`. **Baseline premise:** the suite's existing same-origin case performs the update — assert its call count is non-zero there, on its own inputs, so the spy is proven capable of recording.
+- [ ] **Step 2 (GREEN).** Insert `await assertSameOriginServerAction("<fn>", "<source>")` as the FIRST statement of each, per the source-tag map. For `resetValidationDataAction` and `reseedValidationFixturesAction` the gate goes **before the top-level `try`** — inside it, the `catch` would convert the `forbidden()` interrupt into a benign typed result. The walk's first-statement rule makes this structural rather than a matter of care: a gate inside the `try` is not the first statement and fails.
+- [ ] **Step 3.** Both suites green; `pnpm typecheck`; commit `feat(admin): same-origin gate on the settings Server Actions`.
+
+### Task 4: the show-page actions (ten, across six modules)
+
+<!-- task: red=`pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts` red-state=authored red-target=`app/admin/show/[slug]/_actions/archive.ts:24` why=`archiveShowAction leaves PENDING_GATE with no gate line, so the walk's live arm fails on it` ac=AC-1,AC-2,AC-3 -->
+
+- [ ] **Step 1 (RED).** Remove the six show-action modules from `PENDING_GATE`.
+- [ ] **Step 2 (GREEN).** Gate each of them (spec §3.7 rows 28-37). The five `feed.ts` actions keep their own `admin.show.feed.*` tags, and `acceptChangeAction` here is disambiguated from its `autoApplied.ts` namesake by `source`.
+- [ ] **Step 3.** Suite green; `pnpm typecheck`; commit `feat(admin): same-origin gate on the show-page Server Actions`.
+
+### Task 5: the dev-panel and dashboard actions (fourteen, across three modules)
+
+<!-- task: red=`pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts` red-state=authored red-target=`app/admin/dev/actions.ts:423` why=`resetDevSchema leaves PENDING_GATE with no gate line; it truncates the dev schema and is the highest-blast-radius unit in the census` ac=AC-1,AC-2,AC-3,AC-5 -->
+
+- [ ] **Step 1 (RED).** Remove the three modules from `PENDING_GATE`. This is also the first task whose scope contains exempt units — `getStagedResult` and `listFixtures` must pass via `READ_ONLY_EXEMPT`, not via a gate — so it exercises the closed exemption set against real code.
+- [ ] **Step 2 (GREEN).** Gate the destructive ones (spec §3.7 rows 1-14 minus the two read-only units). The four `…FormAction` wrappers share their callee's `source` and are disambiguated by `action`.
+- [ ] **Step 3.** Suite green; `pnpm typecheck`; commit `feat(admin): same-origin gate on the dev-panel and dashboard Server Actions`.
+
+### Task 6: the onboarding and picker admin actions (five, across five modules)
+
+<!-- task: red=`pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts` red-state=authored red-target=`lib/auth/picker/rotateShareToken.ts:26` why=`rotateShareToken leaves PENDING_GATE with no gate line` ac=AC-1,AC-2,AC-3 -->
+
+- [ ] **Step 1 (RED).** Remove the last five admin modules from `PENDING_GATE`.
+- [ ] **Step 2 (GREEN).** Gate `mapRoleTokenStaged`, `setStagedUseRawDecisionAction`, `resetCrewMemberSelection`, `resetPickerEpoch`, `rotateShareToken`. **No secret is logged:** `rotateShareToken` emits `epoch_<n>` and never the share token (AGENTS.md invariant 10), and the gate's emit carries only `action` and `source`, so it cannot regress that.
+- [ ] **Step 3.** Suite green; `pnpm typecheck`; commit `feat(auth): same-origin gate on the onboarding and picker admin Server Actions`.
+
+### Task 7: the picker actions, and the shipped local helper's migration
+
+<!-- task: red=`pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts tests/auth/picker/selectIdentity.test.ts tests/auth/picker/cleanupStaleEntry.test.ts tests/auth/picker/clearIdentity.test.ts` red-state=authored red-target=`lib/auth/picker/selectIdentity.ts:37` why=`selectIdentity leaves PENDING_GATE with no gate line and writes the picker identity cookie on a cross-site request` ac=AC-1,AC-2,AC-3,AC-9 -->
+
+- [ ] **Step 1 (RED).** Remove the two picker modules from `PENDING_GATE`. Add the class-B representative case to `tests/auth/picker/selectIdentity.test.ts`: cross-site → returns `{ ok: false, code: "PICKER_INVALID_INPUT" }`, cookie-store and RPC spies have **0** calls, and the `PICKER_ORIGIN_REJECTED` emit fired with `action: "selectIdentity"`. Baseline: the same-origin case proceeds past the gate, asserted on its own inputs.
+- [ ] **Step 2 (GREEN).** Gate `selectIdentity`, `selectIdentityCore`, `cleanupStaleEntry`, `cleanupStaleEntryCore` with `if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("<fn>");`. Both wrappers AND both cores, matching the shipped class-D posture: the per-endpoint `action` string is what makes each guard independently load-bearing (`lib/auth/picker/clearIdentity.ts:50-56`). Then migrate `clearIdentity.ts`'s module-local `rejectCrossOrigin` to the designated `rejectCrossOriginPicker` — delete the local function, import the export, leave all three call sites' `action` strings unchanged. The emit is byte-identical (`code`, `source`, `action`), so `tests/auth/picker/clearIdentity.test.ts` must pass **unmodified**; if it needs an edit, the migration changed behavior and is wrong.
+- [ ] **Step 3.** All four suites green; `pnpm typecheck`; commit `feat(auth): same-origin gate on the picker select and cleanup actions`.
+
+**AC-9 check, here rather than at the end.** `tests/auth/picker/selectIdentity.test.ts:20` and `tests/auth/picker/cleanupStaleEntry.test.ts:13` are the only two suites in the to-be-gated denominator that mock `next/headers`, and both replace the module with `{ cookies: vi.fn() }`, so the gate's `headers()` call throws into the catch-allow. Neither may gain a `headers` mock in this task; if either appears to need one, stop and re-read Resolved scope #6 rather than adding it.
+
+### Task 8: class C — `confirmUnpublishAction`
+
+<!-- task: red=`pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts tests/show/unpublishConfirmAction.test.ts` red-state=authored red-target=`app/show/[slug]/unpublish/actions.ts:36` why=`confirmUnpublishAction leaves PENDING_GATE with no gate line and reaches prevalidateUnpublishBinding on a cross-site request` ac=AC-1,AC-2,AC-3 -->
+
+- [ ] **Step 1 (RED).** Remove the module from `PENDING_GATE`. Add to `tests/show/unpublishConfirmAction.test.ts`: cross-site → returns `{ status: "neutral" }`, the `prevalidateUnpublishBinding` spy is NOT called (no token touched), and the emit fired. Baseline: the same-origin case reaches the pre-check, asserted on its own inputs.
+- [ ] **Step 2 (GREEN).** Gate with `if (!(await isSameOriginServerAction())) return rejectCrossOriginNeutral("confirmUnpublishAction");`. Neutral is the value the action already returns for a missing field (`app/show/[slug]/unpublish/actions.ts:43`), so no new state and no new copy.
+- [ ] **Step 3.** Both suites green; `pnpm typecheck`; commit `feat(show): same-origin gate on the unpublish confirm action`.
+
+### Task 9: the three inline `.tsx` wrappers (Resolved scope #9r)
+
+<!-- task: red=`pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts` red-state=authored red-target=`components/auth/IdentityChip.tsx:31` why=`clearIdentityFormAction leaves PENDING_GATE with no gate line; the delegate returns a typed refusal rather than throwing, so the wrapper keeps executing` ac=AC-1,AC-2,AC-3 -->
+
+- [ ] **Step 1 (RED).** Remove the last three modules from `PENDING_GATE`, leaving it empty (Task 10 retires it).
+- [ ] **Step 2 (GREEN).** Add one gate line as the first statement of each wrapper body, after the inline `"use server"` directive. `selectIdentityFormAction` (`Promise<void>`) and `clearIdentityAndSkipFormAction` (`Promise<void>`) return `rejectCrossOriginVoid("<fn>")`; `clearIdentityFormAction` (`Promise<ClearIdentityResult>`) returns `rejectCrossOriginPicker("clearIdentityFormAction")`. These are Server Components, so the import is a plain module import; no `"use client"` file is touched and no rendered element changes.
+- [ ] **Step 3.** Suite green; `pnpm typecheck`; commit `feat(auth): same-origin gate on the inline form-action wrappers`.
+
+### Task 10: retire `PENDING_GATE` — full-discovery reconciliation
+
+<!-- task: red=`pnpm vitest run tests/auth/_metaServerActionOriginGate.test.ts` red-state=authored red-target=`tests/auth/_metaServerActionOriginGate.test.ts` why=`the anti-stall assertion reds once the array is empty but still consulted, and the new no-allowlist assertion has no implementation until the array and its branch are deleted` ac=AC-4,AC-5 -->
+
+- [ ] **Step 1 (RED).** Add the terminal assertions: `gated + exempted === discovered` over FULL discovery with no pending term, and a source-level assertion that the walk's own file contains no `PENDING_GATE` identifier, so the ratchet cannot be quietly re-introduced.
+- [ ] **Step 2 (GREEN).** Delete the array, the skip branch that reads it, and the anti-stall assertion.
+- [ ] **Step 3.** Suite green; `pnpm heavy pnpm test` green (the whole suite, not a scoped gate); `pnpm typecheck`; `pnpm exec eslint .`; `pnpm format:check`; commit `test(auth): retire the origin-gate ratchet; the walk now covers every discovered unit`.
+
+### Task 11: enrol the helper in the source-mutation guard registry
+
+<!-- task: red=`pnpm mutation:guards` red-state=authored red-target=`tests/mutation/source/registry.ts:157` why=`GUARD_SURFACES has no row for lib/auth/sameOriginServerAction.ts, so the harness generates zero mutants for it and the surface is unenrolled` ac=AC-10 -->
+
+- [ ] **Step 1 (RED).** Add the `GuardSurface` row: `id: "sameOriginServerAction"`, `sourcePath: "lib/auth/sameOriginServerAction.ts"`, `suitePaths: ["tests/auth/sameOriginServerAction.test.ts"]`, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95` (the value every shipped row uses), `control: { from: 'secFetchSite === "same-origin"', to: 'secFetchSite !== "same-origin"' }`, `accepted: []`.
+- [ ] **Step 2 (GREEN).** Run `pnpm heavy pnpm mutation:guards`. Repay every survivor with a test unless it is genuinely equivalent; an `accepted` row is admissible only with its argument written out and a `BL-`/`DEF-` ref where one applies. **Mutation-operator families close here:** the six declared operators (`tests/mutation/source/operators.ts:17`) are the closure set the diff review converges against, and a reviewer-proposed new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
+- [ ] **Step 3.** Record the score and the unaccepted-survivor set in the commit message and in the diff-review brief; commit `test(auth): enrol the same-origin helper in the source-mutation guard gate`.
+
+<!-- tasks: end -->
+
+## Backlog reconciliation (not a TDD task)
+
+It has no production RED, so forcing it into the enrolled region manufactures a fake cycle and an empty commit.
+
+- **Already filed (this spec+plan arc):** `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP` carries `**Status:** IN PROGRESS · **Branch:** fix/server-action-origin-sweep`, committed and pushed at Stage 0 so the claim is visible to every other session (invariant 12). It stays that way for the whole implementation.
+- **Archived at CLOSEOUT (the PR's LAST commit):** the entry moves to `BACKLOG-archive.md` with a resolution note, its IN PROGRESS marker removed in the SAME commit — archives reject in-progress entries, and a marker that reaches `main` names a branch the merge just deleted, which reds `tests/docs/_metaLedgerInProgress.test.ts` on `main` until somebody clears it.
+- **Nothing new is filed unless a peer is deferred.** The class-sweep disposition rule binds: every destructive action is gated here, so there is no peer to defer. If implementation turns up a destructive unit this plan does not gate, it is gated in-branch, or a `BL-` entry names which of exceptions (a)/(b)/(c) applies and why — "same defect, different file" is never sufficient.
+
+## Closeout
+
+Ordered; each item gates the next. The ordering makes the whole-diff review cover exactly what merges: the impeccable marker is filled BEFORE review, and the only commit after review is the invariant-12-mandated ledger-status removal, which carries no code.
+
+1. **Impeccable dual-gate.** The diff edits `.ts` action files under `app/` outside `app/api/` and three `.tsx` files including one under `components/`, so the impeccable critique gate AND the impeccable audit gate both run on the diff (v3 setup gates: the skill's context load of PRODUCT.md + DESIGN.md, then the register-reference read). No rendered element, token, or copy changes — the expected finding surface is nil — but the gate runs and the result is recorded here honestly, including a zero. P0/P1 fixed or `DEFERRED.md`'d; findings and dispositions recorded in this section.
+2. **Fill the machine closeout marker, BEFORE review.** After step 1 has actually run, add the bare-anchored marker line to this section: a line reading `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` with the REAL counts (`RAN-DEGRADED` if a half degraded; `dispositions=recorded` iff `p0+p1>0`). **Never fabricated** — the gate has not run in the spec+plan arc, so no `RAN` claim is honest yet, and `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design until the implementation arc fills it.
+3. **Full local gates before push:** `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`, `pnpm heavy pnpm mutation:guards`.
+4. **Whole-diff cross-model review to APPROVE.** The brief states the mutation score and the unaccepted-survivor set (AGENTS.md convergence bullet 4), the consequence bound, the `PROBE DOMAIN:`, and the threat fence, and carries the spec's §1.1 do-not-relitigate list — in particular Resolved scope #9r and 12c-12g, which cost four spec rounds to settle.
+5. **Backlog archive — the PR's LAST commit.** Archive the entry, remove the IN PROGRESS marker in the same commit, then re-run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts`.
+6. **Real CI green**, then `gh pr merge --merge`, then fast-forward local `main` to `0  0`.
+
+## Self-review checklist (author, pre-adversarial)
+
+- [ ] **Spec coverage:** §3.2 → Task 1; §3.5-§3.6 → Tasks 2 and 10; §3.3 → Tasks 2-6; §3.4 → Tasks 7-8; §3.5's #9r reversal → Task 9; §6E → Task 11. §7 needs no task; §2.4 is evidence, not work.
+- [ ] **Every AC has a task:** AC-1/2/3 → Tasks 2-9; AC-4/5/6 → Tasks 2, 5, 10; AC-7 → Task 1; AC-8 → no task (a spec-time derivation, re-exercised by Task 5 hitting the exemption path against real code); AC-9 → Task 7's explicit check plus Task 10's full-suite run; AC-10 → Task 11.
+- [ ] **All 50 gated actions are allocated:** 2 (Task 2) + 11 + 10 + 14 + 5 + 4 + 1 + 3 = 50, over 29 modules.
+- [ ] **Placeholder scan:** no TBD/TODO; every step has real content.
+- [ ] **Identifier consistency:** `isSameOriginServerAction`, `assertSameOriginServerAction`, `rejectCrossOriginPicker`, `rejectCrossOriginNeutral`, `rejectCrossOriginVoid`, `SERVER_ACTION_ORIGIN_REJECTED`, `PICKER_ORIGIN_REJECTED`, `PICKER_INVALID_INPUT`, `PENDING_GATE`, `READ_ONLY_EXEMPT` spelled identically in every task.
+- [ ] **RED validity + same-command cycle:** every `red=` names a PRODUCTION line, not a fixture the test controls — the ratchet exists so each gate task's red comes from ungated production code. RED and GREEN run the identical command in every task.
+- [ ] **Anti-tautology:** each representative behavioral test asserts refusal value AND no-mutation AND the emit, so a silent-refusal regression, a mutation-still-runs regression, and a dark-refusal regression each fail a distinct assertion; each carries a same-origin baseline proving its spy would have recorded, asserted on that case's own inputs. Task 7's migration is proven by `clearIdentity.test.ts` passing UNMODIFIED.
+- [ ] **Premise reachability:** every premise executes unconditionally relative to what it guards, never inside a `.each` callback, and proves its condition on its own case's inputs.
+- [ ] **Ratchet cannot stall or hide:** the anti-stall assertion reds on a stale entry, and Task 10 asserts the identifier is gone from the walk's own source.
+- [ ] **No re-widening:** no task re-introduces body analysis for refusal helpers or exemptions. That was refuted across spec rounds 2 and 3 and is fenced by Resolved scope #12d.
+- [ ] **No registry churn claimed without a probe:** the invariant-10, `x1-catalog-parity`, and `_metaInfraContract` "no change" declarations are each backed by a read of the deciding code, cited in the probe record.
+- [ ] **Snippets typecheck** under the strict tsconfig before dispatch.
+- [ ] **Invariant 12 + review-covers-what-merges:** marker filled before the whole-diff review; the archive + marker removal is the PR's last and only post-review commit and carries only ledger-status changes.
+
+## Adversarial review (cross-model)
+
+Between self-review and execution handoff: dispatch a Codex adversarial review of this plan (`--stage plan`) to APPROVE. The brief carries the consequence bound, `PROBE DOMAIN:`, threat fence, REVIEWER-ONLY framing, and the do-not-relitigate list; findings are class-swept before any resubmission.
+
+## Execution handoff
+
+This arc STOPS at plan-APPROVE. Implementation is a separate Opus + Claude Code session (the diff touches `app/` and `components/` → invariant-8 dual gate). Recommended: `superpowers:subagent-driven-development`, a fresh subagent per task, in this worktree on this branch.
