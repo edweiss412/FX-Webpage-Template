@@ -1,3 +1,39 @@
+## BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE — the dashboard-overview baseline predates five days of dashboard component changes — CLOSED 2026-08-16 (`docs/ci-flake-ledger-correction`, REFUTED)
+
+**Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, from PR #812's CI)
+
+`screenshots-drift` fails on `public/help/screenshots/dashboard-overview-light.webp` (Bin 77670 -> 82600 bytes). The drift is INHERITED FROM MAIN, not caused by the PR that surfaced it.
+
+**Probe evidence.**
+
+```
+$ git log --oneline -1 -- public/help/screenshots/dashboard-overview-light.webp
+3f48fe674 test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)   # 2026-08-11
+$ git diff --name-only 3f48fe674 origin/main -- components/ app/admin/ | head
+components/admin/AppHealthPopover.tsx
+components/admin/BellPanel.tsx
+components/admin/OnboardingWizard.tsx
+...                                   # ~20 dashboard-rendered components
+```
+
+The manifest entry captures `/admin`'s `[data-testid=admin-dashboard]` (`scripts/help-screenshots.manifest.ts:50-56`), so any of those components changes the capture. The arc that surfaced it adds no element under that selector: its admin surfaces are a new `/admin/wizard/preview/[stagedId]` route and a link inside the step-3 review MODAL, which is not mounted on load.
+
+**Why it surfaced now rather than on the commit that caused it:** the screenshots workflow is path-gated, so it fires only on a PR that touches a watched path. The sibling PR open at the same time (#807, mutation-harness work) does not trigger it at all, and main's own push runs do not include the job.
+
+**Repair:** regenerate the baseline FROM THE PINNED DOCKER IMAGE with `--platform linux/amd64` — never from a dev machine. The byte-comparison discipline in AGENTS.md is the authority here: an arm64 host produces different bytes than the native-x64 CI runner even on an identical pinned image tag, so a local `pnpm screenshot:help` would replace one wrong baseline with another (and pollutes the tree meanwhile — `git restore public/help/screenshots/` after any local capture).
+
+**Not merge-blocking, verified rather than assumed:** the twelve required contexts on `main` are quality, unit-suite, x1..x6, validation-schema-parity, affordance-matrix-parity, postgrest-dml-lockdown, traceability-audit (`gh api repos/.../branches/main/protection`). `screenshots-drift` is not among them.
+
+---
+
+**REFUTED 2026-08-16, by the next CI run at a tree this row could not distinguish.** `screenshots-drift` PASSED at `f6c3ac55`, whose only delta from the failing `b5aa6ef7` is a single `BACKLOG.md` commit. A markdown-only commit cannot change a WebP's bytes, so the drift is non-deterministic at a fixed tree and the stale-baseline diagnosis above is wrong.
+
+The probe evidence the row DID carry is still true and still useless as a cause: the baseline was last regenerated 2026-08-11 and dashboard-rendered components have changed since. It simply does not follow that the drift came from that, and this row asserted the inference without testing it — the failing run and the passing run were never compared.
+
+Superseded by `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`, which carries the two-job / two-head table and schedules a repeat-at-fixed-sha probe as its first step instead of a repair.
+
+**Kept rather than deleted** so the citation in the superseding row resolves, and so the mistake is legible: a filing whose worst case is "an advisory job is red" still has to distinguish its cause from the alternatives before it names one.
+
 ## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3 — CLOSED 2026-08-16 (`feat/admin-ui-surfaces`, SHIPPED)
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
