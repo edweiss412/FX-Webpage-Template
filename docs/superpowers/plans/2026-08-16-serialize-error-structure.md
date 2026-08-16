@@ -229,7 +229,50 @@ describe("serializeError -- non-plain degrade (AC / §2.1 fallback row)", () => 
     expect(out).not.toBe("[object Object]");
   });
 });
+
+describe("serializeError -- mutant-killing boundary pairs (plan R1 F1; each case names the mutant it kills)", () => {
+  test("budget exact boundary: 200 visits clean, 201 truncates (kills <=to<, 0to1, and halved-decrement budget mutants)", () => {
+    // Node accounting: EVERY value visited decrements once -- the root array, each
+    // child array, each number. root(1) + 7 child arrays(7) + 6x32 numbers(192) = 200.
+    const six = Array.from({ length: 6 }, () => Array.from({ length: 32 }, (_, i) => i));
+    const exact200 = [...six, []];
+    expect(JSON.stringify(serializeError(exact200))).not.toContain("[Truncated: budget]");
+    const exact201 = [...six, [0]]; // one more number = 201 visits
+    expect(JSON.stringify(serializeError(exact201))).toContain("[Truncated: budget]");
+  });
+  test("nested function/symbol/undefined drop from objects, null at array positions (kills the ||-to-&& drop-clause mutants)", () => {
+    expect(JSON.stringify(serializeError({ fn: () => 1, sym: Symbol("s"), und: undefined, ok: 1 }))).toBe('{"ok":1}');
+    expect(JSON.stringify(serializeError([1, undefined, () => 1]))).toBe("[1,null,null]");
+  });
+  test("exactly ITEMS_MAX items carries no marker (kills the >-to->= items mutant)", () => {
+    const out = serializeError(Array.from({ length: ITEMS_MAX }, (_, i) => i)) as unknown[];
+    expect(out).toHaveLength(ITEMS_MAX);
+    expect(JSON.stringify(out)).not.toContain("more");
+  });
+  test("exactly KEYS_MAX keys carries no marker (kills the >-to->= keys mutant)", () => {
+    const fixture: Record<string, number> = {};
+    for (let i = 0; i < KEYS_MAX; i += 1) fixture[`k${i}`] = i;
+    const out = serializeError(fixture) as Record<string, unknown>;
+    expect(Object.keys(out)).toHaveLength(KEYS_MAX);
+    expect(out).not.toHaveProperty("~truncated");
+  });
+  test("array nesting to the depth cap survives intact (kills the array depth+2 mutant)", () => {
+    expect(JSON.stringify(serializeError([[["leaf"]]]))).toBe('[[["leaf"]]]');
+  });
+  test("a bare Error emits exactly the protocol triple (kills the &&-to-|| capture-merge mutant)", () => {
+    expect(Object.keys(serializeError(new Error("x")) as object)).toEqual(["name", "message", "stack"]);
+  });
+  test("a cause chain reaching the depth cap survives (kills the cause depth+2 mutant)", () => {
+    const e = new Error("outer", { cause: { a: { leaf: "v" } } });
+    const out = serializeError(e) as { cause?: { a?: { leaf?: string } } };
+    expect(out.cause?.a?.leaf).toBe("v");
+  });
+});
 ```
+
+(The block above was executed against the Task 1 implementation and against all eight
+mutants the plan review probed -- baseline ALL PASS, every mutant killed by a named case;
+transcript in the plan-R2 review dispatch.)
 
 - [ ] **Step 2: Run to verify RED.** `pnpm vitest run tests/log/serializeError.test.ts` — expected FAIL: the live helper returns `"[object Object]"` for every structural row and has no exported constants (import failure is the first error: `DEPTH_MAX` is not exported by `@/lib/log/serializeError`).
 
@@ -417,12 +460,13 @@ export function serializeError(error: unknown): SerializedError {
 **Files:**
 - Modify: `lib/log/sanitize.ts:32-36` (the object branch of `sanitizeValue`)
 - Modify: `tests/log/sanitize.test.ts` (two new cases)
+- Modify: `tests/log/logger.test.ts` (one new AC-7 seam case through `log.error`)
 
 **Interfaces:**
 - Consumes: `redactEmails` (same module, `lib/log/sanitize.ts:5`).
 - Produces: unchanged signatures; `sanitizeContext(message, context)` now also redacts object KEYS and preserves own `__proto__` keys.
 
-<!-- task: red=`pnpm vitest run tests/log/sanitize.test.ts` red-state=authored red-target=`lib/log/sanitize.ts:35` why=`the live object branch writes out[k] = s into a plain object so an email-bearing key survives verbatim and an own __proto__ key vanishes into the prototype` ac=AC-7 -->
+<!-- task: red=`pnpm vitest run tests/log/sanitize.test.ts tests/log/logger.test.ts` red-state=authored red-target=`lib/log/sanitize.ts:35` why=`the live object branch writes out[k] = s into a plain object so an email-bearing key survives verbatim and an own __proto__ key vanishes into the prototype` ac=AC-7 -->
 
 - [ ] **Step 1: Write the failing cases (RED).** Append to the existing `describe` in `tests/log/sanitize.test.ts`:
 
@@ -438,9 +482,25 @@ export function serializeError(error: unknown): SerializedError {
   });
 ```
 
+ALSO append to `tests/log/logger.test.ts` (the AC-7 combined seam through `log.error` -- an
+email-bearing KEY surviving `serializeError` and redacted by `sanitizeContext`; RED here too,
+because Task 1 shipped structure but the live sanitize still copies keys verbatim):
+
+```ts
+  test("email-bearing KEY inside a structural error is redacted through the logger (AC-7)", async () => {
+    const calls = capture();
+    await log.error("keyed failure", {
+      source: "s",
+      error: { "alice@example.com": "failed" },
+    });
+    const err = calls[0]!.record.context.error as Record<string, unknown>;
+    expect(err).toEqual({ "[email-redacted]": "failed" });
+  });
+```
+
 (If the file's imports lack `sanitizeContext`, extend the existing import from `@/lib/log/sanitize`.)
 
-- [ ] **Step 2: Run to verify RED.** `pnpm vitest run tests/log/sanitize.test.ts` — expected FAIL: key survives verbatim in case 1; case 2 yields `{"error":{}}`.
+- [ ] **Step 2: Run to verify RED.** `pnpm vitest run tests/log/sanitize.test.ts tests/log/logger.test.ts` — expected FAIL: the key survives verbatim in the sanitize case AND in the logger seam case; the __proto__ case yields `{"error":{}}`.
 
 - [ ] **Step 3: Implement (GREEN).** In `lib/log/sanitize.ts`, replace the object branch (currently `const out: { [k: string]: Json } = {};` … `out[k] = s;` at `lib/log/sanitize.ts:32-36`) with:
 
@@ -459,7 +519,7 @@ export function serializeError(error: unknown): SerializedError {
 
 - [ ] **Step 4: Run to verify GREEN.** `pnpm vitest run tests/log/sanitize.test.ts tests/log/logger.test.ts tests/log/persist.test.ts tests/log/persistStrict.test.ts` — expected PASS.
 
-- [ ] **Step 5: Commit.** `git add lib/log/sanitize.ts tests/log/sanitize.test.ts && git commit -m "fix(log): sanitizeContext redacts object keys and keeps own __proto__ fields"`
+- [ ] **Step 5: Commit.** `git add lib/log/sanitize.ts tests/log/sanitize.test.ts tests/log/logger.test.ts && git commit -m "fix(log): sanitizeContext redacts object keys and keeps own __proto__ fields"`
 
 ### Task 3: Companion pre-flatten scanner predicate
 
@@ -554,16 +614,19 @@ Then restructure `findDoubleSerializedSites`: the `wrappers.size === 0` early re
 
 - [ ] **Step 5: Commit.** `git add tests/log/noDoubleSerializedLogError.test.ts && git commit -m "test(log): scanner also flags String/JSON.stringify pre-flattening of log error fields"`
 
-### Task 5: Mutation enrolment of the helper
+<!-- tasks: end -->
+
+### Task 5: Mutation enrolment of the helper (outside the marker region -- deliberately)
+
+Enrollment is opt-in with no discovery (`tests/mutation/source/registry.ts:8-11`), so no command can be observed RED on the missing row: the gate simply does not run an unenrolled surface (plan R1 F3). The verification here is the gate RUN after the row lands, not a red-then-green cycle; the row's `control` mutant is the registry's own liveness proof.
 
 **Files:**
 - Modify: `tests/mutation/source/registry.ts` (one new `GuardSurface` row)
+- Modify: `tests/mutation/guardSurfaces.gate.test.ts` (one `EXPECTED_LEDGER_KINDS` entry -- the gate asserts its keys equal the registry ids at `tests/mutation/guardSurfaces.gate.test.ts:150-155`, so the registry row alone fails the gate)
 
 **Interfaces:**
 - Consumes: `lib/log/serializeError.ts` source (Task 1's implementation, including the literal `if (depth > DEPTH_MAX) return "[Truncated: depth]";` line the control mutant targets) and `tests/log/serializeError.test.ts` as the deciding suite.
 - Produces: registry row id `serializeErrorStructure`.
-
-<!-- task: red=`pnpm heavy pnpm mutation:guards` red-state=authored red-target=`tests/mutation/source/registry.ts:159` why=`the surface is not enrolled so the gate does not run its mutants; after the row lands the first run must reach the floor with zero unaccepted survivors, and any survivor is repaid in this task` ac=AC-10 -->
 
 - [ ] **Step 1: Add the registry row.** Follow the row shape at `tests/mutation/source/registry.ts:640-648` (`reviewRoundCount` row is the template):
 
@@ -587,13 +650,22 @@ Then restructure `findDoubleSerializedSites`: the `wrappers.size === 0` early re
   },
 ```
 
+- [ ] **Step 1b: Add the ledger-kind expectation.** In `tests/mutation/guardSurfaces.gate.test.ts`, add to `EXPECTED_LEDGER_KINDS` (beside the `interactiveScanCore` entry):
+
+```ts
+  // Fresh enrolment: every survivor is repaid or argued in the registry row's
+  // accepted list; a nonzero count appearing here later is a regression to
+  // repair rather than a number to bump.
+  serializeErrorStructure: {},
+```
+
+Adjust the entry in the same commit if Step 2's run files argued `accepted` rows (the value mirrors the row's accepted-kind counts).
+
 - [ ] **Step 2: Run the gate.** `pnpm heavy pnpm mutation:guards` — expected: the row validates and mutants run. First run may report unaccepted survivors: repay each with a strengthened assertion in `tests/log/serializeError.test.ts` (preferred), or file it as an `accepted` row ONLY with an argued equivalence/reachability reason per the ledger shape in `tests/mutation/source/ledger.ts`. AC-10 is satisfied when the score meets the floor with an empty unaccepted-survivor set. If the measured score with a fully-repaid suite sits below 0.95 on argued-equivalent mutants alone, lower `scoreFloor` to the measured value in the same commit and record the number in the commit body — the floor states measurement, not aspiration.
 
 - [ ] **Step 3: Re-run to verify stable.** `pnpm heavy pnpm mutation:guards` — expected PASS.
 
-- [ ] **Step 4: Commit.** `git add tests/mutation/source/registry.ts tests/log/serializeError.test.ts && git commit -m "test(log): enroll serializeError in the source-mutation guard gate"`
-
-<!-- tasks: end -->
+- [ ] **Step 4: Commit.** `git add tests/mutation/source/registry.ts tests/mutation/guardSurfaces.gate.test.ts tests/log/serializeError.test.ts && git commit -m "test(log): enroll serializeError in the source-mutation guard gate"`
 
 ### Task 4: Comment refresh + ledger filing (docs — outside the marker region; no test cycle)
 
@@ -619,7 +691,7 @@ Then restructure `findDoubleSerializedSites`: the `wrappers.size === 0` early re
 **Shape of the fix, when scheduled.** Reuse the structural posture: serialize non-Error crash values to bounded structure (or at minimum their own enumerable fields flattened into `detail`), respecting the wire CAPS.
 ```
 
-- [ ] **Step 4: Verify + commit.** `pnpm vitest run tests/log/noDoubleSerializedLogError.test.ts tests/sync/syncLogEmitGuard.test.ts tests/sync/runPushSyncForShow.test.ts tests/auth/isAdminSession-telemetry.test.ts tests/admin/readShowReviewSnapshot.test.ts tests/docs/_metaLedgerInProgress.test.ts` — expected PASS (comment-only edits; the ledger meta-test accepts an OPEN entry with no flight fields). `git add -A && git commit -m "docs(log): refresh collapse-era comments; file BL-REPORT-CLIENT-ERROR-NON-ERROR-MESSAGE-ONLY"`
+- [ ] **Step 4: Verify + commit.** `pnpm vitest run tests/log/noDoubleSerializedLogError.test.ts tests/sync/syncLogEmitGuard.test.ts tests/sync/runPushSyncForShow.test.ts tests/auth/isAdminSession-telemetry.test.ts tests/admin/readShowReviewSnapshot.test.ts tests/docs/_metaLedgerInProgress.test.ts` — expected PASS (comment-only edits; the ledger meta-test accepts an OPEN entry with no flight fields). `git add BACKLOG.md lib/sync/runScheduledCronSync.ts lib/admin/readShowReviewSnapshot.ts tests/sync/syncLogEmitGuard.test.ts tests/sync/runPushSyncForShow.test.ts tests/auth/isAdminSession-telemetry.test.ts tests/admin/readShowReviewSnapshot.test.ts tests/log/noDoubleSerializedLogError.test.ts && git commit -m "docs(log): refresh collapse-era comments; file BL-REPORT-CLIENT-ERROR-NON-ERROR-MESSAGE-ONLY"` -- explicit paths, never `git add -A`: the review-round corpus under `docs/review-rounds/` accumulates rows at every dispatch and is committed in its own `docs(review): record round corpus` commits (plan R1 F5).
 
 ### Task 6: Closeout
 
