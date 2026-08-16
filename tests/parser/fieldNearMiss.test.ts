@@ -28,11 +28,11 @@ import {
 import { SECTION_HEADER_TOKEN_SETS } from "@/lib/parser/sectionHeaderTokens";
 import { LABEL_TO_KIND_KEYS, canonicalSectionKind } from "@/lib/parser/sectionKind";
 import { FIELD_ALIASES } from "@/lib/parser/aliases";
-import { parseTableRows, splitRow } from "@/lib/parser/blocks/_helpers";
+import { clean, parseTableRows, splitRow } from "@/lib/parser/blocks/_helpers";
 import { parseEventDetails } from "@/lib/parser/blocks/event";
 import { parseContacts } from "@/lib/parser/blocks/contacts";
 import { parseTransportation } from "@/lib/parser/blocks/transport";
-import { emitUnknownField, newAggregator } from "@/lib/parser/warnings";
+import { emitUnknownField, markConsumed, newAggregator } from "@/lib/parser/warnings";
 import type { ParseWarning } from "@/lib/parser/types";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { GUARD_SURFACES, validateSurface } from "@/tests/mutation/source/registry";
@@ -487,6 +487,52 @@ describe("consumption-ledgered rows stay silent, both value states", () => {
     const emissions = emissionsFor(md).filter((w) => w.blockRef?.name === "Room Diagram");
     expect(emissions.length).toBe(1);
     expect(emissions[0]!.blockRef?.kind).toBe("timestamp");
+  });
+
+  it("spends the ledger ONE mark per occurrence, so N rows with M<N marks fire exactly N-M times", () => {
+    // The §3.3 arithmetic itself, which no other case in this suite reaches. Every
+    // block parser marks EVERY row it resolves, so a document parsed end-to-end always
+    // has marks == occurrences and the count is never actually spent down — the
+    // decrement and its step size are both unobservable from a whole-document parse.
+    // That is the r2 count-vs-set defect's own shape (a count read as a set silenced
+    // two rows on one resolution), so the contract is pinned here directly against the
+    // production writer instead: seed the ledger with `markConsumed`, exactly as a
+    // resolving parser would, and give the detector one more occurrence than there are
+    // marks.
+    const base = fixtureTable(EAST_COAST_XLSX, "Room Diagram");
+    const scanned = scanRowsWithOpener(base);
+    const target = scanned.find((r) => (r.cells[0] ?? "").trim() === "Room Diagram");
+    premiseHolds("the fixture block carries a Room Diagram row", target !== undefined);
+    const rowLine = base.split("\n").find((l) => splitRow(l.trim())[0]?.trim() === "Room Diagram");
+    premiseHolds("and its verbatim source line is recoverable", rowLine !== undefined);
+
+    // Three occurrences of the fixture's own row, in its own block, under its own opener.
+    const md = `${base}\n${rowLine}\n${rowLine}`;
+    const occurrences = scanRowsWithOpener(md).filter(
+      (r) => (r.cells[0] ?? "").trim() === "Room Diagram",
+    );
+    premiseHolds("three occurrences share one consumption key", occurrences.length === 3);
+
+    // TWO marks for THREE occurrences. Both derived from the fixture row, never typed:
+    // an opener or value typed here could disagree with the key the detector probes and
+    // the case would pass for the wrong reason.
+    const agg = newAggregator();
+    const opener = target!.opener;
+    const value = clean(target!.cells[1] ?? "");
+    markConsumed(agg, opener, "Room Diagram", value);
+    markConsumed(agg, opener, "Room Diagram", value);
+    premiseHolds(
+      "the ledger holds exactly two marks for that key",
+      agg.consumed.size === 1 && [...agg.consumed.values()][0] === 2,
+    );
+
+    detectFieldNearMisses(md, agg);
+    const fired = agg.warnings.filter((w) => w.blockRef?.name === "Room Diagram");
+    // Exactly one: two occurrences spend the two marks, the third is unledgered.
+    // A ledger read as a set silences all three; a decrement that never happens
+    // silences all three; a decrement of two spends both marks on the first row and
+    // fires twice. Each of those is a distinct wrong answer this count separates.
+    expect(fired.length).toBe(1);
   });
 });
 

@@ -1247,7 +1247,21 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // distinctive enough, `passesGuards` rejects everything, and the detector emits
     // nothing at all. A suite that does not notice that is not deciding anything.
     control: { from: "const DISTINCTIVENESS_MAX = 4", to: "const DISTINCTIVENESS_MAX = 0" },
-    accepted: [],
+    accepted: [
+      {
+        siteId: "statement-removal:161:11:break;>(removed)",
+        kind: "equivalent",
+        reason:
+          "a loop-exit optimization with no observable effect: the `break` fires only after `subset = false` on the line above, and nothing inside the remaining iterations can set it back to true — the loop body's only write to `subset` is that same `false`. Removing it costs iterations of a token set whose size is already bounded by the `candTokens.size > entry.tokens.size` skip at :156, never a different answer",
+      },
+      {
+        siteId: "relational-boundary:156:27:>>>=",
+        kind: "accepted-gap",
+        ref: "BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET",
+        reason:
+          "`>` to `>=` additionally rejects an EQUAL-size token subset — which, being a subset of equal size, is set EQUALITY under a normalized form that differs from the entry's (a type-(a) miss reaching type (b), e.g. a reordered two-token label). Behaviorally different, so not equivalent; unreachable on the declared probe domain, so not killable from it. Probed over every row of all 20 corpus fixtures: ZERO col0 labels produce a type-(b) match whose token-set size equals its entry's — every live type-(b) match is a STRICT subset. Killing it would take a hand-authored label outside the corpus, which this suite's header forbids for exactly the reason it would be tuned until it passed",
+      },
+    ],
   },
   {
     id: "rowScanOpener",
@@ -1261,7 +1275,20 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // The opener is the whole reason this module exists; pinning it to the empty string
     // collapses every block namespace onto one and the row-scan cases red immediately.
     control: { from: 'opener = clean(cells[0] ?? "")', to: 'opener = ""' },
-    accepted: [],
+    accepted: [
+      {
+        siteId: "relational-boundary:57:22:>>>=",
+        kind: "equivalent",
+        reason:
+          "`cells.length > 0` can never be reached with a length of 0, so widening it to `>= 0` admits nothing: the alignment-row skip one line above is `cells.every(...)`, and `[].every(...)` is VACUOUSLY TRUE, so an empty cell array always `continue`s first. An empty array is itself only producible by a bare `|` line (`splitRow` slices off the leading and trailing fragments), which that same vacuous-true path already drops. Probed differentially — the mutated scan against the shipped one over all 20 corpus fixtures plus 14 adversarial documents (`|`, `||`, `|||`, alignment-only tables, table/non-table interleavings): zero output divergence",
+      },
+      {
+        siteId: 'statement-removal:85:7:opener = "";>(removed)',
+        kind: "equivalent",
+        reason:
+          "the reset is redundant with the reassignment it precedes. On a non-table line the branch pushes the `\"\"` LITERAL, not `opener`, so the stale value is not read there; and the same branch sets `inTable = false`, which makes `!inTable` true at the next table line and reassigns `opener` from that line's first cell before any push reads it. No path exists on which the removed assignment's value is ever observed. Probed differentially — the mutated `openerByLine` against the shipped one over all 20 corpus fixtures plus the same 14 adversarial documents: zero output divergence",
+      },
+    ],
   },
   // ---- the browser-mutant mode's own modules (browser spec §6) ------------
   //
