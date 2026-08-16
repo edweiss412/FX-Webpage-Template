@@ -465,9 +465,18 @@ export type SendPlan = { sends: string[] };
  * input to a working pane queues, and a queued slash command executes when the
  * queue drains by natural turn completion.
  */
+/*
+ * The plan is deliberately TARGET-INDEPENDENT: all three prompts are addressed
+ * to whichever pane the caller is already driving, so none of them interpolates
+ * a target and this signature does not accept one. An earlier revision declared
+ * a `target` field that no branch below ever read — the driver passed the empty
+ * string for it — which is the zombie-flag shape AGENTS.md's flag-lifecycle rule
+ * exists to catch. Wiring a per-target message is a product change, not a
+ * plumbing one; until that decision is made, the field stays absent so its
+ * absence keeps type-checking.
+ */
 export function planSends(opts: {
   command: "checkpoint" | "compact" | "resume";
-  target: string;
   nonce?: string;
 }): SendPlan {
   switch (opts.command) {
@@ -589,6 +598,6 @@ export function runCompact(opts: {
   }
 
   opts.store.consume(); // BEFORE the send, deliberately
-  for (const s of planSends({ command: "compact", target: "" }).sends) opts.send(s);
+  for (const s of planSends({ command: "compact" }).sends) opts.send(s);
   return { exitCode: 0, message: "" };
 }

@@ -21,25 +21,25 @@ const NONCE = "0123456789abcdef0123456789abcdef";
 
 describe("dry-run bytes", () => {
   it("--checkpoint sends the prompt then a carriage return, with the nonce substituted", () => {
-    const plan = planSends({ command: "checkpoint", target: "feat/x", nonce: NONCE });
+    const plan = planSends({ command: "checkpoint", nonce: NONCE });
     expect(plan.sends).toEqual([CHECKPOINT_TEXT.replace("<NONCE>", NONCE), "\r"]);
     expect(plan.sends[0]).toContain(NONCE);
     expect(plan.sends[0]).not.toContain("<NONCE>");
   });
 
   it("--compact sends the slash command, not prose", () => {
-    const plan = planSends({ command: "compact", target: "feat/x" });
+    const plan = planSends({ command: "compact" });
     expect(plan.sends).toEqual(["/compact", "\r"]);
   });
 
   it("--resume sends the resume prompt", () => {
-    const plan = planSends({ command: "resume", target: "feat/x" });
+    const plan = planSends({ command: "resume" });
     expect(plan.sends).toEqual([RESUME_TEXT, "\r"]);
   });
 
   it("`\\n` is never used to submit — only `\\r` does, in the Claude TUI", () => {
     for (const command of ["checkpoint", "compact", "resume"] as const) {
-      const plan = planSends({ command, target: "feat/x", nonce: NONCE });
+      const plan = planSends({ command, nonce: NONCE });
       expect(plan.sends.at(-1)).toBe("\r");
     }
   });
@@ -47,7 +47,7 @@ describe("dry-run bytes", () => {
 
 describe("AC-18 — no ESC byte, on BOTH paths", () => {
   const ALL: SendPlan[] = (["checkpoint", "compact", "resume"] as const).map((command) =>
-    planSends({ command, target: "feat/x", nonce: NONCE }),
+    planSends({ command, nonce: NONCE }),
   );
 
   it("the dry-run plan contains no \\x1b for any command", () => {
