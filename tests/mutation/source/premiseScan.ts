@@ -129,8 +129,6 @@ type ModuleFacts = {
    * it would resurrect the collision this design exists to prevent.
    */
   shadows: Map<Scope, Set<string>>;
-  /** Recognized-but-unresolvable constructs found anywhere in the file. */
-  unclassifiable: string[];
 };
 
 /**
@@ -161,7 +159,6 @@ function moduleFacts(path: string): ModuleFacts | null {
   const imports = new Map<string, { spec: string; imported: string }>();
   const extents = new Map<Scope, Map<string, ts.Node[]>>();
   const shadows = new Map<Scope, Set<string>>();
-  const unclassifiable: string[] = [];
   /** Writes, resolved in a SECOND pass: a write's target binding cannot be
    * known until every declaration in the file has been registered. */
   const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
@@ -216,7 +213,9 @@ function moduleFacts(path: string): ModuleFacts | null {
       }
     }
 
-    // dynamic import, destructured or not
+    // dynamic import, destructured or not. A NON-literal specifier is not
+    // recorded here: `unclassifiableWithin` carries the live copy of that rule,
+    // scoped to the test's own extent, which is what the verdict reads.
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const arg = node.arguments[0];
       if (arg && ts.isStringLiteral(arg)) {
@@ -224,19 +223,7 @@ function moduleFacts(path: string): ModuleFacts | null {
         while (p.parent && !ts.isVariableDeclaration(p.parent)) p = p.parent;
         const decl = p.parent;
         if (decl && ts.isVariableDeclaration(decl)) bindPattern(decl.name, arg.text);
-      } else {
-        unclassifiable.push(`dynamic import() with a non-literal specifier at ${pos(sf, node)}`);
       }
-    }
-
-    // computed member access on `process`
-    if (
-      ts.isElementAccessExpression(node) &&
-      ts.isIdentifier(unwrap(node.expression)) &&
-      (unwrap(node.expression) as ts.Identifier).text === "process" &&
-      !ts.isStringLiteral(node.argumentExpression)
-    ) {
-      unclassifiable.push(`computed member access on process at ${pos(sf, node)}`);
     }
 
     // Declarations and their extents, registered IN THE SCOPE THAT BINDS THEM.
@@ -319,7 +306,7 @@ function moduleFacts(path: string): ModuleFacts | null {
     extents.set(scope, byName);
   }
 
-  return { sf, imports, extents, shadows, unclassifiable };
+  return { sf, imports, extents, shadows };
 }
 
 /** Strip parentheses and `as` casts, which otherwise hide the real callee. */
@@ -328,9 +315,6 @@ function unwrap(node: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(n) || ts.isAsExpression(n)) n = n.expression;
   return n;
 }
-
-const pos = (sf: ts.SourceFile, n: ts.Node): string =>
-  `line ${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
 
 /** Does this specifier name a declared module provenance? */
 const isProvenanceModule = (spec: string): boolean =>
@@ -515,7 +499,7 @@ function unclassifiableWithin(node: ts.Node, facts: ModuleFacts): string[] {
     ts.forEachChild(n, walk);
   };
   walk(node);
-  return out.concat(facts.unclassifiable.filter((u) => u.includes("unparseable")));
+  return out;
 }
 
 /** Bodies of beforeEach/beforeAll declared directly inside a describe call. */

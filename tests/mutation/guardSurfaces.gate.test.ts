@@ -32,6 +32,15 @@ const root = process.cwd();
  * taskContract's 18/2 against every surface in `describe.each`).
  */
 const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // premiseScan, enrolled 2026-08-16. The gate found 8 survivors on the first
+  // run; five were REPAID with cases and three more disappeared with the dead
+  // duplicated `unclassifiable` rules the gate exposed. What remains is three
+  // proven equivalences (a never-empty array guard, a provably-unreachable
+  // `unresolved` branch, and a start-offset comparison two sibling nodes cannot
+  // tie) plus ONE honest accepted-gap: the `@/` specifier slice, which is not
+  // equivalent and has no killing fixture in today's corpus
+  // (BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED).
+  premiseScan: { equivalent: 3, "accepted-gap": 1 },
   // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
   // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
   // the message as a third key removed the gap rather than re-accepting it. The
@@ -63,7 +72,7 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // directly (tests/docs/interactionTimingScan.test.ts) and to move the CLI out
   // of the mutated module — not to accept survivors. A row appearing here later
   // is therefore a regression to explain, not a number to update.
-  interactionTimingScan: { equivalent: 8 },
+  interactionTimingScan: { equivalent: 9 },
   // Counted from the surface: SIX reachability arguments -- the three two-field
   // parses at ledger-git.ts:66, :142 and :232, the twice-tested regex group at :259,
   // the `+++ b/` fallthrough at :320, and headRepo's three-way collapse at :365

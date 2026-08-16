@@ -2,6 +2,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { premiseHolds } from "../_shared/premise";
+
 import { childRun, INERT_TARGET } from "./source/childRun";
 import { classifyTests } from "./source/premiseScan";
 import { GUARD_SURFACES } from "./source/registry";
@@ -28,6 +30,19 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in guardSurfaces.gate.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // The premise recognizer's own two suites, enrolled 2026-08-16 with the
+  // premiseScan surface. Both counts are DERIVED from a run of the recognizer
+  // over them, not asserted from reading:
+  //
+  //   premiseScan.test.ts        0 — every case writes a synthetic source under
+  //                                  mkdtempSync and PARSES it. node:fs on a
+  //                                  tree the test builds is not provenance, by
+  //                                  the same rule the corpus suite is 0 under.
+  //   _metaPremiseContract.test.ts  1 — "%s fails as a child run", which spawns
+  //                                  a real child through `childRun`. The other
+  //                                  nine read the live tree via node:fs only.
+  "tests/mutation/source/premiseScan.test.ts": 0,
+  "tests/mutation/_metaPremiseContract.test.ts": 1,
   // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
   // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a
   // throwaway repo, so it counts as environment-touching like its
@@ -198,6 +213,10 @@ describe("premise contract — a premise that cannot run is no premise", () => {
   ];
 
   it.each(FIXTURES)("%s fails as a child run", (f) => {
+    // no-premise: the fixtures are COMMITTED and enumerated above, so the case
+    // set cannot silently empty; the child's non-zero exit is itself the
+    // premise that the fixture executed rather than being skipped.
+    premiseHolds(`${f} is a committed fixture this suite enumerates`, FIXTURES.includes(f));
     expect(
       childRun(ROOT, `tests/mutation/source/fixtures/${f}`, INERT_TARGET),
       `${f} must FAIL; an empty producer registers no case, so a green run means ` +

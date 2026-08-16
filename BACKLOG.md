@@ -8,6 +8,18 @@ Last reconciled: 2026-08-15 — `feat/spec-lint-intent-red` graduated `BL-SPEC-L
 
 ---
 
+## BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED — the `@/` specifier slice has no killing test
+
+**Status:** OPEN · **Filed:** 2026-08-16 (`fix/scanner-scope-totality`, from the premiseScan mutation-gate enrolment) · **Class:** guard coverage · **Effort:** S · **Class-sweep exception:** (c) — closing it needs a corpus module this PR does not otherwise touch. · **Reachability:** PROBED — a declared mutant that survives the shipped suite.
+
+`resolveSpecifier` (`tests/mutation/source/premiseScan.ts`) maps `@/x` to a repo path with `spec.slice(2)`. The declared `integer-literal:326:59:2>3` mutant changes that to `slice(3)`, which breaks EVERY `@/` specifier: the module stops resolving, `resolveSpecifier` returns null, and the import is treated as a pure bare specifier — so any provenance reachable only through a `@/` import is silently lost. That is a false negative, the direction the recognizer does not announce.
+
+It survives the suite, and is carried as an `accepted-gap` row on the `premiseScan` surface rather than blessed as equivalent, because it is NOT equivalent — it changes behavior.
+
+**Why it is uncovered.** Killing it needs a fixture importing through `@/` from a repo module whose DECLARATION extent reaches provenance, where the specifier itself is not a provenance module — `isProvenanceModule(spec)` short-circuits before resolution ever runs, so `@/scripts/lib/ledger-git` cannot exercise the slice. No module in the corpus satisfies both halves today, and the recognizer's own foil case establishes that a module merely SHARING a file with a provenance importer is deliberately environment-free.
+
+**First scheduled step:** add a committed two-file fixture under the recognizer's own fixture directory — a module reached via `@/` whose exported helper spawns — and assert `environment-touching`. That kills the mutant and lets the row graduate from `accepted-gap` to killed.
+
 ## BL-PSQL-SCAN-MUTATION-ENROLMENT — the psql startup-file scanner is measurable now, and scores 0.354
 
 **Status:** OPEN · **Filed:** 2026-08-15 (`fix/local-harness-false-failures`, from that arc's own enrolment probe) · **Class:** guard coverage · **Effort:** M · **Class-sweep exception:** (a) — the disposition of 31 survivors is a judgment call the filing PR cannot settle, ratified by the user against repaying in-branch. · **Reachability:** PROBED — the numbers below are a real run, not an estimate.

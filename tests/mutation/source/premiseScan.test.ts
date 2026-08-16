@@ -302,3 +302,51 @@ describe("premise and exemption detection", () => {
     expect(classifyTests(ROOT, q)[0]?.exemption).toBe("the corpus is constructed");
   });
 });
+
+// ── Mutation-gate repayments (enrolment 2026-08-16) ──────────────────────────
+// Each case here exists because a declared mutant SURVIVED the suite. They are
+// repayments, not decoration: the site each one kills is named.
+
+describe("recognizer edges the mutation gate found unpinned", () => {
+  it("a computed member access on a NON-process object is not unclassifiable", () => {
+    // Kills equality-flip on the `=== "process"` guard: flipping it reports
+    // every computed access EXCEPT process as unclassifiable.
+    expect(verdict(`const k = "env"; const o = {}; it("x", () => { const r = o[k]; });`)).toBe(
+      "environment-free",
+    );
+  });
+
+  it("resolves a helper imported through the `@/` alias", () => {
+    // Kills integer-literal on `spec.slice(2)`: slicing one more character
+    // breaks every `@/` path, and the import silently stops resolving.
+    expect(
+      verdict(`import { premise } from "@/tests/_shared/premise";
+        it("x", () => { premise("d", 1, 0); });`),
+    ).toBe("environment-free");
+  });
+
+  it("ONE unresolvable construct is enough to report unclassifiable", () => {
+    // Kills integer-literal on `unresolved.length > 0`: raising the threshold
+    // to 1 lets a single unresolved edge report environment-free instead.
+    expect(
+      verdict(`const k = "env";
+        it("x", () => { const r = (process as never)[k]; });`),
+    ).toBe("unclassifiable");
+  });
+
+  it("reads the test name from the FIRST argument", () => {
+    // Kills integer-literal on `node.arguments[0]`: reading argument 1 makes
+    // every reported name the callback rather than the title.
+    const p = join(scratch, "name-arg.ts");
+    writeFileSync(p, `it("the declared title", () => {});`, "utf8");
+    expect(classifyTests(ROOT, p)[0]?.testName).toBe("the declared title");
+  });
+
+  it("reports the 1-based line of the test it classifies", () => {
+    // Kills the two `line + 1` integer-literal mutants: an off-by-one line
+    // number points a reader at the wrong test.
+    const p = join(scratch, "line-num.ts");
+    writeFileSync(p, `// leading comment\n\nit("x", () => {});\n`, "utf8");
+    expect(classifyTests(ROOT, p)[0]?.line).toBe(3);
+  });
+});

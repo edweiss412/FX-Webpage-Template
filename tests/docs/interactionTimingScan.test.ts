@@ -436,6 +436,14 @@ describe("form 3 totality — non-literal timing property values", () => {
     expect(unclassified(`const el = <Thing ttlMs={ttl} />;`)).toEqual(["ttlMs=ttl"]);
   });
 
+  test("an EMPTY JSX expression container yields no site", () => {
+    // Repays a surviving logical-connector mutant on the string-value fallback:
+    // with `||` in place of `&&`, `<Thing ttlMs={} />` falls through to the
+    // fallback, which then hands back the JsxExpression itself and reports the
+    // container text as if it were a value.
+    expect(unclassified(`const el = <Thing ttlMs={} />;`)).toEqual([]);
+  });
+
   test("JsxAttribute with a string value that does not parse as a number", () => {
     expect(unclassified(`const el = <Thing ttlMs="soon" />;`)).toEqual(["ttlMs=soon"]);
   });
@@ -448,6 +456,10 @@ describe("form 3 totality — non-literal timing property values", () => {
     ["snake deadline_ms", "deadline_ms"],
     ["camel suffix fooTimeout", "fooTimeout"],
     ["camel suffix retrySeconds", "retrySeconds"],
+    // Repays a surviving integer-literal mutant on the `before` slice: a
+    // leading-underscore key is the one shape where slicing from index 1
+    // instead of 0 loses the boundary character and flips the verdict.
+    ["a bare snake prefix _ms", "_ms"],
   ])("the boundary predicate ACCEPTS %s", (_label, key) => {
     expect(unclassified(`const o = { ${key}: someExpr };`)).toEqual([`${key}=someExpr`]);
   });
