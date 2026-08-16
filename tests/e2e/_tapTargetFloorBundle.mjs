@@ -52,15 +52,12 @@
 // about this file, including `useServerDirectivePlugin` and the empty mapping for
 // every OTHER builtin, is identical to the shared bundler.
 
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { builtinModules } from "node:module";
+import { extname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
 import { useServerDirectivePlugin } from "./helpers/useServerDirectivePlugin.mjs";
-
-const [, , entry, outfile, tsconfig] = process.argv;
-if (!entry || !outfile || !tsconfig) {
-  console.error("usage: node _tapTargetFloorBundle.mjs <entry> <outfile> <tsconfig>");
-  process.exit(2);
-}
 
 const NODE_BUILTINS = new Set([...builtinModules, ...builtinModules.map((m) => `node:${m}`)]);
 const ASYNC_HOOKS = new Set(["async_hooks", "node:async_hooks"]);
@@ -113,21 +110,121 @@ const nodeBuiltins = {
   },
 };
 
-const result = await esbuild.build({
-  entryPoints: [entry],
-  bundle: true,
-  format: "iife",
-  jsx: "automatic",
-  loader: { ".tsx": "tsx" },
-  define: { "process.env.NODE_ENV": '"production"' },
-  tsconfig,
-  banner: { js: 'window.process=window.process||{env:{NODE_ENV:"production"}};' },
-  // Not a React hook — an esbuild plugin factory the spec/plan names
-  // useServerDirectivePlugin; the "use" prefix trips react-hooks/rules-of-hooks.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  plugins: [useServerDirectivePlugin(), nodeBuiltins],
-  outfile,
-  logLevel: "warning",
-});
+/**
+ * Absolute path, with symlinks resolved.
+ *
+ * Both halves are load-bearing. `resolve` alone compares `/var/folders/...`
+ * against the `/private/var/folders/...` esbuild reports on macOS and misses
+ * every time, silently serving DISK text — the exact "overlay never applied,
+ * perfect score" failure the sentinel exists to catch. `realpathSync` alone
+ * throws for a path that does not exist, which a module id can legitimately be
+ * mid-resolution, so it falls back rather than aborting the build.
+ */
+function canonical(p) {
+  try {
+    return realpathSync(resolve(p));
+  } catch {
+    return resolve(p);
+  }
+}
 
-if (result.errors.length > 0) process.exit(1);
+/**
+ * The browser-mutant overlay (mutation-browser spec §3.1).
+ *
+ * Registered FIRST, and only when `MUTATION_OVERLAY_MANIFEST` is set: esbuild
+ * runs `onLoad` callbacks in registration order and the first non-undefined
+ * result wins, so the overlay must precede every plugin that could load the real
+ * file from disk.
+ *
+ * The manifest is parsed and every mutant file read EAGERLY, here at
+ * registration time, before the build begins. That is half of the §3.4
+ * verdict-integrity contract: a broken overlay must fail loudly rather than
+ * produce a green child whose mutant would then score SURVIVED. Only once every
+ * entry has been read does it write the `<manifest>.ok` sentinel the runner
+ * checks after each child.
+ *
+ * Recognition is canonical-absolute-path equality and nothing else, matching the
+ * vitest overlay's posture (tests/mutation/source/overlay.ts:21-34): a suffix
+ * match would overlay a same-named module elsewhere in the graph.
+ *
+ * Tracked source files are never written, so a crashed run cannot leave a mutant
+ * on disk.
+ */
+function mutationOverlayPlugin(manifestPath) {
+  const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const entries = parsed?.entries;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new Error(`mutation overlay: manifest has no entries: ${manifestPath}`);
+  }
+
+  const byTarget = new Map();
+  for (const entry of entries) {
+    if (typeof entry?.target !== "string" || typeof entry?.mutant !== "string") {
+      throw new Error(`mutation overlay: malformed manifest entry in ${manifestPath}`);
+    }
+    // Throws on an unreadable mutant, by design and before the build.
+    byTarget.set(canonical(entry.target), readFileSync(entry.mutant, "utf8"));
+  }
+  writeFileSync(`${manifestPath}.ok`, `${byTarget.size}\n`);
+
+  const LOADERS = { ".tsx": "tsx", ".ts": "ts", ".jsx": "jsx", ".mjs": "js", ".js": "js" };
+
+  return {
+    name: "mutation-overlay",
+    setup(build) {
+      build.onLoad({ filter: /.*/ }, (args) => {
+        const contents = byTarget.get(canonical(args.path));
+        if (contents === undefined) return undefined;
+        return { contents, loader: LOADERS[extname(args.path)] ?? "tsx" };
+      });
+    },
+  };
+}
+
+/**
+ * The plugin list, as a function of the environment.
+ *
+ * Exported so the wiring suite can assert that with the flag UNSET the overlay
+ * plugin is ABSENT from the list — not merely inert. A register-but-no-op
+ * implementation passes every output assertion and fails that one.
+ */
+export function buildPlugins(env) {
+  const manifest = env.MUTATION_OVERLAY_MANIFEST;
+  return [
+    ...(manifest ? [mutationOverlayPlugin(manifest)] : []),
+    // Not a React hook — an esbuild plugin factory the spec/plan names
+    // useServerDirectivePlugin; the "use" prefix trips react-hooks/rules-of-hooks.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useServerDirectivePlugin(),
+    nodeBuiltins,
+  ];
+}
+
+export async function buildBundle({ entry, outfile, tsconfig, env = process.env }) {
+  return esbuild.build({
+    entryPoints: [entry],
+    bundle: true,
+    format: "iife",
+    jsx: "automatic",
+    loader: { ".tsx": "tsx" },
+    define: { "process.env.NODE_ENV": '"production"' },
+    tsconfig,
+    banner: { js: 'window.process=window.process||{env:{NODE_ENV:"production"}};' },
+    plugins: buildPlugins(env),
+    outfile,
+    logLevel: "warning",
+  });
+}
+
+// CLI entry. Guarded so importing this module for `buildPlugins` does not build
+// anything — the wiring suite imports it, and an unguarded main block would
+// exit(2) on the missing argv instead.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const [, , entry, outfile, tsconfig] = process.argv;
+  if (!entry || !outfile || !tsconfig) {
+    console.error("usage: node _tapTargetFloorBundle.mjs <entry> <outfile> <tsconfig>");
+    process.exit(2);
+  }
+  const result = await buildBundle({ entry, outfile, tsconfig });
+  if (result.errors.length > 0) process.exit(1);
+}

@@ -85,10 +85,15 @@ export const MUTATION_TEST_GLOBS = [
   // Source-mutation gate (spec docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md):
   // spawns one vitest child per mutant, so it is nightly + on-demand, never merge-gating.
   "tests/mutation/guardSurfaces.gate.test.ts",
+  // Browser-mutant gate (spec docs/superpowers/specs/ci/2026-08-15-mutation-browser-mode.md):
+  // spawns a real Playwright child per mutant, ~20-30 min for its first enrolled
+  // surface, so it is nightly + on-demand for the same reason and never merge-gating.
+  "tests/mutation/browser/browserSurfaces.gate.test.ts",
 ];
 export const NIGHTLY_ONLY_EXCLUDES = [
   "**/tests/parser/mutationHarness.*.test.ts",
   "**/tests/mutation/guardSurfaces.gate.test.ts",
+  "**/tests/mutation/browser/browserSurfaces.gate.test.ts",
 ];
 
 export const PARALLEL_TEST_GLOBS = [

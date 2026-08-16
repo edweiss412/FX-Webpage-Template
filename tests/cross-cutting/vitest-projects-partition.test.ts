@@ -1,9 +1,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import vitestConfig from "@/vitest.config";
 import {
   ENV_BOUND_EXCLUDES,
   MUTATION_TEST_GLOBS,
@@ -11,6 +10,7 @@ import {
   PARALLEL_TEST_GLOBS,
 } from "@/vitest.projects";
 import { globToRegExp as globRe } from "@/lib/test/serialAudit";
+import { premiseHolds } from "../_shared/premise";
 
 // Structural guard for the two-project vitest split (PR B). The #1 risk of a
 // projects split is a glob typo that drops a whole directory from BOTH projects
@@ -89,13 +89,63 @@ type ProjectEntry = {
   test: { name: string; include?: string[]; exclude?: string[]; fileParallelism?: boolean };
 };
 
+// The DEFAULT projects, resolved ONCE with BOTH opt-in vars EXPLICITLY CLEARED.
+//
+// Both describes below read this. It was a static
+// `import vitestConfig from "@/vitest.config"`, which resolves the config
+// against the AMBIENT environment — so every case reading it silently meant
+// "the default projects, unless someone happens to be running the harness".
+// Under `VITEST_INCLUDE_MUTATION_HARNESS=1` — the exact shape
+// `pnpm mutation:guards` and `pnpm mutation:browser` set — the mutation project
+// joined the list, admitted the nightly gate files this file asserts live in NO
+// default project, and three cases reddened on a tree with no defect in it. A
+// partition guard that only holds while nobody is running the mutation harness
+// is not a guard; the resolution is now stated, not inherited.
+let projects: ProjectEntry[] = [];
+
+beforeAll(async () => {
+  vi.resetModules();
+  vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", "");
+  vi.stubEnv("VITEST_EXCLUDE_ENV_BOUND", "");
+  try {
+    const cfg = (await import("@/vitest.config")).default as {
+      test?: { projects?: ProjectEntry[] };
+    };
+    projects = cfg.test?.projects ?? [];
+  } finally {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  }
+});
+
+const projectNamed = (name: string): ProjectEntry["test"] => {
+  const found = projects.find((p) => p.test.name === name);
+  if (!found) throw new Error(`no ${name} project in the resolved default config`);
+  return found.test;
+};
+
 describe("vitest projects split — partition is complete and correctly wired", () => {
-  const projects = (vitestConfig as { test?: { projects?: ProjectEntry[] } }).test?.projects ?? [];
+  it("never resolves the config from the ambient environment", () => {
+    // The always-on half of the repair above. Every other case here reads a
+    // config resolved under stubbed vars, so a revert to the static form passes
+    // all of them whenever the ambient happens to be clean — which is every
+    // local `pnpm test` and every CI leg, and none of the harness runs. Only a
+    // source scan fires in both states.
+    const src = readFileSync(
+      join(ROOT, "tests/cross-cutting/vitest-projects-partition.test.ts"),
+      "utf8",
+    );
+    premiseHolds("the scan found this file's own source", src.includes("vitest projects split"));
+    expect(
+      src.match(/^import .*from "@\/vitest\.config";$/m),
+      "resolve @/vitest.config inside a stubbed-env block, never as a static import",
+    ).toBeNull();
+  });
 
   it("defines serial + parallel by default, + mutation ONLY when opted in", async () => {
     expect(Array.isArray(projects), "vitest.config.ts must define test.projects").toBe(true);
     const names = projects.map((p) => p.test.name).sort();
-    expect(names).toEqual(["parallel", "serial"]); // default import = no env flag
+    expect(names).toEqual(["parallel", "serial"]); // resolved with the opt-in var cleared
 
     vi.resetModules();
     vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", "1");
@@ -150,6 +200,9 @@ describe("vitest projects split — partition is complete and correctly wired", 
     // one.
     vi.resetModules();
     vi.stubEnv("VITEST_EXCLUDE_ENV_BOUND", "1");
+    // Both opt-in vars are stated. Stubbing only one leaves the other inherited
+    // from the ambient, which is how this block reddened under the harness env.
+    vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", "");
     try {
       const cfg = (await import("@/vitest.config")).default as {
         test?: { projects?: ProjectEntry[] };
@@ -181,6 +234,7 @@ describe("vitest projects split — partition is complete and correctly wired", 
     // in a project it deliberately leaves.
     vi.resetModules();
     vi.stubEnv("VITEST_EXCLUDE_ENV_BOUND", "");
+    vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", "");
     const defaultCfg = (await import("@/vitest.config")).default as {
       test?: { projects?: ProjectEntry[] };
     };
@@ -199,8 +253,8 @@ describe("vitest projects split — partition is complete and correctly wired", 
       }
       expect(
         nightlyCount,
-        "exactly the 10 nightly files (9 parser harness + the source-mutation gate) live in no default project",
-      ).toBe(10);
+        "exactly the 11 nightly files (9 parser harness + the source-mutation gate + the browser-mutant gate) live in no default project",
+      ).toBe(11);
       // Anti-collapse floors, computed from RESOLVED membership (not the
       // matchesParallel helper): exact-once alone permits massive drift, since
       // every file could pile into one project and still be admitted exactly
@@ -445,11 +499,11 @@ const PROBE_DB_DEPENDENT = [
 ] as const;
 
 describe("empirically DB-dependent files live in the serial project", () => {
-  const projects = (vitestConfig as { test?: { projects?: ProjectEntry[] } }).test?.projects ?? [];
-  const parallel = projects.find((p) => p.test.name === "parallel")!.test;
-  const serial = projects.find((p) => p.test.name === "serial")!.test;
-
+  // Resolved inside each case, not in the describe body: the shared resolution
+  // above runs in beforeAll, which fires AFTER every describe body has executed.
   it("each resolves to serial and NOT parallel, against the real config", () => {
+    const parallel = projectNamed("parallel");
+    const serial = projectNamed("serial");
     for (const f of PROBE_DB_DEPENDENT) {
       expect(inProject(f, parallel), `${f} must NOT be in the parallel project`).toBe(false);
       expect(inProject(f, serial), `${f} must be in the serial project`).toBe(true);
@@ -468,6 +522,7 @@ describe("empirically DB-dependent files live in the serial project", () => {
   // if they still resolve to parallel, the partition is what it always was and
   // the serial assertions above would pass for reasons unrelated to the move.
   it("the pre-move locations were genuinely parallel members", () => {
+    const parallel = projectNamed("parallel");
     for (const old of [
       "tests/app/admin/extractAgenda.test.ts",
       "tests/app/admin/layoutIdentityFault.test.tsx",
