@@ -774,16 +774,25 @@ describe("backlog ledger graduation", () => {
 
 
   it("the descoped origin-gate follow-up is filed with its substance intact", () => {
-    const backlog = read("BACKLOG.md");
-    expect(backlogIdsIn("BACKLOG.md").has(ORIGIN_GATE_ID)).toBe(true);
+    // The entry SHIPPED on fix/auth-picker-hardening (2026-08-15) and moved to
+    // BACKLOG-archive.md. What this guard protects is the REASONING, not the
+    // file it sits in: a closed entry that drops the residual it closed is just
+    // as lossy as an open one that never carried it, and the archive is where a
+    // future reader checks the closure against what was actually filed. So the
+    // entry is resolved from whichever ledger holds it, and every substance
+    // assertion below is unchanged and still runs against its body.
+    const LEDGERS_FOR_ENTRY = ["BACKLOG.md", "BACKLOG-archive.md"] as const;
+    const home = LEDGERS_FOR_ENTRY.find((rel) => backlogIdsIn(rel).has(ORIGIN_GATE_ID));
+    expect(home, `${ORIGIN_GATE_ID} is in neither BACKLOG.md nor BACKLOG-archive.md`).toBeDefined();
+    const backlog = read(home!);
 
     // A heading-only entry must fail: the whole point of filing it is to carry
     // the reasoning forward. Section body from this heading to the next.
     // Anchor on the HEADING, not the first mention: an earlier summary reference
     // would send this at another section — the same bug the provenance check above
     // already avoids.
-    const headingMatch = new RegExp(`^#{2,3} ~{0,2}${ORIGIN_GATE_ID}`, "m").exec(backlog);
-    expect(headingMatch, `${ORIGIN_GATE_ID} has no heading in BACKLOG.md`).not.toBeNull();
+    const headingMatch = new RegExp(`^#{2,3} ~{0,2}${ORIGIN_GATE_ID} `, "m").exec(backlog);
+    expect(headingMatch, `${ORIGIN_GATE_ID} has no heading in ${home}`).not.toBeNull();
     const start = headingMatch!.index;
     const rest = backlog.slice(start);
     const nextHeading = rest.slice(1).search(/\n#{2,3} /);

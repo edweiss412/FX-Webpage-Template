@@ -1,3 +1,39 @@
+## BL-SERVER-ACTION-ORIGIN-GATE — the crew picker's destructive Server Actions are gated on same-origin — CLOSED 2026-08-15 (`fix/auth-picker-hardening`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Severity (as filed):** low (logout CSRF; no read, no escalation) · **Effort (as shipped):** S, against the M estimate — because the open decision dissolved rather than being answered.
+
+**What the filed residual actually was, preserved so the closure can be checked against it.** `clearIdentityAndSkip` ends the Supabase session on the calling browser and deletes one picker entry from the `__Host-fxav_picker` envelope. Next's built-in check rejects a mismatched `Origin` but permits a request carrying no `Origin` header at all, so a cross-site POST that simply omitted it was refused by nothing the app added. Forcing that call signed the victim out of this app on that device and removed one show id from their picker envelope: no response data reached the caller, no privilege was gained, and `scope: "local"` kept every other device untouched. The trigger the entry named — "pick this up on the next auth security pass, or sooner if a Server Action lands whose forced invocation would do more than log someone out" — is what this arc is.
+
+**The open decision was never made, and that is the result, not a shortcut.** The entry asked to "establish the trusted-proxy policy (which headers are authoritative in each deployment, and whether the platform overwrites them), then gate every destructive Server Action on it." Three prior review rounds had died on that vector because a gate composed from `x-forwarded-proto` / `x-forwarded-host` / `host` is only sound behind a proxy whose overwrite behavior this repo has never established. The shipped gate reads **neither** header. `isSameOriginServerAction()` (lib/auth/sameOriginServerAction.ts) depends only on `sec-fetch-site` — a browser-set forbidden request header that page JavaScript cannot forge — with an `Origin`-vs-`NEXT_PUBLIC_SITE_ORIGIN` fallback through the existing `resolveSiteOrigin`. No security posture depends on proxy trust, so the trusted-proxy question does not arise for this surface at all.
+
+**All three exported actions are gated, not just the form-wired one.** Every exported function in a module-level `"use server"` file is an independently addressable endpoint, so `clearIdentity`, `clearIdentityAndSkip` and `clearIdentityCore` each carry the gate as their first statement. Gating only the first would have left `clearIdentityCore` as an ungated deletion endpoint. A refusal emits the forensic `PICKER_ORIGIN_REJECTED` on a `log.warn` span and returns the catalogued `PICKER_INVALID_INPUT`; a returned uncatalogued literal would have been an `x1` orphan producer.
+
+**The tests seed the mutation they claim to prevent.** Each rejection case first writes a picker cookie holding the target selection. With an empty cookie `clearIdentityCore` deletes nothing and never calls `cookieSet`, so `expect(cookieSet).not.toHaveBeenCalled()` would have passed vacuously and a guard-after-mutation regression would have escaped. Seeded, that regression writes the cookie and reds. The per-endpoint `action` field on the emit assertion kills the remaining mutant — dropping a wrapper's own guard makes it fall through to the core's, which emits a different `action`.
+
+**Documented limit, fenced in both directions:** a request carrying neither `sec-fetch-site` nor `Origin` is allowed, preserving the framework default. Reachable only by non-browser clients, which carry no victim cookies and so cannot mount CSRF, or by pre-Fetch-Metadata browsers. Strictly no weaker than the prior behavior and strictly stronger on the filed bypass.
+
+**The class sweep is filed, not silently dropped:** the remaining destructive Server Actions are `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP`, class-sweep disposition exception (c) — the helper reduces each peer to a one-line guard.
+
+**Spec:** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` (spec-APPROVED, codex-guard R6) · **Plan:** `docs/superpowers/plans/2026-08-15-auth-picker-hardening.md` (plan-APPROVED after R6 triage).
+
+## BL-IDENTITY-CLEAR-FAILURE-IS-SILENT — a failed "switch person" now says so, in the menu — CLOSED 2026-08-15 (`fix/auth-picker-hardening`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Severity (as filed):** MEDIUM · **Class:** correctness / UX signal · **Effort (as shipped):** M, as estimated.
+
+**The entry's diagnosis held and its open questions were answered by the owner.** It said the fix was not the discarded result but that the menu had no failure state to render into, and it named the three decisions that blocked it. All three were settled at spec time: the message appears **in the menu**, which **stays open**; it reads **"Couldn't switch. Please try again."** through a new §12.4 code `PICKER_SWITCH_FAILED`, so no raw code reaches the UI.
+
+**One premise in the entry was wrong and is corrected here rather than carried into the archive.** It said "the avatar menu closes and the page proceeds as though the identity were cleared." The menu does NOT close — `AvatarMenu` owns its `open` state locally with no close-on-submit, and no `revalidatePath` runs on the failure branch. That made the defect worse than filed, not better: nothing moved at all, so the crew member had no signal of any kind.
+
+**The state shape is local `useState` reset on open, deliberately not `useActionState`.** React 19 gives `useActionState` no reset API, and `open=false` only hides the popover while the component stays mounted, so a `useActionState` error would survive the close and reappear on the next open — a stale failure attached to a tap the person had already left behind. The close/pending/reopen lifecycle was measured on a harness before the design was ratified (`tests/components/auth/_probeSwitchCloseRace.test.tsx`, 4/4) and those assertions are folded onto the real component.
+
+**Pending marks the submit `aria-disabled`, never natively `disabled`.** Native `disabled` removes the element from the focus order, and this menu's roving tabindex calls `.focus()` on a fixed index, so a natively-disabled switch row would swallow ArrowDown, the ArrowUp wrap, End, and reopen-with-ArrowUp and strand keyboard focus outside the menu. All four commands are exercised against `document.activeElement` while a clear is pending. Re-entry is guarded in the handler instead.
+
+**Documented limit carried forward:** menu "Switch person" remains ineffective for a Google-authenticated viewer — the cookie entry is deleted but the Google session survives, so the next resolve re-mints the same identity via `needs_picker_bootstrap`. That is a pre-existing efficacy gap, distinct from the filed silent-**failure** defect, and it is neither fixed nor claimed away: `BL-SWITCH-PERSON-GOOGLE-LOOPBACK`, class-sweep exception (a), since making menu-switch sign a Google viewer out is a product decision.
+
+**Invariant-8 dual gate:** critique RAN-DEGRADED (its isolated assessments were reproduced inline; banner and reason recorded in the plan's Closeout), audit RAN, **0 P0, 0 P1**. Text contrast on the new alert measured 8.79:1 light and 9.64:1 dark, AAA in both modes.
+
+**Spec:** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4 · **Plan:** `docs/superpowers/plans/2026-08-15-auth-picker-hardening.md` Task 4 + Closeout.
+
 ## BL-HELP-REFANCHOR-A11Y-PASS — the `/help/errors` copy-link got its whole-surface a11y pass — CLOSED 2026-08-15 (`fix/help-refanchor-a11y`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-15 · **Severity (as filed):** low · **Class:** A11Y / HELP SURFACE · **Effort (as shipped):** S, as estimated — one shared component plus one page edit
