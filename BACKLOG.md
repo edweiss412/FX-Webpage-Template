@@ -36,6 +36,26 @@ That is FIXED and shipped in the same arc (`9edf520d1`): the output is discarded
 
 **First scheduled step:** read the 31 survivors, kill the real gaps with suite cases, mark the true equivalents with reasons, then enrol with `scoreFloor` at the achieved score. The full survivor list is in the arc's diff-review record; regenerate it with `pnpm heavy pnpm mutation:guards` after adding the row. Spec context: `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.3 re-disposition note.
 
+## BL-SHELL-BINDING-MIXED-QUOTED-VALUE — an assignment whose value mixes a quoted segment with a bare one is not read as a binding
+
+**Status:** OPEN · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the mutation-enrolment disposition of `relational-boundary:2167:54`). **Severity:** LOW (guard recall; the miss needs a value spelled as two adjacent segments). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair redesigns the assignment-binding pattern family, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — command and output below.
+
+`scanShellIndirection`'s binding patterns (`ASSIGNED_VALUE_QUOTED`, `ASSIGNED_WHOLE_QUOTED`, `tests/cross-cutting/psqlStartupFiles/scan.ts`) model an assignment value as EITHER wholly quoted or wholly bare: the value alternation is `(["']?)` + `PSQL_VALUE` + the same delimiter + `(?:[\s;|&)]|$)`, and `PSQL_VALUE` is `[^\s"';|&]*`, a class that excludes both quote characters. A shell value spelled as adjacent segments — `PG='psql'x`, `PG=p'sql'`, `export 'PG=psql'\` — is one word to the shell and unreadable to those patterns, so the binding is missed:
+
+```
+$ pnpm exec tsx probe-2167.ts
+{"label":"quoted value, no backslash","text":"PG='psql'","hits":1}
+{"label":"mixed quoting, no backslash (same class)","text":"PG='psql'x","hits":0}
+{"label":"quoted value, dangling backslash at EOF","text":"PG='psql'\","hits":0}
+{"label":"whole-arg quoted, dangling backslash at EOF","text":"export 'PG=psql'\","hits":0}
+```
+
+Real bash disagrees with all three misses — `printf "PG='psql'\\" > f; . ./f` leaves `PG=psql\`, and `bash -n f` reports no syntax error — so each is a binding the guard does not report.
+
+Surfaced while dispositioning the mutation survivor `relational-boundary:2167:54` (the `spliced` backslash-continuation bound). That mutant is distinguishable from the original ONLY on inputs of this shape, which is why it is enrolled as the surface's single `accepted-gap` row rather than an equivalence: a case that reds it would be pinning THIS gap, not that bound. Closing this row makes that mutant genuinely equivalent, at which point its ledger row is regraded rather than deleted.
+
+**What would close it:** read an assignment value as a CONCATENATION of quoted and bare segments (the same shape `lexShellWords` already implements for command words) instead of as one delimiter-matched span, and pin the three spellings above plus `PG=p'sql'` in the deciding suite. The lexer is the natural source of truth — the patterns exist because the binding rules run per line before words exist, so the alternative is routing them through the lexer rather than widening the regex family one spelling at a time.
+
 ## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
 
 **Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today.

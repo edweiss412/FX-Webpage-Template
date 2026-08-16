@@ -4515,3 +4515,117 @@ describe("enrolment survivors - batch C", () => {
     expect(scanBinaryIndirection(wrapper, "x.mjs").length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Mutation-enrolment survivors, batch D — the shell and workflow indirection
+ * scanners (plan Task 5). Two kills, six equivalence rows and one accepted gap;
+ * the pins below carry the arguments the blessed rows rest on.
+ */
+describe("enrolment survivors - batch D", () => {
+  // Kills regex-quantifier-bound:2210:40 (`-{1,2}` widened to `-{1,3}` in the
+  // bound-command flag test). A quoted binding is reported only when its value
+  // lexes to a psql invocation carrying a FLAG, which is what keeps
+  // `MSG="psql failed to connect"` out. POSIX and GNU flags take one or two
+  // dashes, so `---x` is not one and the value is prose-shaped; the mutant
+  // accepts it and reports the binding.
+  test("a three-dash word does not make a quoted binding a command", () => {
+    expect(scanShellIndirection("CMD='psql ---x mydb'\n", "x.sh")).toHaveLength(0);
+    // The control: one dash makes the same value a real invocation.
+    expect(scanShellIndirection("CMD='psql -x mydb'\n", "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Kills relational-boundary:2788:48 (`scanShellText(...).length > 0` mutated
+  // to `>= 0`, making the test unconditional). A binding key whose value merely
+  // CONTAINS the word psql is not a binding: `psql-tuning` is a hyphenated
+  // English compound, and the shell reader finds no psql command word in it.
+  // The mutant reports every psql-mentioning value under `env:`.
+  test("an env value that only mentions psql in prose is not a binding", () => {
+    const source = [
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - env:",
+      "          NOTE: a b psql-tuning guide",
+      "        run: echo hi",
+      "",
+    ].join("\n");
+    expect(scanWorkflowIndirection(source, "w.yml")).toHaveLength(0);
+    // The control: a value that IS a psql command line binds the command name.
+    const bound = source.replace("a b psql-tuning guide", "psql -qAt mydb");
+    expect(scanWorkflowIndirection(bound, "w.yml").length).toBeGreaterThan(0);
+  });
+
+  // Boundary pin for the regex-quantifier-bound:2107:21 equivalence row. The
+  // dash run is followed by `[A-Za-z-]*`, a class that already contains a dash,
+  // so `-{1,2}` and `-{1,3}` accept the same language — any leading dash plus
+  // any run of letters and dashes. The pin is that consequence: an extra dash
+  // in the `-c` spelling changes nothing, and the positional binding is
+  // reported either way.
+  test("an extra dash in the -c spelling still reports the positional binding", () => {
+    const two = "bash -c 'exec $0 -qAt mydb' psql\n";
+    expect(scanShellIndirection(two, "x.sh").length).toBeGreaterThan(0);
+    const three = "bash ---c 'exec $0 -qAt mydb' psql\n";
+    expect(scanShellIndirection(three, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Boundary pin for the relational-boundary:2155:54 equivalence row (the
+  // `logical` continuation join). The widened bound can only add a final
+  // iteration that replaces a dangling trailing backslash with a space and
+  // appends nothing, and neither consumer of `logical` can tell those apart.
+  // The pin is the join the loop exists for: a quoted binding split across two
+  // physical lines by a backslash continuation is ONE assignment.
+  test("a quoted binding split by a backslash continuation is one assignment", () => {
+    const source = ["CMD='psql -qAt mydb \\", '-c "select 1"' + "'", ""].join("\n");
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Boundary pin for the relational-boundary:2167:54 ACCEPTED-GAP row (the
+  // `spliced` continuation join). Every input that separates the mutant from
+  // the original puts a bare backslash immediately after a closing quote, which
+  // the assignment patterns cannot read for an independent reason. The pin is
+  // the ordinary spelling those patterns DO read.
+  test("a single-word quoted binding is detected", () => {
+    expect(scanShellIndirection("PG='psql'\n", "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Boundary pin for the relational-boundary:2455:31, 2587:35 and 2697:32
+  // equivalence rows (the alias-resolution depth guards and the alias anchor
+  // comparison). The yaml parser refuses to register an anchor on an alias
+  // node, so an alias always resolves to a non-alias in one step and the depth
+  // guards are unreachable. The pin is the resolution itself, plus the
+  // anchoring contract 2697 decides: a site from an alias is pinned to the
+  // `run:` key's own line, not to the line the anchor was defined on.
+  test("an aliased run body resolves, and its site is pinned to the run key", () => {
+    const source = [
+      "x: &cmd psql -qAt mydb",
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - run: *cmd",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "w.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(5);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Boundary pin for the regex-quantifier-bound:2684:32 equivalence row. A YAML
+  // block-scalar header carries at most two indicators — one indentation digit
+  // and one chomping character — so the widened bound admits only headers YAML
+  // itself rejects. The pin is the widest LEGAL header: both indicators plus a
+  // trailing comment, blanked so the psql line keeps its physical position.
+  test("a block scalar header with both indicators is blanked, keeping line numbers", () => {
+    const source = [
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - run: >2-  # indented 2, folded, chomped",
+      "          psql -qAt mydb",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "w.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(5);
+  });
+});
