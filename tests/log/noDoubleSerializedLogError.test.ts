@@ -2,9 +2,17 @@
 //
 // The logger serializes exactly ONCE. `buildRecord` (lib/log/logger.ts) runs
 // `serializeError(fields.error)` on its way to the record, so a call site that ALSO wraps the
-// value hands `serializeError` a plain object; its non-Error branch is `String(value)`, and the
-// persisted diagnostic collapses to the literal string "[object Object]". The field exists to
-// carry the failure, and double-serializing silently destroys it.
+// value hands `serializeError` a plain object. Until fix/serialize-error-structure that
+// non-Error branch was `String(value)` and the persisted diagnostic collapsed to the literal
+// string "[object Object]" — double-serializing silently destroyed the field. The branch is
+// STRUCTURAL now, so a re-serialized Error survives; the ban stands because it is shape drift
+// (a `{name,message,stack}` object where a raw value belongs) plus redundant work, and this
+// scanner is what enforces it statically rather than any runtime assertion.
+//
+// The residual DESTRUCTIVE vector moved: flattening BEFORE the helper — `String(e)` or
+// `JSON.stringify(e)` in the `error` initializer — still collapses structure, so this scanner
+// flags that family too (spec
+// docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md §2.6).
 //
 // Spec: docs/superpowers/specs/observability/2026-08-15-sync-log-emit-guard-design.md §2.2, AC-7.
 //
@@ -31,7 +39,8 @@
 //
 // Families 3-and-4 beyond the conditional/paren forms were added in diff review R1, which probed
 // three evading variants (`as`, `satisfies`, `... (cond && {...})`) against the shipped scanner
-// and showed each compiling clean while persisting "[object Object]". The repair is the
+// and showed each compiling clean while persisting "[object Object]" under the collapse-era
+// helper (structure survives that path today; the ban is unchanged). The repair is the
 // PREDICATE above, swept across every position a wrapper can occupy, rather than three patches
 // for the three reported spellings.
 //
@@ -45,6 +54,12 @@
 // by construction, not by another case. A finding claiming a new VALUE-SHAPE evasion is refuted
 // by that predicate; only the two limits below remain open, and both are outside the fence.
 //
+// `mentionsFlattener` (the pre-flatten family) is the SAME closed question over the same finite
+// tree, asked of a different accept-set: global `String(...)` and `JSON.stringify(...)`. It is
+// not a grammar parser either, so the narrowing argument above covers it unchanged, and a
+// finding proposing a third flattening spelling is an accept-set proposal against the spec's
+// §2.6 derivation rather than a value-shape evasion.
+//
 // The structural traversal (which object literals contribute to `fields`, and which spread forms
 // carry one) is still shape-based, because that is a question about STRUCTURE, not value — it
 // decides where to look, not what counts once you are looking.
@@ -56,7 +71,10 @@
 //
 // CONSEQUENCE BOUND. Every input is either handled correctly or reported; there is no
 // silent-wrong path. A false positive is a LOUD failure a contributor resolves by unwrapping the
-// call (which is the fix in every real case) or by taking the limit to the spec.
+// call (which is the fix in every real case) or by taking the limit to the spec. The cost of a
+// MISSED site is now split by family: a missed WRAPPER site drifts the persisted shape and does
+// redundant work (structure survives), while a missed PRE-FLATTEN site still destroys it — which
+// is why the flattener family was added alongside the helper redesign rather than instead of it.
 //
 // THREAT MODEL FENCE. Ordinary authoring mistakes by a contributor who is not trying to evade
 // the guard — copying a neighbouring emit that still wrapped, or reaching for the helper out of
@@ -171,7 +189,8 @@ function contributingObjectLiterals(root: ObjectLiteralExpression): ObjectLitera
  *
  * Sound in the direction that matters. If `serializeError` appears anywhere in the value that
  * reaches `error`, then on at least one path the logger receives an already-serialized object
- * and re-serializes it to "[object Object]". A conditional carrier is not a special case of
+ * and re-serializes it — historically to "[object Object]", structurally since
+ * fix/serialize-error-structure, and drifted in shape either way. A conditional carrier is not a special case of
  * that — it IS that, on one branch.
  *
  * The cost is a possible false positive: an expression that mentions the helper without its

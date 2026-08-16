@@ -837,6 +837,16 @@ Error instance            ->  {"name":"Error","message":"boom","stack":"…"}
 
 **The shape of the fix, when scheduled.** Preserve structure for non-`Error` values rather than stringifying: a plain object should serialize to its own enumerable fields (bounded depth, same truncation posture as the existing `stack` slice), with `String(value)` kept only for primitives. Sweep for the class, not these four sites: the defect is in the HELPER, so every `log.*` call that can receive a non-`Error` is an instance. Derive the site set rather than enumerating it — `tests/log/noDoubleSerializedLogError.test.ts` already walks `lib/`, `app/`, and `components/` for `log.*` call sites and is the natural place to hang a companion assertion.
 
+### BL-REPORT-CLIENT-ERROR-NON-ERROR-MESSAGE-ONLY — client boundary crashes collapse non-Error values to String(e)
+
+**Status:** OPEN · **Severity:** LOW (client-only mirror; server logging is structural since `fix/serialize-error-structure`) · **Class:** observability · **Effort:** S · **Filed:** 2026-08-16 (`fix/serialize-error-structure` spec §1.1.5)
+
+**Probe evidence.** `lib/observe/reportClientError.ts:11-14` — `toError` returns `{ message: String(e) }` for non-`Error` values, so a plain-object boundary crash reports `message: "[object Object]"` on the client-error wire. Same defect shape the serializeError arc repaired server-side.
+
+**Why filed rather than fixed in that arc (class-sweep exception (c)).** The client wire is its own surface: `clientErrorTransport` CAPS, the dedup signature (`lib/observe/clientErrorTransport.ts:32`), and the `/api/observe/client-error` route contract would all move — a redesign of a surface the serializeError PR does not otherwise touch.
+
+**Shape of the fix, when scheduled.** Reuse the structural posture: serialize non-`Error` crash values to bounded structure (or at minimum their own enumerable fields flattened into `detail`), respecting the wire CAPS.
+
 ### BL-SYNC-LOG-ATTRIBUTION-METATEST — structural guard that every sync_log writer names its show
 
 **Status:** OPEN · **Severity:** MEDIUM (regression prevention; the defects it guards are repaired in `fix/sync-log-show-id-duration`) · **Class:** structural guard · **Effort:** M · **Filed:** 2026-08-09
