@@ -44,13 +44,13 @@
 - Produces: (a) `pnpm exec tsx single-mutant.ts '<siteId>'` — prints `{siteId, suiteExit, verdict}`; exit 0 iff the deciding suite KILLED the mutant; every kill proof in Tasks 2-5 uses this. (b) The FINAL 31-site id list all later tasks key on.
 - Consumes: `enumerateSites`/`siteId` (`tests/mutation/source/operators.ts`), `applyMutant` (`tests/mutation/source/generate.ts`), `runControl` (`tests/mutation/source/runner.ts` — runs ONE hand-written mutant text against the surface's suites, returns the child exit code), `runSurface` (`tests/mutation/source/runner.ts`).
 
-- [ ] **Step 1: Merge origin/main** (PR #807 lands `browserRegistry`/`browserMutate` rows in `tests/mutation/source/registry.ts`; a conflict there is mechanical — keep both sides' rows).
+- [x] **Step 1: Merge origin/main** (PR #807 lands `browserRegistry`/`browserMutate` rows in `tests/mutation/source/registry.ts`; a conflict there is mechanical — keep both sides' rows).
 
 ```bash
 git fetch origin && git merge origin/main --no-edit
 ```
 
-- [ ] **Step 2: Write the checker** (exact content; substitute the absolute worktree path for `<WORKTREE>`):
+- [x] **Step 2: Write the checker** (exact content; substitute the absolute worktree path for `<WORKTREE>`):
 
 ```ts
 // single-mutant.ts, run ONE mutant by site id against the deciding suite
@@ -89,7 +89,7 @@ console.log(JSON.stringify({ siteId: id, suiteExit: code, verdict }));
 process.exit(code === 0 ? 1 : 0);
 ```
 
-- [ ] **Step 3: Decide whether ids must regenerate.** `git diff --stat HEAD@{1} HEAD -- tests/cross-cutting/`. Re-run the survivor probe if EITHER `scan.ts` (ids move) OR the deciding suite (the kill/survive verdicts themselves can change — an upstream case can kill a former survivor without moving one line of source) changed in the merge. Probe script (untracked; same shape as the spec §9 run):
+- [x] **Step 3: Decide whether ids must regenerate.** `git diff --stat HEAD@{1} HEAD -- tests/cross-cutting/`. Re-run the survivor probe if EITHER `scan.ts` (ids move) OR the deciding suite (the kill/survive verdicts themselves can change — an upstream case can kill a former survivor without moving one line of source) changed in the merge. Probe script (untracked; same shape as the spec §9 run):
 
 ```ts
 // probe-survivors.ts, regenerate scoped survivor list
@@ -109,8 +109,8 @@ console.log(JSON.stringify({ killed: run.killed, survivors: run.survivors }, nul
 
 Run: `pnpm heavy pnpm exec tsx probe-survivors.ts` (~20 min under a heavy slot). If neither file changed, spec §9's ids stand — record that in the commit message. If the list changed, the NEW list is canonical downstream (batch membership follows the enclosing function, not the stale line number).
 
-- [ ] **Step 4: Calibrate the checker in BOTH directions** — `pnpm exec tsx single-mutant.ts 'relational-boundary:510:21:<><='` prints `verdict: "KILLED"`, exit 0 (probe-KILLED site); `pnpm exec tsx single-mutant.ts 'relational-boundary:528:47:>>>='` prints `verdict: "SURVIVED"`, exit 1 (declared survivor). A checker that cannot reproduce both directions must not be trusted for kill proofs; stop and debug (most likely: wrong worktree path, or a Step-3 id shift).
-- [ ] **Step 5: Commit** (merge commit and/or a `docs(plan):` note commit recording the id-list decision and both calibration outputs).
+- [x] **Step 4: Calibrate the checker in BOTH directions** — `pnpm exec tsx single-mutant.ts 'relational-boundary:510:21:<><='` prints `verdict: "KILLED"`, exit 0 (probe-KILLED site); `pnpm exec tsx single-mutant.ts 'relational-boundary:528:47:>>>='` prints `verdict: "SURVIVED"`, exit 1 (declared survivor). A checker that cannot reproduce both directions must not be trusted for kill proofs; stop and debug (most likely: wrong worktree path, or a Step-3 id shift).
+- [x] **Step 5: Commit** (merge commit and/or a `docs(plan):` note commit recording the id-list decision and both calibration outputs).
 
 <!-- tasks: depth=3 red-contract -->
 
