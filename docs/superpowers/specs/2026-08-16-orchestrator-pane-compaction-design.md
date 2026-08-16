@@ -17,8 +17,9 @@ happens at a position selected by nothing at all — frequently mid-task, with t
 sweep results, and "what I was about to do next" living only in context.
 
 An orchestrator session can do better, because it can see and drive other panes. This spec defines
-the surface that lets it: a read-only classifier over the live pane roster, and a driver that
-checkpoints a target's state to disk and compacts it at a position the orchestrator chose.
+the surface that lets it: a read-only classifier over the live pane roster, and three one-shot
+commands that checkpoint a target's state to disk and compact it at a position the orchestrator
+chose.
 
 **The value is entirely in beating auto-compaction to the punch.** Position is the purpose;
 pressure is only the trigger. A design that ranks by pressure alone has inverted the two.
@@ -40,6 +41,8 @@ citation; do not re-derive.
 | Bands are integers in tenths. A float weight is unattackable by every declared mutation operator (`tests/mutation/source/operators.ts:17`), which would put the band constants outside the closure set. | §4.2 |
 | **Waiting on `idle` is correct; P6's terminal `done` does not contradict it.** `herdr agent wait --status done` is refused by the tool: `"done is a UI attention state; use idle for CLI agent completion waits"`. Recorded so a later round does not re-derive it. | §2.2, §3 |
 | **The driver never interrupts.** Round 2 found four defects on the interrupt's race surface; it was removed rather than patched a third time, per the three-round prose cap (`docs/agents/spec-self-review.md:22`). Esc, the adaptive-Esc loop, and the mid-tool-call screen heuristic are all gone. Do not propose reinstating them without a probe showing queue-and-wait is insufficient. | §3.8, §5.2 |
+| **The sequence is three one-shot commands, not one stateful driver.** Round 3's F5/F6/F7/F8 were all consequences of one script owning a multi-hour sequence; decomposing closed all four. User scope decision 2026-08-16. Do not propose recombining them into a single `--fire`. | §5.2, §5.5 |
+| **`--as <sessionId>` is supplied explicitly, never inferred.** Orchestrator panes have no worktree and therefore no marker of their own, so there is nothing to infer it from. | §3.9, §5.3 |
 | This spec ships **no UI** — nothing under the UI tree, no tokens, no CSS — so invariant 8's impeccable dual-gate does not apply. No DB, no migrations, no advisory locks. | the scope statement immediately below |
 
 **Scope statement.** The complete file manifest is §5.6. No entry falls under the UI tree (`app/`
@@ -99,17 +102,29 @@ second `bash` loops. No live arc was touched; the pane was closed afterwards.
 | --- | --- | --- | --- |
 | **P1** | Input sent to a `working` pane **queues**; it does not execute mid-turn, and status stays `working`. | `working`, mid-tool-call | `❯ QUEUED-PROBE-A` above `❯ Press up to edit queued messages`; `status: working` |
 | **P5** | A queued **slash command** executes as a command when the queue drains. | queue drained by an interrupt | `✻ Compacting conversation…` → `⎿ Compacted` |
-| **P6** | After compaction the session does **not** auto-resume; it settles at `done`. | post-compaction | `status: done` stable 20s+; `pgrep -fl 'echo beat-'` empty |
+| **P6** | After compaction the session does **not** auto-resume. | post-compaction, interrupt-drained | `status: done` stable 20s+; `pgrep -fl 'echo beat-'` empty |
+| **P7** | A queued slash command executes when the queue drains by **natural turn completion**; no interrupt is required. **On that path the session settles at `idle`.** | `working`, queue drained naturally (second probe pane) | `⏺ Last line: n-25` then `✻ Conversation compacted` / `❯ /compact ⎿ Compacted`; `status: idle` |
+| **P8** | A send to an **`idle`** pane executes directly, without queueing. | `idle` | the opening step of both probe runs: `wait --status idle`, then send, then `status: working` with the task running |
 
 **P2, P3 and P4 are retired.** They measured Esc semantics (vim-mode consumption, interrupt, and
 queue detonation), and §5.2 no longer sends Esc. They remain in the branch history at commit
 `6afa333a5` should the decision ever be revisited.
 
 **What P1 does and does not establish.** It was measured on a pane that was **mid-tool-call**.
-Queueing was not separately measured for a `working` pane between tool calls. §5.2 therefore makes
-no distinction: it queues to any `working` pane and waits for `idle`, so both sub-states take the
-identical path and the unmeasured one carries no separate claim. **P5 was observed with the queue
-drained by an interrupt**, not by natural turn completion; §7 limit 1 records that residual.
+Queueing was not separately measured for a `working` pane between tool calls. §5.2 makes no
+distinction — it queues to any `working` pane — so both sub-states take the identical path and the
+unmeasured one carries no separate claim.
+
+**P7 supersedes P5 as the load-bearing measurement.** P5 was observed with the queue drained by an
+interrupt, which §5.2 no longer performs; P7 measures the natural-drain path the design actually
+uses, and additionally settles that the terminal state there is `idle` — the state §5.2's
+orchestrator-side polling looks for. P6's `done` was specific to the interrupt path.
+
+**`done` targets are routed through `idle` rather than claimed.** P8 measured a direct send to an
+`idle` pane; no probe sent to a pane in `done`. §5.2's sending commands therefore make no claim
+about `done`: the orchestrator's report shows the state, and a `done` pane is treated exactly as
+`working` is — the send queues or executes, and the orchestrator re-runs the report to see. One
+fewer claim, rather than a documented limit covering one.
 
 ### 3.7 Context pressure is externally readable
 
@@ -282,54 +297,63 @@ detector surface to be enrolled in the source-mutation registry
 (`tests/mutation/source/registry.ts:12-38`) before its first review dispatch, and the runner
 overlays a target only when a Vitest suite imports it. A terminal CLI script cannot be enrolled.
 
-### 5.2 The protocol
+### 5.2 Three one-shot commands, not one protocol
 
-**No interrupt.** Every step is a send or a wait.
-
-**Precondition.** The verdict, recomputed at drive time (§5.5), is `COMPACT` or `FORCE`;
-`agent_status` ∈ {`working`, `idle`, `done`} (rule 6 has already excluded the rest).
+**No interrupt, and no long-running stateful driver.** Round 3 found four defects that were all
+consequences of one script owning a multi-hour sequence: the verdict going stale across the wait,
+the checkpoint gate admitting a concurrent writer's marker update, an undefined post-compact
+failure path, and no identity for "this orchestrator". The sequence is therefore decomposed into
+three commands the orchestrator issues in turn, each of which **returns immediately** and revalidates
+independently.
 
 ```
-0. Record the marker's mtime and `next` value.
-1. send <CHECKPOINT_TEXT>; send $'\r'
-     working      -> queues, fires when the current turn ends            [P1]
-     idle | done  -> executes directly
-2. wait --status idle, timeout CHECKPOINT_TIMEOUT
-     on timeout -> abort, exit 1, send nothing further.
-     The queued checkpoint may still fire later; it only writes a marker,
-     so an abort here is harmless.                                       (§7 limit 3)
-3. VERIFY the checkpoint landed:
-     marker mtime is newer than step 0 AND `next` is non-empty.
-     not verified -> abort, exit 1, DO NOT COMPACT.
-4. send '/compact'; send $'\r'                                           [P5]
-5. wait --status idle, timeout COMPACT_TIMEOUT
-6. send <RESUME_TEXT>; send $'\r'                                        [P6]
+panes:compact --checkpoint <target> --as <sessionId>
+  0. revalidate: verdict is COMPACT|FORCE, purview resolves to <sessionId>, uncontested
+  1. mint a nonce; send CHECKPOINT_TEXT carrying it; send $'\r'         [P1: queues if busy]
+  2. record (target, nonce) under the orchestrator's state dir
+  -> exits 0 having SENT, not having waited. The target executes when its turn ends.
+
+panes:compact --compact <target> --as <sessionId>
+  0. revalidate: same three conditions, fresh                            (closes F5)
+  1. read the target's marker; require `checkpointNonce` == the recorded nonce
+     mismatch or absent -> exit 1, send NOTHING                          (closes F6)
+  2. send '/compact'; send $'\r'                                         [P5, P7]
+  -> exits 0 having SENT. No wait, no post-compact failure matrix.       (closes F7)
+
+panes:compact --resume <target> --as <sessionId>
+  1. send RESUME_TEXT; send $'\r'                                        [P6]
 ```
 
-**Step 3 is the safety gate.** Round 2 found that waiting for `idle` proves only that a turn ended,
-not that the checkpoint was written — and compacting an unverified target produces exactly the
-context loss this feature exists to prevent. Verification reads the marker from disk; it does not
-scrape the screen for an acknowledgement string.
+The orchestrator sequences them, re-running the plain report between steps to see the target's
+state. **That re-run is the wait**, and it is the orchestrator's judgement rather than a timeout
+buried in a script — which is what makes each command's failure mode singular and testable.
 
-**Step 1 is the load-bearing step.** Compaction summarizes a conversation; whatever is only in that
-conversation is what the summary may lose. The checkpoint moves the target's intent to disk first.
+**The nonce is what makes verification sound.** Round 3 showed that "marker mtime is newer and
+`next` is non-empty" passes on *any* concurrent marker write — a stage progression, a `blockedOn`
+change, a takeover rewriting `sessionId`, another orchestrator's checkpoint. A nonce minted by
+`--checkpoint` and required verbatim by `--compact` cannot be satisfied by a writer that never saw
+it.
+
+**This extends the ship-state marker contract by one optional field.** AGENTS.md declares the
+marker as `{branch, stage, tasksRemaining, next, blockedOn, cronJobId, sessionId}`;
+`checkpointNonce` is added as optional, written only by a target responding to `CHECKPOINT_TEXT`,
+and read only by `--compact`. Its absence is normal and is not a fault. The `docs/agents/`
+write-up (§10) states the extension so the marker contract has one description, not two.
 
 **The checkpoint does NOT commit.** Invariant 1 permits a task commit only after the implementation
-passes its test, and a target mid-task has not. The checkpoint writes the marker only — gitignored,
-so it dirties nothing — and leaves the working tree exactly as it was. A dirty tree survives
-compaction; it is on disk. No exception to invariant 1 is requested.
+passes its test, and a target mid-task has not. The checkpoint writes the marker — gitignored, so
+it dirties nothing — and leaves the working tree exactly as it was. A dirty tree survives
+compaction; it is on disk.
 
-`CHECKPOINT_TIMEOUT` is **4 hours** and `COMPACT_TIMEOUT` is **10 minutes**. The first is long
-because a queued checkpoint waits out the target's current turn, and turns of 2h39m are observed on
-the live roster (§3.7).
-
-**The literal texts**, so AC-6's byte-for-byte assertion has an authoritative expected value:
+**The literal texts**, so AC-6's byte-for-byte assertion has an authoritative expected value.
+`<NONCE>` is the only substitution:
 
 ```
 CHECKPOINT_TEXT:
 Checkpoint before compaction. Do not commit. Update .claude/ship-state.json in your worktree:
-set `stage` to where you actually are, and set `next` to the literal command or action that
-resumes this work. Leave the working tree exactly as it is. Then stop.
+set `stage` to where you actually are, set `next` to the literal command or action that resumes
+this work, and set `checkpointNonce` to exactly <NONCE>. Leave the working tree exactly as it
+is. Then stop.
 
 RESUME_TEXT:
 Run `date` first; the shell clock is the only source of truth. Discard any stale blocked or
@@ -338,8 +362,8 @@ action immediately, in this turn. You were compacted by the orchestrator; approv
 given, do not re-ask.
 ```
 
-**Step 6 does not delegate to the target's cron nudge.** Those jobs live in session memory and no
-external observer can verify Stage 0 registered one.
+**`--resume` does not delegate to the target's cron nudge.** Those jobs live in session memory and
+no external observer can verify Stage 0 registered one.
 
 ### 5.3 Modes
 
@@ -347,14 +371,25 @@ external observer can verify Stage 0 registered one.
 | --- | --- | --- |
 | `pnpm panes:compact` | Report: pane, branch, `t`, verdict, position evidence. Every roster pane. | 0 |
 | `pnpm panes:compact --json` | Envelope `{status, degraded, panes}`. Never capped. | 0 |
-| `pnpm panes:compact --check` | See aggregation below. | 0/1/2 |
-| `pnpm panes:compact --drive <target>` | **Dry run by default** — prints §5.2, sends nothing. | 0 |
-| `pnpm panes:compact --drive <target> --fire` | Executes §5.2 subject to §5.5. | 0/1 |
+| `pnpm panes:compact --check --as <id>` | See aggregation below. | 0/1/2 |
+| `pnpm panes:compact --checkpoint <target> --as <id>` | §5.2 command 1. `--dry-run` prints the sends without issuing them. | 0/1 |
+| `pnpm panes:compact --compact <target> --as <id>` | §5.2 command 2. `--dry-run` as above. | 0/1 |
+| `pnpm panes:compact --resume <target> --as <id>` | §5.2 command 3. `--dry-run` as above. | 0/1 |
+
+Every sending mode requires `--as` and a **single named target**; none accepts `--all`. `--dry-run`
+is available on each and prints the exact bytes without sending. `<target>` resolves through
+`herdr agent get`; an `agent_not_found` code exits 1 naming the target and sends nothing (§2.2).
+
+**`--as <sessionId>` is the orchestrator's identity, supplied explicitly.** Round 3 correctly
+observed there is nothing to infer it from — orchestrator panes have no worktree and therefore no
+ship-state marker of their own (§3.9). Making it an argument is the honest form: it is testable, it
+cannot silently resolve to the wrong orchestrator, and a missing `--as` on a sending mode exits 1
+rather than guessing.
 
 **`--check` aggregation.** The report covers every roster pane; `--check` does not. Its exit
-considers **only panes in this orchestrator's purview**, because an orchestrator owning part of a
-shared machine would otherwise never see 0 or 1 (round 2). `NOT-AN-ARC` and `UNOWNED` panes are
-reported but excluded from the exit computation.
+considers **only panes in `--as`'s purview**, because an orchestrator owning part of a shared
+machine would otherwise never see 0 or 1. `NOT-AN-ARC` and `UNOWNED` panes are reported but
+excluded from the exit computation.
 
 - **2** — any purview pane is `UNDETERMINED`. Trust is affected, so it outranks 1.
 - **1** — no `UNDETERMINED`, and at least one purview pane is `COMPACT` or `FORCE`.
@@ -366,7 +401,8 @@ convention `ledger:claims --check` establishes (`scripts/ledger-claims.ts:10-14`
 ### 5.4 Purview
 
 Written at dispatch time; one row per pane dispatched (`paneId`, `agentName`, `branch`,
-`dispatchedAt`). Path is in §5.6.
+`dispatchedAt`). Path is in §5.6, keyed by the orchestrator's session id — the same value passed as
+`--as`.
 
 **Outside the worktree, deliberately.** AGENTS.md records the ship-gate's state file dirtying the
 tree it was measuring, resetting its own counter. Purview state takes the same placement.
@@ -379,18 +415,21 @@ The classifier reads **every** file in the purview directory, and a pane claimed
 yields `UNOWNED` (contested) — reported to both rather than driven by either. This is a collision
 report, not a lock; the residual read-read race is §7 limit 4.
 
-### 5.5 Drive-time revalidation
+### 5.5 Revalidation is per command, not per sequence
 
-Classification can be stale by the time `--fire` runs. `--fire` recomputes the full verdict
-immediately before step 1 and refuses unless the fresh verdict is `COMPACT`/`FORCE` and purview
-still resolves to this orchestrator, uncontested. A refusal exits 1 naming the condition and sends
-nothing.
+Each sending command revalidates immediately before it sends, and each returns without waiting. So
+the staleness window is bounded by one command's own execution rather than by the length of the
+whole sequence — which is what round 3's F5 found unbounded when a single script held the sequence
+across a four-hour checkpoint wait.
 
-Because §5.2 never interrupts, the residual window between revalidation and the first send is
-**benign**: the only thing sent is a checkpoint prompt, which queues if the target is busy and
-executes if it is not. There is no state in which that send damages the target — which is the
-property the interrupt did not have, and the reason removing it closed four round-2 findings at
-once.
+Between commands the target may change state freely. That is safe by construction: `--compact`
+revalidates and additionally requires the nonce, so a target that became `WAIT` after its
+checkpoint is refused at the moment `/compact` would otherwise be sent.
+
+Because §5.2 never interrupts, a send that races a state change is **benign**: the only things sent
+are a prompt and a slash command, which queue if the target is busy and execute if it is not. There
+is no state in which either damages the target.
+
 
 ### 5.6 File manifest
 
@@ -404,7 +443,8 @@ tests/mutation/source/registry.ts               # + one GuardSurface row (AC-10)
 tests/docs/_metaPaneCompactionContract.test.ts  # NEW: prose pin (§10)
 docs/agents/orchestrator-pane-compaction.md     # NEW: the write-up (§10)
 AGENTS.md                                       # + pointer under cross-cutting discipline
-~/.claude/pane-purview/<orchestratorSessionId>.json   # NEW: runtime state, outside any worktree
+~/.claude/pane-purview/<orchestratorSessionId>.json   # NEW: purview, outside any worktree
+~/.claude/pane-purview/<orchestratorSessionId>.nonces.json  # NEW: outstanding checkpoint nonces
 ```
 
 ---
@@ -434,37 +474,44 @@ line.
 
 Each is conservative-plus-signaled — consistent with §6, not an exception to it.
 
-1. **P5 was observed with the queue drained by an interrupt**, not by natural turn completion. If a
-   queued slash command were somehow inert on natural drain, step 4 would send `/compact` and the
-   target would not compact — a **no-op**, surfaced by step 5's timeout. The failure mode is a
-   missed compaction, never a damaged target. An implementation probe on a throwaway pane closes
-   this at build time and is a Task-7 step.
-2. **Position is inferred and can be wrong.** In the eligible band §4.4's demote-only rule bounds
-   the consequence to a missed compaction. **In the critical band it does not**, and this limit no
-   longer claims otherwise: rule 9 returns `FORCE` regardless of position cost, so a wrong
+1. **Position is inferred and can be wrong.** In the eligible band §4.4's demote-only rule bounds
+   the consequence to a missed compaction. **In the critical band it does not**, and this limit
+   does not claim otherwise: rule 9 returns `FORCE` regardless of position cost, so a wrong
    inference at `t >= 8` can compact at an expensive position. The bound that holds there is
-   different and weaker — at critical pressure the counterfactual is auto-compaction at an
-   unchosen position, so a deliberate compaction at a mis-inferred position is still no worse than
-   doing nothing. Only row 1 outranks `FORCE`, because there the right action is to merge.
-3. **A checkpoint can be queued and then abandoned** if step 2 times out. The consequence is a
-   marker update the target performs later, with no compaction — harmless, and the abort is
-   surfaced.
+   weaker — at critical pressure the counterfactual is auto-compaction at an unchosen position, so
+   a deliberate compaction at a mis-inferred one is no worse. Only row 1 outranks `FORCE`.
+2. **A checkpoint can be issued and never followed by `--compact`.** The orchestrator may simply
+   not run the second command. The consequence is a marker update the target performs at its own
+   pace and no compaction — harmless, and visible in the next report because the recorded nonce
+   is still outstanding.
+3. **The nonce proves the target wrote it, not that the target wrote anything useful.** A target
+   that sets `checkpointNonce` but leaves `next` stale satisfies `--compact`. The bound is that
+   this is the target's own contract failure, identical to one that would have occurred under
+   auto-compaction, and it is not made worse by compacting. Requiring the orchestrator to judge
+   the *content* of another session's `next` is out of scope (§11).
 4. **Purview collision detection is a report, not a lock.** Two orchestrators reading before either
    writes can both proceed. Consequence with the interrupt gone: two checkpoint prompts (the second
-   rewrites the same marker) and two `/compact` sends (the second lands on an already-compacted
-   session). Bounded, and both are observed-benign shapes rather than asserted ones — the probe
-   pane's gauge read `ctx ░░░░░` before and after its compaction.
+   rewrites the same marker, invalidating the first nonce, so the first orchestrator's `--compact`
+   correctly refuses) and at most two `/compact` sends, the second landing on an already-compacted
+   session. Bounded, and observed rather than asserted — the probe pane's gauge read `ctx ░░░░░`
+   before and after its compaction.
 5. **`gh`'s no-PR signature is matched on human-readable stderr**, which is not a stability
    contract. A future reword demotes every pane to `UNDETERMINED` rather than mis-classifying.
 6. **An arc whose Stage 0 label was never set is indistinguishable from a non-arc pane.** Both
    report `NOT-AN-ARC`; neither is driven, and neither is silently omitted.
-7. **Auto-compaction cannot be prevented, only preempted.** A target can auto-compact between
-   classification and drive; §5.5 bounds the consequence to a wasted invocation because no
-   interrupt is involved.
-8. **Cross-account panes.** The roster spans workspaces. Purview reporting is the only separation;
-   there is no account-level enforcement.
+7. **A marker-less worktree is supported and classified from git and corpus signals alone.**
+   Measured: 3 of 38 worktrees carry no marker, one of which (`ci-flake-ledger-correction`) is a
+   genuine branch worktree. AGENTS.md's ship-gate has a soft tier for exactly this. Absence is
+   never read as mismatch — §4.5 rule 4 no-ops rather than firing.
+8. **Agent-label uniqueness is a convention, not an invariant.** It holds on the live roster today
+   and follows from branches being unique, but a hand-mislabeled pane could collide. Two roster
+   entries sharing a name yield `UNDETERMINED` for both, naming the collision, for the same reason
+   a contested purview claim does: the classifier cannot tell which pane a later command reaches.
+9. **Auto-compaction cannot be prevented, only preempted.** A target can auto-compact between any
+   two commands; each command revalidates, so the consequence is a refused or wasted invocation.
+10. **Cross-account panes.** The roster spans workspaces. Purview reporting is the only separation;
+    there is no account-level enforcement.
 
----
 
 ## 8. Testing
 
@@ -476,15 +523,18 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
 | Demote-only | Two rows matching with uncertain ordering yields the more expensive cost. |
 | `RECENT_COMMIT_WINDOW` | Both sides of the 15-minute boundary. |
 | Hard `WAIT` | CI-green-unmerged at critical pressure. |
-| `gh` discrimination | No-PR signature → row 8; a non-zero exit with different stderr → `UNDETERMINED`, never `COMPACT`. |
+| `gh` discrimination | No-PR signature → row 8; a non-zero exit with different stderr → `UNDETERMINED`, never `COMPACT`. Rule 5 is exercised **distinctly** from rule 3, proving it is not dead code. |
 | Session match | Marker `sessionId` matching, differing, and pane reporting none — three cases. |
 | Corpus | Absent corpus reads as "no review in flight", not a fault; non-APPROVE newest row with no commit since → row 4. |
 | Purview | Unowned reported; contested reported; registry read from every file in the directory. |
-| Checkpoint verification (§5.2 step 3) | Marker unchanged after the checkpoint turn → abort, exit 1, **`/compact` never sent**. |
-| Revalidation (§5.5) | Fresh at classification, stale at drive → refuses, exits 1, sends nothing. |
+| Nonce verification (§5.2) | Four cases: nonce matches → sends; nonce absent → exit 1, nothing sent; nonce differs → exit 1, nothing sent; **marker mtime newer and `next` non-empty but nonce stale** → exit 1, which is the concurrent-writer false positive round 3 found. |
+| Revalidation (§5.5) | Per command: fresh at report time, stale at command time → refuses, exits 1, sends nothing. |
+| `--as` required | Every sending mode without `--as` exits 1 and sends nothing. |
+| Target resolution | `agent_not_found` exits 1 naming the target; duplicate agent names yield `UNDETERMINED` for both. |
+| Marker-less pane | Classifies from git and corpus alone; rule 4 no-ops rather than firing. |
 | `--check` aggregation | Purview-only; `UNDETERMINED` outranks `COMPACT`; `NOT-AN-ARC`/`UNOWNED` excluded from the exit. |
 | CLI envelope | `--json` never capped (fixture larger than any plausible cap; the live roster is ~12 panes, too small to fail against the mutant it names). |
-| Keystroke sequence | Dry-run asserted byte-for-byte including both literal texts; **asserted to contain no `\x1b`**, pinning the no-interrupt decision. |
+| Keystroke sequence | Dry-run asserted byte-for-byte including both literal texts with `<NONCE>` substituted. **No `\x1b` byte** asserted on the dry-run path **and** on the live send path through a spy on the send surface — a dry-run-only assertion cannot see an Esc emitted conditionally by the live adapter, which round 3 named. |
 | No-commit contract | The checkpoint text instructs against committing. |
 | Prose pinning | `tests/docs/` meta-test following `tests/docs/_metaAgentsMarkerContract.test.ts`. |
 | Mutation | `tests/mutation/source/registry.ts`; score in the round-1 diff brief. |
@@ -508,16 +558,19 @@ on the case's own inputs.
   malformed**; a pane in two registries is reported `UNOWNED` contested. Neither is driven.
   Provided §4.5 rule 1 did not fire — a pane that is not an arc is `NOT-AN-ARC` (AC-16), which
   outranks ownership because ownership is meaningless for a pane with no branch.
-- **AC-6** `--drive` without `--fire` sends nothing and prints §5.2 verbatim.
-- **AC-7** `--fire` rejects `--all` and requires a named target.
+- **AC-6** `--dry-run` on any sending mode sends nothing and prints that command's §5.2 bytes
+  verbatim, including the literal texts with `<NONCE>` substituted.
+- **AC-7** Every sending mode rejects `--all`, requires a single named target, and requires
+  `--as`; a missing `--as` exits 1 rather than inferring an orchestrator.
 - **AC-8** `--check` exits per §5.3 aggregation; exit 2 is never an all-clear.
 - **AC-9** The registry is read from the §5.6 purview path, never from a worktree.
 - **AC-10** Enrolled in the source-mutation registry with an empty unaccepted-survivor set.
 - **AC-11** Pressure `t >= 8` yields `FORCE` except under §4.5 rules 1-7.
 - **AC-12** The write-up and the AGENTS.md pointer exist; the §10 meta-test fails when either
   drifts.
-- **AC-13** `--fire` recomputes the verdict immediately before sending and refuses, exiting 1
-  without sending, when a §5.5 condition fails.
+- **AC-13** `--checkpoint` and `--compact` each revalidate immediately before sending and refuse,
+  exiting 1 without sending, when the fresh verdict is not `COMPACT`/`FORCE` or purview does not
+  resolve to `--as` uncontested.
 - **AC-14** The checkpoint never instructs a commit, and the driver never commits.
 - **AC-15** A `gh` failure other than the recognized no-PR signature yields `UNDETERMINED`,
   provided §4.5 rules 1-4 did not fire. The accept-set admits all three `gh` forms as observations
@@ -527,8 +580,15 @@ on the case's own inputs.
 - **AC-17** A pane whose marker `sessionId` does not match its live `agent_session.value` —
   including when the pane reports none — yields `UNDETERMINED` and is never driven, provided §4.5
   rules 1-3 did not fire. An **absent** marker cannot mismatch: rule 4 no-ops (§4.3, AC-19).
-- **AC-18** The driver emits no `\x1b` byte under any input, and `/compact` is never sent when
-  §5.2 step 3's verification fails.
+- **AC-18** No command emits an `\x1b` byte under any input, on the dry-run path **or** the live
+  send path.
+- **AC-19** `--compact` sends nothing and exits 1 when the target's `checkpointNonce` is absent or
+  differs from the nonce `--checkpoint` recorded for that target.
+- **AC-20** A pane whose worktree has no marker is classified from git and corpus signals alone and
+  is never `UNDETERMINED` for that reason; §4.5 rule 4 no-ops rather than treating absent as
+  mismatched.
+- **AC-21** An unresolvable target exits 1 naming it and sends nothing; two roster panes sharing an
+  agent name are both `UNDETERMINED`, naming the collision.
 
 ---
 
@@ -554,3 +614,7 @@ document carries a band value contradicting §4.2.
 - Compacting the orchestrator itself.
 - An atomic purview claim (§7 limit 4).
 - Interrupting a target for any reason (§1.1).
+- **Judging the *content* of another session's checkpoint.** The nonce proves the target wrote the
+  marker; whether its `next` is a good resume instruction is the target's own contract (§7
+  limit 3). An orchestrator that second-guessed it would be reimplementing the target's judgement
+  from outside, on strictly less information.
