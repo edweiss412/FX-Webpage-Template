@@ -177,6 +177,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // are hermetic. Widening the rule to transitive reachability is a change to
   // the scanner with its own before/after numbers, not a number to adjust here.
   "tests/mutation/source/shardPartition.test.ts": 0,
+  // sourceShardPartition's SECOND deciding suite, added when enrolment's first
+  // run showed the unit suite cannot kill a mutant of either constant it reads.
+  // Also a scanner-rule 0 with the same caveat: it readFileSync's the workflow
+  // and the shard files, but imports no member of ENVIRONMENT_SOURCES.
+  "tests/mutation/_metaSourceShardIntegrity.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

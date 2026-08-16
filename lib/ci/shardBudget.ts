@@ -93,11 +93,15 @@ export function checkBudget(
   }
 
   for (const r of records) {
+    // An if/else CHAIN rather than a guard clause with `continue`. Enrolment's
+    // first run surfaced the `continue` as a survivor, and it was genuinely
+    // equivalent: `NaN > x` is false for every x, so falling through to the two
+    // comparisons below pushes nothing and the output is identical. Rather than
+    // bless a survivor, the mechanism that produced it is gone -- there is no
+    // longer a statement whose removal changes nothing.
     if (!Number.isFinite(r.seconds)) {
       failures.push(`leg ${r.leg} reported a non-numeric elapsed value: ${r.seconds}`);
-      continue;
-    }
-    if (Number.isFinite(budgetSeconds) && r.seconds > budgetSeconds) {
+    } else if (Number.isFinite(budgetSeconds) && r.seconds > budgetSeconds) {
       // Strictly above: exactly at budget is compliant. Seconds, not minutes --
       // an integer-minute record cannot express 60m59s, so a shard already over
       // budget would be recorded at the threshold and evade this comparison.

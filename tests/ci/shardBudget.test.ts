@@ -83,6 +83,29 @@ describe("shard budget check", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("rejects a ZERO budget, under which every leg is trivially over", () => {
+    // Kills `budgetSeconds <= 0` weakened to `< 0`: a zero budget would then be
+    // accepted, and every leg reported over it. Enrolment survivor
+    // relational-boundary:73:56:<=><.
+    expect(checkBudget([rec(LEGS[0]!, 1), rec(LEGS[1]!, 1)], LEGS, 0).ok).toBe(false);
+  });
+
+  it("accepts a budget of ONE second, which is positive and finite", () => {
+    // Kills `budgetSeconds <= 0` weakened to `<= 1`, which would reject a legal
+    // budget. Enrolment survivor integer-literal:73:59:0>1. Both legs at 0 are
+    // under budget and under the warn band, so this is a clean pass.
+    const r = checkBudget([rec(LEGS[0]!, 0), rec(LEGS[1]!, 0)], LEGS, 1);
+    expect(r).toEqual({ ok: true, failures: [], warnings: [] });
+  });
+
+  it("states the warn band as a PERCENTAGE in the annotation", () => {
+    // Kills `WARN_FRACTION * 100` weakened to `* 101`, which leaves every other
+    // assertion green while the annotation reads "75.75%". Enrolment survivor
+    // integer-literal:109:66:100>101.
+    const r = checkBudget([rec(LEGS[0]!, BUDGET * 0.8), rec(LEGS[1]!, 1)], LEGS, BUDGET);
+    expect(r.warnings.join(" ")).toContain("75%");
+  });
+
   it("fails when no leg is expected at all, rather than passing vacuously", () => {
     // `expectedLegs` empty means the counts that derive it were zero or unread;
     // a green verdict there is the fail-open case this checker exists to close.
@@ -118,6 +141,15 @@ describe("expected leg names", () => {
   it("names no duplicate leg", () => {
     const legs = expectedLegNames(8, 4);
     expect(new Set(legs).size).toBe(legs.length);
+  });
+
+  it("accepts a count of ONE, the smallest legal shard count", () => {
+    // Kills `n <= 0` weakened to `n <= 1`, which would reject a legal one-shard
+    // family while every other case here still passed. Enrolment survivor
+    // integer-literal:43:38:0>1.
+    expect(expectedLegNames(1, 1).sort()).toEqual(
+      ["parser-shards-0", "source-shards-0", "parser-gates", "source-gates"].sort(),
+    );
   });
 
   it("throws on a non-positive or non-integer count rather than emitting a short set", () => {
