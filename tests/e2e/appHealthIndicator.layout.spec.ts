@@ -44,7 +44,7 @@ const BAR_HEIGHT = 56;
 // Tap-target class shared by NotifBell and the Doug button / dev link variant of
 // AppHealthIndicator — the dimensional parity is the whole point of §8.
 const TAP_TARGET =
-  "relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-text-subtle hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+  "relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-text hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 const INNER_CLUSTER = "inline-flex items-center gap-2"; // indicator button → dot + icon
 
 // A size-5 icon placeholder (Bell / Activity both render size-5 svgs).

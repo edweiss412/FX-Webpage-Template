@@ -39,6 +39,18 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // four sign-not-magnitude and two guarded-branch equivalents — all six with
   // control-flow arguments, which is why the surface now carries NO accepted gap.
   taskContract: { equivalent: 22 },
+  // The 2026-08-15 arms surfaces, enrolled with EMPTY ledgers. Both are pure
+  // classifiers over literal fixtures, so every survivor is repayable by a test
+  // rather than blessable: a row appearing here later is a coverage regression
+  // to explain, not a number to bump.
+  // citationIntent swept clean: 21/21 killed, no blessed survivor, so a row
+  // appearing here later is a coverage regression to repair.
+  citationIntent: {},
+  // redContract: SEVEN reachability arguments — the GATE bound that only ever
+  // runs on GATE_ANY hits, three one-past-the-end scan bounds, and the two
+  // extent-containment equalities a marker line can never occupy. No
+  // accepted-gap: every other survivor of the first run was repaid by a test.
+  redContract: { equivalent: 7 },
   // Counted from the surface, not read back off its ledger: `scripts/lib/
   // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
   // always present -- two in the tip comparator, one in the age loop -- and
@@ -108,6 +120,21 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
+  // The interactive-scan surfaces, enrolled 2026-08-15. `tapTargetScan` carries
+  // NO blessed survivor: its whole body is one map over the shared core's
+  // verdicts, and the census suite kills its single mutant, so a row appearing
+  // here later is a coverage regression to repair rather than a number to bump.
+  tapTargetScan: {},
+  // The shared core is this arc's mutation-relevant surface: the in-scope
+  // predicate, the resolver and both token grammars live here, and three suites
+  // decide its verdicts. Its eleven blessed survivors are all ONE shape — a
+  // mutation whose only effect is on a value no consumer can distinguish: an
+  // empty string added to a token list nothing counts, a loop's off-the-end read
+  // of `undefined`, a 2px shift against a 24px gap, a consistent relabelling
+  // under a symmetric `min`. Across two rounds SIXTY-SEVEN other survivors were
+  // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
+  // repay rather than a number to bump.
+  interactiveScanCore: { equivalent: 11 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

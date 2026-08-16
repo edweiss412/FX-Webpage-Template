@@ -101,7 +101,7 @@ export function ActiveFilterChips({ filters }: { filters: AppEventFilters }) {
       <button
         type="button"
         data-testid="clear-filters"
-        className="inline-flex min-h-tap-min items-center px-1.5 text-xs text-text-subtle underline hover:text-text"
+        className="inline-flex min-h-tap-min items-center px-1.5 text-xs text-text underline hover:text-text-strong"
         onClick={() => patch(CLEAR_ALL_PATCH)}
       >
         Clear filters
