@@ -1053,6 +1053,85 @@ describe("R3 — heritage, dynamic-import priority, pattern defaults, premise do
     expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(false);
   });
 
+  describe("a premise must DOMINATE the registration, not merely precede it (R3 #5)", () => {
+    // `runsAtModuleLoad` asked only whether a non-IIFE function encloses the
+    // call. Absence of one does not establish execution: a premise under a
+    // false branch, a short-circuit, a zero-iteration loop, an unmatched switch
+    // case, or a conditionally invoked IIFE never runs, and each was credited as
+    // if it had. The producer here is environment-derived, so a false credit is
+    // a premise contract satisfied by nothing.
+    const conditioned = (stmt: string): boolean => {
+      const p = join(scratch, `r3-dom-${n++}.ts`);
+      writeFileSync(
+        p,
+        `import { premise } from "@/tests/_shared/premise";
+         const rows = [[process.env.ROOT]];
+         ${stmt}
+         test.each(rows)("x", (r) => { void r; });`,
+        "utf8",
+      );
+      return classifyTests(ROOT, p)[0]?.hasPremise ?? false;
+    };
+
+    it("a false branch", () => {
+      expect(conditioned(`if (false) { premise("rows", rows.length, 0); }`)).toBe(false);
+    });
+
+    it("an else branch", () => {
+      expect(conditioned(`if (rows.length) { void 0; } else { premise("rows", rows.length, 0); }`)).toBe(
+        false,
+      );
+    });
+
+    it("a short-circuit right operand", () => {
+      expect(conditioned(`rows.length && premise("rows", rows.length, 0);`)).toBe(false);
+    });
+
+    it("a ternary branch", () => {
+      expect(conditioned(`rows.length ? premise("rows", rows.length, 0) : void 0;`)).toBe(false);
+    });
+
+    it("a loop body that may run zero times", () => {
+      expect(conditioned(`for (const r of rows) { premise("rows", rows.length, 0); void r; }`)).toBe(
+        false,
+      );
+    });
+
+    it("a switch case that may not match", () => {
+      expect(
+        conditioned(`switch (rows.length) { case 99: premise("rows", rows.length, 0); break; default: break; }`),
+      ).toBe(false);
+    });
+
+    it("a catch clause", () => {
+      expect(conditioned(`try { void 0; } catch { premise("rows", rows.length, 0); }`)).toBe(false);
+    });
+
+    it("a conditionally invoked IIFE", () => {
+      expect(conditioned(`rows.length && (() => { premise("rows", rows.length, 0); })();`)).toBe(
+        false,
+      );
+    });
+
+    // The foils: dominance must not become "nothing counts". Each of these DOES
+    // run whenever the module loads.
+    it("still credits a bare statement", () => {
+      expect(conditioned(`premise("rows", rows.length, 0);`)).toBe(true);
+    });
+
+    it("still credits an unconditionally invoked IIFE", () => {
+      expect(conditioned(`(() => { premise("rows", rows.length, 0); })();`)).toBe(true);
+    });
+
+    it("still credits a try block, which runs", () => {
+      expect(conditioned(`try { premise("rows", rows.length, 0); } catch { void 0; }`)).toBe(true);
+    });
+
+    it("still credits a finally block, which runs", () => {
+      expect(conditioned(`try { void 0; } finally { premise("rows", rows.length, 0); }`)).toBe(true);
+    });
+  });
+
   it("a premise naming a SHADOWED same-named producer does not count", () => {
     const p = join(scratch, `r3-assoc-${n++}.ts`);
     writeFileSync(

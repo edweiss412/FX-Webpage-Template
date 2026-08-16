@@ -1104,9 +1104,55 @@ function loadTimePremises(sf: ts.SourceFile): ts.CallExpression[] {
 }
 
 /** Does this node execute when the module is loaded — i.e. sit under no function? */
+/**
+ * Does `child`'s subtree run every time `parent` runs?
+ *
+ * One step of the dominance walk, by construct. The controlling EXPRESSION of an
+ * `if`, a loop, a `switch` or a ternary runs whenever the construct does; the
+ * branches and bodies it selects do not. `&&`, `||` and `??` run their left
+ * operand always and their right one conditionally.
+ */
+function executesWhenever(child: ts.Node, parent: ts.Node): boolean {
+  const within = (n: ts.Node | undefined): boolean => {
+    if (n === undefined) return false;
+    return child === n || (child.getStart() >= n.getStart() && child.getEnd() <= n.getEnd());
+  };
+  if (ts.isIfStatement(parent)) return within(parent.expression);
+  if (ts.isConditionalExpression(parent)) return within(parent.condition);
+  if (ts.isSwitchStatement(parent)) return within(parent.expression);
+  if (ts.isCaseClause(parent) || ts.isDefaultClause(parent)) return false;
+  if (ts.isCatchClause(parent)) return false;
+  if (ts.isWhileStatement(parent) || ts.isDoStatement(parent)) return within(parent.expression);
+  if (ts.isForStatement(parent)) return within(parent.initializer);
+  if (ts.isForOfStatement(parent) || ts.isForInStatement(parent))
+    return within(parent.expression);
+  if (ts.isBinaryExpression(parent)) {
+    const k = parent.operatorToken.kind;
+    if (
+      k === ts.SyntaxKind.AmpersandAmpersandToken ||
+      k === ts.SyntaxKind.BarBarToken ||
+      k === ts.SyntaxKind.QuestionQuestionToken
+    )
+      return within(parent.left);
+  }
+  return true;
+}
+
 function runsAtModuleLoad(node: ts.Node): boolean {
   for (let p: ts.Node | undefined = node.parent; p !== undefined; p = p.parent) {
     if (ts.isSourceFile(p)) return true;
+    // DOMINANCE, not mere position. The old rule asked only whether a non-IIFE
+    // function encloses the call — and absence of one does not establish
+    // execution: `if (false) { premise(...) }` sits at module scope and never
+    // runs, and so does a short-circuit right operand, a ternary branch, a
+    // zero-iteration loop body, an unmatched switch case, and a catch clause
+    // (whole-diff R3 #5). Each was credited, so a premise contract could be
+    // satisfied by a call nobody executes.
+    //
+    // Syntactic and deliberately conservative: it declines everything it cannot
+    // see to be unconditional, rather than deciding reachability. A `try` block
+    // and a `finally` block both run, so both still count.
+    if (!executesWhenever(node, p)) return false;
     // An IIFE runs at load; a function that something else must call does not.
     if (isFunctionLike(p)) {
       const caller = p.parent;
