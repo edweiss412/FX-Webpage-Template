@@ -301,19 +301,29 @@ describe("screenshots-drift nextcache: exact input-hash key, no fallback, always
     STEPS.filter((s) => typeof s.uses === "string" && s.uses.startsWith(action));
   const indexOfStep = (pred: (s: WorkflowStep) => boolean): number => STEPS.findIndex(pred);
 
-  it("1. splits the combined cache step into exactly one restore and one save", () => {
+  it("1. exactly two steps touch the nextcache path: the restore and the save", () => {
     expect(stepsUsing("actions/cache/restore@v4")).toHaveLength(1);
     expect(stepsUsing("actions/cache/save@v4")).toHaveLength(1);
-    // The COMBINED action must no longer name this path. Other workflows'
-    // ~/.cache/ms-playwright combined steps stay legal and are untouched.
-    const combinedOnPath = STEPS.filter(
-      (s) => s.uses === "actions/cache@v4" && s.with?.path === CACHE_PATH,
-    );
+
+    // Stated as a CLOSED question over the path rather than a ban on one
+    // spelling (diff review R2). An earlier form prohibited the literal
+    // `actions/cache@v4`, which `actions/cache@v4.2.0` — a real supported ref
+    // that honors prefix `restore-keys` — walked straight past: the reviewer
+    // inserted such a step on this path, carrying the former fallback, and all
+    // nine assertions still passed while the spec §0 poison path was back.
+    //
+    // Enumerating refs loses that race by construction, so the assertion asks
+    // instead: WHICH steps touch this path? Exactly two may, and they must be
+    // the sanctioned pair. Any third step, under any action at any ref, fails
+    // here by name. Other workflows' ~/.cache/ms-playwright combined steps are
+    // untouched — this is scoped to one path.
+    const onPath = STEPS.filter((s) => s.with?.path === CACHE_PATH);
     expect(
-      combinedOnPath,
-      "the combined actions/cache@v4 step saves only on job success, which is the " +
-        "self-perpetuating failure this entry closes",
-    ).toEqual([]);
+      onPath.map((s) => s.uses ?? `run-step: ${s.name ?? "<unnamed>"}`).sort(),
+      `only the restore/save pair may touch ${CACHE_PATH} — a combined actions/cache step ` +
+        `at ANY ref saves only on job success and can carry restore-keys, which is the ` +
+        `self-perpetuating failure this entry closes`,
+    ).toEqual(["actions/cache/restore@v4", "actions/cache/save@v4"]);
   });
 
   it("2. the save step runs `if: always()` so a failing byte gate still saves", () => {
