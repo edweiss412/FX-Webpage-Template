@@ -30,7 +30,7 @@ The demote handler (the slide error path that adds to `demotedRef` and calls `on
   4. **The demoted slide's clamped tier ALSO failing (R1 F2).** The live suite proves the two-stage failure — original fails and demotes, then the clamped tier fails and the slide becomes the "Image unavailable" placeholder (`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx:697`). "Full detail unavailable" floating over "Image unavailable" is a contradiction; the chip's premise (a less-detailed view IS showing) died with the clamped tier. The transition that flips the affected slide to the placeholder clears chip and timer.
 
   The owning effect also clears the timer on unmount (ordinary cleanup; conditions 3-4 make unmount a backstop rather than the mechanism).
-- 6000ms rationale: longer than the interaction that triggered it (the user is mid-gesture), long enough to read eleven characters twice, short enough that the chip is gone before it reads as permanent chrome. A demote can fire at most once per slide per dialog session (`demotedRef` never re-pins), so the chip cannot loop.
+- 6000ms rationale: longer than the interaction that triggered it (the user is mid-gesture), long enough to read the three-word notice twice (an earlier draft said "eleven characters"; the copy is 23, and the reasoning is unchanged by the arithmetic), short enough that the chip is gone before it reads as permanent chrome. A demote can fire at most once per slide per dialog session (`demotedRef` never re-pins), so the chip cannot loop.
 
 ### §2.2 Rendered chip (rendered element, not a description)
 

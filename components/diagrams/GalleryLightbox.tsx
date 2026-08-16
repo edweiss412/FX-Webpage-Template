@@ -121,7 +121,9 @@ const ZOOM_THRESHOLD = 1.01;
  * How long the demote notice chip stays on the affected slide.
  *
  * Longer than the interaction that triggered it (the user is still mid-gesture),
- * long enough to read eleven characters twice, and short enough that it is gone
+ * long enough to read a three-word notice twice (the spec's "eleven
+ * characters" undercounts the 23-character copy; the reasoning survives the
+ * arithmetic), and short enough that it is gone
  * before it reads as permanent chrome. A demote fires at most once per slide per
  * dialog session (`demotedRef` never re-pins), so the chip cannot loop.
  */
@@ -764,11 +766,20 @@ export function GalleryLightbox({
                       once because a demote leaves the gesture and the scale
                       alone. Motion is token-only (`duration-fast`), so the
                       reduced-motion collapse comes for free.
+
+                      The fade is ENTRY ONLY, and the class list says so: an
+                      `@starting-style` ramp on mount, and no `transition-discrete`
+                      — that variant exists for discrete properties like `display`
+                      and this chip toggles none, so carrying it would advertise an
+                      exit treatment that cannot run. The exit is a deliberate
+                      instant unmount (spec §2.3): an exit fade would need
+                      exit-presence machinery for a one-line chip, and a quiet
+                      disappearance is the point.
                     */
                     <div
                       aria-hidden="true"
                       data-testid="lightbox-demote-chip"
-                      className="pointer-events-none absolute inset-x-0 bottom-2 z-dropdown mx-auto w-fit rounded-pill border border-border-strong bg-surface-raised px-4 py-1.5 text-sm font-medium text-text-strong shadow-tile transition-opacity duration-fast ease-out-quart transition-discrete starting:opacity-0"
+                      className="pointer-events-none absolute inset-x-0 bottom-2 z-dropdown mx-auto w-fit rounded-pill border border-border-strong bg-surface-raised px-4 py-1.5 text-sm font-medium text-text-strong shadow-tile transition-opacity duration-fast ease-out-quart starting:opacity-0"
                     >
                       Full detail unavailable
                     </div>
