@@ -22,6 +22,7 @@ import {
   inventoryRows,
   scanRepo,
   scanTimingSites,
+  UNCLASSIFIED_DISPOSITIONS,
 } from "@/scripts/scan-interaction-timings";
 import { premise, premiseHolds } from "../_shared/premise";
 
@@ -143,5 +144,53 @@ describe("DESIGN.md §5.5 interaction-timing inventory", () => {
       universe.filter((f) => EXCLUDED_PREFIXES.some((p) => f.startsWith(p))),
       "excluded-tree files that leaked into the scanned universe",
     ).toEqual([]);
+  });
+});
+
+// ── Property-totality census pins (BL-TIMING-SCAN-PROPERTY-TOTALITY) ─────────
+
+describe("the non-literal timing-property census", () => {
+  /** The six live sites, by (file, propertyKey, name) and by COUNT. */
+  const CENSUS: ReadonlyArray<readonly [string, string, string, number]> = [
+    ["components/admin/telemetry/EventRow.tsx", "duration", "reduce ? 0 : 0.22", 1],
+    ["components/crew/CrewSectionTransition.tsx", "duration", "duration", 1],
+    ["components/crew/RightNowHero.tsx", "duration", "prefersReducedMotion === true ? 0 : 0.22", 1],
+    ["components/diagrams/GalleryLightbox.tsx", "duration", "emblaDuration(prefersReducedMotion)", 2],
+    ["components/diagrams/GalleryLightbox.tsx", "duration", "motionDuration", 1],
+  ];
+
+  const unclassifiedCounts = (): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const site of scanRepo(REPO_ROOT).sites) {
+      if (site.kind !== "unclassified" || site.propertyKey === undefined) continue;
+      const k = `${site.file} ${site.propertyKey} ${site.name}`;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return counts;
+  };
+
+  test("every census site is live, with its exact COUNT", () => {
+    // Counts, not containment: the two GalleryLightbox `emblaDuration(...)`
+    // calls are the identical expression, so a containment check keyed without
+    // a count cannot see ONE of them disappear. That is line-independent — it
+    // survives the file moving — while still failing if an occurrence is lost.
+    const counts = unclassifiedCounts();
+    premise("the repo scan produced unclassified property sites at all", counts.size, 0);
+    const actual = CENSUS.map(([f, k, n]) => [f, k, n, counts.get(`${f} ${k} ${n}`) ?? 0]);
+    expect(actual).toEqual(CENSUS.map((row) => [...row]));
+  });
+
+  test("every disposition row matches at least one live site", () => {
+    // `scanRepo` only ever SUBTRACTS disposition keys, so a stale row is
+    // invisible to every other assertion — it silently excuses nothing.
+    const live = new Set<string>();
+    for (const site of scanRepo(REPO_ROOT).sites) {
+      if (site.kind === "unclassified") live.add(`${site.file} ${site.name}`);
+    }
+    premiseHolds("the scan produced unclassified sites to match against", live.size > 0);
+    const stale = UNCLASSIFIED_DISPOSITIONS.filter((row) => !live.has(`${row.file} ${row.name}`)).map(
+      (row) => `${row.file} ${row.name}`,
+    );
+    expect(stale, "disposition rows matching no live site").toEqual([]);
   });
 });

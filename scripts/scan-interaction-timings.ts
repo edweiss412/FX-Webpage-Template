@@ -54,18 +54,20 @@
  * runtime — read off a config object, returned by a call, computed from
  * arithmetic — is reported as `unclassified` rather than resolved.
  *
- * PROPERTIES ARE LITERAL-ONLY, unlike delays, and this is a REAL GAP rather
- * than a principled fence: a timing-named property whose value is not a numeric
- * literal is DROPPED, not reported. Five sites in the tree today are invisible
- * for that reason — the reduced-motion ternaries at
- * components/admin/telemetry/EventRow.tsx and components/crew/RightNowHero.tsx
- * (`duration: reduce ? 0 : 0.22`), and the resolved-elsewhere values in
- * components/diagrams/GalleryLightbox.tsx. The behavior predates the key
- * widening (the original `duration:` form dropped non-literals the same way);
- * closing it means reporting them `unclassified` and dispositioning five
- * pre-existing sites on surfaces this arc does not otherwise touch, so it is
- * filed as BL-TIMING-SCAN-PROPERTY-TOTALITY rather than done here. Surfaced by
- * whole-diff review round 7, with the site list above as its probe. A COMPUTED
+ * PROPERTIES ARE TOTAL, on the same contract as delays: a timing-named property
+ * whose value is not a numeric literal is reported `unclassified` and NAMED,
+ * never dropped. The accept-set is keyed on NODE KINDS rather than one position
+ * — PropertyAssignment, ShorthandPropertyAssignment, and JsxAttribute (an
+ * expression container, or a string that does not parse as a number) — because
+ * enumerating positions is what let the shorthand `{ duration }` at
+ * components/crew/CrewSectionTransition.tsx stay invisible past two reviews.
+ * That closed BL-TIMING-SCAN-PROPERTY-TOTALITY; the six live sites it surfaced
+ * carry UNCLASSIFIED_DISPOSITIONS rows below.
+ *
+ * The KEY PREDICATE on these non-literal paths is `isBoundaryTimingKey`, which
+ * is narrower than the `TIMING_NAME` suffix the numeric paths keep, and the
+ * asymmetry is deliberate: see that function for the measurement (48 candidates
+ * versus 8). A COMPUTED
  * key (`{ ["ttlMs"]: 17000 }`, `class C { ["ttlMs"] = 17000 }`) is likewise not
  * a site: the key is an expression, and writing one to declare a fixed timing
  * is not a spelling an ordinary contributor reaches for — unlike the quoted key
@@ -147,6 +149,53 @@ export const UNCLASSIFIED_DISPOSITIONS: readonly {
   readonly name: string;
   readonly reason: string;
 }[] = [
+  // ── The property-totality census (BL-TIMING-SCAN-PROPERTY-TOTALITY) ──────
+  // Six live sites that were invisible while properties were literal-only. Each
+  // resolves to a value already represented among its named-constant peers; the
+  // values live here rather than in DESIGN.md §5.5, which cannot represent them
+  // — an unclassified site carries `value: null` and `inventoryRows` skips it.
+  {
+    file: "components/admin/telemetry/EventRow.tsx",
+    name: "reduce ? 0 : 0.22",
+    reason:
+      "The standard reduced-motion ternary: 0 when the user asks for reduced motion, otherwise " +
+      "0.22 — the repo's standard motion duration, already a §5.5 row among its named-constant " +
+      "peers. The ternary is the ACCESSIBILITY contract, so collapsing it to one literal would be " +
+      "a regression, and naming a constant for `0` would not make either branch more visible.",
+  },
+  {
+    file: "components/crew/RightNowHero.tsx",
+    name: "prefersReducedMotion === true ? 0 : 0.22",
+    reason:
+      "The same reduced-motion ternary as EventRow.tsx, spelled with an explicit === comparison. " +
+      "0 reduced, 0.22 otherwise — the standard motion duration.",
+  },
+  {
+    file: "components/crew/CrewSectionTransition.tsx",
+    name: "duration",
+    reason:
+      "The shorthand `{ duration }` form, which the scanner could not see at all until the " +
+      "accept-set covered ShorthandPropertyAssignment — a sixth live timing that no census had " +
+      "counted. The binding behind it is the same reduced-motion ternary as its two peers above: " +
+      "0 reduced, 0.22 otherwise.",
+  },
+  {
+    file: "components/diagrams/GalleryLightbox.tsx",
+    name: "emblaDuration(prefersReducedMotion)",
+    reason:
+      "Embla's TWEEN-SPEED unit, not seconds and not milliseconds, so a §5.5 duration row would " +
+      "misstate it by naming a number in the wrong unit. Resolves in-file to the committed live " +
+      "value 22. Two occurrences share this row because the registry keys by (file, name) and both " +
+      "call sites are the identical expression; the six-site liveness pin below asserts the COUNT, " +
+      "so one of the two vanishing still fails.",
+  },
+  {
+    file: "components/diagrams/GalleryLightbox.tsx",
+    name: "motionDuration",
+    reason:
+      "An in-file binding holding 0.22, the standard motion duration that already carries a §5.5 " +
+      "row. The indirection is local and one hop; a second row would duplicate the constant.",
+  },
   {
     file: "components/admin/announceLog.tsx",
     name: "ttlMs",
@@ -193,6 +242,42 @@ export const UNCLASSIFIED_DISPOSITIONS: readonly {
 
 /** Identifier suffixes that mark a number as a timing, case-insensitively. */
 const TIMING_NAME = /(?:ms|delay|duration|timeout|seconds)$/i;
+
+/** The timing words both key predicates are built from. ONE definition. */
+const TIMING_WORDS = ["ms", "delay", "duration", "timeout", "seconds"] as const;
+
+/**
+ * The key predicate for the NON-LITERAL property paths — deliberately NARROWER
+ * than `TIMING_NAME`, which stays untouched on every numeric path.
+ *
+ * A key qualifies when it IS a timing word, or carries one at a camel or snake
+ * BOUNDARY (`ttlMs`, `deadline_ms`, `fooTimeout`). The bare suffix `TIMING_NAME`
+ * uses cannot be reused here: measured on the live universe it matches 48
+ * non-literal candidates, because ordinary plurals end in `ms` (`items`,
+ * `rooms`, `searchParams`, `diagrams`, `problems`), which would bury the 8 real
+ * ones. The asymmetry is intentional and load-bearing: on NUMERIC values a
+ * sloppy match is fail-open and visible as a bogus inventory row; on
+ * non-literals it is fail-flood, and a flooded report is not read.
+ */
+function isBoundaryTimingKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  for (const word of TIMING_WORDS) {
+    if (lower === word) return true;
+    if (!lower.endsWith(word)) continue;
+    const before = key.slice(0, key.length - word.length);
+    if (before.endsWith("_")) return true;
+    const suffixStart = key[key.length - word.length];
+    // A camel boundary means the timing word STARTS the final segment, which is
+    // exactly what distinguishes `ttlMs` from `items`.
+    if (suffixStart !== undefined && /[A-Z]/.test(suffixStart)) return true;
+  }
+  return false;
+}
+
+/** The delay contract's own rendering, reused verbatim so an unclassified
+ * property reads like an unclassified delay. */
+const collapsed = (node: ts.Node, sf: ts.SourceFile): string =>
+  node.getText(sf).replace(/\s+/g, " ").slice(0, 60);
 
 const SCANNED_EXTENSIONS = [".ts", ".tsx"] as const;
 
@@ -338,6 +423,21 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
           value,
           propertyKey: node.name.text,
         });
+      } else if (isBoundaryTimingKey(node.name.text)) {
+        // Totality: a prop whose value is not a literal is NAMED, not dropped.
+        // Both spellings the universe can hold — an expression container and a
+        // string that does not parse as a number.
+        const valueNode = expr ?? (init !== undefined && ts.isStringLiteral(init) ? init : null);
+        if (valueNode !== null) {
+          sites.push({
+            file: filePath,
+            line: lineOf(node),
+            kind: "unclassified",
+            name: ts.isStringLiteral(valueNode) ? valueNode.text : collapsed(valueNode, sf),
+            value: null,
+            propertyKey: node.name.text,
+          });
+        }
       }
     }
 
@@ -374,7 +474,34 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
           value,
           propertyKey,
         });
+      } else if (isBoundaryTimingKey(propertyKey)) {
+        sites.push({
+          file: filePath,
+          line: lineOf(node),
+          kind: "unclassified",
+          name: collapsed(node.initializer, sf),
+          value: null,
+          propertyKey,
+        });
       }
+    }
+
+    // Form 3c: `{ duration }` — the shorthand IS a timing property whose value
+    // is the identifier of the same name, and it is how one of the live sites
+    // was written (`CrewSectionTransition.tsx`), invisible until now.
+    if (
+      ts.isShorthandPropertyAssignment(node) &&
+      ts.isIdentifier(node.name) &&
+      isBoundaryTimingKey(node.name.text)
+    ) {
+      sites.push({
+        file: filePath,
+        line: lineOf(node),
+        kind: "unclassified",
+        name: node.name.text,
+        value: null,
+        propertyKey: node.name.text,
+      });
     }
 
     // Form 1 + the totality rule: EVERY timer delay argument, classified or named.
