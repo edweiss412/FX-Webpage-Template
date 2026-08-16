@@ -189,6 +189,11 @@ const CLASSIFIED: Array<[string, Side]> = [
  * here are allowed; each still gets both side checks.
  */
 const EXTRA_MEMBERS: Array<[string, "must" | "must-not"]> = [
+  // Spec §4.6 predates the browser-mutant mode, so this member exists only in
+  // the bullet. It is a MUST by the transitive shape rule: `pnpm mutation:browser`
+  // spawns a real Playwright child per mutant
+  // (tests/mutation/browser/runner.ts childCommand).
+  ["pnpm mutation:browser", "must"],
   ["pnpm typecheck", "must-not"],
   ["pnpm exec eslint .", "must-not"],
 ];

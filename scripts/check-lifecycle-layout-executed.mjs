@@ -33,7 +33,11 @@ import { pathToFileURL } from "node:url";
 export const REQUIRED = {
   // 4 cases x 1 project — the spec resolves under mobile-safari only
   // (playwright.config.ts testMatch), so 4 is the whole suite.
-  "tap-target-inline-controls.layout.spec.ts": 4,
+  // 4 -> 5 (2026-08-16, fix/step3-tap-cluster): the site-5 no-details case. The
+  // second seedable SheetTitleLink render site is the TIGHTER of the two filed
+  // overlap contexts (a `mt-1` warning line, 4px of clearance against the old
+  // 10px downward bleed), so a half-fix would still fail there.
+  "tap-target-inline-controls.layout.spec.ts": 5,
 };
 
 /** The report path the workflow step registers, and this script's zero-arg default. */
