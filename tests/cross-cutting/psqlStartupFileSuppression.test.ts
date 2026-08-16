@@ -1832,8 +1832,14 @@ describe("analyzeNaming — a scan error names the file it was reading", () => {
     premiseHolds("collectPsqlUsage's body terminates", end > start);
     const body = source.slice(start, end);
 
-    const analyzerCalls = body.match(/\bscan[A-Za-z]+\(/g) ?? [];
-    const wrapped = body.match(/analyzeNaming\(\s*rel,\s*\(\)\s*=>\s*scan[A-Za-z]+\(/g) ?? [];
+    // Keyed on the ARGUMENTS, not the callee's name. A per-file analyzer is
+    // definitionally something handed this file's `source` and its `rel` path,
+    // so `(source, rel)` identifies the whole class — including a future
+    // analyzer called `inspectFoo` or `lintBar` that a `scan*(` pattern would
+    // wave straight through.
+    const analyzerCalls = body.match(/[A-Za-z_$][\w$]*\(source, rel\)/g) ?? [];
+    const wrapped =
+      body.match(/analyzeNaming\(\s*rel,\s*\(\)\s*=>\s*[A-Za-z_$][\w$]*\(source, rel\)\)/g) ?? [];
     premise("collectPsqlUsage's body contains analyzer calls to cover", analyzerCalls.length, 0);
     expect(wrapped.length).toBe(analyzerCalls.length);
   });

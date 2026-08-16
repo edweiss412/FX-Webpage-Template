@@ -75,8 +75,17 @@ export function runSuite(
   try {
     execFileSync("pnpm", ["exec", "vitest", "run", "--config", CONFIG], {
       cwd: root,
-      stdio: "pipe",
-      encoding: "utf8",
+      // DISCARDED, not captured. The exit status is the entire signal — nothing
+      // here ever reads the child's output — and `stdio: "pipe"` buffered it
+      // against Node's 1 MB `maxBuffer` default, which is a cap on how loudly a
+      // mutant may fail rather than on anything meaningful. Enrolling
+      // `psqlStartupFileScan` proved that is reachable: one mutant reds enough
+      // of that surface's 789-case suite that the failure dump alone overruns
+      // 1 MB, Node SIGTERMs the child, and the run dies with
+      // `MutantRunInfraError (signal=SIGTERM, code=ENOBUFS)` — no mutant
+      // scored, the whole surface unenrollable. Discarding removes the cap
+      // outright instead of trading it for a bigger number to outgrow later.
+      stdio: ["ignore", "ignore", "ignore"],
       env: {
         ...process.env,
         MUTATION_ROOT: root,
