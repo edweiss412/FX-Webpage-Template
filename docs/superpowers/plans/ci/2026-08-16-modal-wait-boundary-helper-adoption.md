@@ -212,7 +212,18 @@ Shape G here is a mechanical one-for-one replacement of goto-plus-loaded-const-w
 
 **Files:** Modify `tests/mutation/source/registry.ts` (one `GuardSurface` row), `tests/mutation/guardSurfaces.gate.test.ts` (its `EXPECTED_LEDGER_KINDS` key), and `tests/mutation/_metaPremiseContract.test.ts` (its `EXPECTED_ENV_TOUCHING` key).
 
-**Enrollment is a THREE-registry edit, and that is what makes this task's red observable** (plan review R2 findings 1 and 2). The mutation registry is opt-in with no discovery (`tests/mutation/source/registry.ts:8-10`) and `tests/mutation/_metaGuardSurfaceRegistry.test.ts` only iterates existing rows, so adding nothing keeps it green — the earlier marker's red half was impossible. But two companion registries are EXACT: `tests/mutation/guardSurfaces.gate.test.ts:150-154` asserts `EXPECTED_LEDGER_KINDS`' keys equal the surface ids, and `tests/mutation/_metaPremiseContract.test.ts:137-142` asserts `EXPECTED_ENV_TOUCHING`' keys equal the enrolled suites. So the cycle is real and on one command: add the `GuardSurface` row → both suites go RED on the exact-equality assertions → add the two keys → GREEN. Do the row first and observe the red; that ordering IS the TDD step here.
+**Enrollment is a THREE-registry edit, and that is what makes this task's red observable** (plan review R2 findings 1 and 2). The mutation registry is opt-in with no discovery (`tests/mutation/source/registry.ts:8-10`) and `tests/mutation/_metaGuardSurfaceRegistry.test.ts` only iterates existing rows, so adding nothing keeps it green — the earlier marker's red half was impossible. But two companion registries are EXACT: `tests/mutation/guardSurfaces.gate.test.ts:150-154` asserts `EXPECTED_LEDGER_KINDS`' keys equal the surface ids, and `tests/mutation/_metaPremiseContract.test.ts:137-142` asserts `EXPECTED_ENV_TOUCHING`' keys equal the enrolled suites. **The two arms live in DIFFERENT vitest projects, so they are two commands, not one** (plan review R3 finding 1). `tests/mutation/guardSurfaces.gate.test.ts` is mutation-project-only — excluded from the default projects (`vitest.projects.ts:87`, `vitest.projects.ts:91`) and reachable only with `VITEST_INCLUDE_MUTATION_HARNESS=1 … --project mutation`, which is why the repo-root package.json `mutation:guards` script spells it that way. `tests/mutation/_metaPremiseContract.test.ts` is in the default projects.
+
+So the observable cycle on the MARKER command is the premise-contract arm: add the `GuardSurface` row → `_metaPremiseContract` reds on `EXPECTED_ENV_TOUCHING` key equality → add the key → green. Do the row first and observe that red; that ordering IS the TDD step.
+
+The ledger-kinds arm is verified separately, and its key MUST land before the mutation run or that run cannot green:
+
+```
+VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation \
+  tests/mutation/guardSurfaces.gate.test.ts
+```
+
+Record both arms' before/after in the commit message, since only one of them is the marker's.
 
 Row fields per `tests/mutation/source/registry.ts:12-38`:
 
@@ -277,9 +288,11 @@ Apply the transcript table. Every added print step carries `if: always()` — wi
 
 **The env-key registry must move with the workflows** (plan review R1 finding 5). New `PLAYWRIGHT_JSON_OUTPUT_NAME` values are gated by `ENV_KEY_ALLOWLIST` (`tests/ci/_workflowCoverageScan.ts:724`), and `tests/ci/_metaE2eWorkflowCoverage.test.ts` rejects every unreviewed live pair. Each new report path added above is registered there in THIS commit with its one-line rationale, or the meta-test reds for unreviewed environment values and the task's own command can never return green.
 
+**What this task's red does and does not cover.** The marker's red is the env-allowlist arm: `tests/ci/_metaE2eWorkflowCoverage.test.ts` carries no assertion about JSON reporters, recovery printers, or `if: always()` — plan review R3 finding 2 probed that and it is correct. The wiring half of AC-4 is therefore verified by the enumerated probes below, not machine-checked, which is exactly spec documented limit 8 ("recovery-print coverage is workflow-step-enumerated, not workflow-structural"). Do NOT add a workflow-parser guard to close it: the spec declined that trade explicitly, and a wider recognizer is the ratchet this arc spent seven spec rounds avoiding.
+
 **Gate-command discipline — probe, do not assert:** run the printer against a report with zero recoveries and confirm exit 0; against a malformed report and confirm exit 0 with a surfaced message. Confirm `if: always()` cannot convert a red run green (the printer's exit is always 0, and the Playwright step's own status remains the job verdict).
 
-<!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`.github/workflows/published-modal-e2e.yml:149` why=`the step emits --reporter=list with no json, so no report exists for a print step to read; the same suite also reds on the new PLAYWRIGHT_JSON_OUTPUT_NAME values until they are registered in ENV_KEY_ALLOWLIST, which is why the registry edit is in this task` ac=AC-4,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`tests/ci/_workflowCoverageScan.ts:724` why=`ENV_KEY_ALLOWLIST at :724 does not list the new PLAYWRIGHT_JSON_OUTPUT_NAME values this task introduces, so the suite reds on unreviewed live env pairs until each is registered with its rationale` ac=AC-4,AC-5 -->
 
 ## Task 11: Adversarial review (cross-model)
 
@@ -306,7 +319,7 @@ Carry forward the spec arc's fenced repairs so they are not re-derived: the cens
 - `BACKLOG.md` → `BACKLOG-archive.md` for `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION`, recording the census correction (the open-site derivation is the durable form, and closing it as CODE is what four spec rounds bought) and both exclusion classes.
 - `BL-MODAL-WAIT-SKELETON-TOLERANT-SITES` stays OPEN — it is this arc's filed peer, not its debt.
 - The `**Status:** IN PROGRESS · **Branch:** …` marker comes off in the PR's LAST commit, before the merge (AGENTS.md invariant 12) — never in a post-merge turn.
-- `docs/superpowers/specs/ci/README.md` index row: already present, verify only. Add the plan's own README row if `docs/superpowers/plans/ci/README.md` indexes plans.
+- Both README index rows are ALREADY PRESENT — `docs/superpowers/specs/ci/README.md` for the spec and `docs/superpowers/plans/ci/README.md` for this plan (added when the plan was authored). **Verify only; adding them again duplicates the rows** (plan review R3 finding 3).
 **Discharges AC-6.** It carries no task marker because it sits outside the red-contract region (it is the branch's bookkeeping-and-merge tail, not a TDD unit), so the discharge is stated here rather than in an `ac=` field. The red-then-green is still real and MUST be observed: add the `BACKLOG_GRADUATED` row while the entry is still in `BACKLOG.md` and `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` goes RED (the registry asserts every registered id is archive-only); the archive move in the same commit turns it GREEN.
 
 **This task DOES have a red, and plan review R1 finding 7 is why it is here.** The earlier
@@ -321,7 +334,7 @@ bypassed while AC-6 reads complete. Add the row — id
 the comment recording what the arc actually settled (the census closed as code, not the
 two-grep sweep the entry proposed) — in the SAME commit as the archive move.
 
-- Closeout carries `impeccable-gate: N/A — no UI surface`, the mutation score from Task 8, and the review-round corpus rows.
+- **The closeout destination is a `## Closeout` section appended to THIS plan file** — the in-plan form invariant 8 allows for a flat plan. Plan review R3 finding 3 caught that the earlier text required "the closeout" without naming a file or section, leaving a separate executor no declared place to put the evidence. It carries: `impeccable-gate: N/A — no UI surface`; the Task 8 mutation score with its unaccepted-survivor set and the per-family site counts (including every zero-site family, recorded as not-exercised); the review-round tallies for both stages; and the dispositions of any findings deferred rather than fixed.
 - Verify green after the edits: `tests/docs/_metaDeferralLedgerGraduation.test.ts`,
   `tests/docs/_metaLedgerInProgress.test.ts`, `tests/docs/_metaInvariant8Closeout.test.ts`,
   `tests/docs/_metaReviewRoundEconomy.test.ts`.
