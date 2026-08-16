@@ -665,7 +665,30 @@ A markdown-only commit cannot change a WebP's bytes or a submenu's scroll geomet
 
 **Why it matters even though neither job is required:** an advisory job that flips at a fixed tree teaches operators to ignore it, which is exactly how a real regression in either surface ships unnoticed. The byte-comparison discipline in AGENTS.md pins the Docker image AND the host architecture for this reason; a residual non-determinism inside that pinned environment is the interesting part.
 
-**First scheduled step is a probe, not a repair:** re-run each job N times at ONE fixed sha (`workflow_dispatch` is already enabled on these workflows) and record the pass rate. That distinguishes a genuinely flaky capture/geometry from a runner-population bimodality (`feedback_screenshot_capture_runner_bimodality` documents the latter shape on the screenshot job specifically). Only then is the repair direction decidable.
+**~~First scheduled step is a probe, not a repair~~ — THE PROBE IS RUN. 2026-08-16, nine dispatches per job at one fixed sha (`119895a7c`, then `main`), and it SPLITS the entry: one job reproduced, the other did not.**
+
+| job                 | fixed-sha runs | fail rate | verdict                         |
+| ------------------- | -------------- | --------- | ------------------------------- |
+| `admin-layout-e2e`  | 9              | **4/9**   | genuine per-run non-determinism |
+| `screenshots-drift` | 9              | **0/9**   | did NOT reproduce               |
+
+Every failure of the four was the SAME assertion the entry names — `rowactions-geometry.spec.ts:368`, `expect(revealed!.bottom).toBeLessThanOrEqual(revealed!.boxBottom + TOL)` in "keyboard focus in a CAPPED submenu is revealed, never left off-screen" — so this is one flaky case, not a flaky job.
+
+**The failing runs carry a mechanism the entry did not suspect, and it is a KNOWN one.** Their server logs hold transient gateway 502s against the admin RPCs, in the Kong wording this repo has already characterised twice:
+
+```
+[admin.show] share-token read failed: ADMIN_SHOW_TOKEN_READ_FAILED
+  admin_read_share_token returned error: An invalid response was received from the upstream server
+Error: show_review_snapshot_failed          # → /admin error boundary, React #441
+```
+
+That is the same fault class as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` (spec `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md` §2) and `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE`. A 502 that throws the loader to the error boundary changes what is mounted underneath the submenu, which is exactly how a scroll-into-view geometry assertion lands off-screen. **This reads as a third instance of that class rather than a new one** — which the repair direction should assume and then falsify, not re-derive from scratch.
+
+**Probe method, recorded because the first attempt was invalid and the failure is instructive.** Eight `workflow_dispatch` calls at the same ref cancelled each other: GitHub's concurrency group is `${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}` (`screenshots-drift.yml:52`, `admin-layout-e2e.yml:108`) and holds only ONE pending run, so six of eight were `cancelled` and only the first and last ever executed. The valid form is one dispatch per DISTINCT ref: seven sibling branches at the identical sha (`probe/advisory-flake-s2`…`s8`) plus the two survivors of the first batch = nine samples per job. Anyone re-running this must not read a `cancelled` run as a sample.
+
+**What the split means for scope.** The `screenshots-drift` half of this entry is now UNSUPPORTED by its own probe — nine green runs at a fixed sha. Its single observed failure remains real but unexplained, and the `feedback_screenshot_capture_runner_bimodality` shape (a rare runner population, not per-run noise) survives as the leading reading precisely because a 0/9 sample cannot rule out a low-rate population effect. Do not open a screenshots repair on this evidence; if it recurs, capture the runner identity (`Runner.Name`, CPU model) on both outcomes before anything else.
+
+**First scheduled step, revised:** treat the `rowactions-geometry` case as a member of the transient-502 class — apply the boundary-recovering posture `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` is sweeping, or make the case's setup tolerant of a boundary re-render — and re-probe at nine samples to confirm the fail rate collapses. The nine-per-job dispatch above is the acceptance instrument, and the run ids are in this arc's PR.
 
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 23 app-dependent e2e specs are named by no CI workflow
 
