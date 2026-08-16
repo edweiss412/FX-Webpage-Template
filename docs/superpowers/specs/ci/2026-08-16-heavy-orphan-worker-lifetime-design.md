@@ -386,7 +386,7 @@ a preamble that restated one is what rounds 1 through 4 kept finding drifted.
 | Class | Scope of a condition's effect | Owned by |
 | --- | --- | --- |
 | Collection-level (C1-C4) | the whole run | AC-3b |
-| Row-level (R1-R4) | that row only | AC-3 |
+| Row-level (R1-R5) | that row only | AC-3 |
 | Kill-time (K1-K6) | that target only | AC-5, AC-5b; exit status per §6.2 |
 
 The one design idea behind the C-rows, stated as the rule it is: **a clause you cannot evaluate
@@ -413,6 +413,7 @@ does the clause this input feeds still have an ANSWER? "No" means the clause was
 | R2 | `ppid` absent or unparsable | NOT reapable (clause (b) undecidable for this row); retained and reported |
 | R3 | `etime` absent or unparsable | NOT reapable (the age clause is undecidable for this row); retained and reported |
 | R4 | `command` empty | NOT reapable (clause (a) cannot match); retained and reported |
+| R5 | `lstart` absent or unparsable | NOT reapable: the row carries no classification-time identity, so K2 has nothing to compare against and the target could not be signalled safely. Retained and reported. |
 
 **Kill-time conditions.** These are ACTIONS, so the undecidable-stops-the-run rule above does not
 apply to them; §6.2 owns their exit status.
@@ -426,8 +427,14 @@ apply to them; §6.2 owns their exit status.
 | K6 | the identity read for a target FAILS, as opposed to reporting the pid gone (`ps` denied, timed out, or errored) | the target is NOT signalled and is reported as `identity-unreadable`; exit non-zero. Distinct from K1 by construction: "the pid is gone" is an answer, "the read failed" is the absence of one, and collapsing them would signal nothing while reporting an ordinary success. |
 | K5 | a descendant was created AFTER collection, or reparented between collection and kill | NOT reached by this run, and the spec does not claim otherwise (L-5). It becomes an ordinary orphan and is a candidate on the NEXT run: the reaper is idempotent and repeated, not transactional. |
 
-**Identity, for K2 — and what it must NOT be.** The identity of a target is the triple
-**(pid, process start time, command)**. Round 3 found the previous draft using `etime` and `ppid`,
+**Identity, for K2 — where it comes from, and what it must NOT be.** The identity of a target is
+the triple **(pid, process start time, command)**, and the classification-time value is read in the
+BULK `ps`, not afterwards. That is the correction plan review round 9 forced: capturing it after
+classification compares two POST-classification reads and binds neither to the process that was
+actually classified, so a process that exited or recycled between the snapshot and the first
+identity read escaped K2 entirely. `ps -eo pid=,ppid=,etime=,lstart=,command=` makes `lstart` a
+fixed FIVE tokens at a known offset — probed over 400 live rows on this machine with zero parse
+failures — so the collector gets it for free and the pre-signal read is the only extra subprocess. Round 3 found the previous draft using `etime` and `ppid`,
 and both are wrong:
 
 - **`etime` is monotonically increasing by definition**, so requiring it unchanged can never hold.
@@ -445,11 +452,11 @@ recorded descendants. Killing the root first stops it spawning, and because `ppi
 the identity tuple, the reparenting that kill causes cannot invalidate any pending target.
 
 Identity is read per TARGET, not for the whole table: `ps -o lstart=,command= -p <pid>` at
-classification, and again immediately before the signal FOR A TARGET THAT YIELDED ONE — a target
-whose classification read failed is K6, and one that reported the pid gone is K1, both decided on
-that evidence alone (§6.1's "at most two"). That keeps `lstart` — whose value contains spaces and
-would complicate whitespace-splitting the bulk `ps` output — out of the collection parser entirely,
-and costs at most two cheap reads per KILL TARGET rather than one per process.
+immediately before the signal, and compared against the identity the BULK read already carried.
+`lstart`'s value contains spaces, which is why an earlier draft kept it out of the bulk parser
+entirely; putting it BEFORE `command` instead makes it a fixed five-token field at a known offset,
+so the parser stays simple and the classification-time identity comes for free. Cost: at most one
+cheap read per KILL TARGET, and none per ordinary process.
 
 ---
 
@@ -468,6 +475,7 @@ export type ParsedRow = {
   pid: number;
   ppid: number | null; // R2
   etimeSeconds: number | null; // R3
+  startedAt: string | null; // R5 - the classification-time half of K2's identity triple
   command: string;
 };
 
@@ -516,9 +524,10 @@ export type KillOutcome = {
   detail?: string;
 };
 
-/** A target's identity for K2. `startedAt` is `ps -o lstart=`; see K2 for why not `etime`/`ppid`. */
+/** A target's identity for K2. See K2 for why the triple excludes `etime` and `ppid`. */
 export type TargetIdentity = { pid: number; startedAt: string; command: string };
-export function readIdentity(pid: number): TargetIdentity | null; // null = the pid is gone (K1)
+/** The PRE-SIGNAL read. The classification-time identity comes from the bulk row, not from here. */
+export function readIdentity(pid: number): IdentityRead;
 ```
 
 `classify` returns a decision for EVERY row, not only the reapable ones. A function returning only
@@ -570,11 +579,10 @@ placed after the wrapper would capture the caller's command instead.
 
 **The one failure mode `;` does NOT cover is a reaper that HANGS**, which would block admission
 rather than fail open. The reaper is bounded by construction, and the count is exact: ONE bulk
-`ps` read, plus AT MOST TWO `ps -o lstart=` reads per KILL TARGET — once at classification and,
-for a target that yielded a usable identity, once immediately before the signal, which is what K2
-requires. A target whose classification read FAILED or reported the pid gone is K6 or K1 on that
-evidence alone and is NOT read again: there is no identity to compare it against, and a second read
-could only overturn a verdict the first one already settled. K4's verification re-scan spawns nothing
+`ps` read — which now carries `lstart`, so it supplies the classification-time identity itself —
+plus AT MOST ONE `ps -o lstart=,command= -p <pid>` read per KILL TARGET, immediately before the
+signal, which is what K2 compares against. A target whose pre-signal read FAILS is K6 and one that
+reports the pid gone is K1, each decided on that evidence alone. K4's verification re-scan spawns nothing
 (it is `kill(pid, 0)`). **Every one of those invocations carries an explicit subprocess timeout**,
 and what a timeout COSTS is whichever row that read belongs to, not a blanket abort: the bulk read
 is C1, and an identity read is K6 (AC-8). A timeout on each child is what makes the `;` sequencing safe: `;` waits for the reaper to
@@ -615,7 +623,7 @@ the same edits applied by hand. Keeping the decision logic tracked means it is r
 testable, mutation-scored, and identical in every checkout; only trigger 2 stays machine-local,
 and trigger 1 is tracked because `package.json` is.
 
-Not wrapped in `pnpm heavy`: the CLI is one bulk `ps` read plus at most two per kill target. Wrapping it
+Not wrapped in `pnpm heavy`: the CLI is one bulk `ps` read plus at most one per kill target. Wrapping it
 would deadlock trigger 1 against the semaphore it runs in front of.
 
 ---
@@ -695,7 +703,7 @@ to say something §4.4 does not, it says only that.
   age.** Proved per row of §4.3's table: its workers have a live parent (clause b), and every
   non-worker process in it fails clause (a). Neither proof involves the ceiling, which is why AC-2
   holds at any age. The one row §4.3 marks "no" is NOT covered by this criterion; it is L-7.
-- **AC-3** — Every row-level condition R1-R4 behaves as its row states, and each appears in
+- **AC-3** — Every row-level condition R1-R5 behaves as its row states, and each appears in
   `Classification.decisions` — so `decisions.length === rows.length` for any input.
 - **AC-3b** — Every collection-level condition C1-C4 behaves as its row states, and the
   undecidable/decidable partition it is tested against is the table's `Decidable?` column — C1 and
