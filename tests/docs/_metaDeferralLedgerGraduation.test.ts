@@ -154,6 +154,17 @@ const BACKLOG_GRADUATED = [
   // exclusion (email-canonicalization) is execution-proven via the run-excluded
   // oracle registry, so every exclusion is gated elsewhere by construction.
   { id: "BL-CI-UNIT-GATE-EXCLUSIONS", provenance: "ci/unit-gate-exclusions" },
+  // feat/speclint-prose-count-parity (2026-08-11): graduates RESOLVED by shipping
+  // all three measured shapes as advisory spec:lint codes. One of the three is a
+  // partial graduation stated as such rather than waived — shape (c)'s
+  // wedge-remeasure anchor is not boundedly expressible (three probe-refuted
+  // designs), so it stays covered by the RULE half of the entry's own filing and
+  // is pinned as a NO-FLAG fixture. The archived section carries the corpus
+  // measurement and the arms' documented limits.
+  {
+    id: "BL-SPECLINT-PROSE-COUNT-PARITY",
+    provenance: "feat/speclint-prose-count-parity",
+  },
   {
     id: "BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST",
     provenance: "test/libdata-call-boundary-metatest",
