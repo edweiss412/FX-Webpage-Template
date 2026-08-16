@@ -267,6 +267,10 @@ describe("serializeError -- mutant-killing boundary pairs (plan R1 F1; each case
     const out = serializeError(e) as { cause?: { a?: { leaf?: string } } };
     expect(out.cause?.a?.leaf).toBe("v");
   });
+  test("a nested bigint is capped at STR_MAX like every other emitted string (plan R2 F1)", () => {
+    const out = serializeError({ value: BigInt("9".repeat(STR_MAX + 100)) }) as Record<string, string>;
+    expect(out.value).toHaveLength(STR_MAX);
+  });
 });
 ```
 
@@ -340,7 +344,7 @@ function serializeValue(
   const t = typeof value;
   if (t === "string") return capString(value as string);
   if (t === "number" || t === "boolean") return value;
-  if (t === "bigint") return String(value);
+  if (t === "bigint") return capString(String(value));
   // undefined / function / symbol VALUES: dropped from objects, null at array
   // positions (the sanitizeContext posture) -- signalled via DROP.
   if (t === "function" || t === "symbol" || t === "undefined") return DROP;
