@@ -581,18 +581,6 @@ viewer reports seeing the whole show expanded when they expected their day marke
 
 alert-audience-split (spec §6.7) makes health-alert resolution developer-gated at every PRODUCT surface (the dev-gated `resolveHealthAlertFormAction` plus HEALTH_CODES rejects on the three legacy user-facing resolve surfaces: `resolveAdminAlertFormAction`, `app/api/admin/admin-alerts/[id]/resolve`, `app/api/admin/show/[slug]/alerts/[id]/resolve`). This is app-surface defense-in-depth + UI coherence, NOT a DB-enforced trust boundary: `admin_alerts` still GRANTs UPDATE to `authenticated` and its RLS policy allows any `public.is_admin()` caller to update rows (`supabase/migrations/20260501002000_rls_policies.sql`), so a non-developer admin could in principle `PATCH admin_alerts.resolved_at` directly through PostgREST, bypassing the app layer. We ACCEPT this (Doug is the trusted business owner, not an adversary; role filtering is UX not security). **Fix (when prioritized):** revoke direct `admin_alerts` UPDATE from `authenticated`/`anon` and route ALL resolution — doug alerts included — through `SECURITY DEFINER` RPCs with an `is_developer()` check for health codes. Materially larger, whole-resolve-path change; deferred as a cross-reference of the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` admin_alerts-class DML lockdown item.
 
-### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
-
-**Status:** IN PROGRESS (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Branch:** feat/mutation-section-order · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
-
-Reordering two adjacent top-level blocks silently reorders the parser's output arrays, because the parser preserves source order. **Order-sensitivity was DISCOVERED by the harness on 2026-07-06** and section-reorder was reclassified cosmetic → corrupting as a result — this class exists because the harness found something no one had posited, which is the strongest evidence in the set that the remaining classes are worth detecting.
-
-**Ledgered blast radius: 82 holes** (58 `wrong` / 24 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`, reproducing the umbrella's own stated "58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS`" exactly. Linkage: `OPERATOR_FINDING_MAP["section-reorder"] = "BL-MUTATION-SECTION-ORDER"` (`tests/parser/mutation/knownHoles.ts:88`), pinned by `knownHoles.test.ts`.
-
-**Shape (M):** this one is the least like the others and should be spec'd before it is built — the honest question is whether output order should be NORMALIZED (making the reorder a non-event) rather than detected, and that is a parser-contract decision, not a heuristic. If detection is chosen instead, it carries the same warn-severity `ParseWarning` code plus §12.4 lockstep triple and warning-card copy row as its siblings.
-
-**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
-
 ### BL-PARSER-FIELD-PROVENANCE-MODEL — per-field provenance/confidence for the P0-2 zero-signal residuals
 
 **Status:** OPEN · **Severity:** medium · **Class:** PARSER ROBUSTNESS / DATA PROVENANCE · **Effort:** L · **Filed:** 2026-08-06 (L-wave, spec §2.1.5)

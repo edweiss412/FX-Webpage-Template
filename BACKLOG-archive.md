@@ -8354,3 +8354,46 @@ This row's warning about verifiers written by the defect's author is why the sui
 Two of the seventeen classifiable wrong citations are a DOCUMENTED RECALL CEILING rather than a defect: the wrong file is a vocabulary-sharing sibling that boundary-matches the prose identifiers near the cited line, so no content comparison can discriminate it. Both are pinned as premise-guarded silent cases.
 
 The naive substring match this row cited as prior art turned out to be part of the problem — it false-cleared wrong citations (`deps` matches anything) and false-fired correct ones (`SyncLogDeps.logSync` appears nowhere as a literal). One shared boundary-matched, regex-escaped, dotted-segment implementation now backs all four comparisons, pinned per consumer against both substring and unescaped-metacharacter semantics.
+
+### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
+
+**Status:** CLOSED 2026-08-16, `feat/mutation-section-order` (PR #817) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+
+**CLOSED 2026-08-16 by the content-keyed field near-miss detector**, spec
+`docs/superpowers/specs/parser/2026-08-15-field-near-miss-detector-design.md`. The order-sensitivity
+this entry names was not fixed by normalizing output order — the question this entry itself flagged
+as "a parser-contract decision" — but by removing the thing that made order OBSERVABLE. The
+positional `UNKNOWN_FIELD` sweep read `parseVenue`'s scope window, so moving a block moved the
+emission set; the replacement is keyed on row CONTENT alone and is swap-invariant by construction.
+
+**The blast radius above was wrong in the safe direction, and the correction is this entry's most
+useful residue.** It read "82 holes" and the wave plan sized the shrink at ten of them. The
+harness's own `fixedHoles` set, collected via `COLLECT_MUTATION_ALARMS` and reconciled against the
+untouched ledger, closed **86** holes — 24 `section-reorder` (the plan's ten a strict subset), plus
+49 `blank-row`, 10 `header-typo` and 3 `merged-cell` that no one was aiming at, because
+position-blindness reaches every operator. It also opened 17 and drifted 1,002 of 1,088
+fingerprints, so the ledger was REGENERATED rather than edited: 1,088 → 1,019 rows.
+
+**Documented limit: 59 `section-reorder` rows remain, all of kind `wrong`.** They are the parser's
+ratified order-sensitivity (wave spec §7), documented rather than owed — the operator's entire
+`signal_loss` and `text_drift` population was what the positional sweep produced and closed with
+it. `OPERATOR_FINDING_MAP["section-reorder"]` keeps this id, so those rows stay resolvable from the
+archive exactly as `BL-MUTATION-HARNESS-OPEN-HOLES` does.
+
+**Second documented limit: 17 new holes, ledgered with their mechanism** rather than re-blessed
+(probe `docs/superpowers/specs/parser/probes/2026-08-16-newhole-mechanism.md`). All 17 were
+`SIGNALED` pre-arc and in all 17 the only signal was the positional sweep — 14 by a changed
+`UNKNOWN_FIELD` count, 3 by a changed message at an unchanged count. Three of those are
+transposition typos of labels the sheet shows (`'dAditional Room Setup'`), which spec §9 records as
+the live instances that would let an edit-distance extension be argued for later. v1's no-fuzzing
+scope is unchanged.
+
+Original entry below for provenance.
+
+Reordering two adjacent top-level blocks silently reorders the parser's output arrays, because the parser preserves source order. **Order-sensitivity was DISCOVERED by the harness on 2026-07-06** and section-reorder was reclassified cosmetic → corrupting as a result — this class exists because the harness found something no one had posited, which is the strongest evidence in the set that the remaining classes are worth detecting.
+
+**Ledgered blast radius: 82 holes** (58 `wrong` / 24 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`, reproducing the umbrella's own stated "58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS`" exactly. Linkage: `OPERATOR_FINDING_MAP["section-reorder"] = "BL-MUTATION-SECTION-ORDER"` (`tests/parser/mutation/knownHoles.ts:88`), pinned by `knownHoles.test.ts`.
+
+**Shape (M):** this one is the least like the others and should be spec'd before it is built — the honest question is whether output order should be NORMALIZED (making the reorder a non-event) rather than detected, and that is a parser-contract decision, not a heuristic. If detection is chosen instead, it carries the same warn-severity `ParseWarning` code plus §12.4 lockstep triple and warning-card copy row as its siblings.
+
+**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
