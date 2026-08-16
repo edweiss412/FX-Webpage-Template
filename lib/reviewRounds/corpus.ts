@@ -5,6 +5,7 @@ import { CORPUS_DIR } from "./arc";
 import { COUNTED_STAGES, isCountedStage, ROUND_THRESHOLD, type Stage } from "./constants";
 import { countedRounds, recordedRounds, roundGaps } from "./count";
 import { parseFiling, type FilingSection } from "./filing";
+import { MECHANIZABLE_GRANDFATHERED } from "./mechanizableGrandfather";
 import { parseRow, type ReviewRoundRow } from "./row";
 
 export type ProblemKind =
@@ -19,7 +20,8 @@ export type ProblemKind =
   | "count_mismatch"
   | "duplicate_section"
   | "orphan_filing"
-  | "unrecognized_corpus_file";
+  | "unrecognized_corpus_file"
+  | "mechanizable_untracked";
 
 export type Problem = { kind: ProblemKind; message: string };
 
@@ -226,6 +228,10 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
     }
 
     const filingPath = `${arc.corpusPath.slice(0, -".jsonl".length)}.md`;
+    // The Mechanizable-parity rule binds NEW filings only (enforcement-pair
+    // spec §3.3): filings are immutable evidence, so paths frozen in the
+    // grandfather set keep the shipped raw-scan semantics untouched.
+    const grandfathered = arc.filingPath !== null && MECHANIZABLE_GRANDFATHERED.has(arc.filingPath);
     for (const [stage, n] of counted) {
       if (n < ROUND_THRESHOLD) continue;
       if ((byStage.get(stage) ?? []).length > 0) continue;
@@ -281,10 +287,30 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
           });
           continue;
         }
-        if (!section.hasExamined || !section.hasDisposition) {
+        // Spec R9 finding 1: for NEW filings the field duty needs BOTH the raw
+        // line anchor AND a rendered label. Raw alone is satisfied by lines
+        // inside a fence, an indented block, or an HTML node - content the
+        // reader never sees; rendered alone is satisfied by a mid-sentence
+        // strong-run MENTION (diff R1 finding 2), which never opens a field
+        // paragraph. The conjunction rejects both while the compact
+        // soft-broken form (raw anchor + rendered label) stays legal.
+        // Grandfathered filings keep the shipped raw semantics.
+        const examinedOk = grandfathered
+          ? section.hasExamined
+          : section.hasExamined && section.astExamined;
+        const dispositionOk = grandfathered
+          ? section.hasDisposition
+          : section.hasDisposition && section.astDispositions.length > 0;
+        if (!examinedOk || !dispositionOk) {
+          const rawOnly: string[] = [];
+          if (section.hasExamined && !examinedOk) rawOnly.push("**Examined:**");
+          if (section.hasDisposition && !dispositionOk) rawOnly.push("disposition");
           problems.push({
             kind: "filing_malformed",
-            message: `${arc.filingPath}:${section.line}: stage ${stage} needs an **Examined:** line and at least one disposition line`,
+            message:
+              rawOnly.length > 0
+                ? `${arc.filingPath}:${section.line}: stage ${stage} has its ${rawOnly.join(" and ")} line(s) only in non-rendered content (a fence, indented code, or an HTML node), which reads as absent`
+                : `${arc.filingPath}:${section.line}: stage ${stage} needs an **Examined:** line and at least one disposition line`,
           });
           continue;
         }
@@ -302,6 +328,48 @@ export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }):
           problems.push({
             kind: "count_mismatch",
             message: `${arc.filingPath}:${section.line}: stage ${stage} declares ${declared} rounds; the corpus counts ${expected}`,
+          });
+        }
+
+        // Mechanizable ledger parity (enforcement-pair spec §3.1/§3.2), NEW
+        // filings only. The analysis is AST-derived, so fenced examples,
+        // HTML comments, and struck-through text satisfy nothing.
+        if (grandfathered) continue;
+        if (section.nestedMechanizable) {
+          // Spec R12: a field nested under a listItem renders for the reader
+          // while marker discovery sees nothing - rejected, never admitted.
+          problems.push({
+            kind: "filing_malformed",
+            message: `${arc.filingPath}:${section.line}: stage ${stage} nests a **Mechanizable:** field under a list item; the field must be a top-level paragraph`,
+          });
+        }
+        const mech = section.mechanizable;
+        if (mech === null) continue;
+        if (mech.markerCount > 1) {
+          // Spec R6: two markers have no defined aggregation - every singular
+          // projection silently loses an untracked block in one ordering.
+          problems.push({
+            kind: "filing_malformed",
+            message: `${arc.filingPath}:${section.line}: stage ${stage} holds ${mech.markerCount} Mechanizable markers, and nothing says which is the entry`,
+          });
+          continue;
+        }
+        if (!mech.isNone && mech.citedIds.length === 0 && !mech.hasDecline) {
+          problems.push({
+            kind: "mechanizable_untracked",
+            message: `${arc.filingPath}:${section.line}: stage ${stage} declares a non-none Mechanizable entry that cites no BL-/DEF- id and records no "declined: <reason>"`,
+          });
+        }
+        for (const id of mech.citedIds) {
+          // Spec R10: remark decodes backslash escapes and character
+          // references before CITED_ID runs, so an AST-derived id the raw
+          // section scan never saw must still resolve. Ids the raw scan DID
+          // see are already checked by the section loop below - not repeated
+          // here, so one bad id is one problem.
+          if (resolvable.has(id) || section.citedIds.includes(id)) continue;
+          problems.push({
+            kind: "unresolved_id",
+            message: `${arc.filingPath}:${section.line}: cited id ${id} resolves against no ledger entry`,
           });
         }
       }

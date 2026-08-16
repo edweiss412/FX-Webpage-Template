@@ -50,6 +50,22 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // pure helpers, reaching no member of ENVIRONMENT_SOURCES.
   "tests/cross-cutting/pgCronSmokesUnit.test.ts": 0,
   "tests/scripts/ledgerClaims.test.ts": 0,
+  // The psql startup-file scanner's deciding suite, enrolled 2026-08-16. The number is
+  // the scanner's own measurement, not a claim about the suite: the enrolment's red cycle
+  // reported "expected +0 to be undefined" here before the row existed.
+  //
+  // It is also a KNOWN UNDER-COUNT, recorded rather than papered over (cross-model review
+  // r1 refuted the first version of this comment, which asserted the suite reaches no
+  // ENVIRONMENT_SOURCES member directly). It does: `psqlStartupFileSuppression.test.ts:35`
+  // imports execFileSync and `:1952` runs `git ls-files -z` to derive TRACKED_SOURCE_ROOTS.
+  // That call sits in a describe-local initializer, outside the module-scope extents
+  // classifyTests registers, so the two cases that depend on it (`:1977` and `:1986`) are
+  // classified environment-free. Both already carry executable premises of their own
+  // (`premise(...)` on the derived root count, `premiseHolds(...)` per root), so the gap is
+  // in the CLASSIFIER's reach, not in those cases' rigour. Filed as
+  // BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS; when it closes, this number rises and the row
+  // is updated to whatever the scanner then measures.
+  "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 0,
   // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
   // inventory suite reads DESIGN.md and walks the repo, but through the module
   // under test rather than any member of ENVIRONMENT_SOURCES directly; the unit
@@ -87,6 +103,10 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // decided by the ambient one.
   "tests/reviewRounds/count.test.ts": 0,
   "tests/docs/_metaReviewRoundEconomy.test.ts": 0,
+  // Enrolled by reviewRoundFiling (enforcement-pair arc): parses literal
+  // markdown strings through remark and reaches no member of
+  // ENVIRONMENT_SOURCES.
+  "tests/reviewRounds/filing.test.ts": 0,
   // M-wave 2 W-GUARDS (2026-08-10): both guard-extractor suites are pure by
   // the same rule as the corpus suite — they read the live tree via node:fs
   // and walkSourceFiles, which is deliberately NOT provenance; neither touches
@@ -134,6 +154,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // deciding suite for any enrolled surface and is therefore not scanned here.
   "tests/mutation/browser/registry.test.ts": 0,
   "tests/mutation/browser/mutate.test.ts": 0,
+  // The serializeError contract suite, enrolled 2026-08-16
+  // (fix/serialize-error-structure). 0, and honestly so: every case builds its
+  // fixture in the test body and drives it through the imported helper, so the
+  // suite reaches no member of ENVIRONMENT_SOURCES — no child process, no
+  // ledger-git, no process.env, and no filesystem read at all.
+  "tests/log/serializeError.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

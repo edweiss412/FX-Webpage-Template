@@ -287,8 +287,11 @@ describe("runPushSyncForShow — sync_log emit guard (AC-2)", () => {
     expect(escalated).toHaveLength(1);
     expect(escalated[0]!.driveFileId).toBe("file-1");
     // Raw-error contract: `buildRecord` serializes exactly once, so the thrown message survives
-    // into the persisted diagnostic. A `serializeError(...)` at the call site collapses it to
-    // "[object Object]".
+    // into the persisted diagnostic. A `serializeError(...)` at the call site used to collapse
+    // this to "[object Object]"; since fix/serialize-error-structure it survives structurally,
+    // so this row no longer discriminates the double-serialize mutant (spec
+    // docs/superpowers/specs/observability/2026-08-16-serialize-error-structure-design.md §4 limit 8).
+    // tests/log/noDoubleSerializedLogError.test.ts owns the ban.
     expect(escalated[0]!.context.error).toMatchObject({ message: SINK_MESSAGE });
   });
 
