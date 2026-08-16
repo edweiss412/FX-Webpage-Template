@@ -73,9 +73,14 @@ One new `GuardSurface` row in `tests/mutation/source/registry.ts` (`GUARD_SURFAC
 - `accepted`: the §2 ledger rows, each with its reason (and `ref` for any accepted-gap).
 - `scoreFloor`: per §3.3.
 
-### §3.2 Gate suite declaration
+### §3.2 Gate suite declarations — TWO fail-by-default sites
 
-`EXPECTED_LEDGER_KINDS` in `tests/mutation/guardSurfaces.gate.test.ts` gains a row for the new surface id with the EXACT kind counts (the suite fails by default on a missing row — "declares expected ledger-kind counts for every enrolled surface"). The row comment follows the file's convention: counts stated independently of the ledger, with the one-line reason a future reader needs ("a new row here is a regression to explain, not a number to bump").
+Enrolment trips two registry-walking suites that each require a per-surface declaration; both fail by default on a missing row:
+
+1. `EXPECTED_LEDGER_KINDS` in `tests/mutation/guardSurfaces.gate.test.ts` gains a row for the new surface id with the EXACT kind counts ("declares expected ledger-kind counts for every enrolled surface"). The row comment follows the file's convention: counts stated independently of the ledger, with the one-line reason a future reader needs ("a new row here is a regression to explain, not a number to bump").
+2. `EXPECTED_ENV_TOUCHING` in `tests/mutation/_metaPremiseContract.test.ts` gains a row for the deciding suite (merge-gating; the contract walks enrolled suites, so a newly enrolled surface is covered by default rather than silently exempt). **Probed while drafting** (via `classifyTests` from `tests/mutation/source/premiseScan.ts` against this tree): 306 test declarations, all `environment-free` — the honest declared count is 0, the `interactionTimingScan` precedent (env reached only through the module under test, not through `ENVIRONMENT_SOURCES` directly).
+
+(`tests/mutation/_metaGuardSurfaceRegistry.test.ts` also walks the registry but requires no per-surface declaration — `validateSurface` covers the new row statically.)
 
 ### §3.3 scoreFloor
 
@@ -83,7 +88,7 @@ One new `GuardSurface` row in `tests/mutation/source/registry.ts` (`GUARD_SURFAC
 
 ### §3.4 Rebase checkpoint
 
-Open PR #807 (`feat/mutation-playwright-component-mode`) also edits `tests/mutation/source/registry.ts`. The plan places an explicit rebase/merge-main checkpoint immediately BEFORE the enrolment task, and the enrolment commit lands against the then-current registry shape. A conflict here is mechanical (append a row), not semantic.
+Open PR #807 (`feat/mutation-playwright-component-mode`) also edits `tests/mutation/source/registry.ts`. The plan places an explicit rebase/merge-main checkpoint at the START of the §4.3 sequence — BEFORE survivor ids are finalized, not immediately before the enrolment commit — because an upstream edit to `scan.ts` after id finalization strands completed ledger work (spec review R1 F1, probed: one ordinary leading-comment edit shifts 46 of 48 site ids). If a LATER merge of main becomes necessary and touches `scan.ts`, the probe re-runs and the ledger rows are re-keyed before proceeding — the gate reports the drift loudly (stale rows + new unaccepted survivors), so the failure mode is a re-run, never silent corruption. A `registry.ts` conflict itself is mechanical (append a row), not semantic, and can be resolved at any point.
 
 ## §4 Verification
 
@@ -94,20 +99,13 @@ Open PR #807 (`feat/mutation-playwright-component-mode`) also edits `tests/mutat
 
 ### §4.2 Full-run acceptance (machine-computed)
 
-`pnpm heavy pnpm mutation:guards` — ALWAYS under `pnpm heavy` (AGENTS.md heavy-slot rule: mutation harness MUST wrap). Note the gate file runs `runSurface` at module scope for EVERY enrolled surface (`guardSurfaces.gate.test.ts`, `describe.each`), so a full run includes all seventeen existing surfaces plus this one; the plan budgets full runs at checkpoints, not per verdict. Acceptance is the gate's own six conditions passing for the new surface:
-
-1. no no-op mutants
-2. clean baseline
-3. **empty unaccepted-survivor set**
-4. no stale ledger rows
-5. score ≥ the enrolled floor
-6. non-zero mutant count
+`pnpm heavy pnpm mutation:guards` — ALWAYS under `pnpm heavy` (AGENTS.md heavy-slot rule: mutation harness MUST wrap). Note the gate file runs `runSurface` at module scope for EVERY enrolled surface (`guardSurfaces.gate.test.ts`, `describe.each`), so a full run includes every row then in `GUARD_SURFACES` plus this one — 16 rows at drafting time, more after PR #807 merges; the executable count is the registry array, not this prose. The plan budgets full runs at checkpoints, not per verdict. Acceptance is the gate's full condition set passing for the new surface — all nine members of `GateCondition` (`tests/mutation/source/gate.ts`): `no-op`, `baseline`, `unaccepted-survivor` (**the empty-unaccepted-set criterion**), `stale-ledger-row`, `below-floor`, `no-mutants`, `non-finite-score`, `unaccounted-mutants`, `duplicate-survivor`.
 
 Plus: the control mutant is killed, kind counts match §3.2, and the tracked source is byte-identical after the run.
 
 ### §4.3 Site-id drift
 
-Site ids carry position (`operator:line:column:from>to`), so ANY edit to `scan.ts` above a site invalidates ids below it — surfacing as stale rows AND new unaccepted survivors (`ledger.ts`, `reconcile` doc). Consequence for sequencing: if a §2.4 source fix lands in `scan.ts`, it lands BEFORE the survivor ids are finalized, and the post-fix probe run's ids are the ones the ledger uses. The plan orders: source fixes (if any) → regenerate survivor list → dispositions → enrolment → full-run acceptance.
+Site ids carry position (`operator:line:column:from>to`), so ANY edit to `scan.ts` above a site invalidates ids below it — surfacing as stale rows AND new unaccepted survivors (`ledger.ts`, `reconcile` doc). Consequence for sequencing — the canonical order, which §3.4 feeds into rather than contradicts: **rebase/merge checkpoint (§3.4) → §2.4 source fixes (if any) → regenerate survivor list → dispositions → enrolment → full-run acceptance.** Everything that can move `scan.ts` line positions (upstream merges, source fixes) happens before ids are finalized; the post-fix probe run's ids are the ones the ledger uses.
 
 ## §5 CI wall clock
 
@@ -129,10 +127,10 @@ The nightly `mutation-harness.yml` job runs the whole mutation project at a 300-
 
 ## §8 Acceptance criteria
 
-- **AC-1:** Every survivor of the regenerated scoped run has exactly one §2 disposition; the union is exhaustive and disjoint (machine-checked by gate conditions 3 + 4: empty unaccepted set, no stale rows).
+- **AC-1:** Every survivor of the regenerated scoped run has exactly one §2 disposition; the union is exhaustive and disjoint (machine-checked by the `unaccepted-survivor` and `stale-ledger-row` gate conditions: empty unaccepted set, no stale rows).
 - **AC-2:** Every KILL has a §2.1-shaped case with a recorded single-mutant red proof; `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` green (all pre-arc cases plus the new ones).
 - **AC-3:** Every EQUIVALENT row's reason meets the §2.2 format; every ACCEPTED-GAP row (expected: zero) meets the §2.3 bar with a resolvable ref.
-- **AC-4:** The registry row (§3.1) and `EXPECTED_LEDGER_KINDS` row (§3.2) land; `validateSurface` problems empty; `scoreFloor` per §3.3.
+- **AC-4:** The registry row (§3.1) and BOTH §3.2 declarations (`EXPECTED_LEDGER_KINDS` kind counts; `EXPECTED_ENV_TOUCHING` count for the deciding suite) land; `validateSurface` problems empty; `scoreFloor` per §3.3.
 - **AC-5:** `pnpm heavy pnpm mutation:guards` passes all gate conditions for the new surface (§4.2).
 - **AC-6:** The BACKLOG entry graduates to `BACKLOG-archive.md` with the achieved numbers; in-progress marker removed in the PR's last commit (invariant 12).
 
