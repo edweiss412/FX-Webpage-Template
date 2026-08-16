@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 <!--
-The `impeccable-gate:` marker line is written by Task 6, in the SAME commit that runs the gate,
+The `impeccable-gate:` marker line is written by Task 5, in the SAME commit that runs the gate,
 together with the verbatim names of both halves. It is deliberately absent here, and that is the
 guard's intended lifecycle rather than a dodge: `tests/docs/_metaInvariant8Closeout.test.ts`
 admits exactly three marker forms — RAN, `N/A — no UI surface`, and a template form — and at
@@ -41,7 +41,7 @@ Spec §5.2 **cut the switch-track classifier** after five mechanisms and five st
 ### Meta-test inventory (declared)
 
 - **CREATES** a new `_metaControlOutlineFill` suite plus its importable `controlOutlineScan` module, both under `tests/styles/` (new files; written without full-path citations because a citation to a file that does not yet exist is the invented-API shape the citation pass exists to catch).
-- **MAY EXTEND** `tests/mutation/source/registry.ts` — conditional on Task 4's outcome, which is why AC-8 is written as a disjunction. The expected branch adds no row.
+- **EXTENDS** `tests/mutation/source/registry.ts` with one `GuardSurface` row for the census-reader module (Task 3). The EXPECTED branch keeps that row: plan review R2 ran the live enumerator against a conforming one-row implementation and got four mutants (one integer-literal, one logical-connector, two equality-flips). AC-8 is still written as a disjunction so the plan does not fail if the harness disagrees, but the expected outcome is a real score.
 - **EXTENDS nothing else.** Not applicable, each with its reason: `tests/auth/_metaInfraContract.test.ts` (no auth boundary), `tests/messages/_metaAdminAlertCatalog.test.ts` (no admin alert), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no lock), `tests/components/tiles/_metaSentinelHidingContract.test.ts` (no tile sentinel), `tests/styles/_metaSubtleOnInteractive.test.ts` (a different policed token; its `token` field exists precisely so a second policed token cannot alias its rows).
 - **Test wiring:** `BASE_INCLUDE` at `vitest.projects.ts:34` is `["tests/**/*.test.ts", "tests/**/*.test.tsx"]`, so the new suite is picked up with no config edit and no new path filter. Verified at plan time; stated because the writing-plans rule requires the wiring named either way.
 
@@ -70,7 +70,7 @@ AC-8 is satisfied by EITHER branch, and the inventory says "may extend", because
 
 ### Four pre-dispatch mutants for the string-presence pin
 
-Task 1's suite asserts class-token presence, so all four are run and recorded in the Task 1 commit before any review dispatch. **Four, and the table has four rows.**
+Task 1's suite asserts class-token presence, so all four are run and recorded before any review dispatch. **They run in TASK 2, from the post-swap GREEN baseline — not in Task 1.** Plan review R3 caught why: at Task 1's red tree the live probe reads `rows=21 resolved=21 strong=21 faint=0`, so there is no `border-text-faint` for mutant (a) to delete, and (b) and (c) cannot demonstrate a red-from-green transition because their rows are already red. A mutant that cannot go from green to red proves nothing. Only (d) is independent of the swap. **Four, and the table has four rows.**
 
 | Mutant | Applied to | Expected |
 | --- | --- | --- |
@@ -126,10 +126,11 @@ The gap between the 22 target edits and the 51 textual occurrences is what Task 
   - *both directions per row* — the resolved element carries `border-text-faint` and does NOT carry `border-border-strong`. The second is not redundant: a two-arm ternary element can carry both if only one arm was edited.
   - *unresolved pin* — `scanInteractiveElements(cwd).filter(e => e.unresolved).length === 13`, an equality not a ceiling (spec §5.3). Spec §§3.2(c) and 6 both rest on this obligation existing.
   - *negative control* — a temp-dir fixture carrying `border border-border-strong bg-surface` on a `<button>` is found by the scan and FAILS the "does not carry" assertion, with its own `premise("fixture parsed and produced an element", found.length, 0)`. A fixture that fails to parse returns `[]` and makes the assertion vacuously true; the repo-scan premise is adjacent to that, not a substitute for it.
+  - *adjacent-token survival* — assert both `ShareHub` ternary arms still carry `max-sm:border-border`. R3 probed this: corrupting both adjacent tokens after an otherwise-correct swap leaves the census rows reading `faint=true strong=false`, so every other case in this suite stays green while the responsive treatment is silently gone. The census pin checks the token that MOVED; this checks the token that must NOT.
+  - *switch-track recipes unchanged* — for each of the FIVE named paths in spec §3.1, assert the file still contains both `border-accent-edge bg-accent` and `border-border-strong bg-surface-sunken`. R3 probed that none of the five files appears in the census or the Task 2 fence, so AC-2 was otherwise unverified by any command in this plan and the swap could have altered an OFF recipe undetected. **This is a source-presence check over a fixed list of five named files — it classifies nothing** and must not grow into one (spec §5.2).
   - *fixture mechanism* — `tests/styles/interactiveScanCore.test.ts:41` has a local `scanFixture` helper (`mkdtempSync` + `writeFileSync` + scan). It is NOT exported. Replicate the six-line helper here rather than exporting it from a module the mutation registry already enrols.
 - [ ] **1.3** Run the RED: `pnpm vitest run tests/styles/_metaControlOutlineFill.test.ts`. Observe the per-row "carries `border-text-faint`" case failing on all 21 rows; the premise, cardinality, uniqueness, resolution, unresolved-pin and negative-control cases all pass. Record the observed failure count in the commit.
-- [ ] **1.4** Run all four pre-dispatch mutants from the table above; record each result in the commit message.
-- [ ] **1.5** Commit: `test(styles): pin the 21 swapped control outlines against regression`.
+- [ ] **1.4** Commit: `test(styles): pin the 21 swapped control outlines against regression`.
 
 ### Task 2: The swap — 22 source edits (GREEN)
 
@@ -189,8 +190,9 @@ The gap between the 22 target edits and the 51 textual occurrences is what Task 
   ```
 
   It must print **28**, down from 51 before this task (measured at plan time). Below 28 means a non-target occurrence was swapped; above 28 means a target edit or the comment was missed. `git grep -c` emits `path:count` per file and the `awk` sums them, so this is one command with one number — not a placeholder and not a per-file listing a reader has to add up.
-- [ ] **2.6** `pnpm exec eslint .` (canonical-Tailwind rule) and `pnpm format:check`.
-- [ ] **2.7** Commit: `fix(admin): move control outlines on surface fills to the text ramp`.
+- [ ] **2.6** Run all four pre-dispatch mutants from the table above, **from this green baseline**, and record each result in this commit's message. Restore the tree to green after each.
+- [ ] **2.7** `pnpm exec eslint .` (canonical-Tailwind rule) and `pnpm format:check`.
+- [ ] **2.8** Commit: `fix(admin): move control outlines on surface fills to the text ramp`.
 
 <!-- tasks: end -->
 
@@ -199,9 +201,12 @@ The gap between the 22 target edits and the 51 textual occurrences is what Task 
 <!-- tasks: depth=3 -->
 
 > These five tasks are in a PLAIN region, deliberately. The `red-contract` fields are not declared
-> for them because none has a production line whose absence makes a command fail: two edit
-> root-level prose (`DESIGN.md`, `BACKLOG.md`), one drives an external harness whose "unmeasured"
-> state is not a red, and one is a skill-driven human gate. The linter
+> for them because none has a production line whose absence makes a command fail, and the reason
+> is stated per task: **Task 3** drives an external harness whose "unmeasured" state is not a red
+> (it is an absence of measurement, not a defect); **Task 4** edits root-level prose (`DESIGN.md`);
+> **Task 5** is a skill-driven human gate whose evidence is a findings table; **Task 6** and
+> **Task 7** both edit root-level prose (`BACKLOG.md`). That is five reasons for five tasks. The
+> linter
 > also correctly refuses a root-level bare filename as a `red-target`. Declaring the fields anyway
 > would be a marker asserting a red it cannot point at — which is exactly the defect the
 > red-contract grammar exists to catch.
@@ -210,12 +215,12 @@ The gap between the 22 target edits and the 51 textual occurrences is what Task 
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-8 -->
 
-**Do 3.1-3.2 first and let the harness decide the branch. Do not pre-judge it.**
+**Do 3.1-3.2 first and let the harness decide the branch. Outcome A is expected (R2 measured four mutants on a conforming one-row shape), but the harness decides, not this plan.**
 
 - [ ] **3.1** Draft one `GuardSurface` row for the new census-reader module, copying the shape of the `tapTargetScan` row at `tests/mutation/source/registry.ts:1256`: `sourcePath`, `suitePaths` (Task 1's suite), `operators`, `scoreFloor`, and a `control` edit the suite MUST notice (the control proves the overlay is live — a harness whose overlay silently failed reports a PERFECT score with every mutant run against clean source).
 - [ ] **3.2** Run `pnpm heavy pnpm mutation:guards`. Record the full output.
 - [ ] **3.3** **Outcome A — the row yields mutants.** Record score and the full survivor list; for every survivor either strengthen the suite or add an `accepted` row with its reason. The unaccepted-survivor set must be empty. Keep the row.
-- [ ] **3.4** **Outcome B — the harness reports its no-mutants condition (the expected branch).** REMOVE the row. Do NOT restructure the census-reader module to manufacture mutation sites — the registry's own comment names that as gaming the operator set, and a vacuous row is worse than an honest absence. Add a registry COMMENT in the **`subtleInteractiveScan`** style (`tests/mutation/source/registry.ts:1243`) recording the attempt, the zero-mutant output, and the structural reason: a census array plus one resolver over an already-enrolled core has no relational, equality, logical, integer-literal, regex-quantifier or removable-statement site.
+- [ ] **3.4** **Outcome B — the harness reports its no-mutants condition (NOT expected; R2's enumerator run predicts mutants).** REMOVE the row. Do NOT restructure the census-reader module to manufacture mutation sites — the registry's own comment names that as gaming the operator set, and a vacuous row is worse than an honest absence. Add a registry COMMENT in the **`subtleInteractiveScan`** style (`tests/mutation/source/registry.ts:1243`) recording the attempt and the zero-mutant output. **Do NOT write the structural rationale that `subtleInteractiveScan`'s note uses** — "no equality, logical or integer-literal site" is FALSE for this module (21 numeric `line` literals plus a `file === … && line === …` comparison), and if the harness nonetheless reports no mutants, the honest note says the outcome was observed and the reason is not yet understood.
 - [ ] **3.5** Either way, paste the harness output into the commit message — the outcome is evidence, not a claim. Both branches satisfy AC-8.
 - [ ] **3.6** Commit: `test(styles): enrol the control-outline pin` (A) or `test(styles): record the control-outline pin as a no-mutants surface` (B).
 
