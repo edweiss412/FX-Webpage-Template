@@ -8,6 +8,34 @@ Last reconciled: 2026-08-15 — `feat/spec-lint-intent-red` graduated `BL-SPEC-L
 
 ---
 
+## BL-PSQL-SCAN-MUTATION-ENROLMENT — the psql startup-file scanner is measurable now, and scores 0.354
+
+**Status:** OPEN · **Filed:** 2026-08-15 (`fix/local-harness-false-failures`, from that arc's own enrolment probe) · **Class:** guard coverage · **Effort:** M · **Class-sweep exception:** (a) — the disposition of 31 survivors is a judgment call the filing PR cannot settle, ratified by the user against repaying in-branch. · **Reachability:** PROBED — the numbers below are a real run, not an estimate.
+
+`tests/cross-cutting/psqlStartupFiles/scan.ts` is registry-expressible (an importable module with a deciding suite, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`) and is still NOT enrolled. The arc that would have enrolled it ran the probe instead, and the probe says enrolment is its own piece of work.
+
+**Two findings, one shipped and one filed here.**
+
+The surface was not measurable at all until a harness defect was repaired. `runSuite` (`tests/mutation/source/runner.ts`) and `childRun` (`tests/mutation/source/childRun.ts`) both piped the child's output into Node's 1 MB default `maxBuffer` and never read it — the exit status is the only signal either consumes. One mutant reds enough of this surface's 789-case suite that the failure dump alone overruns 1 MB, so Node SIGTERMed the child and the whole run died scoring nothing:
+
+```
+MutantRunInfraError: mutation run produced no exit status for
+relational-boundary:2250:59:>>>= [tests/cross-cutting/psqlStartupFileSuppression.test.ts]
+(signal=SIGTERM, code=ENOBUFS)
+```
+
+That is FIXED and shipped in the same arc (`9edf520d1`): the output is discarded, removing the cap outright instead of trading it for a bigger number to outgrow. Any high-output surface was unenrollable before it.
+
+**With measurement possible, the scoped subset scores 0.3542 — 17 of 48 killed, 31 unaccepted survivors** (27 `relational-boundary`, 4 `regex-quantifier-bound`; operators scoped to those two for wall clock — the full set is 987 sites ≈ 11 h, this subset 48 sites ≈ 20 min measured). The survivors are a genuine MIX, which is why they cannot be blessed in bulk:
+
+- `scan.ts:1749` `index > 0` → `>= 0` falls through to `basename(before[-1] ?? "")` — plausibly EQUIVALENT.
+- `scan.ts:523` `token.length > 1` → `>= 1` admits a bare `-` token into the flag-cluster branch — looks like a REAL coverage gap.
+- `scan.ts:1792` `/^-{1,2}[A-Za-z0-9]/` → `{1,3}` accepts `---x` as a flag; `scan.ts:581`'s `l < to.line && l < out.length` → `<=` is an off-by-one on a comment-range loop. Both need reading before either is called.
+
+**Why filed rather than repaired in the arc that found it — exception (a).** Dispositioning 31 sites is per-site analysis across a 2968-line scanner, each iteration costing a gate re-run, and the outcome is a judgment about what the suite SHOULD pin — not a mechanical repair the finding PR can settle. Enrolling anyway at a `scoreFloor` of 0.35 with 31 blessed `accepted-gap` rows was considered and REJECTED by the user: that is the symbolic enrolment AGENTS.md convergence bullet 4 forbids, since a floor that low asserts almost nothing while each blessed row is still a claim owing a reason.
+
+**First scheduled step:** read the 31 survivors, kill the real gaps with suite cases, mark the true equivalents with reasons, then enrol with `scoreFloor` at the achieved score. The full survivor list is in the arc's diff-review record; regenerate it with `pnpm heavy pnpm mutation:guards` after adding the row. Spec context: `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.3 re-disposition note.
+
 ## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
 
 **Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today.
@@ -183,46 +211,6 @@ The prose rule binds the author's memory; nothing gates the dispatch. The per-ma
 
 Two halves. **Gate:** extend `tests/docs/_metaReviewRoundEconomy.test.ts` so a filing's non-none `**Mechanizable:**` entry must contain a resolvable `BL-`/`DEF-` id OR an explicit decline marker with a reason (`declined: <reason>` — "belongs to whoever next touches X" is a decline and should say so in that form). Filings are immutable evidence (corpus contract), so the gate applies to filings authored AFTER it lands; the existing corpus is grandfathered as-is. **Backfill:** disposition the five candidates above — each gets a row (they carry probe evidence in their filings already) or a recorded decline in the disposing arc's ledger note; the implementing arc decides which, per the ledger filing bar. Enumeration here is the probe, not the cover — the gate half is what keeps the next candidate from leaking.
 
-## BL-TESTFAST-RACES-TRANSIENT-MUTANT-FILE — a probe writes a temp test file into the tree while the other project is globbing
-
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** test-harness race (local false failure). **Effort:** S. **Class-sweep exception:** (c) — a harness surface the filing PR does not otherwise touch. **Reachability:** PROBED — observed, with the writer named and the victims cleared standalone.
-
-`tests/cross-cutting/pgCronCiVacuity.test.ts:159` writes a real file into the repo — `tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts` — runs it as a mutant, and removes it. `scripts/test-fast.mjs` runs the SERIAL and PARALLEL projects concurrently (that concurrency is the whole point of `test:fast`), so the other project's file glob can pick the transient up mid-run and execute it outside its harness.
-
-Observed once, in a full `pnpm test:fast`:
-
-```
-FAIL tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts > INERT MECHANISM PROBE
-Error: live case "INERT MECHANISM PROBE" issued NO database query — it is not a live case.
-FAIL tests/cross-cutting/pg-cron-coverage.test.ts
-```
-
-The failure is maximally confusing: the named file **does not exist** by the time anyone looks, and `pg-cron-coverage.test.ts` passes 8/8 standalone immediately afterwards. Nothing in the output says "this was a temp file".
-
-**Not a CI problem** — CI runs the projects in separate jobs, so the glob never overlaps. It costs local runs only, which is why it can persist.
-
-**First scheduled step:** write the mutant outside the globbed tree (a temp dir passed to vitest) rather than into `tests/`, or give it an extension the projects' `include` patterns do not match. Either removes the race outright; excluding the basename by name would leave the next such probe exposed.
-
-## BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS — the psql startup-file guard parses local `.next-*` build output and blows its own stack
-
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** guard usability (local-only false failure). **Effort:** XS. **Class-sweep exception:** (c) — a guard surface the filing PR does not otherwise touch. **Reachability:** PROBED, with a bisect that named the cause.
-
-`tests/cross-cutting/psqlStartupFiles/scan.ts:315`'s `IGNORED_AT_ROOT` skips `.next`, but this repo's own Playwright config builds into `.next-dev`, `.next-prod`, `.next-prod-flip` and `.next-screenshots-help` (`playwright.config.ts` webServer entries). Those are not skipped, so the walk hands megabytes of generated bundle JS to the TypeScript AST scan and it dies:
-
-```
-RangeError: Maximum call stack size exceeded
- ❯ visit tests/cross-cutting/psqlStartupFiles/scan.ts:535:9
- ❯ forEachChildInBinaryExpression typescript.js:32647:12
-```
-
-**19 of the guard's 745 cases fail** — including its own structural cases ("the walk is not vacuous", "the walk read every directory"), which is the confusing part: the failures read like a real psql violation and name no file.
-
-**Probed by bisect, all four steps:** the same commit passes 745/745 in a freshly-created worktree that has never built; it fails in a worktree that has; clearing `test-results/` and `.next/` does NOT fix it; moving the four `.next-*` directories aside DOES (745/745). So the trigger is the directory set, not the diff and not the environment more broadly.
-
-**CI is unaffected** — a fresh checkout has no `.next-*` — which is exactly why this can sit here indefinitely and cost each developer the same half-hour bisect.
-
-**First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
-
 ## BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT — the "no action needed" pill now reads louder than the "needs you" one
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique P2). **Class:** visual hierarchy. **Effort:** S. **Class-sweep exception:** (a) — the repair is a product decision this PR cannot settle. **Reachability:** PROBED — both branches are in `components/admin/showpage/PublishedReviewModal.tsx` at the alert pill (`data-testid` suffix `-alert-pill`), and the arithmetic is on the shipped class strings.
@@ -327,36 +315,25 @@ Both buttons are `className="border px-3 py-1 bg-{blue,yellow}-600 text-white"` 
 
 **First scheduled step:** decide whether the dev panel should be styled at all — either narrow the `@source not` exclusion so the surface compiles and can carry the floor, or ratify it as an unstyled developer tool and move the two census rows to a documented-limit record.
 
-## BL-TAP-TITLE-LINK-META-LINE-BLEED — the sheet-title link's 44px hit box covers ~8px of the meta line beneath it
+## BL-TRANSITION-AUDIT-COUNTS-A-MENTION-AS-A-CONSUMER — naming `SECONDARY_ACTION_CLASS` in a comment changes the pinned count
 
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** accessibility / mis-tap. **Effort:** S. **Class-sweep exception:** (b) — a ratified scope decision fences it. **Reachability:** PROBED — the geometry is arithmetic on the shipped class strings, and the arc's own e2e suite measures the 44.8px box in a real browser (`tests/e2e/tap-target-inline-controls.layout.spec.ts`).
+**Filed:** 2026-08-16 (`fix/step3-tap-cluster`, whole-diff CI). **Class:** guard false positive (use-vs-mention). **Effort:** XS. **Class-sweep exception:** (c) — the guard belongs to a different spec's transition audit (§7.4) and this PR does not otherwise touch it; changing its scan semantics is a change to that guard's contract and deserves its own review. **Reachability:** PROBED — see the probe below.
 
-`SheetTitleLink`'s repaired class string (`components/admin/wizard/Step3SheetCard.tsx:167`) carries `-my-2.5 py-2.5`: the padding lifts the target to 44.8px and the negative margin cancels the growth in flow, so the row does not get taller. The consequence is that 10px of live hit box hangs below the text, and the meta line under it only clears 2px of that with its own `mt-0.5` — leaving the top ~8px of a 21.7px non-interactive text line inside a target that opens Google Sheets in a NEW TAB. Which element wins a tap varies with x-position. The same shape exists at `Step3SheetCard.tsx:452` (`mt-1`, so 6px) over "We couldn't read the details of this sheet".
+`tests/components/admin/wizard/step3JudgmentChrome.test.tsx:158` decides whether to append `lib/ui/actionClass.ts` to the scanned source with a raw substring test:
 
-**Why it was not repaired on the filing branch:** spec `docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md` §2 ratifies this recipe verbatim — "**Exactly** `inline-block -my-2.5 py-2.5 -mx-2 px-2` … (R1 F2: one recipe, no delegated choice)" — and the spec's neighbour-overlap contract is scoped to _interactive_ neighbours, which this diff satisfies and pins. Changing the bleed is a spec amendment, not an implementation call.
+```ts
+if (src.includes("SECONDARY_ACTION_CLASS")) {
+  src += `\n${readFileSync(join(process.cwd(), "lib/ui/actionClass.ts"), "utf8")}`;
+}
+```
 
-**First scheduled step:** decide whether the overlap contract should cover non-interactive text at all (a mis-tap over prose is indistinguishable, to the user, from a mis-tap over a control). If yes, the candidate is a one-directional bleed — `-mt-5 pt-5 pb-0` — which keeps the whole 44.8px box inside the card's own 20px `--spacing-tile-pad` and off the meta line entirely.
+The stated rule is "a file that CONSUMES `SECONDARY_ACTION_CLASS` is scanned WITH it", so collapsing hand-written button classes onto the constant cannot buy slack in the count. A COMMENT that merely names the constant is not a consumer, but `includes` cannot tell the difference.
 
-## BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR — contact cells grew ~54px and drag their grid row-mates to match
+**Probe (this is how it was found, not a hypothetical):** a one-line comment in `components/admin/wizard/step3ReviewSections.tsx` reading "the same recipe `SECONDARY_ACTION_CLASS` uses for its boundary" — no code change, no class change — moved the file's `transition-(all|colors|opacity)` count from 2 to 3 and failed CI with `expected 3 to be 2` on `unit-suite-nodb (2)`. The file's own transition classes were byte-identical to `origin/main` throughout. Worked around on that branch by rewording the comment.
 
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** visual regression (layout). **Effort:** S. **Class-sweep exception:** (c) — a container redesign the filing PR does not otherwise touch. **Reachability:** PROBED — arithmetic on the shipped strings; the tap-floor heights are measured in a real browser by the arc's e2e suite.
+**Why it matters beyond the annoyance:** it fails in the direction that teaches the wrong lesson. An author whose only change is a comment gets a red count pin and the natural repair is to bump the pinned number, which silently buys the slack the rule exists to deny.
 
-Lifting the `tel:` and `mailto:` links to the 44px floor (`components/admin/wizard/step3ReviewSections.tsx:1412`, `:1424`) takes the Driver cell from roughly 106px to roughly 160px. The cells sit in `grid grid-cols-2 gap-2 min-[560px]:grid-cols-3` (`:1461`) whose items stretch by default, so at ≥560px the Vehicle and Parking cells stretch to 160px around ~34px of content — a large `bg-surface-sunken` panel that reads as broken rather than spacious. Each contact cell also costs ~54px more scroll on a phone, which is where this surface is read.
-
-**First scheduled step:** pick one of — `items-start` on the grid so short cells stay short, or a shared `min-h` across every `TransportCell` so the row is uniform by intent rather than by accident.
-
-## BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING — two 44px contact targets sit 6px apart, and the taller boxes invert the grouping
-
-**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2 + P3). **Class:** accessibility / mis-tap + visual grouping. **Effort:** S. **Class-sweep exception:** (a) — needs a design decision the filing branch cannot settle. **Reachability:** PROBED — the arc's e2e suite asserts the two rects are disjoint and measures both at 44px; the 6px separation is the cell's `gap-1.5`.
-
-Two consequences of the floor repair at `components/admin/wizard/step3ReviewSections.tsx:1412`/`:1424`, neither a correctness defect:
-
-1. **Separation did not grow with the targets.** The `tel:` and `mailto:` links are now 44px tall and 6px apart in a `flex-col gap-1.5` cell. Bigger targets make the intended one easier to hit AND the wrong one easier to hit; here the wrong one dials the driver mid-show.
-2. **Grouping inverted.** With `items-center` in a 44px box, a 17px label leaves ~13.5px dead above and below, so the visual gap name→phone (~19.5px) is now smaller than phone→email (~33px). The two contact _methods_ became the furthest-apart things in the cell.
-
-Folded in from the same gate (P3): sites 4/6/7 rely on `hover:` treatments for their only affordance, which `PRODUCT.md:59`'s venue-floor constraint bans as a sole affordance — 44px of air that looks exactly like static text is a bigger _invisible_ target. Pre-existing (the repair enlarged the boxes, it removed no rest state), but it is the same cell and should be settled with it.
-
-**First scheduled step:** decide the resting presentation for a contact row — a container (`w-full justify-center rounded-sm bg-surface px-2`) so 44px reads as a row rather than a void — then set the gap from that decision rather than leaving `gap-1.5`.
+**First scheduled step:** strip comments before the `includes` check using the existing shared helper `tests/_shared/stripComments.ts` (`stripCommentsSafely`, `ts.ScriptKind.TSX`) — the same defence `tests/styles/_metaSubtleOnInteractive.test.ts` already applies for exactly this reason ("a cue surviving only in commentary cannot satisfy a pin"). Then re-add the comment form above as a stays-quiet regression row.
 
 ## BL-GLOBALS-STALE-ACCENT-CONTRAST-COMMENT — globals.css states a contrast figure that has been wrong since 2026-07-16
 
@@ -796,24 +773,6 @@ restructures the effect body. Micro-optimisation otherwise.
 
 ---
 
-## BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS — the psql startup-file scan walks `.next-*` build outputs and blows the stack
-
-**Status:** OPEN · **Severity:** MEDIUM (a whole guard suite is red locally for a reason unrelated to any change; the failure names a TypeScript internal, not the cause) · **Class:** guard robustness · **Effort:** S · **Filed:** 2026-08-11
-
-**Probed 2026-08-11 on `fix/help-tour-hydration`**, where the suite failed 19/745 with `RangeError: Maximum call stack size exceeded` inside `tests/cross-cutting/psqlStartupFiles/scan.ts:535`, on a tree whose only source changes were one MDX page and CI wiring. Bisecting by reverting each changed file to `origin/main` left it red; the cause was never in the diff.
-
-`IGNORED_AT_ROOT` (`tests/cross-cutting/psqlStartupFiles/scan.ts:315`) lists `.next` but not the sibling output directories this repo's own tooling writes: `playwright.config.ts` and the screenshot/flip scripts build into **`.next-dev`, `.next-prod`, `.next-prod-flip`, and `.next-screenshots-help`**. Those are walked. An AST-depth probe over the walk's own directory rules found 6516 files, of which twelve are ~12 MB webpack chunks the walk skips only by luck of the parse, and several bundled files reach an AST depth of 4342 — the recursive `visit` at `:535` overflows long before the guard reaches a psql call site.
-
-Moving the four directories outside the repo and re-running takes the same suite to **745 passed** with no other change. Same command, same tree.
-
-**Why it matters more than a local annoyance.** The failure mode is silent misattribution: the stack trace names `typescript.js` and the scan's own line 535, so the reader's first hypothesis is their own diff. That cost a bisect on this arc. Worse, the walk is the guard's completeness claim — a walk that dies partway through has not certified the tree, and 19 red tests are the only thing standing between that and a false green if the overflow were ever caught and swallowed.
-
-**Why it is filed rather than repaired in the arc that found it — exception (c).** The repair is on a guard surface this PR does not otherwise touch, and this particular guard's review history (its own test names run to "R40 escaping mutants") is precisely about enumerated recognizers not terminating. Adding four literals to an enumerated ignore list is the shape that invites the next round to ask for a derived one. It deserves its own arc, where the derivation question can be answered properly.
-
-**The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
-
----
-
 ## Merged from the plans backlog (2026-08-02)
 
 `docs/superpowers/plans/BACKLOG.md` was a second, disjoint `BL-` registry: 53 entries under
@@ -1002,27 +961,6 @@ override on the shared harness would do it), or a decision about obstacle 2. Unt
 docblock states the gap rather than papering over it.
 
 ---
-
-## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown
-
-**Status:** OPEN. · **Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
-
-The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
-back to the clamped tier rather than showing "Image unavailable"
-(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
-The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
-nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
-again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
-backwards from the usual one.
-
-**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
-`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
-keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
-entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
-shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
-the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
-(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
-up first — one decision covers both.
 
 ## BL-DIAGRAMS-ANNOUNCE-CHANNEL-TTL — two crew announce channels ship without the pruning their own module prescribes
 

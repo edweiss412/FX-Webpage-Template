@@ -293,7 +293,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/wizard/step3ReviewSections.tsx",
-    line: 3741,
+    line: 3770,
     tag: "a",
     category: "full-bleed",
     reason:
@@ -301,14 +301,14 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/diagrams/Gallery.tsx",
-    line: 341,
+    line: 344,
     tag: "button",
     category: "full-bleed",
     reason: "`block size-full cursor-zoom-in` over a gallery tile: the tile is the target.",
   },
   {
     file: "components/diagrams/GalleryLightbox.tsx",
-    line: 526,
+    line: 600,
     tag: "motion.div",
     category: "full-bleed",
     reason: "Lightbox surface: `fixed inset-0 z-overlay flex` — the whole viewport.",
@@ -357,7 +357,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
     tag: "a",
     category: "padding-arithmetic",
     reason:
-      "Negative-margin hit-area recipe: `-my-2.5 -mx-2 px-2 py-2.5` = 10px + 10px around a `text-base` line (24px line-height) = 44px exactly, with the negative margin keeping the layout box unchanged.",
+      "Negative-margin hit-area recipe, one-directional UPWARD (amended 2026-08-15, spec 2026-08-15-step3-tap-cluster \u00a72.1): `-mt-5 -mx-2 px-2 pt-5` = 20px above a `text-base` line (24.8px line-height) = 44.8px, with the negative margin keeping the layout box unchanged. The scan cannot credit one-sided padding (`verticalPaddingPx` takes `Math.min(top, bottom)`), which is why it lands here rather than clearing.",
   },
   {
     file: "components/admin/PublishedToggle.tsx",

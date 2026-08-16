@@ -1,3 +1,178 @@
+## BL-TAP-TITLE-LINK-META-LINE-BLEED — the sheet-title link's hit box bleeds upward only — CLOSED 2026-08-15 (`fix/step3-tap-cluster`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Effort (as shipped):** S
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** accessibility / mis-tap. **Class-sweep exception at filing:** (b) — a ratified scope decision fenced it. **Reachability:** PROBED — the geometry is arithmetic on the shipped class strings, and the arc's own e2e suite measures the 44.8px box in a real browser (`tests/e2e/tap-target-inline-controls.layout.spec.ts`).
+
+**The decision the row asked for was made by the user on 2026-08-15**, against a rendered mockup: the overlap contract DOES cover non-interactive text, and the repair is the row's own candidate — a one-directional bleed. `SheetTitleLink`'s single shared class string now carries `-mt-5 pt-5` in place of `-my-2.5 py-2.5`: `pt-5` (20px) over the 24.8px `text-base` line box keeps the same 44.8px target, with all 20px of bleed ABOVE the text and the box bottom flush with the text-line bottom. `-mt-5` still cancels the growth in flow, so nothing moves visually. The 20px of upward bleed lands exactly inside the card's own 20px `p-tile-pad`, so the box never escapes its card.
+
+**One edit repaired both filed contexts**, because all three render sites share one class string: the demoted card's `mt-0.5` meta line and the no-details card's `mt-1` warning line are now fully outside the hit box. Both are pinned in a real browser at 390px and 800px by new assertions in `tests/e2e/tap-target-inline-controls.layout.spec.ts` — disjointness against the text line beneath, plus a containment assertion that the bleed stays inside the card. The no-details variant got its own seeded case; it is the tighter of the two contexts (4px of clearance against the old 10px bleed) and the one a half-fix would still fail.
+
+**The trade is recorded rather than hidden:** the title text is no longer vertically centred in its own hit box — it sits at the bottom. That is the ratified point of the change (`docs/superpowers/specs/2026-08-15-step3-tap-cluster.md` §2.1, limits 1-2 in §7): below-the-text taps belong to the meta line, above-the-text taps land in card padding that was previously dead. The 2026-08-10 spec's site-5 row carries a dated amendment pointer so neither document relitigates the other.
+
+`SheetTitleLink`'s repaired class string (`components/admin/wizard/Step3SheetCard.tsx:167`) carries `-my-2.5 py-2.5`: the padding lifts the target to 44.8px and the negative margin cancels the growth in flow, so the row does not get taller. The consequence is that 10px of live hit box hangs below the text, and the meta line under it only clears 2px of that with its own `mt-0.5` — leaving the top ~8px of a 21.7px non-interactive text line inside a target that opens Google Sheets in a NEW TAB. Which element wins a tap varies with x-position. The same shape exists at `Step3SheetCard.tsx:452` (`mt-1`, so 6px) over "We couldn't read the details of this sheet".
+
+**Why it was not repaired on the filing branch:** spec `docs/superpowers/specs/2026-08-10-tap-target-inline-controls.md` §2 ratifies this recipe verbatim — "**Exactly** `inline-block -my-2.5 py-2.5 -mx-2 px-2` … (R1 F2: one recipe, no delegated choice)" — and the spec's neighbour-overlap contract is scoped to _interactive_ neighbours, which this diff satisfies and pins. Changing the bleed is a spec amendment, not an implementation call.
+
+**First scheduled step:** decide whether the overlap contract should cover non-interactive text at all (a mis-tap over prose is indistinguishable, to the user, from a mis-tap over a control). If yes, the candidate is a one-directional bleed — `-mt-5 pt-5 pb-0` — which keeps the whole 44.8px box inside the card's own 20px `--spacing-tile-pad` and off the meta line entirely.
+
+## BL-TRANSPORT-CELL-STRETCH-AFTER-TAP-FLOOR — short transport cells stay short — CLOSED 2026-08-15 (`fix/step3-tap-cluster`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Effort (as shipped):** S
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2). **Class:** visual regression (layout). **Class-sweep exception at filing:** (c) — a container redesign the filing PR did not otherwise touch. **Reachability:** PROBED — arithmetic on the shipped strings; the tap-floor heights are measured in a real browser by the arc's e2e suite.
+
+**The decision was made by the user on 2026-08-15:** of the row's two candidates, `items-start` — short cells keep their content height — plus a compaction pass the user added on top. The grid gains `items-start`, and `TransportCell` tightens from `py-2.5`/`gap-1.5`/`gap-1.5` to `py-2`/`gap-1`/`gap-1`. Vehicle and Parking now drop to content height instead of stretching to a contact cell's ~160px.
+
+**Compaction is bounded by the floors, and the bound is executable.** The 44px `tel:`/`mailto:` floors are inviolable; every pixel of compaction comes out of dead space. `tests/e2e/tap-target-inline-controls.layout.spec.ts` pins the contact cell's ENTIRE non-content budget at 34px — `py-2` (16) + eyebrow gap (4) + name gap (4) + the phone-to-email separation (10) — as a spec-pinned constant the render never produces, with the measured content heights added in. A future gap or padding regression fails by name, and because the four content heights are summed into the bound, it can never be satisfied by shrinking a tap target instead of the dead space. The short-cell claim is pinned separately by a seeded one-line Vehicle cell asserted strictly shorter than its Driver row-mate — an assertion that fails against default grid stretch, which equalises them.
+
+**Honest statement of what compaction buys** (`docs/superpowers/specs/2026-08-15-step3-tap-cluster.md` §7 limit 3): two 44px targets plus a name and an eyebrow keep a Driver cell near ~150px whatever the gaps do. The visible win is the row-mates, not the contact cell.
+
+Lifting the `tel:` and `mailto:` links to the 44px floor (`components/admin/wizard/step3ReviewSections.tsx:1412`, `:1424`) takes the Driver cell from roughly 106px to roughly 160px. The cells sit in `grid grid-cols-2 gap-2 min-[560px]:grid-cols-3` (`:1461`) whose items stretch by default, so at ≥560px the Vehicle and Parking cells stretch to 160px around ~34px of content — a large `bg-surface-sunken` panel that reads as broken rather than spacious. Each contact cell also costs ~54px more scroll on a phone, which is where this surface is read.
+
+**First scheduled step:** pick one of — `items-start` on the grid so short cells stay short, or a shared `min-h` across every `TransportCell` so the row is uniform by intent rather than by accident.
+
+## BL-CONTACT-CELL-TAP-SPACING-AND-GROUPING — contact links are full-width chip rows with an at-rest edge — CLOSED 2026-08-15 (`fix/step3-tap-cluster`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Effort (as shipped):** S
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, invariant-8 impeccable critique P2 + P3). **Class:** accessibility / mis-tap + visual grouping. **Class-sweep exception at filing:** (a) — needed a design decision the filing branch could not settle. **Reachability:** PROBED — the arc's e2e suite asserts the two rects are disjoint and measures both at 44px; the 6px separation was the cell's `gap-1.5`.
+
+**The decision was made by the user on 2026-08-15**, against a rendered mockup, and it is the row's own "first scheduled step" taken literally: a container, with the gap set from that decision. Both links become full-width chip rows — `w-full`, `border border-text-faint`, `bg-surface` on the cell's `bg-surface-sunken` ground, `rounded-sm`, `justify-center` — and the separation follows from the container rather than from a leftover `gap-1.5`. The outline token is `text-faint`, not a border token: the invariant-8 gate measured `border-border` at 1.15:1 light / 1.38:1 dark against the sunken cell, and a control edge standing on its own needs text-grade contrast (DESIGN.md §1.2a; §1.2 pins this pair at 3.02:1 / 4.11:1).
+
+**All three filed consequences are closed, each with its own assertion.** (1) Separation: phone-to-email is now 10px (`gap-1` + the email chip's `mt-1.5`) with two visible edges between the targets, pinned at ≥9.5px (the derived 10px less the suite's 0.5px tolerance). (2) Grouping: name-to-phone tightens to 4px, so the name sits with its contact methods again instead of being the furthest thing from them. (3) The folded P3 hover-only finding is settled for sites 6/7 by the chip container itself — the at-rest affordance `PRODUCT.md:59`'s venue-floor constraint requires, since phones cannot hover; `hover:text-*` survives as an enhancement rather than the sole signal. The chips also gain the house focus ring, which neither string carried before.
+
+**The P3's third site was repaired in the same sweep.** The pack-list overflow toggle (`step3ReviewSections.tsx`) is not in the contact cell and does not fit a chip container, so it takes the SHAPE of the decision in the codebase's own idiom: `hover:underline` becomes an at-rest `underline`, matching every sibling text toggle. Pinned by a computed `text-decoration-line` read with no pointer over the control.
+
+**Per-chip, not per-pair:** the visible-edge assertion runs on EACH chip's computed background and border, so an asymmetric regression that leaves one of the two invisible fails by name — and the background check rejects transparency separately from the delta, because a fully transparent chip differs from the cell as a string while painting nothing.
+
+**Documented limit carried forward** (`docs/superpowers/specs/2026-08-15-step3-tap-cluster.md` §7 limit 4): `mt-1.5` on the email chip is unconditional, so every phone-less combination carries 6px of extra leading dead space. Accepted over a conditional className, whose non-literal shape is what `BL-TAP-TARGET-STRUCTURAL-GUARD` records as the corpus guard's blocker.
+
+Two consequences of the floor repair at `components/admin/wizard/step3ReviewSections.tsx:1412`/`:1424`, neither a correctness defect:
+
+1. **Separation did not grow with the targets.** The `tel:` and `mailto:` links are now 44px tall and 6px apart in a `flex-col gap-1.5` cell. Bigger targets make the intended one easier to hit AND the wrong one easier to hit; here the wrong one dials the driver mid-show.
+2. **Grouping inverted.** With `items-center` in a 44px box, a 17px label leaves ~13.5px dead above and below, so the visual gap name→phone (~19.5px) is now smaller than phone→email (~33px). The two contact _methods_ became the furthest-apart things in the cell.
+
+Folded in from the same gate (P3): sites 4/6/7 rely on `hover:` treatments for their only affordance, which `PRODUCT.md:59`'s venue-floor constraint bans as a sole affordance — 44px of air that looks exactly like static text is a bigger _invisible_ target. Pre-existing (the repair enlarged the boxes, it removed no rest state), but it is the same cell and should be settled with it.
+
+**First scheduled step:** decide the resting presentation for a contact row — a container (`w-full justify-center rounded-sm bg-surface px-2`) so 44px reads as a row rather than a void — then set the gap from that decision rather than leaving `gap-1.5`.
+
+## BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS — the psql startup-file scan walks `.next-*` build outputs and blows the stack — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
+
+**Severity:** MEDIUM (a whole guard suite is red locally for a reason unrelated to any change; the failure names a TypeScript internal, not the cause) · **Class:** guard robustness · **Effort:** S · **Filed:** 2026-08-11
+
+**Resolution 2026-08-15.** Repaired exactly as this entry's own last paragraph proposed: the root skip is now DERIVED from the committed root `.gitignore` rather than enumerated. `rootSkipNamesFromGitignore` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) accepts a line iff it is a plain single-segment name — optional leading `/`, no glob metacharacter, no `!`, no interior `/`, optional trailing `/` — and `ROOT_SKIP_LITERALS` keeps only `docs`, the ratified root-relative exclusion no ignore file names. Rejection of everything else is the conservative direction by construction: the walk can only over-scan, never silently under-scan. A fifth, sixth or seventh build target needs no edit, which is the whole point — an enumerated list re-opens the moment someone adds a site.
+
+The entry's second suggestion landed with it: `analyzeNaming` wraps EVERY per-file analyzer call in `collectPsqlUsage` — the scan, indirection and workflow passes alike — and rethrows carrying the repo-relative path, so the next unknown pathological file names itself instead of needing a bisect. Rethrow, never catch-and-continue; a swallowed scan error is the silent under-count the walk's `unreadable` ledger exists to prevent.
+
+**Reproduced before the fix, at the real repo root**, with two representative deep-AST bundles written into `.next-dev` and `.next-prod`: **19 failed | 726 passed (745)** — the exact split this entry reported. Same tree after the fix: **793 passed (793)** (745 pre-arc cases plus this arc's 48 new rows; re-derive with `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`). Consequence bound now pinned by test: every file the walk reaches is analyzed or NAMED in a loud failure; the only silently-skipped roots are the derived set plus `docs`.
+
+**Filed twice.** `BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS` is the same defect filed independently from a second triage session; both graduate here, and neither is a distinct piece of work.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.1. Documented limits carried forward there: a root ignored only by a wildcard row (`.codex-companion*/`) stays walked (worst case is a loud named failure, not a silent skip), and a TRACKED root directory later named by a plain-name row would be newly skipped — fenced by a stays-quiet test pin asserting the derived set excludes every tracked source root.
+
+**Probed 2026-08-11 on `fix/help-tour-hydration`**, where the suite failed 19/745 with `RangeError: Maximum call stack size exceeded` inside `tests/cross-cutting/psqlStartupFiles/scan.ts:535`, on a tree whose only source changes were one MDX page and CI wiring. Bisecting by reverting each changed file to `origin/main` left it red; the cause was never in the diff.
+
+`IGNORED_AT_ROOT` (`tests/cross-cutting/psqlStartupFiles/scan.ts:315`) lists `.next` but not the sibling output directories this repo's own tooling writes: `playwright.config.ts` and the screenshot/flip scripts build into **`.next-dev`, `.next-prod`, `.next-prod-flip`, and `.next-screenshots-help`**. Those are walked. An AST-depth probe over the walk's own directory rules found 6516 files, of which twelve are ~12 MB webpack chunks the walk skips only by luck of the parse, and several bundled files reach an AST depth of 4342 — the recursive `visit` at `:535` overflows long before the guard reaches a psql call site.
+
+Moving the four directories outside the repo and re-running takes the same suite to **745 passed** with no other change. Same command, same tree.
+
+**Why it matters more than a local annoyance.** The failure mode is silent misattribution: the stack trace names `typescript.js` and the scan's own line 535, so the reader's first hypothesis is their own diff. That cost a bisect on this arc. Worse, the walk is the guard's completeness claim — a walk that dies partway through has not certified the tree, and 19 red tests are the only thing standing between that and a false green if the overflow were ever caught and swallowed.
+
+**Why it is filed rather than repaired in the arc that found it — exception (c).** The repair is on a guard surface this PR does not otherwise touch, and this particular guard's review history (its own test names run to "R40 escaping mutants") is precisely about enumerated recognizers not terminating. Adding four literals to an enumerated ignore list is the shape that invites the next round to ask for a derived one. It deserves its own arc, where the derivation question can be answered properly.
+
+**The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
+
+## BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS — the psql startup-file guard parses local `.next-*` build output and blows its own stack — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** guard usability (local-only false failure). **Effort:** XS. **Class-sweep exception:** (c) — a guard surface the filing PR does not otherwise touch. **Reachability:** PROBED, with a bisect that named the cause.
+
+**Resolution 2026-08-15.** DUPLICATE FILING of `BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS` — the same defect reached from a second triage session on the same day. Both graduate together in `fix/local-harness-false-failures`; the full resolution, probe numbers and documented limits live on that entry, immediately above this one. In short: the root skip is derived from the committed root `.gitignore` (not four, now seven, literals), and `analyzeNaming` makes any scan throw name the file it was reading. This entry's own "first scheduled step" — widen to the `.next*` prefix AND name the file on a throw — is what shipped, except that the derivation went one better than a prefix.
+
+The two filings are recorded as duplicates rather than merged silently, because two independent triage sessions reaching the same conclusion on the same day is itself the evidence that the failure mode was costing more than one person a bisect.
+
+`tests/cross-cutting/psqlStartupFiles/scan.ts:315`'s `IGNORED_AT_ROOT` skips `.next`, but this repo's own Playwright config builds into `.next-dev`, `.next-prod`, `.next-prod-flip` and `.next-screenshots-help` (`playwright.config.ts` webServer entries). Those are not skipped, so the walk hands megabytes of generated bundle JS to the TypeScript AST scan and it dies:
+
+```
+RangeError: Maximum call stack size exceeded
+ ❯ visit tests/cross-cutting/psqlStartupFiles/scan.ts:535:9
+ ❯ forEachChildInBinaryExpression typescript.js:32647:12
+```
+
+**19 of the guard's 745 cases fail** — including its own structural cases ("the walk is not vacuous", "the walk read every directory"), which is the confusing part: the failures read like a real psql violation and name no file.
+
+**Probed by bisect, all four steps:** the same commit passes 745/745 in a freshly-created worktree that has never built; it fails in a worktree that has; clearing `test-results/` and `.next/` does NOT fix it; moving the four `.next-*` directories aside DOES (745/745). So the trigger is the directory set, not the diff and not the environment more broadly.
+
+**CI is unaffected** — a fresh checkout has no `.next-*` — which is exactly why this can sit here indefinitely and cost each developer the same half-hour bisect.
+
+**First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
+
+## BL-TESTFAST-RACES-TRANSIENT-MUTANT-FILE — a probe writes a temp test file into the tree while the other project is globbing — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** test-harness race (local false failure). **Effort:** S. **Class-sweep exception:** (c) — a harness surface the filing PR does not otherwise touch. **Reachability:** PROBED — observed, with the writer named and the victims cleared standalone.
+
+**Resolution 2026-08-15 — and the mechanism below is CORRECTED, not merely closed.**
+
+This entry's OBSERVATION was exact and reproducible; its explanation was wrong, and the spec's R1 review disproved it by probe. The hypothesised cross-project glob race **cannot occur today**: `scripts/test-fast.mjs` does run the serial and parallel projects concurrently, but the parallel project admits only `PARALLEL_TEST_GLOBS`, none of which match the `tests/cross-cutting` tree (probed: serial membership true, parallel membership false). The transient file was only ever collectable by the SERIAL project — the same project already running it.
+
+The actual mechanism is **STDERR ECHO**. `runSuite` called `execFileSync` with only `encoding` set, and Node then BOTH captures the child's stderr on `err.stderr` AND passes it through to the parent's stderr (probed 2026-08-15 with a minimal repro; capture and passthrough are independent). Every child that file spawns fails INTENTIONALLY — the dead-DB probe and both mutant probes — so their vitest `FAIL` lines leaked verbatim onto the outer run's output, naming tree paths the outer run never failed on, one of which had already been unlinked. That is the entire observed symptom, including the "named file does not exist" part that made it so confusing. Measured on the identical command pair: **5 echoed `FAIL` lines before the repair, 0 after**, with the suite green both times.
+
+Both repairs shipped together, because the transient file carried two further probed hazards the entry did not name:
+
+- **The mutant never lands in the globbed tree.** `writeMutant` now writes the mutant TEXT to an `mkdtemp` scratch file outside the repo under a non-test extension and returns the path; the child runs the suite at its REAL path with that text served in memory by the shipped `load` hook (`tests/mutation/source/mutantOverlay.config.ts`). No path matched by any project glob exists at any instant, so the class is removed rather than narrowed — and a SIGKILL mid-probe can no longer leave a stray red test-suffixed file for the next serial collection to execute. The entry's first scheduled step fenced exactly this shape (out-of-tree or structurally unmatchable, never a basename exclusion), and that is what shipped.
+- **The write no longer pollutes the working tree** that invariant 11 keeps single-writer.
+
+`MUTANT_REL`, `MUTANT_ABS` and both `unlinkSync` finallys are gone; temp-dir removal replaces them. The exactly-once anchor validation is kept verbatim, and the probes' assertions are byte-identical — `git diff origin/main -- tests/cross-cutting/pgCronCiVacuity.test.ts | grep '^[-+]' | grep -c 'expect('` returns 0.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.2. Documented limit carried forward there: any OTHER suite writing transient test-shaped files into the globbed tree, or spawning intentionally-failing children with default `execFileSync` stdio, would recreate these hazards. The class sweep run at plan time found this file to be the only instance of each today; a future one is a review matter, fenced by that limit rather than by a new guard.
+
+`tests/cross-cutting/pgCronCiVacuity.test.ts:159` writes a real file into the repo — `tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts` — runs it as a mutant, and removes it. `scripts/test-fast.mjs` runs the SERIAL and PARALLEL projects concurrently (that concurrency is the whole point of `test:fast`), so the other project's file glob can pick the transient up mid-run and execute it outside its harness.
+
+Observed once, in a full `pnpm test:fast`:
+
+```
+FAIL tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts > INERT MECHANISM PROBE
+Error: live case "INERT MECHANISM PROBE" issued NO database query — it is not a live case.
+FAIL tests/cross-cutting/pg-cron-coverage.test.ts
+```
+
+The failure is maximally confusing: the named file **does not exist** by the time anyone looks, and `pg-cron-coverage.test.ts` passes 8/8 standalone immediately afterwards. Nothing in the output says "this was a temp file".
+
+**Not a CI problem** — CI runs the projects in separate jobs, so the glob never overlaps. It costs local runs only, which is why it can persist.
+
+**First scheduled step:** write the mutant outside the globbed tree (a temp dir passed to vitest) rather than into `tests/`, or give it an extension the projects' `include` patterns do not match. Either removes the race outright; excluding the basename by name would leave the next such probe exposed.
+
+## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown — CLOSED 2026-08-16 (`feat/diagram-demote-notice`, SHIPPED)
+
+**Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
+
+The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
+back to the clamped tier rather than showing "Image unavailable"
+(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
+The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
+nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
+again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
+backwards from the usual one.
+
+**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
+`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
+keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
+entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
+shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
+the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
+(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
+up first — one decision covers both.
+
+**What shipped.** A transient chip on the affected slide — "Full detail unavailable", `aria-hidden`, `pointer-events-none`, absolutely positioned at the slide figure's bottom edge in the Reset chip's token family — set in the SAME branch that already announced the demote, so the sighted and screen-reader channels report one event once each. It clears four ways: a 6000ms timer, a second demote replacing it (last wins), the dialog closing at any of its three initiators, and the demoted slide's clamped tier failing too (a "Full detail unavailable" chip floating over "Image unavailable" is a contradiction, and the chip's premise died with the tier).
+
+**Two mechanisms exist because the dialog has no `open` prop to observe.** The parent unmounts the lightbox by nulling its index, and `AnimatePresence` retains the exiting child with FROZEN props, so nothing inside the lightbox can see a close after the fact. The clear therefore runs at the close INITIATORS, and the re-open signal is an `openNonce` the parent increments on every closed-to-open transition — the only observable difference between "still exiting" and "open again" when a re-open inside the 220ms window cancels the exit and retains the instance.
+
+**Limits carried forward** (spec §4, not defects): the chip names no diagram and explains nothing further (the richer named copy is the sr channel's); a demote inside the exit window may show no chip, because the user who closed the dialog is not looking at the slide; the chip does not persist across dialog sessions, so a one-time failure never reads as a permanent banner; and simultaneous demotes collapse to the latest, which carries the same message.
+
+**Proof, not assertion:** 17 tests — 12 in the zoom-gate suite (containment against the affected slide's own figure, the announce count unchanged, the lifetime pinned by the spec's 5999/1 literals rather than by reading the constant back, timer-cancel oracles, last-wins restart, swipe-away-and-back with its REMAINING lifetime, Reset coexistence) and 5 driven through the REAL parent gallery (sixteen observed red before implementation; the seventeenth was added under review and is mutation-killed), because the lightbox-only harness mounts with a no-op `onClose` and can never exercise a close, a canceled exit, or a retained instance. The `DEMOTE_CHIP_VISIBLE_MS` constant and its DESIGN.md §5.5 row land in one commit, with the inventory gate observed failing by name in between.
+
+---
+
 ## BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal — CLOSED 2026-08-16 (`feat/theme-persistence-note`, SHIPPED)
 
 **Severity (as filed):** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S

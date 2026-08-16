@@ -393,6 +393,14 @@ export type SeedPreviewExtras = {
   driverPhone?: string;
   /** Driver email, as-parsed. Renders the `mailto:` link in the same cell. */
   driverEmail?: string;
+  /**
+   * Vehicle description, as-parsed. Renders a SECOND, short transport cell
+   * beside the contact cell — the row-mate whose height the `items-start`
+   * assertion compares against (spec 2026-08-15-step3-tap-cluster §3.5). It
+   * works on its own, not only when it rides beside a contact: the
+   * `transportation` key's inclusion predicate below counts it.
+   */
+  vehicle?: string;
 };
 
 function packSheetCases(count: number): unknown {
@@ -417,7 +425,7 @@ function transportationRow(preview: SeedPreviewExtras): unknown {
     loadout_name: null,
     loadout_phone: null,
     loadout_email: null,
-    vehicle: null,
+    vehicle: preview.vehicle ?? null,
     license_plate: null,
     color: null,
     parking: null,
@@ -441,14 +449,21 @@ function parseResultJson(spec: VariantSpec, preview?: SeedPreviewExtras): string
           },
         ]
       : [];
-  const hasContact = preview?.driverPhone !== undefined || preview?.driverEmail !== undefined;
+  // Every field that produces a transport cell counts here, not just the two
+  // contact ones: gating on contacts alone would make a vehicle-only caller
+  // silently emit no `transportation` key at all, and the test would then fail
+  // on a missing cell rather than on the geometry it is measuring.
+  const hasTransport =
+    preview?.driverPhone !== undefined ||
+    preview?.driverEmail !== undefined ||
+    preview?.vehicle !== undefined;
   return JSON.stringify({
     show: { title: spec.title, client_label: "Gallery Client" },
     warnings,
     ...(preview?.packCaseItems !== undefined
       ? { pullSheet: packSheetCases(preview.packCaseItems) }
       : {}),
-    ...(hasContact ? { transportation: transportationRow(preview) } : {}),
+    ...(hasTransport ? { transportation: transportationRow(preview) } : {}),
   });
 }
 

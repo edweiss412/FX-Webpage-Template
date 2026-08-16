@@ -158,14 +158,26 @@ export function SheetTitleLink({ dfid, title }: { dfid: string; title: string })
           ? `Open the source sheet for ${strippedTitle} in Google Sheets (opens in a new tab)`
           : "Open the source sheet in Google Sheets (opens in a new tab)"
       }
-      // Tap floor (spec 2026-08-10-tap-target-inline-controls §2, site 5). `inline-block`, NOT
-      // flex: flex would make the trailing icon a nowrap sibling and break title wrapping, and
-      // `min-height` does not apply to inline boxes at all. Symmetric `py-2.5` (10px) over a
-      // one-line `text-base` line box (24.8px at line-height 1.55, app/globals.css:127) yields a
-      // 44.8px target with the text centred by construction; `-my-2.5` cancels the growth in flow.
-      // `-mx-2 px-2` fixes nothing horizontally today (titles are wide) but keeps the left text
-      // edge aligned — and is why this site carries neighbour-overlap assertions in both axes.
-      className="wrap-break-word inline-block -my-2.5 -mx-2 px-2 py-2.5 text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      // Tap floor (spec 2026-08-10-tap-target-inline-controls §2 site 5, vertical axis AMENDED
+      // 2026-08-15 by docs/superpowers/specs/2026-08-15-step3-tap-cluster.md §2.1). `inline-block`,
+      // NOT flex: flex would make the trailing icon a nowrap sibling and break title wrapping, and
+      // `min-height` does not apply to inline boxes at all.
+      //
+      // The bleed is ONE-DIRECTIONAL, UPWARD. `pt-5` (20px) over a one-line `text-base` line box
+      // (24.8px at line-height 1.55, app/globals.css) makes the same 44.8px target the symmetric
+      // `py-2.5` recipe made — but with ALL the bleed above the text and the box bottom flush with
+      // the text-line bottom, and `-mt-5` still cancels the growth in flow. The symmetric form hung
+      // 10px of live hit box BELOW the text, over the meta line (`mt-0.5`, 2px of clearance) and the
+      // no-details warning line (`mt-1`, 4px): a tap on ordinary prose opened Google Sheets in a new
+      // tab. The trade is deliberate — the text now sits at the BOTTOM of its own hit box rather
+      // than centred, because the 20px band above it is card padding with no competing target,
+      // while the band below it belongs to a real line of text.
+      //
+      // The 20px of upward bleed is exactly the card's own `p-tile-pad`, so the box never escapes
+      // its card (asserted). `-mx-2 px-2` is UNCHANGED by the amendment: it fixes nothing
+      // horizontally today (titles are wide) but keeps the left text edge aligned — and is why this
+      // site carries neighbour-overlap assertions in both axes.
+      className="wrap-break-word inline-block -mt-5 -mx-2 px-2 pt-5 text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {title}
       {/* Persistent (non-hover) "opens the source sheet" cue, mirroring the
