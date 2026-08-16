@@ -426,3 +426,103 @@ export function renderRow(p: PaneReport): string {
     `row ${p.position.row} ${p.position.cost}`,
   ].join("  ");
 }
+
+// ---------------------------------------------------------------------------
+// §5.2 — the three one-shot commands
+// ---------------------------------------------------------------------------
+
+/**
+ * The checkpoint prompt. `<NONCE>` is the only substitution.
+ *
+ * It instructs against committing because invariant 1 permits a task commit
+ * only after the implementation passes its test, and an interrupted target is
+ * by construction mid-task. It writes the gitignored marker and leaves the tree.
+ */
+export const CHECKPOINT_TEXT = [
+  "Checkpoint before compaction. Do not commit. Update .claude/ship-state.json in your worktree:",
+  "set `stage` to where you actually are, set `next` to the literal command or action that resumes",
+  "this work, and set `checkpointNonce` to exactly <NONCE>. Leave the working tree exactly as it",
+  "is. Then stop.",
+].join("\n");
+
+export const RESUME_TEXT = [
+  "Run `date` first; the shell clock is the only source of truth. Discard any stale blocked or",
+  "standing-down framing. Re-read .claude/ship-state.json in your worktree and resume its `next`",
+  "action immediately, in this turn. You were compacted by the orchestrator; approval already",
+  "given, do not re-ask.",
+].join("\n");
+
+export type SendPlan = { sends: string[] };
+
+/**
+ * What a command would send. NO ESC, EVER.
+ *
+ * The driver does not interrupt. Two review rounds found four separate defects
+ * on the interrupt's race surface — it could interrupt the checkpoint it had
+ * just detonated, its window was unbounded, its mid-tool-call exclusion had no
+ * accept-set, and its documented limit permitted truncating a file mid-write —
+ * so it was removed rather than patched a third time. Queueing is sufficient:
+ * input to a working pane queues, and a queued slash command executes when the
+ * queue drains by natural turn completion.
+ */
+export function planSends(opts: {
+  command: "checkpoint" | "compact" | "resume";
+  target: string;
+  nonce?: string;
+}): SendPlan {
+  switch (opts.command) {
+    case "checkpoint": {
+      const nonce = opts.nonce;
+      if (nonce === undefined) throw new Error("--checkpoint requires a nonce");
+      return { sends: [CHECKPOINT_TEXT.replace("<NONCE>", nonce), "\r"] };
+    }
+    case "compact":
+      return { sends: ["/compact", "\r"] };
+    case "resume":
+      return { sends: [RESUME_TEXT, "\r"] };
+  }
+}
+
+export type RefusalCause =
+  | { kind: "missing-as" }
+  | { kind: "all-rejected" }
+  | { kind: "unresolvable-target"; target: string }
+  | { kind: "not-drivable"; verdict: Verdict }
+  | { kind: "nonce-absent" }
+  | { kind: "nonce-mismatch" }
+  | { kind: "stale-verdict"; was: Verdict; now: Verdict }
+  | { kind: "contested" };
+
+export type Refusal = { exitCode: 1; sends: never[]; message: string };
+
+/**
+ * A refusal, which always NAMES its reason.
+ *
+ * Exit 1 plus nothing-sent is not sufficient. A silent exit satisfies both and
+ * leaves an operator with nothing to act on — on a surface whose entire
+ * justification for accepting inferred position is that a human can see the
+ * evidence and overrule it (§6, §4.4).
+ */
+export function refuse(cause: RefusalCause): Refusal {
+  const message = ((): string => {
+    switch (cause.kind) {
+      case "missing-as":
+        return "refusing: --as <sessionId> is required and is never inferred";
+      case "all-rejected":
+        return "refusing: --all is not accepted; name a single target";
+      case "unresolvable-target":
+        return `refusing: target ${cause.target} did not resolve (agent_not_found)`;
+      case "not-drivable":
+        return `refusing: verdict is ${cause.verdict}, which is not COMPACT or FORCE`;
+      case "nonce-absent":
+        return "refusing: the target's marker carries no checkpointNonce";
+      case "nonce-mismatch":
+        return "refusing: the target's checkpointNonce is not the one this command recorded";
+      case "stale-verdict":
+        return `refusing: verdict changed from ${cause.was} to ${cause.now} before sending`;
+      case "contested":
+        return "refusing: purview is contested; another orchestrator also claims this pane";
+    }
+  })();
+  return { exitCode: 1, sends: [], message };
+}
