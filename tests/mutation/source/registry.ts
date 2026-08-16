@@ -1280,7 +1280,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     sourcePath: "tests/cross-cutting/psqlStartupFiles/scan.ts",
     suitePaths: ["tests/cross-cutting/psqlStartupFileSuppression.test.ts"],
     operators: ["relational-boundary", "regex-quantifier-bound"],
-    // Achieved 28/29 counted (48 mutants, 19 equivalent, 1 accepted-gap) after
+    // Achieved 29/30 counted (48 mutants, 18 equivalent, 1 accepted-gap) after
     // the 2026-08-16 disposition arc, rounded DOWN to two decimals. The floor is
     // a FLOOR, not a snapshot: the ratchet against silent regression is the
     // empty unaccepted set plus the declared kind counts, not this number.
@@ -1393,10 +1393,10 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "The dash run in INTERPRETER_POSITIONAL_BINDING is followed by [A-Za-z-]*, a character class that ALREADY contains a dash, so -{1,2}[A-Za-z-]* and -{1,3}[A-Za-z-]* denote the same language: one dash followed by any run of letters and dashes. Every extra dash the widened quantifier could consume is a dash the class consumes instead, so no input matches one and not the other, and the pattern is only ever consulted through .test (scan.ts, symbol INTERPRETER_POSITIONAL_BINDING, used in scanShellIndirection). Its twin at 2210:40 has the follower class [A-Za-z0-9], which contains no dash - that one is killed by a test rather than blessed here. Boundary pin: 'an extra dash in the -c spelling still reports the positional binding'.",
       },
       {
-        siteId: "regex-quantifier-bound:2684:32:{0,2}>{0,3}",
+        siteId: "relational-boundary:2155:54:<><=",
         kind: "equivalent",
         reason:
-          "A YAML block-scalar header carries at most TWO indicators - one indentation digit and one chomping character, in either order - so the widened bound admits only first lines YAML itself rejects; the parser reports 'Block scalar header includes extra characters' for |+++, probed on this tree. Even on such a document the blanking cannot move a verdict: the header occupies the whole first physical line and the scalar's content begins on the next, so the shell lexer's newline operator always separates the header's words from the content's command, and blanking preserves the newline so every reported line number is unchanged (scan.ts, symbol scanWorkflowIndirection, the block-scalar header blank). Boundary pin: 'a block scalar header with both indicators is blanked, keeping line numbers'.",
+          "The `logical` continuation loop can take the extra iteration only when the accumulated text still ends with a backslash at k + 1 === lines.length - that is, when the final element of `lines` ends with one. That iteration appends lines[k+1] ?? '' (the empty string) and replaces the trailing backslash with a SPACE, after which the loop's own trailing-backslash test fails and it exits, so the mutant's `logical` differs from the original's in exactly its last character. Neither consumer can tell those apart: the quoted-binding pattern requires a closing quote, which neither a backslash nor a space supplies, and every whitespace run in INTERPRETER_POSITIONAL_BINDING is followed by required content that the extra iteration adds nothing to. Both characters are non-word, so a trailing word boundary holds identically (scan.ts, symbol scanShellIndirection). Boundary pin: 'a quoted binding split by a backslash continuation is one assignment'.",
       },
       // ---- equivalent: bounds a parsed YAML document cannot reach ---------
       {

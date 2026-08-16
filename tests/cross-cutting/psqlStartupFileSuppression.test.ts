@@ -4412,6 +4412,10 @@ describe("enrolment survivors - batch B", () => {
   // guard exists for. Nothing is scanned and no site is reported.
   test("an ssh host with no remote command is not a site", () => {
     expect(sitesIn("ssh database\n", "x.sh")).toHaveLength(0);
+    // The premise: the same host word WITH a remote command does reach the
+    // joining branch and does report, so the zero above is a verdict rather
+    // than a fixture that never arrives.
+    expect(sitesIn("ssh database psql -qAt mydb\n", "x.sh")).toHaveLength(1);
   });
 
   // Boundary pin for the relational-boundary:1314:19 equivalence row
@@ -4610,11 +4614,36 @@ describe("enrolment survivors - batch D", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Boundary pin for the regex-quantifier-bound:2684:32 equivalence row. A YAML
-  // block-scalar header carries at most two indicators — one indentation digit
-  // and one chomping character — so the widened bound admits only headers YAML
-  // itself rejects. The pin is the widest LEGAL header: both indicators plus a
-  // trailing comment, blanked so the psql line keeps its physical position.
+  // Kills regex-quantifier-bound:2684:32 (`[0-9+-]{0,2}` widened to `{0,3}`).
+  // Found by cross-model review r1, which refuted the equivalence row this arc
+  // first wrote for the site. YAML permits at most TWO block-scalar indicators —
+  // one indentation digit and one chomping character — so `|2-+` is not a
+  // header, and the parser says so ("Block scalar header includes extra
+  // characters"). Characters the parser did not accept as a header are CONTENT,
+  // and the widened bound blanks four of them: the scanner then reports offsets
+  // four characters to the left of where the text actually is, pointing into the
+  // header instead of at the command. The expected value is derived from the
+  // fixture's own layout rather than written down, so it states the contract —
+  // the reported offset locates the psql word inside the run scalar.
+  test("a malformed block scalar header is content, so offsets still locate the command", () => {
+    const source = [
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - run: |2-+",
+      "          psql -qAt mydb",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "w.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(5);
+    expect(sites[0]!.offset).toBe(source.indexOf("psql -qAt mydb") - source.indexOf("|2-+"));
+  });
+
+  // Boundary pin for the same guard's LEGAL side, which the kill above does not
+  // cover: the widest header YAML actually permits — both indicators plus a
+  // trailing comment — is still recognised and blanked, so the psql line keeps
+  // its physical position.
   test("a block scalar header with both indicators is blanked, keeping line numbers", () => {
     const source = [
       "jobs:",

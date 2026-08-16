@@ -36,6 +36,30 @@ That is FIXED and shipped in the same arc (`9edf520d1`): the output is discarded
 
 **First scheduled step:** read the 31 survivors, kill the real gaps with suite cases, mark the true equivalents with reasons, then enrol with `scoreFloor` at the achieved score. The full survivor list is in the arc's diff-review record; regenerate it with `pnpm heavy pnpm mutation:guards` after adding the row. Spec context: `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.3 re-disposition note.
 
+## BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS — a describe-local initializer that shells out is classified environment-free
+
+**Status:** OPEN · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, cross-model review r1 on the enrolment diff). **Severity:** LOW-MEDIUM (guard reach; the premise contract under-counts rather than mis-reports). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair changes `classifyTests`'s extent model, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — command and output below.
+
+`classifyTests` (`tests/mutation/source/premiseScan.ts`) decides whether a test is environment-touching by resolving what it references back to declarations it has registered. It registers module-scope declarations; a binding declared INSIDE a `describe` callback is outside those extents, so a test that depends on one is classified `environment-free` even when that binding is produced by a real subprocess.
+
+The enrolled psql suite is a live instance. It imports `execFileSync` at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:35` and runs `git ls-files -z` at `:1952`, inside the initializer for `TRACKED_SOURCE_ROOTS` in the `describe("the derived skip set for THIS repo's committed .gitignore")` block at `:1911`. Two cases consume it — `:1977` and `:1986` — and both are reported environment-free:
+
+```
+$ pnpm exec tsx -e '<classifyTests on the enrolled suite>'
+{"environmentTouching":0,"derivedRoots":[{"line":1977,"verdict":"environment-free","hasPremise":true},
+                                         {"line":1986,"verdict":"environment-free","hasPremise":true}]}
+
+$ rg -n 'import \{ execFileSync \}|execFileSync\("git"' tests/cross-cutting/psqlStartupFileSuppression.test.ts
+35:import { execFileSync } from "node:child_process";
+1952:    const tracked = execFileSync("git", ["ls-files", "-z"], {
+```
+
+**What is and is not at risk.** The contract's purpose is to stop a suite reporting green on nothing, and both affected cases already carry executable premises of their own — `premise("git yielded tracked roots holding scannable files", …)` at `:1980` and `premiseHolds(…)` per root at `:1987` — so neither is currently vacuous. The defect is that the CLASSIFIER cannot see the dependency, which means the next such case gets no scrutiny by default. That is the fail-by-default property the contract exists to provide, and it is absent for this shape.
+
+The under-count is recorded at its declaration site rather than hidden: the `EXPECTED_ENV_TOUCHING` row for this suite (`tests/mutation/_metaPremiseContract.test.ts`) states the number is the scanner's measurement, names this row, and says the number rises when it closes.
+
+**What would close it:** extend the extent model to descend into `describe` callbacks so a binding declared there is registered against the tests within that block, then re-measure every enrolled suite — several declared counts will move, and each move is a real classification being corrected rather than a number to bump. A sweep over the other enrolled suites for the same shape (a subprocess or filesystem read in a `describe`-local initializer) belongs to the same arc; enumerate it with a walk over the registry's `suitePaths`, not by hand.
+
 ## BL-SHELL-BINDING-MIXED-QUOTED-VALUE — an assignment whose value mixes a quoted segment with a bare one is not read as a binding
 
 **Status:** OPEN · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the mutation-enrolment disposition of `relational-boundary:2167:54`). **Severity:** LOW (guard recall; the miss needs a value spelled as two adjacent segments). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair redesigns the assignment-binding pattern family, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — command and output below.

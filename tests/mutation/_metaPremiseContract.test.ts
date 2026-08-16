@@ -50,13 +50,21 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // pure helpers, reaching no member of ENVIRONMENT_SOURCES.
   "tests/cross-cutting/pgCronSmokesUnit.test.ts": 0,
   "tests/scripts/ledgerClaims.test.ts": 0,
-  // The psql startup-file scanner's deciding suite, enrolled 2026-08-16. It declares 0
-  // honestly, and the number is measured rather than asserted: the enrolment's own red
-  // cycle reported "expected +0 to be undefined" for this suite before the row existed.
-  // Every case drives literal fixtures through the exported scanners; the walk and
-  // execFileSync surfaces the suite exercises are reached only THROUGH the module under
-  // test, never through a member of ENVIRONMENT_SOURCES directly - the interactionTimingScan
-  // precedent.
+  // The psql startup-file scanner's deciding suite, enrolled 2026-08-16. The number is
+  // the scanner's own measurement, not a claim about the suite: the enrolment's red cycle
+  // reported "expected +0 to be undefined" here before the row existed.
+  //
+  // It is also a KNOWN UNDER-COUNT, recorded rather than papered over (cross-model review
+  // r1 refuted the first version of this comment, which asserted the suite reaches no
+  // ENVIRONMENT_SOURCES member directly). It does: `psqlStartupFileSuppression.test.ts:35`
+  // imports execFileSync and `:1952` runs `git ls-files -z` to derive TRACKED_SOURCE_ROOTS.
+  // That call sits in a describe-local initializer, outside the module-scope extents
+  // classifyTests registers, so the two cases that depend on it (`:1977` and `:1986`) are
+  // classified environment-free. Both already carry executable premises of their own
+  // (`premise(...)` on the derived root count, `premiseHolds(...)` per root), so the gap is
+  // in the CLASSIFIER's reach, not in those cases' rigour. Filed as
+  // BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS; when it closes, this number rises and the row
+  // is updated to whatever the scanner then measures.
   "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 0,
   // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
   // inventory suite reads DESIGN.md and walks the repo, but through the module

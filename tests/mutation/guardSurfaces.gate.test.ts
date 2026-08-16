@@ -32,15 +32,18 @@ const root = process.cwd();
  * taskContract's 18/2 against every surface in `describe.each`).
  */
 const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
-  // psqlStartupScan: NINETEEN equivalence arguments and ONE accepted gap from the
-  // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Eleven of
-  // the thirty-one first-run survivors were repaid with tests instead. The single
+  // psqlStartupScan: EIGHTEEN equivalence arguments and ONE accepted gap from the
+  // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Twelve of
+  // the thirty-one first-run survivors were repaid with tests instead. The count went
+  // 19 -> 18 during cross-model review, which refuted one row rather than the arc
+  // finding it: `regex-quantifier-bound:2684:32` IS distinguishable by a malformed
+  // three-indicator block-scalar header, and is now killed by a test. The single
   // accepted-gap row is the `spliced` continuation bound, whose only separating inputs
   // also exercise the mixed-quoting limitation filed as
   // BL-SHELL-BINDING-MIXED-QUOTED-VALUE; a SECOND accepted-gap row here would be a new
   // family owing its own filing, not a number to bump, and a new equivalent row is a
   // coverage regression to explain.
-  psqlStartupScan: { equivalent: 19, "accepted-gap": 1 },
+  psqlStartupScan: { equivalent: 18, "accepted-gap": 1 },
   // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
   // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
   // the message as a third key removed the gap rather than re-accepting it. The
