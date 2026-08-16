@@ -75,31 +75,36 @@ Behavior is spec §2.2 verbatim: the 23-field derivability table (Direct / Direc
 | room entry | non-object, or `name` not a string | drop entry |
 | room `set_time`/`show_time`/`strike_time` | non-string | `null` |
 | hotel entry | non-object | drop entry |
-| hotel string fields (`hotel_name`, `names`, `confirmation_no`, `check_in`, `check_out`, `notes`, `hotel_address`) | non-string | `null` (entry kept) |
+| hotel nullable-string fields (`hotel_name`, `confirmation_no`, `check_in`, `check_out`, `notes`, `hotel_address`) | non-string | `null` (entry kept) |
+| hotel `names` | non-array → `[]`; non-string element → element dropped (it is `string[]`, `lib/parser/types.ts:251` — the viewer filter calls array methods on it) | coerce |
+| hotel `ordinal` | non-number | drop entry |
 | contact entry | non-object | drop entry |
 | pull-sheet case | non-object | drop entry |
 | transportation | non-object | `null` (whole field) |
-| `runOfShow` value | non-array `ScheduleDay` | drop that day key |
-| `ScheduleDay` entry | non-object | drop entry |
+| `runOfShow` value (`ScheduleDay`, an OBJECT — `lib/parser/types.ts:487-492`) | non-object | drop that day key |
+| `ScheduleDay.entries` | non-array → `[]`; non-object element → dropped | coerce |
+| `ScheduleDay.showStart`/`showEnd` | non-string | `null` |
+| `ScheduleDay.window` | not `{start: string, end: string}` | `null` |
 | `show.dates` | union-shape failure | adapter returns `{ kind: "decode_error" }` |
 | `show.agenda_links` | non-array → `[]`; non-object entry → dropped | coerce (then the fileId/extracted strip) |
+| ANY nested field not enumerated above | fails its grain check | by GRAIN RULE: wrong-typed scalar → the field's null/empty default; wrong-typed array → `[]` with bad elements dropped; wrong-typed required object → drop the owning entry. The implementation derives each normalizer FROM the consumed type, not from this table — the table pins dispositions for the named families; the grain rule + sweep below close the rest. |
 
-Plus a reusable **grain-walker assertion** `assertShowForViewerGrain(data)` (test-local helper in the suite): walks the output and asserts every field's runtime type matches the projection grain (strings/nullable strings/arrays/records per the table above) — run on the output of EVERY malformed-input case, so a family the table forgot still fails loudly.
+Coverage closure (so an omitted family cannot pass silently): a reusable **grain-walker assertion** `assertShowForViewerGrain(data)` (test-local helper: walks the output asserting every field's runtime type matches the projection grain) run on the output of EVERY malformed-input case, PLUS a **generative malformation sweep**: for every top-level `ParseResult` field and every field of the first entry of each array family, one case replaces the value with a wrong-typed scalar (`42`) and asserts the adapter either returns `decode_error` (permitted only for `show.dates`) or returns `ok` whose output passes the grain walker — a shallow-copy adapter fails the sweep on the first unnormalized family.
 
-- [ ] **Step 1: Write the failing test file** — cases (derive expectations from the fixture object built in-test, never hardcoded literals; the fixture is a hand-built `ParseResult` with 3 crew members [one LEAD with explicit `6/24` M/D date restriction, one `ONLY***`-style stage-restricted, one unrestricted non-LEAD], 2 hotel reservations naming different members, 2 rooms with the SAME name, agenda_links with one fileId entry + one url-only entry, po/proposal/invoice/invoice_notes populated, runOfShow spanning restricted + unrestricted days):
-  1. surrogate ids deterministic (`staged-crew-0..2`, `staged-room-0..1`) and `resolveViewerContext`-compatible (call it: no throw for each roster id);
+- [ ] **Step 1: Write the failing test file** — cases (derive expectations from the fixture object built in-test, never hardcoded literals; the fixture is a hand-built `ParseResult` with 4 crew members [one LEAD with explicit `6/24` M/D date restriction, one `ONLY***`-style stage-restricted, one unrestricted member with neither entitlement flag, one whose ONLY capability flag is FINANCIALS], 2 hotel reservations naming different members, 2 rooms with the SAME name, agenda_links with one fileId entry + one url-only entry, po/proposal/invoice/invoice_notes populated, runOfShow spanning restricted + unrestricted days):
+  1. surrogate ids deterministic (`staged-crew-0..3`, `staged-room-0..1`) and `resolveViewerContext`-compatible (call it: no throw for each roster id);
   2. hotel filter: viewer 0 sees only reservations naming them (assert against the fixture's names, mirroring `lib/data/getShowForViewer.ts:784-787`);
   3. date normalization: the explicit `M/D` viewer's `dateRestriction.days` are ISO and a subset of `show.dates` days;
   4. stage fold: the stage-restricted viewer's effective `dateRestriction` matches `effectiveViewerDateRestriction`'s output for the same inputs (call the real helper on the fixture and compare — right-answer-wrong-mechanism guard);
-  5. runOfShow gating: restricted viewer's `runOfShow` keys ⊆ their allowed days; unrestricted viewer sees all aggregate-day keys;
-  6. financials: present with the fixture's four values for the LEAD viewer, ABSENT for the non-LEAD viewer; `data.show.po/proposal/invoice/invoice_notes` are all null for EVERY viewer;
+  5. runOfShow gating: per-viewer key EQUALITY per case 13's three-way-intersection oracle (this case covers the unrestricted viewer: keys deep-equal `(keys of parse.runOfShow) ∩ aggregateDays` — never "all aggregate days" unconditionally);
+  6. financials: present with the fixture's four values for the LEAD viewer AND for a FINANCIALS-only viewer (the fixture roster carries one member whose only capability flag is FINANCIALS — removing the FINANCIALS branch while keeping LEAD must fail this arm), ABSENT for the viewer with neither flag; the entitlement call is the exported `financialsVisible` authority (`lib/visibility/scopeTiles.ts:140`) with `isAdmin: false`, never a re-derived flag check; `data.show.po/proposal/invoice/invoice_notes` are all null for EVERY viewer;
   7. agenda strip: every `data.show.agenda_links` entry lacks `fileId` and `extracted`;
   8. defaults: `tileErrors` `{}`, `diagrams` null, `openingReelHasVideo` false, `lastCheckedAt === opts.checkedAt`, `lastSyncedAt === opts.stagedModifiedTime`, `viewerVersionToken === "staged-preview"`;
   9. selection: `requestedViewerId: "staged-crew-1"` → `selectedId` = it; unknown/null → `"staged-crew-0"`;
   10. `empty_roster` on `crewMembers: []`;
   11. normalizers: ONE case per row of the normalizer table above (crew entry `null` / `{..., name: 7}` dropped; `role_flags: null` → `[]`; `role_flags: [null, "LEAD"]` → `["LEAD"]`; room `{..., name: null}` dropped; room `set_time: 42` → `null`; malformed hotel/contact/pull-sheet/transportation/runOfShow/agenda_links shapes per their rows; `show.dates` failure → `decode_error`), each case's output passed through `assertShowForViewerGrain`;
   12. `transportationOwnerIds` equals `resolveTransportOwners(transportation, roster)` over the surrogate roster;
-  13. runOfShow EQUALITY (not subset): for each viewer, `Object.keys(data.runOfShow).sort()` deep-equals the in-test derived allowed set (`aggregateDays(show.dates)` ∩ the viewer's normalized restriction days), which is non-empty for the fixture's restricted viewer (premise assertion: derived set length > 0, so an empty-output implementation fails);
+  13. runOfShow EQUALITY (not subset): for each viewer, `Object.keys(data.runOfShow).sort()` deep-equals the in-test derived set `(keys of parse.runOfShow) ∩ aggregateDays(show.dates) ∩ the viewer's normalized restriction days` — the projection's own three-way intersection (`lib/data/getShowForViewer.ts:795-830`; source keys included so an adapter synthesizing blank days for agenda-less dates FAILS), non-empty for the fixture's restricted viewer (premise assertion: derived set length > 0);
   14. string-presence mutants (writing-plans rule), run once and recorded in the commit message: (a) financials values emptied → AC-1's financial-string assertions fail; (b) a hotel name with an appended suffix in the fixture → the equality assertions fail; (c) financial strings present in `show.po` (not nulled) but absent from `financials` → the nulling assertion fails; (d) `requestedViewerId` varied across all three roster ids → selected-viewer-dependent outputs differ.
 - [ ] **Step 2: Run to verify red** — `pnpm vitest run tests/data/stagedShowForViewer.test.ts` — Expected: FAIL, the adapter module does not exist yet (unresolved import).
 <!-- task: red=`pnpm vitest run tests/data/stagedShowForViewer.test.ts` red-state=authored red-target=`lib/data/stagedShowForViewer.ts` why=`adapter module absent; every case fails on unresolved import` ac=AC-1,AC-3 -->
@@ -140,7 +145,7 @@ Plus a reusable **grain-walker assertion** `assertShowForViewerGrain(data)` (tes
   2. no `ShowRealtimeBridge` in the tree under posture (mock it to a marker, assert absent; present in the non-posture render);
   3. no element matching the card-report trigger accessible name anywhere under posture; footer report affordance absent;
   4. AC-8: with `staticPreview` absent, rendered tree of a populated fixture is unchanged vs a pre-change snapshot of section keys + bridge + triggers (assert presence, not bytes);
-  5. AC-3 budget gate through the REAL shell: adapter output for a LEAD-or-FINANCIALS-flagged viewer → `budget` in the captured `sectionNodes` keys; a viewer with neither flag → absent (the `crewShellSections.test.tsx` entitlement pattern, expected set derived from the fixture's flags); ALSO for the `role_flags: [null, "LEAD"]` normalized viewer (element-drop arm proved through the shell);
+  5. AC-3 budget gate through the REAL shell, three arms: the LEAD viewer AND the FINANCIALS-only viewer each → `budget` in the captured `sectionNodes` keys; the neither-flag viewer → absent (the `crewShellSections.test.tsx` entitlement pattern, expected set derived from the fixture's flags); ALSO for the `role_flags: [null, "LEAD"]` normalized viewer (element-drop arm proved through the shell);
   6. AC-1 REAL-shell integration: `CrewShell` rendered from ADAPTER OUTPUT over the full Task-1 `ParseResult` fixture (not `makeShowForViewer`) — every entitled section key present; per-section content spot-derived from the fixture (a contact's name renders in the crew/contacts body, a pull-sheet case name in gear, the viewer's hotel name in travel); the four financial strings appear NOWHERE in a non-entitled viewer's full rendered text and the budget body renders them for an entitled viewer;
   7. AC-3 Right Now uses the FILTERED hotel: the Today/RightNow rendering for viewer A names viewer A's fixture hotel and not viewer B's (expected names derived from the fixture);
   8. AC-2 `after()` suppression: module-mock `next/server`'s `after` with a spy — zero registrations under `staticPreview: true`, at least one without (defect-injection pair);
@@ -178,7 +183,7 @@ Visual contract (spec §2.5): the `PreviewBanner` recipe verbatim (`components/a
 **Files:**
 <!-- spec-lint: ignore — all three files created by this task; not yet tracked -->
 - Create: `app/admin/wizard/preview/[stagedId]/page.tsx`, `app/admin/wizard/preview/[stagedId]/error.tsx`, and `lib/admin/lookupStagedRow.ts` (the lookup helper lives in its OWN module so the route imports it and the test module-mocks it — a same-module export cannot be mocked out from under the page's lexical reference)
-- Modify: `tests/admin/_metaInfraContract.test.ts` (one `infraRegistry` row for `lookupStagedRow` PLUS a bespoke behavioral `describe` block — the registry rows are grep/static coverage only; the throwing-client behavioral proofs are the file's separate `describe` blocks, so this task adds one: a client whose `.from()` throws synchronously AND one whose builder rejects mid-await both yield `{ kind: "infra_error" }`)
+- Modify: `tests/admin/_metaInfraContract.test.ts` (one `infraRegistry` row for `lookupStagedRow` PLUS a bespoke behavioral `describe` block — the registry rows are grep/static coverage only; the behavioral proofs are the file's separate `describe` blocks, so this task adds one with FOUR arms, all yielding `{ kind: "infra_error" }`: a client whose `.from()` throws synchronously; a builder that rejects mid-await; a builder that RESOLVES `{ data: null, error: <object> }` (returned-error path — a helper mapping returned errors to `not_found` fails this arm); and `createSupabaseServerClient` itself throwing at construction)
 <!-- spec-lint: ignore — file created by this task; not yet tracked -->
 - Test: `tests/admin/stagedPreviewRoute.test.tsx` (new)
 
@@ -202,10 +207,10 @@ Route flow is spec §2.1 steps 1–6 verbatim: `requireAdmin()` first line; UUID
   10. string-presence mutants for the failure copy, run once and recorded: copy emptied; copy with appended suffix; copy present only in a `title` attribute; each failure kind varied in turn (infra vs decode vs empty-roster testids stay distinct).
 - [ ] **Step 2: Run to verify red** — `pnpm vitest run tests/admin/stagedPreviewRoute.test.tsx` — Expected: FAIL, route module absent.
 <!-- task: red=`pnpm vitest run tests/admin/stagedPreviewRoute.test.tsx` red-state=authored red-target=`app/admin/wizard/preview/[stagedId]/page.tsx` why=`route module and lookupStagedRow helper absent` ac=AC-4 -->
+- [ ] **Step 3: Write the helper's tests BEFORE the helper** — add to `tests/admin/_metaInfraContract.test.ts` the `infraRegistry` row (`helper`/`path`/`contract` shape, near line 170) AND the bespoke `describe("lookupStagedRow infra contract")` with the four arms from the Files block (sync `.from()` throw; mid-await rejection; resolved `{ data: null, error }`; construction throw). Run `pnpm vitest run tests/admin/_metaInfraContract.test.ts` — Expected: FAIL (grep-visibility: the helper module does not exist). Record the red.
 <!-- spec-lint: ignore — helper module created by this task; not yet tracked -->
-- [ ] **Step 3: Implement `lib/admin/lookupStagedRow.ts`, page, and error.tsx** (page exports `metadata` per case 9).
-- [ ] **Step 4: Add the registry row AND the behavioral block** in `tests/admin/_metaInfraContract.test.ts`: the `infraRegistry` row (`helper`/`path`/`contract` shape, near line 170) plus a bespoke `describe("lookupStagedRow infra contract")` with the two throwing-client arms (sync `.from()` throw; builder mid-await rejection) both yielding `{ kind: "infra_error" }` — the file's existing bespoke-block pattern. Observable red: add row + block BEFORE Step 3's helper exists (grep-visibility fails) — the executor runs it red, then green after Step 3, and records both.
-- [ ] **Step 5: Run to verify green** — both test files.
+- [ ] **Step 4: Implement `lib/admin/lookupStagedRow.ts`, page, and error.tsx** (page exports `metadata` per case 9; the helper distinguishes returned-error from thrown per invariant 9).
+- [ ] **Step 5: Run to verify green** — both suites: the Step 1 route suite and `tests/admin/_metaInfraContract.test.ts`.
 - [ ] **Step 6: Typecheck + commit** — `git commit -m "feat(admin): staged crew preview route with segment error boundary"`.
 
 ### Task 6: Step-3 modal entry link
