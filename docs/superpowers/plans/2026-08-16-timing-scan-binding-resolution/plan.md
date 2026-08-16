@@ -6,7 +6,7 @@
 
 **Architecture:** one branch, `fix/timing-scan-scope-resolution`, off `origin/main` (worktree + claim already created by the authoring session). Tasks in order; TDD per task; conventional commits; cross-model diff review; real CI green; merge; `0  0`.
 
-**Date:** 2026-08-16 · **Spec:** `docs/superpowers/specs/ci/2026-08-16-timing-scan-binding-resolution-design.md` · **Status:** DRAFT (plan review pending; codex-guard unavailable — see HANDOFF)
+**Date:** 2026-08-16 · **Spec:** `docs/superpowers/specs/ci/2026-08-16-timing-scan-binding-resolution-design.md` · **Status:** plan-APPROVED by SUBSTITUTE review (codex-guard returned no_verdict — OpenAI usage limit to 2026-08-22; independent fresh-eyes subagents acknowledged and never reported; the gate that actually ran is the hostile self-review pass documented in spec §7, which changed the design twice)
 
 ## Global constraints
 

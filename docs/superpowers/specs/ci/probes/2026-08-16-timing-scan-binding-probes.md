@@ -1288,3 +1288,69 @@ delay other → decl components/x/SameLine.tsx:2 (start offset 67) ; line key in
 - Under a line-keyed rule, `setTimeout(fn, other)` resolves to that line, the key is in the covered set, and the site is SUPPRESSED — one binding wearing another binding's coverage, which is the exact class this arc exists to close, reintroduced by the repair.
 - Under today's name filter that same site is correctly reported, so the line-keyed draft would have been a REGRESSION rather than merely a weaker fix.
 - The start offsets differ (the covered name at 6, `other` at 67), so keying on the declaration name node's start offset is the identity the rule needs, at the same cost and with no ambiguity.
+## P11 — a program root that does not exist (every synthetic-root test hits this)
+
+`scanRepo` builds its file list with `universeFiles`, which APPENDS the `EXPLICIT_INCLUDES` paths unconditionally. Under the live repo they exist; under the fixture-tree tests, which scan a `mkdtempSync` root, they do not — so every one of those tests would pass two nonexistent paths to `ts.createProgram`. Asked before the implementer discovers it.
+
+### Script — `probe/p11-missing-roots.ts`
+
+```ts
+/** P11 — scanRepo passes universeFiles(root), which APPENDS the EXPLICIT_INCLUDES
+ *  paths whether or not they exist. In a synthetic-root test they do not.
+ *  Does ts.createProgram tolerate missing roots, and at what cost? */
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import ts from "typescript";
+
+const root = mkdtempSync(join(tmpdir(), "p11-"));
+mkdirSync(join(root, "components", "x"), { recursive: true });
+writeFileSync(
+  join(root, "components/x/A.tsx"),
+  "const CLOSE_DELAY_MS = 220;\nexport function A(fn: () => void) { setTimeout(fn, CLOSE_DELAY_MS); }\n",
+  "utf8",
+);
+const roots = [
+  join(root, "components/x/A.tsx"),
+  join(root, "lib/admin/destructiveConfirm.ts"), // does not exist here
+  join(root, "lib/ui/copyFeedback.ts"), // does not exist here
+];
+const t = Date.now();
+let threw: string | null = null;
+let program: ts.Program | null = null;
+try {
+  program = ts.createProgram(roots, {
+    noEmit: true, noResolve: true, noLib: true, types: [], allowJs: false,
+    target: ts.ScriptTarget.Latest, jsx: ts.JsxEmit.Preserve,
+    module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+    baseUrl: root, paths: { "@/*": ["./*"] },
+  });
+  program.getTypeChecker();
+} catch (e) {
+  threw = e instanceof Error ? e.message : String(e);
+}
+console.log(`threw: ${threw ?? "no"} ; ms=${Date.now() - t}`);
+if (program) {
+  console.log(`sourceFiles in program: ${program.getSourceFiles().length}`);
+  console.log(`missing root resolves to a SourceFile? ${program.getSourceFile(roots[1]!) !== undefined}`);
+  console.log(`present root resolves? ${program.getSourceFile(roots[0]!) !== undefined}`);
+  const diags = program.getGlobalDiagnostics().length + program.getOptionsDiagnostics().length;
+  console.log(`global+options diagnostics (ignored by the design): ${diags}`);
+}
+```
+
+### Transcript
+
+```
+threw: no ; ms=10
+sourceFiles in program: 1
+missing root resolves to a SourceFile? false
+present root resolves? true
+global+options diagnostics (ignored by the design): 10
+```
+
+### What it settles
+
+- `ts.createProgram` does NOT throw on a missing root: it records a diagnostic and the program simply lacks that source file. The design reads no diagnostics, so the ten reported here are inert.
+- The fixture-tree suite therefore needs no special handling, and the cost of a synthetic universe is ~10 ms rather than the live tree's ~250 ms.
+- Failure direction if a real universe file goes missing: no source file, so no reference in it is resolved and nothing is suppressed on its behalf — the conservative direction, matching §2.5.

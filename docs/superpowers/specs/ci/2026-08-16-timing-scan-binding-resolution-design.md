@@ -1,6 +1,18 @@
 # Timing scan: resolve an identifier delay against its BINDING, not its spelling
 
-**Date:** 2026-08-16 · **Arc branch:** `fix/timing-scan-scope-resolution` · **Entry:** `BL-TIMING-SCAN-NAME-VS-BINDING` (BACKLOG.md, filed 2026-08-15, effort M) · **Status:** draft
+**Date:** 2026-08-16 · **Arc branch:** `fix/timing-scan-scope-resolution` · **Entry:** `BL-TIMING-SCAN-NAME-VS-BINDING` (BACKLOG.md, filed 2026-08-15, effort M) · **Status:** spec-APPROVED by SUBSTITUTE review — see §7
+
+## §7 Review posture — what gated this spec, and what did not
+
+**Cross-model review was unavailable, and this section says so rather than letting a Status line imply otherwise.** The round-1 spec dispatch went out through `codex-guard` (`--stage spec --round 1`; the brief and the wrapper's output live under the gitignored `.review/` directory in the arc worktree, and the corpus row records both paths) and came back `status: "no_verdict"`, `failureReason: "attempts_exhausted"` on all three attempts, each ending `You have hit your usage limit … try again at Aug 22nd, 2026 4:09 PM`. That is an infrastructure fault, never a finding count, and the corpus row records it as such. Independent fresh-eyes reviewers were then spawned as the substitute; four of them acknowledged and went idle without ever returning a report, which is a known failure of that path on this machine.
+
+What actually gated the document, therefore, is a **hostile self-review pass with executable probes** — the weakest of the three options and the only one available. It is recorded here so a later reader can weigh it correctly, and it is not nothing: the pass changed the design twice.
+
+- **P10 killed the draft's declaration identity.** The covered set was keyed `${file}:${line}`; two bindings on one line share that key, so a delay referencing the non-timing one resolved into the constant's coverage and was suppressed — the arc's own defect class, reintroduced by the repair, and a REGRESSION against today's name filter, which reports that site correctly. The set is now keyed on the declaration name node's start offset, and AC-12 pins the case.
+- **P9 found the valuation axis** — a resolved binding can still be inventoried at a stale initializer — measured zero live instances, and filed it as `BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT` rather than widening this arc into it.
+- **P8 and P11 replaced two pieces of reasoning with measurements**: declaration merging really does yield one symbol with several declarations (which is why the rule reads SOME declaration), and a nonexistent program root really is tolerated (which is why the fixture-tree tests need no special handling).
+
+**What this posture does NOT establish:** an independent adversary has not read this spec. The implementation arc's diff review therefore carries the cross-model gate for both stages — if `codex-guard` is answering by then, its round-1 diff brief cites this section and asks the reviewer to treat the design as unreviewed rather than as previously approved.
 
 ## §0 Why
 
@@ -101,6 +113,7 @@ Every uncertainty defaults to REPORT; nothing degrades back to name matching.
 | condition | behavior |
 | --- | --- |
 | a universe file is unreadable | skipped by the existing `readFileSync` guard in `scanRepo`; unchanged |
+| a listed universe file does not exist (every synthetic-root scan, where `EXPLICIT_INCLUDES` are absent) | `ts.createProgram` records a diagnostic and omits it; the design reads no diagnostics, so nothing is resolved on its behalf and nothing is suppressed (probe P11, ~10 ms for a fixture universe) |
 | a universe root is missing | unchanged — the inventory test's premise assertion catches an empty population |
 | a file does not parse cleanly | TypeScript's error recovery still binds it; a reference that fails to resolve reports `unclassified` |
 | the reference's symbol has zero declarations | `unclassified` |
@@ -124,6 +137,7 @@ Full scripts and transcripts: `docs/superpowers/specs/ci/probes/2026-08-16-timin
 | **P7** | Zero live delta under the PINNED options | 367 identifier references (every timer delay + every identifier property value in the universe, including keys the scanner never treats as timings — a deliberate SUPERSET of the 35 sites at issue): 35 resolve to a covered declaration, 292 to another binding, 40 unresolved — and **0 deltas** against the name filter. Program 254 ms. |
 
 | **P9** | Is a resolved binding also VALUED correctly? | A `let` with a literal initializer that is later reassigned is inventoried at the initializer; the delay referencing it resolves correctly and suppresses. Zero live instances of the shape. Filed as `BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT`; §4 item 7. |
+| **P11** | Does a nonexistent program root break the fixture-tree tests? | No. `ts.createProgram` omits it with a diagnostic the design never reads; a synthetic universe costs ~10 ms. This matters because `universeFiles` appends the `EXPLICIT_INCLUDES` paths to EVERY scan, including temp roots where they do not exist. |
 | **P10** | Is a LINE a declaration identity? | No — and this one changed the design. Two bindings on one line share a line key, so the draft's line-keyed rule suppressed a site referencing the non-timing one, a regression against today's behavior. The covered set is now keyed on the declaration name node's start offset (§2.1). |
 | **P8** | Module-graph and merging shapes | `export *` resolves through to the declaring file; a type-only import beside a value import does not disturb resolution; a namespace member assigned to a local resolves to that LOCAL binding and therefore REPORTS; a declaration merge yields one symbol with two declarations, which is the evidence behind §2.2's SOME-declaration rule. |
 
