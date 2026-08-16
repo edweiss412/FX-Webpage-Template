@@ -487,8 +487,16 @@ export function realSurface(): Surface {
       return files;
     },
     marker: (cwd) =>
-      readJson(join(cwd, ".claude", "ship-state.json")) as Record<string, unknown> | null,
+      cwd === ""
+        ? null
+        : (readJson(join(cwd, ".claude", "ship-state.json")) as Record<string, unknown> | null),
+    // A roster entry can carry no cwd at all — a plain shell pane. Spawning with
+    // an empty cwd would either throw or, worse, silently run in the
+    // ORCHESTRATOR's directory and report that worktree's git and PR state as
+    // the pane's. Answering "unknown" keeps the read honest: an unclean tree
+    // with no commit time is the conservative side of every position predicate.
     git: (cwd) => {
+      if (cwd === "") return { clean: false, lastCommitAt: null };
       const status = sh("git", ["status", "--porcelain"], cwd);
       const at = sh("git", ["log", "-1", "--format=%ct"], cwd);
       const secs = Number(at.stdout.trim());
@@ -497,7 +505,10 @@ export function realSurface(): Surface {
         lastCommitAt: Number.isFinite(secs) && secs > 0 ? secs * 1000 : null,
       };
     },
-    gh: (cwd) => sh("gh", ["pr", "checks", "--json", "bucket"], cwd),
+    gh: (cwd) =>
+      cwd === ""
+        ? { exitCode: 1, stdout: "", stderr: "no cwd on this pane" }
+        : sh("gh", ["pr", "checks", "--json", "bucket"], cwd),
     corpus: (branch) => {
       if (branch === null) return [];
       const dir = join(process.cwd(), "docs", "review-rounds", branch);
