@@ -748,7 +748,7 @@ import { SHARD_COUNT } from "../parser/mutation/shardPartition";
 import { SOURCE_SHARD_COUNT } from "./source/shardPartition";
 
 const ROOT = join(__dirname, "..", "..");
-type Step = { id?: string; run?: string; env?: Record<string, string>; with?: { script?: string } };
+type Step = { id?: string; uses?: string; run?: string; env?: Record<string, string>; with?: { script?: string } };
 type Job = {
   strategy?: { matrix?: Record<string, unknown>; "fail-fast"?: boolean };
   needs?: string[];
@@ -1047,6 +1047,12 @@ Artifacts, not job outputs: matrix children share one output name and overwrite 
     permissions: { contents: read }
     steps:
       - uses: actions/checkout@v4
+      # `tsx` is a project dependency (package.json:144), not a runner binary,
+      # so this job needs the same setup every other job repeats -- without it
+      # `pnpm tsx` fails on a clean runner BEFORE the checker runs, and the
+      # integrity meta-test would not notice because it pins the command and the
+      # environment, not the steps that make the command executable.
+      - uses: ./.github/actions/setup
       - uses: actions/download-artifact@v4
         with: { pattern: elapsed-*, path: elapsed }
       - name: Enforce the per-shard budget
@@ -1090,6 +1096,13 @@ So the recognizer is deleted rather than widened. A step's `env:` is a YAML **ma
     // contradicts its own declaration. Pinning the whole command closes it
     // without reintroducing a pattern to match.
     expect(step!.run?.trim()).toBe("pnpm tsx scripts/check-shard-budget.ts");
+    // ...and the job must actually be able to run it. `tsx` is a project
+    // dependency, not a runner binary, so a budget job without the shared setup
+    // action dies before the checker executes -- with the command and env
+    // assertions above still green.
+    const uses = (wf.jobs["budget"]?.steps ?? []).map((x) => x.uses ?? "");
+    expect(uses, "the budget job never checks out").toContain("actions/checkout@v4");
+    expect(uses, "the budget job never installs project deps").toContain("./.github/actions/setup");
   });
 ```
 
