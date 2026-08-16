@@ -42,6 +42,14 @@ A reviewer-proposed addition is admissible only with a live escaping mutant agai
 guard; a proposed NEW operator is a registry change carrying its own before/after numbers, not a
 round on this diff.
 
+**The table below is rationale, not a proven claim, and Task 9 makes it executable.** Plan round 1
+probed the live operators and found these claims can be silently false: `regex-quantifier-bound`
+reaches only `{m,n}` quantifiers inside literal text, not an exact `{5}` or a plain string match;
+`statement-removal` reaches only expression, `continue` and `break` statements. The gate asserts
+only that total mutants exceed zero, so a declared operator with **no site on this surface** passes
+enrolment while contributing nothing. Task 9 therefore asserts **at least one generated site per
+declared operator** — turning each row into a checked statement or a red.
+
 | Declared operator | What it attacks here |
 | --- | --- |
 | `relational-boundary` | Band comparisons at `t = 5` / `t = 8`; the `RECENT_COMMIT_WINDOW` comparison. |
@@ -69,14 +77,39 @@ round on this diff.
 
 ## Task 1 — gauge parsing and pressure bands in tenths
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/bands.test.ts` red-state=authored red-target=`scripts/lib/pane-compaction-core.ts` why=`parseGauge and bandFor do not exist, so every band assertion throws on an undefined export` ac=AC-2,AC-11 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/bands.test.ts` red-state=authored red-target=`scripts/lib/pane-compaction-core.ts` why=`parseGauge and bandFor do not exist, so every band assertion throws on an undefined export` ac=AC-2 -->
 
-**AC-2** (below-eligibility yields `HOLD`) and **AC-11** (critical yields `FORCE`, or `WAIT` at a High cost) are proved here. Parse the five-cell gauge to the integer `t = 2 × full + half` in `0..10`; classify into spec
+**AC-2**'s band arithmetic is proved here. **AC-11 is NOT** — `FORCE`-versus-High-cost-`WAIT`
+needs precedence and position, which are Tasks 2 and 4; plan round 1 caught this task's marker
+claiming it. Parse the five-cell gauge to the integer `t = 2 × full + half` in `0..10`; classify into spec
 §4.2's three bands. Fixtures cover **both boundaries at the `>=` sense** (`t = 5`, `t = 8`) plus all
 four gauges observed in spec §3.7. An unparseable gauge yields `UNDETERMINED`, not a default band.
 
 **Failure mode caught:** a band comparison written `>` instead of `>=` silently demotes every pane
 sitting exactly on a boundary, and `t = 8` is `████░`, a gauge the live roster produces.
+
+**This task also lands the core's purity guard, because it creates the core.** The precedent
+`scripts/lib/ledger-claims-core.ts:4-8` states that a structural guard bans `node:child_process`
+outright — and **probing shows no such guard exists for that directory**: the only purity walker is
+`tests/specLint/_metaPureCore.test.ts`, whose `CORE_DIR` is `lib/specLint`. Nothing walks
+`scripts/lib/`.
+
+That gap matters here specifically. Task 9's zero-`EXPECTED_ENV_TOUCHING` argument is about the
+**suites**; it says nothing about the **core**, and the core is where a direct spawn would defeat
+the injected seam every classifier test asserts against. A fixture-injected surface proves nothing
+if the code under test can also shell out behind it.
+
+Add a walker over `scripts/lib/` modelled on `_metaPureCore.test.ts`: the same single `FORBIDDEN`
+pattern (it covers bare imports, `from` clauses, `require()`, dynamic `import()`, template-literal
+specifiers and subpaths, because every form contains the quoted-or-backticked specifier); the same
+**walker sanity floor**, which is the guard's own premise and without which a mis-rooted walk
+passes vacuously; and exactly **one** allowlist entry, `scripts/lib/ledger-git.ts`, the deliberate
+spawn seam and the only file in the directory that really imports it (probed). An allowlist of one,
+named with its reason, is a claim; a silent skip is not.
+
+**Failure mode caught:** someone later adds a convenience `execFileSync` to the classifier core.
+Every injected-surface test still passes — precisely the blindness the precedent's comment
+describes — and nothing fails.
 
 ## Task 2 — precedence: total and deterministic
 
@@ -170,7 +203,16 @@ fresh worktree has no marker.
 
 <!-- task: red=`pnpm vitest run tests/paneCompaction/cli.test.ts` red-state=authored red-target=`scripts/pane-compaction.ts` why=`the CLI adapter does not exist; there is no envelope to assert is uncapped and no exit code to assert` ac=AC-1,AC-8,AC-21 -->
 
-**AC-1** (report covers every roster pane) and **AC-8** (`--check` exit codes) are proved here. Envelope `{status, degraded, panes}`, **never capped**, with the builder exported so that is
+**AC-1** (report covers every roster pane) and **AC-8** (`--check` exit codes) are proved here.
+
+**The `panes:compact` alias is part of this task, not a side effect.** `package.json` has no such
+script at the plan's base commit, and direct-import tests would pass while the user-facing command
+named in AC-1 stayed absent — plan round 1's finding. The task adds the alias **and** asserts it:
+read `package.json`, require a `panes:compact` entry, and require it to resolve to the adapter this
+task creates. A test that imports the module but never checks the alias cannot fail when the
+command is missing.
+
+Envelope `{status, degraded, panes}`, **never capped**, with the builder exported so that is
 provable — the `reportEnvelope` reasoning at `scripts/ledger-claims.ts:44`. The uncapped assertion
 uses a fixture roster larger than any plausible cap: the live roster is ~12 panes, so an end-to-end
 assertion against the real machine could not fail against the mutant it names.
@@ -212,9 +254,13 @@ decision survives only when a structural defense lands with it.
 
 **Nonce: three properties, three replays (AC-19, AC-24).**
 
-**Single-use only.** `--compact` consumes the record **before** sending, so running it twice in a
-row exits 1 the second time and sends nothing. Consuming after would leave a replayable record on
-every failure path (round 4).
+**Single-use, and the ordering is asserted rather than implied.** `--compact` consumes the record
+**before** sending. Running it twice in a row is necessary but **not sufficient** — plan round 1
+was right that the sequential test passes whether consumption happens before the send or after a
+successful one, so it cannot prove the ordering the design claims. The discriminating case makes
+the **send throw**, then asserts the record is *already* consumed: under consume-after, the record
+would survive a failed send and stay replayable. That is the failure path the ordering exists to
+protect, and only that case distinguishes the two implementations.
 
 **No cross-orchestrator property is asserted, and no test pretends to establish one.** Round 6
 dropped the "exactly one `/compact` across competing orchestrators" claim after rounds 4, 5 and 6
@@ -279,7 +325,16 @@ merely asserted non-equal to the source — the precedent row records that an ea
 computed a `broken` string, asserted it differed, and never passed it to the runner, so the
 assertion only proved a string existed in a file.
 
-**Enrolment fans out to a second registry.** `tests/mutation/_metaPremiseContract.test.ts` walks
+**Enrolment fans out to TWO other registries, and missing either reds the gate before any mutant
+is scored.**
+
+`tests/mutation/guardSurfaces.gate.test.ts:180-182` asserts
+`Object.keys(EXPECTED_LEDGER_KINDS).sort()` equals `GUARD_SURFACES.map(s => s.id).sort()` — exact
+key parity. A new surface therefore needs its own `EXPECTED_LEDGER_KINDS` entry, enrolled with an
+**empty ledger** (`{}`) the way the 2026-08-15 arms surfaces were, since this surface starts with
+no accepted survivors. Plan round 1 caught this omission.
+
+**And to the premise contract.** `tests/mutation/_metaPremiseContract.test.ts` walks
 the enrolled suites — so a newly enrolled surface is covered by default rather than silently exempt
 — and requires a per-suite entry in its `EXPECTED_ENV_TOUCHING` map, declared **independently of
 the classification** so that a recognizer which silently stops matching reds instead of reporting a
@@ -292,6 +347,11 @@ suites, not targets. If a later task ever has a suite import a real surface it m
 non-zero count, the way `tests/scripts/ledgerGitSpawnSeam.test.ts` declares 16 for importing
 `realGitSurface`. The honest zero here matches `tests/scripts/ledgerClaims.test.ts` and
 `tests/db/destructiveFileAnalysis.test.ts`; it is not an exemption.
+
+**Assert at least one generated site per declared operator** before running the gate. `pnpm
+mutation:sites` prints the generated sites; the enrolment test requires every name in the surface's
+`operators` array to appear at least once. Without it a declared operator with no site on this
+surface is dark, and the gate — which checks only that total mutants exceed zero — stays green.
 
 Then `pnpm heavy pnpm mutation:guards` (full-suite vitest — heavy phases take a slot), recording
 the score and unaccepted-survivor set for the round-1 diff brief's `GUARD SURFACE:` line. Run
