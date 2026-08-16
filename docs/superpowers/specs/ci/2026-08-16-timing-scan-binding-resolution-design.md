@@ -109,6 +109,8 @@ Every uncertainty defaults to REPORT; nothing degrades back to name matching.
 
 Full scripts and transcripts: `docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md`. Every number in this spec comes from that record; prose here references it rather than restating derivations.
 
+**Wall-clock numbers are per-run, and the table says which run.** P3 and P4 both timed the full-tsconfig program and got 9.2 s and 7.3 s in separate processes; the table reports each under its own probe rather than averaging them or quietly keeping one. The load-bearing comparison survives that spread by an order of magnitude — every import-following configuration is seconds, the pinned one is a quarter of a second — and the design would not change anywhere inside it.
+
 | probe | question | result |
 | --- | --- | --- |
 | **P1** | What does the global name filter suppress today? | 311 files, 76 raw sites, 24 `named-constant` sites over 23 distinct names; **35 suppressed sites** — 33 bare-identifier timer delays plus 2 `ttlMs:` property values. Covered names declared in more than one file: **1** (`SUCCESS_DISMISS_MS`, both uses same-file). Zero live shadows. |
@@ -158,7 +160,7 @@ No visual state is added or changed — no `AnimatePresence`, no exit/initial/an
 - **AC-6 (zero live delta).** `pnpm vitest run tests/docs/` green with `DESIGN.md` byte-identical and `scanRepo(REPO_ROOT).unclassified` still empty. §5.5 parity is asserted in BOTH directions by the existing meta-test, so a lost resolution (new residual) and a wrongly-gained one (missing row) each fail it.
 - **AC-7.** The resolver's `paths`/`baseUrl` assumption is pinned against `tsconfig.json` by a structural test that fails if the alias mapping changes.
 - **AC-8 (gate).** `pnpm heavy pnpm mutation:guards` for `interactionTimingScan`: score ≥ `scoreFloor` 0.95 with the accepted set RE-DERIVED via `enumerateSites`, unaccepted-survivor set empty. Score and survivor set are stated in the round-1 diff brief per the guard-surface dispatch rule.
-- **AC-9 (header honesty).** The scanner header's "with one hole: an identifier delay resolves by NAME, not by binding …" paragraph and its `BL-TIMING-SCAN-NAME-VS-BINDING` pointer are rewritten to the closed contract in the same commit that closes it.
+- **AC-9 (header honesty).** The scanner header's TOTALITY IS PER-FORM paragraph — the one whose text wraps as "… with one / hole: an identifier delay resolves by NAME, not by binding …" and ends by naming `BL-TIMING-SCAN-NAME-VS-BINDING` as the carrier — is rewritten to the closed contract in the same commit that closes it. (The sentence spans a comment line wrap, so grep it with `rg -U` or by the phrase `resolves by NAME`.)
 - **AC-10 (cost).** The two-suite wall clock and the `mutation:guards` wall clock are measured before and after and recorded in closeout; the pair's delta is ≤ 2 s locally, or the §2.4 memo fallback lands with its own measurement.
 - **AC-11 (ledger).** `BL-TIMING-SCAN-NAME-VS-BINDING` graduates to `BACKLOG-archive.md` with its in-progress marker stripped inside the archiving move (invariant 12), and the arc's review-round corpus rows are committed.
 
