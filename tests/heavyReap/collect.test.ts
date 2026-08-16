@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { premiseHolds } from "../_shared/premise";
-import { collect, parseEtime, parsePsOutput } from "../../lib/heavyReap/collect";
+import { PS_TIMEOUT_MS, collect, parseEtime, parsePsOutput } from "../../lib/heavyReap/collect";
 
 const SAMPLE = readFileSync(new URL("./fixtures/ps-sample.txt", import.meta.url), "utf8");
 const FAKE_PS = new URL("./fixtures/fake-ps.mjs", import.meta.url).pathname;
@@ -133,17 +133,23 @@ describe("collect: AC-7, all three spellings of C1", () => {
   });
 
   it("AC-8: a hanging ps is bounded and reported, never waited on forever", () => {
+    // No timeout-override seam: nothing reads one, and setting a variable no code consults would
+    // read as though this case could bound the wait independently of the constant it guards. The
+    // real `PS_TIMEOUT_MS` is what is under test, so the assertion is written against it.
     process.env.FAKE_PS_MODE = "hang";
-    process.env.FX_REAP_PS_TEST_TIMEOUT = "1";
     const started = Date.now();
     try {
       const r = collect(FAKE_PS);
       expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.problem).toBe("ps-timeout");
     } finally {
       delete process.env.FAKE_PS_MODE;
-      delete process.env.FX_REAP_PS_TEST_TIMEOUT;
     }
-    expect(Date.now() - started).toBeLessThan(15_000);
+    const elapsed = Date.now() - started;
+    // Bracketed on BOTH sides. An upper bound alone is satisfied by a collector that gave up
+    // instantly, which is the failure this case would most want to notice.
+    expect(elapsed).toBeGreaterThanOrEqual(PS_TIMEOUT_MS - 1_000);
+    expect(elapsed).toBeLessThan(PS_TIMEOUT_MS + 5_000);
   }, 30_000);
 });
 

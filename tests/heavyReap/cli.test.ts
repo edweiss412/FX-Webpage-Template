@@ -532,7 +532,14 @@ function spawnOrphan(): { pid: number; alive: () => boolean; kill: () => void } 
       [
         "-c",
         // stdio to /dev/null, or execFileSync waits on the inherited pipe until the orphan exits.
-        `${process.execPath} -e 'setTimeout(() => {}, 60000)' >/dev/null 2>&1 & echo $!`,
+        //
+        // The lifetime comfortably outlasts `runCli`'s own 120 s timeout, and that margin is
+        // load-bearing rather than generous. `fake-ps.mjs` fabricates a MATCHING identity for the
+        // pre-signal read, so K2 cannot notice a pid that was recycled after a natural exit; the
+        // suite's claim that `--kill` only ever signals a process it owns therefore rests on the
+        // orphan still being alive when the CLI signals. At 60 s that claim leaned on a process
+        // outliving a window twice its length.
+        `${process.execPath} -e 'setTimeout(() => {}, 600000)' >/dev/null 2>&1 & echo $!`,
       ],
       { encoding: "utf8" },
     ).trim(),
