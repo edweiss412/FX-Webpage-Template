@@ -647,6 +647,21 @@ about what this surface declines to promise.
    two commands; each command revalidates, so the consequence is a refused or wasted invocation.
 10. **[bounded] Cross-account panes.** The roster spans workspaces. Purview reporting is the only separation;
     there is no account-level enforcement.
+11. **[demote] A stale claim still counts toward `contested`, so a reused pane can be blocked by an arc
+    that is over.** The claim count is taken before the staleness filter runs — `claims.length > 1`
+    at `scripts/lib/pane-compaction-core.ts:340` short-circuits, while the `row.branch !==
+    currentBranch` test that retires a dead claim lives at `:351`, on the single-claim path only. So
+    a pane inherited by a new arc, whose previous orchestrator's registry still holds a row naming
+    the previous branch, reports `UNOWNED` (contested, both sessions named) rather than resolving to
+    its live owner. This is the behaviour §4.5 rule 3 and §5.3 specify — "in no purview registry, or
+    in more than one" — and it is recorded here rather than repaired because the failure is in the
+    safe direction: the pane is not driven by the stale claimant either, and the reason is surfaced
+    with both claimants named, which is §6's formulation exactly. The cost is a refusal an operator
+    clears by deleting the dead registry row. Filtering stale rows *before* the count would be a
+    change to what rule 3 means and belongs to a spec revision, not to an implementation patch
+    (invariant 7); a `[demote]` row is the correct home for it under the ledger filing bar, which
+    sends conservative-behaviour-plus-surfaced-signal to the owning surface's limits record rather
+    than to the open queue.
 
 
 ## 8. Testing
