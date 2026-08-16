@@ -117,6 +117,76 @@ describe("classify: clause (a) is structural, never containment", () => {
   });
 });
 
+describe("classify: a QUEUED heavy-slot waiter is never reapable", () => {
+  // Raised against this arc as a live defect: a sibling worktree's `pnpm heavy pnpm test`
+  // died of SIGTERM while WAITING for a slot, and the reaper was suspected. It was refuted
+  // four ways — the reaper only ever sends SIGKILL, it had reported `0 candidate(s)` on
+  // every invocation it ever made, the victim's worktree does not wire trigger 1 at all,
+  // and the classifier declines its command line at any age and orphaned or not. But the
+  // underlying question is a fair one and deserves an executable answer rather than a
+  // structural argument, because a waiter genuinely does resemble an orphan: no CPU, no
+  // output, blocked indefinitely.
+  //
+  // These command lines are VERBATIM from this machine's live process table while five
+  // waiters were queued, so they are drawn from the probe domain rather than constructed.
+  // The discriminator is clause (a): a waiter is the WRAPPER — `python3`, `sh` or `pnpm` —
+  // and a worker only ever exists AFTER admission, by which point the phase holds its slot.
+  // So no reachable process is both worker-shaped and waiting.
+  const WAITERS = [
+    [
+      "python3 wrapper, the shape that was reported",
+      "/Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python scripts/with-heavy-slot.py -- pnpm test",
+    ],
+    [
+      "python3 wrapper around a scoped vitest run",
+      "/Library/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python scripts/with-heavy-slot.py -- pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gate.test.ts",
+    ],
+    [
+      "the sh -c form trigger 1 produces",
+      "sh -c tsx scripts/heavy-reap.ts --kill --quiet; python3 scripts/with-heavy-slot.py -- pnpm vitest run --project mutation tests/mutation/heavyReapScoped.scratch.test.ts",
+    ],
+    [
+      "the outer node pnpm heavy, argv0 IS node",
+      `${NODE} /Users/x/.nvm/versions/node/v20.20.1/bin/pnpm heavy pnpm test`,
+    ],
+    [
+      "outer node pnpm heavy wrapping a vitest run",
+      `${NODE} /Users/x/.nvm/versions/node/v20.20.1/bin/pnpm heavy pnpm mutation:guards`,
+    ],
+  ] as const;
+
+  it.each(WAITERS)("declines %s, at the ceiling and orphaned", (_label, command) => {
+    expect(only([worker({ command, ppid: 1, etimeSeconds: CEILING + 1 })])).toMatchObject({
+      reap: false,
+      because: "not-a-worker",
+    });
+  });
+
+  it.each(WAITERS)(
+    "declines %s at ANY age, so the ceiling is not what saves it",
+    (_label, command) => {
+      // The ceiling must not be the thing standing between a waiter and a kill: a waiter can
+      // outlive it legitimately, since queue time is unbounded under contention and was
+      // measured at over 65 minutes on this machine.
+      const ancient = 10 * 365 * 86_400;
+      expect(only([worker({ command, ppid: 1, etimeSeconds: ancient })])).toMatchObject({
+        reap: false,
+        because: "not-a-worker",
+      });
+    },
+  );
+
+  it("premise: this fixture would reap if the command were worker-shaped", () => {
+    // Without this, every case above could pass because some OTHER clause declines them —
+    // the ppid, the age, the self guard — and the suite would be pinning nothing about
+    // clause (a). Same row, same ppid, same age, worker command: reaped.
+    premiseHolds(
+      "the waiter rows differ from a reapable row ONLY in their command",
+      only([worker({ ppid: 1, etimeSeconds: CEILING + 1 })])?.reap === true,
+    );
+  });
+});
+
 describe("classify: the age clause boundary", () => {
   it.each([
     [CEILING - 1, false],
