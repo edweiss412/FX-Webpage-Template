@@ -839,15 +839,21 @@ $ bash -c '! grep -rn "types/index.d.ts" tests/ --exclude-dir=__generated__'; ec
 clean-exit=0        # <-- the SAME command, green on the clean tree
 
 $ grep -rn "node_modules/postgres" tests/; echo "sweep-exit=$?"
+tests/mutation/_metaPremiseContract.test.ts:162:  // the version sentinel's `node_modules/postgres/package.json` JSON read, and
 tests/db/executionMethodsManifest.test.ts:15:const DRIVER_PACKAGE_JSON = "node_modules/postgres/package.json";
 tests/db/__generated__/postgresExecutionMethods.ts:2:// Source: node_modules/postgres/types/index.d.ts (postgres 3.4.9).
 sweep-exit=0
 ```
 
-Per-hit disposition of the node_modules sweep, both hits accounted for:
+Re-run after the `origin/main` merge, on the tree this PR actually ships. Whole-diff review R1 finding 2 caught the earlier transcript at two hits when the tree had three: the sweep is re-run here rather than reasoned about, which is the same probe-not-argument rule the arc applies to everything else.
 
+Per-hit disposition of the node_modules sweep, all three hits accounted for:
+
+- `tests/mutation/_metaPremiseContract.test.ts:162` — prose inside this branch's own companion-registry row, explaining why the derivation suite is declared `0` environment-touching. A COMMENT about the sentinel's read, not a read; it lives in the premise-contract meta-test, which drives pure classification over declared paths and opens no file under `node_modules`.
 - `tests/db/executionMethodsManifest.test.ts:15` — the version sentinel's `package.json` read. This is the ONE test-time read under node_modules that AC-6 permits, and it reads a JSON version field, never type-declaration text.
 - `tests/db/__generated__/postgresExecutionMethods.ts:2` — a provenance COMMENT in generated output, not a read. No suite parses the driver types file, which is the AC-6 claim.
+
+Two of the three hits are therefore prose and the third is the permitted JSON read, so the count moving from two to three is a comment appearing, not a read appearing — AC-6's behavioral claim is unchanged by it. The `types/index.d.ts` probe above is the one that would go red on a real violation, and it is green.
 
 AC-6 satisfied: no vitest suite reads or parses the driver's type declarations.
 
