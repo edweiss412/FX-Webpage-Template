@@ -1,4 +1,6 @@
 // tests/parser/mutation/knownHoles.test.ts
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   reconcileLedger,
@@ -141,6 +143,82 @@ describe("committed ledger shape", () => {
   });
 });
 
+describe("the content-keyed near-miss detector closed the 10 real-loss section-reorder holes", () => {
+  // The positional `UNKNOWN_FIELD` sweep read a scope WINDOW, so moving a block moved the
+  // emission set and the swap oracle saw real signal loss. The content-keyed detector
+  // (spec parser/2026-08-15-field-near-miss-detector-design.md) reads nothing positional,
+  // so these ten holes are CLOSED, not re-blessed — the ratchet shrinks by exactly ten.
+  const CLOSED = [
+    "section-reorder:2025-03-dci-rpas-central:B14:L0:Xpair14",
+    "section-reorder:2025-03-dci-rpas-central:B15:L0:Xpair15",
+    "section-reorder:2025-03-dci-rpas-central:B19:L0:Xpair19",
+    "section-reorder:2025-04-asset-mgmt-cfo-coo:B14:L0:Xpair14",
+    "section-reorder:2025-04-asset-mgmt-cfo-coo:B15:L0:Xpair15",
+    "section-reorder:2025-06-ria-investment-forum:B3:L0:Xpair3",
+    "section-reorder:2025-06-ria-investment-forum:B4:L0:Xpair4",
+    "section-reorder:2025-06-ria-investment-forum:B7:L0:Xpair7",
+    "section-reorder:2025-06-ria-investment-forum:B8:L0:Xpair8",
+    "section-reorder:2025-10-consultants-roundtable:B22:L0:Xpair22",
+  ];
+
+  it("holds no ledger row for any of the ten closed siteIds", () => {
+    const ledgered = new Set(KNOWN_SILENT_HOLES.map((h) => h.siteId));
+    const remaining = CLOSED.filter((id) => ledgered.has(id));
+    expect(
+      remaining,
+      `${remaining.length} closed section-reorder hole(s) still ledgered — the detector is swap-invariant, so these are fixed holes, not deferrable ones`,
+    ).toEqual([]);
+  });
+
+  it("shrank by exactly those ten — the OTHER 72 ratified section-reorder rows are untouched", () => {
+    // Anti-tautology: absence alone also passes on an emptied ledger, or on one whose
+    // whole `section-reorder` class was deleted. The documented limit (spec AC-N5) is that
+    // 72 order-sensitivity rows REMAIN, so the count is asserted from the same live ledger.
+    const reorder = KNOWN_SILENT_HOLES.filter((h) => h.siteId.startsWith("section-reorder:"));
+    expect(reorder.length, "section-reorder rows remaining after the 10-row shrink").toBe(72);
+    expect(reorder.every((h) => !CLOSED.includes(h.siteId))).toBe(true);
+  });
+});
+
+describe("the ledger header's census agrees with the ledger", () => {
+  // The header carried "all others = 1332; by kind: 1349 wrong + 35 signal_loss + 30
+  // text_drift" — a pre-wave-4 census, stale by 326 rows, sitting above the rows it
+  // described. Nothing compared the two, so it drifted silently for a whole wave and the
+  // only number anyone refreshed was the one their own shrink touched. This compares the
+  // written census to the live rows, so the next shrink cannot leave half of it behind.
+  const SOURCE = readFileSync(join(process.cwd(), "tests/parser/mutation/knownHoles.ts"), "utf8");
+  const CENSUS = /total (\d+) = (\d+) wrong \+ (\d+) text_drift \+ (\d+) signal_loss/.exec(SOURCE);
+
+  it("states a census in the pinned shape, so the comparison below is not vacuous", () => {
+    // The premise, executable: an unmatched regex would make every assertion under it
+    // pass against `undefined`, which is the failure this whole case exists to prevent.
+    expect(
+      CENSUS,
+      "the header no longer carries a `total N = A wrong + B text_drift + C signal_loss` line; " +
+        "restore it or update this pattern — do not delete the check",
+    ).not.toBeNull();
+  });
+
+  it("matches the live rows exactly, by total and by kind", () => {
+    const [, total, wrong, drift, loss] = CENSUS!.map(Number);
+    const live = KNOWN_SILENT_HOLES.reduce<Record<string, number>>((acc, h) => {
+      acc[h.kind] = (acc[h.kind] ?? 0) + 1;
+      return acc;
+    }, {});
+    expect({
+      total,
+      wrong,
+      text_drift: drift,
+      signal_loss: loss,
+    }).toEqual({
+      total: KNOWN_SILENT_HOLES.length,
+      wrong: live.wrong ?? 0,
+      text_drift: live.text_drift ?? 0,
+      signal_loss: live.signal_loss ?? 0,
+    });
+  });
+});
+
 describe("ledger is triageable — no blanket 'unaudited' (Codex whole-diff R3)", () => {
   // Every corrupting operator maps to the audit finding it exercises (documented #) or a real
   // BACKLOG.md id, so a stale/new ledger failure is recoverable by operator class, not thousands of
@@ -149,6 +227,10 @@ describe("ledger is triageable — no blanket 'unaudited' (Codex whole-diff R3)"
   // 2026-08-06 L-wave decomposition (BL-MUTATION-REF-SUB, -MERGED-CELL, -UNICODE, -COLUMN-SHIFT,
   // -SECTION-ORDER); they used to be sub-items of the BL-MUTATION-HARNESS-OPEN-HOLES umbrella,
   // whose decomposition record is now in BACKLOG-archive.md under that id.
+  // BL-MUTATION-SECTION-ORDER joins it there in this PR's last commit, carrying the §7
+  // ratification and the 72-row documented-limit note: the 10 real-loss rows are closed by
+  // the near-miss detector, and an archived id stays resolvable, so the map value above
+  // does not change.
   const CORRUPTING = [
     "header-typo",
     "ref-sub",

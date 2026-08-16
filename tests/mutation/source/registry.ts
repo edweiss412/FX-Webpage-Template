@@ -677,4 +677,44 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  // ── The field near-miss detector (AC-N7, spec parser/2026-08-15-field-near-miss-
+  //    detector-design.md). TWO rows, not one, and the second is the point: the detector
+  //    is content-keyed, but a candidate row's OCCURRENCE identity comes from its block
+  //    opener, and that derivation lives in `blocks/_rowScan.ts` because `blocks/venue.ts`
+  //    reads openers too. Enrolling only the detector would leave the half that
+  //    distinguishes a `Room Diagram` row in a DETAILS block from a byte-identical one in
+  //    a Timestamp block outside every mutant. See `_rowScan.ts`'s header for why it is
+  //    its own file rather than part of `_helpers.ts`.
+  {
+    id: "fieldNearMiss",
+    sourcePath: "lib/parser/fieldNearMiss.ts",
+    // The per-class suite decides first (it is the cheaper boot and kills most mutants),
+    // the 65-row corpus baseline second: guard-calibration mutants that keep every
+    // per-class case green still move the corpus multiset.
+    suitePaths: [
+      "tests/parser/fieldNearMiss.test.ts",
+      "tests/parser/fieldNearMissBaseline.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Kills every type-(b) true positive: with the ceiling at 0 no candidate token can be
+    // distinctive enough, `passesGuards` rejects everything, and the detector emits
+    // nothing at all. A suite that does not notice that is not deciding anything.
+    control: { from: "const DISTINCTIVENESS_MAX = 4", to: "const DISTINCTIVENESS_MAX = 0" },
+    accepted: [],
+  },
+  {
+    id: "rowScanOpener",
+    sourcePath: "lib/parser/blocks/_rowScan.ts",
+    suitePaths: [
+      "tests/parser/fieldNearMiss.test.ts",
+      "tests/parser/fieldNearMissBaseline.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // The opener is the whole reason this module exists; pinning it to the empty string
+    // collapses every block namespace onto one and the row-scan cases red immediately.
+    control: { from: 'opener = clean(cells[0] ?? "")', to: 'opener = ""' },
+    accepted: [],
+  },
 ];

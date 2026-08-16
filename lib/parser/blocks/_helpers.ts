@@ -37,48 +37,11 @@ export function parseTableRows(markdown: string): string[][] {
   return rows;
 }
 
-/** One scanned table row plus the first-cell text of the row that opened its table. */
-export type ScannedRow = { cells: string[]; opener: string };
-
-/**
- * `parseTableRows`, but each row is also tagged with its physical block's opening
- * first-cell text.
- *
- * The opener rule — first `|`-leading line of a run, reset at any non-pipe line — is the
- * rule `parseContacts` and `harvestFormLayout` use to build their consumption-ledger
- * keys, so a detector probe key and a writer key for the same row are identical by
- * construction. The emitted rows are exactly `parseTableRows`' rows, in order (pinned in
- * `tests/parser/fieldNearMiss.test.ts`).
- *
- * Lives here rather than in `lib/parser/fieldNearMiss.ts` because `blocks/venue.ts` reads
- * the opener too (its `TYPO_NORMALIZED` gate is keyed on venue-block membership), and a
- * block file importing the detector would close a module cycle through
- * `lib/parser/sectionHeaderTokens.ts`, which imports every block's tokens back.
- *
- * A table whose first `|` line is an alignment row takes `:---` as its opener, which
- * normalizes to the empty string; callers deriving a namespace from it fall back to a
- * generic label. No corpus fixture has that shape.
- */
-export function scanRowsWithOpener(markdown: string): ScannedRow[] {
-  const rows: ScannedRow[] = [];
-  let inTable = false;
-  let opener = "";
-  for (const line of markdown.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) {
-      inTable = false;
-      continue;
-    }
-    const cells = splitRow(trimmed);
-    if (!inTable) {
-      inTable = true;
-      opener = clean(cells[0] ?? "");
-    }
-    if (cells.every((seg) => /^[\s:|*-]*$/.test(seg))) continue; // alignment row
-    if (cells.length > 0) rows.push({ cells, opener });
-  }
-  return rows;
-}
+// The opener-tagged scan (`scanRowsWithOpener` / `ScannedRow`) lives in `./_rowScan.ts`,
+// not here: it is enrolled in the source-mutation registry, which mutates a whole file,
+// and this one carries 144 mutation sites of date normalization and cell cleaning that
+// the detector's suites do not decide. Deliberately NOT re-exported — that would make the
+// two modules mutually importing.
 
 /** Split a markdown table row line into trimmed cells. Drops the leading/trailing empty cells from `|cell|cell|`. */
 export function splitRow(line: string): string[] {

@@ -94,7 +94,10 @@ export const OPERATOR_FINDING_MAP: Record<string, string> = {
   "blank-row:inject": "#10", // blank-row segmentation split (audit #10)
   "blank-row:remove": "#10", // blank-row segmentation fuse (audit #10)
   "merged-cell": "BL-MUTATION-MERGED-CELL", // exported merged-cell fusion
-  "section-reorder": "BL-MUTATION-SECTION-ORDER", // parser order-sensitivity
+  // VALUE UNCHANGED on purpose (wave plan 05-section-order Task 4 Step 2): the 72 rows
+  // that remain still resolve through this id, and an ARCHIVED entry keeps its id
+  // resolvable exactly as BL-MUTATION-HARNESS-OPEN-HOLES did before it.
+  "section-reorder": "BL-MUTATION-SECTION-ORDER", // documented: source order ratified (spec 2026-08-07 §7; archived row)
 };
 
 /** Resolve a siteId's finding via its operator prefix (longest key first so `blank-row:inject`
@@ -188,17 +191,42 @@ export function findingFor(siteId: string): string {
 //     own map but absent from `sectionKind.ts`'s `LABEL_TO_KIND`), deliberately untouched
 //     because growing that table widens the cell-2 opener's false-positive surface — the
 //     exact class that took three review rounds to close. ────
-// 1088 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
+// ─── SHRUNK 2026-08-15 by the content-keyed field near-miss detector
+//     (`feat/mutation-section-order`, mutation wave 5/5): 10 holes closed, 1088 → 1078.
+//     The `UNKNOWN_FIELD` emitter used to read `parseVenue`'s POSITIONAL scope window, so
+//     moving a block moved the emission set and the swap oracle saw real signal loss. The
+//     replacement is keyed on row CONTENT alone and reads nothing positional, so it is
+//     swap-invariant by construction and these ten holes are CLOSED, not re-blessed.
+//
+//     THE OTHER 72 `section-reorder` ROWS STAY, and they are not debt of the same kind:
+//     they are the parser's ratified order-sensitivity (spec 2026-08-07 §7), documented
+//     rather than owed. That is why the shrink is exactly the ten the §2.3 real-loss set
+//     names and not the whole operator — sizing a shrink by an operator's row count is
+//     the instrument branch 4 already recorded as wrong in both directions. ────
+// 1078 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
 // hole) or a FIX (a resolved hole → stale row) both fail the nightly harness. Stored as
 // pipe-delimited rows inside a TEMPLATE LITERAL (prettier leaves its interior intact, so each hole
-// stays ONE line instead of prettier exploding 1088 object literals to ~12k lines). Row format:
+// stays ONE line instead of prettier exploding 1078 object literals to ~12k lines). Row format:
 //   siteId|kind|fingerprint|finding|note      (fields are pipe-free: siteId uses ':', fp is hex)
 // finding = OPERATOR_FINDING_MAP[operator] (audit #N or BL-MUTATION-* — never a blanket "unaudited",
 // Codex R3). Fingerprints use the EXHAUSTIVE-by-type signal redaction (oracle.ts redactNode) so an
 // in-ledger drift on ANY signal field is caught (Codex R3). Ratchet: SHRINK this list as holes are
-// fixed; never grow it silently. Breakdown: 6 domain-scoped corrupting ops + section-reorder;
-// section-reorder (order-sensitivity, reclassified corrupting) = 82; all others = 1332;
-// by kind: 1349 wrong + 35 signal_loss + 30 text_drift.
+// fixed; never grow it silently.
+//
+// BREAKDOWN, recounted from the live rows on 2026-08-15 (see the census note below):
+//   section-reorder (order-sensitivity, reclassified corrupting) = 72 — 58 wrong + 14
+//   text_drift, and ZERO signal_loss, because the ten rows the near-miss detector closed
+//   were the whole of this operator's signal_loss population;
+//   all others = 1006 — 983 wrong + 16 text_drift + 7 signal_loss;
+//   total 1078 = 1041 wrong + 30 text_drift + 7 signal_loss;
+//   by operator: blank-row 738, header-typo 134, merged-cell 122, section-reorder 72,
+//   column-shift 12.
+//
+// THE PREVIOUS FIGURES WERE STALE, and by more than this shrink: they read "= 82; all
+// others = 1332; by kind: 1349 wrong + 35 signal_loss + 30 text_drift", which sums to
+// 1414 — the pre-wave-4 total. The wave-4 shrink (1414 → 1088) moved the rows and left
+// this line behind, so only the `82` was ever true at HEAD. Recounted here in full rather
+// than decremented, since decrementing a wrong number keeps it wrong.
 const RAW_HOLES = `
 blank-row:inject:2024-05-east-coast-family-office:B10:L69:Xgap0|wrong|73d9f07eed068f65|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B10:L70:Xgap1|wrong|c1155b75248f6c82|#10|blank-row wrong @ inject
@@ -1207,24 +1235,15 @@ merged-cell:rpas:B36:L263:X8|wrong|ce0d1036f46ff827|BL-MUTATION-MERGED-CELL|merg
 merged-cell:rpas:B5:L34:X0|wrong|c524f6e7c197ada1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
 merged-cell:rpas:B5:L34:X1|wrong|416fc91c9fb792f1|BL-MUTATION-MERGED-CELL|merged-cell wrong @ rpas
 section-reorder:2025-03-dci-rpas-central:B0:L0:Xpair0|wrong|95cf315b569f7a90|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-03-dci-rpas-central
-section-reorder:2025-03-dci-rpas-central:B14:L0:Xpair14|signal_loss|d88b1c0e21b63614|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
-section-reorder:2025-03-dci-rpas-central:B15:L0:Xpair15|signal_loss|12729d7697ea4c1f|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
 section-reorder:2025-03-dci-rpas-central:B16:L0:Xpair16|text_drift|548290a37b815585|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-03-dci-rpas-central:B17:L0:Xpair17|text_drift|b63aa0d2da7e7291|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-03-dci-rpas-central:B18:L0:Xpair18|text_drift|ca469d874faead90|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [triaged 2026-08-10: reorder-only, multiset identical]
-section-reorder:2025-03-dci-rpas-central:B19:L0:Xpair19|signal_loss|be465f99b184a2b4|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
 section-reorder:2025-03-dci-rpas-central:B7:L0:Xpair7|wrong|06d505c502637f7a|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-03-dci-rpas-central
 section-reorder:2025-04-asset-mgmt-cfo-coo:B0:L0:Xpair0|wrong|7196d666114dd7f5|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-04-asset-mgmt-cfo-coo
-section-reorder:2025-04-asset-mgmt-cfo-coo:B14:L0:Xpair14|signal_loss|1ed369f76bca5f67|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-04-asset-mgmt-cfo-coo
-section-reorder:2025-04-asset-mgmt-cfo-coo:B15:L0:Xpair15|signal_loss|1ed369f76bca5f67|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-04-asset-mgmt-cfo-coo
 section-reorder:2025-04-asset-mgmt-cfo-coo:B3:L0:Xpair3|wrong|e5f3f64b58866db3|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-04-asset-mgmt-cfo-coo
 section-reorder:2025-06-ria-investment-forum:B0:L0:Xpair0|wrong|430b36c42d5ce9b4|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-06-ria-investment-forum
-section-reorder:2025-06-ria-investment-forum:B3:L0:Xpair3|signal_loss|a14152b707653a47|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
-section-reorder:2025-06-ria-investment-forum:B4:L0:Xpair4|signal_loss|05952f96213c5e9d|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
 section-reorder:2025-06-ria-investment-forum:B5:L0:Xpair5|text_drift|f45cfe17e1c5c564|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-06-ria-investment-forum:B6:L0:Xpair6|text_drift|52b8a817f90fe583|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum [triaged 2026-08-10: reorder-only, multiset identical]
-section-reorder:2025-06-ria-investment-forum:B7:L0:Xpair7|signal_loss|9882bb835e25ebb2|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
-section-reorder:2025-06-ria-investment-forum:B8:L0:Xpair8|signal_loss|a98d978500e4b72e|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
 section-reorder:2025-10-consultants-roundtable:B13:L0:Xpair13|text_drift|d6b5bb2df91b9554|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-10-consultants-roundtable:B14:L0:Xpair14|text_drift|f25ca267fa0f948e|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-10-consultants-roundtable:B15:L0:Xpair15|text_drift|c8b6aec195214f47|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
@@ -1234,7 +1253,6 @@ section-reorder:2025-10-consultants-roundtable:B18:L0:Xpair18|text_drift|9be3103
 section-reorder:2025-10-consultants-roundtable:B19:L0:Xpair19|text_drift|588cc1e1bc06a88a|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-10-consultants-roundtable:B20:L0:Xpair20|text_drift|319151a528c4e9fa|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
 section-reorder:2025-10-consultants-roundtable:B21:L0:Xpair21|text_drift|955b4bb9502dc37c|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [triaged 2026-08-10: reorder-only, multiset identical]
-section-reorder:2025-10-consultants-roundtable:B22:L0:Xpair22|signal_loss|6f44ca82bbb6c746|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
 section-reorder:consultants:B0:L0:Xpair0|wrong|ba4474d228b1c8b4|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ consultants
 section-reorder:consultants:B14:L0:Xpair14|wrong|ea95105d5e3db466|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ consultants
 section-reorder:consultants:B15:L0:Xpair15|wrong|cd77c69db30af88e|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ consultants

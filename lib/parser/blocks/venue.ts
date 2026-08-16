@@ -1,7 +1,8 @@
 import type { ShowRow } from "@/lib/parser/types";
 import { resolveAlias, resolveAliasFull, resolveAliasScoped } from "@/lib/parser/aliases";
 import type { ParseAggregator } from "@/lib/parser/warnings";
-import { presence, scanRowsWithOpener } from "./_helpers";
+import { presence } from "./_helpers";
+import { scanRowsWithOpener } from "./_rowScan";
 import { matchesSectionHeader } from "./_sectionHeaderMatch";
 
 export const SECTION_HEADER_TOKENS = ["VENUE"] as const;

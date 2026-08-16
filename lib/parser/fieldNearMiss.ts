@@ -20,7 +20,8 @@
  * typos (§1.1.4 — zero corpus instances; an extension needs a live one).
  */
 import { FIELD_ALIASES, resolveAlias } from "./aliases";
-import { clean, decodeEntities, scanRowsWithOpener } from "./blocks/_helpers";
+import { clean, decodeEntities } from "./blocks/_helpers";
+import { scanRowsWithOpener } from "./blocks/_rowScan";
 import { matchesSectionHeader } from "./blocks/_sectionHeaderMatch";
 import { isKnownSectionHeader } from "./knownSections";
 import { LABEL_TO_KIND_KEYS, canonicalSectionKind } from "./sectionKind";
@@ -63,10 +64,12 @@ export type NearMissMatch = {
 
 /**
  * Re-exported so the detector's public surface is unchanged: the row scan lives in
- * `blocks/_helpers` because `blocks/venue.ts` reads block openers too and importing this
- * module from a block file would close a cycle through `sectionHeaderTokens`.
+ * `blocks/_rowScan` because `blocks/venue.ts` reads block openers too and importing this
+ * module from a block file would close a cycle through `sectionHeaderTokens`. It is its
+ * own module rather than part of `blocks/_helpers` so the opener derivation — the
+ * load-bearing half of an occurrence identity — is inside a source-mutation surface.
  */
-export { scanRowsWithOpener, type ScannedRow } from "./blocks/_helpers";
+export { scanRowsWithOpener, type ScannedRow } from "./blocks/_rowScan";
 
 /** §3.1 minimum normalized length. `NAME`/`LED` fall below it. */
 export const MIN_LEN = 5;

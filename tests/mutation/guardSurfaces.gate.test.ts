@@ -87,6 +87,11 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // hardening rows.
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
+  // W-NEARMISS (2026-08-15). Both rows enrolled with an EMPTY ledger and both are
+  // expected to STAY empty: a row appearing here later is a coverage regression to
+  // explain, not a number to update.
+  fieldNearMiss: {},
+  rowScanOpener: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

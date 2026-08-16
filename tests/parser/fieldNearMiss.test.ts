@@ -34,6 +34,7 @@ import { parseTransportation } from "@/lib/parser/blocks/transport";
 import { emitUnknownField, newAggregator } from "@/lib/parser/warnings";
 import type { ParseWarning } from "@/lib/parser/types";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { GUARD_SURFACES, validateSurface } from "@/tests/mutation/source/registry";
 
 const CONSULTANTS_RAW = "fixtures/shows/raw/2025-10-consultants-roundtable.md";
 const CONSULTANTS_XLSX = "fixtures/shows/exporter-xlsx/consultants.md";
@@ -657,5 +658,55 @@ describe("emitUnknownField candidate carrier", () => {
     emitUnknownField(agg, { block: "event_details", kind: "details", key: "Rigging", value: "2" });
     expect(Object.hasOwn(agg.warnings[0]!, "candidate")).toBe(false);
     expect(agg.warnings[0]!.message).toBe("Unrecognized event_details row label: 'Rigging'");
+  });
+});
+
+// ── Source-mutation enrollment (AC-N7) ───────────────────────────────────────────────
+
+describe("the detector is enrolled in the source-mutation guard registry (AC-N7)", () => {
+  const surfaceById = new Map(GUARD_SURFACES.map((s) => [s.id, s]));
+
+  it("enrolls lib/parser/fieldNearMiss.ts with THIS suite deciding its verdicts", () => {
+    const surface = surfaceById.get("fieldNearMiss");
+    expect(surface, "no GUARD_SURFACES row with id 'fieldNearMiss'").toBeDefined();
+    expect(surface!.sourcePath).toBe("lib/parser/fieldNearMiss.ts");
+    // A surface whose suites never import the module scores nothing: every mutant runs
+    // in code the suite cannot reach. Naming THIS file is what makes the row live.
+    expect(surface!.suitePaths).toContain("tests/parser/fieldNearMiss.test.ts");
+  });
+
+  it("puts the OPENER derivation under mutation too, wherever it lives", () => {
+    // The block opener is what makes an occurrence identity: it is the only reason the
+    // consumption key distinguishes a byte-identical row in two different blocks
+    // ("keys consumption by block OPENER" above). It lives outside fieldNearMiss.ts —
+    // blocks/venue.ts reads openers too, and importing the detector from a block file
+    // would close a module cycle — so enrolling only fieldNearMiss.ts would leave the
+    // load-bearing half unmutated. Derived, not named: the assertion finds the enrolled
+    // surface whose source DECLARES the function, so moving the function back out of an
+    // enrolled file reds this rather than silently passing.
+    const owners = GUARD_SURFACES.filter((s) =>
+      /^export function scanRowsWithOpener\b/m.test(readFileSync(s.sourcePath, "utf8")),
+    );
+    expect(
+      owners.map((s) => s.id),
+      "no enrolled guard surface declares scanRowsWithOpener — the opener derivation is outside the mutation surface",
+    ).toHaveLength(1);
+    expect(owners[0]!.suitePaths).toContain("tests/parser/fieldNearMiss.test.ts");
+  });
+
+  it("both rows are structurally valid, so neither gate runs vacuously", () => {
+    // validateSurface is where a control anchor that no longer occurs verbatim is caught.
+    // A control that mutates nothing leaves the liveness proof asserting a no-op, and the
+    // whole run could then be scoring mutants against clean source.
+    const rows = [
+      surfaceById.get("fieldNearMiss")!,
+      ...GUARD_SURFACES.filter((s) =>
+        /^export function scanRowsWithOpener\b/m.test(readFileSync(s.sourcePath, "utf8")),
+      ),
+    ];
+    for (const row of rows) {
+      expect(validateSurface(row), `${row.id}: ${validateSurface(row).join("; ")}`).toEqual([]);
+      expect(row.operators.length).toBeGreaterThan(0);
+    }
   });
 });
