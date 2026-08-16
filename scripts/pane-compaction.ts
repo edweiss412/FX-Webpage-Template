@@ -270,7 +270,12 @@ export function main(argv: string[], s: Surface): number {
   if (SENDING.has(opts.mode)) {
     const target = opts.target;
     if (target === null) {
-      s.out(refuse({ kind: "missing-as" }).message);
+      // ABSENT is not UNRESOLVABLE, and neither is a missing `--as`. Routing
+      // this through either of those causes would print a message naming the
+      // wrong condition — the absent-versus-mismatched conflation the repo has
+      // been bitten by before — so the adapter states its own, and the core's
+      // catalog keeps covering only the causes the core can observe.
+      s.out("refusing: name a single target; none was given");
       return 1;
     }
     const pane = roster.find((r) => r.paneId === target || r.agentName === target);
