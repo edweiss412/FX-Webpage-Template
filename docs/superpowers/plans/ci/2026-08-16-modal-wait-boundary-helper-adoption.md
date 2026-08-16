@@ -494,6 +494,29 @@ documented exemptions left naked" — and that matches the guard's own live resu
 violations, exactly 2 exemptions). Its transcript references 71 distinct `tests/e2e/*.spec.ts`
 files, so the sweep was corpus-wide rather than the nine-file slice its prose suggests.
 
+### Documented limit: the adopted-site counts are aggregate, not site-associated
+
+Origin (f) counts helper calls per §4.2 shape. It does not know WHICH open site each wait protects,
+so **deleting** a wait is caught (the count drops and the suite reds) but **moving** one is not:
+cut the wait after the Enter-open at `interactions.spec.ts:244-268` and paste it beside the
+already-protected click at `:355-362`, and the count still reads 12 while one member is orphaned.
+Diff review round 8 demonstrated it on exactly those corpus lines.
+
+**Declined rather than repaired, deliberately.** Associating a wait with the site it protects is
+control-flow analysis — which open does this `await` follow, across a wrapper, a loop, or a
+`release()`. This arc's rounds 3-5 were already one-grammar-corner-per-round on the comment and
+activation axis, and AGENTS.md's repair-direction rule says a recognizer under same-axis recurrence
+is repaired by NARROWING or a documented limit, never by growth: each widening is a bigger target
+for the next round. The finding also arrived without a surviving mutant from the declared operator
+set, which is the convergence criterion this surface's reviews were dispatched against, and the
+reviewer graded it NEEDS-ATTENTION rather than BLOCKING.
+
+**Cost of leaving it:** a contributor who MOVES a wait between two member sites, rather than
+deleting it, gets no guard failure; the orphaned site fails on the gateway-502 path with a generic
+locator timeout instead of the boundary and `show_review_snapshot_failed` signature. That is one
+ordinary edit away from the corpus, so it is a real residue, not a theoretical one. Filed as
+`BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS`.
+
 ### Recorded so a future reviewer does not re-derive it
 
 - **`tests/ci/_metaModalWaitHelper.test.ts` cannot collect under a READ-ONLY review sandbox.** Its

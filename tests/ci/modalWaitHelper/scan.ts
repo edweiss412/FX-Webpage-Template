@@ -23,6 +23,17 @@
  * rather than silently exempt. `tests/e2e/helpers/**` is outside the population
  * by construction, which is why the helper's own `page.goto` needs no exemption.
  *
+ * DOCUMENTED LIMIT — the counts are AGGREGATE, not site-associated. Origin (f)
+ * counts helper calls per shape (30 G / 9 U / 12 N); it does not know WHICH open
+ * site each wait protects. So deleting a wait is caught (the count drops), but
+ * MOVING one is not: cut the wait after an Enter-open and paste it beside an
+ * already-protected click, and the count still reads 12 while one member is
+ * orphaned. Surfaced by diff review round 8 and DECLINED rather than repaired:
+ * associating a wait with its site is control-flow analysis, and this arc's
+ * rounds 3-5 were already one-grammar-corner-per-round on this same axis, which
+ * AGENTS.md says is repaired by narrowing or a documented limit, never by a
+ * wider recognizer. Filed as BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS.
+ *
  * Deliberate narrowness (§4.4 fence): the guard recognizes the single-line
  * navigation shape only. A URL assembled on a previous line and passed as a
  * variable, a click-open, and any adversarial spelling are NOT recognized —

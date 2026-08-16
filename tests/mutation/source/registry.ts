@@ -191,13 +191,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // update both ids in the SAME commit as the source change — the ledger is
       // a measurement of one revision, not a standing claim.
       {
-        siteId: "statement-removal:156:9:continue;>(removed)",
+        siteId: "statement-removal:167:9:continue;>(removed)",
         kind: "equivalent",
         reason:
           "Drops the `continue` after `visit(child)` in walkSourceFiles, so a DIRECTORY falls through to the `child.endsWith('.ts') || child.endsWith('.tsx')` test below it. No directory in app/ or components/ ends in .ts or .tsx, so the extra test is always false and the walk's output is identical. Observable only for a directory literally named `*.ts`, which the tree does not contain.",
       },
       {
-        siteId: "integer-literal:351:83:0>1",
+        siteId: "integer-literal:362:83:0>1",
         kind: "equivalent",
         reason:
           "Changes the `?? 0` fallback in classifyCandidates' count increment to `?? 1`. The branch is unreachable: countsByRule is pre-seeded with a 0 entry for EVERY rule at construction (`new Map(rules.map((rule) => [rule.id, 0]))`), so `countsByRule.get(hit.id)` never returns undefined and the nullish fallback never evaluates.",

@@ -772,6 +772,20 @@ Five of the nine specced members were RED when first run — the spec had verifi
 
 **Related, filed separately:** `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` (three fixed waits the 2026-08-03 class sweep found in the layout spec).
 
+## BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS — the modal-wait guard counts adopted waits in aggregate, so MOVING one orphans a site silently
+
+**Status:** OPEN · **Severity:** LOW (one ordinary edit away, and the orphaned site still FAILS — it just fails generically) · **Class:** e2e guard precision · **Effort:** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's diff review round 8) · **Class-sweep exception:** (c) — the repair is control-flow analysis over the spec corpus, a redesign of the guard's model rather than a fix to the filing arc's surface. · **Reachability:** PROBED — demonstrated on live corpus lines, not inferred.
+
+`tests/ci/modalWaitHelper/scan.ts` origin (f) counts helper calls per §4.2 shape (30 G / 9 U / 12 N) and `tests/ci/modalWaitHelper/disposition.ts` pins those counts, which is what catches a DELETED wait. It does not know WHICH open site each wait protects, so a MOVED wait is invisible: cut the wait after the Enter-open at `published-review-modal.interactions.spec.ts:244-268` and paste it beside the already-protected click at `:355-362`, and the count still reads 12 with `undisposed=0 ambiguous=0 drift=[]` while one member is orphaned.
+
+**Cost of leaving it:** the orphaned site still fails under the gateway-502 class — it just fails as a generic locator timeout on the following `MODAL_ANY` count, without the `infra-recovery` annotation, the boundary, or the `show_review_snapshot_failed` hint. So the consequence bound's outcome (c) degrades from "fails loudly, naming the signature" to "fails". No silent pass.
+
+**Why it was declined at filing time rather than repaired:** associating a wait with the site it protects means deciding which open a given `await` follows — across a local wrapper, a loop, or a gate's `release()`. That is control-flow analysis, and the filing arc had already spent rounds 3-5 adding one comment-or-activation grammar corner per round on this same axis. AGENTS.md's repair-direction rule is explicit that a recognizer under same-axis recurrence is repaired by narrowing or a documented limit, never by growth. The finding also carried no surviving mutant from the surface's declared operator set, which was the stated convergence criterion, and was graded NEEDS-ATTENTION rather than BLOCKING.
+
+**What a repair needs:** a model of "this wait belongs to that open", most plausibly by requiring each Shape-N member site to carry an explicit `label` naming its site and asserting the label set rather than the count — cheaper than control-flow analysis and self-evidencing, but it changes every Shape-N call site and wants its own spec. **Re-open trigger:** a member site actually orphaned in review or in CI, or any further guard work on this surface.
+
+---
+
 ## BL-MODAL-WAIT-SKELETON-TOLERANT-SITES — two e2e waits the boundary helper cannot harden, because the Suspense skeleton wins the race
 
 **Status:** OPEN · **Severity:** LOW (two sites keep the exposure they have today; nothing regresses) · **Class:** e2e flake hardening · **Effort:** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's spec review round 3) · **Class-sweep exception:** (c) — the repair is a redesign of what these two tests wait on, which changes their assertions; the filing arc does not otherwise touch them. · **Reachability:** PROBED — the shared-testid mechanism below is read from source, not inferred.
