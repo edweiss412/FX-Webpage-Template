@@ -227,6 +227,16 @@ The `gh` cases are the sharp ones (AC-15): the recognized no-PR signature (non-z
 stderr matching `no pull requests found for branch`) is admitted; a non-zero exit with **any other**
 stderr yields `UNDETERMINED`, never "no PR".
 
+**The signature is THREE conjuncts, not two.** Spec §3.9's probe row already records the third and
+strongest: `gh pr checks` with no PR exits 1 with **empty stdout**, while a real check run prints
+its check table there. So: non-zero exit **and** empty stdout **and** an anchored stderr match. A
+bare substring test is unsafe on its own — a check name or PR title can contain that phrase, and
+matching it anywhere turns a real check failure into "no PR", routing to row 8 (Low) and yielding
+`COMPACT`. That is the same use-versus-mention error that cost the purity guard four rounds, on a
+different surface. Two cases pin it: a check failure whose stderr *contains* the phrase is a
+**fault**; and a no-PR-shaped stderr with **non-empty stdout** is a **fault**, because real check
+output means a PR exists.
+
 **Failure mode caught:** treating non-zero exit as "no PR". A `gh` outage then reads as "every pane
 has no PR", which matches position row 8 at Low cost and yields `COMPACT`, silently bypassing the
 hard `WAIT` for CI-green-unmerged. Probed on this branch before its PR existed: `gh pr checks`
@@ -530,7 +540,14 @@ phrasing**, so the strings below are copied, not paraphrased.
 
 1. Tasks 1-10, TDD each, one commit per task
 2. Self-review — re-run the numeric sweep and self-consistency sweep across the whole document
-3. **Adversarial review (cross-model)** — codex-guard `--stage plan`, then `--stage diff`.
+3. **Test-run classification (AGENTS.md heavy-phase rule), stated so it is not re-derived ten
+   times.** Per-task `red=` commands are scoped `vitest run <file>` invocations and stay
+   **unwrapped** — AGENTS.md places explicit-file-list runs outside the semaphore, and wrapping ten
+   RED/GREEN cycles would queue the phases that dominate arc latency behind admission control they
+   never needed. The **pre-push full suite is wrapped**: `pnpm heavy pnpm test`, once. Contention is
+   real, not theoretical — `/tmp/fx-heavy-slots` was observed holding two slots against six queued
+   waiters while this plan was being written.
+4. **Adversarial review (cross-model)** — codex-guard `--stage plan`, then `--stage diff`.
    **Any whole-diff repair that touches an enrolled source runs `pnpm mutation:sites <path>` and
    re-pastes the accepted ids in the SAME commit.** A `siteId` is keyed by line, so any edit —
    including a comment-only one — shifts every accepted row below it and the gate reports the whole
@@ -539,7 +556,7 @@ phrasing**, so the strings below are copied, not paraphrased.
    because Task 9 must precede the whole-diff review, so review repairs land on an already-enrolled
    source. (The surface enrols with an EMPTY `accepted` array, so nothing can go stale until the
    first gate run classifies survivors.)
-4. Execution handoff / closeout — the spec stage passed `ROUND_THRESHOLD` (`4`,
+5. Execution handoff / closeout — the spec stage passed `ROUND_THRESHOLD` (`4`,
    `lib/reviewRounds/constants.ts:11`), so the arc owes the round-economy filing that already
    exists beside the branch's corpus file: an `**Examined:**` line plus at least one of
    `**Mechanizable:**` / `**Judgment:**` / `**Infra:**`
