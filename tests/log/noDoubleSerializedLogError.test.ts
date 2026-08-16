@@ -191,10 +191,42 @@ function mentionsWrapper(initializer: Node, wrappers: Set<string>): boolean {
   return false;
 }
 
-/** Report every `log.<level>(msg, { ... error: <anything mentioning serializeError> ... })`. */
+/**
+ * Does the VALUE expression for `error` mention a structure-flattening call --
+ * global `String(...)` or `JSON.stringify(...)` -- anywhere in its subtree?
+ * Same closed-question-over-a-finite-tree shape as mentionsWrapper: once the
+ * helper preserves structure, a call site flattening BEFORE the helper is the
+ * residual regression vector (spec §2.6). Scoped to object-literal fields
+ * arguments like every other family here; variable-carried fields objects are
+ * the parent suite's documented limit (spec §4 limit 10).
+ */
+function mentionsFlattener(initializer: Node): boolean {
+  const calls: Node[] = [...initializer.getDescendantsOfKind(SyntaxKind.CallExpression)];
+  if (Node.isCallExpression(initializer)) calls.push(initializer);
+  for (const node of calls) {
+    if (!Node.isCallExpression(node)) continue;
+    const callee = node.getExpression();
+    if (Node.isIdentifier(callee) && callee.getText() === "String") return true;
+    if (
+      Node.isPropertyAccessExpression(callee) &&
+      callee.getName() === "stringify" &&
+      Node.isIdentifier(callee.getExpression()) &&
+      callee.getExpression().getText() === "JSON"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Report every `log.<level>(msg, { ... error: <anything mentioning serializeError or a
+ * structure flattener> ... })`.
+ */
 export function findDoubleSerializedSites(sourceFile: SourceFile): Finding[] {
+  // No early return on an empty wrapper set: the pre-flatten family needs no
+  // serializeError import to reach the logger with the structure already gone.
   const wrappers = serializeErrorBindings(sourceFile);
-  if (wrappers.size === 0) return [];
 
   const findings: Finding[] = [];
   for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -216,7 +248,8 @@ export function findDoubleSerializedSites(sourceFile: SourceFile): Finding[] {
         if (property.getName() !== "error") continue;
         const initializerNode = property.getInitializer();
         if (!initializerNode) continue;
-        if (!mentionsWrapper(initializerNode, wrappers)) continue;
+        const preSerialized = wrappers.size > 0 && mentionsWrapper(initializerNode, wrappers);
+        if (!preSerialized && !mentionsFlattener(initializerNode)) continue;
         findings.push({
           file: sourceFile.getFilePath(),
           line: property.getStartLineNumber(),
@@ -374,6 +407,36 @@ export function nested(e: unknown) {
 }
 `;
 
+/**
+ * Pre-flatten family (spec §2.6). Once the helper preserves structure, the residual
+ * regression vector is a call site that flattens BEFORE the logger ever sees the value:
+ * `String(e)` and `JSON.stringify(e)` both hand `buildRecord` a string, so the structure
+ * is already gone by the time `serializeError` runs and there is nothing left to preserve.
+ */
+const STRING_FLATTEN_FIXTURE = `
+import { log } from "@/lib/log";
+
+export function stringFlatten(e: unknown) {
+  void log.error("string-flattened", { source: "probe", error: String(e) });
+}
+`;
+
+const JSON_STRINGIFY_FLATTEN_FIXTURE = `
+import { log } from "@/lib/log";
+
+export function jsonFlatten(e: unknown) {
+  void log.warn("json-flattened", { source: "probe", error: JSON.stringify(e) });
+}
+`;
+
+const WRAPPED_FLATTEN_FIXTURE = `
+import { log } from "@/lib/log";
+
+export function wrappedFlatten(e: unknown) {
+  void log.error("as-wrapped flatten", { source: "probe", error: String(e) as unknown });
+}
+`;
+
 const ALLOWED_FIXTURE = `
 import { serializeError } from "@/lib/log/serializeError";
 import { log } from "@/lib/log";
@@ -381,6 +444,11 @@ import { log } from "@/lib/log";
 export function raw(err: unknown) {
   // The correct shape: the logger serializes this exactly once.
   void log.error("raw error", { source: "probe", error: err });
+}
+
+export function messageExtract(err: { message: string }) {
+  // Property reads are legitimate site-local extraction, never flagged.
+  void log.error("extracted", { source: "probe", error: err.message });
 }
 
 export function consoleDirect(e: unknown) {
@@ -405,6 +473,11 @@ describe("no double-serialized log.* error fields (AC-7)", () => {
       ["nullish-spread", NULLISH_SPREAD_FIXTURE],
       ["wrapped-fields-argument", WRAPPED_FIELDS_FIXTURE],
       ["nested-argument", NESTED_ARGUMENT_FIXTURE],
+      // Pre-flatten family (spec §2.6): flattening BEFORE the logger destroys the
+      // structure the redesigned helper exists to preserve.
+      ["string-flatten", STRING_FLATTEN_FIXTURE],
+      ["json-stringify-flatten", JSON_STRINGIFY_FLATTEN_FIXTURE],
+      ["wrapped-flatten", WRAPPED_FLATTEN_FIXTURE],
     ] as const;
 
     for (const [family, source] of banned) {
