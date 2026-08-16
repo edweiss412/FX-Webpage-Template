@@ -34,6 +34,7 @@ Copied verbatim from the spec; every task's requirements implicitly include thes
 | tests/heavyReap/classify.test.ts (new) | Task 1 |
 | tests/heavyReap/collect.test.ts (new) | Task 2 |
 | tests/heavyReap/fixtures/ps-sample.txt (new) | A committed `ps` sample from this machine, containing at least one real worker line. |
+| tests/heavyReap/fixtures/fake-ps.mjs (new) | A stand-in for `ps(1)`, selected via `FX_REAP_PS_BIN`, so the CLI can be executed end to end against a synthetic table of pids no real process owns. |
 | tests/heavyReap/cli.test.ts (new) | Task 3 |
 | tests/heavyReap/triggerFailOpen.test.ts (new) | Task 4 |
 | package.json:56 (modify) | The `heavy` script gains the pre-admission reap; a new `heavy:reap` script. |
@@ -68,7 +69,7 @@ Declared up front per the mutation-family-closure rule; this enumeration is what
 | comparison-operator swap | `etimeSeconds < config.minAgeSeconds` | the row exactly AT the ceiling |
 | boolean-operator swap | `basename(argv0) !== "node"` and the entrypoint test | the non-node-argv0 case; the `tail -f` case |
 | negation removal | `row.ppid !== 1` | a row with a live parent |
-| literal change | the `1` in `ppid !== 1`; `DEFAULT_MIN_AGE_SECONDS` | a row with `ppid === 2`; the C3 case |
+| literal change | the `1` in `ppid !== 1`; `DEFAULT_MIN_AGE_SECONDS` | a row with `ppid === 2`; the case pinning `DEFAULT_MIN_AGE_SECONDS` to the literal `14400` |
 | statement removal | the self guard; each early return | the AC-4 cases; the R2/R3 cases |
 | discriminant change | `"parsed"` / `"unparsable"` | the R1 case and the totality case |
 
@@ -105,12 +106,13 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
-- `pnpm typecheck` passes on all seven files under the repo's strict config.
-- Tasks 1-3's suites run GREEN against Tasks 1-3's implementations: **71 cases, 3 files**.
-- Task 4's suite runs RED exactly as its Step 2 now claims: `1 failed | 6 passed (7)`.
+- `pnpm typecheck` passes on every file under the repo's strict config.
+- Tasks 1-3's suites run GREEN against Tasks 1-3's implementations: **87 cases, 3 files** (27 + 20 + 40), including six that execute scripts/heavy-reap.ts itself as a child process.
+- Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 6 passed (9)`, and GREEN (`9 passed`) once package.json:56 is edited. Both were observed and the edit reverted afterwards.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
+- The CLI was additionally driven by hand through every exit path: default, `--all`, a rejected `FX_REAP_MIN_AGE_S`, an absent `ps`, a non-zero `ps`, and `--kill --quiet`.
 
-This pass earned its cost twice. It found the SPEC defect this plan is written against — executing Task 1's clause-(c) case is how the unreachable slot clause was discovered (spec §4.2) — and it found a plan defect, an earlier Step 2 that claimed three of Task 4's cases go red when only one does.
+This pass earned its cost repeatedly. It found the SPEC defect this plan is written against — executing Task 1's clause-(c) case is how the unreachable slot clause was discovered (spec §4.2) — and it found plan defects that plan review round 1 then confirmed and extended: a Step 2 claiming the wrong red count, a mutation control the suite adapted to, missing subprocess timeouts, and a CLI whose `main()` no case executed.
 
 Consequence for the task markers: `lib/heavyReap/` and scripts/heavy-reap.ts do not exist, so Tasks 1-3 use the PATH-ONLY `red-target=` form (which requires an untracked path). Task 4's target is tracked, so it uses the colon form on package.json:56.
 
@@ -150,8 +152,13 @@ import {
 const NODE = "/Users/x/.nvm/versions/node/v20.20.1/bin/node";
 const FORKS = "/Users/x/node_modules/.pnpm/vitest@4.1.5/node_modules/vitest/dist/workers/forks.js";
 
+// LITERAL, never the imported constant. Deriving the fixtures from DEFAULT_MIN_AGE_SECONDS makes
+// the suite adapt to a mutant that changes it, so the mutation control and the +1 integer mutant
+// both survive. Plan round 1 finding 1.
+const CEILING = 14400;
+
 const CONFIG: ReapConfig = {
-  minAgeSeconds: DEFAULT_MIN_AGE_SECONDS,
+  minAgeSeconds: CEILING,
   minAgeSource: "default",
   selfPid: 999,
   selfAncestry: [998, 997],
@@ -162,12 +169,18 @@ function worker(over: Partial<ParsedRow> = {}): ParsedRow {
     kind: "parsed",
     pid: 100,
     ppid: 1,
-    etimeSeconds: DEFAULT_MIN_AGE_SECONDS + 1,
+    etimeSeconds: CEILING + 1,
     command: `${NODE} --experimental-import-meta-resolve ${FORKS}`,
     ...over,
   };
 }
 const only = (rows: ProcRow[], cfg: ReapConfig = CONFIG) => classify(rows, cfg).decisions[0];
+
+describe("the ceiling constant is pinned, not merely referenced", () => {
+  it("DEFAULT_MIN_AGE_SECONDS is exactly 14400 (4 h)", () => {
+    expect(DEFAULT_MIN_AGE_SECONDS).toBe(14400);
+  });
+});
 
 describe("classify: AC-1", () => {
   it("reaps a worker-shaped, orphaned row past the ceiling", () => {
@@ -184,8 +197,10 @@ describe("classify: AC-2, exempt at ANY age", () => {
   });
 
   it("clause (a): the pnpm wrapper of a live phase is never reaped, however old", () => {
-    const rows = [worker({ ...ancient, command: "node /x/bin/pnpm exec vitest run" })];
-    expect(only(rows)).toMatchObject({ reap: false, because: "not-a-worker" });
+    expect(only([worker({ ...ancient, command: "node /x/bin/pnpm exec vitest run" })])).toMatchObject({
+      reap: false,
+      because: "not-a-worker",
+    });
   });
 });
 
@@ -212,6 +227,9 @@ describe("classify: clause (a) is structural, never containment", () => {
     for (const entry of [
       "vitest/dist/workers/forks.js",
       "vitest/dist/workers/threads.js",
+      "vitest/dist/workers/vmForks.js",
+      "vitest/dist/workers/vmThreads.js",
+      "vitest/dist/workers/runVmTests.js",
       "playwright/lib/worker/workerMain.js",
       "next/dist/compiled/jest-worker/processChild.js",
     ]) {
@@ -224,9 +242,9 @@ describe("classify: clause (a) is structural, never containment", () => {
 
 describe("classify: the age clause boundary", () => {
   it.each([
-    [DEFAULT_MIN_AGE_SECONDS - 1, false],
-    [DEFAULT_MIN_AGE_SECONDS, true],
-    [DEFAULT_MIN_AGE_SECONDS + 1, true],
+    [CEILING - 1, false],
+    [CEILING, true],
+    [CEILING + 1, true],
   ])("age %i => reap %s", (etimeSeconds, reaped) => {
     expect(only([worker({ etimeSeconds })])).toMatchObject({ reap: reaped });
   });
@@ -234,6 +252,7 @@ describe("classify: the age clause boundary", () => {
   it("uses the configured ceiling, not the default", () => {
     const cfg: ReapConfig = { ...CONFIG, minAgeSeconds: 60, minAgeSource: "env" };
     expect(only([worker({ etimeSeconds: 61 })], cfg)).toMatchObject({ reap: true });
+    expect(only([worker({ etimeSeconds: 59 })], cfg)).toMatchObject({ because: "too-young" });
   });
 });
 
@@ -264,10 +283,7 @@ describe("classify: AC-3, row-level R1-R4", () => {
   });
 
   it("a ppid naming a process not in the table is undecidable, not an orphan", () => {
-    expect(only([worker({ ppid: 31337 })])).toMatchObject({
-      reap: false,
-      because: "undecidable",
-    });
+    expect(only([worker({ ppid: 31337 })])).toMatchObject({ reap: false, because: "undecidable" });
   });
 
   it("is TOTAL: one decision per input row", () => {
@@ -418,6 +434,7 @@ git commit -m "feat(infra): classify orphaned heavy-phase workers"
 **Files:**
 - Create: lib/heavyReap/collect.ts
 - Create: tests/heavyReap/fixtures/ps-sample.txt
+- Create: tests/heavyReap/fixtures/fake-ps.mjs (also used by Task 3; create it here, in Step 1)
 - Test: tests/heavyReap/collect.test.ts
 
 **Interfaces:**
@@ -440,18 +457,50 @@ wait
 grep -c 'vitest/dist/workers' tests/heavyReap/fixtures/ps-sample.txt   # MUST be >= 1
 ```
 
+Also create tests/heavyReap/fixtures/fake-ps.mjs, which Task 3's end-to-end cases need. It stands
+in for `ps(1)` via the `FX_REAP_PS_BIN` seam and reports pids no real process owns, so the CLI can
+be run with `--kill` in a test without any possibility of signalling something real:
+
+```js
+#!/usr/bin/env node
+// A stand-in for ps(1), selected via FX_REAP_PS_BIN. Serves both invocations the reaper makes:
+// the whole-table read and the per-target identity read. Modes come from FAKE_PS_MODE.
+const args = process.argv.slice(2);
+const mode = process.env.FAKE_PS_MODE ?? "table";
+if (mode === "fail") process.exit(2);
+if (mode === "hang") { setTimeout(() => {}, 60_000); }
+else if (args.includes("-eo")) {
+  // pid ppid etime command. 4242 is an orphaned worker far past any ceiling; 4243 has a live
+  // parent; 4244 is not worker-shaped. None of these pids exists, so no real process is at risk.
+  process.stdout.write(
+    "4242 1 1-05:29:53 /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js\n" +
+    "4243 4244 1-05:29:53 /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js\n" +
+    "4244 1 1-05:29:53 /usr/bin/pnpm exec vitest run\n",
+  );
+} else if (args.includes("-o")) {
+  const pid = args[args.indexOf("-p") + 1];
+  if (process.env.FAKE_PS_IDENTITY_GONE === pid) process.exit(1);
+  process.stdout.write(`Sun Aug 16 09:35:23 2026 /usr/bin/node /x/worker-${pid}\n`);
+}
+```
+
+Make it executable: `chmod +x tests/heavyReap/fixtures/fake-ps.mjs`.
+
 A plain `head` of the table captures only long-lived system processes and yields ZERO worker lines — measured while authoring this plan, which is why the capture is written this way. Step 2's first case is a premise asserting the fixture holds a worker, so a degenerate fixture fails loudly rather than passing vacuously. Real worker command lines run ~617 characters; do not hand-trim them.
 
 - [ ] **Step 2: Write the failing test.** tests/heavyReap/collect.test.ts:
 
 ```ts
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { premiseHolds } from "../_shared/premise";
 import { collect, parseEtime, parsePsOutput } from "../../lib/heavyReap/collect";
 
 const SAMPLE = readFileSync(new URL("./fixtures/ps-sample.txt", import.meta.url), "utf8");
+const FAKE_PS = new URL("./fixtures/fake-ps.mjs", import.meta.url).pathname;
 
 describe("parsePsOutput", () => {
   it("premise: the committed fixture contains a real worker line", () => {
@@ -501,18 +550,52 @@ describe("parseEtime", () => {
   });
 });
 
-describe("collect: AC-7 (C1)", () => {
-  it("reports ps failure instead of an empty world", () => {
-    const r = collect("definitely-not-a-real-ps-binary");
+describe("collect: AC-7, all three spellings of C1", () => {
+  it("binary missing => ps-unavailable", () => {
+    const r = collect("/definitely/not/a/real/ps");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.problem).toBe("ps-unavailable");
   });
+
+  it("non-zero exit => ps-failed, NOT an empty world", () => {
+    process.env.FAKE_PS_MODE = "fail";
+    try {
+      const r = collect(FAKE_PS);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.problem).toBe("ps-failed");
+    } finally {
+      delete process.env.FAKE_PS_MODE;
+    }
+  });
+
+  it("permission denied => ps-failed, NOT an empty world", () => {
+    const dir = mkdtempSync(join(tmpdir(), "heavy-reap-denied-"));
+    const denied = join(dir, "ps");
+    writeFileSync(denied, "#!/bin/sh\necho hi\n");
+    chmodSync(denied, 0o000);
+    const r = collect(denied);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(["ps-failed", "ps-unavailable"]).toContain(r.problem);
+  });
+
+  it("AC-8: a hanging ps is bounded and reported, never waited on forever", () => {
+    process.env.FAKE_PS_MODE = "hang";
+    process.env.FX_REAP_PS_TEST_TIMEOUT = "1";
+    const started = Date.now();
+    try {
+      const r = collect(FAKE_PS);
+      expect(r.ok).toBe(false);
+    } finally {
+      delete process.env.FAKE_PS_MODE;
+      delete process.env.FX_REAP_PS_TEST_TIMEOUT;
+    }
+    expect(Date.now() - started).toBeLessThan(15_000);
+  }, 30_000);
 });
 
-describe("collect: AC-10 live smoke", () => {
-  it("finds a child this test spawned, with the right ppid and a plausible age", async () => {
+describe("collect: AC-10 live smoke against an INDEPENDENT ps read", () => {
+  it("agrees with a direct ps -o read for a process the test spawned", async () => {
     const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 8000)"]);
-    const startedAt = Date.now();
     try {
       await new Promise((r) => setTimeout(r, 1200));
       const result = collect();
@@ -520,10 +603,19 @@ describe("collect: AC-10 live smoke", () => {
       if (!result.ok) return;
       const found = result.rows.find((r) => r.kind === "parsed" && r.pid === child.pid);
       premiseHolds("the spawned child appears in the live ps read", found !== undefined);
-      expect(found).toMatchObject({ kind: "parsed", ppid: process.pid });
-      const age = found?.kind === "parsed" ? (found.etimeSeconds ?? -1) : -1;
-      expect(age).toBeGreaterThanOrEqual(0);
-      expect(age).toBeLessThanOrEqual(Math.ceil((Date.now() - startedAt) / 1000) + 3);
+
+      // The criterion's independent observation: a SEPARATE ps invocation, parsed here.
+      const direct = execFileSync("ps", ["-o", "ppid=,etime=", "-p", String(child.pid)], {
+        encoding: "utf8",
+      }).trim();
+      const [directPpid, directEtime] = direct.split(/\s+/);
+      premiseHolds("the direct ps read returned both fields", directEtime !== undefined);
+
+      expect(found).toMatchObject({ kind: "parsed", ppid: Number(directPpid) });
+      const collected = found?.kind === "parsed" ? (found.etimeSeconds ?? -1) : -1;
+      const independent = parseEtime(directEtime ?? "") ?? -1;
+      expect(collected).toBeGreaterThanOrEqual(0);
+      expect(Math.abs(collected - independent)).toBeLessThanOrEqual(3);
     } finally {
       child.kill("SIGKILL");
     }
@@ -542,11 +634,18 @@ Expected: FAIL — `Cannot find module '../../lib/heavyReap/collect'`.
 import { execFileSync } from "node:child_process";
 import type { ProcRow } from "./classify";
 
+/** AC-8: every subprocess this tool runs is bounded, so `;` in the heavy script cannot hang. */
+export const PS_TIMEOUT_MS = 10_000;
+
+/** Test seam only; production reads plain `ps` from PATH. */
+export const psBinFromEnv = (env: NodeJS.ProcessEnv = process.env): string =>
+  env.FX_REAP_PS_BIN ?? "ps";
+
 export type CollectResult =
   | { ok: true; rows: ProcRow[] }
-  | { ok: false; problem: "ps-unavailable" | "ps-failed"; detail: string };
+  | { ok: false; problem: "ps-unavailable" | "ps-failed" | "ps-timeout"; detail: string };
 
-/** `[[D-]HH:]MM:SS`: ps(1)'s elapsed-time forms. Null when it is none of them. */
+/** `[[D-]HH:]MM:SS`, ps(1)'s elapsed-time forms. Null when it is none of them. */
 export function parseEtime(raw: string): number | null {
   const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(raw.trim());
   if (m === null) return null;
@@ -577,15 +676,19 @@ export function parsePsOutput(text: string): ProcRow[] {
   return rows;
 }
 
-export function collect(psBin = "ps"): CollectResult {
+export function collect(psBin: string = psBinFromEnv()): CollectResult {
   let text: string;
   try {
     text = execFileSync(psBin, ["-eo", "pid=,ppid=,etime=,command="], {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
+      timeout: PS_TIMEOUT_MS,
     });
   } catch (e) {
-    const err = e as { code?: string; status?: number; message?: string };
+    const err = e as { code?: string; status?: number; message?: string; signal?: string | null };
+    if (err.code === "ETIMEDOUT" || err.signal === "SIGTERM") {
+      return { ok: false, problem: "ps-timeout", detail: `ps exceeded ${PS_TIMEOUT_MS}ms` };
+    }
     return {
       ok: false,
       problem: err.code === "ENOENT" ? "ps-unavailable" : "ps-failed",
@@ -615,6 +718,7 @@ git commit -m "feat(infra): collect and parse the process table"
 - Create: scripts/heavy-reap.ts
 - Modify: package.json (add `heavy:reap`)
 - Test: tests/heavyReap/cli.test.ts
+- Consumes: tests/heavyReap/fixtures/fake-ps.mjs from Task 2 — the end-to-end cases need it
 
 **Interfaces:**
 - Consumes: `classify`, `Decision`, `DEFAULT_MIN_AGE_SECONDS` (Task 1); `collect` (Task 2).
@@ -627,18 +731,23 @@ Decision logic is exported as pure functions so it is testable without killing a
 - [ ] **Step 1: Write the failing test.** tests/heavyReap/cli.test.ts:
 
 ```ts
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MIN_AGE_SECONDS, type Decision } from "../../lib/heavyReap/classify";
 import {
+  type IdentityRead,
   type KillOutcome,
   executeKills,
   exitStatus,
   parseFlags,
   planTargets,
   readCeiling,
+  selfAncestry,
 } from "../../scripts/heavy-reap";
 
 const reap = (pid: number): Decision => ({ pid, reap: true, shape: "forks.js", ageSeconds: 99_999 });
+const ident = (pid: number) => ({ pid, startedAt: "Sun Aug 16 09:35:23 2026", command: "node x" });
+const read = (pid: number): IdentityRead => ({ state: "read", identity: ident(pid) });
 
 describe("parseFlags: AC-6", () => {
   it.each([
@@ -656,11 +765,9 @@ describe("parseFlags: AC-6", () => {
 });
 
 describe("readCeiling: C3 and C4", () => {
-  it("C3: unset uses the default with no rejection", () => {
-    expect(readCeiling(undefined)).toEqual({
-      seconds: DEFAULT_MIN_AGE_SECONDS,
-      source: "default",
-    });
+  it("C3: unset uses 14400 with no rejection", () => {
+    expect(readCeiling(undefined)).toEqual({ seconds: 14400, source: "default" });
+    expect(DEFAULT_MIN_AGE_SECONDS).toBe(14400);
   });
 
   it.each([["abc"], ["-5"], ["0"], [""], ["1.5"]])("C4: rejects %s", (raw) => {
@@ -688,22 +795,51 @@ describe("planTargets: AC-5", () => {
   });
 
   it("does not loop on a parent cycle", () => {
+    expect(
+      planTargets([reap(10)], [
+        { pid: 10, ppid: 11 },
+        { pid: 11, ppid: 10 },
+      ]),
+    ).toEqual([10, 11]);
+  });
+
+  it("K5: a descendant absent from the SNAPSHOT is not in this run's plan", () => {
+    const snapshot = [{ pid: 10, ppid: 1 }];
+    expect(planTargets([reap(10)], snapshot)).toEqual([10]);
+    // and once it appears in a later snapshot, the next run picks it up
+    expect(planTargets([reap(10)], [...snapshot, { pid: 11, ppid: 10 }])).toEqual([10, 11]);
+  });
+});
+
+describe("selfAncestry: AC-4", () => {
+  it("walks up to init and stops", () => {
     const rows = [
-      { pid: 10, ppid: 11 },
-      { pid: 11, ppid: 10 },
+      { pid: 5, ppid: 4 },
+      { pid: 4, ppid: 3 },
+      { pid: 3, ppid: 1 },
     ];
-    expect(planTargets([reap(10)], rows)).toEqual([10, 11]);
+    expect(selfAncestry(5, rows)).toEqual([4, 3]);
+  });
+
+  it("terminates on a cycle", () => {
+    expect(
+      selfAncestry(5, [
+        { pid: 5, ppid: 6 },
+        { pid: 6, ppid: 5 },
+      ]),
+    ).toEqual([6]);
   });
 });
 
 describe("executeKills: AC-5, AC-5b", () => {
-  const ident = (pid: number) => ({ pid, startedAt: "Sun Aug 16 09:35:23 2026", command: "node x" });
-
   it("K2: a changed identity is NOT signalled", () => {
     const signalled: number[] = [];
     const out = executeKills([10], {
       identityAtPlan: new Map([[10, ident(10)]]),
-      readIdentity: () => ({ pid: 10, startedAt: "Sun Aug 16 10:00:00 2026", command: "node x" }),
+      readIdentity: () => ({
+        state: "read",
+        identity: { pid: 10, startedAt: "Sun Aug 16 10:00:00 2026", command: "node x" },
+      }),
       kill: (pid) => {
         signalled.push(pid);
       },
@@ -713,11 +849,12 @@ describe("executeKills: AC-5, AC-5b", () => {
     expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "identity-changed" }]);
   });
 
-  it("K2: an ADVANCED etime is irrelevant, because etime is not in the triple", () => {
+  it("AC-5b: the triple has no ppid and no etime, so neither changing blocks the signal", () => {
+    expect(Object.keys(ident(10)).sort()).toEqual(["command", "pid", "startedAt"]);
     const signalled: number[] = [];
     const out = executeKills([10], {
       identityAtPlan: new Map([[10, ident(10)]]),
-      readIdentity: (pid) => ident(pid),
+      readIdentity: read,
       kill: (pid) => {
         signalled.push(pid);
       },
@@ -727,14 +864,40 @@ describe("executeKills: AC-5, AC-5b", () => {
     expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "killed" }]);
   });
 
-  it("K1: a pid already gone is already-gone, not an error", () => {
+  it("K1: a pid gone BEFORE the identity read is already-gone", () => {
     const out = executeKills([10], {
       identityAtPlan: new Map([[10, ident(10)]]),
-      readIdentity: () => null,
+      readIdentity: () => ({ state: "gone" }),
       kill: () => undefined,
       stillAlive: () => false,
     });
     expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "already-gone" }]);
+  });
+
+  it("K1: a pid gone AFTER the identity read (kill throws ESRCH) is also already-gone", () => {
+    const out = executeKills([10], {
+      identityAtPlan: new Map([[10, ident(10)]]),
+      readIdentity: read,
+      kill: () => {
+        throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+      },
+      stillAlive: () => false,
+    });
+    expect(out).toEqual<KillOutcome[]>([{ pid: 10, result: "already-gone" }]);
+  });
+
+  it("an UNREADABLE identity is never conflated with a gone process", () => {
+    const signalled: number[] = [];
+    const out = executeKills([10], {
+      identityAtPlan: new Map([[10, ident(10)]]),
+      readIdentity: () => ({ state: "unreadable", detail: "EPERM" }),
+      kill: (pid) => {
+        signalled.push(pid);
+      },
+      stillAlive: () => false,
+    });
+    expect(signalled).toEqual([]);
+    expect(out[0]).toMatchObject({ pid: 10, result: "identity-unreadable" });
   });
 
   it("K3: a failing kill is reported per pid and does not stop the run", () => {
@@ -743,7 +906,7 @@ describe("executeKills: AC-5, AC-5b", () => {
         [10, ident(10)],
         [11, ident(11)],
       ]),
-      readIdentity: (pid) => ident(pid),
+      readIdentity: read,
       kill: (pid) => {
         if (pid === 10) throw Object.assign(new Error("nope"), { code: "EPERM" });
       },
@@ -755,7 +918,7 @@ describe("executeKills: AC-5, AC-5b", () => {
   it("K4: a recorded target alive after the re-scan is partial", () => {
     const out = executeKills([10], {
       identityAtPlan: new Map([[10, ident(10)]]),
-      readIdentity: (pid) => ident(pid),
+      readIdentity: read,
       kill: () => undefined,
       stillAlive: (pid) => pid === 10,
     });
@@ -769,6 +932,7 @@ describe("exitStatus: §6.2", () => {
     ["C1", { collectFailed: true, outcomes: [] }, 1],
     ["C4", { ceilingRejected: true, outcomes: [] }, 1],
     ["K2", { outcomes: [{ pid: 1, result: "identity-changed" as const }] }, 1],
+    ["identity-unreadable", { outcomes: [{ pid: 1, result: "identity-unreadable" as const }] }, 1],
     ["K3", { outcomes: [{ pid: 1, result: "failed" as const }] }, 1],
     ["K4", { outcomes: [{ pid: 1, result: "partial" as const }] }, 1],
     ["K1", { outcomes: [{ pid: 1, result: "already-gone" as const }] }, 0],
@@ -777,6 +941,75 @@ describe("exitStatus: §6.2", () => {
   ])("%s", (_id, state, code) => {
     expect(exitStatus({ ...base, ...state })).toBe(code);
   });
+});
+
+// ---------------------------------------------------------------------------
+// The CLI ITSELF, executed. Every case above tests a helper; these run
+// `scripts/heavy-reap.ts` as a child so main()'s wiring cannot be wrong while
+// the helpers are right (plan round 1 finding 3). `ps` is replaced via
+// FX_REAP_PS_BIN with a fixture that reports pids no real process owns.
+// ---------------------------------------------------------------------------
+const FAKE_PS = new URL("./fixtures/fake-ps.mjs", import.meta.url).pathname;
+const CLI = new URL("../../scripts/heavy-reap.ts", import.meta.url).pathname;
+
+function runCli(
+  args: string[],
+  env: Record<string, string> = {},
+): { out: string; code: number } {
+  try {
+    const out = execFileSync("pnpm", ["exec", "tsx", CLI, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, FX_REAP_PS_BIN: FAKE_PS, ...env },
+      timeout: 120_000,
+    });
+    return { out, code: 0 };
+  } catch (e) {
+    const err = e as { stdout?: string; status?: number };
+    return { out: err.stdout ?? "", code: err.status ?? -1 };
+  }
+}
+
+describe("the CLI, executed end to end", () => {
+  it("AC-6: the default reports candidates, kills nothing, and exits 0", () => {
+    const { out, code } = runCli([]);
+    expect(out).toContain("REAPABLE pid=4242");
+    expect(out).toContain("1 candidate(s)");
+    expect(out).not.toContain("killed pid=");
+    expect(code).toBe(0);
+  }, 180_000);
+
+  it("AC-6: --all widens the REPORT only", () => {
+    const plain = runCli([]);
+    const all = runCli(["--all"]);
+    expect(plain.out).not.toContain("not-a-worker");
+    expect(all.out).toContain("not-a-worker");
+    expect(all.out).toContain("1 candidate(s)");
+    expect(all.code).toBe(0);
+  }, 180_000);
+
+  it("C4: a rejected ceiling stops the run BEFORE the table is read, exit non-zero", () => {
+    const { out, code } = runCli([], { FX_REAP_MIN_AGE_S: "-5" });
+    expect(out).toContain("rejected: -5");
+    expect(out).not.toContain("rows read");
+    expect(code).toBe(1);
+  }, 180_000);
+
+  it("C1: an unreadable process table exits non-zero and never reports a clean machine", () => {
+    const { out, code } = runCli([], { FX_REAP_PS_BIN: "/definitely/not/a/real/ps" });
+    expect(out).toContain("cannot read the process table");
+    expect(out).not.toContain("candidate(s)");
+    expect(code).toBe(1);
+  }, 180_000);
+
+  it("C2: the row count is always reported, so a silently-empty read is visible", () => {
+    expect(runCli([]).out).toContain("3 rows read");
+  }, 180_000);
+
+  it("--quiet suppresses declines but never a non-success kill outcome", () => {
+    const { out } = runCli(["--kill", "--quiet"]);
+    expect(out).not.toContain("skip ");
+    expect(out).toContain("already-gone pid=4242");
+  }, 180_000);
 });
 ```
 
@@ -789,7 +1022,9 @@ Expected: FAIL — `Cannot find module '../../scripts/heavy-reap'`.
 
 ```ts
 import { execFileSync } from "node:child_process";
-import { DEFAULT_MIN_AGE_SECONDS, type Decision } from "../lib/heavyReap/classify";
+import { fileURLToPath } from "node:url";
+import { DEFAULT_MIN_AGE_SECONDS, type Decision, classify } from "../lib/heavyReap/classify";
+import { PS_TIMEOUT_MS, collect, psBinFromEnv } from "../lib/heavyReap/collect";
 
 export type Flags = { kill: boolean; all: boolean; quiet: boolean };
 
@@ -842,18 +1077,29 @@ export function planTargets(
 
 export type TargetIdentity = { pid: number; startedAt: string; command: string };
 
+/**
+ * Tri-state on purpose: "gone" and "unreadable" must never collapse. K1 is an ordinary outcome,
+ * while an identity read that FAILED is a reason not to signal at all.
+ */
+export type IdentityRead =
+  | { state: "read"; identity: TargetIdentity }
+  | { state: "gone" }
+  | { state: "unreadable"; detail: string };
+
 export type KillOutcome = {
   pid: number;
-  result: "killed" | "already-gone" | "failed" | "partial" | "identity-changed";
+  result: "killed" | "already-gone" | "failed" | "partial" | "identity-changed" | "identity-unreadable";
   detail?: string;
 };
 
 export type KillDeps = {
   identityAtPlan: ReadonlyMap<number, TargetIdentity>;
-  readIdentity: (pid: number) => TargetIdentity | null;
+  readIdentity: (pid: number) => IdentityRead;
   kill: (pid: number) => void;
   stillAlive: (pid: number) => boolean;
 };
+
+const isEsrch = (e: unknown): boolean => (e as { code?: string }).code === "ESRCH";
 
 export function executeKills(targets: readonly number[], deps: KillDeps): KillOutcome[] {
   const outcomes: KillOutcome[] = [];
@@ -861,14 +1107,18 @@ export function executeKills(targets: readonly number[], deps: KillDeps): KillOu
   for (const pid of targets) {
     const planned = deps.identityAtPlan.get(pid);
     const now = deps.readIdentity(pid);
-    if (now === null) {
+    if (now.state === "gone") {
       outcomes.push({ pid, result: "already-gone" });
+      continue;
+    }
+    if (now.state === "unreadable") {
+      outcomes.push({ pid, result: "identity-unreadable", detail: now.detail });
       continue;
     }
     if (
       planned === undefined ||
-      planned.startedAt !== now.startedAt ||
-      planned.command !== now.command
+      planned.startedAt !== now.identity.startedAt ||
+      planned.command !== now.identity.command
     ) {
       outcomes.push({ pid, result: "identity-changed" });
       continue;
@@ -877,7 +1127,10 @@ export function executeKills(targets: readonly number[], deps: KillDeps): KillOu
       deps.kill(pid);
       signalled.push(pid);
     } catch (e) {
-      outcomes.push({ pid, result: "failed", detail: String((e as { code?: string }).code ?? e) });
+      // K1: the target can exit between the identity read and the signal; ESRCH is that race,
+      // and it is an ordinary outcome rather than a failure.
+      if (isEsrch(e)) outcomes.push({ pid, result: "already-gone" });
+      else outcomes.push({ pid, result: "failed", detail: String((e as { code?: string }).code ?? e) });
     }
   }
   for (const pid of signalled) {
@@ -895,18 +1148,120 @@ export function exitStatus(state: {
   return state.outcomes.some((o) => o.result !== "killed" && o.result !== "already-gone") ? 1 : 0;
 }
 
-/** `ps -o lstart=,command= -p <pid>`: one cheap read per target, never for the whole table. */
-export function readIdentity(pid: number): TargetIdentity | null {
+/** `ps -o lstart=,command= -p <pid>`: one bounded read per target, never for the whole table. */
+export function readIdentity(pid: number, psBin: string = psBinFromEnv()): IdentityRead {
+  let out: string;
   try {
-    const out = execFileSync("ps", ["-o", "lstart=,command=", "-p", String(pid)], {
+    out = execFileSync(psBin, ["-o", "lstart=,command=", "-p", String(pid)], {
       encoding: "utf8",
+      timeout: PS_TIMEOUT_MS,
     }).trim();
-    if (out.length === 0) return null;
-    const tokens = out.split(/\s+/);
-    return { pid, startedAt: tokens.slice(0, 5).join(" "), command: tokens.slice(5).join(" ") };
-  } catch {
-    return null;
+  } catch (e) {
+    const err = e as { status?: number; code?: string; message?: string };
+    // ps exits 1 with no output for a pid that does not exist; anything else is a READ FAILURE
+    // and must not be reported as a gone process.
+    if (err.status === 1) return { state: "gone" };
+    return { state: "unreadable", detail: err.code ?? err.message ?? "ps failed" };
   }
+  if (out.length === 0) return { state: "gone" };
+  const tokens = out.split(/\s+/);
+  return {
+    state: "read",
+    identity: { pid, startedAt: tokens.slice(0, 5).join(" "), command: tokens.slice(5).join(" ") },
+  };
+}
+
+export function stillAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as { code?: string }).code === "EPERM";
+  }
+}
+
+/** Ancestry of this process, so AC-4 can exempt it and everything above it. */
+export function selfAncestry(
+  selfPid: number,
+  rows: readonly { pid: number; ppid: number | null }[],
+): number[] {
+  const byPid = new Map(rows.map((r) => [r.pid, r.ppid]));
+  const out: number[] = [];
+  const seen = new Set<number>([selfPid]);
+  let cursor = byPid.get(selfPid) ?? null;
+  while (cursor !== null && cursor > 1 && !seen.has(cursor)) {
+    out.push(cursor);
+    seen.add(cursor);
+    cursor = byPid.get(cursor) ?? null;
+  }
+  return out;
+}
+
+export function main(argv: readonly string[], env: NodeJS.ProcessEnv): number {
+  const flags = parseFlags(argv);
+  const ceiling = readCeiling(env.FX_REAP_MIN_AGE_S);
+  const say = (line: string): void => {
+    process.stdout.write(`${line}\n`);
+  };
+
+  // C4 short-circuits BEFORE collection: a rejected ceiling means the run was never configured,
+  // so it must not read the table or signal anything.
+  if (ceiling.rejected !== undefined) {
+    say(`heavy-reap: FX_REAP_MIN_AGE_S rejected: ${ceiling.rejected}; nothing reaped`);
+    return exitStatus({ collectFailed: false, ceilingRejected: true, outcomes: [] });
+  }
+
+  const world = collect();
+  if (!world.ok) {
+    say(`heavy-reap: cannot read the process table (${world.problem}: ${world.detail})`);
+    return exitStatus({ collectFailed: true, ceilingRejected: false, outcomes: [] });
+  }
+
+  const parsed = world.rows.filter(
+    (r): r is Extract<typeof r, { kind: "parsed" }> => r.kind === "parsed",
+  );
+  const result = classify(world.rows, {
+    minAgeSeconds: ceiling.seconds,
+    minAgeSource: ceiling.source,
+    selfPid: process.pid,
+    selfAncestry: selfAncestry(process.pid, parsed),
+  });
+  for (const note of result.configNotes) say(`heavy-reap: ${note}`);
+  say(`heavy-reap: ${world.rows.length} rows read`);
+
+  const candidates = result.decisions.filter((d) => d.reap === true);
+  if (!flags.quiet) {
+    for (const d of result.decisions) {
+      if (d.reap === true) say(`heavy-reap: REAPABLE pid=${d.pid} shape=${d.shape} age=${d.ageSeconds}s`);
+      else if (flags.all) say(`heavy-reap: skip ${"pid" in d ? d.pid : d.raw} (${d.because})`);
+      else if ("pid" in d && d.because !== "not-a-worker") say(`heavy-reap: skip ${d.pid} (${d.because})`);
+    }
+  }
+  say(`heavy-reap: ${candidates.length} candidate(s)`);
+
+  if (!flags.kill) return exitStatus({ collectFailed: false, ceilingRejected: false, outcomes: [] });
+
+  const targets = planTargets(result.decisions, parsed);
+  const identityAtPlan = new Map<number, TargetIdentity>();
+  for (const pid of targets) {
+    const read = readIdentity(pid);
+    if (read.state === "read") identityAtPlan.set(pid, read.identity);
+  }
+  const outcomes = executeKills(targets, {
+    identityAtPlan,
+    readIdentity: (pid) => readIdentity(pid),
+    kill: (pid) => process.kill(pid, "SIGKILL"),
+    stillAlive,
+  });
+  // Never suppressed by --quiet: anything that is not a plain success is what an operator acts on.
+  for (const o of outcomes) {
+    if (o.result !== "killed") say(`heavy-reap: ${o.result} pid=${o.pid}${o.detail ? ` (${o.detail})` : ""}`);
+  }
+  return exitStatus({ collectFailed: false, ceilingRejected: false, outcomes });
+}
+
+if (process.argv[1] !== undefined && process.argv[1] === fileURLToPath(import.meta.url)) {
+  process.exitCode = main(process.argv.slice(2), process.env);
 }
 ```
 
@@ -983,8 +1338,19 @@ const segments = (): string[] =>
     .filter((s) => s.length > 0);
 
 describe("the heavy script wires the reaper AHEAD of the wrapper", () => {
-  it("runs the reaper", () => {
-    expect(segments()[0]).toContain("heavy-reap");
+  // A substring match on "heavy-reap" would pass on a report-only invocation, the wrong
+  // interpreter, or a segment that merely mentions the name - so each part is asserted
+  // separately (plan round 1 finding 5).
+  it("invokes the reaper through tsx, by path", () => {
+    expect(segments()[0]).toMatch(/\btsx\s+scripts\/heavy-reap\.ts\b/);
+  });
+
+  it("invokes it in DESTRUCTIVE mode, or trigger 1 bounds nothing", () => {
+    expect(segments()[0]).toMatch(/(^|\s)--kill(\s|$)/);
+  });
+
+  it("invokes it quietly, so admission is not spammed", () => {
+    expect(segments()[0]).toMatch(/(^|\s)--quiet(\s|$)/);
   });
 
   it("makes the WRAPPER the last segment, so caller args reach it", () => {
@@ -1009,7 +1375,10 @@ describe("AC-8 fail-open, executed against real pnpm", () => {
         scripts: { heavy: `${reaper}; ${wrapper}` },
       }),
     );
-    writeFileSync(join(dir, "show.js"), "console.log('ARGV ' + JSON.stringify(process.argv.slice(2)));");
+    writeFileSync(
+      join(dir, "show.js"),
+      "console.log('ARGV ' + JSON.stringify(process.argv.slice(2)));",
+    );
     writeFileSync(join(dir, "fail.js"), "process.exit(3);");
     writeFileSync(
       join(dir, "exit42.js"),
@@ -1039,7 +1408,7 @@ describe("AC-8 fail-open, executed against real pnpm", () => {
         `ARGV ["--","pnpm","mutation:guards"]`,
       );
     },
-    60_000,
+    120_000,
   );
 
   it(
@@ -1049,7 +1418,7 @@ describe("AC-8 fail-open, executed against real pnpm", () => {
         `ARGV ["--","--","node","-e","1"]`,
       );
     },
-    60_000,
+    120_000,
   );
 
   it(
@@ -1057,7 +1426,7 @@ describe("AC-8 fail-open, executed against real pnpm", () => {
     () => {
       expect(run(build("node fail.js", "node exit42.js --"), ["x"]).code).toBe(42);
     },
-    60_000,
+    120_000,
   );
 });
 ```
@@ -1065,14 +1434,18 @@ describe("AC-8 fail-open, executed against real pnpm", () => {
 - [ ] **Step 2: Run test to verify it fails.**
 
 Run: `pnpm vitest run tests/heavyReap/triggerFailOpen.test.ts`
-Expected: **FAIL, `1 failed | 6 passed (7)`** — and the failing case is exactly `runs the reaper`,
-because `scripts.heavy` has ONE segment today and it is the wrapper.
+Expected: **FAIL, `3 failed | 6 passed (9)`** — the three failing cases are `invokes the reaper
+through tsx, by path`, `invokes it in DESTRUCTIVE mode`, and `invokes it quietly`, because
+`scripts.heavy` has ONE segment today and it is the wrapper.
 
 **Which cases are red, and which are invariants — stated because running this at plan time showed
-the obvious guess is wrong.** Only `runs the reaper` goes red. `makes the WRAPPER the last segment`
+the obvious guess is wrong.** The three named above go red. `makes the WRAPPER the last segment`
 and `sequences with ';' and never '&&'` both PASS on today's single-segment script and keep passing
 after the edit: they are INVARIANTS pinning the shape the edit must preserve, not part of the
-red-to-green cycle. The four `AC-8 fail-open` cases likewise pass before and after, because each
+red-to-green cycle. **The three red cases are deliberately split rather than one substring match**:
+a single `toContain("heavy-reap")` would go green on a report-only invocation, the wrong
+interpreter, or a segment that merely mentions the name — which is a case passing for the wrong
+reason, and is plan review round 1 finding 5. The four `AC-8 fail-open` cases likewise pass before and after, because each
 builds its own throwaway package and never reads package.json:56 — they pin `pnpm`'s argument
 forwarding, which the edit relies on but does not change. So the red-to-green transition on this
 command is carried by one case, and the other six are regression guards. Do not "strengthen" them
@@ -1136,13 +1509,54 @@ The `control.from` string occurs exactly once in `classify.ts` — the registry 
 - [ ] **Known local hazard, so it is not misdiagnosed as this arc's bug:** on a loaded machine the gate can abort with `BaselineNotGreenError` on an UNRELATED surface whose suite exceeds `MUTANT_TIMEOUT_MS` (`tests/mutation/source/runner.ts:49`). Observed 2026-08-16 on `ledgerClaimsCore`, whose two suites pass in 33.6 s when run directly. That class is owned by `fix/local-harness-false-failures`; re-run when the box is quieter rather than filing a duplicate.
 - [ ] Commit: `test(infra): enrol the heavy-reap classifier in the source-mutation gate`.
 
+<!-- tasks: depth=3 -->
+
 ### Task 6: Docs and ledger
 
-- [ ] `AGENTS.md`, heavy-phase section: document `pnpm heavy:reap` (report) and `--kill`, trigger 1's presence in the `heavy` script, and the `Stop`-hook install one-liner — same posture as the codex-guard shim install, because the hook is per-machine config this repo cannot install.
-- [ ] `docs/superpowers/plans/ci/README.md`: add the index row for this plan.
-- [ ] `docs/superpowers/specs/ci/README.md`: the spec's row landed with the spec commit — VERIFY, do not duplicate.
-- [ ] `BACKLOG.md`: `BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH` was already filed at spec time, observed red then green on `tests/docs/_metaLedgerReferentialIntegrity.test.ts`. Nothing to add.
-- [ ] `pnpm spec:lint` on both docs — 0 hard — then `pnpm heavy pnpm vitest run tests/docs` — GREEN.
+<!-- task: red=`pnpm vitest run tests/docs/agentsHeavyPhaseRule.test.ts` ac=AC-8 -->
+
+**Files:**
+- Modify: AGENTS.md (the heavy-phase section)
+- Modify: tests/docs/fixtures/agents-heavy-phase-rule.md
+- Modify: docs/superpowers/plans/ci/README.md
+
+**What is red and why, and the trap this task exists to avoid.** The heavy-phase bullet in AGENTS.md
+is PINNED, byte-for-byte after markdown normalization, to
+`tests/docs/fixtures/agents-heavy-phase-rule.md` (`tests/docs/agentsHeavyPhaseRule.test.ts:31`,
+compared at `tests/docs/agentsHeavyPhaseRule.test.ts:771-772`). The guard's own message says why and
+what to do: the bullet is a cross-CLI contract that Codex sessions read without ever reading the
+spec, so an edit that inverts a qualifier "reads as intact to every pattern check", and an
+intentional change must "update the fixture in the SAME commit"
+(`tests/docs/agentsHeavyPhaseRule.test.ts:437-441`). Documenting trigger 1 changes what
+`pnpm heavy` DOES, so it belongs in that bullet rather than beside it — which means this task
+necessarily trips the pin, and the fixture update is the green.
+
+- [ ] **Step 1 (RED):** edit the AGENTS.md heavy-phase bullet to state that `pnpm heavy` now runs
+      `pnpm heavy:reap --kill --quiet` before admission, that it fails open, and that
+      `pnpm heavy:reap` reports without killing while `--kill` is required to kill. Do NOT touch the
+      fixture yet. Run `pnpm vitest run tests/docs/agentsHeavyPhaseRule.test.ts` — RED, with
+      "the rule's text differs from tests/docs/fixtures/agents-heavy-phase-rule.md".
+- [ ] **Step 2 (GREEN):** copy the edited bullet into `tests/docs/fixtures/agents-heavy-phase-rule.md`
+      so the two agree. Re-run the SAME command — GREEN.
+- [ ] **Step 3:** add the `Stop`-hook install one-liner to AGENTS.md, in the same posture as the
+      codex-guard shim install, because the hook is per-machine config this repo cannot install.
+      Note explicitly that the hook is a SECOND trigger and that trigger 1 already covers the
+      contended case, so a machine without the hook is degraded rather than unprotected.
+- [ ] **Step 4:** add the index row for this plan to `docs/superpowers/plans/ci/README.md`. The
+      spec's row landed with the spec commit — VERIFY, do not duplicate.
+- [ ] **Step 5:** `BACKLOG.md` needs nothing: `BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH` and
+      `BL-SPECLINT-RED-TARGET-ROOT-FILE` were both filed at spec and plan time, each observed red
+      then green on `tests/docs/_metaLedgerReferentialIntegrity.test.ts`.
+- [ ] **Step 6:** `pnpm spec:lint` on the spec and this plan — 0 hard — then
+      `pnpm heavy pnpm vitest run tests/docs` — GREEN.
+- [ ] **Step 7: Commit.**
+
+```bash
+git add AGENTS.md tests/docs/fixtures/agents-heavy-phase-rule.md docs/superpowers/plans/ci/README.md
+git commit -m "docs(infra): document the pre-admission reap in the heavy-phase contract"
+```
+
+<!-- tasks: end -->
 
 ### Task 7: Closeout
 
