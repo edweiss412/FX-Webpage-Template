@@ -302,3 +302,60 @@ export function positionFor(input: PositionInputs): Position {
   }
   return { row: 8, cost: "Low" }; // the totality guarantee: no predicate, never falls through
 }
+
+// ---------------------------------------------------------------------------
+// §5.4 — purview
+// ---------------------------------------------------------------------------
+
+export type PurviewRow = {
+  paneId: string;
+  agentName: string;
+  branch: string;
+  dispatchedAt: string;
+};
+
+export type PurviewFile = { sessionId: string; rows: PurviewRow[] };
+
+export type Ownership =
+  | { kind: "owned" }
+  | { kind: "unowned"; reason: string }
+  | { kind: "contested"; claimants: string[] };
+
+/**
+ * Who owns a pane, across EVERY registry rather than just this session's.
+ *
+ * Ownership is detected, not enforced: nothing stops two orchestrators writing
+ * the same `paneId`, so a doubly-claimed pane is reported contested — to both —
+ * rather than driven by either. That is a collision report, not a lock, and the
+ * residual read-read race is a documented limit.
+ */
+export function resolveOwnership(
+  paneId: string,
+  currentBranch: string | null,
+  all: PurviewFile[],
+  asSessionId: string,
+): Ownership {
+  const claims = all.filter((f) => f.rows.some((r) => r.paneId === paneId));
+  if (claims.length === 0) return { kind: "unowned", reason: "no registry claims this pane" };
+  if (claims.length > 1) return { kind: "contested", claimants: claims.map((c) => c.sessionId) };
+
+  const file = claims[0];
+  if (file === undefined) return { kind: "unowned", reason: "no registry claims this pane" };
+  const row = file.rows.find((r) => r.paneId === paneId);
+  if (row === undefined) return { kind: "unowned", reason: "no registry claims this pane" };
+
+  // A row is STALE once its pane runs a different branch. Without this, reusing
+  // one terminal pane for another arc leaves the previous orchestrator owning —
+  // and able to drive — work it never dispatched; and a fresh worktree has no
+  // marker, so the session check no-ops and this is the only guard standing.
+  if (currentBranch !== null && row.branch !== currentBranch) {
+    return {
+      kind: "unowned",
+      reason: `stale row: claims ${row.branch}, pane runs ${currentBranch}`,
+    };
+  }
+  if (file.sessionId !== asSessionId) {
+    return { kind: "unowned", reason: `owned by ${file.sessionId}` };
+  }
+  return { kind: "owned" };
+}
