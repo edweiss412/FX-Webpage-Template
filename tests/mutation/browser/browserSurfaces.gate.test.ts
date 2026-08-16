@@ -28,7 +28,12 @@ const root = process.cwd();
  * excluding its survivor from the denominator entirely. A new surface reds here
  * until it declares its own counts rather than inheriting a neighbour's.
  */
-const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {};
+const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // The tap-target surface enrolled clean: 19/19 killed on its first run, so its
+  // ledger is EMPTY and its floor is 1. A row appearing here later is a coverage
+  // regression to explain, not a number to update.
+  tapTargetFloor: {},
+};
 
 describe("browser-surface registry — structural", () => {
   it("enrols at least one surface", () => {

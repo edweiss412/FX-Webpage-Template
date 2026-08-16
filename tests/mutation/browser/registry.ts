@@ -212,10 +212,380 @@ export function validateBrowserSurface(surface: BrowserGuardSurface): string[] {
   return problems;
 }
 
+const WIZARD = "components/admin/OnboardingWizard.tsx";
+const TOOLTIP = "components/admin/HelpTooltip.tsx";
+const SHEET = "components/admin/HelpSheet.tsx";
+const NAV = "components/admin/nav/AdminNav.tsx";
+
+/** The caret className both mounts carry, byte-identical (payload #9). */
+const CARET_CLASS =
+  'className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"';
+
+/** The StepIndicator's two pill sites, whose radius must move TOGETHER (payload #6, #7). */
+const PILL_BASE =
+  '"flex size-7 shrink-0 items-center justify-center rounded-pill border text-xs font-semibold tabular-nums transition-colors duration-fast",';
+const PILL_TARGET =
+  '"group -m-2 flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill",';
+
 /**
  * Enrolled browser surfaces.
  *
  * NO DARK ROWS (spec §1.1.5): a surface is listed here only once the runner can
- * execute its mutants. The tap-target surface is populated in the enrolment task.
+ * execute its mutants.
+ *
+ * The nineteen mutants below are not invented for this registry — each was
+ * observed KILLING the tap-target guard during the step3-a11y arc and then
+ * reverted by hand (`BACKLOG.md`, `BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT`), and
+ * each `reason` carries the commit it came from plus the failure line it drew.
+ * That is what makes this list a closed operator family rather than a sample:
+ * enrolling it converts nineteen hand-run probes into one machine-checked score.
  */
-export const BROWSER_SURFACES: BrowserGuardSurface[] = [];
+export const BROWSER_SURFACES: BrowserGuardSurface[] = [
+  {
+    id: "tapTargetFloor",
+    // Vitest FIRST: it is seconds against a browser boot, and one mutant (#17,
+    // the partial heading revert) is killed by it and by nothing in the
+    // Playwright spec — without the vitest kind that mutant would enrol as a
+    // guaranteed survivor (spec §1.1.5).
+    suites: [
+      { kind: "vitest", path: "tests/components/admin/wizard/Step3Review.test.tsx" },
+      {
+        kind: "playwright",
+        config: "tests/e2e/standalone.config.ts",
+        filter: "tap-target-floor",
+        project: "standalone-chromium",
+      },
+    ],
+    scoreFloor: 1,
+    mutants: [
+      {
+        key: "drop-group-operator-error",
+        edits: [
+          {
+            file: WIZARD,
+            from: '<details className="group text-sm">',
+            to: '<details className="text-sm">',
+          },
+        ],
+        reason:
+          "893793235: dropping `group` from OperatorErrorBlock's <details> drew " +
+          "'caret did not rotate on open' — the group-open:* utilities resolve against nothing.",
+      },
+      {
+        key: "strip-transition-helptooltip-visual",
+        edits: [
+          {
+            file: TOOLTIP,
+            from: "text-text-subtle transition-colors duration-fast group-hover:bg-surface",
+            to: "text-text-subtle group-hover:bg-surface",
+          },
+        ],
+        reason:
+          "893793235: stripping `transition-colors duration-fast` from HelpTooltip's visual drew " +
+          "'colour transition was retimed (got 0s)'.",
+      },
+      {
+        key: "add-group-helptooltip-details",
+        edits: [
+          {
+            file: TOOLTIP,
+            from: 'className="inline-block list-none align-middle [&::-webkit-details-marker]:hidden',
+            to: 'className="group inline-block list-none align-middle [&::-webkit-details-marker]:hidden',
+          },
+        ],
+        reason:
+          "893793235: adding `group` to HelpTooltip's <details> drew 'hovering the disclosed body " +
+          "leaked color onto the trigger' — the ancestor must not carry it.",
+      },
+      {
+        key: "strip-aria-label-brand",
+        edits: [{ file: NAV, from: '          aria-label="FXAV Admin"\n', to: "" }],
+        reason:
+          "95e9eb4a7: deleting the brand link's aria-label drew 'brand link has no accessible name " +
+          "at 320px' — both wordmark spans are display:none below 360px.",
+      },
+      {
+        key: "relabel-aria-label-brand",
+        edits: [{ file: NAV, from: 'aria-label="FXAV Admin"', to: 'aria-label="Dashboard"' }],
+        reason:
+          "06cc09ed1: relabelling to 'Dashboard' drew 'brand link name is empty or contradicts its " +
+          'visible "FXAV" wordmark at 320px\' (WCAG 2.5.3).',
+      },
+      {
+        key: "rounded-sm-both-pill-sites",
+        // BOTH sites, one mutant: the guard's claim is that the visual and its
+        // target stay EQUAL and non-zero, so a single-site edit is a different
+        // mutant with a different failure line.
+        edits: [
+          { file: WIZARD, from: PILL_BASE, to: PILL_BASE.replace("rounded-pill", "rounded-sm") },
+          {
+            file: WIZARD,
+            from: PILL_TARGET,
+            to: PILL_TARGET.replace("rounded-pill", "rounded-sm"),
+          },
+        ],
+        reason:
+          "95e9eb4a7: `rounded-sm` on both pill sites drew 'pill 1 is no longer pill-shaped: " +
+          "radius 6px on a 28px box' (and pill 2).",
+      },
+      {
+        key: "rounded-14px-both-pill-sites",
+        // Distinct from the row above: at 14px the 28px VISUAL stays circular
+        // and only the 44px target squares off, so it isolates the target's own
+        // radius assertion.
+        edits: [
+          {
+            file: WIZARD,
+            from: PILL_BASE,
+            to: PILL_BASE.replace("rounded-pill", "rounded-[14px]"),
+          },
+          {
+            file: WIZARD,
+            from: PILL_TARGET,
+            to: PILL_TARGET.replace("rounded-pill", "rounded-[14px]"),
+          },
+        ],
+        reason:
+          "cc9fcfe4d: `rounded-[14px]` on both drew 'pill 1 target is no longer pill-shaped: " +
+          "radius 14px on a 44px box'.",
+      },
+      {
+        key: "caret-nothing-drawable",
+        // Tree drift, honoured rather than papered over: e9e80ec25 replaced the
+        // `▸` TEXT caret with a lucide <ChevronRight> SVG, so the guard branches
+        // on `isSvg ? drawable > 0 : text !== ""`
+        // (tests/e2e/tap-target-floor.layout.spec.ts:970-988). The equivalent
+        // mutant is "same box, same classes, nothing drawable": an empty <span>
+        // keeps area, display, visibility, opacity and rotation valid and fails
+        // only the branch the original mutant defeated.
+        edits: [
+          {
+            file: WIZARD,
+            from: `<ChevronRight\n              aria-hidden="true"\n              ${CARET_CLASS}\n            />`,
+            to: `<span\n              aria-hidden="true"\n              ${CARET_CLASS}\n            />`,
+          },
+        ],
+        reason:
+          "95e9eb4a7: deleting only the caret's glyph drew 'operator-error caret renders no glyph'. " +
+          "Reconstructed against the SVG caret e9e80ec25 introduced; verified locally before enrolment.",
+      },
+      {
+        key: "text-transparent-both-carets",
+        // Two files, byte-identical className: the substitution is file-scoped,
+        // and each occurrence is unique WITHIN its own file.
+        edits: [
+          {
+            file: WIZARD,
+            from: CARET_CLASS,
+            to: CARET_CLASS.replace("size-4 shrink-0", "size-4 shrink-0 text-transparent"),
+          },
+          {
+            file: "components/admin/settings/AdministratorsSection.tsx",
+            from: CARET_CLASS,
+            to: CARET_CLASS.replace("size-4 shrink-0", "size-4 shrink-0 text-transparent"),
+          },
+        ],
+        reason:
+          "06cc09ed1: `text-transparent` on both carets drew 'caret text is fully transparent " +
+          "(color rgba(0, 0, 0, 0))' on operator-error AND administrators. Lucide icons stroke with " +
+          "currentColor, so the alpha read still kills it on the SVG caret.",
+      },
+      {
+        key: "helpsheet-trigger-margin",
+        edits: [
+          {
+            file: SHEET,
+            from: 'className="group -m-2 inline-flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill focus-visible:outline-none',
+            to: 'className="group -m-1 inline-flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill focus-visible:outline-none',
+          },
+        ],
+        reason:
+          "fc628f3e9: `-m-1` drew 'HelpSheet trigger horizontal margin box changed'. The " +
+          "`cursor-pointer` token is what makes the anchor unique — the close button at :169 shares " +
+          "the rest of the prefix.",
+      },
+      {
+        key: "drop-items-center-steppill-target",
+        edits: [
+          {
+            file: WIZARD,
+            from: PILL_TARGET,
+            to: PILL_TARGET.replace(
+              "cursor-pointer items-center justify-center",
+              "cursor-pointer justify-center",
+            ),
+          },
+        ],
+        reason:
+          "fc628f3e9: dropping `items-center` from the split target drew 'pill 1 visual is not " +
+          "vertically centred in its target'.",
+      },
+      {
+        key: "relocate-cursor-pointer-helptooltip",
+        // A remove-and-add pair: the token moves from the target to its inner
+        // visual, which a single-edit mutant cannot express.
+        edits: [
+          {
+            file: TOOLTIP,
+            from: 'className="group -m-2 inline-flex size-tap-min shrink-0 cursor-pointer list-none items-center justify-center rounded-pill',
+            to: 'className="group -m-2 inline-flex size-tap-min shrink-0 list-none items-center justify-center rounded-pill',
+          },
+          {
+            file: TOOLTIP,
+            from: 'className="inline-flex size-7 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm',
+            to: 'className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-pill bg-surface-sunken text-sm',
+          },
+        ],
+        reason:
+          "fc628f3e9: relocating `cursor-pointer` to the inner span drew 'HelpTooltip trigger target " +
+          "lost its pointer cursor'.",
+      },
+      {
+        key: "narrow-transition-helptooltip-visual",
+        edits: [
+          {
+            file: TOOLTIP,
+            from: "text-text-subtle transition-colors duration-fast group-hover:bg-surface",
+            to: "text-text-subtle transition-[background-color] duration-fast group-hover:bg-surface",
+          },
+        ],
+        reason:
+          "cc9fcfe4d: `transition-[background-color]` drew 'the visual span no longer transitions " +
+          "color (got background-color)' — narrowing the property, distinct from removing it.",
+      },
+      {
+        key: "topbar-gap-collapse",
+        edits: [
+          {
+            file: NAV,
+            from: 'className="mb-4 flex items-center gap-3 border-b border-border pb-3"',
+            to: 'className="mb-4 flex items-center gap-0 border-b border-border pb-3"',
+          },
+        ],
+        reason:
+          "cc9fcfe4d: the `gap-3 -> gap-0` overlap mutant, the one already machine-observed in the " +
+          "BACKLOG probe block — it kills exactly its own case per container " +
+          "(BL-TAP-TARGET-NEIGHBOUR-OVERLAP-COVERAGE).",
+      },
+      {
+        key: "narrow-transition-steppill-base",
+        edits: [
+          {
+            file: WIZARD,
+            from: 'tabular-nums transition-colors duration-fast",',
+            to: 'tabular-nums transition-[background-color] duration-fast",',
+          },
+        ],
+        reason:
+          "e88e7e0f6: the pill's `transition-[background-color]` drew 'the visual span lost its " +
+          "colour transition (got background-color)' — the second substring-matcher site.",
+      },
+      {
+        key: "drop-justify-center-helpsheet-visual",
+        edits: [
+          {
+            file: SHEET,
+            from: 'className="inline-flex size-7 shrink-0 items-center justify-center rounded-pill bg-surface-sunken align-middle',
+            to: 'className="inline-flex size-7 shrink-0 items-center rounded-pill bg-surface-sunken align-middle',
+          },
+        ],
+        reason:
+          "e88e7e0f6: dropping `justify-center` from the trigger's VISUAL drew 'HelpSheet trigger " +
+          "glyph is not horizontally centred in its visual'.",
+      },
+      {
+        key: "partial-heading-revert",
+        // The one mutant killed by the VITEST suite and by nothing in the
+        // Playwright spec (tests/components/admin/wizard/Step3Review.test.tsx:809-813).
+        // Reverting ONE of the two promoted headings leaves h1, h2, h3 — a
+        // monotonic outline that a "no skipped levels" check would accept.
+        edits: [
+          {
+            file: "components/admin/wizard/Step3Review.tsx",
+            from: '<h2 className="text-sm font-semibold text-text-subtle">\n          {heading} <span className="tabular-nums text-text-faint">({rows.length})</span>\n        </h2>',
+            to: '<h3 className="text-sm font-semibold text-text-subtle">\n          {heading} <span className="tabular-nums text-text-faint">({rows.length})</span>\n        </h3>',
+          },
+        ],
+        reason:
+          "e88e7e0f6: the partial heading revert drew 'the grouped-rows section heading is not an " +
+          'h2: expected "H3" to be "H2"\'.',
+      },
+      {
+        key: "w-fit-strip-five-summaries",
+        // FIVE sites on the current tree, not the six the BACKLOG prose records:
+        // e9e80ec25 moved the administrators summary to `flex w-full`, and the
+        // guard now asserts that mount INVERTED by name (DI2_FULL_WIDTH_BY_DESIGN,
+        // tests/e2e/tap-target-floor.layout.spec.ts:86), so applying `w-fit`
+        // there would fail a different assertion and is a different mutant.
+        // HelpAffordance:111 is deliberately NOT stripped — it is the Learn-more
+        // link, not a <summary>, and sits outside the guard's scope.
+        edits: [
+          {
+            file: "components/admin/HelpAffordance.tsx",
+            from: 'className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center underline-offset-2',
+            to: 'className="inline-flex min-h-tap-min cursor-pointer list-none items-center underline-offset-2',
+          },
+          {
+            file: WIZARD,
+            from: 'className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center font-medium"',
+            to: 'className="inline-flex min-h-tap-min cursor-pointer list-none items-center font-medium"',
+          },
+          {
+            file: "components/messages/ErrorExplainer.tsx",
+            from: 'className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center"',
+            to: 'className="inline-flex min-h-tap-min cursor-pointer list-none items-center"',
+          },
+          {
+            file: "app/me/meShowSections.tsx",
+            from: 'className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center text-xs',
+            to: 'className="inline-flex min-h-tap-min cursor-pointer list-none items-center text-xs',
+          },
+          {
+            file: "components/crew/primitives/RunOfShowList.tsx",
+            from: "className={`inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center text-sm",
+            to: "className={`inline-flex min-h-tap-min cursor-pointer list-none items-center text-sm",
+          },
+        ],
+        reason:
+          "0bce8e51c: stripping `w-fit` from the Class-A summaries drew 'help-affordance summary " +
+          "dropped the spec-required w-fit token'. Verified locally as a FIVE-site mutant before " +
+          "enrolment; DI-2's width comparison still passes under it, which is why the token pin exists.",
+      },
+      {
+        key: "delete-transition-steppill-base",
+        // Distinct from the narrowing row: removing the utility lets the
+        // property compute to the CSS `all` default, which the PRE-repair
+        // matcher accepted — so this mutant isolates the repair itself.
+        edits: [
+          {
+            file: WIZARD,
+            from: 'tabular-nums transition-colors duration-fast",',
+            to: 'tabular-nums",',
+          },
+        ],
+        reason:
+          "50f2478e1: deleting `transition-colors duration-fast` from the pill's base drew 'the " +
+          "visual span lost its colour transition (got all)'.",
+      },
+    ],
+    // Liveness control, disjoint from every mutant site above: the HelpSheet
+    // CLOSE button carries the tap floor as `size-tap-min` (probed 2026-08-15),
+    // and the 44px floor assertions cover it, so stripping the token is an edit
+    // the suite must obviously notice.
+    control: {
+      key: "control-helpsheet-close-tap-floor",
+      edits: [
+        {
+          file: SHEET,
+          from: "size-tap-min shrink-0 items-center justify-center rounded-sm",
+          to: "shrink-0 items-center justify-center rounded-sm",
+        },
+      ],
+      reason:
+        "Overlay-liveness control: the HelpSheet close button falls below the 44px floor. A harness " +
+        "whose overlay silently failed would report a perfect score with every other gate condition " +
+        "still passing, so this edit must be killed on every run.",
+    },
+    accepted: [],
+  },
+];
