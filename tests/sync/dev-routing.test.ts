@@ -350,7 +350,7 @@ describe("VERSION_AMBIGUOUS routes to dev.pending_ingestions with scored message
 // conflict target on the partial unique index.
 //
 // Cross-check: getStagedResult is the consumer that depends on the mutual-
-// exclusion invariant (app/admin/dev/actions.ts:286-289 reads pending_
+// exclusion invariant (app/admin/dev/actions.ts:288-291 reads pending_
 // ingestions first, then pending_syncs, and assumes only one will hit).
 // The tests below assert each direction's post-state via DIRECT db reads
 // AND via getStagedResult, so a regression in either the RPC's DELETE

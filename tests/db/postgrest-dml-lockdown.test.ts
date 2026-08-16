@@ -961,14 +961,14 @@ const ADMIN_DML_EXEMPTIONS: readonly AdminDmlExemption[] = [
     table: "app_settings",
     reason:
       "Four admin Settings toggles UPDATE this singleton through the user session; " +
-      "app/admin/settings/_actions/setAutoPublish.ts:47 states the app_settings admin_only " +
+      "app/admin/settings/_actions/setAutoPublish.ts:50 states the app_settings admin_only " +
       "RLS IS the authoritative write gate, with requireAdmin as defense-in-depth.",
   },
   {
     table: "admin_alerts",
     reason:
       "resolveAdminAlertFormAction and resolveHealthAlertFormAction UPDATE through the user " +
-      "session; app/admin/actions.ts:139 documents the RLS-gated UPDATE as the mechanism. " +
+      "session; app/admin/actions.ts:148 documents the RLS-gated UPDATE as the mechanism. " +
       "the BL-HEALTH-RESOLVE-DB-LOCKDOWN backlog entry accepts this posture; closing it is the whole-resolve-path change " +
       "tracked by BL-HEALTH-RESOLVE-DB-LOCKDOWN.",
   },
