@@ -143,25 +143,45 @@ describe("committed ledger shape", () => {
   });
 });
 
-describe("the content-keyed near-miss detector closed the 10 real-loss section-reorder holes", () => {
+describe("the content-keyed near-miss detector closed 24 section-reorder holes", () => {
   // The positional `UNKNOWN_FIELD` sweep read a scope WINDOW, so moving a block moved the
   // emission set and the swap oracle saw real signal loss. The content-keyed detector
   // (spec parser/2026-08-15-field-near-miss-detector-design.md) reads nothing positional,
-  // so these ten holes are CLOSED, not re-blessed — the ratchet shrinks by exactly ten.
+  // so these holes are CLOSED, not re-blessed.
+  //
+  // THE SET IS THE HARNESS'S, NOT THE PLAN'S. The wave plan named TEN ids to delete; the
+  // collected run's own `fixedHoles` set is 24 within this operator, and the plan's ten are
+  // a strict subset of it. Shipping the authored set turned five shards red, which is the
+  // rule `knownHoles.ts` already carried from branch 4 — size a shrink by the harness, never
+  // by an id list. These 24 are transcribed from that reconciliation.
   const CLOSED = [
     "section-reorder:2025-03-dci-rpas-central:B14:L0:Xpair14",
     "section-reorder:2025-03-dci-rpas-central:B15:L0:Xpair15",
+    "section-reorder:2025-03-dci-rpas-central:B16:L0:Xpair16",
+    "section-reorder:2025-03-dci-rpas-central:B17:L0:Xpair17",
+    "section-reorder:2025-03-dci-rpas-central:B18:L0:Xpair18",
     "section-reorder:2025-03-dci-rpas-central:B19:L0:Xpair19",
     "section-reorder:2025-04-asset-mgmt-cfo-coo:B14:L0:Xpair14",
     "section-reorder:2025-04-asset-mgmt-cfo-coo:B15:L0:Xpair15",
     "section-reorder:2025-06-ria-investment-forum:B3:L0:Xpair3",
     "section-reorder:2025-06-ria-investment-forum:B4:L0:Xpair4",
+    "section-reorder:2025-06-ria-investment-forum:B5:L0:Xpair5",
+    "section-reorder:2025-06-ria-investment-forum:B6:L0:Xpair6",
     "section-reorder:2025-06-ria-investment-forum:B7:L0:Xpair7",
     "section-reorder:2025-06-ria-investment-forum:B8:L0:Xpair8",
+    "section-reorder:2025-10-consultants-roundtable:B13:L0:Xpair13",
+    "section-reorder:2025-10-consultants-roundtable:B14:L0:Xpair14",
+    "section-reorder:2025-10-consultants-roundtable:B15:L0:Xpair15",
+    "section-reorder:2025-10-consultants-roundtable:B16:L0:Xpair16",
+    "section-reorder:2025-10-consultants-roundtable:B17:L0:Xpair17",
+    "section-reorder:2025-10-consultants-roundtable:B18:L0:Xpair18",
+    "section-reorder:2025-10-consultants-roundtable:B19:L0:Xpair19",
+    "section-reorder:2025-10-consultants-roundtable:B20:L0:Xpair20",
+    "section-reorder:2025-10-consultants-roundtable:B21:L0:Xpair21",
     "section-reorder:2025-10-consultants-roundtable:B22:L0:Xpair22",
   ];
 
-  it("holds no ledger row for any of the ten closed siteIds", () => {
+  it("holds no ledger row for any of the closed siteIds", () => {
     const ledgered = new Set(KNOWN_SILENT_HOLES.map((h) => h.siteId));
     const remaining = CLOSED.filter((id) => ledgered.has(id));
     expect(
@@ -170,13 +190,17 @@ describe("the content-keyed near-miss detector closed the 10 real-loss section-r
     ).toEqual([]);
   });
 
-  it("shrank by exactly those ten — the OTHER 72 ratified section-reorder rows are untouched", () => {
+  it("shrank by exactly those 24 — the OTHER 59 ratified section-reorder rows are untouched", () => {
     // Anti-tautology: absence alone also passes on an emptied ledger, or on one whose
-    // whole `section-reorder` class was deleted. The documented limit (spec AC-N5) is that
-    // 72 order-sensitivity rows REMAIN, so the count is asserted from the same live ledger.
+    // whole `section-reorder` class was deleted. The documented limit (spec AC-N5, as
+    // corrected by the collected run) is that 59 order-sensitivity rows REMAIN, so the
+    // count is asserted from the same live ledger.
     const reorder = KNOWN_SILENT_HOLES.filter((h) => h.siteId.startsWith("section-reorder:"));
-    expect(reorder.length, "section-reorder rows remaining after the 10-row shrink").toBe(72);
+    expect(reorder.length, "section-reorder rows remaining after the 24-row shrink").toBe(59);
     expect(reorder.every((h) => !CLOSED.includes(h.siteId))).toBe(true);
+    // Every survivor is kind `wrong`: the operator's entire signal_loss and text_drift
+    // population is what the positional sweep was producing, and it closed with it.
+    expect([...new Set(reorder.map((h) => h.kind))].sort()).toEqual(["wrong"]);
   });
 });
 

@@ -278,7 +278,7 @@ const isAllCapsSingle = (rawLabel: string, normTokens: Set<string>): boolean =>
 - **AC-N2:** emission multiset invariant under every adjacent-block swap (10 named + 497-swap sweep GREEN).
 - **AC-N3:** venue payload byte-identical on the corpus.
 - **AC-N4:** N/A - retired; entity-encoded block already recognized and deliberately stub-gated (spec 2.3).
-- **AC-N5:** full harness four buckets empty; 10 section-reorder rows deleted; 72 ratified ledger rows remain.
+- **AC-N5:** full harness four buckets empty; the ledger regenerated from the harness's own collected alarms. (Originally "10 section-reorder rows deleted; 72 ratified ledger rows remain" — both numbers were authored, and the collected run refutes both: 86 holes close, 17 open, 1,002 fingerprints drift, and the ledger lands at 1,019 rows with 59 `section-reorder`. Spec AC-N5 carries the amendment and `probes/2026-08-16-newhole-mechanism.md` the evidence.)
 - **AC-N6:** §12.4 lockstep + card copy + help + impeccable dual gate green.
 - **AC-N7:** fieldNearMiss enrolled in source-mutation registry, score ≥ floor, unaccepted-survivor set empty.
 - **AC-N8:** TYPO_NORMALIZED census pinned at 0 on the unreordered corpus; venue-block-membership gate unit-tested both directions.
