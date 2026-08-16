@@ -52,7 +52,11 @@ export function parsePsOutput(text: string): ProcRow[] {
       // date fragment in `command`, where it silently becomes `argv[0]` and the row declines as
       // not-a-worker - the right verdict for the wrong reason (round 14). Under the LC_ALL=C pin
       // this should never occur, which is exactly why it is worth reporting when it does.
-      rows.push({ kind: "unparsable", raw: line, problem: "lstart did not parse; row layout unknown" });
+      rows.push({
+        kind: "unparsable",
+        raw: line,
+        problem: "lstart did not parse; row layout unknown",
+      });
       continue;
     }
     rows.push({

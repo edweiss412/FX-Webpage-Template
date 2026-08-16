@@ -52,12 +52,17 @@ describe("classify: AC-2, exempt at ANY age", () => {
   const ancient = { etimeSeconds: 10 * 365 * 86_400 };
 
   it("clause (b): a worker with a live parent is never reaped, however old", () => {
-    const rows = [worker({ ...ancient, ppid: 4242 }), worker({ pid: 4242, ppid: 1, command: "sh" })];
+    const rows = [
+      worker({ ...ancient, ppid: 4242 }),
+      worker({ pid: 4242, ppid: 1, command: "sh" }),
+    ];
     expect(only(rows)).toMatchObject({ reap: false, because: "has-live-parent" });
   });
 
   it("clause (a): the pnpm wrapper of a live phase is never reaped, however old", () => {
-    expect(only([worker({ ...ancient, command: "node /x/bin/pnpm exec vitest run" })])).toMatchObject({
+    expect(
+      only([worker({ ...ancient, command: "node /x/bin/pnpm exec vitest run" })]),
+    ).toMatchObject({
       reap: false,
       because: "not-a-worker",
     });

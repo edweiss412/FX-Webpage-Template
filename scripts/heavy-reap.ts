@@ -65,7 +65,13 @@ export type IdentityRead =
 
 export type KillOutcome = {
   pid: number;
-  result: "killed" | "already-gone" | "failed" | "partial" | "identity-changed" | "identity-unreadable";
+  result:
+    | "killed"
+    | "already-gone"
+    | "failed"
+    | "partial"
+    | "identity-changed"
+    | "identity-unreadable";
   detail?: string;
 };
 
@@ -125,7 +131,12 @@ export function executeKills(targets: readonly number[], deps: KillDeps): KillOu
       // K1: the target can exit between the identity read and the signal; ESRCH is that race,
       // and it is an ordinary outcome rather than a failure.
       if (isEsrch(e)) outcomes.push({ pid, result: "already-gone" });
-      else outcomes.push({ pid, result: "failed", detail: String((e as { code?: string }).code ?? e) });
+      else
+        outcomes.push({
+          pid,
+          result: "failed",
+          detail: String((e as { code?: string }).code ?? e),
+        });
     }
   }
   for (const pid of signalled) {
@@ -288,7 +299,8 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv): number {
   }
   say(`heavy-reap: ${candidates.length} candidate(s)`);
 
-  if (!flags.kill) return exitStatus({ collectFailed: false, ceilingRejected: false, outcomes: [] });
+  if (!flags.kill)
+    return exitStatus({ collectFailed: false, ceilingRejected: false, outcomes: [] });
 
   const targets = planTargets(result.decisions, parsed);
   // K2's classification-time identity comes from the ROW that was classified, not from a read

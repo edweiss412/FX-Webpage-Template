@@ -17,7 +17,12 @@ import {
   stillAlive,
 } from "../../scripts/heavy-reap";
 
-const reap = (pid: number): Decision => ({ pid, reap: true, shape: "forks.js", ageSeconds: 99_999 });
+const reap = (pid: number): Decision => ({
+  pid,
+  reap: true,
+  shape: "forks.js",
+  ageSeconds: 99_999,
+});
 const ident = (pid: number) => ({ pid, startedAt: "Sun Aug 16 09:35:23 2026", command: "node x" });
 const read = (pid: number): IdentityRead => ({ state: "read", identity: ident(pid) });
 const planned = (pid: number) => new Map<number, IdentityRead>([[pid, read(pid)]]);
@@ -69,10 +74,13 @@ describe("planTargets: AC-5", () => {
 
   it("does not loop on a parent cycle", () => {
     expect(
-      planTargets([reap(10)], [
-        { pid: 10, ppid: 11 },
-        { pid: 11, ppid: 10 },
-      ]),
+      planTargets(
+        [reap(10)],
+        [
+          { pid: 10, ppid: 11 },
+          { pid: 11, ppid: 10 },
+        ],
+      ),
     ).toEqual([10, 11]);
   });
 
@@ -143,7 +151,8 @@ describe("executeKills: AC-5, AC-5b", () => {
   it("AC-5b: readIdentity's own output carries exactly the triple, and nothing else", () => {
     const r = readIdentity(process.pid);
     expect(r.state).toBe("read");
-    if (r.state === "read") expect(Object.keys(r.identity).sort()).toEqual(["command", "pid", "startedAt"]);
+    if (r.state === "read")
+      expect(Object.keys(r.identity).sort()).toEqual(["command", "pid", "startedAt"]);
   });
 
   it("K2: an identity differing ONLY in command is not signalled", () => {
@@ -204,29 +213,32 @@ describe("executeKills: AC-5, AC-5b", () => {
   it.each([
     ["a later successful read", { state: "read", identity: ident(10) } as IdentityRead],
     ["a later gone", { state: "gone" } as IdentityRead],
-  ])("K6: a PLAN-TIME unreadable stays unreadable, and is NOT re-read, despite %s", (_label, second) => {
-    const signalled: number[] = [];
-    const reads: number[] = [];
-    const out = executeKills([10], {
-      identityAtPlan: new Map<number, IdentityRead>([
-        [10, { state: "unreadable", detail: "EPERM" }],
-      ]),
-      readIdentity: (pid) => {
-        reads.push(pid);
-        return second;
-      },
-      kill: (pid) => {
-        signalled.push(pid);
-      },
-      stillAlive: () => false,
-    });
-    expect(signalled).toEqual([]);
-    // Spec §6.1: a target whose classification read failed is K6 on that evidence alone, so the
-    // second read is not taken. Counting the reads is what makes this case non-vacuous - the
-    // injected `second` value is deliberately one that WOULD change the outcome if it were read.
-    expect(reads).toEqual([]);
-    expect(out[0]).toMatchObject({ pid: 10, result: "identity-unreadable" });
-  });
+  ])(
+    "K6: a PLAN-TIME unreadable stays unreadable, and is NOT re-read, despite %s",
+    (_label, second) => {
+      const signalled: number[] = [];
+      const reads: number[] = [];
+      const out = executeKills([10], {
+        identityAtPlan: new Map<number, IdentityRead>([
+          [10, { state: "unreadable", detail: "EPERM" }],
+        ]),
+        readIdentity: (pid) => {
+          reads.push(pid);
+          return second;
+        },
+        kill: (pid) => {
+          signalled.push(pid);
+        },
+        stillAlive: () => false,
+      });
+      expect(signalled).toEqual([]);
+      // Spec §6.1: a target whose classification read failed is K6 on that evidence alone, so the
+      // second read is not taken. Counting the reads is what makes this case non-vacuous - the
+      // injected `second` value is deliberately one that WOULD change the outcome if it were read.
+      expect(reads).toEqual([]);
+      expect(out[0]).toMatchObject({ pid: 10, result: "identity-unreadable" });
+    },
+  );
 
   it("K1: a PLAN-TIME gone stays already-gone, and is NOT re-read", () => {
     const reads: number[] = [];
@@ -378,7 +390,6 @@ describe("exitStatus: §6.2", () => {
     expect(exitStatus({ ...base, ...state })).toBe(code);
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // readIdentity at its REAL boundary. Everything above injects IdentityRead
@@ -644,7 +655,12 @@ describe("the CLI, executed end to end", () => {
         const table: Row[] = [
           { pid: root.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
           { pid: kid.pid, ppid: root.pid, etime: OLD, command: WORKER_CMD },
-          { pid: bystanderParent.pid, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
+          {
+            pid: bystanderParent.pid,
+            ppid: 1,
+            etime: OLD,
+            command: "/usr/bin/pnpm exec vitest run",
+          },
           { pid: bystander.pid, ppid: bystanderParent.pid, etime: OLD, command: WORKER_CMD },
         ];
         const { out } = runCli(flags, table);
@@ -817,7 +833,9 @@ describe("the CLI, executed end to end", () => {
     const owned = spawnOrphan();
     owned.kill(); // gone BEFORE the reaper runs, so the target reads as already-gone
     const table: Row[] = [{ pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD }];
-    const { out } = runCli(["--kill", "--quiet"], table, { FAKE_PS_IDENTITY_GONE: String(owned.pid) });
+    const { out } = runCli(["--kill", "--quiet"], table, {
+      FAKE_PS_IDENTITY_GONE: String(owned.pid),
+    });
     expect(out).not.toContain("already-gone");
   }, 180_000);
 
@@ -876,7 +894,9 @@ describe("the CLI, executed end to end", () => {
 
 describe("package wiring", () => {
   it("exposes heavy:reap so the tool is reachable by name", () => {
-    const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
+    const pkg = JSON.parse(
+      readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as {
       scripts: Record<string, string>;
     };
     expect(pkg.scripts["heavy:reap"]).toBe("tsx scripts/heavy-reap.ts");

@@ -41,7 +41,11 @@ describe("parsePsOutput", () => {
 
   it("reads lstart out of its fixed five-token window and leaves the command intact", () => {
     const row = parsePsOutput(`  700  1  01:00 ${LS} /usr/bin/node /x/a b.js\n`)[0];
-    expect(row).toMatchObject({ kind: "parsed", startedAt: LS, command: "/usr/bin/node /x/a b.js" });
+    expect(row).toMatchObject({
+      kind: "parsed",
+      startedAt: LS,
+      command: "/usr/bin/node /x/a b.js",
+    });
   });
 
   it("pins LC_ALL=C, because lstart is %c and its token count is locale-dependent", () => {
@@ -67,7 +71,9 @@ describe("parsePsOutput", () => {
     // Emitting a parsed row here would slide a date fragment into `command`, where it becomes
     // argv[0] and the row declines as not-a-worker: the right verdict for the wrong reason, and a
     // reason no report would explain (round 14).
-    const row = parsePsOutput("  700  1  01:00 not-a-date node /x/vitest/dist/workers/forks.js\n")[0];
+    const row = parsePsOutput(
+      "  700  1  01:00 not-a-date node /x/vitest/dist/workers/forks.js\n",
+    )[0];
     expect(row).toMatchObject({ kind: "unparsable" });
     if (row?.kind === "unparsable") expect(row.problem).toContain("lstart");
   });
@@ -169,7 +175,10 @@ describe("collect: AC-10 live smoke against an INDEPENDENT ps read", () => {
       const mmss = /^(\d+):(\d+)$/.exec(directEtime ?? "");
       premiseHolds("the child's age is in the MM:SS form this assertion parses", mmss !== null);
       const independent = Number(mmss?.[1] ?? 0) * 60 + Number(mmss?.[2] ?? 0);
-      premiseHolds("the child is old enough that a zeroing collector is distinguishable", independent >= 3);
+      premiseHolds(
+        "the child is old enough that a zeroing collector is distinguishable",
+        independent >= 3,
+      );
       expect(Math.abs(collected - independent)).toBeLessThanOrEqual(1);
     } finally {
       child.kill("SIGKILL");
