@@ -1,0 +1,538 @@
+spec:lint prose-count parity arms — corpus survivor records
+measured 2026-08-15T21:49:24.900Z on branch feat/speclint-prose-count-parity
+documents linted: 1095 of 1096 (kind forced on 78; 1 refused by the CLI by design)
+elapsed: 18.6s
+
+== refused by the CLI by design (NOT covered by this scan) ==
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md — {"error":"not a regular file (symlink): docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-do
+
+== SCRIPT_CONSTANT_PARITY: 0 advisories ==
+
+== SIBLING_LIST_CARDINALITY: 177 advisories ==
+BACKLOG.md:370:107 claim of 2 sites over an adjacent list of 3 items
+    claim "two sites"; list starts at doc line 372 with 3 sibling items
+BACKLOG.md:866:80 claim of 6 rounds over an adjacent list of 8 items
+    claim "Six rounds"; list starts at doc line 868 with 8 sibling items
+BACKLOG.md:949:114 claim of 7 sheets over an adjacent list of 11 items
+    claim "7 sheets"; list starts at doc line 951 with 11 sibling items
+docs/review-rounds/feat/mutation-merged-cell/c95ad35edd43.md:35:18 claim of 6 was over an adjacent list of 3 items
+    claim "6 was"; list starts at doc line 37 with 3 sibling items
+docs/review-rounds/feat/ops-log-code-emits/61281c23e8ce.md:13:268 claim of 3 times over an adjacent list of 7 items
+    claim "three times"; list starts at doc line 15 with 7 sibling items
+docs/superpowers/handoffs/2026-07-03-nullcode-batch2-handoff.md:14:12 claim of 10 sites over an adjacent list of 3 items
+    claim "10 sites"; list starts at doc line 15 with 3 sibling items
+docs/superpowers/handoffs/2026-07-26-agenda-perday-fold-handoff.md:155:74 claim of 16 tests over an adjacent list of 2 items
+    claim "16 tests"; list starts at doc line 157 with 2 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/03-04-tiles.md:544:702 claim of 2 predicates over an adjacent list of 9 items
+    claim "two predicates"; list starts at doc line 545 with 9 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/03-04-tiles.md:565:213 claim of 3 invariants over an adjacent list of 5 items
+    claim "three invariants"; list starts at doc line 567 with 5 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/05-auth.md:315:659 claim of 5 guards over an adjacent list of 6 items
+    claim "FIVE guards"; list starts at doc line 316 with 6 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/07-asset.md:74:95 claim of 2 patterns over an adjacent list of 3 items
+    claim "Two patterns"; list starts at doc line 75 with 3 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:1500:32 claim of 3 layers over an adjacent list of 4 items
+    claim "three layers"; list starts at doc line 1501 with 4 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:1976:34 claim of 6 assertions over an adjacent list of 7 items
+    claim "six assertions"; list starts at doc line 1977 with 7 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:122:36 claim of 10 suites over an adjacent list of 12 items
+    claim "10 suites"; list starts at doc line 123 with 12 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md:486:27 claim of 4 rounds over an adjacent list of 3 items
+    claim "Four rounds"; list starts at doc line 487 with 3 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M10-onboarding.md:50:334 claim of 2 functions over an adjacent list of 3 items
+    claim "two functions"; list starts at doc line 51 with 3 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M10-onboarding.md:432:67 claim of 2 scenarios over an adjacent list of 3 items
+    claim "two scenarios"; list starts at doc line 434 with 3 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11.5-crew-auth-pivot.md:439:67 claim of 36 rounds over an adjacent list of 7 items
+    claim "36 rounds"; list starts at doc line 441 with 7 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md:219:65 claim of 40 rounds over an adjacent list of 4 items
+    claim "40 rounds"; list starts at doc line 221 with 4 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md:702:49 claim of 2 tests over an adjacent list of 3 items
+    claim "2 tests"; list starts at doc line 703 with 3 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md:1094:336 claim of 2 patterns over an adjacent list of 4 items
+    claim "Two patterns"; list starts at doc line 1095 with 4 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md:2153:19 claim of 4 peers over an adjacent list of 5 items
+    claim "4 peers"; list starts at doc line 2154 with 5 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12.1-pg-cron-pivot.md:152:34 claim of 6 commits over an adjacent list of 0 items
+    claim "6 commits"; list starts at doc line 154 with 0 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12.1-pg-cron-pivot.md:180:3 claim of 5 classes over an adjacent list of 6 items
+    claim "5 classes"; list starts at doc line 181 with 6 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M8-bug-report.md:170:11 claim of 6 amendments over an adjacent list of 0 items
+    claim "six amendments"; list starts at doc line 172 with 0 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M8-bug-report.md:268:282 claim of 3 rounds over an adjacent list of 4 items
+    claim "3 rounds"; list starts at doc line 269 with 4 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9-polish.md:96:76 claim of 4 tasks over an adjacent list of 5 items
+    claim "four tasks"; list starts at doc line 97 with 5 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9-polish.md:1429:59 claim of 7 rounds over an adjacent list of 9 items
+    claim "seven rounds"; list starts at doc line 1430 with 9 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:3132:35 claim of 4 tests over an adjacent list of 3 items
+    claim "4 tests"; list starts at doc line 3133 with 3 sibling items
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/X5-email-canonicalization.md:56:92 claim of 6 fixtures over an adjacent list of 11 items
+    claim "6 fixtures"; list starts at doc line 57 with 11 sibling items
+docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:897:28 claim of 3 tests over an adjacent list of 2 items
+    claim "three tests"; list starts at doc line 898 with 2 sibling items
+docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/00-overview.md:56:63 claim of 6 re-runs over an adjacent list of 1 items
+    claim "6 re-runs"; list starts at doc line 57 with 1 sibling items
+docs/superpowers/plans/2026-07-22-dev-modal-capture/SPIKE.md:35:42 claim of 9 implementations over an adjacent list of 4 items
+    claim "9 implementations"; list starts at doc line 37 with 4 sibling items
+docs/superpowers/plans/2026-07-24-attention-index.md:91:516 claim of 2 files over an adjacent list of 3 items
+    claim "two files"; list starts at doc line 93 with 3 sibling items
+docs/superpowers/plans/2026-07-25-section-header-rebuild-and-phantom-spacers.md:345:42 claim of 3 was over an adjacent list of 2 items
+    claim "3 was"; list starts at doc line 346 with 2 sibling items
+docs/superpowers/plans/2026-07-26-agenda-perday-viewer-fold.md:167:5 claim of 5 rounds over an adjacent list of 6 items
+    claim "five rounds"; list starts at doc line 168 with 6 sibling items
+docs/superpowers/plans/2026-07-26-sheet-icon-link-affordance-class.md:42:12 claim of 3 anchors over an adjacent list of 7 items
+    claim "three anchors"; list starts at doc line 44 with 7 sibling items
+docs/superpowers/plans/2026-07-31-archive-lifecycle-race-cluster.md:167:335 claim of 17 hits over an adjacent list of 4 items
+    claim "17 hits"; list starts at doc line 168 with 4 sibling items
+docs/superpowers/plans/2026-08-02-copy-deadcode-sweep.md:20:11 claim of 4 registries over an adjacent list of 5 items
+    claim "four registries"; list starts at doc line 22 with 5 sibling items
+docs/superpowers/plans/2026-08-03-apply-undo-audit-fidelity.md:549:1 claim of 3 constraints over an adjacent list of 4 items
+    claim "Three constraints"; list starts at doc line 551 with 4 sibling items
+docs/superpowers/plans/2026-08-03-orphan-components-lead-prose.md:139:34 claim of 2 kinds over an adjacent list of 3 items
+    claim "two kinds"; list starts at doc line 140 with 3 sibling items
+docs/superpowers/plans/2026-08-03-scanner-precision-cluster.md:181:61 claim of 2 ones over an adjacent list of 3 items
+    claim "two ones"; list starts at doc line 182 with 3 sibling items
+docs/superpowers/plans/2026-08-04-review-round-economy.md:4446:154 claim of 3 fixtures over an adjacent list of 5 items
+    claim "three fixtures"; list starts at doc line 4448 with 5 sibling items
+docs/superpowers/plans/2026-08-07-ops-log-code-emits.md:69:310 claim of 2 cases over an adjacent list of 1 items
+    claim "Two cases"; list starts at doc line 71 with 1 sibling items
+docs/superpowers/plans/2026-08-09-resurrect-mobile-safari-e2e.md:53:62 claim of 11 archives over an adjacent list of 1 items
+    claim "11 archives"; list starts at doc line 55 with 1 sibling items
+docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-09-12.md:208:29 claim of 10 deltas over an adjacent list of 5 items
+    claim "10 deltas"; list starts at doc line 209 with 5 sibling items
+docs/superpowers/plans/admin/2026-08-03-undo-success-announcement.md:150:43 claim of 2 sites over an adjacent list of 0 items
+    claim "two sites"; list starts at doc line 152 with 0 sibling items
+docs/superpowers/plans/admin/2026-08-03-undo-success-announcement.md:165:41 claim of 7 branches over an adjacent list of 0 items
+    claim "seven branches"; list starts at doc line 167 with 0 sibling items
+docs/superpowers/plans/alerts/2026-07-04-alert-resolve-truthing/plan.md:302:297 claim of 3 cases over an adjacent list of 0 items
+    claim "three cases"; list starts at doc line 304 with 0 sibling items
+docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1201:283 claim of 4 tests over an adjacent list of 0 items
+    claim "4 tests"; list starts at doc line 1203 with 0 sibling items
+docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/01-parser-context.md:613:31 claim of 2 begins over an adjacent list of 0 items
+    claim "2 begins"; list starts at doc line 615 with 0 sibling items
+docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/02-shell-nav-alert.md:450:88 claim of 4 deletes over an adjacent list of 9 items
+    claim "4 deletes"; list starts at doc line 452 with 9 sibling items
+docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:165:60 claim of 4 cases over an adjacent list of 7 items
+    claim "4 cases"; list starts at doc line 166 with 7 sibling items
+docs/superpowers/plans/crew/2026-07-06-venue-card-redesign/00-plan.md:933:236 claim of 4 tests over an adjacent list of 0 items
+    claim "four tests"; list starts at doc line 935 with 0 sibling items
+docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md:191:32 claim of 7 applies over an adjacent list of 2 items
+    claim "7 applies"; list starts at doc line 193 with 2 sibling items
+docs/superpowers/plans/data-quality/2026-07-16-cron-wizard-owned-skip.md:45:18 claim of 2 reviewers over an adjacent list of 5 items
+    claim "2 reviewers"; list starts at doc line 46 with 5 sibling items
+docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/00-plan.md:155:48 claim of 2 layers over an adjacent list of 4 items
+    claim "two layers"; list starts at doc line 156 with 4 sibling items
+docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:1383:7 claim of 13 adds over an adjacent list of 0 items
+    claim "13 adds"; list starts at doc line 1385 with 0 sibling items
+docs/superpowers/plans/observability/2026-07-04-mutation-surface-observability.md:480:27 claim of 2 mutations over an adjacent list of 1 items
+    claim "2 mutations"; list starts at doc line 481 with 1 sibling items
+docs/superpowers/plans/observability/2026-07-05-admin-outcome-behavioral-coverage-registry/00-overview.md:17:25 claim of 6 rows over an adjacent list of 4 items
+    claim "6 rows"; list starts at doc line 19 with 4 sibling items
+docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:498:86 claim of 3 its over an adjacent list of 0 items
+    claim "3 its"; list starts at doc line 500 with 0 sibling items
+docs/superpowers/plans/observability/2026-07-09-admin-outcome-behavior-batch2/00-overview.md:27:56 claim of 16 rows over an adjacent list of 3 items
+    claim "16 rows"; list starts at doc line 29 with 3 sibling items
+docs/superpowers/plans/observability/2026-07-26-watch-renewal-lifecycle.md:158:157 claim of 2 implementations over an adjacent list of 3 items
+    claim "two implementations"; list starts at doc line 160 with 3 sibling items
+docs/superpowers/plans/observability/2026-08-09-sync-log-show-attribution.md:489:402 claim of 5 applies over an adjacent list of 3 items
+    claim "5 applies"; list starts at doc line 491 with 3 sibling items
+docs/superpowers/plans/parser/2026-06-30-room-detail-unrendered.md:231:471 claim of 3 adds over an adjacent list of 0 items
+    claim "3 adds"; list starts at doc line 233 with 0 sibling items
+docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:750:50 claim of 2 tests over an adjacent list of 3 items
+    claim "2 tests"; list starts at doc line 751 with 3 sibling items
+docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:963:177 claim of 6 passes over an adjacent list of 2 items
+    claim "6 passes"; list starts at doc line 964 with 2 sibling items
+docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:971:98 claim of 4 cases over an adjacent list of 2 items
+    claim "4 cases"; list starts at doc line 972 with 2 sibling items
+docs/superpowers/plans/schedule/2026-06-30-dress-anchor-and-per-card-report-fieldref.md:432:45 claim of 7 files over an adjacent list of 4 items
+    claim "7 files"; list starts at doc line 433 with 4 sibling items
+docs/superpowers/plans/schedule/2026-07-05-schedule-show-day-labels/00-plan.md:441:49 claim of 8 requires over an adjacent list of 1 items
+    claim "8 requires"; list starts at doc line 443 with 1 sibling items
+docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:168:47 claim of 4 cases over an adjacent list of 5 items
+    claim "four cases"; list starts at doc line 169 with 5 sibling items
+docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:314:42 claim of 3 surfaces over an adjacent list of 0 items
+    claim "3 surfaces"; list starts at doc line 316 with 0 sibling items
+docs/superpowers/plans/step3-onboarding/2026-07-16-withdraw-rescan-guard.md:211:59 claim of 3 forms over an adjacent list of 4 items
+    claim "three forms"; list starts at doc line 212 with 4 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/07-affordance-retrofit.md:324:124 claim of 2 asserts over an adjacent list of 3 items
+    claim "two asserts"; list starts at doc line 325 with 3 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/09-close-out.md:221:10 claim of 9 files over an adjacent list of 0 items
+    claim "9 files"; list starts at doc line 223 with 0 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md:676:77 claim of 2 clients over an adjacent list of 3 items
+    claim "two clients"; list starts at doc line 677 with 3 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/06-phase1-matrix-walk.md:165:42 claim of 3 legs over an adjacent list of 0 items
+    claim "three legs"; list starts at doc line 167 with 0 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/07-iteration-and-final-sweep.md:177:10 claim of 7 modes over an adjacent list of 2 items
+    claim "7 modes"; list starts at doc line 179 with 2 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/handoffs/Phase-0.B-closeout.md:69:26 claim of 8 prescribes over an adjacent list of 3 items
+    claim "8 prescribes"; list starts at doc line 71 with 3 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:4406:511 claim of 2 restores over an adjacent list of 14 items
+    claim "2 restores"; list starts at doc line 4407 with 14 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:65:185 claim of 2 rules over an adjacent list of 3 items
+    claim "Two rules"; list starts at doc line 66 with 3 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:692:596 claim of 3 swaps over an adjacent list of 0 items
+    claim "3 swaps"; list starts at doc line 694 with 0 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:582:10 claim of 3 commits over an adjacent list of 0 items
+    claim "3 commits"; list starts at doc line 584 with 0 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/handoffs/M12.2-phase-b2-show-lifecycle.md:186:29 claim of 3 findings over an adjacent list of 4 items
+    claim "3 findings"; list starts at doc line 187 with 4 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/00-overview.md:260:717 claim of 2 honors over an adjacent list of 3 items
+    claim "2 honors"; list starts at doc line 261 with 3 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/02-decision-rule-and-hold-aware-apply.md:188:444 claim of 2 sub-cases over an adjacent list of 3 items
+    claim "Two sub-cases"; list starts at doc line 189 with 3 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/04-undo-and-tombstone.md:16:329 claim of 2 releases over an adjacent list of 3 items
+    claim "2 releases"; list starts at doc line 17 with 3 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/04-undo-and-tombstone.md:317:142 claim of 2 releases over an adjacent list of 3 items
+    claim "2 releases"; list starts at doc line 318 with 3 sibling items
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention.md:102:97 claim of 2 head-counts over an adjacent list of 5 items
+    claim "two head-counts"; list starts at doc line 103 with 5 sibling items
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1010:3 claim of 3 points over an adjacent list of 4 items
+    claim "Three points"; list starts at doc line 1012 with 4 sibling items
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1047:226 claim of 2 values over an adjacent list of 3 items
+    claim "two values"; list starts at doc line 1048 with 3 sibling items
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1932:36 claim of 2 sub-states over an adjacent list of 4 items
+    claim "Two sub-states"; list starts at doc line 1933 with 4 sibling items
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2316:30 claim of 12 steps over an adjacent list of 3 items
+    claim "12 steps"; list starts at doc line 2318 with 3 sibling items
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2338:1 claim of 2 mechanisms over an adjacent list of 3 items
+    claim "Two mechanisms"; list starts at doc line 2340 with 3 sibling items
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2436:14 claim of 2 cols over an adjacent list of 6 items
+    claim "2 cols"; list starts at doc line 2438 with 6 sibling items
+docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3847:57 claim of 3 branches over an adjacent list of 4 items
+    claim "THREE branches"; list starts at doc line 3848 with 4 sibling items
+docs/superpowers/specs/2026-07-18-modal-close-exit-anim.md:120:96 claim of 2 paths over an adjacent list of 6 items
+    claim "two paths"; list starts at doc line 122 with 6 sibling items
+docs/superpowers/specs/2026-07-20-show-alert-compact.md:295:471 claim of 3 rounds over an adjacent list of 4 items
+    claim "three rounds"; list starts at doc line 297 with 4 sibling items
+docs/superpowers/specs/2026-07-21-attention-needs-attention-split.md:82:13 claim of 4 states over an adjacent list of 6 items
+    claim "four states"; list starts at doc line 84 with 6 sibling items
+docs/superpowers/specs/2026-07-21-attention-needs-attention-split.md:249:60 claim of 10 codes over an adjacent list of 4 items
+    claim "10 codes"; list starts at doc line 250 with 4 sibling items
+docs/superpowers/specs/2026-07-21-warning-card-identity-placement.md:305:57 claim of 4 changes over an adjacent list of 3 items
+    claim "four changes"; list starts at doc line 307 with 3 sibling items
+docs/superpowers/specs/2026-07-22-attention-gallery-gap-fill-design.md:43:15 claim of 3 renders over an adjacent list of 5 items
+    claim "3 renders"; list starts at doc line 45 with 5 sibling items
+docs/superpowers/specs/2026-07-23-warning-trim-undefer-design.md:145:40 claim of 2 tests over an adjacent list of 5 items
+    claim "two tests"; list starts at doc line 147 with 5 sibling items
+docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md:35:113 claim of 2 breaks over an adjacent list of 3 items
+    claim "two breaks"; list starts at doc line 37 with 3 sibling items
+docs/superpowers/specs/2026-07-24-picker-flow-app-bugs.md:115:20 claim of 3 layers over an adjacent list of 1 items
+    claim "three layers"; list starts at doc line 117 with 1 sibling items
+docs/superpowers/specs/2026-07-24-share-link-chrome-backlog-design.md:320:54 claim of 3 lines over an adjacent list of 2 items
+    claim "Three lines"; list starts at doc line 322 with 2 sibling items
+docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md:444:86 claim of 2 rules over an adjacent list of 3 items
+    claim "Two rules"; list starts at doc line 446 with 3 sibling items
+docs/superpowers/specs/2026-07-26-agenda-perday-viewer-fold.md:359:199 claim of 2 constraints over an adjacent list of 3 items
+    claim "Two constraints"; list starts at doc line 361 with 3 sibling items
+docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md:72:888 claim of 4 names over an adjacent list of 2 items
+    claim "four names"; list starts at doc line 74 with 2 sibling items
+docs/superpowers/specs/2026-08-01-announce-a11y-pass-design.md:138:101 claim of 11 runs over an adjacent list of 5 items
+    claim "11 runs"; list starts at doc line 140 with 5 sibling items
+docs/superpowers/specs/2026-08-01-invariant8-closeout-enforcement-design.md:132:4 claim of 7 limits over an adjacent list of 5 items
+    claim "7 limits"; list starts at doc line 134 with 5 sibling items
+docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:308:27 claim of 5 findings over an adjacent list of 6 items
+    claim "5 findings"; list starts at doc line 309 with 6 sibling items
+docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:315:20 claim of 6 findings over an adjacent list of 7 items
+    claim "6 findings"; list starts at doc line 316 with 7 sibling items
+docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:323:27 claim of 2 findings over an adjacent list of 3 items
+    claim "2 findings"; list starts at doc line 324 with 3 sibling items
+docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:327:27 claim of 2 findings over an adjacent list of 4 items
+    claim "2 findings"; list starts at doc line 328 with 4 sibling items
+docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:332:27 claim of 3 findings over an adjacent list of 4 items
+    claim "3 findings"; list starts at doc line 333 with 4 sibling items
+docs/superpowers/specs/2026-08-02-copy-deadcode-sweep-design.md:338:27 claim of 4 findings over an adjacent list of 6 items
+    claim "4 findings"; list starts at doc line 339 with 6 sibling items
+docs/superpowers/specs/2026-08-03-harness-font-fidelity-design.md:177:1 claim of 2 changes over an adjacent list of 1 items
+    claim "Two changes"; list starts at doc line 179 with 1 sibling items
+docs/superpowers/specs/2026-08-03-inter-numeral-disambiguation-design.md:86:325 claim of 2 files over an adjacent list of 5 items
+    claim "Two files"; list starts at doc line 88 with 5 sibling items
+docs/superpowers/specs/2026-08-03-inter-numeral-disambiguation-design.md:636:59 claim of 3 probes over an adjacent list of 2 items
+    claim "three probes"; list starts at doc line 638 with 2 sibling items
+docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md:293:75 claim of 3 sweeps over an adjacent list of 2 items
+    claim "Three sweeps"; list starts at doc line 295 with 2 sibling items
+docs/superpowers/specs/2026-08-03-modal-freshness-cue.md:160:164 claim of 3 mechanisms over an adjacent list of 4 items
+    claim "Three mechanisms"; list starts at doc line 162 with 4 sibling items
+docs/superpowers/specs/2026-08-03-nojs-loading-shell-notice-design.md:263:19 claim of 3 steps over an adjacent list of 2 items
+    claim "three steps"; list starts at doc line 265 with 2 sibling items
+docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md:654:336 claim of 6 mutants over an adjacent list of 7 items
+    claim "six mutants"; list starts at doc line 656 with 7 sibling items
+docs/superpowers/specs/2026-08-05-m-wave-decisions-brief.md:36:71 claim of 19 sites over an adjacent list of 2 items
+    claim "19 sites"; list starts at doc line 37 with 2 sibling items
+docs/superpowers/specs/2026-08-05-m-wave-design.md:52:16 claim of 7 entries over an adjacent list of 6 items
+    claim "7 entries"; list starts at doc line 54 with 6 sibling items
+docs/superpowers/specs/2026-08-09-help-report-surface-design.md:66:45 claim of 2 sites over an adjacent list of 3 items
+    claim "two sites"; list starts at doc line 68 with 3 sibling items
+docs/superpowers/specs/admin/2026-07-01-shows-720-title-floor-design.md:38:42 claim of 7 lines over an adjacent list of 5 items
+    claim "7 lines"; list starts at doc line 40 with 5 sibling items
+docs/superpowers/specs/admin/2026-07-03-developer-tier.md:281:521 claim of 3 things over an adjacent list of 4 items
+    claim "three things"; list starts at doc line 283 with 4 sibling items
+docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md:247:156 claim of 3 rounds over an adjacent list of 7 items
+    claim "three rounds"; list starts at doc line 249 with 7 sibling items
+docs/superpowers/specs/admin/2026-07-16-consolidated-admin-show-page.md:367:14 claim of 2 phases over an adjacent list of 0 items
+    claim "two phases"; list starts at doc line 369 with 0 sibling items
+docs/superpowers/specs/admin/2026-07-16-destructive-confirm-pass.md:7:1 claim of 4 idioms over an adjacent list of 5 items
+    claim "Four idioms"; list starts at doc line 9 with 5 sibling items
+docs/superpowers/specs/admin/2026-07-16-role-vocab-settings-desktop-grid.md:38:159 claim of 2 layouts over an adjacent list of 8 items
+    claim "two layouts"; list starts at doc line 40 with 8 sibling items
+docs/superpowers/specs/admin/2026-07-17-destruct1-armed-reflow.md:34:10 claim of 2 buttons over an adjacent list of 3 items
+    claim "two buttons"; list starts at doc line 36 with 3 sibling items
+docs/superpowers/specs/alerts/2026-07-03-route-sync-problems-to-needs-attention.md:121:15 claim of 2 streams over an adjacent list of 4 items
+    claim "two streams"; list starts at doc line 123 with 4 sibling items
+docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md:384:21 claim of 2 counts over an adjacent list of 4 items
+    claim "two counts"; list starts at doc line 385 with 4 sibling items
+docs/superpowers/specs/alerts/2026-07-16-notify-email-batching.md:88:52 claim of 2 files over an adjacent list of 3 items
+    claim "two files"; list starts at doc line 90 with 3 sibling items
+docs/superpowers/specs/ci/2026-07-19-ci-unit-suite-under-5min.md:27:34 claim of 3 commitments over an adjacent list of 0 items
+    claim "3 commitments"; list starts at doc line 29 with 0 sibling items
+docs/superpowers/specs/ci/2026-07-19-ci-unit-suite-under-5min.md:129:24 claim of 2 meta-tests over an adjacent list of 4 items
+    claim "two meta-tests"; list starts at doc line 131 with 4 sibling items
+docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:380:276 claim of 3 rounds over an adjacent list of 5 items
+    claim "three rounds"; list starts at doc line 382 with 5 sibling items
+docs/superpowers/specs/ci/2026-08-09-libdata-call-boundary-metatest-design.md:130:24 claim of 17 sites over an adjacent list of 4 items
+    claim "17 sites"; list starts at doc line 132 with 4 sibling items
+docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md:47:86 claim of 3 rules over an adjacent list of 6 items
+    claim "Three rules"; list starts at doc line 49 with 6 sibling items
+docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md:146:691 claim of 3 modules over an adjacent list of 5 items
+    claim "three modules"; list starts at doc line 148 with 5 sibling items
+docs/superpowers/specs/crew/2026-08-09-crew-wifi-room-enrichment-design.md:7:53 claim of 2 graduations over an adjacent list of 4 items
+    claim "two graduations"; list starts at doc line 9 with 4 sibling items
+docs/superpowers/specs/data-quality/2026-07-04-data-quality-badge-full-warn-class.md:180:1 claim of 3 surfaces over an adjacent list of 5 items
+    claim "Three surfaces"; list starts at doc line 181 with 5 sibling items
+docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md:103:107 claim of 4 gates over an adjacent list of 5 items
+    claim "4 gates"; list starts at doc line 105 with 5 sibling items
+docs/superpowers/specs/data-quality/2026-07-15-feed-disposition-accept.md:67:25 claim of 2 axes over an adjacent list of 3 items
+    claim "two axes"; list starts at doc line 68 with 3 sibling items
+docs/superpowers/specs/data-quality/2026-07-17-dq-group-active-by-code.md:88:29 claim of 8 files over an adjacent list of 6 items
+    claim "8 files"; list starts at doc line 89 with 6 sibling items
+docs/superpowers/specs/observability/2026-06-29-centralized-logging-foundation-design.md:391:9 claim of 5 handlers over an adjacent list of 1 items
+    claim "5 handlers"; list starts at doc line 392 with 1 sibling items
+docs/superpowers/specs/observability/2026-07-02-observability-coverage-carveout-design.md:81:53 claim of 2 branches over an adjacent list of 6 items
+    claim "two branches"; list starts at doc line 83 with 6 sibling items
+docs/superpowers/specs/observability/2026-07-03-nullcode-forensic-batch2-design.md:134:376 claim of 25 lines over an adjacent list of 2 items
+    claim "25 lines"; list starts at doc line 136 with 2 sibling items
+docs/superpowers/specs/observability/2026-07-06-telemetry-console-redesign.md:456:163 claim of 2 functions over an adjacent list of 5 items
+    claim "two functions"; list starts at doc line 457 with 5 sibling items
+docs/superpowers/specs/observability/2026-07-07-flow6-signal-visibility.md:221:14 claim of 2 items over an adjacent list of 3 items
+    claim "2 items"; list starts at doc line 223 with 3 sibling items
+docs/superpowers/specs/observability/2026-07-24-watch-reconcile-backoff-design.md:427:141 claim of 6 halves over an adjacent list of 2 items
+    claim "6 halves"; list starts at doc line 429 with 2 sibling items
+docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md:338:3 claim of 3 hazards over an adjacent list of 4 items
+    claim "Three hazards"; list starts at doc line 340 with 4 sibling items
+docs/superpowers/specs/parser/2026-06-27-set-cell-derived-labels-design.md:20:268 claim of 6 reads over an adjacent list of 4 items
+    claim "6 reads"; list starts at doc line 22 with 4 sibling items
+docs/superpowers/specs/parser/2026-07-06-widen-dims-address-date.md:120:4 claim of 2 matchers over an adjacent list of 3 items
+    claim "Two matchers"; list starts at doc line 121 with 3 sibling items
+docs/superpowers/specs/parser/2026-07-09-parser-property-fuzz-design.md:123:28 claim of 2 tiers over an adjacent list of 3 items
+    claim "two tiers"; list starts at doc line 124 with 3 sibling items
+docs/superpowers/specs/parser/2026-07-09-parser-property-fuzz-design.md:156:15 claim of 2 additions over an adjacent list of 3 items
+    claim "2 additions"; list starts at doc line 158 with 3 sibling items
+docs/superpowers/specs/schedule/2026-06-22-per-day-schedule-keytimes-design.md:12:362 claim of 10 fixtures over an adjacent list of 3 items
+    claim "10 fixtures"; list starts at doc line 14 with 3 sibling items
+docs/superpowers/specs/schedule/2026-07-05-schedule-show-day-labels.md:108:92 claim of 10 chars over an adjacent list of 2 items
+    claim "10 chars"; list starts at doc line 109 with 2 sibling items
+docs/superpowers/specs/step3-onboarding/2026-07-02-step3-review-modal-redesign.md:12:25 claim of 3 details over an adjacent list of 5 items
+    claim "3 details"; list starts at doc line 14 with 5 sibling items
+docs/superpowers/specs/step3-onboarding/2026-07-03-step3-modal-followups.md:280:26 claim of 2 specs over an adjacent list of 5 items
+    claim "two specs"; list starts at doc line 281 with 5 sibling items
+docs/superpowers/specs/step3-onboarding/2026-07-05-step3-review-consolidation.md:236:570 claim of 3 surfaces over an adjacent list of 4 items
+    claim "three surfaces"; list starts at doc line 237 with 4 sibling items
+docs/superpowers/specs/step3-onboarding/2026-07-05-step3-review-consolidation.md:284:18 claim of 3 modes over an adjacent list of 4 items
+    claim "3 modes"; list starts at doc line 286 with 4 sibling items
+docs/superpowers/specs/step3-onboarding/2026-07-17-autoapplied-kinddot-nonocolor-tell.md:99:30 claim of 3 entries over an adjacent list of 4 items
+    claim "three entries"; list starts at doc line 101 with 4 sibling items
+docs/superpowers/specs/step3-onboarding/2026-07-17-autoapplied-strip-polish.md:324:51 claim of 3 kinds over an adjacent list of 2 items
+    claim "3 kinds"; list starts at doc line 325 with 2 sibling items
+docs/superpowers/specs/step3-onboarding/2026-07-17-s3c-review-a11y.md:24:25 claim of 2 sites over an adjacent list of 3 items
+    claim "two sites"; list starts at doc line 26 with 3 sibling items
+docs/superpowers/specs/step3-onboarding/2026-07-17-wizard-blocker-modal-design.md:153:354 claim of 2 surfaces over an adjacent list of 7 items
+    claim "two surfaces"; list starts at doc line 155 with 7 sibling items
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:783:102 claim of 10 days over an adjacent list of 3 items
+    claim "10 days"; list starts at doc line 785 with 3 sibling items
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1508:83 claim of 2 sub-cases over an adjacent list of 3 items
+    claim "two sub-cases"; list starts at doc line 1509 with 3 sibling items
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1540:163 claim of 3 scenarios over an adjacent list of 4 items
+    claim "Three scenarios"; list starts at doc line 1541 with 4 sibling items
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1546:91 claim of 3 sub-scenarios over an adjacent list of 4 items
+    claim "three sub-scenarios"; list starts at doc line 1547 with 4 sibling items
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-31-m12.2-phase-b1-admin-nav-settings-design.md:237:823 claim of 3 helpers over an adjacent list of 4 items
+    claim "three helpers"; list starts at doc line 238 with 4 sibling items
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md:109:77 claim of 2 points over an adjacent list of 3 items
+    claim "Two points"; list starts at doc line 110 with 3 sibling items
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md:202:96 claim of 2 directions over an adjacent list of 4 items
+    claim "Two directions"; list starts at doc line 203 with 4 sibling items
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-19-crew-mock-fidelity.md:76:222 claim of 3 misses over an adjacent list of 4 items
+    claim "Three misses"; list starts at doc line 77 with 4 sibling items
+
+== TEMPLATE_QUANTITY_DRIFT: 84 advisories ==
+DEFERRED.md:16:1 near-identical line repeated at doc line 110 carries [1, 1, 12] here and [1, 2, 12] there
+    similarity 0.92; doc line 16: "independently (critique P1, audit P1). Findings and dispositions are in §12 of"; doc line 110: "independently (critique P1, audit P2). Findings and dispositions are in §12 of"
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:2005:1 near-identical line repeated at doc line 2020 carries [6, 8, 6, 8] here and [6, 8] there
+    similarity 0.88; doc line 2005: "`<!-- spec-id: section-6-8-derivation-table -->` — §6.8 invariants derivation table"; doc line 2020: "<!-- spec-id: section-6-8-derivation-table -->"
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md:785:1 near-identical line repeated at doc line 953 carries [1, 54] here and [1, 29, 63] there
+    similarity 0.87; doc line 785: "**Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (commit 54). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`."; doc line 953: "**Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R29 commit 63). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`."
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md:785:1 near-identical line repeated at doc line 1122 carries [1, 54] here and [1, 33, 70] there
+    similarity 0.87; doc line 785: "**Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (commit 54). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`."; doc line 1122: "**Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (R33 commit 70). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`."
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M12-solo-dev-ux-validation.md:785:1 near-identical line repeated at doc line 1262 carries [1, 54] here and [1] there
+    similarity 0.86; doc line 785: "**Scope discipline:** spec + plan + handoff markdown + 1 commit to `tests/cross-cutting/` (commit 54). Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`."; doc line 1262: "**Scope discipline:** spec markdown + 1 commit to `tests/cross-cutting/`. Zero changes to `app/`, `components/`, `lib/`, `scripts/`, `supabase/migrations/`."
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M6-drive-sync.md:455:1 near-identical line repeated at doc line 529 carries [501, 404, 400, 500, 409] here and [404, 400, 500, 409] there
+    similarity 0.89; doc line 455: "`POST /api/admin/staged/[fileId]/apply`: `501 WIZARD_SCOPE_NOT_YET_IMPLEMENTED`; `404 PENDING_SYNC_NOT_FOUND`; `400 MISSING_REVIEWER_CHOICE` / `INVALID_REVIEWER_ACTION`; `500 SYNC_INFRA_ERROR`; `409 STAGED_PARSE_SUPERSEDED` / `STAGED_PARSE_SOURCE_GONE` / `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` / `STAGED_PARSE_OUTDATED` / `SHOW_BUSY_RETRY`."; doc line 529: "`POST /api/admin/staged/[fileId]/apply`: `404 PENDING_SYNC_NOT_FOUND`; `400 MISSING_REVIEWER_CHOICE` / `INVALID_REVIEWER_ACTION`; `500 SYNC_INFRA_ERROR`; `409 WIZARD_SESSION_SUPERSEDED` / `STAGED_PARSE_SUPERSEDED` / `STAGED_PARSE_SOURCE_GONE` / `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` / `STAGED_PARSE_OUTDATED` / `SHOW_BUSY_RETRY`."
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M6-drive-sync.md:1066:1 near-identical line repeated at doc line 1081 carries [5, 1, 6, 6] here and [5, 6, 7] there
+    similarity 0.88; doc line 1066: "Codex review: dispatched via direct `codex exec --sandbox read-only -c 'mcp_servers={}' < /dev/null`. Duration: 5m 1s. Verdict at `/tmp/m6-r6-verdict.json`."; doc line 1081: "Codex review: dispatched via direct `codex exec --sandbox read-only -c 'mcp_servers={}' < /dev/null`. Duration: ~5m. Verdict at `/tmp/m6-r7-verdict.json`."
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M6-drive-sync.md:1096:1 near-identical line repeated at doc line 1111 carries [3, 6, 8] here and [3, 6, 9] there
+    similarity 0.91; doc line 1096: "Codex review: dispatched via direct `codex exec --sandbox read-only -c 'mcp_servers={}' < /dev/null`. Duration: ~3m. Verdict at `/tmp/m6-r8-verdict.json`."; doc line 1111: "Codex review: dispatched via direct `codex exec --sandbox read-only -c 'mcp_servers={}' < /dev/null`. Duration: 3m. Verdict at `/tmp/m6-r9-verdict.json`."
+docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:44:1 near-identical line repeated at doc line 1619 carries [2] here and [2, 2, 2] there
+    similarity 0.89; doc line 44: "Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts`"; doc line 1619: "[ ] E2e re-run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.interactions.spec.ts`"
+docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:1580:1 near-identical line repeated at doc line 1619 carries [2] here and [2, 2, 2] there
+    similarity 0.89; doc line 1580: "Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts`"; doc line 1619: "[ ] E2e re-run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.interactions.spec.ts`"
+docs/superpowers/plans/2026-07-22-hoverhelp-caret-blur-close.md:704:1 near-identical line repeated at doc line 1054 carries [2, 2] here and [2, 2, 4] there
+    similarity 0.88; doc line 704: "Run: `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts --grep "T-E"`"; doc line 1054: "Run: `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts --grep "T-E4"`"
+docs/superpowers/plans/2026-07-22-monitoring-badge-expand.md:306:1 near-identical line repeated at doc line 316 carries [4, 2, 4, 2] here and [4, 1, 4, 1] there
+    similarity 0.86; doc line 306: "[ ] **Step 4: Green** — covered by Task 2 Step 4. No separate commit — folds into Task 2's."; doc line 316: "[ ] **Step 4: Green**: covered by Task 1 Step 4. No separate commit — folds into Task 1's."
+docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:38:1 near-identical line repeated at doc line 1288 carries [2, 8] here and [2] there
+    similarity 0.89; doc line 38: "Create: `tests/e2e/warning-panel-polish.spec.ts` (T8)"; doc line 1288: "Create: `tests/e2e/warning-panel-polish.spec.ts`"
+docs/superpowers/plans/2026-07-24-picker-flow-app-bugs.md:136:1 near-identical line repeated at doc line 264 carries [2, 84] here and [2, 241] there
+    similarity 0.91; doc line 136: "Modify: `tests/e2e/picker-flow.spec.ts` (un-skip the paired stub at line 84, this task's outer red phase)"; doc line 264: "Modify: `tests/e2e/picker-flow.spec.ts` (un-skip the paired stub at line 241, this task's outer red phase)"
+docs/superpowers/plans/2026-07-26-driveid-guard-cluster/00-overview.md:179:1 near-identical line repeated at doc line 191 carries [10] here and [22] there
+    similarity 0.88; doc line 179: "| 10 | public.sync_audit.drive_file_id | no | sync_audit_drive_file_id_nonblank | applied_by, derived_side_effects, parse_result_summary, reviewer_choices, staged_id, staged_modified_time, triggered_review_items | 'tester', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, gen_random_uuid(), now(), '[]'::jsonb | — |"; doc line 191: "| 22 | dev.sync_audit.drive_file_id | no | sync_audit_drive_file_id_nonblank | applied_by, derived_side_effects, parse_result_summary, reviewer_choices, staged_id, staged_modified_time, triggered_review_items | 'tester', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, gen_random_uuid(), now(), '[]'::jsonb | — |"
+docs/superpowers/plans/2026-08-06-arc-b-review-infra/closeout.md:150:1 near-identical line repeated at doc line 188 carries [2, 6, 1] here and [3, 6, 2] there
+    similarity 0.86; doc line 150: "**R2 — BLOCKING, 6 findings, all six confirmed and repaired.** Scoped to R1's"; doc line 188: "**R3 — BLOCKING, 6 findings, all six confirmed and repaired.** Scoped to R2's"
+docs/superpowers/plans/2026-08-07-step3-a11y-cluster.md:329:1 near-identical line repeated at doc line 368 carries [2, 2, 2, 3] here and [2, 1, 2, 2] there
+    similarity 0.89; doc line 329: "<!-- task: red=`pnpm exec playwright test --config tests/e2e/standalone.config.ts tap-target-floor` ac=AC-2,AC-2b,AC-3 -->"; doc line 368: "<!-- task: red=`pnpm exec playwright test --config tests/e2e/standalone.config.ts tap-target-floor` ac=AC-1,AC-2,AC-2b -->"
+docs/superpowers/plans/2026-08-08-parser-mutation-wave/01-unicode.md:18:1 near-identical line repeated at doc line 114 carries [1, 2] here and [1, 2, 3, 4] there
+    similarity 0.88; doc line 18: "<!-- task: red=`pnpm exec vitest run tests/parser/payloadZeroWidth.test.ts` ac=AC-U1,AC-U2 -->"; doc line 114: "<!-- task: red=`pnpm exec vitest run tests/parser/payloadZeroWidth.test.ts` ac=AC-U1,AC-U2,AC-U3,AC-U4 -->"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:16:1 near-identical line repeated at doc line 274 carries [4, 2, 90, 2, 2, 60] here and [4, 90, 2, 2, 60] there
+    similarity 0.95; doc line 16: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`"; doc line 274: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:16:1 near-identical line repeated at doc line 334 carries [4, 2, 90, 2, 2, 60] here and [4, 2, 90, 2, 60] there
+    similarity 0.97; doc line 16: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`"; doc line 334: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:16:1 near-identical line repeated at doc line 501 carries [4, 2, 90, 2, 2, 60] here and [3, 90, 60, 2, 2] there
+    similarity 0.90; doc line 16: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`"; doc line 501: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:16:1 near-identical line repeated at doc line 507 carries [4, 2, 90, 2, 2, 60] here and [4, 90, 60, 2] there
+    similarity 0.88; doc line 16: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`"; doc line 507: "`inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:274:1 near-identical line repeated at doc line 334 carries [4, 90, 2, 2, 60] here and [4, 2, 90, 2, 60] there
+    similarity 0.92; doc line 274: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`"; doc line 334: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:274:1 near-identical line repeated at doc line 336 carries [4, 90, 2, 2, 60] here and [4, 2, 90, 2, 2, 60] there
+    similarity 0.92; doc line 274: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`"; doc line 336: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:274:1 near-identical line repeated at doc line 501 carries [4, 90, 2, 2, 60] here and [3, 90, 60, 2, 2] there
+    similarity 0.95; doc line 274: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`"; doc line 501: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:274:1 near-identical line repeated at doc line 507 carries [4, 90, 2, 2, 60] here and [4, 90, 60, 2] there
+    similarity 0.92; doc line 274: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`"; doc line 507: "`inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:334:1 near-identical line repeated at doc line 336 carries [4, 2, 90, 2, 60] here and [4, 2, 90, 2, 2, 60] there
+    similarity 0.95; doc line 334: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60`"; doc line 336: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:334:1 near-identical line repeated at doc line 501 carries [4, 2, 90, 2, 60] here and [3, 90, 60, 2, 2] there
+    similarity 0.87; doc line 334: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60`"; doc line 501: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:334:1 near-identical line repeated at doc line 507 carries [4, 2, 90, 2, 60] here and [4, 90, 60, 2] there
+    similarity 0.90; doc line 334: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60`"; doc line 507: "`inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:336:1 near-identical line repeated at doc line 501 carries [4, 2, 90, 2, 2, 60] here and [3, 90, 60, 2, 2] there
+    similarity 0.88; doc line 336: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60`"; doc line 501: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:336:1 near-identical line repeated at doc line 507 carries [4, 2, 90, 2, 2, 60] here and [4, 90, 60, 2] there
+    similarity 0.85; doc line 336: "`inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60`"; doc line 507: "`inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`"
+docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:501:1 near-identical line repeated at doc line 507 carries [3, 90, 60, 2, 2] here and [4, 90, 60, 2] there
+    similarity 0.87; doc line 501: "`inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-3 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2`"; doc line 507: "`inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`"
+docs/superpowers/plans/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md:712:1 near-identical line repeated at doc line 1107 carries [1, 3] here and [3, 1] there
+    similarity 0.86; doc line 712: "Consumes: `TileRenderLedger`, `createTileRenderLedger` (Task 1); `sweepTileRenderAlerts` (Task 3)."; doc line 1107: "Consumes: `sweepTileRenderAlerts` (Task 3), `createTileRenderLedger` (Task 1)."
+docs/superpowers/plans/coverage.md:17:1 near-identical line repeated at doc line 18 carries [13, 2, 1, 13, 2, 1] here and [13, 2, 2, 13, 2, 2] there
+    similarity 0.88; doc line 17: "| §13.2.1 | 13.2.1 Admin issue body template | — | implemented | spec heading anchor | Heading anchors are walked for matrix completeness; structured coverage markers own normative-unit mapping. |"; doc line 18: "| §13.2.2 | 13.2.2 Crew issue body template | — | implemented | spec heading anchor | Heading anchors are walked for matrix completeness; structured coverage markers own normative-unit mapping. |"
+docs/superpowers/plans/coverage.md:45:1 near-identical line repeated at doc line 52 carries [5, 3, 5, 3] here and [5, 5, 5, 5, 5, 5] there
+    similarity 0.91; doc line 45: "| §5.3 | 5.3 Failure modes | — | implemented | spec heading anchor | Heading anchors are walked for matrix completeness; structured coverage markers own normative-unit mapping. |"; doc line 52: "| §5.5.5 | 5.5.5 Push failure modes | — | implemented | spec heading anchor | Heading anchors are walked for matrix completeness; structured coverage markers own normative-unit mapping. |"
+docs/superpowers/plans/crew/2026-07-17-venue-card-vcr2-vcr3-fixes.md:29:1 near-identical line repeated at doc line 196 carries [2, 3] here and [2, 3, 2, 3] there
+    similarity 0.94; doc line 29: "**Modify (tests)** `tests/components/admin/wizard/venueMapTile.test.tsx`, `tests/components/admin/wizard/venueBreakdown.test.tsx`, `tests/e2e/step3-review-modal.layout.spec.ts`, `tests/components/admin/wizard/venueTransitionAudit.test.ts`."; doc line 196: "Modify (tests): `tests/components/admin/wizard/venueMapTile.test.tsx`, `tests/components/admin/wizard/venueBreakdown.test.tsx`, `tests/components/admin/wizard/venueTransitionAudit.test.ts`, `tests/e2e/_step3ReviewModalHarness.tsx`, `tests/e2e/step3-review-modal.layout.spec.ts`"
+docs/superpowers/plans/data-quality/2026-07-16-cron-wizard-owned-skip.md:500:1 near-identical line repeated at doc line 656 carries [2, 1, 25] here and [2, 1, 10] there
+    similarity 0.87; doc line 500: "Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts tests/sync/_metaInfraContract.test.ts tests/sync/_partitionScopeContract.test.ts 2>&1 | tail -25`"; doc line 656: "Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts tests/sync/_metaInfraContract.test.ts tests/sync/_partitionScopeContract.test.ts 2>&1 | tail -10`"
+docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md:229:1 near-identical line repeated at doc line 479 carries [3, 3] here and [3] there
+    similarity 0.92; doc line 229: "Run: `pnpm exec vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx tests/components/step3SheetCard.test.tsx`"; doc line 479: "Run: `pnpm exec vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx`"
+docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md:479:1 near-identical line repeated at doc line 611 carries [3] here and [3, 3] there
+    similarity 0.92; doc line 479: "Run: `pnpm exec vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx`"; doc line 611: "Run: `pnpm exec vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx tests/components/admin/wizard/Step3ReviewModal.test.tsx`"
+docs/superpowers/plans/data-quality/2026-07-17-use-raw-control-site-a11y-copy/plan.md:427:1 near-identical line repeated at doc line 587 carries [11] here and [11, 3, 3] there
+    similarity 0.90; doc line 427: "Run: `cd /Users/ericweiss/fxav-worktrees/use-raw-site-a11y && pnpm vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx`"; doc line 587: "Run: `cd /Users/ericweiss/fxav-worktrees/use-raw-site-a11y && pnpm vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx tests/components/step3SheetCard.test.tsx`"
+docs/superpowers/plans/data-quality/2026-07-17-use-raw-control-site-a11y-copy/plan.md:480:1 near-identical line repeated at doc line 587 carries [11] here and [11, 3, 3] there
+    similarity 0.90; doc line 480: "Run: `cd /Users/ericweiss/fxav-worktrees/use-raw-site-a11y && pnpm vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx`"; doc line 587: "Run: `cd /Users/ericweiss/fxav-worktrees/use-raw-site-a11y && pnpm vitest run tests/components/admin/wizard/warningsBreakdownControls.test.tsx tests/components/admin/wizard/step3ReviewSections.test.tsx tests/components/step3SheetCard.test.tsx`"
+docs/superpowers/plans/parser/2026-06-27-deeplink-parser-fidelity-batch.md:31:1 near-identical line repeated at doc line 213 carries [2, 3] here and [2] there
+    similarity 0.88; doc line 31: "Modify: `lib/sync/phase2.ts` — post-apply pure re-attach for `AGENDA_DAY_EMPTIED` (Task 3)."; doc line 213: "Modify: `lib/sync/phase2.ts` (post-apply pure re-attach for `AGENDA_DAY_EMPTIED`)"
+docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md:567:1 near-identical line repeated at doc line 584 carries [2] here and [2, 2] there
+    similarity 0.93; doc line 567: "Run: `pnpm vitest run tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts`"; doc line 584: "Run: `pnpm vitest run tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts`"
+docs/superpowers/plans/step3-onboarding/2026-07-09-step1-share-folder-redesign.md:141:1 near-identical line repeated at doc line 393 carries [1, 1] here and [1, 1, 1] there
+    similarity 0.93; doc line 141: "Run: `pnpm exec vitest run tests/components/admin/wizard/Step1Share.transitions.test.tsx tests/components/admin/wizard/Step1Share.noFolder.test.tsx`"; doc line 393: "Run: `pnpm exec vitest run tests/components/admin/wizard/Step1Share.test.tsx tests/components/admin/wizard/Step1Share.noFolder.test.tsx tests/components/admin/wizard/Step1Share.transitions.test.tsx tests/components/admin/OnboardingWizard.test.tsx`"
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:37:1 near-identical line repeated at doc line 658 carries [0, 8, 7, 1, 8, 2] here and [0, 8, 7, 2, 7, 1] there
+    similarity 0.89; doc line 37: "[ ] **Step 0: Verify-red-via-restore (r8 — cross-phase sweep per B-r7 finding 1 + B-r8 finding 2)**"; doc line 658: "[ ] **Step 0: Verify-red-via-restore (r8 per round-7 finding 2; cross-phase verify-red sweep per B-r7 finding 1)**"
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:444:1 near-identical line repeated at doc line 658 carries [0, 8, 7, 1, 8, 2] here and [0, 8, 7, 2, 7, 1] there
+    similarity 0.89; doc line 444: "[ ] **Step 0: Verify-red-via-restore (r8 — cross-phase sweep per B-r7 finding 1 + B-r8 finding 2)**"; doc line 658: "[ ] **Step 0: Verify-red-via-restore (r8 per round-7 finding 2; cross-phase verify-red sweep per B-r7 finding 1)**"
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:555:1 near-identical line repeated at doc line 658 carries [0, 8, 7, 1, 8, 2] here and [0, 8, 7, 2, 7, 1] there
+    similarity 0.89; doc line 555: "[ ] **Step 0: Verify-red-via-restore (r8 — cross-phase sweep per B-r7 finding 1 + B-r8 finding 2)**"; doc line 658: "[ ] **Step 0: Verify-red-via-restore (r8 per round-7 finding 2; cross-phase verify-red sweep per B-r7 finding 1)**"
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/DEFERRED.md:66:1 near-identical line repeated at doc line 77 carries [2, 11, 1] here and [2, 11, 2] there
+    similarity 0.90; doc line 66: "**Skip annotation:** `tests/e2e/deep-link-walker.spec.ts` `DEFERRED_TESTIDS` set, with inline `// SKIP: M11-G-D-1` comment."; doc line 77: "**Skip annotation:** `tests/e2e/deep-link-walker.spec.ts` `DEFERRED_TESTIDS` set, with inline `// SKIP: M11-G-D-2` comment."
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/DEFERRED.md:66:1 near-identical line repeated at doc line 88 carries [2, 11, 1] here and [2, 11, 3] there
+    similarity 0.90; doc line 66: "**Skip annotation:** `tests/e2e/deep-link-walker.spec.ts` `DEFERRED_TESTIDS` set, with inline `// SKIP: M11-G-D-1` comment."; doc line 88: "**Skip annotation:** `tests/e2e/deep-link-walker.spec.ts` `DEFERRED_TESTIDS` set, with inline `// SKIP: M11-G-D-3` comment."
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/DEFERRED.md:77:1 near-identical line repeated at doc line 88 carries [2, 11, 2] here and [2, 11, 3] there
+    similarity 0.90; doc line 77: "**Skip annotation:** `tests/e2e/deep-link-walker.spec.ts` `DEFERRED_TESTIDS` set, with inline `// SKIP: M11-G-D-2` comment."; doc line 88: "**Skip annotation:** `tests/e2e/deep-link-walker.spec.ts` `DEFERRED_TESTIDS` set, with inline `// SKIP: M11-G-D-3` comment."
+docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:641:1 near-identical line repeated at doc line 1039 carries [29, 57, 12, 9, 1, 1, 6, 8, 12, 1, 7, 8] here and [29, 57, 12, 9, 1, 1, 6, 7, 8] there
+    similarity 0.86; doc line 641: "Assertion N (R29 F57): M12 spec §9.1.1 "Canonical CI gate inventory" table contains a row with backtick literal `x6-pg-cron-pivot` (8th gate added by M12.1) AND any nearby phrasing claiming "7 canonical CI gates" reads "8 canonical CI gates" instead"; doc line 1039: "Assertion N (R29 F57): M12 spec §9.1.1 "Canonical CI gate inventory" table contains a row with backtick literal `x6-pg-cron-pivot` AND any "7 canonical CI gates" phrasing reads "8 canonical CI gates" instead."
+docs/superpowers/specs/2026-07-18-modal-header-reconciliation.md:195:1 near-identical line repeated at doc line 1098 carries [334, 3, 2, 14] here and [3, 2, 14, 334] there
+    similarity 1.00; doc line 195: "| `app/globals.css` | 334 | `--color-warning-bg-runtime: #3a2e14;` |"; doc line 1098: "`--warning-bg:#3a2e14` = `--color-warning-bg-runtime` (`app/globals.css:334`),"
+docs/superpowers/specs/2026-07-18-modal-header-reconciliation.md:231:1 near-identical line repeated at doc line 1098 carries [334, 3, 2, 14] here and [3, 2, 14, 334] there
+    similarity 1.00; doc line 231: "| `app/globals.css` | 334 | `--color-warning-bg-runtime: #3a2e14;` |"; doc line 1098: "`--warning-bg:#3a2e14` = `--color-warning-bg-runtime` (`app/globals.css:334`),"
+docs/superpowers/specs/2026-07-20-attention-alert-routing.md:224:1 near-identical line repeated at doc line 225 carries [1] here and [2] there
+    similarity 0.86; doc line 224: "| 1 | `PARSE_ERROR_LAST_GOOD` | non-empty | present | **Crew are still seeing the last good version.** Your latest changes didn't go through. `<Title>.` Anything listed below is from the version crew can see, not from the change that failed. |"; doc line 225: "| 2 | `PARSE_ERROR_LAST_GOOD` | non-empty | absent | **Crew are still seeing the last good version.** Your latest changes didn't go through. Anything listed below is from the version crew can see, not from the change that failed. |"
+docs/superpowers/specs/2026-07-25-newtab-announcement-family.md:117:1 near-identical line repeated at doc line 125 carries [138, 125] here and [138] there
+    similarity 0.85; doc line 117: "| `components/admin/wizard/VenueMapTile.tsx:138` | `Directions` at `components/admin/wizard/VenueMapTile.tsx:125` | `Open the venue in Google Maps (opens in a new tab)` | No |"; doc line 125: "`components/admin/wizard/VenueMapTile.tsx:138` → `Directions, open the venue in Google Maps (opens in a new tab)`"
+docs/superpowers/specs/2026-07-25-section-header-rebuild-and-phantom-spacers.md:158:1 near-identical line repeated at doc line 631 carries [3, 3, 124] here and [124] there
+    similarity 0.89; doc line 158: "### 3.3 TravelRow eyebrow (`components/crew/sections/TravelSection.tsx:124`)"; doc line 631: "| TravelRow eyebrow | `components/crew/sections/TravelSection.tsx:124` |"
+docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md:121:1 near-identical line repeated at doc line 126 carries [4, 8, 3, 0, 4, 4, 4, 0, 6, 2] here and [2, 7, 3, 0, 6, 6, 2, 0, 4, 4] there
+    similarity 0.88; doc line 121: "**`V4_MARKERS` (8, 3 blocks)** — each an exact col-0 label in 4/4 v4, 0/6 v2:"; doc line 126: "**`V2_MARKERS` (7, 3 blocks)** — each an exact col-0 label in 6/6 v2, 0/4 v4:"
+docs/superpowers/specs/parser/2026-07-05-parser-anchor-deliteralization.md:329:1 near-identical line repeated at doc line 330 carries [8, 1] here and [1, 1, 8, 1] there
+    similarity 0.87; doc line 329: "| `RIGGER ONLY` (no-stage) | [] | true | false | none; role clause → `UNKNOWN_ROLE_TOKEN(RIGGER)` (R8 f1) |"; doc line 330: "| `A1 / RIGGER ONLY` (no-stage) | [] | true | false | none; role clause → `A1` kept + `UNKNOWN_ROLE_TOKEN(RIGGER)` (R8 f1) |"
+docs/superpowers/specs/schedule/2026-06-27-agenda-pdf-schedule-merge.md:220:1 near-identical line repeated at doc line 412 carries [1, 2] here and [2, 3] there
+    similarity 0.86; doc line 220: "public.agenda_extract_leases WHERE wizard_session_id = $1 AND drive_file_id = $2 AND"; doc line 412: "public.agenda_extract_leases WHERE wizard_session_id = $2 and drive_file_id = $3 AND"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1071:1 near-identical line repeated at doc line 1085 carries [2, 1, 1, 2] here and [1, 1, 2, 2] there
+    similarity 1.00; doc line 1071: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."; doc line 1085: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1071:1 near-identical line repeated at doc line 1143 carries [2, 1, 1, 2] here and [1, 1, 2, 2] there
+    similarity 1.00; doc line 1071: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."; doc line 1143: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1085:1 near-identical line repeated at doc line 1129 carries [1, 1, 2, 2] here and [2, 1, 1, 2] there
+    similarity 1.00; doc line 1085: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."; doc line 1129: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1085:1 near-identical line repeated at doc line 1174 carries [1, 1, 2, 2] here and [2, 1, 1, 2] there
+    similarity 1.00; doc line 1085: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."; doc line 1174: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1085:1 near-identical line repeated at doc line 1263 carries [1, 1, 2, 2] here and [2, 1, 1, 2] there
+    similarity 1.00; doc line 1085: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."; doc line 1263: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1085:1 near-identical line repeated at doc line 1338 carries [1, 1, 2, 2] here and [2, 1, 1, 2] there
+    similarity 1.00; doc line 1085: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."; doc line 1338: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1129:1 near-identical line repeated at doc line 1143 carries [2, 1, 1, 2] here and [1, 1, 2, 2] there
+    similarity 1.00; doc line 1129: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."; doc line 1143: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1143:1 near-identical line repeated at doc line 1174 carries [1, 1, 2, 2] here and [2, 1, 1, 2] there
+    similarity 1.00; doc line 1143: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."; doc line 1174: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1143:1 near-identical line repeated at doc line 1263 carries [1, 1, 2, 2] here and [2, 1, 1, 2] there
+    similarity 1.00; doc line 1143: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."; doc line 1263: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:1143:1 near-identical line repeated at doc line 1338 carries [1, 1, 2, 2] here and [2, 1, 1, 2] there
+    similarity 1.00; doc line 1143: "Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed."; doc line 1338: "Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed."
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:643:1 near-identical line repeated at doc line 650 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2] there
+    similarity 1.00; doc line 643: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2._"; doc line 650: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:643:1 near-identical line repeated at doc line 675 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1] there
+    similarity 1.00; doc line 643: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2._"; doc line 675: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:643:1 near-identical line repeated at doc line 695 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3] there
+    similarity 1.00; doc line 643: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2._"; doc line 695: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:643:1 near-identical line repeated at doc line 707 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1] there
+    similarity 1.00; doc line 643: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2._"; doc line 707: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:643:1 near-identical line repeated at doc line 713 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1, 1] there
+    similarity 1.00; doc line 643: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2._"; doc line 713: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:650:1 near-identical line repeated at doc line 675 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1] there
+    similarity 1.00; doc line 650: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2._"; doc line 675: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:650:1 near-identical line repeated at doc line 695 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3] there
+    similarity 1.00; doc line 650: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2._"; doc line 695: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:650:1 near-identical line repeated at doc line 707 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1] there
+    similarity 1.00; doc line 650: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2._"; doc line 707: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:650:1 near-identical line repeated at doc line 713 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1, 1] there
+    similarity 1.00; doc line 650: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2._"; doc line 713: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:675:1 near-identical line repeated at doc line 695 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3] there
+    similarity 1.00; doc line 675: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1._"; doc line 695: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:675:1 near-identical line repeated at doc line 707 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1] there
+    similarity 1.00; doc line 675: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1._"; doc line 707: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:675:1 near-identical line repeated at doc line 713 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1, 1] there
+    similarity 1.00; doc line 675: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1._"; doc line 713: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:695:1 near-identical line repeated at doc line 707 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1] there
+    similarity 1.00; doc line 695: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3._"; doc line 707: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:695:1 near-identical line repeated at doc line 713 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1, 1] there
+    similarity 1.00; doc line 695: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3._"; doc line 713: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1/1._"
+docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-01-m12.2-phase-b2-show-lifecycle-design.md:707:1 near-identical line repeated at doc line 713 carries [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1] here and [4, 3, 3, 2, 1, 1, 1, 3, 2, 2, 1, 3, 2, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1, 1] there
+    similarity 1.00; doc line 707: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1._"; doc line 713: "_Trajectory: 4/3/3/2/1/1/1/3/2/2/1/3/2/1/1/1/1/1/2/2/2/1/1/1/1/1/3/1/1/1._"
+
+TOTAL advisories across the three arms: 261
+HARD findings from the three arms: 0 (asserted)

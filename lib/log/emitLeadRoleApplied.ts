@@ -1,5 +1,4 @@
 import { log } from "@/lib/log";
-import { serializeError } from "@/lib/log/serializeError";
 import { persistAppEventStrict } from "@/lib/log/persist";
 import type { RoleFlagsNotice } from "@/lib/sync/phase2";
 
@@ -74,7 +73,7 @@ export async function emitLeadRoleApplied(
         showId: notice.showId,
         crew_name: change.crew_name,
         capability_changes,
-        error: serializeError(result.error),
+        error: result.error,
       });
     }
   }

@@ -1,5 +1,5 @@
 import { decodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
-import { log, serializeError } from "@/lib/log";
+import { log } from "@/lib/log";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -53,7 +53,7 @@ function infraError(
     source: "auth.picker.resolvePickerSelection",
     code: "PICKER_RESOLVER_LOOKUP_FAILED",
     site,
-    ...(detail === undefined ? {} : { error: serializeError(detail) }),
+    ...(detail === undefined ? {} : { error: detail }),
   });
   return INFRA_ERROR;
 }
