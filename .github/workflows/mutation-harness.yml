@@ -1,17 +1,31 @@
 name: mutation-harness
-# Exhaustive parser mutation-testing harness (audit rec 5). The corpus is 101,795
-# mutants, split into 8 LPT-balanced shard files + 1 generation-only gates file
-# (sharding spec §3) run by the env-gated `mutation` vitest project with
-# fileParallelism:true — vitest's forks pool gives availableParallelism-1 = 3
-# workers on this 4-vCPU runner, with live `[mutation shard i/8] n/total` progress
-# lines in this log. The original estimate here was ~60-75 min (was 167 min
-# serial); MEASURED on 2026-08-15 it is 138 min on `main`, because the gates file
-# has been growing with every source-mutation surface enrolled. See the
-# timeout-minutes comment below for the numbers and the filed follow-up.
-# Still far past any merge-gating leg budget, so it runs OFF the merge path on a
-# dedicated nightly job and is EXCLUDED from the default discovered suite; this
-# job opts back IN via VITEST_INCLUDE_MUTATION_HARNESS=1. NOT a required check:
-# a ledger divergence fails this nightly run and is triaged, not gating every PR.
+# Exhaustive mutation-testing harness (audit rec 5), run as a MATRIX OF JOBS.
+#
+# Two independent harnesses live here. The parser harness mutates fixture text:
+# 101,795 mutants across 8 LPT-balanced shard files + 1 generation-only gates
+# file. The source-mutation guard gate mutates PROGRAM TEXT: every enrolled
+# surface in tests/mutation/source/registry.ts, one vitest child per mutant,
+# partitioned across 4 LPT-balanced shard files + 1 corpus-wide gates file.
+#
+# WHY JOBS AND NOT FILES (wall-clock spec
+# docs/superpowers/specs/ci/2026-08-16-mutation-gate-wallclock-design.md §1.1).
+# As ONE job this took 137.3 min on 2026-08-15 and 166.0 min on 2026-08-16, and
+# `timeout-minutes` had been raised twice to 300 — which the previous version of
+# this comment called "headroom, not a target". The job was already packed at
+# 97.6% against its three vitest workers, so splitting the gate into more FILES
+# inside one job redistributes work among the same three workers and cannot go
+# below ~162 min. The binding constraint is total work against a fixed 4-vCPU
+# runner, so the repair has to add CPUs, which on GitHub Actions means jobs.
+# Every leg now carries its own `timeout-minutes: 90` against a 3,600 s budget
+# the `budget` job enforces, so wall-clock growth is a NAMED failure instead of
+# something discovered by crossing a timeout.
+#
+# Still far past any merge-gating leg budget, so this runs OFF the merge path and
+# is EXCLUDED from the default discovered suite; each harness job opts back IN via
+# VITEST_INCLUDE_MUTATION_HARNESS=1. NOT a required check: a ledger divergence
+# fails this nightly run and is triaged, not gating every PR. That is exactly why
+# `notify` names EVERY leg's result in its issue body — a non-required job going
+# red is otherwise silent to everyone except whoever happens to read the nightly.
 # workflow_dispatch lets close-out verify green on the PR branch before merge.
 on:
   schedule:
@@ -20,97 +34,272 @@ on:
   # pull_request path-filtered (Codex whole-diff R2 [medium]): workflow_dispatch on a NEW workflow
   # only works once the file is on the default branch, so it CANNOT validate this PR pre-merge. A
   # path-filtered pull_request trigger runs the workflow AS IT EXISTS ON THE PR HEAD, giving real-
-  # Actions validation of the workflow + the ~70-min sharded harness on the branch BEFORE merge —
-  # while staying OUT of branch-protection required checks (not merge-gating; a red run is triaged,
-  # not a merge blocker). Scoped to harness-touching PRs only (the glob covers all 8 shard files +
-  # the gates file — Codex sharding-spec R1 #2), so unrelated PRs never pay the cost.
+  # Actions validation of the workflow + the harness on the branch BEFORE merge — while staying OUT
+  # of branch-protection required checks (not merge-gating; a red run is triaged, not a merge
+  # blocker). Scoped to harness-touching PRs only (the globs cover all 8 parser shard files, the
+  # parser gates file, and the whole source-mutation tree — Codex sharding-spec R1 #2), so
+  # unrelated PRs never pay the cost.
   pull_request:
     paths:
       - ".github/workflows/mutation-harness.yml"
       - "tests/parser/mutation/**"
       - "tests/mutation/**"
       - "tests/parser/mutationHarness.*.test.ts"
+      - "lib/ci/shardBudget.ts"
+      - "scripts/check-shard-budget.ts"
       # vitest wiring owns the mutation project's existence/includes — a wiring-only
       # PR must fire the real workflow too (whole-diff review advisory).
       - "vitest.config.ts"
       - "vitest.projects.ts"
 # PR-only cancel (ci-workflow-speedup convention): re-pushing a PR cancels its superseded
-# ~70-min run, but scheduled nightly runs never cancel each other.
+# run, but scheduled nightly runs never cancel each other. WORKFLOW level, not job level:
+# tests/cross-cutting/ci-workflow-speedup.test.ts requires it there, and a matrix must not
+# displace it.
 concurrency:
   group: mutation-harness-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  mutation-harness:
+  # ---------------------------------------------------------------------------
+  # PARSER fixture-mutation harness: 8 LPT shards + 1 generation-only gates file.
+  # ---------------------------------------------------------------------------
+  parser-shards:
+    # fail-fast:false — a red shard must NOT cancel its siblings. Cancelling them
+    # turns one known failure into eleven unknown ones and destroys the failure
+    # signature the close-out compares against.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7] # == SHARD_COUNT (tests/parser/mutation/shardPartition.ts)
     runs-on: ubuntu-latest
-    # 180 -> 300, measured rather than guessed. The 180 ceiling was set when the
-    # header's ~60-75 min estimate was current; on 2026-08-15 the same job took
-    # 138 min on `main` (run 31871859884, 07:24:20Z..09:42:08Z) with NO source-
-    # mutation surfaces added, and this arc's own PR run hit the ceiling exactly
-    # (run 31876214966, 09:15:24Z..12:15:39Z = 180m15s, step cancelled) on a head
-    # that had not yet enrolled anything — i.e. the headroom was already gone to
-    # runner variance alone. Enrolling the interactive-scan core adds 207 mutants
-    # to the gates file's 519 (+40%), so leaving 180 in place would make the
-    # timeout the normal outcome and the job would stop meaning anything.
-    # 300 is headroom, not a target: the real repair is bounding the gates file's
-    # wall clock as surfaces enrol, filed as BL-MUTATION-HARNESS-WALLCLOCK-CEILING.
-    timeout-minutes: 300
+    timeout-minutes: 90
     # Runs UNTRUSTED code (pnpm install + tests) on PR/feature-branch runs, so it holds NO
     # issues:write — least privilege (Codex #369 R2). All issue mutation is isolated to the
     # separate, gated `notify` job below, which runs no untrusted code.
     permissions:
       contents: read
     steps:
+      # FIRST step of the job, BEFORE checkout and setup. $GITHUB_ENV lives
+      # outside the workspace, so the value survives checkout. Nothing may be
+      # inserted above this step — the integrity meta-test asserts index 0, and
+      # asserts that NO other step writes $GITHUB_ENV. Stamping after setup would
+      # measure the test rather than job wall clock: 1,200 s of setup plus a
+      # 3,000 s test is a 3,000 s record on a 4,200 s job, which passes a 3,600 s
+      # budget. Complete, finite, plausible, and wrong.
+      - name: Stamp job start
+        id: stamp-start
+        run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       # NO supabase/setup-cli, psql, or bootstrap: the harness is pure-parser / DB-free.
-      # EXPLICIT subjects, not the whole project. The `mutation` project's include
+      # EXPLICIT subject, not the whole project. The `mutation` project's include
       # list also holds the browser-mutant gate (mutation-browser spec §3.6), which
       # spawns a real Playwright child per mutant and has its OWN workflow with a
       # chromium install; a bare `--project mutation` run would sweep it in here,
-      # where no browser is installed, and red the nightly PARSER harness for a gate
-      # this job does not own. Pinned by
-      # tests/cross-cutting/mutation-browser-ci-wiring.test.ts.
-      - name: Run sharded mutation harness (nightly, ~60-75 min at 3 workers)
+      # where no browser is installed. Pinned by
+      # tests/cross-cutting/mutation-browser-ci-wiring.test.ts and, per leg, by
+      # tests/mutation/_metaSourceShardIntegrity.test.ts.
+      - name: Run parser mutation shard ${{ matrix.shard }}
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
-        run: pnpm exec vitest run --project mutation tests/parser/mutationHarness tests/mutation/guardSurfaces.gate.test.ts
+        run: pnpm exec vitest run --project mutation tests/parser/mutationHarness.shard${{ matrix.shard }}.test.ts
+      # SECONDS, and the start explicitly captured. Integer minutes lose the
+      # boundary — 60m59s records as 60 and slips past an "above 60" comparison.
+      - name: Record elapsed seconds
+        if: always()
+        run: echo "$(( $(date +%s) - SHARD_START ))" > elapsed.txt
+      # Artifacts, not job outputs: matrix children share one output name and
+      # overwrite each other nondeterministically, so the slow shard is exactly
+      # the value that would vanish.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elapsed-parser-shards-${{ matrix.shard }}
+          path: elapsed.txt
+
+  parser-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Stamp job start
+        id: stamp-start
+        run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run parser corpus-wide gates
+        env:
+          VITEST_INCLUDE_MUTATION_HARNESS: "1"
+        run: pnpm exec vitest run --project mutation tests/parser/mutationHarness.gates.test.ts
+      - name: Record elapsed seconds
+        if: always()
+        run: echo "$(( $(date +%s) - SHARD_START ))" > elapsed.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elapsed-parser-gates
+          path: elapsed.txt
+
+  # ---------------------------------------------------------------------------
+  # SOURCE-mutation guard gate: 4 LPT shards + 1 corpus-wide gates file. The
+  # partition is recomputed from the live registry on every runner, so there is
+  # no committed weight table (tests/mutation/source/shardPartition.ts).
+  # ---------------------------------------------------------------------------
+  source-shards:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Stamp job start
+        id: stamp-start
+        run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run source-mutation shard ${{ matrix.shard }}
+        env:
+          VITEST_INCLUDE_MUTATION_HARNESS: "1"
+        run: pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.shard${{ matrix.shard }}.test.ts
+      - name: Record elapsed seconds
+        if: always()
+        run: echo "$(( $(date +%s) - SHARD_START ))" > elapsed.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elapsed-source-shards-${{ matrix.shard }}
+          path: elapsed.txt
+
+  source-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Stamp job start
+        id: stamp-start
+        run: echo "SHARD_START=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run source-mutation corpus-wide gates
+        env:
+          VITEST_INCLUDE_MUTATION_HARNESS: "1"
+        run: pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts
+      - name: Record elapsed seconds
+        if: always()
+        run: echo "$(( $(date +%s) - SHARD_START ))" > elapsed.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elapsed-source-gates
+          path: elapsed.txt
+
+  # ---------------------------------------------------------------------------
+  # Wall-clock growth becomes a NAMED failure here rather than something
+  # discovered by crossing a timeout. Completeness is checked BEFORE any maximum:
+  # an absent record must not read as "that shard was fast".
+  # ---------------------------------------------------------------------------
+  budget:
+    needs: [parser-shards, parser-gates, source-shards, source-gates]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # `tsx` is a project dependency, not a runner binary, so this job needs the
+      # same setup every other job repeats — without it `pnpm tsx` fails on a
+      # clean runner BEFORE the checker runs, and the integrity meta-test would
+      # not notice, because it pins the command and the environment rather than
+      # the steps that make the command executable. It pins the ORDER too.
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: elapsed-*
+          path: elapsed
+      # The constants are passed in rather than baked into the script, because
+      # the script cannot import TypeScript that lives in the test tree and,
+      # left to invent its own numbers, would become a fourth copy of the shard
+      # count and a second copy of the budget. `env:` rather than argv: a YAML
+      # mapping has unique keys by construction, so there is no `=` form, no
+      # duplicate form and no ordering for a guard to model — the three
+      # spellings that defeated three successive argv guards. The integrity
+      # meta-test reads this mapping with `toBe`.
+      - name: Enforce the per-shard budget
+        id: budget-check
+        env:
+          ELAPSED_DIR: elapsed
+          SHARD_BUDGET_SECONDS: "3600"
+          PARSER_SHARD_COUNT: "8"
+          SOURCE_SHARD_COUNT: "4"
+        run: pnpm tsx scripts/check-shard-budget.ts
 
   # Surface a scheduled red run as ONE deduped tracking issue (otherwise invisible: a non-required
   # check with no notification anyone reads). SEPARATE job so issues:write never reaches the
-  # untrusted harness job. Gated to schedule OR a DEFAULT-BRANCH workflow_dispatch — a feature-branch
-  # dispatch must not open/close the main-tracking issue, and pull_request runs already show red on
-  # the PR's checks. Runs no untrusted code (github-script + API only; no checkout, no install) and
-  # uses only trusted context.* values — no injection surface. always() so it still fires when the
-  # harness job failed; it then branches on needs.mutation-harness.result.
+  # untrusted harness jobs. Gated to schedule OR a DEFAULT-BRANCH workflow_dispatch — a
+  # feature-branch dispatch must not open/close the main-tracking issue, and pull_request runs
+  # already show red on the PR's checks. Runs no untrusted code (github-script + API only; no
+  # checkout, no install). The only interpolated values are `needs.<job>.result`, whose domain is
+  # the fixed set success/failure/cancelled/skipped — no injection surface.
   notify:
-    needs: mutation-harness
+    needs: [parser-shards, parser-gates, source-shards, source-gates, budget]
     if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch)) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       issues: write
     steps:
+      # `contains(needs.*.result, 'failure')` rather than a named job: the single
+      # `mutation-harness` job this workflow used to branch on no longer exists,
+      # and a dangling `needs.<job>` does NOT error — it evaluates to empty, so
+      # the failure branch would never fire and the success branch could
+      # auto-close a standing issue on a red run. The tracking issue would go
+      # silent exactly when it is needed.
       - name: Surface a red nightly as a tracking issue
-        if: ${{ needs.mutation-harness.result == 'failure' }}
+        id: file-issue
+        if: ${{ contains(needs.*.result, 'failure') }}
         uses: actions/github-script@v7
         with:
           script: |
             const label = "mutation-harness-red";
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            // WHICH leg failed, in the issue body. This workflow now runs fifteen
+            // legs; without this a triager opens the run and reads fifteen job
+            // names to find the red one, which is the cost that made a
+            // non-required red job effectively silent.
+            const results = {
+              "parser-shards": "${{ needs.parser-shards.result }}",
+              "parser-gates": "${{ needs.parser-gates.result }}",
+              "source-shards": "${{ needs.source-shards.result }}",
+              "source-gates": "${{ needs.source-gates.result }}",
+              "budget": "${{ needs.budget.result }}",
+            };
+            const rows = Object.entries(results).map(([j, r]) => `   - ${j}: ${r}`);
+            const failed = Object.entries(results).filter(([, r]) => r === "failure").map(([j]) => j);
             const body = [
               `The nightly mutation-harness run failed: ${runUrl}`,
               "",
-              "This job runs TWO independent harnesses. Identify which one failed FIRST — they share no code and their remediation differs entirely.",
+              `FAILED: ${failed.length > 0 ? failed.join(", ") : "(none reported failure; a leg was cancelled or timed out)"}`,
               "",
-              "A) PARSER fixture-mutation harness (tests/parser/mutationHarness.shard*.test.ts).",
+              "Per-job results (a matrix job is 'failure' if ANY of its shards failed; open the run to find which index):",
+              ...rows,
+              "",
+              "This workflow runs TWO independent harnesses. Identify which one failed FIRST — they share no code and their remediation differs entirely.",
+              "",
+              "A) PARSER fixture-mutation harness — jobs `parser-shards` / `parser-gates` (tests/parser/mutationHarness.*.test.ts).",
               "   Triage by the labeled bucket in the failing shard assertion (reconcileLedger classification):",
               "   - NEW untested holes (REGRESSION): a parser change stopped catching mutants. Investigate; do NOT re-bless.",
               "   - FIXED holes: coverage improved. Delete those rows from tests/parser/mutation/knownHoles.ts (shrink the ledger).",
               "   - DRIFTED fingerprints: benign IF parser output changed on purpose. Regenerate the ledger (BL-MUTATION-LEDGER-*).",
               "",
-              "B) SOURCE-mutation guard gate (tests/mutation/guardSurfaces.gate.test.ts).",
+              "B) SOURCE-mutation guard gate — jobs `source-shards` / `source-gates` (tests/mutation/guardSurfaces.shard*.test.ts and guardSurfaces.gates.test.ts).",
               "   Mutates PROGRAM TEXT, not fixtures; its ledger is tests/mutation/source/registry.ts, NOT knownHoles.ts.",
+              "   Which shard a surface lands in is recomputed from the live registry, so a surface MOVES between shards as others enrol.",
               "   The failure message names the violated gate condition:",
               "   - unaccepted-survivor: a NEW gap. Kill the mutant with a test, or add a ledger row with its argument.",
               "   - stale-ledger-row: a ledgered site no longer survives or no longer exists. Delete the row.",
@@ -119,7 +308,12 @@ jobs:
               "   - non-finite-score: the denominator is empty because EVERY survivor is ledgered `equivalent`. Execution and classification may be entirely correct — do not hunt a generator bug. Either a real gap was misclassified as equivalent, or the surface has no killable mutants left and its enrollment needs revisiting.",
               "   - below-floor: coverage fell under the surface's scoreFloor.",
               "   - baseline: the surface's own suite is red on UNMUTATED source. Fix that first; every verdict is meaningless until it is green.",
-              "   Reproduce locally with: pnpm mutation:guards",
+              "   Reproduce locally with: pnpm heavy pnpm mutation:guards",
+              "",
+              "C) BUDGET — job `budget` (scripts/check-shard-budget.ts).",
+              "   This job failing is NOT a coverage failure. Either a leg exceeded the 3,600 s per-shard budget, or a leg reported no elapsed record at all.",
+              "   - over budget: the design reporting on itself as surfaces enrol. Raise SOURCE_SHARD_COUNT in tests/mutation/source/shardPartition.ts — NOT timeout-minutes.",
+              "   - no elapsed record: a leg was cancelled, timed out, or never ran. Fix that leg first; the budget verdict says nothing until every leg reports.",
               "",
               "Auto-filed by mutation-harness.yml; auto-closes on the next green scheduled run.",
             ].join("\n");
@@ -130,7 +324,8 @@ jobs:
               await github.rest.issues.create({ owner, repo, title: "Mutation harness nightly is red", body, labels: [label] });
             }
       - name: Auto-close the tracking issue on green
-        if: ${{ needs.mutation-harness.result == 'success' }}
+        id: close-issue
+        if: ${{ !contains(needs.*.result, 'failure') }}
         uses: actions/github-script@v7
         with:
           script: |
