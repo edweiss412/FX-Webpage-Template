@@ -79,6 +79,29 @@ declared operator** — turning each row into a checked statement or a red.
 
 <!-- task: red=`pnpm vitest run tests/paneCompaction/bands.test.ts` red-state=authored red-target=`scripts/lib/pane-compaction-core.ts` why=`parseGauge and bandFor do not exist, so every band assertion throws on an undefined export` ac=AC-2 -->
 
+**The gauge is located by ANCHOR, not by scanning for block characters.** Probed while drafting
+this task: the Claude TUI renders a progress bar during compaction itself, and a whole-screen filter
+reads it as the gauge —
+
+```
+✦ Compacting conversation... (7s)
+  ███░░░░░░░░░░░░ 8%      <- the compaction progress bar
+  Opus 5 ctx █░░░░ 5h     <- the actual gauge
+
+naive whole-screen parse: 8   (critical)
+anchored parse:           2   (below)
+```
+
+`8` classifies `FORCE` and drives the pane; `2` classifies `HOLD`. The trigger is the pane *already
+compacting*, which makes it the worst available false positive — the orchestrator checkpoints and
+compacts a target mid-compaction — and it is self-reinforcing, since the bar exists only while a
+compaction runs. `parseGauge` therefore matches `ctx` followed by exactly five cells.
+
+**This screen is a named fixture**, asserting `2`. It is a real screen observed on probe pane 1, so
+it sits inside the declared probe domain. Note why no earlier fixture caught it: spec §3.7's four
+live gauges were all captured from quiet panes and every one passes under the naive parse. The
+failing input only appears on a pane doing the exact thing this feature causes.
+
 **AC-2**'s band arithmetic is proved here. **AC-11 is NOT** — `FORCE`-versus-High-cost-`WAIT`
 needs precedence and position, which are Tasks 2 and 4; plan round 1 caught this task's marker
 claiming it. Parse the five-cell gauge to the integer `t = 2 × full + half` in `0..10`; classify into spec
@@ -109,9 +132,44 @@ pattern. Two probes say why:
 - A bare-specifier regex is a **use-versus-mention** error. Probed: it matches the backticked
   prose `` `node:child_process` `` in `scripts/lib/ledger-claims-core.ts:7`, a comment describing
   the very rule. The guard would be red on the untouched corpus. It therefore matches **import
-  syntax** — an `import ... from`, `require(...)`, or dynamic `import(...)` whose specifier is
-  `node:child_process` — not the specifier wherever it appears. The convergence-gate hook made the
-  same repair for the same reason.
+  syntax**, not the specifier wherever it appears. The convergence-gate hook made the same repair
+  for the same reason.
+
+**The pattern, and its self-test, ship together.** Three holes were found in it across two probes
+and one review round, so it is written down rather than described:
+
+```
+(?:^|\s)(?:
+    import\b[^;\n]*?\bfrom\s*   # import X from "..."
+  | import\s*                      # import "..."         (side-effect; hole 1)
+  | import\s*\(                   # await import("...")
+  | require\s*\(                  # require("...")
+)\s*["'`](?:node:)?child_process["'`]   # bare alias        (hole 2)
+```
+
+Hole 1 was mine: the first draft matched only `import ... from`, `import(` and `require(`, so a
+side-effect `import "node:child_process";` walked past. Hole 2 was plan round 3's: Node resolves
+`child_process` and `node:child_process` to the same module, so omitting the optional prefix let an
+ordinary import bypass the guard entirely. Hole 3 was the use-versus-mention error above.
+
+The guard carries this eight-case table as its **own self-test, positive and negative**, per the
+scanner rule in `docs/agents/writing-plans.md` — a scanner's claims are planted as executable
+shapes in both directions, in the same commit as any widening:
+
+| case | matches |
+| --- | --- |
+| `import { execFileSync } from "node:child_process"` | yes |
+| `import { execFileSync } from "child_process"` | yes |
+| `import "child_process"` | yes |
+| `require("child_process")` | yes |
+| `await import("child_process")` | yes |
+| backticked prose `` `node:child_process` `` | **no** |
+| `const s = "child_process"` | **no** |
+| `import x from "./my-child_process-helper"` | **no** |
+
+Probed against the live corpus: `ledger-git.ts` → 1 match (allowlisted), every other file → 0.
+Without the negative rows a later "simplification" back to the bare specifier passes every positive
+case and reds the whole corpus, which is how this guard was born.
 
 Plus the **walker sanity floor** (`>= 7`; the directory holds 7 `.ts` files today, 8 once the core
 lands), which is the guard's own premise and without which a mis-rooted walk passes vacuously; and
@@ -188,9 +246,16 @@ exactly one row — totality and determinism. It does **not** assert predicate e
 
 `RECENT_COMMIT_WINDOW` (15 minutes) asserted on both sides of the boundary. Demote-only asserted:
 where two rows match and ordering is uncertain, the more expensive cost wins. **Newest-row
-selection** (AC-4 domain): multiple corpus rows across multiple files select by greatest `endedAt`;
-rows without a parsable one are excluded rather than arbitrarily sorted; a tie yields
-`UNDETERMINED`.
+selection** (AC-4 domain): newest is the greatest `endedAt` **among rows whose `status` is
+`verdict`**, across every corpus file for the branch. The filter is on `status`, **not** on whether
+a timestamp parses — spec §4.3, and plan round 3 caught this task dropping it. The regression case
+is real and named: `docs/review-rounds/docs/parser-mutation-wave/0da9f84b1634.jsonl` holds a
+committed `no_verdict` row carrying a valid `endedAt`, which must **not** become newest. A
+`verdict` row with an unparsable `endedAt` is excluded and named; a tie yields `UNDETERMINED`.
+
+**Failure mode caught:** a wrapper-failure row superseding the real review verdict, which flips
+row 4 (triage pending, High) to row 6 (verdict recorded, Low) and promotes the pane toward
+`COMPACT`.
 
 CI-green-with-PR-unmerged gets its own case **at critical pressure**, proving pressure cannot
 override it.
@@ -225,6 +290,13 @@ fresh worktree has no marker.
 <!-- task: red=`pnpm vitest run tests/paneCompaction/cli.test.ts` red-state=authored red-target=`scripts/pane-compaction.ts` why=`the CLI adapter does not exist; there is no envelope to assert is uncapped and no exit code to assert` ac=AC-1,AC-8,AC-21 -->
 
 **AC-1** (report covers every roster pane) and **AC-8** (`--check` exit codes) are proved here.
+
+**AC-1 is not roster coverage alone.** It requires each rendered pane to carry its **verdict and
+its position evidence** (spec §9), and plan round 3 caught this task asserting neither: the
+classifier can compute both while the adapter silently omits them, leaving every other Task 6 check
+green and defeating the operator-overrule purpose that makes position inference acceptable at all
+(spec §4.4). The renderer assertion reads a rendered row and requires the verdict string and the
+evidence for the row that was selected — not merely that some evidence field exists.
 
 **The `panes:compact` alias is part of this task, not a side effect.** `package.json` has no such
 script at the plan's base commit, and direct-import tests would pass while the user-facing command
