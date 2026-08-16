@@ -813,7 +813,7 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-SERIALIZE-ERROR-NON-ERROR-BRANCH-STRINGIFIES — a plain-object error still persists as "[object Object]"
 
-**Status:** OPEN · **Severity:** MEDIUM (diagnostic loss on every non-`Error` value logged) · **Class:** observability · **Effort:** M · **Filed:** 2026-08-15 (`fix/sync-log-emit-guard` PR #808, diff review R3)
+**Status:** IN PROGRESS · **Branch:** fix/serialize-error-structure · **Severity:** MEDIUM (diagnostic loss on every non-`Error` value logged) · **Class:** observability · **Effort:** M · **Filed:** 2026-08-15 (`fix/sync-log-emit-guard` PR #808, diff review R3)
 
 **Probe evidence.** `lib/log/serializeError.ts` is `error instanceof Error ? { name, message, stack } : String(error)`. The non-`Error` branch is `String(value)`, so any plain object collapses to the literal `"[object Object]"`. Supabase/PostgREST returned-errors are exactly that shape — plain parsed-JSON objects, never `Error` instances (`PostgrestBuilder.ts` returns them from the parsed body), and several call sites forward them straight to `log.*`:
 
