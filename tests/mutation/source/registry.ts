@@ -183,7 +183,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [
       {
-        siteId: "relational-boundary:376:29:>>>=",
+        siteId: "relational-boundary:420:29:>>>=",
         kind: "equivalent",
         reason:
           "`here.length > 0` versus `>= 0` agree on every reachable input: an extents entry is " +
@@ -191,7 +191,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "so the array is never empty. The guard reads as belt-and-braces and is exactly that.",
       },
       {
-        siteId: "integer-literal:731:32:0>1",
+        siteId: "integer-literal:795:32:0>1",
         kind: "equivalent",
         reason:
           "`unresolved` is provably always empty, so `length > 0` and `> 1` are indistinguishable. " +
@@ -201,7 +201,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "is a TOCTOU race rather than an input an ordinary contributor writes (threat fence).",
       },
       {
-        siteId: "relational-boundary:865:28:<><=",
+        siteId: "relational-boundary:932:28:<><=",
         kind: "equivalent",
         reason:
           "The premise-placement test asks whether the premise call starts BEFORE the registration " +
@@ -210,7 +210,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "node, and the walk never compares a node against itself.",
       },
       {
-        siteId: "integer-literal:610:59:2>3",
+        siteId: "integer-literal:664:59:2>3",
         kind: "accepted-gap",
         ref: "BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED",
         reason:
