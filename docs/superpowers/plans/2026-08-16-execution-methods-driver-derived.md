@@ -688,7 +688,7 @@ git commit -m "test(db): enrol executionMethodsDerivation in the mutation gate"
 
 ### Task 7: Closeout sweeps, ledger graduation, handoff evidence
 
-<!-- task: red=`bash -c '! rg -n "types/index.d.ts" tests/ --glob "!tests/db/__generated__/**"'` ac=AC-6 -->
+<!-- task: red=`bash -c '! grep -rn "types/index.d.ts" tests/ --exclude-dir=__generated__'` ac=AC-6 -->
 
 The marker's `red=` is the AC-6 sweep with CORRECT red-then-green polarity (plan review R1 finding 3): the `!` inverts rg, so the command exits NON-ZERO exactly when a vitest suite references the driver types file (the defect) and 0 when the tree is clean. Step 1 OBSERVES the red against a constructed failing input before running the clean sweep — a gate never seen failing proves nothing.
 
@@ -808,6 +808,42 @@ A second, related gate hazard was found and fixed during Task 2 rather than by p
 
 - Task 6 step 5: measured mutation score, survivor dispositions, run duration.
 - Task 7 step 1: AC-6 red observation (exit 1), clean pass (exit 0), and the node_modules sweep with per-hit dispositions.
+
+**The marker command as authored is not executable, and the gate was replaced rather than reported green.** Task 7's `red=` uses `rg`, which on this machine is a shell FUNCTION injected by the Claude Code session snapshot, not a binary. Under `bash -c` it is absent, `rg` exits 127, and the leading `!` inverts that to 0 — so the command passed on a tree carrying the constructed defect AND on the clean tree, proving nothing in either direction. This is exactly the premise-reachability failure the anti-tautology rule exists to catch, found by running the red first:
+
+```text
+$ printf '// probe: node_modules/postgres/types/index.d.ts\n' > tests/db/ac6-probe.test.ts
+$ bash -c '! rg -n "types/index.d.ts" tests/ --glob "!tests/db/__generated__/**"'; echo "probe-exit=$?"
+bash: line 1: rg: command not found
+probe-exit=0        # <-- vacuous pass WITH the defect present
+$ type -a rg
+rg is a shell function from /Users/ericweiss/.claude-account3/shell-snapshots/snapshot-zsh-...sh
+```
+
+The sweep is therefore run with `grep -rn`, which is present in any shell the repo's gates can run in. Same intent, correct polarity, observed both ways:
+
+```text
+$ printf '// probe: node_modules/postgres/types/index.d.ts\n' > tests/db/ac6-probe.test.ts
+$ bash -c '! grep -rn "types/index.d.ts" tests/ --exclude-dir=__generated__'; echo "probe-exit=$?"
+tests/db/ac6-probe.test.ts:1:// probe: node_modules/postgres/types/index.d.ts
+probe-exit=1        # <-- red on the constructed defect
+$ rm tests/db/ac6-probe.test.ts
+$ bash -c '! grep -rn "types/index.d.ts" tests/ --exclude-dir=__generated__'; echo "clean-exit=$?"
+clean-exit=0        # <-- the SAME command, green on the clean tree
+
+$ grep -rn "node_modules/postgres" tests/; echo "sweep-exit=$?"
+tests/db/executionMethodsManifest.test.ts:15:const DRIVER_PACKAGE_JSON = "node_modules/postgres/package.json";
+tests/db/__generated__/postgresExecutionMethods.ts:2:// Source: node_modules/postgres/types/index.d.ts (postgres 3.4.9).
+sweep-exit=0
+```
+
+Per-hit disposition of the node_modules sweep, both hits accounted for:
+
+- `tests/db/executionMethodsManifest.test.ts:15` — the version sentinel's `package.json` read. This is the ONE test-time read under node_modules that AC-6 permits, and it reads a JSON version field, never type-declaration text.
+- `tests/db/__generated__/postgresExecutionMethods.ts:2` — a provenance COMMENT in generated output, not a read. No suite parses the driver types file, which is the AC-6 claim.
+
+AC-6 satisfied: no vitest suite reads or parses the driver's type declarations.
+
 
 ## 12 Closeout
 
