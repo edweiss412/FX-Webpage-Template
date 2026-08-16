@@ -107,7 +107,7 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The directory runs **140 cases** (28 classify + 24 collect + 77 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 140 are green. Both states observed, both edits reverted.
+- The directory runs **146 cases** (28 classify + 24 collect + 83 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 146 are green. Both states observed, both edits reverted.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
 - Fourteen cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
@@ -1216,6 +1216,18 @@ describe("shouldPrintOutcome: §6.2's reporting matrix, every cell", () => {
 });
 
 describe("exitStatus: §6.2", () => {
+  it("is non-zero when ANY outcome is non-success, wherever it sits in the list", () => {
+    const ok = { pid: 1, result: "killed" as const };
+    const gone = { pid: 2, result: "already-gone" as const };
+    const bad = { pid: 3, result: "failed" as const };
+    const base = { collectFailed: false, ceilingRejected: false };
+    // First, middle and last, because reading only one end of the list is the natural bug.
+    expect(exitStatus({ ...base, outcomes: [bad, ok, gone] })).toBe(1);
+    expect(exitStatus({ ...base, outcomes: [ok, bad, gone] })).toBe(1);
+    expect(exitStatus({ ...base, outcomes: [ok, gone, bad] })).toBe(1);
+    expect(exitStatus({ ...base, outcomes: [ok, gone, ok] })).toBe(0);
+  });
+
   const base = { collectFailed: false, ceilingRejected: false };
   it.each([
     ["C1", { collectFailed: true, outcomes: [] }, 1],
@@ -1421,6 +1433,28 @@ describe("the CLI, executed end to end", () => {
     }
   }, 180_000);
 
+  it("§6.2: the default counts EVERY row, including one it does not print", () => {
+    const table: Row[] = [
+      { pid: 777001, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
+      "garbage-line-with-no-pid",
+    ];
+    const { out } = runCli([], table);
+    // Two rows read though the unparsable one is not printed by default: a constant zero, or a
+    // count of only the printable rows, both fail here.
+    expect(out).toContain("2 rows read");
+    expect(out).not.toContain("skip unparsable");
+  }, 180_000);
+
+  it("§6.2: an `undecidable` decline is reported WITH its reason under --all", () => {
+    const LS = "Sun Aug 16 09:35:23 2026";
+    const table: Row[] = [
+      // A raw line whose ppid will not parse: R2, which declines as `undecidable`.
+      `777002 xx 1-05:29:53 ${LS} /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js`,
+    ];
+    const { out } = runCli(["--all"], table);
+    expect(out).toContain("skip 777002 (undecidable)");
+  }, 180_000);
+
   it("AC-6: --all combined with --kill widens the REPORT and NOT the kill set", () => {
     // The BYSTANDER is the load-bearing row: reported only under `--all`, declined, and NOT a
     // descendant of the reaped root, so it is not already a target. An implementation that added
@@ -1494,6 +1528,7 @@ describe("the CLI, executed end to end", () => {
     const { out } = runCli(["--all"], table);
     expect(out).toContain("skip 777001 (has-live-parent)");
     expect(out).toContain("skip unparsable");
+    expect(out).toMatch(/skip unparsable \(.+\)/); // WITH its reason, which is what the row promises
     expect(out).not.toMatch(KILL_LINE);
   }, 180_000);
 
@@ -1504,16 +1539,33 @@ describe("the CLI, executed end to end", () => {
       const table: Row[] = [
         { pid: root.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
         { pid: kid.pid, ppid: root.pid, etime: OLD, command: WORKER_CMD },
+        { pid: 777003, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
       ];
       const { out } = runCli(["--kill"], table);
       expect(out).toContain(`REAPABLE pid=${root.pid}`); // the default report is retained
       expect(out).toContain(`killed pid=${root.pid}`);
       expect(out).toContain(`killed pid=${kid.pid}`); // per TARGET, not just the first
+      expect(out).toContain("skip 777003 (not-a-worker)"); // declines stay visible under --kill
       expect(root.alive()).toBe(false);
       expect(kid.alive()).toBe(false); // the recorded subtree, really killed
     } finally {
       root.kill();
       kid.kill();
+    }
+  }, 180_000);
+
+  it("C4: a rejected ceiling reaps NOTHING even with a live candidate and --kill", () => {
+    const owned = spawnOrphan();
+    try {
+      const table: Row[] = [{ pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD }];
+      const { out, code } = runCli(["--kill"], table, { FX_REAP_MIN_AGE_S: "-5" });
+      expect(out).toContain("rejected: -5");
+      expect(out).not.toMatch(KILL_LINE);
+      // Observed on the PROCESS: C4's guarantee is safety, not reporting flow.
+      expect(owned.alive()).toBe(true);
+      expect(code).toBe(1);
+    } finally {
+      owned.kill();
     }
   }, 180_000);
 
@@ -1592,6 +1644,30 @@ describe("the CLI, executed end to end", () => {
     const table: Row[] = [{ pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD }];
     const { out } = runCli(["--kill", "--quiet"], table, { FAKE_PS_IDENTITY_GONE: String(owned.pid) });
     expect(out).not.toContain("already-gone");
+  }, 180_000);
+
+  it("--quiet keeps C1 visible", () => {
+    const { out, code } = runCli(["--kill", "--quiet"], [], {
+      FX_REAP_PS_BIN: "/definitely/not/a/real/ps",
+    });
+    expect(out).toContain("ps-unavailable");
+    expect(code).toBe(1);
+  }, 180_000);
+
+  it("--quiet keeps the row and candidate SUMMARIES, since they are not declines", () => {
+    const owned = spawnOrphan();
+    try {
+      const table: Row[] = [
+        { pid: owned.pid, ppid: 1, etime: OLD, command: WORKER_CMD },
+        { pid: 777001, ppid: 1, etime: OLD, command: "/usr/bin/pnpm exec vitest run" },
+      ];
+      const { out } = runCli(["--kill", "--quiet"], table);
+      expect(out).toContain("2 rows read");
+      expect(out).toContain("1 candidate(s)");
+      expect(out).not.toContain("skip ");
+    } finally {
+      owned.kill();
+    }
   }, 180_000);
 
   it("--quiet keeps C4 visible", () => {
