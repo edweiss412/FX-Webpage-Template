@@ -53,6 +53,7 @@
     "test:fuzz:deep": "FUZZ_DEEP=1 vitest run tests/parser/fuzz",
     "mutation:sites": "tsx scripts/print-mutation-sites.ts",
     "mutation:guards": "VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/guardSurfaces.gate.test.ts",
+    "mutation:browser": "VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/browser/browserSurfaces.gate.test.ts",
     "heavy": "python3 scripts/with-heavy-slot.py --",
     "test:e2e": "playwright test",
     "test:e2e:destructive-layout": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/pendingDiscardReal.layout.spec.ts tests/e2e/pendingDiscardReflow.layout.spec.ts",

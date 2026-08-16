@@ -145,6 +145,17 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
   // repay rather than a number to bump.
   interactiveScanCore: { equivalent: 11 },
+  // feat/mutation-playwright-component-mode (2026-08-15): the browser mode's own
+  // two modules, enrolled before the arc's first review dispatch. Both declare an
+  // EMPTY ledger and a floor of 1 — a row appearing here later is a coverage
+  // regression to repair, not a number to update.
+  // First run scored 55/57 and 30/39. Ten of the eleven survivors were real
+  // coverage gaps and were repaid with cases in the two deciding suites, each
+  // proven against its own mutant; the one row below is the only survivor whose
+  // mutation no consumer can distinguish. So a SECOND row here is a gap to
+  // repay rather than a number to bump.
+  browserRegistry: {},
+  browserMutate: { equivalent: 1 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

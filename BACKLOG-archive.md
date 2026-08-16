@@ -418,6 +418,54 @@ $ git show ec06b825a^1:BACKLOG-archive.md | ... same pipeline ...
 
 **Spec:** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4 · **Plan:** `docs/superpowers/plans/2026-08-15-auth-picker-hardening.md` Task 4 + Closeout.
 
+## BL-MUTATION-HARNESS-PLAYWRIGHT-COMPONENT-MODE — Playwright/component-mutant runner mode for the source-mutation harness — CLOSED 2026-08-15 (`feat/mutation-playwright-component-mode`, SHIPPED)
+
+**Resolution: SHIPPED.** Spec `docs/superpowers/specs/ci/2026-08-15-mutation-browser-mode.md` (APPROVED at adversarial round 3), plan `docs/superpowers/plans/2026-08-15-mutation-browser-mode.md` (APPROVED at round 4).
+
+The harness gained a browser-mutant mode: a registry of explicit per-surface edits (`tests/mutation/browser/registry.ts`), a serial runner with baseline and control brackets (`tests/mutation/browser/runner.ts`), three overlay layers driven by ONE env var (`MUTATION_OVERLAY_MANIFEST` — the esbuild bundle plugin, the tap-target spec's `@source` assembly, and a browser-mode vitest config), a nightly gate (`pnpm mutation:browser`, `.github/workflows/mutation-browser.yml`), and the first enrolled customer.
+
+**All three capability gaps the 2026-08-09 probe measured are closed** for the bounded surface class the spec fences (standalone-harness Playwright specs, §1.1.1):
+
+1. The runner spawns a Playwright child per mutant alongside vitest children, and a mutant is KILLED if ANY declared suite rejects it. The mixed-kind suite list is load-bearing rather than decorative: payload mutant #17 is killed by the vitest suite alone, so without the vitest kind it would have enrolled as a guaranteed survivor.
+2. The operator family is a CLOSED enumerated edit list, not a generic recognizer. That is a ratified decision (§1.1.2), taken because each widening of a recognizer is a bigger target for the next review round — the repair direction AGENTS.md records under same-axis recurrence.
+3. The runtime is minutes, not seconds (19.1 min in CI on a 2-core runner, 24.8 min locally, for nineteen mutants plus a baseline and a control bracket), and `pnpm mutation:browser` is a MUST-wrap member of the heavy-phase semaphore, named in AGENTS.md and pinned by its guard.
+
+**The row's own prescription was followed except where measurement overrode it.** It asked for "a runtime budget model"; what shipped instead is a measured number plus a 60-minute job cap, because a model predicting a cost you can simply observe is a second thing to keep in step with the first.
+
+**What the build found that the row did not describe.** Six things, each of which would have shipped a wrong number rather than a loud failure:
+
+1. **`String.prototype.replace` expands `$&`, `$1`, `` $` `` and `$'` in a STRING replacement**, so a mutant whose `to` contained one would be applied as something other than its declared text — silently, scoring a mutant nobody wrote. `applyEdits` uses a FUNCTION replacement, which inserts verbatim, and the suite proves it both ways rather than asserting the fixed direction alone.
+2. **macOS resolves `/var` through a symlink to `/private/var`**, so the overlay compared a `mkdtemp` path against a differently-spelled real path, missed, and served CLEAN DISK TEXT while every other signal said the run was live. Found by the wiring suite on its first execution, which is the entire argument for that suite existing.
+3. **Adding the gate to the `mutation` vitest project silently enrolled it in `mutation-harness.yml`'s whole-project sweep** — a job that installs no browser, so every Playwright child would have failed to launch and reddened the NIGHTLY PARSER harness for a gate that has its own workflow. Its run step now names its subjects explicitly, pinned by a test that rejects a bare `--project mutation`.
+4. **The mixed-kind suite list is load-bearing, not a convenience.** Payload mutant #17 is killed by the vitest suite alone; a Playwright-only registry would have enrolled it as a guaranteed survivor and the surface could never have reached its floor.
+5. **Green-but-empty is the no-tests trap.** A Playwright filter or project resolving zero tests exits 0, so every mutant would score SURVIVED — a perfect-looking run of a surface nothing tested. The baseline therefore asserts both green AND a non-zero executed count.
+6. **The arc's own command exposed a latent guard bug elsewhere.** `tests/cross-cutting/vitest-projects-partition.test.ts` resolved `@/vitest.config` through a static import, which evaluates against the AMBIENT environment; under `VITEST_INCLUDE_MUTATION_HARNESS=1` — exactly what `pnpm mutation:guards` and `pnpm mutation:browser` set — the mutation project joined the default list and three cases reddened on a tree with no defect in it. The class sweep found four sites, not one, and the repair carries a source scan because every other case there reads a stubbed config and would pass a revert whenever the ambient happens to be clean.
+
+**Verdict integrity is the part the row never anticipated needing** (spec §3.4). A non-zero child exit is not evidence by itself: the suite noticing the mutant, the mutant breaking the build, and the HARNESS failing before the overlay went live are three different causes with the same exit code, and scoring the third as detection fabricates a kill. Every child therefore runs against an overlay sentinel deleted before it and re-checked after, and a Playwright child additionally needs a fresh json report recording at least one executed test. Anything else raises `MutantRunInfraError` and is never scored. The failure this closes is the worst one available to a mutation harness — a systematically dead overlay reports a PERFECT score, with every other gate condition still passing.
+
+**Enrolled as a surface itself, before its own first review round.** The two pure modules (`registry.ts`, `mutate.ts`) are rows in the vitest source-mutation registry, per AGENTS.md's convergence-criterion bullet 4, and both were authored as importable lib-shaped units with referring suites so the runner could overlay them at all. What the registry CANNOT express is stated rather than enrolled symbolically: the spawn boundary in `runner.ts` needs a real Playwright child, the same shape limit the step3-a11y filing recorded.
+
+**Effort:** M-L · **Closed:** 2026-08-15
+
+## BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT — enrol the tap-target-floor spec in the source-mutation registry — CLOSED 2026-08-15 (`feat/mutation-playwright-component-mode`, SHIPPED)
+
+**Resolution: SHIPPED** — the WATCH's un-defer trigger fired in the same arc that built the mode it was waiting on, closing the circular wait the sibling row above describes.
+
+The nineteen isolating mutants this row had carried as prose since 2026-08-09 are now a machine-run registry row (`tapTargetFloor`, `scoreFloor: 1`, empty ledger), decided by `tests/components/admin/wizard/Step3Review.test.tsx` and `tests/e2e/tap-target-floor.layout.spec.ts` together. Result: 19/19 mutants KILLED, score 1.0, unaccepted-survivor set EMPTY, no no-ops, all 19 classified exactly once, every mutant target byte-identical after the run, and the liveness control KILLED. Re-measured on the MERGED tree by CI run 31924268443 at `708a302c8` (all 9 gate conditions green, 19.1 min wall clock against the job's 60-min cap); the pre-merge local run reported the same 19/19 at 24.8 min.
+
+**The row's prediction held.** It said "all nineteen should be killed already, so any survivor is new information" — and that is what the run reported, which is the outcome that makes the enrolment a conversion of an open-ended question into a closed one rather than a bug hunt. What the row bought is stated in its own words: nine diff rounds produced 20 declared findings, 15 of them the same "the guard does not pin what it claims" shape, discovered one at a time at review-dispatch prices. The successor question — "is the unaccepted-survivor set empty?" — terminates.
+
+**Two tree drifts since the mutants were authored are honoured in the enrolment rather than papered over**, both recorded in the plan's §A payload:
+
+- `e9e80ec25` replaced the text carets with lucide `<ChevronRight>` SVGs, so mutant #8 ("delete a caret's glyph while keeping its span and classes") is now "same box, nothing drawable" — an empty span the guard's `isSvg ? drawable > 0 : text !== ""` branch still rejects.
+- The same commit moved the administrators summary to `flex w-full`, which the guard asserts INVERTED by name (`DI2_FULL_WIDTH_BY_DESIGN`), so the `w-fit` strip is FIVE sites on the current tree, not the six the row's prose recorded.
+
+Both MEDIUM-confidence rows were run individually before enrolment and observed drawing their named failure lines: `operator-error caret renders nothing (svg=false, drawable=0, text="")` and `help-affordance summary dropped the spec-required w-fit token`.
+
+**A liveness control ships with the surface** (`control-helpsheet-close-tap-floor`, stripping `size-tap-min` from HelpSheet's close button) and is asserted KILLED on every run, because the alternative failure is silent: an overlay that stopped applying would report all nineteen mutants clean and score a perfect 1.
+
+**Effort:** M-L · **Closed:** 2026-08-15
+
 ## BL-SYNC-LOG-EMIT-UNGUARDED — a sync never fails because logging failed — CLOSED 2026-08-15 (`fix/sync-log-emit-guard`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-15 · PR #808 · **Effort (as shipped):** S
