@@ -31,7 +31,6 @@ import {
   type ObservedPane,
   type PaneReport,
   type PurviewFile,
-  type Verdict,
   checkExitCode,
   classify,
   classifyGh,
@@ -303,15 +302,21 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   const markerNonce =
     typeof marker?.["checkpointNonce"] === "string" ? marker["checkpointNonce"] : null;
 
-  // `--resume` has its own predicate: a successful compaction makes
-  // COMPACT/FORCE false exactly when resuming is correct, so it asks only that
-  // no rule 1-8 observation says stop.
-  const drivable: Verdict[] = ["COMPACT", "FORCE", "HOLD", "WAIT"];
-  const blockedByObservation = !drivable.includes(report.verdict);
-  if (blockedByObservation) {
+  // "An observation says stop" is RULES 1-8, and it has to be read off the rule
+  // number rather than the verdict. `WAIT` is produced by rule 7 (blocked or
+  // unknown status) and rule 8 (a HardWait position) — both observations — AND
+  // by rules 11 and 12, which are banding. Testing the verdict cannot tell those
+  // apart, so a verdict-based gate would let `--resume` drive a pane that rule 7
+  // had stopped. §6's first guarantee is that no pane is driven, `--resume`
+  // included, while any rule 1-8 condition holds.
+  const OBSERVATION_RULES = 8;
+  if (report.rule <= OBSERVATION_RULES) {
     s.out(refuse({ kind: "not-drivable", verdict: report.verdict }).message);
     return 1;
   }
+  // `--resume` stops there, deliberately: a successful compaction makes
+  // COMPACT/FORCE false exactly when resuming is the correct next act, so
+  // requiring them would refuse in precisely the case the command exists for.
   if (opts.mode !== "resume" && report.verdict !== "COMPACT" && report.verdict !== "FORCE") {
     s.out(refuse({ kind: "not-drivable", verdict: report.verdict }).message);
     return 1;
