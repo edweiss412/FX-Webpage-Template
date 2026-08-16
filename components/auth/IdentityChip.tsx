@@ -25,6 +25,10 @@
  */
 
 import { clearIdentity } from "@/lib/auth/picker/clearIdentity";
+import {
+  isSameOriginServerAction,
+  rejectCrossOriginPicker,
+} from "@/lib/auth/sameOriginServerAction";
 import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 import { AvatarMenu } from "@/components/auth/AvatarMenu";
 
@@ -32,6 +36,11 @@ async function clearIdentityFormAction(formData: FormData): Promise<ClearIdentit
   "use server";
   // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker clearIdentity,
   // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
+  //
+  // GATED, not exempted (origin-sweep spec Resolved scope #9r): the delegate
+  // returns a typed refusal rather than throwing.
+  if (!(await isSameOriginServerAction()))
+    return rejectCrossOriginPicker("clearIdentityFormAction");
   return clearIdentity(formData);
 }
 

@@ -107,9 +107,6 @@ const READ_ONLY_EXEMPT = [
  * until the picker task migrates them to the designated export.
  */
 const PENDING_GATE: readonly string[] = [
-  "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx",
-  "app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx",
-  "components/auth/IdentityChip.tsx",
 ];
 
 // ── AST predicates ─────────────────────────────────────────────────────────
