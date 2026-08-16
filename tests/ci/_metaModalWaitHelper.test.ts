@@ -294,18 +294,34 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
     expect(drift).toEqual([]);
   });
 
-  test("every member rule names a §4.2 shape and every exclusion names a reason", () => {
+  test("every rule carries a count, and every member rule names a §4.2 shape", () => {
+    // EVERY rule, members included. An earlier version exempted members on the
+    // theory that recognizing the adopted shape is self-evidencing; diff review
+    // refuted it by probe — the origin (b)-(e) member rules match the raw click
+    // or reload line, which is unchanged when the post-open helper wait beside
+    // it is deleted, so a site kept its `member` label while silently regaining
+    // the starve exposure. Counting origin (f) is what closes that.
     for (const rule of DISPOSITION_RULES) {
       expect(rule.disposition.reason.length, rule.id).toBeGreaterThan(20);
+      expect(rule.expectedCount, `${rule.id}: every rule must carry a count`).toBeTypeOf("number");
       if (rule.disposition.kind === "member") {
         expect(["G", "U", "N"], rule.id).toContain(rule.disposition.shape);
-        expect(rule.expectedCount, `${rule.id}: member rules carry no count`).toBeUndefined();
-      } else {
-        expect(rule.expectedCount, `${rule.id}: exclusion rules must carry a count`).toBeTypeOf(
-          "number",
-        );
       }
     }
+  });
+
+  test("the adopted-site counts ARE the §4.2 arithmetic, asserted not retyped", () => {
+    // 30 G (this arc's 28 plus the parent arc's 2 in admin-changes-feed-layout),
+    // 9 U, 12 N edit locations = 51 adopted sites discharging 51 member opens.
+    const byId = new Map(DISPOSITION_RULES.map((r) => [r.id, r.expectedCount]));
+    expect(byId.get("f/member-shape-G")).toBe(30);
+    expect(byId.get("f/member-shape-U")).toBe(9);
+    expect(byId.get("f/member-shape-N")).toBe(12);
+    const adopted =
+      (byId.get("f/member-shape-G") ?? 0) +
+      (byId.get("f/member-shape-U") ?? 0) +
+      (byId.get("f/member-shape-N") ?? 0);
+    expect(adopted, "49 edit locations in this arc plus the parent arc's 2").toBe(51);
   });
 
   test("a constructed candidate with no disposition FAILS the check", () => {

@@ -11,12 +11,15 @@
  * decided about matches no rule and FAILS, and a rule whose class has
  * disappeared matches nothing and FAILS.
  *
- * **Exclusion rules carry a count; member rules do not.** An exclusion is a
- * statement about a set someone read once ("every reload in this file is on a
- * non-`?show=` route"), and without a count a NEW line quietly inherits a
- * judgement nobody made about it — the leak this whole arc exists to close. A
- * member rule instead recognizes the adopted shape itself (the line calls a
- * modal-wait helper export), which is self-evidencing and correct at any count.
+ * **EVERY rule carries a count.** An earlier version exempted member rules on the
+ * theory that they recognize the adopted shape itself and are therefore
+ * self-evidencing at any count. Diff review refuted that with a probe: the
+ * member rules for origins (b)-(e) match the raw click / reload / legacy-goto
+ * line, which is UNCHANGED when someone deletes the post-open helper wait beside
+ * it. The site kept its `member` label while its wait silently regained the
+ * starve exposure, and no count, ambiguity or violation moved. Counting the
+ * ADOPTED sites (origin (f)) is what closes it: deleting a wait drops that
+ * count and fails this suite.
  *
  * Counts here are as of the post-adoption tree. Between Task 2 and Task 7 this
  * suite is RED by design — that is the plan's one declared deliberate-red span,
@@ -72,6 +75,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "the caller owns the URL (extra query params, fragments, encodeURIComponent) and routes it through openShowReviewModalAt, so the wait and the single recovery are the helper's",
     },
+    expectedCount: 8,
     match: (c) => callsHelper(c.text),
   },
   {
@@ -134,6 +138,50 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     match: (c) => /\bopenModal\(|^url:/.test(c.text),
   },
 
+  // ---------------------------------------------------------------- origin (f)
+  //
+  // The ADOPTED sites. These three counts ARE the §4.2 arithmetic, asserted
+  // rather than retyped: 30 G (28 of this arc's plus the parent arc's 2 in
+  // admin-changes-feed-layout.spec.ts), 9 U, 12 N edit locations. Deleting any
+  // post-open helper wait drops the matching count and reds this suite, which is
+  // the property the count-free version failed to hold.
+  {
+    id: "f/member-shape-G",
+    origin: "f-helper-call",
+    disposition: {
+      kind: "member",
+      shape: "G",
+      reason:
+        "a plain goto adopted through openShowReviewModal(page, slug) — the helper owns the navigation, the loaded-modal wait and the single recovery",
+    },
+    expectedCount: 30,
+    match: (c) => /\bopenShowReviewModal\s*\(/.test(c.text),
+  },
+  {
+    id: "f/member-shape-U",
+    origin: "f-helper-call",
+    disposition: {
+      kind: "member",
+      shape: "U",
+      reason:
+        "the caller owns the URL or the goto options and adopts through openShowReviewModalAt, so waitUntil semantics and extra query params survive untouched",
+    },
+    expectedCount: 9,
+    match: (c) => /\bopenShowReviewModalAt\s*\(/.test(c.text),
+  },
+  {
+    id: "f/member-shape-N",
+    origin: "f-helper-call",
+    disposition: {
+      kind: "member",
+      shape: "N",
+      reason:
+        "the open is a click, keyboard activation, legacy 307 or reload the helper cannot own, so only the post-open wait routes through awaitReviewModalOrRecover",
+    },
+    expectedCount: 12,
+    match: (c) => /\bawaitReviewModalOrRecover\s*\(/.test(c.text),
+  },
+
   // ---------------------------------------------------------------- origin (b)
   {
     id: "b/member-route-loop",
@@ -144,6 +192,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "alert-action-links walks a route table whose `/admin?show=` entries land in the modal; the commit-mode navigation is unchanged and only the post-open wait routes through awaitReviewModalOrRecover",
     },
+    expectedCount: 1,
     match: (c) => inFile(c, "alert-action-links.spec.ts") && /goto\(route,/.test(c.text),
   },
   {
@@ -218,6 +267,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a signed-in legacy /admin/show/<slug> deep link that 307s into the modal; the goto is unchanged and the post-redirect wait routes through the helper",
     },
+    expectedCount: 2,
     match: (c) =>
       inFile(c, "published-review-modal.deeplink.spec.ts") &&
       /goto\(`\/admin\/show\/\$\{show\.slug\}\?alert_id=/.test(c.text),
@@ -291,6 +341,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a row or inbox-link click that client-navigates to the same ?show= route; the click is unchanged and the loaded-modal wait after it routes through awaitReviewModalOrRecover",
     },
+    expectedCount: 8,
     match: (c) =>
       /\.click\(/.test(c.text) &&
       !inFile(c, "published-review-modal.prefetch.spec.ts") &&
@@ -353,6 +404,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "expectFlipLanded's third recovery tier reloads the current ?show= route, re-running the very loader that can throw; already the path a wedged run takes",
     },
+    expectedCount: 1,
     match: (c) => inFile(c, "admin-lifecycle-transitions.spec.ts"),
   },
   {

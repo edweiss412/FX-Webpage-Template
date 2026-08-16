@@ -58,6 +58,21 @@ const RENAVIGATION_CALL = /\b(?:reload|goBack|goForward)\(/;
 /** Origin (d), product side: a client island that builds the open href. */
 const OPEN_HREF_CALL = /\bopenHref\(/;
 
+/**
+ * Origin (f): a site that has ALREADY ADOPTED the helper.
+ *
+ * Without this origin the census silently loses every adopted site the moment it
+ * adopts. A Shape-G call is `openShowReviewModal(page, slug)` — it carries no
+ * route text, so origin (a) cannot see it, and no other origin proposes it
+ * either. Diff review measured the consequence: 28 of the 51 member sites had
+ * dropped out of the candidate set, leaving the "total disposition over the
+ * member census" ranging over 20 members instead of 51.
+ *
+ * Import lines are excluded: an import is not an open site.
+ */
+const HELPER_CALL =
+  /\b(?:openShowReviewModalAt|openShowReviewModal|awaitReviewModalOrRecover)\s*\(/;
+
 /** How far from an href site to look for the enclosing element's testid. */
 const TESTID_WINDOW = 12;
 
@@ -76,7 +91,8 @@ export type CandidateOrigin =
   | "b-nonliteral-goto"
   | "c-legacy-route"
   | "d-link-activation"
-  | "e-renavigation";
+  | "e-renavigation"
+  | "f-helper-call";
 
 /**
  * A candidate carries the exemption declared for its line, resolved by the SAME
@@ -247,6 +263,9 @@ export function enumerateCandidates(root: string = process.cwd()): Candidate[] {
       if (text.includes(LEGACY_SHOW_ROUTE)) push("c-legacy-route");
       if (testIdPrefixes.some((prefix) => text.includes(prefix))) push("d-link-activation");
       if (RENAVIGATION_CALL.test(text)) push("e-renavigation");
+      if (HELPER_CALL.test(text) && !/^import\b|^\}? from ["']/.test(text.trim())) {
+        push("f-helper-call");
+      }
     });
   }
   return candidates;
