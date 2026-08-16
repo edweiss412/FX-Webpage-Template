@@ -211,10 +211,14 @@ Keyed on **structure**, never spelling:
   first command; its absence is equally normal. Round 4 found it missing here while §5.2 added it.
 - Git state: porcelain status, commits ahead of `origin/main`, last commit timestamp.
 - A round-corpus row (`stage`, `round`, `status`, `verdict`, `findingCount`, `endedAt`).
-  **"Newest" is the row with the greatest `endedAt` across every row in every corpus file for the
-  branch**; rows without a parsable `endedAt` — which includes every row whose `status` is not
-  `verdict` — are excluded from that selection rather than sorted arbitrarily. Ties are impossible
-  in practice and resolved by taking neither: a tie yields `UNDETERMINED`, naming it. **Absent is
+  **"Newest" is the row with the greatest `endedAt` among rows whose `status` is `verdict`,
+  across every corpus file for the branch.** The filter is on `status`, **not** on whether a
+  timestamp parses: round 5 probed `docs/review-rounds/docs/parser-mutation-wave/0da9f84b1634.jsonl`
+  and found a committed `no_verdict` row carrying a perfectly valid `endedAt`, so an
+  earlier version of this clause — which excluded rows by missing timestamp and asserted that
+  covered every non-`verdict` row — would have let a wrapper-failure row become "newest". A row
+  with `status: verdict` but no parsable `endedAt` is excluded and named. Ties yield
+  `UNDETERMINED`. **Absent is
   normal**
   — an arc that never dispatched a review has no corpus file — and is read as `no review in
   flight`, not as a fault.
@@ -222,7 +226,8 @@ Keyed on **structure**, never spelling:
   signature (non-zero exit **and** stderr matching `no pull requests found for branch`), or a
   fault. All three are *accepted observations*; the accept-set does not classify them. **Rule 5
   alone decides what a fault produces** (§4.5), so that rule stays reachable and independently
-  testable. Round 3 found the previous wording consuming faults here, which made rule 6 dead code.
+  testable. Round 3 found the previous wording consuming faults here, which made that rule dead
+  code.
 
 Anything else yields `UNDETERMINED` **naming the offending field**. Terminal titles and pane labels
 are display strings, never parsed for meaning.
@@ -232,8 +237,8 @@ are display strings, never parsed for meaning.
 Position is **inferred**. The report shows its evidence per pane so an operator can overrule.
 
 Evaluated as an ordered list, first match wins. **Predicates are not mutually exclusive and are not
-claimed to be** — round 2 correctly showed that ordinary states match several (dirty + pending
-matches rows 2 and 4; clean + pending + recent matches 4 and 6). Ordering is what makes selection
+claimed to be** — ordinary states match several (dirty + a pending check matches rows 3 and 5;
+clean + APPROVE + a recent commit matches rows 6 and 7). Ordering is what makes selection
 deterministic; exclusivity was an unnecessary claim and is withdrawn.
 
 | # | Position | Predicate | Cost |
@@ -257,15 +262,12 @@ successor of CI-green, and PR #482 sat `CLEAN` and unmerged for five hours on th
 **Inference error may only demote — within the eligible band.** Where two rows both match and the
 ordering is uncertain, the classifier takes the **more expensive** cost, never the cheaper.
 
-**This does not extend to the critical band, and §7 limit 2 no longer claims it does.** Rule 9
-returns `FORCE` for `t >= 8` whatever the position cost, so at critical pressure a wrong inference
-*can* produce a compaction at an expensive position. That is deliberate: at `t >= 8` the
-alternative is not "no compaction", it is auto-compaction at a position nobody chose, which is
-strictly worse. Row 1 (CI green, PR unmerged) remains the one position that outranks `FORCE`,
-because there the correct action is to merge rather than to compact. Round 3 found the previous
-wording asserting an unqualified demote-only bound that the old unconditional `FORCE` rule
-contradicted. §4.5 rule 11 now removes the contradiction at its source: `FORCE` does not fire at a
-High-cost position.
+**`FORCE` does not override an expensive position.** §4.5 rule 10 fires `FORCE` at `t >= 8` only
+when the position cost is not High; rule 11 sends the High-cost case to `WAIT` instead. Row 1 (CI
+green, PR unmerged) is handled earlier still, by rule 8, because there the correct action is to
+merge rather than to compact. Rounds 2-4 each found a version of this section claiming a
+demote-only bound while an unconditional `FORCE` contradicted it; the contradiction was removed at
+its source rather than reworded again.
 
 ### 4.5 Precedence
 
@@ -296,7 +298,7 @@ Rule 3 sits above rule 4 deliberately: ownership resolves from `paneId` alone an
 so an unowned pane with a malformed marker is reported `UNOWNED` — which is what AC-5 requires, and
 what round 2 found the previous ordering contradicting.
 
-Rule 5 sits above every banding rule so a `gh` outage can never reach `COMPACT`/`FORCE`. Without
+Rule 6 sits above every banding rule so a `gh` outage can never reach `COMPACT`/`FORCE`. Without
 it, a failed `gh` reads as "no PR", which matches row 8 at Low cost and silently bypasses rule 8 on
 exactly the panes most dangerous to compact.
 
@@ -326,7 +328,10 @@ independently.
 ```
 panes:compact --checkpoint <target> --as <sessionId>
   0. revalidate: verdict is COMPACT|FORCE, purview resolves to <sessionId>, uncontested
-  1. mint a nonce; send CHECKPOINT_TEXT carrying it; send $'\r'         [P1: queues if busy]
+  1. mint a nonce that DIFFERS from the marker's current `checkpointNonce`
+     (a repeated value would let --compact accept the PREVIOUS checkpoint
+     before this prompt ever executes); send CHECKPOINT_TEXT carrying it;
+     send $'\r'                                                         [P1: queues if busy]
   2. record (target, nonce) under the orchestrator's state dir
   -> exits 0 having SENT, not having waited. The target executes when its turn ends.
 
@@ -334,18 +339,21 @@ panes:compact --compact <target> --as <sessionId>
   0. revalidate: same three conditions, fresh                            (closes F5)
   1. read the target's marker; require `checkpointNonce` == the recorded nonce
      mismatch or absent -> exit 1, send NOTHING                          (closes r3 F6)
-  2. CONSUME the nonce record before sending, not after: a crash between
-     consume and send costs a re-checkpoint, whereas consuming after would
-     leave a replayable record on every failure path                     (closes r4 F2)
+  2. compare-and-consume ATOMICALLY, as one operation on the record file:
+     a read-then-consume pair lets two overlapping invocations both pass
+     before either consumption is visible. Consume BEFORE sending, so a
+     crash costs a re-checkpoint rather than leaving a replayable record
+                                                                         (closes r4 F2, r5 F2)
   3. send '/compact'; send $'\r'                                         [P5, P7]
   -> exits 0 having SENT. No wait, no post-compact failure matrix.       (closes r3 F7)
 
 panes:compact --resume <target> --as <sessionId>
-  0. revalidate against --resume's OWN predicate, NOT COMPACT|FORCE:
-       not NOT-AN-ARC, purview resolves to <sessionId> uncontested,
-       agent_status not in {blocked, unknown}, target's blockedOn empty,
-       marker sessionId still matches the pane's agent_session
-     any failure -> exit 1 naming it, send NOTHING                       (closes F1)
+  0. revalidate: §4.5 rules 1-7 must ALL not fire (so the pane is an arc, is
+     uniquely named, is owned by <sessionId> uncontested, is inside the
+     accept-set, matches its session, has a determinate gh outcome, and is
+     not blocked). Rules 8-12 are NOT applied: they band on pressure, and a
+     successful compaction is what drops pressure below eligibility.
+     any failure -> exit 1 naming it, send NOTHING                       (closes r4 F1, r5 F3)
   1. send RESUME_TEXT; send $'\r'                                        [P6]
 ```
 
@@ -360,9 +368,17 @@ compaction: is this pane still mine, still an arc, still the session I checkpoin
 blocked. Round 4 found the previous version sending unconditionally, which would let a superseded
 pane be restarted against a worktree another session now owns.
 
-**The nonce is single-use.** `--compact` consumes the record before sending, so a retry finds no
-record and exits 1 rather than issuing a second `/compact`. Equality alone was replayable: the same
-stale-but-equal nonce would satisfy every later invocation.
+**The nonce is single-use, fresh, and consumed atomically.** Three properties, each closing a
+distinct replay:
+
+- **Single-use** — `--compact` consumes the record, so a retry finds none and exits 1 rather than
+  issuing a second `/compact`.
+- **Fresh** — the minted value must differ from the marker's current `checkpointNonce`. Without
+  that, re-checkpointing a pane mints the value already sitting in its marker, and `--compact`
+  would accept the *previous* checkpoint before the new prompt had executed.
+- **Atomic** — compare and consume are one operation on the record file. Read-then-consume lets two
+  overlapping invocations both pass before either consumption becomes visible, which is exactly the
+  case §7 limit 4's "at most one `/compact`" claim rests on.
 
 **The nonce is what makes verification sound.** Round 3 showed that "marker mtime is newer and
 `next` is non-empty" passes on *any* concurrent marker write — a stage progression, a `blockedOn`
@@ -476,6 +492,9 @@ scripts/pane-compaction.ts                      # NEW: thin CLI adapter
 package.json                                    # + "panes:compact" alias
 tests/paneCompaction/**                         # NEW: unit suites and fixture corpus
 tests/mutation/source/registry.ts               # + one GuardSurface row (AC-10)
+tests/mutation/_metaPremiseContract.test.ts     # + one EXPECTED_ENV_TOUCHING entry per enrolled
+                                                #   suite; it walks the registry, so a new surface
+                                                #   reds it by default rather than being exempt
 tests/docs/_metaPaneCompactionContract.test.ts  # NEW: prose pin (§10)
 docs/agents/orchestrator-pane-compaction.md     # NEW: the write-up (§10)
 AGENTS.md                                       # + pointer under cross-cutting discipline
@@ -491,6 +510,25 @@ AGENTS.md                                       # + pointer under cross-cutting 
 is classified correctly, or reported `UNDETERMINED`/`WAIT`/`UNOWNED`/`NOT-AN-ARC` with the reason
 named; it is never driven on a verdict the classifier could not establish. A worst case of
 conservative demotion plus a surfaced reason is a **documented limit**, not a finding.
+
+**The bound ranges over OBSERVATIONS, not over inferred position — and this scoping is the point,
+not a loophole.** Rounds 2, 3, 4 and 5 each found a §7 limit claiming more than the mechanism
+delivers, and each previous repair reworded the limit while leaving the bound quantified over
+something unachievable. Position is a heuristic over proxies; it can be wrong in **both**
+directions, and no reachable mechanism makes it sound — deciding whether a given repair commit
+actually addressed a review verdict is not observable from outside the target's session.
+
+What the bound therefore guarantees, exactly:
+
+1. No pane is driven while any §4.5 rule 1-8 condition holds. These are all **observations** —
+   name resolution, uniqueness, ownership, accept-set membership, session match, `gh`
+   determinacy, blocked status, CI-green-with-PR-unmerged — and each failure is named.
+2. `FORCE` never fires at a High-cost position (rule 11).
+3. Every refusal states its reason.
+
+What it does **not** guarantee: that an inferred position matches the target's actual state. That
+gap is §7 limit 1, and it is a limit rather than a defect because it is unobservable, not because
+it is unimportant.
 
 **Probe domain.** The live `herdr agent list` roster on this machine and the fixture corpus at
 `tests/paneCompaction/fixtures/`. A constructed roster outside that set, or more than one ordinary
@@ -510,14 +548,20 @@ line.
 
 Each is conservative-plus-signaled — consistent with §6, not an exception to it.
 
-1. **Position is inferred and can be wrong, and the consequence is always a missed compaction.**
-   §4.4's demote-only rule takes the more expensive cost when two rows match, and §4.5 rule 11
-   turns a High cost at critical pressure into `WAIT` rather than `FORCE`. So a wrong inference
-   can only ever withhold a compaction, never place one badly — which is what §6 requires, and
-   what rounds 2, 3 and 4 each found this limit failing to deliver. The price is explicit: a
-   critically-full pane sitting at a High-cost position is left to auto-compact. That is worse
-   than compacting it well and better than compacting it badly, and it is the only one of the
-   three the classifier can guarantee.
+1. **Position inference can be wrong in both directions, and the promotion case is real.** The
+   demote-only rule only breaks ties between predicates that both match; it does not constrain a
+   false negative. Round 5's example is ordinary: one commit after a non-APPROVE corpus row
+   disables the triage-pending predicate whether or not that commit addressed the verdict, after
+   which a clean recent tree selects the Lowest-cost row and can become `COMPACT`. So a wrong
+   inference can promote, not merely withhold.
+
+   This is a limit and not a defect because the missing fact — did that commit address the verdict
+   — is not observable from outside the target's session. What bounds it is §6's enumeration:
+   whatever position is inferred, the pane is not driven while any rule 1-8 observation says stop,
+   and `FORCE` will not fire at a High cost. The residual is a compaction at a position the
+   orchestrator believed cheaper than it was, which is the same class of outcome as the
+   auto-compaction it replaces.
+
 2. **A checkpoint can be issued and never followed by `--compact`.** The orchestrator may simply
    not run the second command. The consequence is a marker update the target performs at its own
    pace and no compaction — harmless, and visible in the next report because the recorded nonce
@@ -567,9 +611,11 @@ Each is conservative-plus-signaled — consistent with §6, not an exception to 
 | Corpus | Absent corpus reads as "no review in flight", not a fault; non-APPROVE newest row with no commit since → row 4. |
 | Purview | Unowned reported; contested reported; registry read from every file in the directory. |
 | Nonce single-use | `--compact` twice in a row: the second exits 1 and sends nothing, because the record was consumed before the first send. |
-| `--resume` predicate | Refuses on each of: `NOT-AN-ARC`, unowned, contested, `blocked`, non-empty `blockedOn`, session mismatch. Asserted **not** to require `COMPACT`/`FORCE`, since a successful compaction makes that false. |
+| Nonce freshness | Re-checkpointing a pane whose marker already carries nonce N mints a value != N, so `--compact` cannot accept the previous checkpoint before the new prompt executes. |
+| Nonce atomicity | Two overlapping `--compact` invocations against one target: exactly one consumes and sends; the other exits 1. Asserted against the record file, not by sequential calls — a sequential retry cannot exercise the interleaving §7 limit 4 rests on. |
+| `--resume` predicate | Refuses whenever **any** of §4.5 rules 1-7 fires — one case per rule, including duplicate agent names, which round 5 found the hand-picked earlier list omitting while rule 2 classified them `UNDETERMINED` precisely because a later command cannot resolve its target. Asserted **not** to require `COMPACT`/`FORCE`, since a successful compaction makes that false. |
 | Duplicate agent names | Two roster entries sharing a name are both `UNDETERMINED` **before banding** — a fixture where both would otherwise be `COMPACT`. |
-| Corpus newest-selection | Multiple rows across multiple files: greatest `endedAt` wins; rows without a parsable `endedAt` are excluded, not sorted arbitrarily; a tie yields `UNDETERMINED`. |
+| Corpus newest-selection | Multiple rows across multiple files: greatest `endedAt` among `status: verdict` rows wins. **A `no_verdict` row carrying a valid `endedAt` must not become newest** — the live corpus contains one (`docs/review-rounds/docs/parser-mutation-wave/0da9f84b1634.jsonl`), so the fixture is real, not constructed. A `verdict` row with an unparsable `endedAt` is excluded and named; a tie yields `UNDETERMINED`. |
 | `FORCE` respects High cost | `t >= 8` at a High-cost position yields `WAIT`, not `FORCE` — the §7 limit-1 behavior change, asserted rather than described. |
 | Nonce verification (§5.2) | Four cases: nonce matches → sends; nonce absent → exit 1, nothing sent; nonce differs → exit 1, nothing sent; **marker mtime newer and `next` non-empty but nonce stale** → exit 1, which is the concurrent-writer false positive round 3 found. |
 | Revalidation (§5.5) | Per command: fresh at report time, stale at command time → refuses, exits 1, sends nothing. |
@@ -613,6 +659,10 @@ on the case's own inputs.
   is (§4.5 rules 10-11), except under §4.5 rules 1-8.
 - **AC-12** The write-up and the AGENTS.md pointer exist; the §10 meta-test fails when either
   drifts.
+- **AC-23** `--resume` refuses when any §4.5 rule 1-7 fires, including duplicate agent names, and
+  does not apply the banding rules 8-12.
+- **AC-24** A minted nonce differs from the marker's current `checkpointNonce`, and compare-and-
+  consume is atomic: of two overlapping `--compact` invocations, exactly one sends.
 - **AC-13** `--checkpoint` and `--compact` each revalidate immediately before sending and refuse,
   exiting 1 without sending, when the fresh verdict is not `COMPACT`/`FORCE` or purview does not
   resolve to `--as` uncontested. **`--resume` revalidates against its own predicate** (§5.2) and
