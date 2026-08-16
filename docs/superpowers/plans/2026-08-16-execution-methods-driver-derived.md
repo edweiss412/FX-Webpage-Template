@@ -249,6 +249,8 @@ Append to tests/db/executionMethodsManifest.test.ts:
 ```ts
 import { readFileSync } from "node:fs";
 
+import { describe, expect, it } from "vitest";
+
 import { premiseHolds } from "../_shared/premise";
 import {
   POSTGRES_EXECUTION_CORE,
@@ -416,6 +418,8 @@ import { EXECUTION_METHODS } from "./_destructiveFileAnalysis";
 This asserts the analyzer's OWN exported object, not a test-side recomputation (spec §2.4 arm 2 anti-tautology requirement). Failure mode caught: the analyzer composing a different set than the module the suite recomputes from.
 
 In `tests/db/destructiveFileAnalysis.test.ts`, add directly after fixture `(cb)` (`tests/db/destructiveFileAnalysis.test.ts:1166`), reusing that fixture's local conventions (`IMPORT`, `P`, `analyseDestructiveFile` are already in scope in that file):
+
+<!-- plan-fences: ignore MANGLED_TEMPLATE — the escaped backticks are correct nesting, not mangling: `sql\`...\`` sits inside the outer `const src = \`...\`` template, so escaping is required. Verified byte-identical against the shipped fixture at tests/db/destructiveFileAnalysis.test.ts:1190. -->
 
 ```ts
   it("(cf) keeps `.array()` OUT of the execution set -- the behavioral twin of (cb)'s json case", () => {
