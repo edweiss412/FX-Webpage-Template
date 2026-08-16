@@ -466,7 +466,7 @@ test.describe("font binding — the measured row", () => {
     // skeleton renders no title node) rather than a selector both match — the
     // established contract at tests/e2e/published-review-modal.interactions.spec.ts:53-60.
     // Waiting on the shared one is a strict-mode violation ~half the time.
-    const loadedModal = await openShowReviewModal(page, seeded.slug, { timeoutMs: 30_000 });
+    await openShowReviewModal(page, seeded.slug, { timeoutMs: 30_000 });
     await expect(page.locator('[data-testid="published-show-review-modal"]')).toHaveCount(1);
     await page.evaluate(() => document.fonts.ready);
 

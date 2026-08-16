@@ -40,10 +40,26 @@ const REPO_ROOT = process.cwd();
  * The exemption inventory, pinned. A third entry fails this suite until an
  * author edits the list deliberately — an accepted limit is a claim someone has
  * to re-make, never a hole that widens silently (spec §4.4).
+ *
+ * Pinned by FILE and CLASS, not by line: the spec's `:298` / `:344` were an
+ * as-of-authoring rendering, and every adoption edit above them shifts those
+ * numbers. A line-keyed pin would then red on edits that changed nothing about
+ * the inventory, and the reflex fix — retyping the new numbers — is exactly how
+ * a pin stops meaning anything. Class is the property that must not drift.
  */
 const PINNED_EXEMPTIONS = [
-  "tests/e2e/published-review-modal.deeplink.spec.ts:298",
-  "tests/e2e/published-review-modal.deeplink.spec.ts:344",
+  {
+    file: "tests/e2e/published-review-modal.deeplink.spec.ts",
+    // §2.5: the loader redirect()s to bare /admin and the test asserts NO
+    // modal, so there is no modal-interior wait to harden.
+    reasonMatches: /non-member/,
+  },
+  {
+    file: "tests/e2e/published-review-modal.deeplink.spec.ts",
+    // Limit 3b: MODAL_ANY matches the Suspense skeleton, so a modal-or-boundary
+    // race resolves on the skeleton and would HIDE the fault.
+    reasonMatches: /skeleton-tolerant/,
+  },
 ] as const;
 
 const tempRoots: string[] = [];
@@ -206,7 +222,20 @@ describe("modal-wait guard — the live corpus", () => {
   });
 
   test("the exemption inventory is exactly the two pinned entries", () => {
-    expect(exemptions.map((e) => `${e.file}:${e.line}`)).toEqual([...PINNED_EXEMPTIONS]);
+    expect(
+      exemptions.map((e) => `${e.file}:${e.line} — ${e.reason}`),
+      "a third exemption is an accepted limit nobody re-stated: add it to PINNED_EXEMPTIONS " +
+        "with its class, or adopt the site",
+    ).toHaveLength(PINNED_EXEMPTIONS.length);
+
+    PINNED_EXEMPTIONS.forEach((pinned, index) => {
+      const actual = exemptions[index];
+      expect(actual?.file, `exemption ${index}`).toBe(pinned.file);
+      expect(actual?.reason, `exemption ${index}`).toMatch(pinned.reasonMatches);
+    });
+
+    // Distinct classes, so two copies of one exemption cannot satisfy the pin.
+    expect(new Set(exemptions.map((e) => e.reason)).size).toBe(exemptions.length);
     for (const exemption of exemptions) expect(exemption.reason.length).toBeGreaterThan(10);
   });
 

@@ -17,10 +17,12 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { openShowReviewModal } from "./helpers/openShowReviewModal";
 
 const BASE = "published-show-review";
 const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
-const MODAL = `${MODAL_ANY}:has([data-testid="${BASE}-title"])`;
+// The LOADED-frame selector lives in tests/e2e/helpers/openShowReviewModal.ts,
+// which both opens here now route through; MODAL_ANY survives for the count below.
 
 const SEED_TITLE = "Warning Panel Polish E2E Show";
 
@@ -93,8 +95,7 @@ test.describe("warning panel polish (spec §8.6/§8.8)", () => {
 
   async function openModal(page: import("@playwright/test").Page) {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto(`/admin?show=${show.slug}`);
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await openShowReviewModal(page, show.slug, { timeoutMs: 30_000 });
   }
 
   test("pointer button scrolls its section to the aligned position", async ({ page }) => {
@@ -337,8 +338,7 @@ test.describe("pointer overflow reveal (announcer spec §4.2-4.3)", () => {
 
   test("reveal button expands the list; a revealed name scrolls its section", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto(`/admin?show=${revealShow.slug}`);
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await openShowReviewModal(page, revealShow.slug, { timeoutMs: 30_000 });
     const dfid = revealShow.driveFileId;
     const SENTENCE = `[data-testid="wizard-step3-card-${dfid}-warnings-elsewhere"]`;
     const SCROLLER = `[data-testid="wizard-step3-card-${dfid}-review-content"]`;
