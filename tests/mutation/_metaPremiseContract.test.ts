@@ -66,6 +66,19 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS; when it closes, this number rises and the row
   // is updated to whatever the scanner then measures.
   "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 0,
+  // The heavy-orphan reaper's classifier suite, enrolled 2026-08-16. It declares 0
+  // because `classify` is pure by construction — no I/O and no clock, which is the
+  // property that made the module the enrolled surface rather than the CLI — so every
+  // case drives a literal row table and reaches no member of ENVIRONMENT_SOURCES. The
+  // arc's environment-touching cases all live in the two suites that are deliberately
+  // NOT enrolled: `tests/heavyReap/collect.test.ts` (real `ps`, spawned children) and
+  // `tests/heavyReap/cli.test.ts` (the CLI as a child process, real orphans).
+  //
+  // The number is the scanner's own measurement, not an assertion about the suite: the
+  // enrolment's red cycle reported "expected +0 to be undefined" here before the row
+  // existed. This registry was missing from the plan's meta-test inventory and was found
+  // by running the enrolment rather than by reading it.
+  "tests/heavyReap/classify.test.ts": 0,
   // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
   // inventory suite reads DESIGN.md and walks the repo, but through the module
   // under test rather than any member of ENVIRONMENT_SOURCES directly; the unit
