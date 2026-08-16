@@ -289,9 +289,14 @@ export function enumerateCandidates(root: string = process.cwd()): Candidate[] {
       if (text.includes(LEGACY_SHOW_ROUTE)) push("c-legacy-route");
       if (testIdPrefixes.some((prefix) => text.includes(prefix))) push("d-link-activation");
       if (RENAVIGATION_CALL.test(text)) push("e-renavigation");
-      if (HELPER_CALL.test(text) && !/^import\b|^\}? from ["']/.test(text.trim())) {
-        push("f-helper-call");
-      }
+      // Origin (f) is "this site has ADOPTED", so it must exclude both spellings
+      // that only LOOK adopted: an import (declares the helper, opens nothing)
+      // and a COMMENTED-OUT call (an adopted wait someone switched off). Missing
+      // the second reopened the exact regression origin (f) was added to close —
+      // commenting a wait out left its member count untouched, so the guard
+      // certified a site whose post-open wait no longer runs.
+      const isImport = /^import\b|^\}? from ["']/.test(text.trim());
+      if (HELPER_CALL.test(text) && !isImport && !site.isComment) push("f-helper-call");
     });
   }
   return candidates;

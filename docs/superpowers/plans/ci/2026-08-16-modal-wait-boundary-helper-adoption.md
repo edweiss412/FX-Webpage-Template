@@ -523,13 +523,14 @@ computed directly with the harness's OWN operators (`enumerateSites` + `applyMut
 each mutant to `scan.ts` and running the deciding suite once per mutant, sequentially, behind a
 clean-source baseline that must pass first.
 
-    SITES 61   relational-boundary 2 · equality-flip 12 · logical-connector 8
+    SITES 62   relational-boundary 2 · equality-flip 12 · logical-connector 9
                integer-literal 16 · regex-quantifier-bound 0 · statement-removal 23
 
     first run  49/57 = 0.8596, EIGHT survivors
     repaid     55/57 = 0.9649, TWO survivors, both argued equivalent
-    final      59/61 = 0.9672 after CI surfaced a comment-handling defect and the
-               fix grew the surface — all four new sites killed, same two rows
+    then       59/61 = 0.9672 after CI surfaced a comment-handling defect
+    final      60/62 = 0.9677 after review caught that origin (f) still read raw
+               text — every new site killed at each step, same two rows throughout
     UNACCEPTED SURVIVOR SET: EMPTY.   scoreFloor 0.95, set from these runs.
 
 Six survivors were real coverage gaps and were repaid with cases, each written against the mutant
