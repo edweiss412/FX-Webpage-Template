@@ -8,7 +8,7 @@ import { runBrowserControl, runBrowserSurface } from "./runner";
  * The browser-mutant gate (spec §3.6, AC-1/AC-2).
  *
  * NIGHTLY AND ON-DEMAND ONLY, like its vitest-mode sibling
- * (`tests/mutation/guardSurfaces.gate.test.ts`) and more so: each mutant spawns a
+ * (`tests/mutation/guardSurfaces.shard*.test.ts`) and more so: each mutant spawns a
  * real Playwright child, ~20-30 minutes for the first enrolled surface (spec §4,
  * measured). It lives in no default project. On demand: `pnpm mutation:browser`.
  *

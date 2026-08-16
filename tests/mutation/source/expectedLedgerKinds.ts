@@ -1,0 +1,180 @@
+// tests/mutation/source/expectedLedgerKinds.ts
+// Lifted verbatim out of the retired tests/mutation/guardSurfaces.gate.test.ts
+// when the source-mutation gate was sharded (wall-clock spec §3.2/§3.3). Both
+// the per-surface shard files and the corpus-wide gates file read it, so it
+// cannot live in either: the shards need the per-surface row, the gates file
+// needs the whole key set to prove completeness.
+//
+// Every comment below is a per-surface argument someone paid review rounds for.
+// They moved unmodified.
+
+/**
+ * Per-surface ledger-kind expectations.
+ *
+ * Declared HERE rather than counted from the surface's own ledger, because
+ * counting a list and comparing it to itself proves nothing — the point (whole-diff
+ * R1 F4) is that the deliberately coarse score floor cannot catch one or two rows
+ * migrating between kinds, so the target has to be stated independently.
+ *
+ * Keyed by surface id, and every enrolled surface must appear: a NEW surface fails
+ * by default until it declares its own counts, rather than silently inheriting the
+ * first customer's (whole-diff R2 MEDIUM — the previous version asserted
+ * taskContract's 18/2 against every surface in `describe.each`).
+ */
+export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // psqlStartupScan: EIGHTEEN equivalence arguments and NO accepted gap from the
+  // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Thirteen of
+  // the thirty-one first-run survivors were repaid with tests instead. Both counts moved
+  // during cross-model review, and in the same direction — each round refuted a written
+  // argument with a probe the argument had not been checked against, and each refutation
+  // became a test rather than a re-argued row. Equivalents went 19 -> 18
+  // (`regex-quantifier-bound:2684:32` IS distinguishable by a malformed three-indicator
+  // block-scalar header), and the surface's only accepted gap went 1 -> 0
+  // (`relational-boundary:2167:54` IS distinguishable by a trailing backslash at end of
+  // input, which the shell leaves literal). So the surface now declares a ledger with no
+  // counted survivor at all: an `accepted-gap` appearing here would be this surface's
+  // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
+  // coverage regression to explain.
+  psqlStartupScan: { equivalent: 18 },
+  // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
+  // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
+  // the message as a third key removed the gap rather than re-accepting it. The
+  // comparator also moved into `compareFindings`, whose own mutants split into
+  // four sign-not-magnitude and two guarded-branch equivalents — all six with
+  // control-flow arguments, which is why the surface now carries NO accepted gap.
+  taskContract: { equivalent: 22 },
+  // The 2026-08-15 arms surfaces, enrolled with EMPTY ledgers. Both are pure
+  // classifiers over literal fixtures, so every survivor is repayable by a test
+  // rather than blessable: a row appearing here later is a coverage regression
+  // to explain, not a number to bump.
+  // citationIntent swept clean: 21/21 killed, no blessed survivor, so a row
+  // appearing here later is a coverage regression to repair.
+  citationIntent: {},
+  // redContract: SEVEN reachability arguments — the GATE bound that only ever
+  // runs on GATE_ANY hits, three one-past-the-end scan bounds, and the two
+  // extent-containment equalities a marker line can never occupy. No
+  // accepted-gap: every other survivor of the first run was repaid by a test.
+  redContract: { equivalent: 7 },
+  // Counted from the surface, not read back off its ledger: `scripts/lib/
+  // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
+  // always present -- two in the tip comparator, one in the age loop -- and
+  // nothing else that survives. No accepted-gap: every other survivor was
+  // repaid by a test, so a row appearing here later is a regression to
+  // explain rather than a number to update.
+  ledgerClaimsCore: { equivalent: 3 },
+  // Enrolled 2026-08-10 with an EMPTY ledger, deliberately. The surface's first
+  // run scored 0.607, and the answer was to assert the recognizer's forms
+  // directly (tests/docs/interactionTimingScan.test.ts) and to move the CLI out
+  // of the mutated module — not to accept survivors. A row appearing here later
+  // is therefore a regression to explain, not a number to update.
+  interactionTimingScan: { equivalent: 8 },
+  // Counted from the surface: SIX reachability arguments -- the three two-field
+  // parses at ledger-git.ts:66, :142 and :232, the twice-tested regex group at :259,
+  // the `+++ b/` fallthrough at :320, and headRepo's three-way collapse at :365
+  // -- and NO accepted-gap rows at all. The one former family of six (the spawn
+  // timeouts at :32-34 and MAX_GIT_STDOUT's three literals at :62) is CLOSED:
+  // the injectable spawn seam makes every bound observable and
+  // tests/scripts/ledgerGitSpawnSeam.test.ts kills all six
+  // (chore/guard-completeness-wave, BL-LEDGER-GIT-TIMEOUT-CONSTANTS).
+  // "accepted-gap" is absent rather than 0 because the reducer omits kinds with
+  // no rows. A new accepted-gap row means a new family, which needs its own
+  // backlog entry rather than a bumped number here.
+  ledgerGit: { equivalent: 6 },
+  // Counted from the surface: count.ts carries NO blessed survivor at all. Its
+  // floor is 1, so any row appearing here is a coverage regression to repair
+  // rather than a number to update.
+  reviewRoundCount: {},
+  // Counted from the surface: exactly TWO reachability arguments -- the
+  // directory fallthrough at corpus.ts:79, which lands on the very next line's
+  // `isFile()` skip, and the one-past-the-end read at :146, which `?? ""` turns
+  // into a blank line the parser never sees. No accepted-gap: this surface's
+  // floor is 1, so a gap here would have to be repaid, not blessed.
+  reviewRoundCorpus: { equivalent: 2 },
+  // Enrolled by the enforcement-pair arc (spec §6.3): the parse contract for
+  // Mechanizable parity. Counted from the surface after the diff R1/R2 repairs
+  // reshaped the walkers: EIGHT reachability arguments - the visibleText
+  // code/html literal guard, six guard-flip legs across the three recursive
+  // walkers (label collection is paragraph-scoped and fieldName/
+  // beginsWithDecline are paragraph-only, so descending into code/html/delete
+  // subtrees finds nothing), and close()'s current-null hygiene. Every other
+  // survivor across the enrolment runs was repaid by a named test in
+  // tests/reviewRounds/filing.test.ts or the meta-test's message assertions -
+  // an accepted-gap row appearing here later needs its own backlog entry.
+  reviewRoundFiling: { equivalent: 8 },
+  // Counted from the surface: the executed-count oracle carries NO blessed
+  // survivor. Its floor is 1, so a row appearing here is a coverage regression
+  // to repair rather than a number to update. The surface exists in its current
+  // shape BECAUSE of this table: enrolled as one file with its CLI main block
+  // inline it scored 0.27, 18 of 19 survivors sitting in code the referring
+  // suite can never execute through an import.
+  phantomGapExecuted: {},
+  // M-wave 2 W-GUARDS (2026-08-10). popoverOverlayExtract: TWO equivalent rows
+  // (the template-separator connector flip, which can only inject the token
+  // `undefined` where no accept-set token contains it; and the null-key
+  // fall-through continue, which reaches only comparisons a null key cannot
+  // match). renderedTextHaystack: clean sweep, 17/17 killed after the
+  // hardening rows.
+  // chore/guard-completeness-wave (2026-08-15). destructiveFileAnalysis: EIGHT
+  // reachability arguments — the begin-callback receiver test Rule 1 already rejects
+  // ahead of, four fixpoint loop bounds the break-on-no-growth condition makes
+  // unreachable, the candidate-declaration count that cannot be zero by construction,
+  // Rule 3's tag test whose only other identifier position is a type argument, the
+  // ordering comparison two distinct nodes cannot tie, and the candidate-walker
+  // parameter leg where widening CANDIDATES cannot widen CHECKED because declQualifies
+  // re-derives `.begin`-ness independently. Everything else the runs surfaced was killed
+  // by a fixture, or deleted as dead code.
+  //
+  // The eighth row arrived late and is worth the sentence: CI's whole-gate run found
+  // TWELVE unaccepted survivors that three SIGTERM-killed local runs never reached, all
+  // in code this branch added. Eleven were real. Nine of those never flip `ok` — they
+  // move the rejection from Rule 1 to the containment rule — so only this suite's
+  // reason-CLASS pinning could kill them, which is the argument for that discipline.
+  destructiveFileAnalysis: { equivalent: 8 },
+  // pgCronSmokes: a clean sweep, 14/14 killed on first enrolment. Empty is the honest
+  // declaration and a row appearing here later is a regression to explain.
+  pgCronSmokes: {},
+  popoverOverlayExtract: { equivalent: 2 },
+  renderedTextHaystack: {},
+  // Counted from the surface: 42 reachability / control-flow arguments and NO accepted
+  // gap. The triage ran 84 -> 54 -> 45 -> 44 -> 43 -> 42 survivors, repaying 42 of them
+  // with tests rather than blessing them. The last TWO came off because whole-diff review
+  // refuted their equivalence arguments with probes: R1's compared a marker width instead
+  // of an indent, and R2's assumed a one-token union forced identical digit runs, which
+  // SET tokenization does not (multiplicity is discarded). Both are now killed by the
+  // shapes those probes used. So a 43rd row is a coverage regression to argue rather than
+  // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
+  // first, needing its own backlog entry.
+  specLintNumerics: { equivalent: 50 },
+  // The interactive-scan surfaces, enrolled 2026-08-15. `tapTargetScan` carries
+  // NO blessed survivor: its whole body is one map over the shared core's
+  // verdicts, and the census suite kills its single mutant, so a row appearing
+  // here later is a coverage regression to repair rather than a number to bump.
+  tapTargetScan: {},
+  // The shared core is this arc's mutation-relevant surface: the in-scope
+  // predicate, the resolver and both token grammars live here, and three suites
+  // decide its verdicts. Its eleven blessed survivors are all ONE shape — a
+  // mutation whose only effect is on a value no consumer can distinguish: an
+  // empty string added to a token list nothing counts, a loop's off-the-end read
+  // of `undefined`, a 2px shift against a 24px gap, a consistent relabelling
+  // under a symmetric `min`. Across two rounds SIXTY-SEVEN other survivors were
+  // repaid with fixtures rather than rows, so a TWELFTH row here is a gap to
+  // repay rather than a number to bump.
+  interactiveScanCore: { equivalent: 11 },
+  // feat/mutation-playwright-component-mode (2026-08-15): the browser mode's own
+  // two modules, enrolled before the arc's first review dispatch. Both declare an
+  // EMPTY ledger and a floor of 1 — a row appearing here later is a coverage
+  // regression to repair, not a number to update.
+  // First run scored 55/57 and 30/39. Ten of the eleven survivors were real
+  // coverage gaps and were repaid with cases in the two deciding suites, each
+  // proven against its own mutant; the one row below is the only survivor whose
+  // mutation no consumer can distinguish. So a SECOND row here is a gap to
+  // repay rather than a number to bump.
+  browserRegistry: {},
+  browserMutate: { equivalent: 1 },
+  // Fresh enrolment: every survivor is repaid or argued in the registry row's
+  // accepted list; a nonzero count appearing here later is a regression to
+  // repair rather than a number to bump. First run scored 63/65; both survivors
+  // were repaid with fixtures sitting exactly on NODES_MAX, so the re-run is
+  // 65/65 with an empty ledger.
+  serializeErrorStructure: {},
+};

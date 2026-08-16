@@ -25,7 +25,7 @@ const ROOT = join(__dirname, "..", "..");
  * reporting a clean corpus it no longer understands. A genuinely pure suite
  * declares 0 honestly and is not forced to invent a match.
  *
- * Same shape and same reason as EXPECTED_LEDGER_KINDS in guardSurfaces.gate.
+ * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
