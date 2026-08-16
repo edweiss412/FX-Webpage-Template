@@ -154,6 +154,7 @@ export async function isSameOriginServerAction(): Promise<boolean> {
 
 - [ ] **Step 1a: Extend the existing test harness so the gate is controllable.** The suite already mocks `next/headers` as `vi.mock("next/headers", () => ({ cookies: vi.fn() }))` (`tests/auth/picker/clearIdentity.test.ts:23`) and mocks `@/lib/log` as `logMock` (`tests/auth/picker/clearIdentity.test.ts:25-31`). `isSameOriginServerAction` (Task 1) reads `headers()` from `next/headers`, so extend the SAME mock and add a mutable header map, defaulting to same-origin so every EXISTING case still passes the gate. Do NOT import a `../helpers/headerMock` — no such file exists; the mock is inline:
 
+<!-- plan-fences: ignore UNIMPORTED_IDENTIFIER — excerpt appended to tests/auth/picker/clearIdentity.test.ts, which already imports vi at its head; a full import block here would misrepresent the edit as a new file. -->
 ```ts
 // widen the existing next/headers mock (was `{ cookies: vi.fn() }`):
 vi.mock("next/headers", () => ({ cookies: vi.fn(), headers: vi.fn() }));
@@ -279,8 +280,9 @@ Import `isSameOriginServerAction`; `log` is already imported (`lib/auth/picker/c
 
 - [ ] **Step 1: Add the §12.4 prose** — insert the table row (columns matching the sibling PICKER rows near line 3084 of the master spec) and the helpfulContext line near line 3330:
 
+<!-- plan-fences: ignore FENCE_EM_DASH — this fence QUOTES a §12.4 catalog row, whose context column carries an em-dash in every sibling PICKER row; the em-dash ban governs crew copy, and the crew column here is free of one. -->
 ```
-| `PICKER_SWITCH_FAILED` | M13 — a crew member's switch person clear did not land. | "A crew member's switch person clear did not land." | "Couldn't switch. Please try again." | Crew → try again; Eric if repeated |
+| `PICKER_SWITCH_FAILED` | picker menu — the avatar menu's "Not you? Switch person" clear returned a failure, and the menu shows the crew member an in-menu retry instead of appearing to have worked. | "A crew member's switch person clear did not land." | "Couldn't switch. Please try again." | Crew → try again; Eric if repeated |
 ```
 ```
 PICKER_SWITCH_FAILED: "The picker clear action failed for a crew member's switch-person tap."
@@ -324,6 +326,7 @@ PICKER_SWITCH_FAILED: {
 
 - [ ] **Step 1: Write failing tests** — extend `tests/components/auth/avatarMenu.test.tsx`. The file already imports `it`, `act`, `fireEvent`, `render`, `screen`, `waitFor` (add `waitFor` + `vi` to the `@testing-library/react` / `vitest` import lines), `jest-dom/vitest`, and provides `ROUTE`, `renderMenu`, and `openMenu` (`tests/components/auth/avatarMenu.test.tsx:23-45`). Add two local helpers (`closeMenu`, `deferred`) and import the result type; do NOT reference a `baseProps` — render with `ROUTE` spread, matching the file's own `renderMenu`:
 
+<!-- plan-fences: ignore UNIMPORTED_IDENTIFIER — excerpt appended to tests/components/auth/avatarMenu.test.tsx, which already imports it/expect/vi/act/fireEvent/render/screen/waitFor; Step 1 says so in the prose directly above. -->
 ```tsx
 import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 import { messageFor } from "@/lib/messages/lookup";

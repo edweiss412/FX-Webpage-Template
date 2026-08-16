@@ -26,39 +26,67 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SITE_ORIGIN", SITE);
 });
 
+const EVIL = "https://evil.example.com";
+
+/**
+ * The COMPLETE cross-product: 5 `sec-fetch-site` states × 3 `origin` states.
+ *
+ * Enumerated in full rather than sampled, because a partial table is a hole the
+ * shape of the omitted cells. Round 1 of the diff review demonstrated exactly
+ * that: an earlier 11-row table omitted four cells, and a mutant that read
+ * "when Fetch Metadata is present but the Origin MISMATCHES, allow" passed
+ * every committed row while allowing `cross-site` + an attacker Origin — the
+ * precise CSRF request this gate exists to refuse.
+ *
+ * Expectations are written per cell by hand, never derived from the same rule
+ * the implementation applies; a table computed from the rule would only prove
+ * the rule agrees with itself.
+ */
+const SFS_STATES = ["same-origin", "none", "same-site", "cross-site", null] as const;
+const ORIGIN_STATES = [SITE, EVIL, null] as const;
+
 const cases: Array<[string, Record<string, string>, boolean]> = [
-  ["sfs same-origin", { "sec-fetch-site": "same-origin" }, true],
-  ["sfs none", { "sec-fetch-site": "none" }, true],
-  ["sfs same-site", { "sec-fetch-site": "same-site" }, false],
-  ["sfs cross-site", { "sec-fetch-site": "cross-site" }, false],
-  // PRECEDENCE both directions (R2-F8): sec-fetch-site wins over origin whenever present.
-  [
-    "sfs cross-site + matching origin (sfs wins → reject)",
-    { "sec-fetch-site": "cross-site", origin: SITE },
-    false,
-  ],
-  [
-    "sfs same-origin + MISMATCHING origin (sfs wins → allow)",
-    { "sec-fetch-site": "same-origin", origin: "https://evil.example.com" },
-    true,
-  ],
-  [
-    "sfs none + MISMATCHING origin (sfs wins → allow)",
-    { "sec-fetch-site": "none", origin: "https://evil.example.com" },
-    true,
-  ],
-  [
-    "sfs same-site + matching origin (sfs wins → reject)",
-    { "sec-fetch-site": "same-site", origin: SITE },
-    false,
-  ],
-  // origin fallback consulted ONLY when sec-fetch-site is absent:
-  ["no sfs, origin === site", { origin: SITE }, true],
-  ["no sfs, origin !== site", { origin: "https://evil.example.com" }, false],
-  ["neither signal", {}, true],
+  // sec-fetch-site WINS whenever present. Its verdict is identical across all
+  // three origin states, which is what these first twelve rows pin.
+  ["same-origin + matching origin", { "sec-fetch-site": "same-origin", origin: SITE }, true],
+  ["same-origin + MISMATCHING origin", { "sec-fetch-site": "same-origin", origin: EVIL }, true],
+  ["same-origin + no origin", { "sec-fetch-site": "same-origin" }, true],
+
+  ["none + matching origin", { "sec-fetch-site": "none", origin: SITE }, true],
+  ["none + MISMATCHING origin", { "sec-fetch-site": "none", origin: EVIL }, true],
+  ["none + no origin", { "sec-fetch-site": "none" }, true],
+
+  ["same-site + matching origin", { "sec-fetch-site": "same-site", origin: SITE }, false],
+  ["same-site + MISMATCHING origin", { "sec-fetch-site": "same-site", origin: EVIL }, false],
+  ["same-site + no origin", { "sec-fetch-site": "same-site" }, false],
+
+  // The filed bypass and its neighbours. `cross-site` is refused on every
+  // origin state, including the attacker-supplied one.
+  ["cross-site + matching origin", { "sec-fetch-site": "cross-site", origin: SITE }, false],
+  ["cross-site + MISMATCHING origin", { "sec-fetch-site": "cross-site", origin: EVIL }, false],
+  ["cross-site + no origin (the documented bypass)", { "sec-fetch-site": "cross-site" }, false],
+
+  // The Origin fallback is consulted ONLY when sec-fetch-site is absent.
+  ["no sfs + matching origin", { origin: SITE }, true],
+  ["no sfs + MISMATCHING origin", { origin: EVIL }, false],
+  ["no sfs + no origin (documented limit: framework default preserved)", {}, true],
 ];
 
 describe("isSameOriginServerAction", () => {
+  it("enumerates the COMPLETE sec-fetch-site x origin cross-product", () => {
+    // A derived cover, not a hand-counted one: the assertion is against the
+    // cross-product itself, so a cell added to either axis fails here until the
+    // table grows to match, rather than silently going untested.
+    const expectedKeys = new Set(
+      SFS_STATES.flatMap((s) => ORIGIN_STATES.map((o) => `${String(s)}|${String(o)}`)),
+    );
+    const actualKeys = new Set(
+      cases.map(([, h]) => `${h["sec-fetch-site"] ?? "null"}|${h["origin"] ?? "null"}`),
+    );
+    expect(actualKeys).toEqual(expectedKeys);
+    expect(cases.length).toBe(expectedKeys.size);
+  });
+
   it.each(cases)("%s", async (_label, hdrs, expected) => {
     for (const [k, v] of Object.entries(hdrs)) headerMap.set(k, v);
     expect(await isSameOriginServerAction()).toBe(expected);

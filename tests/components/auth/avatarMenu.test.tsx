@@ -42,6 +42,13 @@ function renderMenu(name = "Doug L.", role = "Lead") {
   return render(<AvatarMenu name={name} role={role} {...ROUTE} clearAction={clearAction} />);
 }
 
+/** A promise whose settlement the test controls. */
+function deferredPending<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
 function openMenu(): void {
   act(() => {
     fireEvent.click(screen.getByTestId("avatar-menu-trigger"));
@@ -472,7 +479,14 @@ describe("the switch-person failure state", () => {
   });
 
   it("keyboard reaches the pending switch item by all four commands, and re-activation is a no-op", async () => {
-    const action = vi.fn(() => new Promise<ClearIdentityResult>(() => {})); // never resolves
+    // Held open by a deferred, and RESOLVED at the end of this test. A promise
+    // that never settles leaves an async transition permanently in flight, and
+    // React tracks that beyond the unmounted component: every later test in
+    // this file then saw its own transition never retire, so onSwitchSubmit's
+    // pending guard swallowed their submits and they failed for a reason that
+    // had nothing to do with them. Measured while adding the retry cases below.
+    const held = deferredPending<ClearIdentityResult>();
+    const action = vi.fn(() => held.promise); // pending until this test ends
     renderWith(action);
     openMenu();
     act(() => {
@@ -514,5 +528,123 @@ describe("the switch-person failure state", () => {
       fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
     });
     expect(action.mock.calls.length).toBe(calls); // onSwitchSubmit early-returns while pending
+    // Settle the held transition so it cannot leak into later tests.
+    await act(async () => {
+      held.resolve({ ok: true });
+      await held.promise;
+    });
+  });
+});
+
+/**
+ * Retry out of Open-error — spec §4.6's Open-error↔Open-pending and
+ * Open-error→Open-idle pairs, which round 1 of the diff review found
+ * unexercised. Two mutants survived without these: removing the
+ * `setSwitchStatus("idle")` at the head of `onSwitchSubmit` (a retry that
+ * SUCCEEDS leaves the stale alert on screen), and a stale-closure read of the
+ * status (a retry that FAILS AGAIN leaves the menu idle with no alert at all,
+ * so the second failure reads as success).
+ *
+ * Each attempt is driven by its own deferred and resolved inside `act`, the
+ * same shape the close/reopen lifecycle cases use. An immediately-resolved mock
+ * is NOT interchangeable here: the transition's pending flag is still set when
+ * the alert first paints, and `onSwitchSubmit` early-returns while pending, so
+ * the retry would be silently swallowed and the test would pass for the wrong
+ * reason.
+ */
+describe("retrying out of the failure state", () => {
+  const EXPECTED = messageFor("PICKER_SWITCH_FAILED").crewFacing ?? "";
+
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+  }
+
+  const submit = (): void => {
+    act(() => {
+      fireEvent.click(screen.getByTestId("avatar-menu-switch-person"));
+    });
+  };
+
+  /**
+   * Retires the in-flight transition before the next submit.
+   *
+   * Resolving the action's promise inside `act` commits the state update, but
+   * the `useTransition` pending flag is NOT retired by that alone in jsdom —
+   * measured here: right after the resolve the alert is on screen while the
+   * submit still reads `aria-disabled="true"`. Since `onSwitchSubmit`
+   * early-returns while pending, retrying on the alert's paint would silently
+   * drop the retry and the test would pass for the wrong reason. Extra
+   * microtask turns inside `act` retire it; the assertion below is what proves
+   * the wait actually worked rather than assuming it.
+   */
+  const settled = async (): Promise<void> => {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("avatar-menu-switch-person").getAttribute("aria-disabled")).toBe(
+        "false",
+      ),
+    );
+  };
+
+  /** Renders with a queue of deferreds, one per attempt, in call order. */
+  const renderWithQueue = (queue: Array<Promise<ClearIdentityResult>>) => {
+    let call = 0;
+    const action = vi.fn(() => queue[call++]!);
+    render(<AvatarMenu name="Doug L." role="Lead" {...ROUTE} clearAction={action} />);
+    return action;
+  };
+
+  it("clears the alert when the retry SUCCEEDS (kills the missing-reset mutant)", async () => {
+    // The menu never closes between the two attempts, so reset-on-open cannot
+    // be what clears the alert — only the reset inside onSwitchSubmit can.
+    const first = deferred<ClearIdentityResult>();
+    const second = deferred<ClearIdentityResult>();
+    const action = renderWithQueue([first.promise, second.promise]);
+    openMenu();
+    submit();
+    await act(async () => {
+      first.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await first.promise;
+    });
+    expect(await screen.findByRole("alert")).toBeTruthy(); // Open-error
+    // Let the first transition fully retire before retrying: onSwitchSubmit
+    // early-returns while pending, and the alert paints before the pending flag
+    // clears, so submitting on the paint alone silently drops the retry.
+    await settled();
+    submit(); // Open-error → Open-pending, menu still open
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      second.resolve({ ok: true });
+      await second.promise;
+    });
+    expect(screen.queryByRole("alert")).toBeNull(); // Open-idle: no stale alert survives
+  });
+
+  it("keeps the alert when the retry FAILS AGAIN (kills the stale-status mutant)", async () => {
+    const first = deferred<ClearIdentityResult>();
+    const second = deferred<ClearIdentityResult>();
+    const action = renderWithQueue([first.promise, second.promise]);
+    openMenu();
+    submit();
+    await act(async () => {
+      first.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await first.promise;
+    });
+    await screen.findByRole("alert");
+    await settled();
+    submit();
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      second.resolve({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+      await second.promise;
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent?.trim()).toBe(EXPECTED); // a second failure still says so
+    expect(screen.getByTestId("avatar-menu-popover")).toBeInTheDocument();
   });
 });
