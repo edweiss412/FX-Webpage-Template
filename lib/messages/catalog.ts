@@ -1316,17 +1316,25 @@ export const MESSAGE_CATALOG = {
     // interpolated at all (lookup.ts messageFor), so a placeholder would render
     // literally. The matched candidate rides `ParseWarning.candidate` + the warning
     // message instead (warnings.ts emitUnknownField).
+    // NO string asks Doug to judge "our suggestion" (impeccable gate F1): the matched
+    // candidate is computed and attached but NOTHING renders it, so a card inviting him
+    // to report a wrong guess would be asking about a guess he was never shown. Rendering
+    // it is filed as BL-NEARMISS-CANDIDATE-RENDER; until it ships, the copy names only
+    // what is on screen. `helpfulContext` documents BOTH card controls (gate F4) because
+    // the Ignore button still renders for this code
+    // (DataQualityWarningControls.tsx:108, gated on the always-present rawSnippet), and
+    // every action string leads with the imperative rather than system state (gate F5).
     dougFacing:
-      "We found a row labeled _<key>_ in _<sheet-name>_ that looks like it was meant to be a row we show (like 'Stage' for 'Stage Size'), so it isn't showing on the crew page. Rename the row in the sheet if it should show.",
+      "Rename the row labeled _<key>_ in _<sheet-name>_ so it matches the row we show. It nearly matches one now, which is why it isn't showing on the crew page.",
     crewFacing: null,
     followUp: "Doug → rename the row in the sheet (or optional Report)",
     helpfulContext:
-      "A row in your sheet looks like it was meant to be a row we show (like 'Stage' for 'Stage Size'), so it isn't showing on the crew page. Rename the row in the sheet if it should show, or use Report if we've guessed wrong.",
+      "Rename this row in your sheet so it matches the row we show. It nearly matches one now (like 'Stage' for 'Stage Size'), which is why it isn't showing on the crew page. Report flags it to us; Ignore hides this notice.",
     triggerContext:
       "Appears when a row's label nearly matches a row we know how to show, but doesn't match it exactly.",
-    title: "Row label that looks misnamed",
+    title: "Row we couldn't match",
     longExplanation:
-      "A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page: a row labeled 'Stage' where we show 'Stage Size', for example. We don't rename it for you, because the row you meant would be a guess. Rename it in the sheet and it will show the next time this show checks its sheet. If our suggestion is wrong, use Report and we'll take a look.",
+      "A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page: a row labeled 'Stage' where we show 'Stage Size', for example. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.",
     helpHref: "/help/errors#UNKNOWN_FIELD",
   },
   UNKNOWN_DAY_RESTRICTION: {

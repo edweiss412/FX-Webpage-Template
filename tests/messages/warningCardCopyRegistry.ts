@@ -142,7 +142,13 @@ export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
   // sweeps accept any non-empty string, and only codes listed HERE are
   // byte-compared. Retitled from "Unrecognized row in sheet", which the
   // content-keyed detector made false - the row DOES nearly match a field.
-  UNKNOWN_FIELD: "Row label that looks misnamed",
+  // Retitled again at close-out (impeccable gate F3 + F8): "Row label that looks
+  // misnamed" put no agent in the subject position and handed down a verdict on a
+  // sheet Doug authored, unlike its siblings ("Section we didn't recognize"). The
+  // shipped form is also SHORTER than both it and the original, which settles F8's
+  // group-eyebrow wrap concern - the gate's own suggested wording was longer than
+  // what it replaced and would have made that worse.
+  UNKNOWN_FIELD: "Row we couldn't match",
 };
 
 /**
@@ -157,7 +163,7 @@ export const EXPECTED_TITLE_CHANGES: Readonly<Record<string, string>> = {
  */
 export const EXPECTED_LONG_EXPLANATION: Readonly<Record<string, string>> = {
   UNKNOWN_FIELD:
-    "A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page: a row labeled 'Stage' where we show 'Stage Size', for example. We don't rename it for you, because the row you meant would be a guess. Rename it in the sheet and it will show the next time this show checks its sheet. If our suggestion is wrong, use Report and we'll take a look.",
+    "A row in your sheet is labeled close to a row we show, but not close enough for us to read it as that row, so it isn't showing on the crew page: a row labeled 'Stage' where we show 'Stage Size', for example. Rename it in the sheet and it will show the next time this show checks its sheet. We don't rename it for you, because the row you meant would be a guess.",
 };
 
 /**
@@ -252,7 +258,7 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
   UNKNOWN_DAY_RESTRICTION:
     "This crew member is marked day-restricted ('***' in the sheet) but the sheet doesn't say which days, so their schedule shows 'days unconfirmed'. Add the days to the name cell, like '(6/24 and 6/26 ONLY)'.",
   UNKNOWN_FIELD:
-    "A row in your sheet looks like it was meant to be a row we show (like 'Stage' for 'Stage Size'), so it isn't showing on the crew page. Rename the row in the sheet if it should show, or use Report if we've guessed wrong.",
+    "Rename this row in your sheet so it matches the row we show. It nearly matches one now (like 'Stage' for 'Stage Size'), which is why it isn't showing on the crew page. Report flags it to us; Ignore hides this notice.",
   UNKNOWN_ROLE_TOKEN:
     "One of this crew member's role labels isn't one we recognize, so we left it off their page instead of guessing. If the label is correct, this card's controls let you add it as a real role.",
   UNKNOWN_SECTION_HEADER:

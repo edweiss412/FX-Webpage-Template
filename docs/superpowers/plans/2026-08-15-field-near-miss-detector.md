@@ -286,6 +286,19 @@ const isAllCapsSingle = (rawLabel: string, normTokens: Set<string>): boolean =>
 
 ## 12. Invariant-8 closeout
 
-impeccable-gate: N/A — no UI surface
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded
 
-(Placeholder per the wave precedent: Task 7 Step 1 runs the dual gate on the copy diff and REPLACES the line above with the filled `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` form in the same commit as the gate run.)
+Full report: `.superpowers/sdd/2026-08-15-field-near-miss-detector/impeccable-gate.md` (workspace-local, git-ignored). Both halves ran against the `UNKNOWN_FIELD` copy diff — `lib/messages/catalog.ts` plus its §12.4 and card-copy rows. No P0. Eight findings, dispositioned here:
+
+| # | Tier | Finding | Disposition |
+|---|---|---|---|
+| F1 | P1 | `helpfulContext` and `longExplanation` asked Doug to Report "if we've guessed wrong" / "if our suggestion is wrong" — but **nothing renders the guess**. The detector computes the matched candidate and attaches it (`lib/parser/warnings.ts:427`), and `grep -rn "\.candidate" components/ app/` finds zero render sites. Doug was invited to judge a suggestion he is never shown. | **Split.** Copy half FIXED here: both clauses removed, so the copy names only what is on screen. Render half DEFERRED as `BL-NEARMISS-CANDIDATE-RENDER` — it is a `components/` change this arc does not otherwise touch (class-sweep disposition exception (c)). |
+| F2 | P2 | The worked example `(like 'Stage' for 'Stage Size')` was authored in three strings; only two are byte-frozen, so `dougFacing` could drift out of agreement unnoticed. On-screen duplication does not occur (no surface renders two of these together). | FIXED by removing the example from `dougFacing`, the one unfrozen copy — the drift vector, not the duplication, was the real residue. |
+| F3 | P2 | `title: "Row label that looks misnamed"` deleted the agent and handed down a verdict on a sheet Doug authored, unlike siblings such as `UNKNOWN_SECTION_HEADER` → "Section we didn't recognize". | FIXED: `"Row we couldn't match"`. The gate's own suggested wording ("Row we couldn't match to a field", 32 chars) was LONGER than the 29 it replaced and would have worsened F8; the shipped form is 21 and settles both. |
+| F4 | P2 | The retired copy named both card controls; the rewrite named Report only, while the Ignore button still renders for this code (`DataQualityWarningControls.tsx:108`, gated on the always-present `rawSnippet`). | FIXED: `helpfulContext` documents both again. |
+| F5 | P3 | Both action strings spent ~25 words on system state before reaching the imperative. | FIXED: `dougFacing` and `helpfulContext` now lead with "Rename". |
+| F6 | P3 | `components/admin/wizard/step3ReviewSections.tsx:3065` quoted the retired title `"Unrecognized row in sheet"` in a comment whose premise ("the catalog title is generic") is the thing this arc changed. | FIXED. |
+| F7 | P3 | Eleven test-fixture sites hard-code the retired title. | NOT CHANGED, and deliberately: every one passes the label in as a component prop rather than reading the catalog, so the value is arbitrary by design and none of them can fail. This is not an instance of F6's defect — F6 asserted a false premise about live behavior; a fixture asserts nothing. Changing them would add three `components/` test files to the diff for no behavioral gain. |
+| F8 | P3 | The group eyebrow (`BulkIgnoreControls.tsx:194-199`) has `min-w-0` but no `truncate`, so a longer title wraps rather than clips. Rendered wrap UNVERIFIED (no browser). | RESOLVED by F3's shorter title — 21 chars, below both the 25-char original and the 29-char intermediate. |
+
+Two pre-existing `broken-image` hook findings at `step3ReviewSections.tsx:3705,3736` are outside this arc's diff (the only edit to that file is a comment) and are left alone.
