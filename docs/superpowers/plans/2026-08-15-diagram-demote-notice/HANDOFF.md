@@ -22,7 +22,7 @@ You are the Opus implementer session for `feat/diagram-demote-notice`. This file
 
 - TDD per task (invariant 1); each task's RED is stated in its plan body.
 - UI surface: YOU are Opus. `/impeccable` setup gates BEFORE component code; critique + audit at close (Task C3); closeout carries the filled `impeccable-gate:` marker line.
-- Spec §2.1/§2.2 shapes are binding: all FOUR clear conditions (timer, last-wins re-fire, initiator-side `handleClose` wrapper, second-failure) plus the `closingRef` set-gate and the `openNonce` reset seam, `relative` added to the active-branch figure, `aria-hidden` non-interactive chip, Reset-chip token family, `duration-fast ease-out-quart` tokens (no literal ms in classes).
+- Spec §2.1/§2.2 shapes are binding: all FOUR clear conditions (timer, last-wins re-fire, initiator-side `handleClose` wrapper, second-failure) plus the close set-gate and the `openNonce` session seam (shipped as `closedAtNonce` + a session-stamped notice — see spec §2.1's 2026-08-16 amendments, which supersede the `closingRef` / render-time-reset wording), `relative` added to the active-branch figure, `aria-hidden` non-interactive chip, Reset-chip token family, `duration-fast ease-out-quart` tokens (no literal ms in classes).
 - Timing discipline: `DEMOTE_CHIP_VISIBLE_MS = 6000` literal + DESIGN.md §5.5 row + inventory regen in the SAME commit; `tests/docs/_metaInteractionTimingInventory.test.ts` green both directions.
 - Out of scope (do not touch): `BL-DIAGRAMS-ANNOUNCE-CHANNEL-TTL`, `BL-LIGHTBOX-INACTIVE-SLIDES-IN-A11Y-TREE`, the demote mechanism, the announce copy.
 - Full pre-push gates: `pnpm heavy pnpm test`, `pnpm typecheck`, `pnpm exec eslint .`, `pnpm format:check`.

@@ -7,7 +7,7 @@ Branch: `feat/diagram-demote-notice` · Spec: `docs/superpowers/specs/crew/2026-
 
 | Task | What landed |
 | --- | --- |
-| C1 | `DEMOTE_CHIP_VISIBLE_MS = 6000` + the DESIGN.md §5.5 row in the same commit; the session-stamped `demotedNotice: { id, nonce }` state set in the branch that announces (a bare id at first — see the review section below); `relative` on the slide figure; the `aria-hidden`, `pointer-events-none` chip in the Reset chip's token family; four clear conditions; the `openNonce` counter in the parent gallery; 15 tests. |
+| C1 | `DEMOTE_CHIP_VISIBLE_MS = 6000` + the DESIGN.md §5.5 row in the same commit; the session-stamped `demotedNotice: { id, nonce }` state set in the branch that announces (a bare id at first — see the review section below); `relative` on the slide figure; the `aria-hidden`, `pointer-events-none` chip in the Reset chip's token family; four clear conditions; the `openNonce` counter in the parent gallery; 16 tests. |
 | C3 | Merge, full gates, impeccable dual gate, ledger archive, cross-model diff review, CI, merge. |
 
 ## Step-0 probe (recorded, per the plan)
@@ -20,14 +20,14 @@ unclassified`), which is what the inventory gate reads.
 
 ## Test evidence
 
-- `tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` — 10 new cases (AC-1 containment +
+- `tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` — 11 new cases (AC-1 containment +
   announce lockstep, AC-2 with the ratified 5999/1 literals and the constant asserted separately,
   timer-cancel oracles, AC-3 both non-demote paths, AC-4, last-wins restart, clear-4, swipe-return
   remaining lifetime, Reset coexistence, AC-6 full class contract).
 - `tests/components/diagrams/gallery.failedItem.test.tsx` — 5 session cases through the REAL parent:
   all three close initiators, the exit-window repopulation block, and the positive re-entry ordering
   (the case that fails against an effect-timed reset).
-- All 15 observed RED before implementation; `tests/components/diagrams/` green at 153.
+- All 16 observed RED before implementation (11 + 5, counted from the runtime selection: `-t "demote's sighted chip"` reports 11 passed, `-t "never survives a dialog session"` reports 5); `tests/components/diagrams/` green at 153.
 - `tests/docs/_metaInteractionTimingInventory.test.ts` observed failing by name
   (`DEMOTE_CHIP_VISIBLE_MS = 6000` not listed) before the §5.5 row landed; green both directions in
   the same commit.
@@ -59,8 +59,8 @@ implementation, not just the tests:
   second error on that slide was the CLAMPED tier failing and landed in the placeholder branch — the
   gate under test was never asked anything, and deleting it would have left the case green. Rewritten
   to reach the exit window UNDEMOTED with zoom intent pinned, so the error there is a genuine first
-  failure of the original, plus an assertion that its announcement really is buffered and delivered
-  (proof that the demote branch ran at all).
+  failure of the original (see the R3 note below — the rewrite reached the file only on the second
+  attempt, and what finally proves the gate is the mid-exit assertion, not an announcement oracle).
 - **The positive re-entry case did not pin render-time behavior.** Firing the error in a later
   `act()` flushes passive effects first, so an effect-timed reset passes too. Firing it in the SAME
   `act()` turned out to be unsatisfiable for any implementation — measured: the re-entry has not
@@ -72,10 +72,14 @@ implementation, not just the tests:
 R3 then found that the FIRST of those repairs had never reached the file: the edit script that
 rewrote the exit-window case aborted on a later assertion and wrote nothing, so the same finding was
 raised twice against an unchanged test while the commit message claimed it fixed. It is applied now,
-with two additions the second attempt earned: the case asserts the gate's OWN observable — no chip
-paints on the retained instance mid-exit, before any re-open — because after a re-open the session
-stamp would hide a leaked notice anyway, so a post-re-open assertion alone cannot tell a working gate
-from a deleted one. Probed by mutation: replacing `closedAtNonce !== openNonce` with `true` reds this
+with two additions the second attempt earned: the slide reaches the exit window UNDEMOTED, and the
+case asserts the gate's OWN observable — no chip paints on the retained instance mid-exit, before any
+re-open — because after a re-open the session stamp would hide a leaked notice anyway, so a
+post-re-open assertion alone cannot tell a working gate from a deleted one. A buffered-announcement
+oracle was drafted for this case and REMOVED rather than left as a claim: after a cancelled exit,
+which channel carries a buffered message is the parent's routing decision, which spec §1.1 item 3
+puts out of scope here, and `Gallery — a lightbox failure inside the exit window is not lost` already
+covers that contract. Probed by mutation: replacing `closedAtNonce !== openNonce` with `true` reds this
 case (1 failed / 40 passed), and the tree is restored.
 
 Fixing the second case surfaced a real defect in the implementation and changed it. The chip state
