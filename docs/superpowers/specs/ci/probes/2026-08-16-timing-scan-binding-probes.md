@@ -1606,3 +1606,43 @@ noResolve=false files=3 decls=1 → lib/ui/copyFeedback.ts ⇒ RESOLVED (suppres
 - The declaration being a program root is NOT sufficient: the PATH to it must be in the program too. With the intermediate barrel outside the universe, `noResolve` yields zero declarations and the site reports; the same program with `noResolve` off pulls the barrel in and resolves.
 - Today the name filter SUPPRESSES that site, so this is a new residual on an ordinary import-path refactor, not an unchanged answer — which is why §4 item 1 states it rather than the earlier draft claiming identity with current behaviour.
 - The direction is conservative (a surfaced name someone dispositions), the shape is absent from the tree (all 17 live cross-file resolutions import the declaring module directly, P2), and the fix if it ever lands is an `EXPLICIT_INCLUDES` row for the barrel — not switching module resolution back on, which P4 prices at roughly 30x.
+## P16 — is AC-12 a fires case or a regression pin?
+
+Asked while a review round held the tree frozen, about this arc's own acceptance criteria. P10 showed the same-line neighbour failing against the DRAFT design, and the plan then listed it among the fires cases — but a fires case has to fail against the CURRENT tree, not against a design the arc rejected.
+
+### Script — `probe/p16-ac12-today.ts`
+
+```ts
+/** P16 — is AC-12's case (same-line neighbour) RED today, or is it a
+ *  regression pin that is already green under the name filter? */
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { scanRepo } from "./landed";
+
+const root = mkdtempSync(join(tmpdir(), "p16-"));
+mkdirSync(join(root, "components", "x"), { recursive: true });
+writeFileSync(
+  join(root, "components/x/SameLine.tsx"),
+  "declare function readConfig(): number;\n" +
+    "const CLOSE_DELAY_MS = 220, other = readConfig();\n" +
+    "export function A(fn: () => void) { setTimeout(fn, other); }\n",
+  "utf8",
+);
+const r = scanRepo(root);
+console.log("unclassified today:", JSON.stringify(r.unclassified.map((s) => `${s.file}:${s.line} ${s.name}`)));
+console.log("AC-12 assertion (other reports) holds TODAY:", r.unclassified.some((s) => s.name === "other"));
+```
+
+### Transcript
+
+```
+unclassified today: ["components/x/SameLine.tsx:3 other"]
+AC-12 assertion (other reports) holds TODAY: true
+```
+
+### What it settles
+
+- The assertion AC-12 makes is TRUE TODAY: the name filter has no notion of lines, so `other` is already reported. The case is a REGRESSION PIN, not a RED.
+- It is still worth keeping — it is the only assertion that fails if someone re-adopts a key that aliases — but counting it among the task's RED evidence would be exactly the tautology the anti-tautology rule forbids: a test that passes the moment it is authored proves nothing about the implementation it supposedly drove.
+- The plan's case table, the AC-coverage row, and spec §5's inventory all say so now: five fires, one regression pin, five stays-quiet.

@@ -1,6 +1,6 @@
 # Timing scan: resolve an identifier delay against its BINDING, not its spelling
 
-**Date:** 2026-08-16 · **Arc branch:** `fix/timing-scan-scope-resolution` · **Entry:** `BL-TIMING-SCAN-NAME-VS-BINDING` (BACKLOG.md, filed 2026-08-15, effort M) · **Status:** spec-APPROVED by SUBSTITUTE review — see §7
+**Date:** 2026-08-16 · **Arc branch:** `fix/timing-scan-scope-resolution` · **Entry:** `BL-TIMING-SCAN-NAME-VS-BINDING` (BACKLOG.md, filed 2026-08-15, effort M) · **Status:** spec-APPROVED after 3 substitute rounds (32 findings, all repaired) — read §7 for what that gate was and was not
 
 ## §7 Review posture — what gated this spec, and what did not
 
