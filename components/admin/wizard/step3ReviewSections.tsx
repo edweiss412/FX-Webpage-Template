@@ -1377,9 +1377,9 @@ export function TransportBreakdown({
 /** One sunken spec cell in the compact transport strip: eyebrow + stacked lines. */
 function TransportCell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col items-center gap-1.5 rounded-md bg-surface-sunken px-3 py-2.5 text-center">
+    <div className="flex min-w-0 flex-col items-center gap-1 rounded-md bg-surface-sunken px-3 py-2 text-center">
       <span className={CELL_EYEBROW_CLASS}>{label}</span>
-      <div className="flex w-full flex-1 flex-col items-center justify-center gap-1.5">
+      <div className="flex w-full flex-1 flex-col items-center justify-center gap-1">
         {children}
       </div>
     </div>
@@ -1409,10 +1409,15 @@ function ContactCell({
       {hasContent(phone) ? (
         <a
           href={`tel:${phone.replace(/[^\d+]/g, "")}`}
-          // Tap floor (spec §2, site 6). Composite-link recipe: `min-h-tap-min` on the existing
-          // `flex` string, display preserved. The parent cell is `flex-col items-center`, so the
-          // width shrink-wraps and a full phone number already clears 44px across.
-          className="flex min-h-tap-min items-center gap-1 text-[11px] tabular-nums text-text hover:text-text-strong"
+          // Tap floor (spec 2026-08-10 §2, site 6) as a full-width CHIP ROW
+          // (spec 2026-08-15-step3-tap-cluster §2.3). `min-h-tap-min` still carries the floor;
+          // what is new is that the 44px reads as a row instead of a void. `w-full` is
+          // deliberate and is the OPPOSITE of the shrink-wrap contract sites 4/8 keep: a
+          // bordered `bg-surface` chip on the cell's `bg-surface-sunken` ground gives the
+          // target a visible edge AT REST, which is the affordance the venue floor requires
+          // (PRODUCT.md:59 — phones cannot hover, so `hover:` alone is an invisible target).
+          // The house focus ring is new here too; these links carried no focus treatment.
+          className="flex w-full min-h-tap-min items-center justify-center gap-1 rounded-sm border border-border bg-surface px-2 text-[11px] tabular-nums text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
         >
           <Phone className="size-3 shrink-0" aria-hidden="true" />
           {phone}
@@ -1421,8 +1426,14 @@ function ContactCell({
       {hasContent(email) ? (
         <a
           href={`mailto:${email}`}
-          // Tap floor (spec §2, site 7) — same recipe as the tel: link above.
-          className="flex min-h-tap-min min-w-0 items-center gap-1 text-[11px] text-text hover:text-text-strong"
+          // Site 7 — the same chip recipe as the tel: link above, plus `mt-1.5`. That margin
+          // rides on top of the body's `gap-1` to put 10px between the two targets: they are
+          // both 44px now, and 6px of separation made "email the driver" and "dial the driver
+          // mid-show" a thumb-width apart. It is UNCONDITIONAL, so a phone-less cell carries
+          // 6px of leading dead space — accepted (spec §7 limit 4) over a conditional
+          // className, which is the non-literal shape BL-TAP-TARGET-STRUCTURAL-GUARD records
+          // as the corpus guard's blocker.
+          className="mt-1.5 flex w-full min-h-tap-min min-w-0 items-center justify-center gap-1 rounded-sm border border-border bg-surface px-2 text-[11px] text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
         >
           <Mail className="size-3 shrink-0" aria-hidden="true" />
           <span className="min-w-0 wrap-break-word">{email}</span>
@@ -1458,7 +1469,11 @@ function TransportBody({
   return (
     <div className="flex flex-col gap-4">
       {cellCount > 0 ? (
-        <div className="grid grid-cols-2 gap-2 min-[560px]:grid-cols-3">
+        // `items-start` (spec 2026-08-15-step3-tap-cluster §2.2): grid items stretch by
+        // default, so a one-line Vehicle or Parking cell was dragged to the height of a
+        // contact cell whose two 44px tap targets make it ~160px — a large sunken panel
+        // around ~34px of content, which reads as broken rather than spacious.
+        <div className="grid grid-cols-2 items-start gap-2 min-[560px]:grid-cols-3">
           {hasDriver ? (
             <ContactCell
               label="Driver"
