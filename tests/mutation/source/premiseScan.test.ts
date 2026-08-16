@@ -462,3 +462,96 @@ describe("R1 — a reference denotes a BINDING, never a name", () => {
     ).toBe("environment-free");
   });
 });
+
+// ── Whole-diff review R2: two more places a NAME stood in for a binding ──────
+describe("R2 — dynamic imports and non-runtime positions", () => {
+  const IMPORT = `import { spawnSync } from "node:child_process";`;
+
+  /** Every verdict in a suite, in order — these cases turn on more than one test. */
+  function verdicts(src: string): string[] {
+    const p = join(scratch, `multi${n++}.ts`);
+    writeFileSync(p, src, "utf8");
+    return classifyTests(ROOT, p).map((t) => t.verdict);
+  }
+
+  /** A helper module plus a suite, returning every verdict. */
+  function verdictsWithModule(moduleSrc: string, testSrc: string): string[] {
+    const id = n++;
+    writeFileSync(join(scratch, `pure${id}.ts`), moduleSrc, "utf8");
+    const p = join(scratch, `multi${id}-user.ts`);
+    writeFileSync(p, testSrc.replace(/__MODULE__/g, `./pure${id}`), "utf8");
+    return classifyTests(ROOT, p).map((t) => t.verdict);
+  }
+
+  // A dynamic import binds a LOCAL name. Keeping those bindings in the
+  // file-global import map made the answer depend on which one was registered
+  // last, in both directions — a pure local hid a real dynamic provenance, and
+  // a pure dynamic binding inherited an unrelated static import's edge.
+  it("a dynamic provenance import is not hidden by a pure local of the same name", () => {
+    expect(
+      verdicts(`const spawnSync = () => 1;
+        it("x", async () => { const { spawnSync } = await import("node:child_process"); spawnSync("git", []); });`),
+    ).toEqual(["environment-touching"]);
+  });
+
+  it("a pure dynamic import shadows a static provenance import of the same name", () => {
+    expect(
+      verdictsWithModule(
+        `export const spawnSync = () => 1;`,
+        `${IMPORT}
+         it("x", async () => { const { spawnSync } = await import("__MODULE__"); return spawnSync(); });`,
+      ),
+    ).toEqual(["environment-free"]);
+  });
+
+  it("two dynamic bindings of one name keep their own edges — provenance first", () => {
+    expect(
+      verdictsWithModule(
+        `export const spawnSync = () => 1;`,
+        `it("a", async () => { const { spawnSync } = await import("node:child_process"); spawnSync("git", []); });
+         it("b", async () => { const { spawnSync } = await import("__MODULE__"); return spawnSync(); });`,
+      ),
+    ).toEqual(["environment-touching", "environment-free"]);
+  });
+
+  it("two dynamic bindings of one name keep their own edges — pure first", () => {
+    expect(
+      verdictsWithModule(
+        `export const spawnSync = () => 1;`,
+        `it("a", async () => { const { spawnSync } = await import("__MODULE__"); return spawnSync(); });
+         it("b", async () => { const { spawnSync } = await import("node:child_process"); spawnSync("git", []); });`,
+      ),
+    ).toEqual(["environment-free", "environment-touching"]);
+  });
+
+  // Positions that name something at COMPILE time only. None can reach the
+  // environment at runtime, so resolving them against a same-named value
+  // binding is provenance the test never touches.
+  const nonRuntime: ReadonlyArray<readonly [string, string]> = [
+    ["a typeof query on a type-only alias", `let f: typeof spawnSync; void f;`],
+    ["a type annotation naming a type", `type cache = number; const v: cache = 1; void v;`],
+    ["an enum declaration name", `enum cache { A } return cache.A;`],
+    ["a getter key", `const o = { get cache() { return 1; } }; return o;`],
+    ["a setter key", `const o = { set cache(v: number) { void v; } }; return o;`],
+    ["a statement label", `cache: for (const _ of []) { break cache; }`],
+    ["a continue label", `cache: for (const _ of []) { continue cache; }`],
+    ["an interface name", `interface cache { a: number } const v: cache = { a: 1 }; void v;`],
+  ];
+  it.each(nonRuntime)("%s is not a value reference", (_label, body) => {
+    expect(
+      verdict(`${IMPORT}
+        const cache = spawnSync("git", []);
+        it("x", () => { ${body} });`),
+    ).toBe("environment-free");
+  });
+
+  it("the SAME name in a runtime position still reaches the environment", () => {
+    // The foil for the whole table: nothing above may be achieved by making
+    // the recognizer stop resolving `cache` at all.
+    expect(
+      verdict(`${IMPORT}
+        const cache = spawnSync("git", []);
+        it("x", () => { return cache; });`),
+    ).toBe("environment-touching");
+  });
+});

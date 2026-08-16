@@ -100,6 +100,25 @@ function referencedIdentifiers(node: ts.Node): ts.Identifier[] {
 function isReferenceIdentifier(id: ts.Identifier): boolean {
   const p = id.parent;
   if (p === undefined) return true;
+  // A TYPE position names something at compile time and reaches nothing at
+  // runtime, so resolving it against a same-named VALUE binding attributes
+  // provenance to a test that never touches it. One ancestor test rather than a
+  // list of type syntaxes: `typeof x` queries, annotations, type arguments,
+  // heritage clauses and the rest all sit under a type node (R2 #2).
+  if (isInTypePosition(id)) return false;
+  // A label is its own namespace — `cache: for (…) break cache;` names neither
+  // a value nor a type.
+  if (ts.isLabeledStatement(p) && p.label === id) return false;
+  if ((ts.isBreakStatement(p) || ts.isContinueStatement(p)) && p.label === id) return false;
+  // An intrinsic JSX tag is a string in disguise: `<div>` names an element, and
+  // only a Capitalized tag is a value reference.
+  if (
+    (ts.isJsxOpeningElement(p) || ts.isJsxSelfClosingElement(p) || ts.isJsxClosingElement(p)) &&
+    p.tagName === id &&
+    /^[a-z]/.test(id.text)
+  ) {
+    return false;
+  }
   if (ts.isPropertyAccessExpression(p) && p.name === id) return false;
   if (ts.isQualifiedName(p) && p.right === id) return false;
   if (ts.isPropertyAssignment(p) && p.name === id) return false;
@@ -120,6 +139,12 @@ function isReferenceIdentifier(id: ts.Identifier): boolean {
       ts.isPropertyDeclaration(p) ||
       ts.isPropertySignature(p) ||
       ts.isEnumMember(p) ||
+      ts.isEnumDeclaration(p) ||
+      ts.isTypeAliasDeclaration(p) ||
+      ts.isInterfaceDeclaration(p) ||
+      ts.isModuleDeclaration(p) ||
+      ts.isGetAccessorDeclaration(p) ||
+      ts.isSetAccessorDeclaration(p) ||
       ts.isImportSpecifier(p) ||
       ts.isImportClause(p) ||
       ts.isNamespaceImport(p) ||
@@ -129,6 +154,21 @@ function isReferenceIdentifier(id: ts.Identifier): boolean {
     return false;
   }
   return true;
+}
+
+/** Is this identifier anywhere inside a TYPE, rather than in a value position? */
+function isInTypePosition(id: ts.Identifier): boolean {
+  let n: ts.Node | undefined = id.parent;
+  while (n !== undefined) {
+    if (ts.isTypeNode(n) || ts.isTypeAliasDeclaration(n) || ts.isInterfaceDeclaration(n)) {
+      return true;
+    }
+    // An expression cannot sit inside a type except through these, and both
+    // stop the walk: past them we are back in value code.
+    if (ts.isExpressionStatement(n) || ts.isBlock(n) || ts.isSourceFile(n)) return false;
+    n = n.parent;
+  }
+  return false;
 }
 
 /** Does any identifier under `node` carry this name? (membership only — no resolution). */
@@ -265,6 +305,17 @@ type ModuleFacts = {
    * it would resurrect the collision this design exists to prevent.
    */
   shadows: Map<Scope, Set<string>>;
+  /**
+   * scope → (local name → the module edge a DYNAMIC import bound there).
+   *
+   * Separate from `imports` because the scopes differ: a static import binds at
+   * module scope, but `const { spawnSync } = await import(...)` binds wherever
+   * it is written. One file-global map made the answer depend on which
+   * registration came last, in BOTH directions — a pure local hid a real
+   * dynamic provenance, and a pure dynamic binding inherited an unrelated
+   * static import's edge (whole-diff R2 #1).
+   */
+  scopedImports: Map<Scope, Map<string, { spec: string; imported: string }>>;
   /** Memo for `resolveBinding`, keyed (scope, name) — see there for why that is the identity. */
   resolved: Map<Scope, Map<string, Binding>>;
   /** Memo for `extentIsProvenance`, per node of THIS file. */
@@ -283,7 +334,7 @@ type ModuleFacts = {
  */
 type Binding =
   | { kind: "local"; scope: Scope; extent: ts.Node[] }
-  | { kind: "import"; spec: string; imported: string }
+  | { kind: "import"; scope: Scope; spec: string; imported: string }
   | { kind: "unbound" };
 
 function resolveBinding(facts: ModuleFacts, name: string, from: ts.Node): Binding {
@@ -302,6 +353,10 @@ function resolveBinding(facts: ModuleFacts, name: string, from: ts.Node): Bindin
 function resolveUncached(facts: ModuleFacts, name: string, start: Scope): Binding {
   let scope: Scope | null = start;
   while (scope) {
+    // A dynamic import binds HERE, so it is found on the same innermost-out
+    // walk as any other binding rather than from a file-global map.
+    const dynamic = facts.scopedImports.get(scope)?.get(name);
+    if (dynamic !== undefined) return { kind: "import", scope, ...dynamic };
     const here = facts.extents.get(scope)?.get(name);
     if (here && here.length > 0) return { kind: "local", scope, extent: here };
     // A shadow is a real answer, not a miss: the name is bound to something
@@ -311,15 +366,16 @@ function resolveUncached(facts: ModuleFacts, name: string, start: Scope): Bindin
     scope = scopeOf(scope);
   }
   const imported = facts.imports.get(name);
-  if (imported !== undefined) return { kind: "import", ...imported };
+  if (imported !== undefined) return { kind: "import", scope: facts.sf, ...imported };
   return { kind: "unbound" };
 }
 
 /** Identity of the binding a reference resolves to — the dedup key. */
 function bindingKey(name: string, binding: Binding): string | null {
-  if (binding.kind === "local") return `${name}@${binding.scope.kind}:${binding.scope.pos}`;
-  if (binding.kind === "import") return `${name}@import`;
-  return null;
+  if (binding.kind === "unbound") return null;
+  // The scope is part of the identity for imports too: two dynamic imports of
+  // one name in different scopes are two different edges to follow.
+  return `${name}@${binding.kind}@${binding.scope.kind}:${binding.scope.pos}`;
 }
 
 /** A module's EXPORTED binding, looked up by the name it carries there. */
@@ -333,6 +389,7 @@ function moduleFacts(path: string): ModuleFacts | null {
   const imports = new Map<string, { spec: string; imported: string }>();
   const extents = new Map<Scope, Map<string, ts.Node[]>>();
   const shadows = new Map<Scope, Set<string>>();
+  const scopedImports = new Map<Scope, Map<string, { spec: string; imported: string }>>();
   /** Writes, resolved in a SECOND pass: a write's target binding cannot be
    * known until every declaration in the file has been registered. */
   const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
@@ -355,8 +412,10 @@ function moduleFacts(path: string): ModuleFacts | null {
     shadows.set(scope, set);
   };
 
-  const bindPattern = (name: ts.BindingName, spec: string): void => {
-    if (ts.isIdentifier(name)) imports.set(name.text, { spec, imported: name.text });
+  /** Bind a dynamic import's names IN THE SCOPE THAT DECLARES THEM. */
+  const bindPattern = (name: ts.BindingName, spec: string, scope: Scope): void => {
+    const here = scopedImports.get(scope) ?? new Map<string, { spec: string; imported: string }>();
+    if (ts.isIdentifier(name)) here.set(name.text, { spec, imported: name.text });
     else if (ts.isObjectBindingPattern(name)) {
       for (const el of name.elements) {
         if (!ts.isIdentifier(el.name)) continue;
@@ -364,9 +423,10 @@ function moduleFacts(path: string): ModuleFacts | null {
         // in propertyName, exactly as a named import does.
         const imported =
           el.propertyName && ts.isIdentifier(el.propertyName) ? el.propertyName.text : el.name.text;
-        imports.set(el.name.text, { spec, imported });
+        here.set(el.name.text, { spec, imported });
       }
     }
+    scopedImports.set(scope, here);
   };
 
   const walk = (node: ts.Node): void => {
@@ -399,7 +459,12 @@ function moduleFacts(path: string): ModuleFacts | null {
         let p: ts.Node = node;
         while (p.parent && !ts.isVariableDeclaration(p.parent)) p = p.parent;
         const decl = p.parent;
-        if (decl && ts.isVariableDeclaration(decl)) bindPattern(decl.name, arg.text);
+        if (decl && ts.isVariableDeclaration(decl)) {
+          const home = isVarDeclaration(decl)
+            ? (functionScopeOf(decl) ?? sf)
+            : (scopeOf(decl) ?? sf);
+          bindPattern(decl.name, arg.text, home);
+        }
       }
     }
 
@@ -425,13 +490,11 @@ function moduleFacts(path: string): ModuleFacts | null {
       // they sit in. Registering a block-scoped name at function scope shadows
       // references that follow the block, which is the false-NEGATIVE direction.
       const home = isVarDeclaration(node) ? (functionScopeOf(node) ?? sf) : (scopeOf(node) ?? sf);
-      // A dynamic-import binding is recorded in `imports` (with the name it
-      // carries in the TARGET module) by the clause above. Registering a local
-      // extent for it too would shadow that entry with the bare `await
-      // import(...)` expression, which names no provenance by itself and
-      // carries no edge to follow into an in-repo module. LIMIT: such a binding
-      // is therefore modelled as module-scoped, so two dynamic imports of the
-      // same local name in different scopes share one entry.
+      // A dynamic-import binding is registered in `scopedImports` by the clause
+      // above, carrying the name it has in the TARGET module. Registering a
+      // local extent for it too would shadow that edge with the bare `await
+      // import(...)` expression, which names no provenance by itself and has no
+      // module edge to follow.
       if (!isDynamicImportInitializer(node.initializer)) {
         for (const id of bindingIdentifiers(node.name)) {
           // A declaration with NO initializer still BINDS the name here, so a
@@ -444,6 +507,10 @@ function moduleFacts(path: string): ModuleFacts | null {
     }
     if (ts.isFunctionDeclaration(node) && node.name) addExtent(node.name.text, node, node);
     if (ts.isClassDeclaration(node) && node.name) addExtent(node.name.text, node, node);
+    // An enum declares a VALUE too — `cache.A` reads the enum object — so it
+    // binds its name like a class does, or the member access falls through to
+    // whatever same-named binding encloses it.
+    if (ts.isEnumDeclaration(node)) addExtent(node.name.text, node, node);
 
     // A named function or class EXPRESSION binds its own name inside itself and
     // nowhere else: `const p = function cache() { return cache; }` reads the
@@ -505,6 +572,7 @@ function moduleFacts(path: string): ModuleFacts | null {
     imports,
     extents,
     shadows,
+    scopedImports,
     resolved: new Map<Scope, Map<string, Binding>>(),
     provenance: new WeakMap<ts.Node, boolean>(),
   };
