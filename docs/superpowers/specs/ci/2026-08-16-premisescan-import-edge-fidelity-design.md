@@ -28,7 +28,7 @@ Stated before the first review dispatch, per AGENTS.md's convergence-criterion s
 
 **Consequence bound (closable).** For every input drawn from the probe domain below, a module edge this scanner cannot resolve reports `unclassifiable` — never a silent `environment-free`. `unclassifiable` is loud by construction: `_metaPremiseContract.test.ts` asserts the unclassifiable set is empty and reds the run on any member, and clearing one costs an explicit `// no-premise: <reason>` visible in the diff. A conservative demote plus a surfaced signal is a **documented limit** (§4), not a finding.
 
-**PROBE DOMAIN.** `tests/mutation/source/registry.ts`'s enrolled `suitePaths` (29 suites) and every in-repo module transitively reachable from them (86 modules; §3.3) — that closure is the classifier's entire live domain, since `tests/mutation/_metaPremiseContract.test.ts:165` derives the scanned set from `GUARD_SURFACES.flatMap((s) => s.suitePaths)`. The near-domain, from which the registry's next enrolment is drawn, is `git ls-files tests` plus its in-repo closure (2,314 seeds, 3,207 modules; §3.4). An admissible probe is an input from one of those two sets, or one ordinary edit from such an input — swapping `import { x }` for `import * as ns`, hoisting a helper into a barrel, renaming a default. A constructed module graph outside both sets files to §4 without a round.
+**PROBE DOMAIN.** `tests/mutation/source/registry.ts`'s enrolled `suitePaths` and every in-repo module transitively reachable from them — **31 suites / 90 in-repo modules once PR #827 lands**, which is the domain at implementation time (§3.3) — that closure is the classifier's entire live domain, since `tests/mutation/_metaPremiseContract.test.ts:165` derives the scanned set from `GUARD_SURFACES.flatMap((s) => s.suitePaths)`. The near-domain, from which the registry's next enrolment is drawn, is `git ls-files tests` plus its in-repo closure (2,314 seeds, 3,207 modules; §3.4). An admissible probe is an input from one of those two sets, or one ordinary edit from such an input — swapping `import { x }` for `import * as ns`, hoisting a helper into a barrel, renaming a default. A constructed module graph outside both sets files to §4 without a round.
 
 **Threat fence.** Ordinary repository refactors by a contributor who is not trying to evade the checker. Deliberately obfuscated import graphs — computed re-export tables, `eval`, a namespace laundered through an untyped indirection — are **out of scope** and file to §4. This is the same fence the canonical spec set at §3.3.2.1 ("refactoring a spawn behind a *local* helper is ordinary authoring and is covered; reaching the environment through a third-party package to escape the checker is not"), and every admissibility clause in §1.2 cites it.
 
@@ -128,7 +128,7 @@ Without this rule the repair would turn `import manifest from "@/supabase/__gene
 
 ### §2.5 Termination
 
-Forward-following visits `(modulePath, exportName)` pairs against a `visited` set. A repeat is `unresolvable` with reason `re-export cycle`. There is no depth cap and none is wanted: a bound expressed as a NUMBER is the shape AGENTS.md's repair-economy bullet says the next reviewer will find, so termination is derived from the finite pair set — a repository has finitely many modules and each has finitely many export names, so the walk terminates without a counter.
+Forward-following visits `(modulePath, exportName)` pairs against a `visited` set. **A repeat contributes nothing and the walk continues** — it means the pair was already answered on another path, which is what a DIAMOND graph produces (`barrel` re-exports from both `a` and `b`, and both re-export from `c`); reporting a cycle on any repeat would make that ordinary shape a false `unclassifiable`. A genuine cycle is the case where every path is exhausted with nothing resolved, and only that reports `unresolvable` with reason `re-export cycle`. There is no depth cap and none is wanted: a bound expressed as a NUMBER is the shape AGENTS.md's repair-economy bullet says the next reviewer will find, so termination is derived from the finite pair set — a repository has finitely many modules and each has finitely many export names, so the walk terminates without a counter.
 
 ### §2.6 Half 2 — the two constructs propagate through the traversal
 
@@ -155,7 +155,7 @@ Both branches are loud; the consequence bound quantifies over the FREE direction
 
 ### §2.8 What does not change
 
-The declaration-reference fixed point, scope-keyed extents, parameter shadows, `scopedImports`, the write pass, `ENVIRONMENT_SOURCES`, the premise/exemption detection, `.each` associated-placement detection, and `EXPECTED_ENV_TOUCHING`'s 29 declared numbers. This arc edits the cross-module lookup, the namespace binding kind, and the `unresolved` channel — nothing else.
+The declaration-reference fixed point, scope-keyed extents, parameter shadows, `scopedImports`, the write pass, `ENVIRONMENT_SOURCES`, the premise/exemption detection, `.each` associated-placement detection, and `EXPECTED_ENV_TOUCHING`'s declared numbers, all 31 of them once #827 lands. This arc edits the cross-module lookup, the namespace binding kind, and the `unresolved` channel — nothing else.
 
 ---
 
@@ -204,10 +204,10 @@ The entry's four-cell table is reproduced exactly, extended by a cross-module ce
 
 ### §3.3 Population of the live domain — the blast-radius measurement
 
-An AST walk over the enrolled `suitePaths` and their transitive in-repo closure (probe record, §Results — probe 3):
+An AST walk over the enrolled `suitePaths` and their transitive in-repo closure (probe record, §Results — probe 3). **Measured twice**, because PR #827 enrols `premiseScan` itself and therefore changes the domain: once against the registry on `main` (29 suites / 86 modules) and once against `git show origin/fix/scanner-scope-totality:tests/mutation/source/registry.ts` (31 suites / 90 modules, the domain at implementation time — the two added suites are `tests/mutation/source/premiseScan.test.ts`, declared `0`, and `tests/mutation/_metaPremiseContract.test.ts`, declared `1`). **Every count below is zero in BOTH measurements**; the post-#827 figures are the binding ones:
 
 ```
-DOMAIN: enrolled     seeds 29     modules reached 86
+DOMAIN: enrolled (post-#827 registry)     seeds 31     modules reached 90
   namespace:inrepo         0
   default:inrepo           0
   reexport-named:inrepo    0
@@ -221,7 +221,7 @@ DOMAIN: enrolled     seeds 29     modules reached 86
   computed member access on process               0
 ```
 
-**Every form this arc repairs occurs zero times in the classifier's current domain.** Therefore the repair changes no verdict today: all 29 `EXPECTED_ENV_TOUCHING` numbers stand and the unclassifiable set stays empty. That is AC-1, and it is machine-checkable rather than argued.
+**Every form this arc repairs occurs zero times in the classifier's domain, before and after #827.** Therefore the repair changes no verdict: every `EXPECTED_ENV_TOUCHING` number stands (29 rows today, 31 once #827 lands) and the unclassifiable set stays empty. That is AC-1, and it is machine-checkable rather than argued.
 
 ### §3.4 Population of the near-domain — why the repair is worth shipping
 
@@ -260,7 +260,7 @@ In-repo import edges from `tests/**`, by resolved extension: `.ts` 4,237 · `.ts
 
 1. **`export * as ns from "m"` is reported, not followed** (§2.2). An exported namespace would need a second namespace-valued binding kind for a form with zero occurrences repo-wide. Worst case: `unclassifiable` naming the module — loud, never a silent free.
 2. **`export = <expr>` is reported, not followed** (§2.2). Zero occurrences as an in-repo import target.
-3. **A namespace binding used anywhere other than `ns.member` or `ns["member"]` is reported** (§2.3). 41 near-domain sites, 0 live. The cost of the alternatives is either module-closure over-classification (fenced, §1.1 item 2) or silence (violates the bound).
+3. **A namespace binding used anywhere other than `ns.member` or `ns["member"]` is reported** (§2.3). 0 sites in the live domain; 41 in the near-domain, spread over **8 test files** — `tests/admin/showPageFeed.test.tsx` (11), `tests/admin/showFeedAcceptActions.test.ts` (7), `tests/parser/opsMetadataTokens.test.ts` (2), and one each in `tests/visibility/_metaDocumentedPredicateParity.test.ts`, `tests/sync/unexpectedParentLog.test.ts`, `tests/sync/attachWarningAnchors.test.ts`, `tests/messages/_metaCatalogCopyHygiene.test.ts`, `tests/appSettings/getActiveWatchedFolder.test.ts`. The population is dominated by `vi.spyOn(ns, "name")` and `Object.entries(ns)`, where the member IS statically knowable from a string-literal argument — so the conservative report is genuinely conservative there, and enrolling one of those eight suites costs an explicit `// no-premise:` per affected case. That is the priced cost, stated rather than discovered at enrolment. Recognizing `vi.spyOn` specifically is declined as a library-shaped special case (§1.2(e)); the alternatives are module-closure over-classification (fenced, §1.1 item 2) or silence (violates the bound).
 4. **Non-language targets are pure, not analyzed** (§2.4). A `.json` or `.mdx` import cannot reach the environment by construction; the limit is that a future non-TS language with side effects would be treated as pure. Same posture and same direction as L-2.
 5. **A propagated `unclassifiable` loses to a proven `environment-touching`** (§2.7). The reader is told the louder of two true things and the module with the unresolvable corner is not named in `detail` for that test. Promoting it is a one-line lattice change; it is fenced here because it costs `reaches`'s provenance short-circuit, whose absence was measured at 1.3 s → 5.5 s across the enrolled corpus (the `scopeCache` comment).
 6. **Block-grain scope is still function-grain** (predecessor spec §4 limit 1, inherited unchanged).
@@ -291,7 +291,7 @@ None. No visual state is added or changed — no `AnimatePresence`, no `exit`/`i
 
 Each criterion names the failure mode it catches. Every positive fixture has a foil, so no assertion can pass by the classifier being a constant in either direction.
 
-- **AC-1 — verdict-neutral on the live domain.** `pnpm vitest run tests/mutation/_metaPremiseContract.test.ts` passes with all 29 `EXPECTED_ENV_TOUCHING` values unchanged, and the diff contains no edit to any numeric value in that map. *Catches:* a repair that over-reaches and silently re-baselines the corpus it was supposed to leave alone.
+- **AC-1 — verdict-neutral on the live domain.** `pnpm vitest run tests/mutation/_metaPremiseContract.test.ts` passes with every `EXPECTED_ENV_TOUCHING` value unchanged (31 rows post-#827), and the diff contains no edit to any numeric value in that map. *Catches:* a repair that over-reaches and silently re-baselines the corpus it was supposed to leave alone.
 - **AC-2 — namespace member edges resolve.** `import * as ns from "./helper"; ns.spawnHelper()` classifies `environment-touching`; `ns["spawnHelper"]()` likewise. *Catches:* §3.1 rows 3-4.
 - **AC-3 — namespace is member-precise, not module-wide.** A module exporting both `spawner` (importing `node:child_process`) and `pureOne`; a test calling only `ns.pureOne()` classifies `environment-free`. *Catches:* the module-closure regression §1.1 item 2 fences out. This is AC-2's foil and neither may be removed without the other.
 - **AC-4 — a default export is named `default`.** `export default function spawnHelper(){…}` imported as `import runIt from …` classifies `environment-touching`. The fixture uses the RENAMED form; the same-name form is a second case, never the only one. *Catches:* §3.1 rows 5-6, and the name-coincidence pass that would validate a non-repair.
@@ -300,11 +300,11 @@ Each criterion names the failure mode it catches. Every positive fixture has a f
 - **AC-7 — AC-10b stays quiet through a namespace.** The same module reached as `import * as env from …; env.reportEnvelope({ ok: true })` classifies `environment-free`. *Catches:* the same trade, taken through the new edge rather than the old one.
 - **AC-8 — the reported forms are REPORTED.** An unfollowable re-export (missing target), an unparseable in-repo module, `export * as ns from`, `export =`, and a namespace in a non-member position each classify `unclassifiable` with a `detail` naming the construct and the module. *Catches:* the silent-free direction on every form §2.2 and §2.3 decline to model; closes canonical AC-8a's (`2026-08-04-guard-premise-reachability-design.md:501`) missing 2 of 4 (§3.6).
 - **AC-9 — non-language targets stay pure.** A test importing a `.json` file classifies `environment-free`, not `unclassifiable`. *Catches:* the false positive §2.4 exists to prevent.
-- **AC-10 — re-export cycles terminate.** Two modules re-exporting a name from each other classify `unclassifiable` with reason `re-export cycle`, and the call returns. *Catches:* a non-terminating fixed point.
+- **AC-10 — re-export cycles terminate, and diamonds do not read as cycles.** Two modules re-exporting a name from each other classify `unclassifiable` with reason `re-export cycle`, and the call returns. Its foil: a DIAMOND — a barrel re-exporting from two modules that both re-export from a third, so the same `(module, exportName)` pair is reached twice — classifies `environment-touching`. *Catches:* a non-terminating fixed point, and the far likelier error of treating every visited-set repeat as a cycle, which would turn an ordinary barrel shape into a false `unclassifiable`.
 - **AC-11 — the four propagation cells report.** Module-scope helper × describe-scope helper × non-literal dynamic `import()` × computed `process` access, plus the cross-module cell, each classify `unclassifiable`, with `detail` naming the module holding the construct. Foil: the same helpers without the construct classify `environment-free`. *Catches:* §3.2.
 - **AC-12 — precedence is pinned in both directions.** A test whose own extent holds a construct AND which provably touches the environment classifies `unclassifiable` (shipped); a test that reaches a construct only through a helper AND provably touches the environment classifies `environment-touching`. *Catches:* an unstated lattice drifting between rounds, and pins §2.7 so neither branch is relitigated.
 - **AC-13 — provenance modules keep their precedence.** `import * as cp from "node:child_process"; cp.spawnSync(…)` classifies `environment-touching` (the shipped `namespace import` case, unchanged), and so does a namespace import of a provenance module whose member is never accessed. *Catches:* a member-precise repair that accidentally demotes the provenance-module short-circuit.
-- **AC-14 — performance stays inside budget.** The enrolled-corpus pass stays under the contract's 30 s budget, with the before/after wall clock recorded. *Catches:* the regression `premiseScan.ts:207-210` measured once already.
+- **AC-14 — performance stays inside budget, measured at the right grain.** The `classifyTests` pass over the enrolled suites — NOT the vitest suite duration — stays under the contract's 30 s budget, with before and after recorded. Measured 2026-08-16 on the pre-merge tree: the pass is **1.49 s** over 29 suites and 1,314 tests, while the two deciding suites together take **20.69 s** of vitest wall clock, because roughly 19 s of that is the four spawned `childRun` fixtures and has nothing to do with the scanner. *Catches:* the regression the `scopeCache` comment records (1.3 s → 5.5 s), which is a 3.7× move at the pass grain and entirely invisible inside a 20.7 s suite duration — an AC measured on the suite would pass while the defect shipped.
 - **AC-15 — mutation gate.** `pnpm heavy pnpm mutation:guards` on the `premiseScan` surface meets `scoreFloor: 0.95` with an empty unaccepted-survivor set, the accepted array re-derived by `enumerateSites` rather than hand-edited. The score and survivor set are stated in the round-1 diff brief.
 
 ---

@@ -138,7 +138,7 @@ Two seed sets: the enrolled `suitePaths` parsed out of `tests/mutation/source/re
 
 ## Results — probe 3: population
 
-**Live domain** (29 enrolled suites, 86 in-repo modules reached):
+**Live domain, measured twice.** PR #827 enrols `premiseScan` itself, so the domain grows when it lands: 29 enrolled suites / 86 in-repo modules against the registry on `main`, and 31 suites / 90 modules against `git show origin/fix/scanner-scope-totality:tests/mutation/source/registry.ts` (the two added suites are `tests/mutation/source/premiseScan.test.ts` and `tests/mutation/_metaPremiseContract.test.ts`). **Every count below is zero in both.** The figures shown are the post-#827 ones, which are the binding domain at implementation time:
 
 ```
 namespace:inrepo                                0
