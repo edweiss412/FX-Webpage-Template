@@ -41,6 +41,20 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // equivalent and has no killing fixture in today's corpus
   // (BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED).
   premiseScan: { equivalent: 3, "accepted-gap": 1 },
+  // psqlStartupScan: EIGHTEEN equivalence arguments and NO accepted gap from the
+  // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Thirteen of
+  // the thirty-one first-run survivors were repaid with tests instead. Both counts moved
+  // during cross-model review, and in the same direction — each round refuted a written
+  // argument with a probe the argument had not been checked against, and each refutation
+  // became a test rather than a re-argued row. Equivalents went 19 -> 18
+  // (`regex-quantifier-bound:2684:32` IS distinguishable by a malformed three-indicator
+  // block-scalar header), and the surface's only accepted gap went 1 -> 0
+  // (`relational-boundary:2167:54` IS distinguishable by a trailing backslash at end of
+  // input, which the shell leaves literal). So the surface now declares a ledger with no
+  // counted survivor at all: an `accepted-gap` appearing here would be this surface's
+  // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
+  // coverage regression to explain.
+  psqlStartupScan: { equivalent: 18 },
   // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
   // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
   // the message as a third key removed the gap rather than re-accepting it. The

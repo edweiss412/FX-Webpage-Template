@@ -1,3 +1,33 @@
+## BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS — a describe-local initializer that shells out is classified environment-free — CLOSED 2026-08-16 (`fix/scanner-scope-totality`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M — folded into the arc that was already rebuilding the extent model.
+
+**Resolution 2026-08-16 (`fix/scanner-scope-totality`).** Extents are keyed by SCOPE and resolved innermost-out from the reference, so a binding declared inside a `describe` callback is registered against the tests within that block. The two cases this row named are now classified environment-touching, and the arc did the re-measurement the row required — a walk over the registry's `suitePaths`, not a hand list. Exactly one declared count moved: `tests/cross-cutting/psqlStartupFileSuppression.test.ts` 0 -> 2, updated at its declaration site with the reason.
+
+The row predicted the shape of its own closure correctly, including that the number would rise and that each move is a real classification being corrected rather than a number to bump. Two whole-diff review rounds on the closing arc found the extent model was resolving NAMES rather than bindings in five further places — reference dedup, import-before-lexical order, unbound destructuring forms, file-global dynamic imports, and type positions read as value reads — so what shipped is a lexical scope model rather than a `describe` special case.
+
+**Status:** OPEN · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, cross-model review r1 on the enrolment diff). **Severity:** LOW-MEDIUM (guard reach; the premise contract under-counts rather than mis-reports). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair changes `classifyTests`'s extent model, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — command and output below.
+
+`classifyTests` (`tests/mutation/source/premiseScan.ts`) decides whether a test is environment-touching by resolving what it references back to declarations it has registered. It registers module-scope declarations; a binding declared INSIDE a `describe` callback is outside those extents, so a test that depends on one is classified `environment-free` even when that binding is produced by a real subprocess.
+
+The enrolled psql suite is a live instance. It imports `execFileSync` at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:35` and runs `git ls-files -z` at `:1952`, inside the initializer for `TRACKED_SOURCE_ROOTS` in the `describe("the derived skip set for THIS repo's committed .gitignore")` block at `:1911`. Two cases consume it — `:1977` and `:1986` — and both are reported environment-free:
+
+```
+$ pnpm exec tsx -e '<classifyTests on the enrolled suite>'
+{"environmentTouching":0,"derivedRoots":[{"line":1977,"verdict":"environment-free","hasPremise":true},
+                                         {"line":1986,"verdict":"environment-free","hasPremise":true}]}
+
+$ rg -n 'import \{ execFileSync \}|execFileSync\("git"' tests/cross-cutting/psqlStartupFileSuppression.test.ts
+35:import { execFileSync } from "node:child_process";
+1952:    const tracked = execFileSync("git", ["ls-files", "-z"], {
+```
+
+**What is and is not at risk.** The contract's purpose is to stop a suite reporting green on nothing, and both affected cases already carry executable premises of their own — `premise("git yielded tracked roots holding scannable files", …)` at `:1980` and `premiseHolds(…)` per root at `:1987` — so neither is currently vacuous. The defect is that the CLASSIFIER cannot see the dependency, which means the next such case gets no scrutiny by default. That is the fail-by-default property the contract exists to provide, and it is absent for this shape.
+
+The under-count is recorded at its declaration site rather than hidden: the `EXPECTED_ENV_TOUCHING` row for this suite (`tests/mutation/_metaPremiseContract.test.ts`) states the number is the scanner's measurement, names this row, and says the number rises when it closes.
+
+**What would close it:** extend the extent model to descend into `describe` callbacks so a binding declared there is registered against the tests within that block, then re-measure every enrolled suite — several declared counts will move, and each move is a real classification being corrected rather than a number to bump. A sweep over the other enrolled suites for the same shape (a subprocess or filesystem read in a `describe`-local initializer) belongs to the same arc; enumerate it with a walk over the registry's `suitePaths`, not by hand.
+
 ## BL-TIMING-SCAN-PROPERTY-TOTALITY — a timing-named property with a non-literal value is dropped, not reported — RESOLVED 2026-08-16 (`fix/scanner-scope-totality`, SHIPPED)
 
 **Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 7, finding 2). **Effort:** S. **Class-sweep exception:** (c) — the repair spans surfaces this arc does not otherwise touch. **Reachability: PROBED**, with the site list below as the probe.
@@ -56,6 +86,59 @@ helper at DESCRIBE scope -> ["environment-free"]
 **Live cost already paid.** `tests/ci/phantomGapExecuted.test.ts` declared its spawning `runCli` inside the `describe` body; all three shipped-CLI cases classified environment-free and `EXPECTED_ENV_TOUCHING` recorded a truthful-looking `0`. Hoisting the helper to module scope moved it to `3`. Nothing failed in between — the corpus simply under-reported, silently, which is the failure mode the premise contract exists to prevent.
 
 **Fix:** scope-aware extent resolution in `premiseScan`, with the AC-10b `reportEnvelope`/`res` collision kept as a regression case so the repair cannot trade a false negative for the false positive it replaced. Until then the recognizer's contract is "module-scope helpers only", which no current caller states.
+
+## BL-PSQL-SCAN-MUTATION-ENROLMENT — the psql startup-file scanner is measurable now, and scores 0.354 — CLOSED 2026-08-16 (`test/psql-scan-mutation-enrolment`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M · **Filed:** 2026-08-15 (`fix/local-harness-false-failures`, from that arc's own enrolment probe) · **Class:** guard coverage · **Effort:** M · **Class-sweep exception:** (a) — the disposition of 31 survivors is a judgment call the filing PR cannot settle, ratified by the user against repaying in-branch. · **Reachability:** PROBED — the numbers below are a real run, not an estimate.
+
+`tests/cross-cutting/psqlStartupFiles/scan.ts` is registry-expressible (an importable module with a deciding suite, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`) and is still NOT enrolled. The arc that would have enrolled it ran the probe instead, and the probe says enrolment is its own piece of work.
+
+**Two findings, one shipped and one filed here.**
+
+The surface was not measurable at all until a harness defect was repaired. `runSuite` (`tests/mutation/source/runner.ts`) and `childRun` (`tests/mutation/source/childRun.ts`) both piped the child's output into Node's 1 MB default `maxBuffer` and never read it — the exit status is the only signal either consumes. One mutant reds enough of this surface's 789-case suite that the failure dump alone overruns 1 MB, so Node SIGTERMed the child and the whole run died scoring nothing:
+
+```
+MutantRunInfraError: mutation run produced no exit status for
+relational-boundary:2250:59:>>>= [tests/cross-cutting/psqlStartupFileSuppression.test.ts]
+(signal=SIGTERM, code=ENOBUFS)
+```
+
+That is FIXED and shipped in the same arc (`9edf520d1`): the output is discarded, removing the cap outright instead of trading it for a bigger number to outgrow. Any high-output surface was unenrollable before it.
+
+**With measurement possible, the scoped subset scores 0.3542 — 17 of 48 killed, 31 unaccepted survivors** (27 `relational-boundary`, 4 `regex-quantifier-bound`; operators scoped to those two for wall clock — the full set is 987 sites ≈ 11 h, this subset 48 sites ≈ 20 min measured). The survivors are a genuine MIX, which is why they cannot be blessed in bulk:
+
+- `scan.ts:1749` `index > 0` → `>= 0` falls through to `basename(before[-1] ?? "")` — plausibly EQUIVALENT.
+- `scan.ts:523` `token.length > 1` → `>= 1` admits a bare `-` token into the flag-cluster branch — looks like a REAL coverage gap.
+- `scan.ts:1792` `/^-{1,2}[A-Za-z0-9]/` → `{1,3}` accepts `---x` as a flag; `scan.ts:581`'s `l < to.line && l < out.length` → `<=` is an off-by-one on a comment-range loop. Both need reading before either is called.
+
+**Why filed rather than repaired in the arc that found it — exception (a).** Dispositioning 31 sites is per-site analysis across a 2968-line scanner, each iteration costing a gate re-run, and the outcome is a judgment about what the suite SHOULD pin — not a mechanical repair the finding PR can settle. Enrolling anyway at a `scoreFloor` of 0.35 with 31 blessed `accepted-gap` rows was considered and REJECTED by the user: that is the symbolic enrolment AGENTS.md convergence bullet 4 forbids, since a floor that low asserts almost nothing while each blessed row is still a claim owing a reason.
+
+**First scheduled step:** read the 31 survivors, kill the real gaps with suite cases, mark the true equivalents with reasons, then enrol with `scoreFloor` at the achieved score. The full survivor list is in the arc's diff-review record; regenerate it with `pnpm heavy pnpm mutation:guards` after adding the row. Spec context: `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.3 re-disposition note.
+
+**CLOSED 2026-08-16 (`test/psql-scan-mutation-enrolment`, SHIPPED).** The scanner is enrolled at `scoreFloor` 1.00, with an EMPTY unaccepted-survivor set.
+
+**Terminal numbers.** 48 mutants, each classified exactly once: **30 killed, 18 equivalent, 0 accepted-gap**, score `30 / 30 counted` = 1.0000, with `scoreFloor` 1.00 (equivalents are excluded from the denominator; an accepted gap would sit in it). 13 of the 31 survivors this row filed were repaid with suite cases rather than blessed, which is the ratio the corpus precedent predicted. Every verdict is machine-observed: the 17 first-run kills from the spec's own probe, and all 31 survivor verdicts from per-site `runControl` invocations recorded in the five batch commit messages — each kill seen `SURVIVED` before its case landed and `KILLED` after. These counts are DERIVED from the shipped registry at graduation time rather than retyped, so a row moving between kinds moves this sentence with it.
+
+**Cross-model review moved one row in each direction, and both moves are the point.** The whole-diff review refuted the equivalence argument for `regex-quantifier-bound:2684:32` with a probe: a three-indicator block-scalar header is REJECTED by the YAML parser as a header, which makes those characters content, and the widened bound blanks four of them so the reported offset lands four characters to the left of the command. It is killed by a test now, and the legal-side boundary pin the row had is kept next to it. The same round caught `relational-boundary:2155:54` re-confirmed `SURVIVED` with no ledger row at all — the gate would have reported an unaccepted survivor. The class sweep that finding implies was RUN, not asserted: every blessed row was re-checked against a 114-case constructed battery comparing the full result of all six exported scanners, and only 2684 differed.
+
+**This row's own starters were corrected by measurement, in both directions.**
+
+- `token.length > 1` (now `528:47`) was filed as "looks like a REAL coverage gap" and IS one — but a coverage gap only, not a source defect. Probed at spec review R2: the ORIGINAL already classifies `["-", "-X"]` as positional-terminated, because a bare `-` is a non-option argument to getopt(3) and psql's DBNAME positional. It shipped as a plain kill with a one-row fixture; `scan.ts` is untouched by the whole arc.
+- `index > 0` (now the `1754`/`1755` pair, plus the `1771`/`1772` twins inside `prefixIsCommandish`) was filed as "plausibly EQUIVALENT" and is — verified per site rather than assumed as a family, since the `index > 1` rows read a different element. The collapse is exact: `?? ""`, then the file's own `basename("")` returns `""`, then the anchored WRAPPERS alternation cannot match it.
+- `/^-{1,2}[A-Za-z0-9]/ → {1,3}` split in two. The `1797:45` and `2210:40` copies are real gaps and are killed, because their follower class is `[A-Za-z0-9]`. The third copy, `2107:21` inside `INTERPRETER_POSITIONAL_BINDING`, is EQUIVALENT — its follower class is `[A-Za-z-]*`, which already contains a dash, so `-{1,2}[A-Za-z-]*` and `-{1,3}[A-Za-z-]*` denote the same language. The starter treated one spelling as one verdict; it was three sites and two answers.
+- The comment-range loop (`586`/`587`) is three sites, not one, and two of the three are killed by the same fact: CR is an ECMAScript LineTerminator, so a CR-delimited block comment spans more scanner lines than `text.split("\n")` has entries and both `out.length` bounds write past the end.
+
+**NO accepted gap, and the one it had was refuted rather than defended** (`relational-boundary:2167:54`). The arc enrolled the `spliced` continuation bound as its single `accepted-gap` row on the argument that every separating input also exercises an independent pre-existing limitation — the assignment-binding patterns model a value as wholly quoted OR wholly bare — so a case reddening the mutant would pin THAT gap rather than this bound. Cross-model review refuted it with the input the argument had never been checked against: a file whose last line ends in a backslash. A backslash at end of input escapes nothing and stays literal, so `PG='psql'\` assigns the value `psql\`, which is not the psql command and must report nothing; the mutant deletes the backslash and reports a binding the shell never makes. That expected value is the SHELL's, not the patterns', which is exactly what makes the case a contract rather than a pin of the limitation — a future repair of the quoting family has to keep the same zero. The surface therefore ships with `scoreFloor` 1 and a ledger carrying no counted survivor at all.
+
+`BL-SHELL-BINDING-MIXED-QUOTED-VALUE` survives that correction as a row in its own right, re-probed and re-scoped: the genuine misses are the spellings whose reassembled value IS the command (`PG=p'sql'`, `PG='p'sql`, `PG="ps"ql`, `PG='/usr/bin/'psql`, all confirmed against bash), while `PG='psql'x` and `PG='psql'\` are correct zeros the repair must preserve.
+
+**A finding the arc did not go looking for:** the first draft of that row's reason quoted its four concrete shell spellings verbatim, and `tests/mutation/source/registry.ts` is a scanned `.ts` file — the live-tree walk immediately reported the registry as a psql binding and reddened fourteen cases. The reason now describes the shapes and defers the literals to the ledger entry, which is markdown and outside the walk. The guard caught its own enrolment paperwork.
+
+The same cross-model round also refuted this arc's declared environment-touching count of zero for the enrolled suite. The number stands, because it is what the premise scanner MEASURES, but it is now recorded at its declaration site as a known under-count with the reason: `classifyTests` does not descend into `describe` callbacks, so a `git ls-files` call in a describe-local initializer is invisible to it. Filed as `BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS`, which owns the extent-model repair and the re-measurement of every enrolled suite it implies.
+
+**What this row does NOT close.** The four budget-excluded operators (`statement-removal`, `integer-literal`, `equality-flip`, `logical-connector` — 930 of 978 sites) are recorded as a documented limit on the registry row; the score asserts nothing about them, and widening the subset is a future registry change carrying its own numbers. The nightly job's wall clock remains `BL-MUTATION-HARNESS-WALLCLOCK-CEILING`.
+
+Spec: `docs/superpowers/specs/ci/2026-08-16-psql-scan-mutation-enrolment-design.md`. Plan: `docs/superpowers/plans/2026-08-16-psql-scan-mutation-enrolment.md`.
 
 ## BL-SERIALIZE-ERROR-NON-ERROR-BRANCH-STRINGIFIES — a plain-object error persists as bounded structure, not "[object Object]" — CLOSED 2026-08-16 (`fix/serialize-error-structure`, SHIPPED)
 

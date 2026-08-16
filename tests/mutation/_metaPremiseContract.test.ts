@@ -65,6 +65,22 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // pure helpers, reaching no member of ENVIRONMENT_SOURCES.
   "tests/cross-cutting/pgCronSmokesUnit.test.ts": 0,
   "tests/scripts/ledgerClaims.test.ts": 0,
+  // The psql startup-file scanner's deciding suite, enrolled 2026-08-16 at a
+  // declared 0 — a number the enrolling arc recorded as a KNOWN UNDER-COUNT
+  // rather than papering over, naming BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS
+  // and saying the number would rise when that row closed.
+  //
+  // It closed here, and the number rose. The suite imports `execFileSync` and
+  // runs `git ls-files -z` inside the initializer for `TRACKED_SOURCE_ROOTS`,
+  // declared in a `describe` callback; the two cases that consume it (`:1977`
+  // and `:1986`) ARE environment-touching and are now classified as such. Both
+  // already carried executable premises, so nothing about them changed — what
+  // changed is that the classifier can see the dependency, which is the
+  // fail-by-default property the contract exists to provide.
+  //
+  // Re-measured across every enrolled suite by walking the registry's
+  // `suitePaths`, as that row required: this is the only count that moved.
+  "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 2,
   // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
   // inventory suite reads DESIGN.md and walks the repo, but through the module
   // under test rather than any member of ENVIRONMENT_SOURCES directly; the unit

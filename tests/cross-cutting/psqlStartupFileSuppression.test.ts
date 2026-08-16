@@ -4234,3 +4234,448 @@ describe("R40 — hypothetical gaps closed cheaply; the rest are documented limi
     WALK_TIMEOUT_MS,
   );
 });
+
+/**
+ * Mutation-enrolment survivors, batch A — the tokenizer and the comment-range
+ * infrastructure (`docs/superpowers/plans/2026-08-16-psql-scan-mutation-enrolment.md`
+ * Task 2). Each case names the `relational-boundary` site id it kills; the three
+ * sites this batch blesses as equivalent carry a boundary pin instead, asserting
+ * the ORIGINAL behaviour the equivalence argument rests on.
+ */
+describe("enrolment survivors - batch A", () => {
+  // Kills relational-boundary:528:47 (`token.length > 1` mutated to `>= 1`).
+  // A bare `-` is not a flag cluster. getopt(3) and psql alike read it as a
+  // NON-OPTION argument, so it is the DBNAME positional and option parsing
+  // stops there — the `-X` after it is never reached. Under the mutant `-`
+  // enters the cluster branch, `"-".slice(1)` is empty, nothing matches, and
+  // the loop walks on to credit the later `-X`.
+  test("a bare `-` is the DBNAME positional, so a later -X is not credited", () => {
+    expect(argvSuppressesStartupFiles(["-", "-X"])).toBe(false);
+    // The control: the same `-X` IS credited when nothing positional precedes it.
+    expect(argvSuppressesStartupFiles(["-X", "-"])).toBe(true);
+  });
+
+  // Kills relational-boundary:586:35 (`l < to.line` mutated to `l <= to.line`).
+  // The closing line of a block comment is comment-qualified only up to the
+  // `*/`; everything after it is ordinary code. A marker sitting in STRING DATA
+  // after the terminator is not in a comment and grants nothing. The mutant
+  // records the closing line as comment-qualified to end-of-line, which adopts
+  // the string's contents as an exemption reason.
+  // The title says "block-comment close" rather than spelling the two-character
+  // marker, because a quoted marker in this file reads as hand-rolled comment
+  // handling to tests/cross-cutting/_metaStripCommentsSingleSource.test.ts. The
+  // fixture below still carries the real characters, where they are input.
+  test("a marker in string data after a block-comment close is not in a comment", () => {
+    const source = [
+      "/* a",
+      `b */ const s = "${EXEMPTION_MARKER} fake reason";`,
+      'execFileSync("psql", ["-qAt", dsn]);',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  // Kills relational-boundary:695:69 (`at >= from` mutated to `at > from`).
+  // A middle line of a multi-line comment is comment-qualified from column 0,
+  // so a marker written flush-left on that line IS inside the comment. The
+  // mutant excludes exactly the column-0 case and loses the exemption.
+  test("a marker flush-left on a middle line of a block comment still exempts", () => {
+    const source = [
+      "/* a",
+      `${EXEMPTION_MARKER} runs in a throwaway container`,
+      '*/ execFileSync("psql", ["-qAt", dsn]);',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBe("runs in a throwaway container");
+  });
+
+  /**
+   * CR is a LineTerminator in ECMAScript (spec table "White Space and Line
+   * Terminators": U+000A, U+000D, U+2028, U+2029), so the TypeScript scanner
+   * counts a lone `\r` as a line break while `text.split("\n")` does not. A
+   * block comment written with CR line endings therefore spans more SCANNER
+   * lines than the per-line array has entries — the exact condition the two
+   * `out.length` bounds in `jsCommentRangesPerLine` exist to hold. Neither
+   * fixture may end in a newline: a trailing `\n` adds an array entry and puts
+   * the bound back in range.
+   */
+  const CR = String.fromCharCode(13);
+
+  // Kills relational-boundary:586:50 (`l < out.length` mutated to `<=`).
+  // to.line is 2 and the per-line array holds 1 entry, so the mutant's extra
+  // iteration writes past the end and the scan throws instead of reporting.
+  test("a CR-delimited block comment spanning past the line array still reports its site", () => {
+    const source = `/* a${CR}b${CR}c */ execFileSync("psql", ["-qAt", dsn]);`;
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  // Kills relational-boundary:587:17 (`to.line < out.length` mutated to `<=`).
+  // Same shape one line shorter: to.line is 1 and the array holds 1 entry, so
+  // the closing-line write is the one that goes out of bounds.
+  test("a CR-delimited block comment closing past the line array still reports its site", () => {
+    const source = `/* a${CR}b */ execFileSync("psql", ["-qAt", dsn]);`;
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  // Boundary pin for the relational-boundary:695:83 equivalence row
+  // (`at < to` mutated to `at <= to`). The marker starts at exactly the column
+  // the comment ends at, which is the only column the widened bound admits.
+  // The original reports no exemption because the marker is not contained; the
+  // mutant contains it but then slices the reason over an EMPTY range and falls
+  // through to the same verdict. This pins the original half of that argument.
+  test("a marker beginning exactly where the comment ends grants no exemption", () => {
+    const source = [
+      "/* a",
+      `*/${EXEMPTION_MARKER} still not a reason`,
+      'execFileSync("psql", ["-qAt", dsn]);',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBeNull();
+  });
+
+  // Boundary pin for the relational-boundary:635:23 equivalence row
+  // (`i < line.length` mutated to `<=`). The argument is that the extra
+  // iteration reads `undefined` and changes nothing; its premise is that the
+  // loop already covers index `line.length - 1`. Here the closing quote IS the
+  // last character of its line, so the quote state must clear before the next
+  // line — otherwise the `#` below reads as string data and the exemption is
+  // lost.
+  test("a quote closing at end-of-line clears, so the next line's `#` is a comment", () => {
+    const source = [
+      'A="x"',
+      `# ${EXEMPTION_MARKER} throwaway container, no HOME`,
+      'psql -qAt "$A"',
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "s.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.exemptReason).toBe("throwaway container, no HOME");
+  });
+
+  // Boundary pin for the relational-boundary:761:25 equivalence row
+  // (`i < text.length` mutated to `<=`). Same shape: the extra iteration reads
+  // `undefined` and matches no branch. Its premise is that an UNCLOSED
+  // substitution consumes the text to its final character — the fallback
+  // `text.length - 1` — rather than stopping short and hiding the invocation.
+  test("an unclosed command substitution still exposes the psql call inside it", () => {
+    const source = ["X=$(psql -qAt mydb", ""].join("\n");
+    const sites = sitesIn(source, "s.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.nested).toBe(true);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+});
+
+/**
+ * Mutation-enrolment survivors, batch B — the shell text scanner (plan Task 3).
+ * One kill; the other six sites are blessed as equivalent and carry the
+ * boundary pins their arguments rest on.
+ */
+describe("enrolment survivors - batch B", () => {
+  // Kills relational-boundary:1214:26 (`command.length > 0` mutated to `>= 0`
+  // in the pipeline splitter). A newline after `|` continues the pipeline —
+  // POSIX shell grammar allows linebreaks after `|`, so this is one pipeline
+  // whose second stage is a bare `bash`, and the printf argument IS the script
+  // that bash will run. The mutant pushes an EMPTY command for that newline,
+  // which becomes `commands[position + 1]` for the `|` stage, so the bare-shell
+  // stdin detection looks at the empty stage instead of `bash` and reports
+  // nothing.
+  test("a pipeline broken across lines after `|` still exposes the stdin script", () => {
+    const source = ["printf 'psql -qAt mydb' |", "bash", ""].join("\n");
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Boundary pin for the relational-boundary:1223:22 equivalence row
+  // (`command.length > 0` mutated to `>= 0` in the trailing flush). The mutant
+  // can only APPEND an empty command, never insert one, so the pin is that a
+  // text ending in an operator still reports the command before it.
+  test("a command terminated by a trailing `;` is still reported", () => {
+    const sites = sitesIn("psql -qAt mydb ;\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Boundary pin for the relational-boundary:1304:30 equivalence row
+  // (`remaining.length > 0` mutated to `>= 0`). `ssh host` with no remote
+  // command leaves the joined-argument list empty — the reachable input the
+  // guard exists for. Nothing is scanned and no site is reported.
+  test("an ssh host with no remote command is not a site", () => {
+    expect(sitesIn("ssh database\n", "x.sh")).toHaveLength(0);
+    // The premise: the same host word WITH a remote command does reach the
+    // joining branch and does report, so the zero above is a verdict rather
+    // than a fixture that never arrives.
+    expect(sitesIn("ssh database psql -qAt mydb\n", "x.sh")).toHaveLength(1);
+  });
+
+  // Boundary pin for the relational-boundary:1314:19 equivalence row
+  // (`k > 0` mutated to `k >= 0` in the joined-string builder). The mutant
+  // prepends one separator to the joined string AND one entry to each parallel
+  // offset/line array, so every index shifts by exactly one and the mapping is
+  // unchanged. The pin is the mapping itself: a remote command continued onto a
+  // second physical line reports THAT line, not the `ssh` line.
+  test("an ssh remote command on a continuation line reports its own physical line", () => {
+    const source = ["ssh database \\", "  psql -qAt mydb", ""].join("\n");
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(2);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Boundary pin for the relational-boundary:1394:46 equivalence row
+  // (`candidate.text.length > 2` mutated to `>= 2`). The conjunct that follows
+  // it, /^-[a-zA-Z]*S[\s\S]/, already requires a character AFTER the `S`, so a
+  // two-character `-S` is rejected either way. Both spellings are pinned: `-S`
+  // alone takes the NEXT word as its split-string, and the attached form
+  // carries the script itself.
+  test("`env -S` takes the next word, and the attached form carries its own script", () => {
+    const separate = sitesIn("env -S 'psql -qAt mydb'\n", "x.sh");
+    expect(separate).toHaveLength(1);
+    expect(separate[0]!.suppressesStartupFiles).toBe(false);
+    const attached = sitesIn("env -S'psql -qAt mydb'\n", "x.sh");
+    expect(attached).toHaveLength(1);
+    expect(attached[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Boundary pin for the relational-boundary:1568:22 and 1569:26 equivalence
+  // rows (the opening/closing delimiter bounds in `mapRawToLines`). Both
+  // mutants only widen a bound into a raw slice too short to hold a body, where
+  // the walk emits nothing either way. The pin is the mapping the bounds serve:
+  // a template literal whose psql text sits on a LATER physical line reports
+  // that line, which only holds if the delimiters are skipped correctly.
+  test("a template literal reports the physical line its psql text came from", () => {
+    const source = ["execSync(`echo one", "psql -qAt mydb`);", ""].join("\n");
+    const sites = sitesIn(source, "x.mjs");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(2);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+});
+
+/**
+ * Mutation-enrolment survivors, batch C — the prose-vs-command heuristic
+ * (plan Task 4). Its only observable surface is `scanBinaryIndirection`, which
+ * asks `looksLikePsqlCommandLine` whether a JS string literal is a command.
+ */
+describe("enrolment survivors - batch C", () => {
+  // Kills regex-quantifier-bound:1797:45 (`-{1,2}` widened to `-{1,3}` in the
+  // backtick head check). A backtick span is a markdown code span in prose and
+  // a command substitution in code; what separates them is the outer string
+  // starting with a bare program name that then takes a FLAG. POSIX and GNU
+  // spell flags with one or two dashes and no more, so a three-dash word is not
+  // a flag and cannot vouch for the string.
+  test("a three-dash word is not a flag, so a backtick span stays prose", () => {
+    const source = "const c = 'runner ---x `psql -qAt mydb`';\n";
+    expect(scanBinaryIndirection(source, "x.mjs")).toHaveLength(0);
+    // The control: the same string with a real one-dash flag IS a command.
+    const real = "const c = 'runner -x `psql -qAt mydb`';\n";
+    expect(scanBinaryIndirection(real, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  // Kills relational-boundary:1825:26 (`site.tokens.length <= 3` mutated to
+  // `< 3`). `psql -- mydb postgres` is a real, flagless invocation: `--` ends
+  // option parsing, so `mydb` is DBNAME and `postgres` is USERNAME, and no
+  // startup file is suppressed. It carries exactly three argv tokens, the
+  // heuristic's stated argv-length bound, so it must still read as a command.
+  test("a flagless psql at exactly the three-token bound is still a command", () => {
+    const source = 'const c = "psql -- mydb postgres";\n';
+    expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
+  });
+
+  // Kills relational-boundary:1827:49 (`words <= 8` mutated to `< 8`). With no
+  // preceding words the heuristic admits a terse command inside a string of at
+  // most eight words. This one is exactly eight, so it must read as a command;
+  // the nine-word control must not.
+  test("a terse psql in a string of exactly eight words is still a command", () => {
+    const eight = 'const c = "cd /srv && psql mydb && echo ok";\n';
+    expect(scanBinaryIndirection(eight, "x.mjs").length).toBeGreaterThan(0);
+    const nine = 'const c = "cd /srv && psql mydb && echo all ok";\n';
+    expect(scanBinaryIndirection(nine, "x.mjs")).toHaveLength(0);
+  });
+
+  // Boundary pin for the four index-guard equivalence rows
+  // (relational-boundary:1754:12 and 1755:12 in `isStrongPrefixWord`, and their
+  // twins 1771:16 and 1772:16 in `prefixIsCommandish`). Each widened guard
+  // reaches a lookback that is out of range, where `?? ""` yields the empty
+  // string, the local `basename("")` yields `""`, and the anchored WRAPPERS
+  // alternation matches nothing — the same `false` the short-circuit produced.
+  // The pin is the behaviour that rests on it: at index 0 a word vouches for
+  // the command only through its OWN spelling, never through a lookback, so an
+  // English word vouches for nothing and a wrapper still vouches for itself.
+  test("the first preceding word vouches only through its own spelling", () => {
+    const prose = 'const c = "parses psql mydb rows";\n';
+    expect(scanBinaryIndirection(prose, "x.mjs")).toHaveLength(0);
+    const wrapper = 'const c = "sudo psql mydb";\n';
+    expect(scanBinaryIndirection(wrapper, "x.mjs").length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Mutation-enrolment survivors, batch D — the shell and workflow indirection
+ * scanners (plan Task 5). Two kills, six equivalence rows and one accepted gap;
+ * the pins below carry the arguments the blessed rows rest on.
+ */
+describe("enrolment survivors - batch D", () => {
+  // Kills regex-quantifier-bound:2210:40 (`-{1,2}` widened to `-{1,3}` in the
+  // bound-command flag test). A quoted binding is reported only when its value
+  // lexes to a psql invocation carrying a FLAG, which is what keeps
+  // `MSG="psql failed to connect"` out. POSIX and GNU flags take one or two
+  // dashes, so `---x` is not one and the value is prose-shaped; the mutant
+  // accepts it and reports the binding.
+  test("a three-dash word does not make a quoted binding a command", () => {
+    expect(scanShellIndirection("CMD='psql ---x mydb'\n", "x.sh")).toHaveLength(0);
+    // The control: one dash makes the same value a real invocation.
+    expect(scanShellIndirection("CMD='psql -x mydb'\n", "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Kills relational-boundary:2788:48 (`scanShellText(...).length > 0` mutated
+  // to `>= 0`, making the test unconditional). A binding key whose value merely
+  // CONTAINS the word psql is not a binding: `psql-tuning` is a hyphenated
+  // English compound, and the shell reader finds no psql command word in it.
+  // The mutant reports every psql-mentioning value under `env:`.
+  test("an env value that only mentions psql in prose is not a binding", () => {
+    const source = [
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - env:",
+      "          NOTE: a b psql-tuning guide",
+      "        run: echo hi",
+      "",
+    ].join("\n");
+    expect(scanWorkflowIndirection(source, "w.yml")).toHaveLength(0);
+    // The control: a value that IS a psql command line binds the command name.
+    const bound = source.replace("a b psql-tuning guide", "psql -qAt mydb");
+    expect(scanWorkflowIndirection(bound, "w.yml").length).toBeGreaterThan(0);
+  });
+
+  // Boundary pin for the regex-quantifier-bound:2107:21 equivalence row. The
+  // dash run is followed by `[A-Za-z-]*`, a class that already contains a dash,
+  // so `-{1,2}` and `-{1,3}` accept the same language — any leading dash plus
+  // any run of letters and dashes. The pin is that consequence: an extra dash
+  // in the `-c` spelling changes nothing, and the positional binding is
+  // reported either way.
+  test("an extra dash in the -c spelling still reports the positional binding", () => {
+    const two = "bash -c 'exec $0 -qAt mydb' psql\n";
+    expect(scanShellIndirection(two, "x.sh").length).toBeGreaterThan(0);
+    const three = "bash ---c 'exec $0 -qAt mydb' psql\n";
+    expect(scanShellIndirection(three, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Boundary pin for the relational-boundary:2155:54 equivalence row (the
+  // `logical` continuation join). The widened bound can only add a final
+  // iteration that replaces a dangling trailing backslash with a space and
+  // appends nothing, and neither consumer of `logical` can tell those apart.
+  // The pin is the join the loop exists for: a quoted binding split across two
+  // physical lines by a backslash continuation is ONE assignment.
+  test("a quoted binding split by a backslash continuation is one assignment", () => {
+    const source = ["CMD='psql -qAt mydb \\", '-c "select 1"' + "'", ""].join("\n");
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Kills relational-boundary:2167:54 (`k + 1 < lines.length` widened to `<=` in
+  // the `spliced` continuation join). Found by cross-model review r2, which
+  // refuted the accepted-gap row this arc first wrote for the site: the arc
+  // argued that every separating input also exercises the assignment patterns'
+  // wholly-quoted-or-wholly-bare limitation, so a case that reds the mutant
+  // would pin THAT gap instead. It does not, because the expected value here is
+  // derived from the shell rather than from what the patterns happen to read.
+  //
+  // A backslash escapes the character that follows it, and at end of input there
+  // IS no following character — so it stays literal. `PG='psql'\` with no
+  // trailing newline assigns the value `psql\`, which is not the psql command:
+  // nothing is bound and no site is correct. The widened bound takes one more
+  // iteration at `k + 1 === lines.length`, appends the empty string and DELETES
+  // that trailing backslash, leaving `PG='psql'` — so the mutant reports a
+  // binding the shell never makes. A future repair of the quoting limitation has
+  // to keep these zeros for the same reason, which is what makes them a contract
+  // and not a snapshot.
+  test("a trailing backslash at end of input is literal, so it binds nothing", () => {
+    expect(scanShellIndirection("PG='psql'\\", "x.sh")).toHaveLength(0);
+    expect(scanShellIndirection("export 'PG=psql'\\", "x.sh")).toHaveLength(0);
+    // The premise, and the old row's boundary pin: the same assignment WITHOUT
+    // the trailing backslash IS read, so the zeros above are attributable to the
+    // backslash rather than to a fixture family that never reaches the patterns.
+    expect(scanShellIndirection("PG='psql'\n", "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Boundary pin for the relational-boundary:2455:31, 2587:35 and 2697:32
+  // equivalence rows (the alias-resolution depth guards and the alias anchor
+  // comparison). The yaml parser refuses to register an anchor on an alias
+  // node, so an alias always resolves to a non-alias in one step and the depth
+  // guards are unreachable. The pin is the resolution itself, plus the
+  // anchoring contract 2697 decides: a site from an alias is pinned to the
+  // `run:` key's own line, not to the line the anchor was defined on.
+  test("an aliased run body resolves, and its site is pinned to the run key", () => {
+    const source = [
+      "x: &cmd psql -qAt mydb",
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - run: *cmd",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "w.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(5);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  // Kills regex-quantifier-bound:2684:32 (`[0-9+-]{0,2}` widened to `{0,3}`).
+  // Found by cross-model review r1, which refuted the equivalence row this arc
+  // first wrote for the site. YAML permits at most TWO block-scalar indicators —
+  // one indentation digit and one chomping character — so `|2-+` is not a
+  // header, and the parser says so ("Block scalar header includes extra
+  // characters"). Characters the parser did not accept as a header are CONTENT,
+  // and the widened bound blanks four of them: the scanner then reports offsets
+  // four characters to the left of where the text actually is, pointing into the
+  // header instead of at the command. The expected value is derived from the
+  // fixture's own layout rather than written down, so it states the contract —
+  // the reported offset locates the psql word inside the run scalar.
+  test("a malformed block scalar header is content, so offsets still locate the command", () => {
+    const source = [
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - run: |2-+",
+      "          psql -qAt mydb",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "w.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(5);
+    expect(sites[0]!.offset).toBe(source.indexOf("psql -qAt mydb") - source.indexOf("|2-+"));
+  });
+
+  // Boundary pin for the same guard's LEGAL side, which the kill above does not
+  // cover: the widest header YAML actually permits — both indicators plus a
+  // trailing comment — is still recognised and blanked, so the psql line keeps
+  // its physical position.
+  test("a block scalar header with both indicators is blanked, keeping line numbers", () => {
+    const source = [
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - run: >2-  # indented 2, folded, chomped",
+      "          psql -qAt mydb",
+      "",
+    ].join("\n");
+    const sites = sitesIn(source, "w.yml");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.line).toBe(5);
+  });
+});
