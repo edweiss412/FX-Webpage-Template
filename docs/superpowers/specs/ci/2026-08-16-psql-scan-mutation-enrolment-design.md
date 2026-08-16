@@ -140,4 +140,12 @@ The nightly `mutation-harness.yml` job runs the whole mutation project at a 300-
 
 Populated from this arc's own probe run (an untracked session-scratchpad script — a thin wrapper calling `runSurface` on the unenrolled surface with the §1.1 operator pair; probe reviewed per the probe-mini-review rule: bounded by site enumeration, no truncation, full outcome table printed). The list is the plan's batching input; site ids are positional and final only for the tree the implementation session starts from (§4.3).
 
-[PROBE PENDING — filled in before spec review dispatch]
+**Run of 2026-08-16 (this arc's tree, `origin/main` at `119895a7c`):** 48 mutants, 17 killed, 31 survivors, score 0.35417, zero no-ops, 1047 s wall clock under one heavy slot — reproducing the parent arc's 0.3542 / 31 exactly.
+
+The 31 survivor site ids (positional against this tree; §4.3 governs drift):
+
+`relational-boundary` (27): `528:47:>>>=` · `586:35:<><=` · `586:50:<><=` · `587:17:<><=` · `635:23:<><=` · `695:69:>=>>` · `695:83:<><=` · `761:25:<><=` · `1214:26:>>>=` · `1223:22:>>>=` · `1304:30:>>>=` · `1314:19:>>>=` · `1394:46:>>>=` · `1568:22:>>>=` · `1569:26:>>>=` · `1754:12:>>>=` · `1755:12:>>>=` · `1771:16:>>>=` · `1772:16:>>>=` · `1825:26:<=><` · `1827:49:<=><` · `2155:54:<><=` · `2167:54:<><=` · `2455:31:<><=` · `2587:35:<><=` · `2697:32:<><=` · `2788:48:>>>=`
+
+`regex-quantifier-bound` (4): `1797:45:{1,2}>{1,3}` · `2107:21:{1,2}>{1,3}` · `2210:40:{1,2}>{1,3}` · `2684:32:{0,2}>{0,3}`
+
+Mapping of the BACKLOG entry's four starters (filed against the parent arc's tree; lines drifted): `index > 0` is now the `1754:12`/`1755:12` pair (with the `1771:16`/`1772:16` twins inside `prefixIsCommandish`); `token.length > 1` is `528:47`; the `{1,2}` flag regex is `1797:45`; the comment-range loop is the `586`/`587` cluster in `jsCommentRangesPerLine`.
