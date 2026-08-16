@@ -78,7 +78,7 @@ $ for v in "PG=p'sql'" "PG='p'sql" 'PG="ps"ql' "PG='/usr/bin/'psql"; do
 
 ## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
 
-**Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today.
+**Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today. **Status:** IN PROGRESS · **Branch:** fix/timing-scan-scope-resolution
 
 `scripts/scan-interaction-timings.ts` resolves an identifier delay by NAME against the set of covered bindings, so any binding anywhere that carries the same spelling counts as coverage. A local one that shadows it is therefore suppressed:
 
