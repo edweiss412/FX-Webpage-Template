@@ -254,6 +254,40 @@ Fourteen shipped controls stand on such a plate, across thirteen sites: `compone
 
 **First scheduled step:** decide whether tinted plates get their own outline token. If yes, the shape is a per-plate `border-*` in the same recipe rather than a new global token, because the neutral grounds already clear and moving the shared token would push them the other way.
 
+## BL-ROWACTIONS-SUBMENU-REVEAL-E2E-FLAKE — the capped-submenu focus-reveal case fails ~40% of CI runs on identical code
+
+**Status:** OPEN · **Severity:** MEDIUM (a merge-gating leg that reds at random; every arc touching `admin-layout-e2e`'s path filter pays for it) · **Class:** CI reliability / e2e flake · **Effort:** M · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, seen while shipping an unrelated colour-token change) · **Class-sweep exception:** (c) — the repair is a redesign of a scroll-reveal path in a component this PR does not otherwise touch · **Reachability:** PROBED — eight runs on one branch, byte-identical product code, both outcomes.
+
+`tests/e2e/rowactions-geometry.spec.ts:327` — _"keyboard focus in a CAPPED submenu is revealed, never left off-screen"_ — is intermittently red on the merge-gating `admin-layout-e2e` leg.
+
+**The probe is the run history, and it is decisive** because the input was held constant. Eight consecutive runs of workflow `316007124` on `fix/control-outline-surface-fills`, every one at a sha whose `app/**` and `components/**` are byte-identical (`git diff --name-only <sha>..HEAD -- 'app/**' 'components/**'` returns zero files for each):
+
+| sha         | outcome     |
+| ----------- | ----------- |
+| `393a4e2aa` | success     |
+| `3e96b7476` | **failure** |
+| `c7f019e11` | success     |
+| `2357eb321` | success     |
+| `3a9d509ac` | success     |
+| `4b92b8ed7` | success     |
+| `20707a204` | **failure** |
+| `a601e838e` | **failure** |
+
+Five green, three red, one program. The commits between them are documentation and test prose only, and `components/admin/ShowRowActions.tsx` — the component under test — is untouched by that branch entirely.
+
+**The failure shape.** Focus lands below the panel's visible box after `End`:
+
+```
+Expected: <= 509.96875
+Received:    587
+```
+
+so roughly 77px past the fold — the scroll-reveal did not run, rather than running and landing slightly off. Every failing run's log also carries a degraded dev server: `Error: The destination stream closed early.` repeated dozens of times, plus `show_review_snapshot_failed` and `[client.realtime] subscription failed: initial JWT mint returned no token`. The likely mechanism is that the reveal is racing something — a scroll handler, a layout settle, or a portal reflow — and loses when the server is slow enough to stretch the gap.
+
+**Why it is filed rather than fixed here.** The arc that found it ships 22 colour-token edits and touches neither the component, the spec, nor the portal-scroll path. Its own diff cannot cause a geometry change: a border COLOUR moves no box, and the run table proves the outcome varies with the input held constant. Fixing a reveal race needs the component's scroll path in hand.
+
+**First scheduled step:** determine whether the reveal is a `scrollIntoView` racing the portal's own layout, and if so await the settle rather than the keypress. The spec already has a premise guard (the panel must overflow its cap), so the case is not vacuous — it is genuinely observing the wrong post-condition some of the time. Until then, a red on this leg alone, with product code unchanged, is a re-run rather than a regression.
+
 ## BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER — two families of low-contrast outline the element-level cover cannot see in either direction
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (a resting boundary at 1.4-1.8:1, on surfaces whose peers moved to 3.35:1 on 2026-08-16) · **Class:** visual boundary / DESIGN scope · **Effort:** S per site, M as a class · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §3.2) · **Class-sweep exception:** (a) — the repair needs a design decision this PR cannot settle, stated per family below · **Reachability:** PROBED — every claim below is a transcript, not an argument.
