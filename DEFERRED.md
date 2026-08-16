@@ -56,8 +56,8 @@ Findings and dispositions are in §12 of
 
 **The finding.** DESIGN.md §1.2a now reads: a control filled with one of the four neutral ground
 tokens takes the text ramp. The swap moved every such control carrying `border-border-strong`.
-Controls carrying `border-border` — a different token, one rung quieter at **1.15:1** on
-`bg-surface` — were never in the cover, and the predicate as written describes them. The sharpest
+Controls carrying `border-border` — a different token, one rung quieter at **1.27:1** on
+`bg-surface`, and spanning **1.15-1.38:1** across the four neutral grounds — were never in the cover, and the predicate as written describes them. The sharpest
 instances are the confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
 `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`: the user taps a control this arc took to
 3.35:1, it morphs in place, and the escape route beside the filled destructive confirm is the

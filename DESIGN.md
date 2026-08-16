@@ -226,7 +226,7 @@ pairs with a control should follow it is `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGH
 
 Separately: a control with a neutral fill but a `border-border` outline — the
 confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
-`app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`, both **1.15:1** — falls
+`app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`, both **1.27:1** — falls
 inside this predicate's words and outside the 2026-08-16 swap, which moved only
 `border-border-strong`. Widening to `border-border` is a separate design decision
 this ruling did not make, filed as
