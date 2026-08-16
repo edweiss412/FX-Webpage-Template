@@ -544,7 +544,7 @@ git commit -m "infra: register gen:execution-methods in the pretest-gen manifest
 
 <!-- task: red=`git diff --exit-code tests/db/__generated__/postgresExecutionMethods.ts` ac=AC-7 -->
 
-The marker's `red=` is the gate's own oracle command: it is OBSERVED failing in Step 2 while the mutant edit is applied, and passes after restore — the mutant-red treatment the gate-command rule requires (docs/agents/writing-plans.md).
+The marker's `red=` is the gate's own oracle command: it is OBSERVED failing in Step 4 while the stale-commit mutant is applied, and passes after the reset — the mutant-red treatment the gate-command rule requires (docs/agents/writing-plans.md).
 
 **Files:**
 - Modify: `.github/workflows/x-audits.yml` — one step in the `traceability-audit` job after the existing "Verify generated ... is fresh" steps (pattern at `.github/workflows/x-audits.yml:31-36`), plus one line in the upload path list (`.github/workflows/x-audits.yml:60-71`).
@@ -745,7 +745,7 @@ Appended by the implementation session as each named step completes, and COMMITT
 - Task 2 step 5: check-mode both-ways probe (exit 0 fresh, exit 1 stale).
 - Task 5 step 2: hand-edit probe (exit 0 with the regeneration explanation).
 - Task 5 step 4: stale-commit mutant probe (exit 1) — the AC-7 mutant-red evidence.
-- Task 6 step 3: measured mutation score, survivor dispositions, run duration.
+- Task 6 step 5: measured mutation score, survivor dispositions, run duration.
 - Task 7 step 1: AC-6 red observation (exit 1), clean pass (exit 0), and the node_modules sweep with per-hit dispositions.
 
 ## 12 Closeout
