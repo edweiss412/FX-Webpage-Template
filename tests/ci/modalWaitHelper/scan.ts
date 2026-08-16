@@ -78,7 +78,17 @@ export type CandidateOrigin =
   | "d-link-activation"
   | "e-renavigation";
 
-export type Candidate = SourceLine & { origin: CandidateOrigin };
+/**
+ * A candidate carries the exemption declared for its line, resolved by the SAME
+ * `exemptionReasonAt` the guard uses. Reading the exemption off the candidate's
+ * own text instead would silently depend on comment placement: the escape hatch
+ * is valid on the line OR the line above, and only one of those spellings puts
+ * the marker in the candidate's text.
+ */
+export type Candidate = SourceLine & {
+  origin: CandidateOrigin;
+  exemptReason: string | null;
+};
 
 export type ProductOpenSurface = {
   file: string;
@@ -222,7 +232,12 @@ export function enumerateCandidates(root: string = process.cwd()): Candidate[] {
   for (const file of e2eSpecFiles(root)) {
     const lines = readLines(join(root, file));
     lines.forEach((text, index) => {
-      const site = { file, line: index + 1, text: text.trim() };
+      const site = {
+        file,
+        line: index + 1,
+        text: text.trim(),
+        exemptReason: exemptionReasonAt(lines, index),
+      };
       const push = (origin: CandidateOrigin): void => {
         candidates.push({ ...site, origin });
       };

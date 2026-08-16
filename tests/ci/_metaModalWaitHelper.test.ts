@@ -286,6 +286,7 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
       file: "tests/e2e/nobody-decided.spec.ts",
       line: 1,
       text: "await somethingNew(page, `/admin?show=${slug}`);",
+      exemptReason: null,
     };
     const result = classifyCandidates([orphan], DISPOSITION_RULES);
     expect(result.undisposed).toHaveLength(1);

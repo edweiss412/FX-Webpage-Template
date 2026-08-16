@@ -83,7 +83,10 @@ export const DISPOSITION_RULES: DispositionRule[] = [
         "declares an inline modal-wait-exempt reason; the pinned inventory in the meta-test is what keeps that list from widening",
     },
     expectedCount: 2,
-    match: (c) => /modal-wait-exempt:/.test(c.text),
+    // Resolved by the scan, not by this line's text: the marker is valid on the
+    // line OR the line above, so a text match here would depend on which
+    // spelling the author happened to use.
+    match: (c) => c.exemptReason !== null && c.exemptReason !== "",
   },
   {
     id: "a/prose",

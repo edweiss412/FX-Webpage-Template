@@ -15,6 +15,7 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { awaitReviewModalOrRecover } from "./helpers/openShowReviewModal";
 
 const BASE = "published-show-review";
 const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
@@ -63,7 +64,9 @@ test.describe("published review modal — reopen the same show", () => {
 
   /** Loaded frame visible AND its effects flushed (initial focus applied). */
   async function awaitLoadedModal(page: Page): Promise<void> {
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    // The four row clicks in this file have no goto to replace, so the WAIT is
+    // the only edit available — one edit discharging four open sites.
+    await awaitReviewModalOrRecover(page, { timeoutMs: 30_000, label: "click:dashboard-row" });
     await expect(page.locator(MODAL_ANY)).toHaveCount(1);
     await expect
       .poll(

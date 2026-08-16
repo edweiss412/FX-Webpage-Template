@@ -21,6 +21,7 @@ import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { admin } from "./helpers/supabaseAdmin";
+import { awaitReviewModalOrRecover } from "./helpers/openShowReviewModal";
 
 const BASE = "published-show-review";
 const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
@@ -52,7 +53,9 @@ test.describe("published review modal — dashboard freshness after close", () =
   });
 
   async function awaitLoadedModal(page: Page): Promise<void> {
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    // No goto to replace — the row click is the open site and this wrapper is
+    // its only wait, so the wrapper delegates.
+    await awaitReviewModalOrRecover(page, { timeoutMs: 30_000, label: "click:dashboard-row" });
     await expect
       .poll(() =>
         page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
