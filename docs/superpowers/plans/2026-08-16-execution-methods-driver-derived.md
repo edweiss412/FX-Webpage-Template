@@ -652,7 +652,7 @@ Following the analyzer row's shape (`tests/mutation/source/registry.ts:533-541`)
 
 - [ ] **Step 2: OBSERVE both companion-registry reds (plan review R4 finding 1)**
 
-With the registry row from Step 1 in place and NO companion rows yet, run both owning commands and observe each fail on its equality assertion — the guaranteed red of the same commands Step 3 turns green:
+With the registry row from Step 1 in place and NO companion rows yet, run both owning commands and observe each fail on its equality assertion — the guaranteed reds whose same commands later pass (the premise meta-test goes green at Step 3 once its row lands; the heavy gate goes green by Step 5, after survivor resolution and the floor tightening):
 
 Run: `pnpm vitest run tests/mutation/_metaPremiseContract.test.ts`
 Expected: FAIL — "declares a count for every enrolled suite" (`tests/mutation/_metaPremiseContract.test.ts:137-142`) rejects the newly enrolled suite with no `EXPECTED_ENV_TOUCHING` key.
@@ -667,7 +667,7 @@ Enrolment touches TWO more hand-keyed registries; add the rows the Step 2 reds d
 - `tests/mutation/_metaPremiseContract.test.ts` — `EXPECTED_ENV_TOUCHING` must declare a count for every enrolled suitePath (asserted at `tests/mutation/_metaPremiseContract.test.ts:137-142`). Add `"tests/db/executionMethodsManifest.test.ts": 0` — the classifier's provenance set counts `node:child_process`, ledger-git, and `process.env` reads as environment-touching (`tests/mutation/source/premiseScan.ts:28` and `tests/mutation/source/premiseScan.ts:211`); a bare `node:fs` read is pure to it, so the version sentinel classifies environment-free and the suite's declared count is ZERO (plan review R3 finding 1, probe-verified against the exact sentinel snippet). The sentinel keeps its `premiseHolds` line regardless — it states the read's premise for the human reader even though the classifier does not demand it. If the classifier's verdicts differ at implementation time, reconcile by reading them, not by bumping the number blind.
 - `tests/mutation/guardSurfaces.gate.test.ts` — `EXPECTED_LEDGER_KINDS` must declare a kind-count row for every `GuardSurface.id` (asserted at `tests/mutation/guardSurfaces.gate.test.ts:150-155`). Add `executionMethodsDerivation: {}` (the row starts with `accepted: []`; update the kind counts in the same commit as any survivor disposition so the two stay in lockstep).
 
-Run: `pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts tests/mutation/_metaPremiseContract.test.ts`
+Run: `pnpm vitest run tests/mutation/_metaPremiseContract.test.ts` (the Step 2 premise command, now green) and `pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts`
 Expected: PASS after both rows land (row well-formed; the suite's premise usage satisfies the premise contract — if the premise-contract test demands a different helper form for any arm, repair the suite to comply, not the meta-test).
 
 - [ ] **Step 4: Run the gate**
