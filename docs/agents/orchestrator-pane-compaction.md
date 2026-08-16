@@ -102,6 +102,25 @@ report in between to see where the target got to — that re-run is the wait, an
 judgement rather than in a timeout inside a script is what keeps each command's failure mode
 singular.
 
+Add `--dry-run` to any of the three to print the exact bytes and send nothing.
+
+**Every refusal names the condition that fired**, and the four you will actually hit are distinct on
+purpose, because each sends you somewhere different: a missing `--as`, a missing target, a target
+that does not resolve against the roster, and a verdict that is not drivable. A refusal that blamed
+the wrong one would send you to fix something that is not wrong.
+
+**Reading the roster costs one `gh` call per WORKTREE, not per pane.** `gh pr checks` is a network
+call, the roster is a dozen panes, and that budget is shared by every arc on the machine — it was
+exhausted account-wide once already. Panes in one worktree share a PR and a git state, so both are
+read once and reused; the purview directory is read once for the whole run. A pane carrying no cwd
+at all (a plain shell) is answered as unknown rather than spawned into, since spawning with an empty
+directory would report the ORCHESTRATOR's own worktree state as that pane's.
+
+`--check --as <id>` is the scriptable form: **0** nothing actionable in your purview, **1** something
+is COMPACT or FORCE, **2** something is UNDETERMINED and the report cannot be trusted. It aggregates
+over your purview only, so an orchestrator sharing a machine still sees 0 or 1. `--json` prints the
+`{status, degraded, panes}` envelope, never capped.
+
 **Why a nonce and not a timestamp.** The obvious verification — "the marker's mtime is newer and
 `next` is non-empty" — passes on *any* concurrent write: a stage progression, a `blockedOn` change,
 a takeover rewriting `sessionId`, another orchestrator's checkpoint. None of those prove your
