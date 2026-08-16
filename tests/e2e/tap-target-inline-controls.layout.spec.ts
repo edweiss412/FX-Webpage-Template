@@ -135,7 +135,11 @@ async function assertIsControl(
   }
 }
 
-type StyledRect = Rect & { backgroundColor: string; borderTopWidth: string };
+type StyledRect = Rect & {
+  backgroundColor: string;
+  borderTopWidth: string;
+  borderTopColor: string;
+};
 
 type TransportMeasurement =
   | { ok: false; error: string }
@@ -182,6 +186,7 @@ async function measureTransportGrid(
           .length,
         backgroundColor: cs.backgroundColor,
         borderTopWidth: cs.borderTopWidth,
+        borderTopColor: cs.borderTopColor,
       };
     };
     const tel = root.querySelector('a[href^="tel:"]');
@@ -362,6 +367,17 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
       if (!m.ok) return;
       const { tel, mailto, driverCell, vehicleCell, body, eyebrow, nameRow } = m;
 
+      // Resolved in the page, never hardcoded: a token retune must move the
+      // expectation with it (the site-8 on-token assertion's posture).
+      const textFaint = await page.evaluate(() => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--color-text-faint)";
+        document.body.appendChild(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+      });
+
       assertFloor(tel, floor, "site 6 (tel: chip)");
       assertFloor(mailto, floor, "site 7 (mailto: chip)");
       // Stacked in one `flex-col` cell: both are at the floor, so both must fit.
@@ -415,6 +431,17 @@ test.describe("tap-target floor — repaired inline text controls (spec §2, sit
           `${chip.label} must be distinguishable from the cell ground`,
         ).not.toBe(driverCell.backgroundColor);
         expect(chip.borderTopWidth, `${chip.label} must carry a visible border`).toBe("1px");
+        // A border that EXISTS is not a border that can be SEEN. `border-border`
+        // measures 1.15:1 against this cell's ground — the width and colour-delta
+        // assertions above both pass on it while the edge is invisible on a
+        // venue floor, which is the whole affordance. Pinned against the RESOLVED
+        // token, so a retune of either side moves the assertion with it
+        // (DESIGN.md §1.2a: a control edge standing alone needs text-grade
+        // contrast; §1.2 pins this pair at 3.02:1 light / 4.11:1 dark).
+        expect(
+          chip.borderTopColor,
+          `${chip.label} must use the control-outline token, not a border token`,
+        ).toBe(textFaint);
       }
 
       await signOut(page);

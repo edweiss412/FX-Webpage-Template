@@ -1379,9 +1379,9 @@ function TransportCell({ label, children }: { label: string; children: React.Rea
   return (
     <div className="flex min-w-0 flex-col items-center gap-1 rounded-md bg-surface-sunken px-3 py-2 text-center">
       <span className={CELL_EYEBROW_CLASS}>{label}</span>
-      <div className="flex w-full flex-1 flex-col items-center justify-center gap-1">
-        {children}
-      </div>
+      {/* No `flex-1`/`justify-center`: with `items-start` on the grid the cell no longer
+          stretches, so there is never surplus height to grow into or centre within. */}
+      <div className="flex w-full flex-col items-center gap-1">{children}</div>
     </div>
   );
 }
@@ -1413,14 +1413,22 @@ function ContactCell({
           // (spec 2026-08-15-step3-tap-cluster §2.3). `min-h-tap-min` still carries the floor;
           // what is new is that the 44px reads as a row instead of a void. `w-full` is
           // deliberate and is the OPPOSITE of the shrink-wrap contract sites 4/8 keep: a
-          // bordered `bg-surface` chip on the cell's `bg-surface-sunken` ground gives the
+          // `border-text-faint` chip on the cell's `bg-surface-sunken` ground gives the
           // target a visible edge AT REST, which is the affordance the venue floor requires
           // (PRODUCT.md:59 — phones cannot hover, so `hover:` alone is an invisible target).
           // The house focus ring is new here too; these links carried no focus treatment.
-          className="flex w-full min-h-tap-min items-center justify-center gap-1 rounded-sm border border-border bg-surface px-2 text-[11px] tabular-nums text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
+          // The outline is `border-text-faint`, NOT a border token: a control edge that has to
+          // stand on its own needs text-grade contrast (DESIGN.md §1.2a). `border-border` here
+          // measures 1.15:1 against the sunken cell — an edge that exists in the DOM and is
+          // invisible on the floor. `text-faint` is the pinned 3.02:1 light / 4.11:1 dark row
+          // (DESIGN.md §1.2), the same recipe SECONDARY_ACTION_CLASS uses for its boundary.
+          className="flex w-full min-h-tap-min min-w-0 items-center justify-center gap-1 rounded-sm border border-text-faint bg-surface px-2 text-[11px] tabular-nums text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
         >
           <Phone className="size-3 shrink-0" aria-hidden="true" />
-          {phone}
+          {/* Same containment as the email chip below: the number is as-parsed, so an
+              unbroken string (no spaces) would otherwise set the flex item's automatic
+              min-width to its full width and push past a ~165px cell at 390px. */}
+          <span className="min-w-0 wrap-break-word">{phone}</span>
         </a>
       ) : null}
       {hasContent(email) ? (
@@ -1433,7 +1441,7 @@ function ContactCell({
           // 6px of leading dead space — accepted (spec §7 limit 4) over a conditional
           // className, which is the non-literal shape BL-TAP-TARGET-STRUCTURAL-GUARD records
           // as the corpus guard's blocker.
-          className="mt-1.5 flex w-full min-h-tap-min min-w-0 items-center justify-center gap-1 rounded-sm border border-border bg-surface px-2 text-[11px] text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
+          className="mt-1.5 flex w-full min-h-tap-min min-w-0 items-center justify-center gap-1 rounded-sm border border-text-faint bg-surface px-2 text-[11px] text-text hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
         >
           <Mail className="size-3 shrink-0" aria-hidden="true" />
           <span className="min-w-0 wrap-break-word">{email}</span>
