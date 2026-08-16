@@ -59,6 +59,42 @@ export function scanRowsWithOpener(markdown: string): ScannedRow[] {
   return rows;
 }
 
+/**
+ * The physical block opener in effect at every line of a document, indexed by line number.
+ *
+ * Exists because a block parser that finds its section by a SEMANTIC header regex and a
+ * detector that reads the PHYSICAL pipe run can disagree about which opener a row belongs to,
+ * and the consumption ledger is keyed on the opener — so when they disagree, a resolved row's
+ * mark lands under a key the detector never probes and the row is reported unrecognized
+ * anyway. Measured on the corpus with `Stage Size` → `Stage-Size`: resolved to `stage_size`,
+ * autocorrected, and simultaneously reported unknown under the namespace of a DIFFERENT block
+ * (whole-diff r4 P1). Any writer whose block boundaries are not the pipe run's must key
+ * through this function rather than through the header row it matched.
+ *
+ * Non-table lines get `""`. The rule is `scanRowsWithOpener`'s, applied from the document
+ * start, so the two cannot drift.
+ */
+export function openerByLine(markdown: string): string[] {
+  const out: string[] = [];
+  let inTable = false;
+  let opener = "";
+  for (const line of markdown.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) {
+      inTable = false;
+      opener = "";
+      out.push("");
+      continue;
+    }
+    if (!inTable) {
+      inTable = true;
+      opener = clean(splitRow(trimmed)[0] ?? "");
+    }
+    out.push(opener);
+  }
+  return out;
+}
+
 // TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
 // transform sites in this file that rest on a JUDGMENT the parser could get wrong.
 // None here — the scan reproduces `parseTableRows`' rows verbatim and tags each with a

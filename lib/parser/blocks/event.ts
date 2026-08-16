@@ -32,6 +32,7 @@
 
 import { clean, presence, splitRow } from "./_helpers";
 import { type ParseAggregator, emitEmptySection, markConsumed } from "@/lib/parser/warnings";
+import { openerByLine } from "./_rowScan";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
@@ -150,10 +151,17 @@ export function parseEventDetails(
 
   const section = markdown.slice(headerMatch.index);
   const lines = section.split("\n");
-  // Ledger key component (§3.3): the first-cell text of the section-opening row this
-  // parser matched. EVENT_DETAILS_HEADER_RE is `^\|`-anchored and multiline, so
-  // `headerMatch.index` is that row's opening pipe and `lines[0]` is the row itself.
-  const blockOpener = clean(splitRow((lines[0] ?? "").trim())[0] ?? "");
+  // Ledger key component (§3.3): the PHYSICAL pipe-run opener, which is what the near-miss
+  // detector probes with. Taking `lines[0]` — the row EVENT_DETAILS_HEADER_RE matched — was
+  // wrong whenever the semantic header is not itself the first row of its run: the mark then
+  // landed under a key the detector never looks up, and a resolved, autocorrected row was
+  // reported unrecognized under a neighbouring block's namespace (whole-diff r4 P1, probed
+  // with `Stage Size` → `Stage-Size`). `openerByLine` applies `scanRowsWithOpener`'s own rule
+  // from the document start, so writer and reader cannot disagree.
+  const openersByDocLine = openerByLine(markdown);
+  const headerDocLine = markdown.slice(0, headerMatch.index).split("\n").length - 1;
+  const openerForOffset = (offset: number): string =>
+    openersByDocLine[headerDocLine + offset] ?? "";
   let inBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
@@ -200,7 +208,7 @@ export function parseEventDetails(
     // Both curated event sites: the CANONICAL_KEY_MAP exact hit and the gatedVocabCorrect
     // acceptance. The `toCanonicalKey` fallback below deliberately does NOT mark.
     if (exactCanon !== undefined || fuzzyCanon !== undefined) {
-      markConsumed(agg, blockOpener, col0, col1);
+      markConsumed(agg, openerForOffset(i), col0, col1);
     }
 
     // Two-column row: col0 is label, col1 is value

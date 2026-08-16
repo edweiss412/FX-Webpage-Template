@@ -2,7 +2,7 @@
 
 > **CORRECTION 2026-08-16 — the counts in this file are refuted by measurement.** Branch 5
 > shipped the content-keyed near-miss detector, and the collected harness run closes **24**
-> `section-reorder` rows (not the 10 named below — those ten are a strict subset), leaves **59**
+> `section-reorder` rows, superseding the 10 predicted below (those ten are a strict subset), and leaves **59**
 > (not 72), opens 17 new holes, and drifts 1,002 of 1,088 fingerprints, so the ledger was
 > REGENERATED to 1,019 rows rather than edited. Every "10" and "72" below is the authored
 > prediction, kept for provenance. Authority: `00-overview.md` AC-W1 and
