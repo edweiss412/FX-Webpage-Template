@@ -23,8 +23,9 @@
  * Spec: docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md §5.3.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
@@ -39,24 +40,40 @@ const DEAD_DB = "postgresql://postgres:postgres@127.0.0.1:59999/postgres";
 
 type Run = { status: number; output: string };
 
-/** Runs a suite file in a child vitest, returning its exit status and output. */
-function runSuite(env: Record<string, string | undefined>, file: string = SUITE): Run {
+/**
+ * Runs a child vitest, returning its exit status and output.
+ *
+ * `stdio` is EXPLICIT, and that is the whole point of it. With only `encoding`
+ * set, Node both CAPTURES the child's stderr on `err.stderr` and PASSES IT
+ * THROUGH to this process's stderr (probed 2026-08-15 with a minimal repro —
+ * capture and passthrough are independent). Every child this file spawns fails
+ * INTENTIONALLY, so their vitest `FAIL` lines leaked into the outer run's
+ * output naming files the outer run never failed — one of them a transient
+ * mutant path that no longer existed by the time a developer read it. That is
+ * the whole observed symptom of BL-TESTFAST-RACES-TRANSIENT-MUTANT-FILE, which
+ * hypothesised a cross-project glob race; the race was disproved by probe and
+ * the echo is the actual mechanism. Piping stderr changes no assertion input:
+ * `err.stderr` stays populated exactly as before.
+ */
+function runVitest(args: string[], env: Record<string, string | undefined>): Run {
   try {
-    const output = execFileSync(
-      "pnpm",
-      ["exec", "vitest", "run", "--project=serial", "--reporter=verbose", file],
-      {
-        cwd: ROOT,
-        encoding: "utf8",
-        timeout: 300_000,
-        env: { ...process.env, ...env },
-      },
-    );
+    const output = execFileSync("pnpm", ["exec", "vitest", "run", ...args], {
+      cwd: ROOT,
+      encoding: "utf8",
+      timeout: 300_000,
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     return { status: 0, output };
   } catch (e) {
     const err = e as { status?: number; stdout?: string; stderr?: string };
     return { status: err.status ?? 1, output: (err.stdout ?? "") + (err.stderr ?? "") };
   }
+}
+
+/** Runs a suite file in a child vitest, returning its exit status and output. */
+function runSuite(env: Record<string, string | undefined>, file: string = SUITE): Run {
+  return runVitest(["--project=serial", "--reporter=verbose", file], env);
 }
 
 /**
@@ -156,18 +173,23 @@ describe("pg-cron coverage cannot pass vacuously in CI", () => {
 const DESCRIBE_ANCHOR = 'describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {';
 const INERT_CASE = 'liveCase("INERT MECHANISM PROBE", () => {});';
 const OBSERVE_ANCHOR = "makeLiveCaseCounter(liveDbTest, () => queryCount)";
-const MUTANT_REL = "tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts";
-const MUTANT_ABS = join(ROOT, MUTANT_REL);
-
 /**
- * Writes a mutant copy of the suite with each edit applied. Every anchor must
- * occur EXACTLY once, and all anchors are validated before the file is
- * written — an anchor miss throws (refuse-to-cover) and leaves no stray file.
- * The mutant lives in the SAME directory so `./_liveCaseCounter` and the `@/`
- * aliases resolve, and keeps a ".test.ts" suffix because vitest treats CLI
- * file args as filters against the project include globs.
+ * Writes a mutant copy of the suite with each edit applied, and returns the
+ * path it wrote. Every anchor must occur EXACTLY once, and all anchors are
+ * validated before the file is written — an anchor miss throws
+ * (refuse-to-cover) and leaves no stray file.
+ *
+ * The mutant text lives in an `mkdtemp` scratch directory OUTSIDE the repo,
+ * under a non-test extension, and is served to the child from memory (see
+ * `runMutant`). It used to be a real `.test.ts` sibling of the suite inside the
+ * globbed tree, which carried two probed hazards: a crash or SIGKILL between
+ * write and unlink left a stray red test file for the NEXT serial collection to
+ * execute, and the write itself polluted the working tree that invariant 11
+ * keeps single-writer (BL-TESTFAST-RACES-TRANSIENT-MUTANT-FILE). No path
+ * matched by any project glob now exists at any instant, so the class is
+ * removed rather than narrowed.
  */
-function writeMutant(edits: Array<{ anchor: string; replaceWith: string }>): void {
+function writeMutant(edits: Array<{ anchor: string; replaceWith: string }>): string {
   let source = readFileSync(join(ROOT, SUITE), "utf8");
   for (const { anchor, replaceWith } of edits) {
     const occurrences = source.split(anchor).length - 1;
@@ -179,36 +201,65 @@ function writeMutant(edits: Array<{ anchor: string; replaceWith: string }>): voi
     }
     source = source.replace(anchor, replaceWith);
   }
-  writeFileSync(MUTANT_ABS, source);
+  const mutant = join(mkdtempSync(join(tmpdir(), "pgcron-mechanism-probe-")), "mutant.txt");
+  writeFileSync(mutant, source);
+  return mutant;
+}
+
+/** The shipped per-mutant config: serves mutant text for a target from a
+ * `load` hook, so the TRACKED file is never written. */
+const OVERLAY_CONFIG = "tests/mutation/source/mutantOverlay.config.ts";
+
+/**
+ * Runs the suite at its REAL path with `mutant`'s text served in memory.
+ *
+ * Because the path is real, `./_liveCaseCounter` and every `@/` import resolve
+ * with no rewriting, and the overlay config carries `REPO_ALIAS` and
+ * `TEST_TIMEOUT_MS` from `vitest.projects.ts` for exactly this reuse. Both
+ * directions were probed before this landed: the UNMUTATED suite served through
+ * the overlay passes 11/11, and an inert `liveCase` spliced at `DESCRIBE_ANCHOR`
+ * fails BY NAME — the `load` hook serves mutant text for a TEST-file target,
+ * not only for imported modules.
+ */
+function runMutant(mutant: string, env: Record<string, string | undefined>): Run {
+  return runVitest(["--config", OVERLAY_CONFIG], {
+    ...env,
+    MUTATION_ROOT: ROOT,
+    MUTATION_TARGET: join(ROOT, SUITE),
+    MUTATION_MUTANT: mutant,
+    MUTATION_SUITE: SUITE,
+  });
 }
 
 describe("query-count mechanism cannot be deleted silently", () => {
   it("per-case attribution is wired: an injected inert live case reds the suite BY NAME", () => {
-    writeMutant([{ anchor: DESCRIBE_ANCHOR, replaceWith: `${DESCRIBE_ANCHOR}\n  ${INERT_CASE}` }]);
+    const mutant = writeMutant([
+      { anchor: DESCRIBE_ANCHOR, replaceWith: `${DESCRIBE_ANCHOR}\n  ${INERT_CASE}` },
+    ]);
     try {
-      const run = runSuite({ CI: "true", PG_CRON_COVERAGE_TARGET: "local" }, MUTANT_REL);
+      const run = runMutant(mutant, { CI: "true", PG_CRON_COVERAGE_TARGET: "local" });
       expect(run.status, "an inert live case must red the suite").not.toBe(0);
       // BY NAME: under observe-arg deletion (MF-2) the child still reds via the
       // aggregate branch, but with the aggregate message — this match is what
       // makes silent attribution regression detectable.
       expect(run.output).toMatch(/live case "INERT MECHANISM PROBE" issued NO database query/);
     } finally {
-      unlinkSync(MUTANT_ABS);
+      rmSync(dirname(mutant), { recursive: true, force: true });
     }
   }, 300_000);
 
   it("the aggregate afterAll branch backstops when attribution is absent", () => {
-    writeMutant([
+    const mutant = writeMutant([
       { anchor: DESCRIBE_ANCHOR, replaceWith: `${DESCRIBE_ANCHOR}\n  ${INERT_CASE}` },
       { anchor: OBSERVE_ANCHOR, replaceWith: "makeLiveCaseCounter(liveDbTest)" },
     ]);
     try {
-      const run = runSuite({ CI: "true", PG_CRON_COVERAGE_TARGET: "local" }, MUTANT_REL);
+      const run = runMutant(mutant, { CI: "true", PG_CRON_COVERAGE_TARGET: "local" });
       expect(run.status, "an uncounted-inert-case run must red the suite").not.toBe(0);
       // Seven counted cases, six queries: only the aggregate branch notices.
       expect(run.output).toMatch(/live cases ran but only \d+ database queries were issued/);
     } finally {
-      unlinkSync(MUTANT_ABS);
+      rmSync(dirname(mutant), { recursive: true, force: true });
     }
   }, 300_000);
 });

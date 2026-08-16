@@ -1,3 +1,457 @@
+## BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS — the psql startup-file scan walks `.next-*` build outputs and blows the stack — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
+
+**Severity:** MEDIUM (a whole guard suite is red locally for a reason unrelated to any change; the failure names a TypeScript internal, not the cause) · **Class:** guard robustness · **Effort:** S · **Filed:** 2026-08-11
+
+**Resolution 2026-08-15.** Repaired exactly as this entry's own last paragraph proposed: the root skip is now DERIVED from the committed root `.gitignore` rather than enumerated. `rootSkipNamesFromGitignore` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) accepts a line iff it is a plain single-segment name — optional leading `/`, no glob metacharacter, no `!`, no interior `/`, optional trailing `/` — and `ROOT_SKIP_LITERALS` keeps only `docs`, the ratified root-relative exclusion no ignore file names. Rejection of everything else is the conservative direction by construction: the walk can only over-scan, never silently under-scan. A fifth, sixth or seventh build target needs no edit, which is the whole point — an enumerated list re-opens the moment someone adds a site.
+
+The entry's second suggestion landed with it: `analyzeNaming` wraps EVERY per-file analyzer call in `collectPsqlUsage` — the scan, indirection and workflow passes alike — and rethrows carrying the repo-relative path, so the next unknown pathological file names itself instead of needing a bisect. Rethrow, never catch-and-continue; a swallowed scan error is the silent under-count the walk's `unreadable` ledger exists to prevent.
+
+**Reproduced before the fix, at the real repo root**, with two representative deep-AST bundles written into `.next-dev` and `.next-prod`: **19 failed | 726 passed (745)** — the exact split this entry reported. Same tree after the fix: **793 passed (793)** (745 pre-arc cases plus this arc's 48 new rows; re-derive with `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`). Consequence bound now pinned by test: every file the walk reaches is analyzed or NAMED in a loud failure; the only silently-skipped roots are the derived set plus `docs`.
+
+**Filed twice.** `BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS` is the same defect filed independently from a second triage session; both graduate here, and neither is a distinct piece of work.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.1. Documented limits carried forward there: a root ignored only by a wildcard row (`.codex-companion*/`) stays walked (worst case is a loud named failure, not a silent skip), and a TRACKED root directory later named by a plain-name row would be newly skipped — fenced by a stays-quiet test pin asserting the derived set excludes every tracked source root.
+
+**Probed 2026-08-11 on `fix/help-tour-hydration`**, where the suite failed 19/745 with `RangeError: Maximum call stack size exceeded` inside `tests/cross-cutting/psqlStartupFiles/scan.ts:535`, on a tree whose only source changes were one MDX page and CI wiring. Bisecting by reverting each changed file to `origin/main` left it red; the cause was never in the diff.
+
+`IGNORED_AT_ROOT` (`tests/cross-cutting/psqlStartupFiles/scan.ts:315`) lists `.next` but not the sibling output directories this repo's own tooling writes: `playwright.config.ts` and the screenshot/flip scripts build into **`.next-dev`, `.next-prod`, `.next-prod-flip`, and `.next-screenshots-help`**. Those are walked. An AST-depth probe over the walk's own directory rules found 6516 files, of which twelve are ~12 MB webpack chunks the walk skips only by luck of the parse, and several bundled files reach an AST depth of 4342 — the recursive `visit` at `:535` overflows long before the guard reaches a psql call site.
+
+Moving the four directories outside the repo and re-running takes the same suite to **745 passed** with no other change. Same command, same tree.
+
+**Why it matters more than a local annoyance.** The failure mode is silent misattribution: the stack trace names `typescript.js` and the scan's own line 535, so the reader's first hypothesis is their own diff. That cost a bisect on this arc. Worse, the walk is the guard's completeness claim — a walk that dies partway through has not certified the tree, and 19 red tests are the only thing standing between that and a false green if the overflow were ever caught and swallowed.
+
+**Why it is filed rather than repaired in the arc that found it — exception (c).** The repair is on a guard surface this PR does not otherwise touch, and this particular guard's review history (its own test names run to "R40 escaping mutants") is precisely about enumerated recognizers not terminating. Adding four literals to an enumerated ignore list is the shape that invites the next round to ask for a derived one. It deserves its own arc, where the derivation question can be answered properly.
+
+**The derivation is available, which is the real fix.** The ignored set is enumerable from configuration rather than by hand: `next.config.ts` / the build scripts name their `distDir`s, and `.gitignore` already lists all four. A walk that skips what git ignores at root would close the class instead of the four instances, and would not need editing the next time a build script picks a new output directory.
+
+## BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS — the psql startup-file guard parses local `.next-*` build output and blows its own stack — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** guard usability (local-only false failure). **Effort:** XS. **Class-sweep exception:** (c) — a guard surface the filing PR does not otherwise touch. **Reachability:** PROBED, with a bisect that named the cause.
+
+**Resolution 2026-08-15.** DUPLICATE FILING of `BL-PSQL-SCAN-NEXT-VARIANT-BUILD-DIRS` — the same defect reached from a second triage session on the same day. Both graduate together in `fix/local-harness-false-failures`; the full resolution, probe numbers and documented limits live on that entry, immediately above this one. In short: the root skip is derived from the committed root `.gitignore` (not four, now seven, literals), and `analyzeNaming` makes any scan throw name the file it was reading. This entry's own "first scheduled step" — widen to the `.next*` prefix AND name the file on a throw — is what shipped, except that the derivation went one better than a prefix.
+
+The two filings are recorded as duplicates rather than merged silently, because two independent triage sessions reaching the same conclusion on the same day is itself the evidence that the failure mode was costing more than one person a bisect.
+
+`tests/cross-cutting/psqlStartupFiles/scan.ts:315`'s `IGNORED_AT_ROOT` skips `.next`, but this repo's own Playwright config builds into `.next-dev`, `.next-prod`, `.next-prod-flip` and `.next-screenshots-help` (`playwright.config.ts` webServer entries). Those are not skipped, so the walk hands megabytes of generated bundle JS to the TypeScript AST scan and it dies:
+
+```
+RangeError: Maximum call stack size exceeded
+ ❯ visit tests/cross-cutting/psqlStartupFiles/scan.ts:535:9
+ ❯ forEachChildInBinaryExpression typescript.js:32647:12
+```
+
+**19 of the guard's 745 cases fail** — including its own structural cases ("the walk is not vacuous", "the walk read every directory"), which is the confusing part: the failures read like a real psql violation and name no file.
+
+**Probed by bisect, all four steps:** the same commit passes 745/745 in a freshly-created worktree that has never built; it fails in a worktree that has; clearing `test-results/` and `.next/` does NOT fix it; moving the four `.next-*` directories aside DOES (745/745). So the trigger is the directory set, not the diff and not the environment more broadly.
+
+**CI is unaffected** — a fresh checkout has no `.next-*` — which is exactly why this can sit here indefinitely and cost each developer the same half-hour bisect.
+
+**First scheduled step:** widen the root skip to the `.next*` prefix rather than adding four literals (a fifth build target would otherwise re-open it), and consider making the walk report the file it was parsing when a scan throws, so the next occurrence names itself instead of needing a bisect.
+
+## BL-TESTFAST-RACES-TRANSIENT-MUTANT-FILE — a probe writes a temp test file into the tree while the other project is globbing — RESOLVED 2026-08-15 (`fix/local-harness-false-failures`, SHIPPED)
+
+**Filed:** 2026-08-11 (`fix/tap-target-inline-controls`, found while triaging a local suite failure). **Class:** test-harness race (local false failure). **Effort:** S. **Class-sweep exception:** (c) — a harness surface the filing PR does not otherwise touch. **Reachability:** PROBED — observed, with the writer named and the victims cleared standalone.
+
+**Resolution 2026-08-15 — and the mechanism below is CORRECTED, not merely closed.**
+
+This entry's OBSERVATION was exact and reproducible; its explanation was wrong, and the spec's R1 review disproved it by probe. The hypothesised cross-project glob race **cannot occur today**: `scripts/test-fast.mjs` does run the serial and parallel projects concurrently, but the parallel project admits only `PARALLEL_TEST_GLOBS`, none of which match the `tests/cross-cutting` tree (probed: serial membership true, parallel membership false). The transient file was only ever collectable by the SERIAL project — the same project already running it.
+
+The actual mechanism is **STDERR ECHO**. `runSuite` called `execFileSync` with only `encoding` set, and Node then BOTH captures the child's stderr on `err.stderr` AND passes it through to the parent's stderr (probed 2026-08-15 with a minimal repro; capture and passthrough are independent). Every child that file spawns fails INTENTIONALLY — the dead-DB probe and both mutant probes — so their vitest `FAIL` lines leaked verbatim onto the outer run's output, naming tree paths the outer run never failed on, one of which had already been unlinked. That is the entire observed symptom, including the "named file does not exist" part that made it so confusing. Measured on the identical command pair: **5 echoed `FAIL` lines before the repair, 0 after**, with the suite green both times.
+
+Both repairs shipped together, because the transient file carried two further probed hazards the entry did not name:
+
+- **The mutant never lands in the globbed tree.** `writeMutant` now writes the mutant TEXT to an `mkdtemp` scratch file outside the repo under a non-test extension and returns the path; the child runs the suite at its REAL path with that text served in memory by the shipped `load` hook (`tests/mutation/source/mutantOverlay.config.ts`). No path matched by any project glob exists at any instant, so the class is removed rather than narrowed — and a SIGKILL mid-probe can no longer leave a stray red test-suffixed file for the next serial collection to execute. The entry's first scheduled step fenced exactly this shape (out-of-tree or structurally unmatchable, never a basename exclusion), and that is what shipped.
+- **The write no longer pollutes the working tree** that invariant 11 keeps single-writer.
+
+`MUTANT_REL`, `MUTANT_ABS` and both `unlinkSync` finallys are gone; temp-dir removal replaces them. The exactly-once anchor validation is kept verbatim, and the probes' assertions are byte-identical — `git diff origin/main -- tests/cross-cutting/pgCronCiVacuity.test.ts | grep '^[-+]' | grep -c 'expect('` returns 0.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-15-local-harness-false-failures-design.md` §2.2. Documented limit carried forward there: any OTHER suite writing transient test-shaped files into the globbed tree, or spawning intentionally-failing children with default `execFileSync` stdio, would recreate these hazards. The class sweep run at plan time found this file to be the only instance of each today; a future one is a review matter, fenced by that limit rather than by a new guard.
+
+`tests/cross-cutting/pgCronCiVacuity.test.ts:159` writes a real file into the repo — `tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts` — runs it as a mutant, and removes it. `scripts/test-fast.mjs` runs the SERIAL and PARALLEL projects concurrently (that concurrency is the whole point of `test:fast`), so the other project's file glob can pick the transient up mid-run and execute it outside its harness.
+
+Observed once, in a full `pnpm test:fast`:
+
+```
+FAIL tests/cross-cutting/pg-cron-coverage.mechanism-probe-mutant.test.ts > INERT MECHANISM PROBE
+Error: live case "INERT MECHANISM PROBE" issued NO database query — it is not a live case.
+FAIL tests/cross-cutting/pg-cron-coverage.test.ts
+```
+
+The failure is maximally confusing: the named file **does not exist** by the time anyone looks, and `pg-cron-coverage.test.ts` passes 8/8 standalone immediately afterwards. Nothing in the output says "this was a temp file".
+
+**Not a CI problem** — CI runs the projects in separate jobs, so the glob never overlaps. It costs local runs only, which is why it can persist.
+
+**First scheduled step:** write the mutant outside the globbed tree (a temp dir passed to vitest) rather than into `tests/`, or give it an extension the projects' `include` patterns do not match. Either removes the race outright; excluding the basename by name would leave the next such probe exposed.
+
+## BL-DIAGRAM-DEMOTE-SIGHTED-PARITY — the full-detail fallback is announced but never shown — CLOSED 2026-08-16 (`feat/diagram-demote-notice`, SHIPPED)
+
+**Filed:** from the invariant-8 dual gate on `feat/diagram-viewing-polish` (2026-08-11, both halves independently) · **Severity:** medium · **Class:** A11Y/UX · **Effort:** S
+
+The zoom gate loads the original only on zoom intent, and when that fetch fails the slide demotes
+back to the clamped tier rather than showing "Image unavailable"
+(`components/diagrams/GalleryLightbox.tsx`, spec `docs/superpowers/specs/2026-08-10-diagram-viewing-polish.md` §4.1).
+The demote announces once, through an `sr-only` `role="log"` region. A SIGHTED crew member gets
+nothing: they pinched a stage plot, the image stayed soft, and no pixel says why or that pinching
+again will not help. Screen-reader users are told; everyone else is not, which is the parity gap
+backwards from the usual one.
+
+**Reachability:** PROBED at the design layer, not in a browser — the code path is exercised by
+`tests/components/diagrams/galleryLightbox.zoomGate.test.tsx` ("a zoom-triggered original failure
+keeps the image and falls back to the clamped tier"), and the only emitted signal there is the log
+entry. What is NOT settled is the affordance: a transient inline chip on that slide is the obvious
+shape, but it is new chrome on a surface whose decision round explicitly declined new chrome during
+the sharpen (§1.1), so the boundary between "progress affordance" (declined) and "failure notice"
+(not considered) is a product call. Fold into `DIAGRAM-FAILURE-RECOVERY-1` if that entry is taken
+up first — one decision covers both.
+
+**What shipped.** A transient chip on the affected slide — "Full detail unavailable", `aria-hidden`, `pointer-events-none`, absolutely positioned at the slide figure's bottom edge in the Reset chip's token family — set in the SAME branch that already announced the demote, so the sighted and screen-reader channels report one event once each. It clears four ways: a 6000ms timer, a second demote replacing it (last wins), the dialog closing at any of its three initiators, and the demoted slide's clamped tier failing too (a "Full detail unavailable" chip floating over "Image unavailable" is a contradiction, and the chip's premise died with the tier).
+
+**Two mechanisms exist because the dialog has no `open` prop to observe.** The parent unmounts the lightbox by nulling its index, and `AnimatePresence` retains the exiting child with FROZEN props, so nothing inside the lightbox can see a close after the fact. The clear therefore runs at the close INITIATORS, and the re-open signal is an `openNonce` the parent increments on every closed-to-open transition — the only observable difference between "still exiting" and "open again" when a re-open inside the 220ms window cancels the exit and retains the instance.
+
+**Limits carried forward** (spec §4, not defects): the chip names no diagram and explains nothing further (the richer named copy is the sr channel's); a demote inside the exit window may show no chip, because the user who closed the dialog is not looking at the slide; the chip does not persist across dialog sessions, so a one-time failure never reads as a permanent banner; and simultaneous demotes collapse to the latest, which carries the same message.
+
+**Proof, not assertion:** 17 tests — 12 in the zoom-gate suite (containment against the affected slide's own figure, the announce count unchanged, the lifetime pinned by the spec's 5999/1 literals rather than by reading the constant back, timer-cancel oracles, last-wins restart, swipe-away-and-back with its REMAINING lifetime, Reset coexistence) and 5 driven through the REAL parent gallery (sixteen observed red before implementation; the seventeenth was added under review and is mutation-killed), because the lightbox-only harness mounts with a no-op `onClose` and can never exercise a close, a canceled exit, or a retained instance. The `DEMOTE_CHIP_VISIBLE_MS` constant and its DESIGN.md §5.5 row land in one commit, with the inventory gate observed failing by name in between.
+
+---
+
+## BL-THEME-PERSISTENCE-FAILURE-IS-SILENT — a blocked localStorage loses the theme on reload with no signal — CLOSED 2026-08-16 (`feat/theme-persistence-note`, SHIPPED)
+
+**Severity (as filed):** LOW (the in-session pick still applies; only persistence is lost, and the fallback is the OS preference) · **Class:** UX signal · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, cross-model review round 1, finding 3) · **Effort:** S
+
+**Probed, not theorized.** With `localStorage.setItem` throwing (restrictive in-app browser, private mode, third-party-storage block):
+
+```
+after-toggle-with-storage-blocked: dark:dark  stored null
+next-load/os-light:                light
+```
+
+The user picks dark, the page turns dark, and the next load is light again with nothing said.
+
+**Why it is filed rather than fixed here.** `components/layout/useAppliedTheme.ts` absorbs the write failure deliberately — throwing would take the whole control down over a preference, and the fallback (follow the OS) is the conservative answer. What is missing is the SIGNAL, and what the signal should say is a product-copy decision this arc cannot settle: a toast is heavy for a preference, an inline note next to a toggle inside a popover has nowhere to live, and "your browser will not remember this" is the kind of technical explanation `PRODUCT.md` §5 rules out of the UI. Class-sweep disposition exception (a): needs a product decision.
+
+**Reachability:** PROBED — the failure mode is reachable in any embedded webview with storage partitioning, which is exactly where crew open a link from a group thread.
+
+**What shipped.** Both theme controls now say so when the device will not remember the choice. `useAppliedTheme` gained `persistFailed` (set in the `setTheme` catch, cleared by a later successful write, preserved across the mount sync so a pre-mount blocked click is not silently wiped); `ThemeToggle` renders an always-mounted `role="status"` anchored bubble whose TEXT is conditional; the avatar-menu popover renders the same copy from the same exported const, as a sibling of its `role="menu"` element. The silent absorb stayed exactly as filed — this arc added the signal, not a throw.
+
+**The copy answers the filing's own open question.** "This device won't remember this choice." — no mechanism, no "localStorage", no error code, which is what `PRODUCT.md` §5 asks for and what the filing said the arc could not settle alone. It was settled by the spec, ratified before implementation.
+
+**Limits carried forward, not defects** (spec §4): the note is per-control-instance and per-page-session and cannot survive a reload (nothing here can persist — that IS the failure); repeated failures while it is already shown do not re-announce, and a popover re-open renders it without re-announcing (a polite region announces content CHANGES); the bubble overlays what sits under the toggle while the failed state persists. Two open follow-ups carry the parts that need a decision rather than an implementation: `BL-THEME-NOTE-NO-DISMISS-AFFORDANCE` (a dismiss control is a product decision) and `BL-THEME-NOTE-BUBBLE-TEXT-ALIGN` (the alignment is in a ratified spec class list, so changing it is a spec edit).
+
+**Proof, not assertion:** 5 hook cases including the pre-effect mount-sync window rendered through `createRoot` + `flushSync` with a premise assertion so it cannot pass vacuously; 8 toggle cases including the always-mounted-container pin (the repo's own measured "inserted status announces nothing" trap); 5 avatar-menu cases including DOM containment against `role="menu"`; and a real-browser Playwright spec asserting viewport containment at 320px and wrapper-equals-button geometry on two consumers, observed RED before implementation and green after.
+
+---
+
+---
+
+## BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE — the dashboard-overview baseline predates five days of dashboard component changes — CLOSED 2026-08-16 (`docs/ci-flake-ledger-correction`, REFUTED)
+
+**Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, from PR #812's CI)
+
+`screenshots-drift` fails on `public/help/screenshots/dashboard-overview-light.webp` (Bin 77670 -> 82600 bytes). The drift is INHERITED FROM MAIN, not caused by the PR that surfaced it.
+
+**Probe evidence.**
+
+```
+$ git log --oneline -1 -- public/help/screenshots/dashboard-overview-light.webp
+3f48fe674 test(infra): regen admin nav/settings screenshot baselines (amd64 CI runner)   # 2026-08-11
+$ git diff --name-only 3f48fe674 origin/main -- components/ app/admin/ | head
+components/admin/AppHealthPopover.tsx
+components/admin/BellPanel.tsx
+components/admin/OnboardingWizard.tsx
+...                                   # ~20 dashboard-rendered components
+```
+
+The manifest entry captures `/admin`'s `[data-testid=admin-dashboard]` (`scripts/help-screenshots.manifest.ts:50-56`), so any of those components changes the capture. The arc that surfaced it adds no element under that selector: its admin surfaces are a new `/admin/wizard/preview/[stagedId]` route and a link inside the step-3 review MODAL, which is not mounted on load.
+
+**Why it surfaced now rather than on the commit that caused it:** the screenshots workflow is path-gated, so it fires only on a PR that touches a watched path. The sibling PR open at the same time (#807, mutation-harness work) does not trigger it at all, and main's own push runs do not include the job.
+
+**Repair:** regenerate the baseline FROM THE PINNED DOCKER IMAGE with `--platform linux/amd64` — never from a dev machine. The byte-comparison discipline in AGENTS.md is the authority here: an arm64 host produces different bytes than the native-x64 CI runner even on an identical pinned image tag, so a local `pnpm screenshot:help` would replace one wrong baseline with another (and pollutes the tree meanwhile — `git restore public/help/screenshots/` after any local capture).
+
+**Not merge-blocking, verified rather than assumed:** the twelve required contexts on `main` are quality, unit-suite, x1..x6, validation-schema-parity, affordance-matrix-parity, postgrest-dml-lockdown, traceability-audit (`gh api repos/.../branches/main/protection`). `screenshots-drift` is not among them.
+
+---
+
+**REFUTED 2026-08-16, by the next CI run at a tree this row could not distinguish.** `screenshots-drift` PASSED at `f6c3ac55`, whose only delta from the failing `b5aa6ef7` is a single `BACKLOG.md` commit. A markdown-only commit cannot change a WebP's bytes, so the drift is non-deterministic at a fixed tree and the stale-baseline diagnosis above is wrong.
+
+The probe evidence the row DID carry is still true and still useless as a cause: the baseline was last regenerated 2026-08-11 and dashboard-rendered components have changed since. It simply does not follow that the drift came from that, and this row asserted the inference without testing it — the failing run and the passing run were never compared.
+
+Superseded by `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`, which carries the two-job / two-head table and schedules a repeat-at-fixed-sha probe as its first step instead of a repair.
+
+**Kept rather than deleted** so the citation in the superseding row resolves, and so the mistake is legible: a filing whose worst case is "an advisory job is red" still has to distinguish its cause from the alternatives before it names one.
+
+## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3 — CLOSED 2026-08-16 (`feat/admin-ui-surfaces`, SHIPPED)
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
+
+Step 3 reviews a staged parse through its own section cards, not through the surface the crew will actually see. A C-style full preview would render `CrewShell` from the staged `parse_result`, which needs a `parse_result → ShowForViewer` adapter. Verified 2026-08-02: no such adapter exists.
+
+The adapter is the substance of the work, not the rendering — `getShowForViewer` builds its projection from persisted rows, and a staged parse is neither persisted nor viewer-scoped, so the adapter has to decide what a preview means for viewer name aliases, per-viewer visibility filters, and the admin-preview branch before any of it renders. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+---
+
+**Shipped 2026-08-16 (PR #812).** The entry's own read of the work was right: the adapter was the substance, not the rendering.
+
+`lib/data/stagedShowForViewer.ts` reproduces, for staged data, every viewer-dependent transform `readShowDataForViewer` applies between the raw rows and the projection, reusing the live helpers rather than hand-rolling variants (`normalizeDateRestriction`, `effectiveViewerDateRestriction`, `hotelVisibleToViewer`, `resolveTransportOwners`, `aggregateDays`, `financialsVisible`). The three questions this entry said the adapter had to settle before anything could render were settled as: viewer identity is a minted surrogate roster (`staged-crew-<index>`) the adapter resolves itself, so the projection's fail-closed `UnmatchedViewerError` is never reached; per-viewer visibility filters run exactly as the live projection runs them, including the hotel alias filter and the three-way run-of-show intersection; and the admin-preview branch is the viewer kind the route passes, so the budget gate follows the PREVIEWED member's flags.
+
+Two things the entry did not anticipate, both of which became the arc's real work:
+
+- **`asParseResult` validates CONTAINERS only** (`lib/db/coerceJsonbObject.ts:133`), so every nested field is untrusted on arrival. The adapter normalizes each family to the projection's runtime grain, and cross-model review round 1 then found the sharper half of that rule: a wrong-typed union DISCRIMINANT may never be defaulted to another VALID member (a corrupt `RoomKind` silently hid the General Session room). It drops its owning entry instead. The module header states the rule and its two ratified exceptions.
+- **A throw inside a descendant Server Component's render never passes through the page function's try/catch**, so the segment ships its own `error.tsx`. That is the structural guarantee that no malformed staged row can reach the generic admin error boundary, and it is proved by a real-server e2e arm because jsdom cannot exercise Next's segment routing at all.
+
+`CrewShell` gained a `staticPreview` posture suppressing all five emission surfaces (alert write, both `after()` registrations, the realtime bridge, the footer report affordance, every card report trigger); the prop is absent everywhere else, so both existing callers are byte-identical in behavior.
+
+Spec: `docs/superpowers/specs/step3-onboarding/2026-08-15-step3-crew-preview-and-opslog-disposition-design.md` (APPROVED R4). Plan: `docs/superpowers/plans/step3-onboarding/2026-08-15-step3-crew-preview.md` (APPROVED R6, closeout §12). Invariant-8 gate: `critique=RAN-DEGRADED audit=RAN p0=0 p1=2 dispositions=recorded`.
+
+**Deliberately NOT shipped, and still true as scope:** the preview is wizard-scoped (step-3 staged rows). Generalizing it to the admin show-review staged modal is a non-goal (spec §5); the same adapter would serve it.
+
+## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader — CLOSED 2026-08-15 (`feat/admin-ui-surfaces`, RESOLVED — WON'T BUILD)
+
+**Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+
+The durable sink is built and written (`lib/log/persist.ts:16` → `app_events`), but **its only reader is developer-gated.** Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, `app/admin/dev/telemetry/page.tsx`, which calls `requireDeveloperIdentity()` at `:24`. The `lib/observe/query/*` modules are non-logging copies feeding the `pnpm observe` CLI, not a surface. **No admin-dashboard surface reads `app_events` at all** — the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row.
+
+Consequence: Doug must leave the dashboard to see operator telemetry and, as a non-developer, likely cannot reach the page at all. Everything the other two children emit lands somewhere he cannot look.
+
+**Why M and DESIGN-GATED, not S:** this is a new admin surface, not a query change. What belongs on a dashboard banner — which severities, what recency window, what dismissal behavior, whether it is a banner at all rather than a panel or a bell-badge source — is a product decision, and it is Opus/UI work under the invariant-8 dual gate. Do not implement it as "render the telemetry table on the dashboard."
+
+**Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
+---
+
+**Resolution 2026-08-15 — WON'T BUILD.** Ratified by the user after they challenged the entry's own premise ("sync health is already surfaced elsewhere in UI"). The challenge was correct, and the audit that settled it is spec §3.2 of `docs/superpowers/specs/step3-onboarding/2026-08-15-step3-crew-preview-and-opslog-disposition-design.md`.
+
+**The principle it now stands on (§3.1, ratified):** a dev-only surface's content graduates to an admin surface only when the AUDIENCE of that surface can act on it. `app_events` is the forensic run log; its Doug-actionable content must reach Doug through the alerting pipeline, and the log itself stays dev-only.
+
+**Audit summary (§3.2, verified on this branch).** Every Doug-actionable event class already reaches an admin surface:
+
+- **Bell alerts** — `admin_alerts` via `upsertAdminAlert`, a 37-code union (`lib/adminAlerts/upsertAdminAlert.ts:3-40`) covering the sync/content faults Doug acts on (`DRIVE_FETCH_FAILED`, `SHEET_UNAVAILABLE`, `PARSE_ERROR_LAST_GOOD`, `SYNC_STALLED`, `ONBOARDING_SHEET_UNREADABLE`, `OPENING_REEL_*`, `RESYNC_*`, the email-delivery codes).
+- **Stall escalation** — persistent cron failure fires `SYNC_STALLED` through `detectAndResolveStall`, invoked by `runNotify` (`lib/notify/runNotify.ts:22`), so "the nightly sync keeps failing" reaches the bell with no `app_events` reader in the path.
+- **Per-show status** — the dashboard `ShowsTable` sync column and the per-show `StatusStrip` carry per-show sync state; the nav `AppHealthIndicator` escalates positive → notice → degraded.
+
+The residue in `app_events` is dev-actionable or already paired with an admin-visible consequence at the point of impact: run-level `CRON_RUN_SUMMARY` warns/errors (transient by design; persistence escalates via `SYNC_STALLED`), `*_EMIT_FAILED` / `*_ALERT_WRITE_FAILED` (telemetry-about-telemetry — they cannot alert through the channel whose failure they record), `*_LOOKUP_FAILED` / `*_INFRA_FAULT` / `*_READ_RETURNED_ERROR` (the Doug-visible consequence is the degraded surface, which invariant 9 already requires the surface itself to render), and wizard/stage action failures (surfaced inline in the acting admin's UI at the moment of action).
+
+**Two prior retirements point the same way.** The dashboard banner/panel affordances this entry asked to re-create were deliberately removed TWICE: the global `AlertBanner` in favour of `NotifBell`, and `AppHealthPanel` in favour of the nav `AppHealthIndicator`. Both removals are recorded in comment blocks at `app/admin/page.tsx:104-107` and `app/admin/page.tsx:118-123`.
+
+**Re-open trigger (conjunctive).** A Doug-actionable event class is found landing in `app_events` with NO `admin_alerts` pairing AND no point-of-impact surface. Then design the surface for THAT class, not a generic log reader.
+
+**Filed on the way, not fixed here:** `BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH` (class-sweep disposition exception (a) — it needs its own decision on desired behavior).
+
+## BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a stale restore is now impossible, and a failing run refreshes its own cache — CLOSED 2026-08-15 (`fix/screenshots-drift-cache`, SHIPPED)
+
+**Severity (as filed):** MEDIUM · **Class:** CI-INFRA · **Effort (as shipped):** S, as estimated · **Filed:** 2026-08-14 from a live main-branch incident
+
+**The filed evidence proved more than the filing claimed, and that changed the repair.** The entry offered three directions and the scope brief recommended the cheapest — split the cache step and always-save on the existing key. That default was REFUTED by the entry's own probe. The failing drift runs and the passing regen run were at the SAME sha with the SAME sources; only the cache differed, and the cached run rendered old chrome. So the Next compiler cache served stale compilation for changed content, which means a failing run's post-build cache still CONTAINS the poisoned entries it reused. Saving it under a prefix-restorable key would have propagated the poison to every later run instead of converging.
+
+**What shipped instead makes a stale restore impossible by construction.** The cache key is an exact content hash of the render inputs, in a fresh `-v2-` namespace, with NO `restore-keys`. A hit therefore means the cached compilation was built from byte-identical inputs, so reuse is sound BY KEY CONSTRUCTION rather than by trusting Next's invalidation — the exact trust the incident broke. A miss builds cold (~30s), the correct price for changed inputs. The `-v2-` segment makes every pre-existing entry, including the poisoned generation, unreachable without anyone running `gh cache delete`.
+
+The census is the workflow's own `pull_request.paths` filter (22 globs) MINUS `public/help/screenshots/**` PLUS `pnpm-lock.yaml`, `next.config.ts` and `package.json` — 24 `hashFiles` arguments. The baselines are excluded deliberately: the capture step mutates those bytes mid-run and `actions/cache/save` re-evaluates a content-derived key at save time, so including them would make a drifting run save under a phantom key no checkout ever requests. They are the comparison TARGET, not a compiler input. The shipped pin asserts key-globs == filter-globs minus the baselines plus the named extras, so the two lists are ONE derivation and a future census repair repairs the key with it.
+
+**The split restore/save with `if: always()` still ships, for warmth rather than convergence:** the first run at any input set saves even when the byte gate fails, so a UI-change commit whose drift run fails on stale baselines still leaves the next same-input run warm. The save reuses the restore step's `cache-primary-key` BY REFERENCE, so the key is computed once, before the job mutates anything.
+
+**A second defect surfaced on the way and was repaired in the same edit:** the drift check could not name what drifted. Untracked captures were hidden behind a `test -z "$(git ls-files --others …)"` form (probed: exit 1, zero bytes of output), and the step's fail-fast shell meant `git diff --exit-code` exited before any later branch ran, so with both kinds of drift present only the tracked name printed. It is now one aggregated check: both name lists computed first with name-listing commands, every name from both printed, a single exit at the end.
+
+**Proven with three real `workflow_dispatch` runs, not simulations** (`docs/superpowers/plans/2026-08-15-screenshots-drift-cache/dispatch-proofs.md`):
+
+- **`31926544147` — success.** Cold: missed the empty v2 namespace, built cold, passed, and saved. The saved key is byte-identical to the restored key, which is the single-evaluation contract observed live.
+- **`31926782074` — success.** Warm: an EXACT hit on the key run 1 saved. With no `restore-keys`, that can only be an exact-input match.
+- **`31926586967` — failure.** The constructed failing input (a real admin heading literal changed, baselines not regenerated) landed all four observations in ONE run: the restore MISSED under a different hash (`ea6eb255…` vs `8b9588ef…`) with no fallback to hand back a stale cache; the cold rebuild rendered the NEW chrome, drifting four baselines; the drift check FAILED and NAMED all four with their byte deltas; and the save STILL executed and saved under `if: always()` after the failed gate. That last step is exactly what the old combined step could never reach.
+
+**Shape pinned by nine assertions** in `tests/cross-cutting/ci-workflow-speedup.test.ts`, on PARSED step objects rather than file-wide substrings, so a commented-out `# uses:` line satisfies nothing. Assertion 9 is behavioral: it extracts the drift-check script and EXECUTES it against a constructed repo holding both kinds of drift, asserting both filenames appear, with a clean-repo negative. Six pre-dispatch mutants each red the pin — and commenting out the save's `uses:` line reds five assertions, because the parsed walk then sees no save step at all.
+
+**Documented limits carried forward** (spec §4, not defects): the key can only hash what it names, so an input outside both the filter and the named extras can still produce a stale-for-that-input hit — the byte gate still fails loudly and names the files; a run at an already-saved input set cannot re-save (entries are immutable), which is harmless because a same-key restore is input-identical; a byte-preserving path rename keeps the key while filesystem routing may change build semantics; a run that dies before the build creates the cache path saves nothing and is already red at the killing step; and a capture-step death skips the drift check entirely, deliberately, because a partially-written capture set is not a valid comparison population.
+
+`help-affordances.yml` keeps the combined pattern and is out of scope: it gates no byte comparison, so staleness there cannot self-perpetuate a red main. If it ever grows a byte gate, this spec is the template.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-15-screenshots-drift-cache-refresh-design.md` (spec-APPROVED, codex-guard R5) · **Plan:** `docs/superpowers/plans/2026-08-15-screenshots-drift-cache/plan.md` (plan-APPROVED, codex-guard R5).
+
+The original entry follows, its heading demoted to a bold line per the archive convention, with its in-flight status marker removed on archiving per invariant 12 — archives categorically reject in-progress work.
+
+**BL-SCREENSHOTS-DRIFT-STALE-NEXTCACHE-SELF-PERPETUATING — a failing drift run can never refresh the cache that made it fail**
+
+**Severity:** MEDIUM · **Class:** CI-INFRA · **Effort:** S · **Filed:** 2026-08-14 from a live main-branch incident
+
+`screenshots-drift.yml` restores `.next-screenshots-help/cache` via `actions/cache` with a `restore-keys` prefix fallback, and `actions/cache` saves only in the post step of a SUCCESSFUL job. Those two facts compose into a trap: once every saved `Linux-nextcache-screenshots-*` cache predates a UI-changing merge, the nightly drift job restores a stale Next build cache, renders the OLD chrome, diffs against the CURRENT committed baselines, fails — and by failing, skips the cache save that would have replaced the stale cache. The failure self-perpetuates until a human deletes the caches.
+
+**Probe evidence (two-run, 2026-08-14).** Main-branch drift runs 31693276503 and 31748971797 failed on the same 6 `public/help/screenshots/crew-preview-*.webp` files (md5-verified as the only drifting set) while (a) the committed baselines were current — regenerated at `a5e1ee44d` AFTER the #779 UI change — and (b) the sanctioned `screenshots-regen.yml` on the same sha, same pinned image (`mcr.microsoft.com/playwright:v1.59.1-jammy`), same `pnpm screenshot:help` command committed NOTHING ("No baseline changes to commit") — the regen workflow has no cache step, so a fresh build reproduced the committed bytes exactly. All 12 saved caches predated #779. Deleting all 12 via `gh cache delete` and re-dispatching flipped the outcome: run 31749355724 SUCCESS with zero source change. Same sha, same image, same command; the only variable was the restored cache.
+
+**Repair directions (any one closes the class):** key the cache on a hash of the inputs that feed the build (so a stale restore is impossible, not merely unlucky); or split restore/save into explicit `actions/cache/restore` + `actions/cache/save` with `if: always()` so a failing run still refreshes its cache; or drop the `restore-keys` prefix fallback so a miss builds cold instead of restoring a wrong-generation cache. Whichever lands should note in the workflow why, citing this entry.
+
+## BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 43 duplicate-id heading pairs repaired, and the class is now a CI failure — CLOSED 2026-08-15 (`chore/archive-duplicate-ids`, SHIPPED)
+
+**Severity (as filed):** LOW · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`) · **Effort (as shipped):** S, as estimated
+
+**The count reproduced; the mechanism did not.** The entry's own pipeline returns 35, exactly as filed. But the attribution — union-merge duplication — is refuted by measurement, and the correction changes the repair. A pairwise body diff of all 35 pairs found **zero verbatim or near-verbatim pairs** (best similarity ratio 0.12): every pair is one short section plus one full entry, never two copies of anything.
+
+The real mechanism is the archive's **own resolution convention**. Each duplicated id is one entry written in two parts — a terminal record heading (the id followed by `RESOLVED (…)`, or by a `DEMOTED` / `GRADUATED` preamble) followed by the preserved original entry carrying its own id-bearing heading. Both mint the same id, so every heading-extraction pipeline counts the entry twice. So the repair is a heading DEMOTION, not a deletion: no body text was removed anywhere in the arc. The union-merge RISK the entry describes is real, and the shipped guard catches that class too by construction — two identical headings collide exactly the way two convention headings do.
+
+**43 pairs, not 35.** A walker-grounded census (the ratified ledger grammar, run over every file `ledgerFiles()` discovers) found the filed 35 in `BACKLOG-archive.md` at the family's levels, plus **2 more** there visible only at an all-depth scan (a `###` terminal record against a `####` preserved original — the one-character depth typo, live in the corpus), plus **6** in `DEFERRED-archive.md`, four of which are invisible to that family's level-3 grammar because the stub sits at level 2. `BACKLOG.md` and `DEFERRED.md`: zero. Census transcript, all three passes: `docs/superpowers/plans/2026-08-15-archive-duplicate-ids/dup-census-2026-08-15.txt`.
+
+**Both of the entry's traps were real and both are handled.** The scan spans every heading depth rather than one level, and it anchors to headings rather than substrings — a prose cross-reference of an id mints nothing.
+
+**Why nothing caught it** (the entry's diagnosis, confirmed): `ledgerIds()` returns a `Set`, so within-file duplicates are invisible BY CONSTRUCTION to the graduation suite's cross-file checks.
+
+**The class defense.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` gained a within-file uniqueness lane. Two passes, and the split is the design: a DOMAIN pass at the family's ratified levels alone decides which ids are judged — so the live `## CI …` prose section headings in the null-prefix DEFERRED family can never false-positive — while a SCAN pass spans every mdast depth with the family's prefix rule, so a duplicate parked at ANY depth collides, including the `####` typo shape. Discovery runs through the registry (`ledgerFiles` + `optsFor`), so a newly registered family's file pair is covered by default rather than going dark. Executable plants pin five fire shapes and three stays-quiet shapes, each of the latter naming the pin it protects and carrying a `premise` so it cannot pass vacuously.
+
+**The convention going forward:** an archive record preserves the original entry's heading as a **bold paragraph line**, never as a second id-bearing heading. A bold paragraph mints nothing — heading lanes see headings only, and body-defined-id minting requires a bold LIST-ITEM lead. There is no prose reminder in AGENTS.md for this; a failing CI line naming the id is the reminder.
+
+**Documented limits carried forward** (spec §4, not defects): a null-prefix id duplicated ONLY at level 2 is out of domain, inheriting the DEFERRED grammar's ratified level-3 scope rather than minting a second grammar; and an id wrapped in formatting mints nothing to this lane, as to every other — the threat model is accidental authoring and merge artifacts, not render-equivalent obfuscation.
+
+**Spec:** `docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md` (spec-APPROVED, codex-guard R7) · **Plan:** `docs/superpowers/plans/2026-08-15-archive-duplicate-ids/plan.md` (plan-APPROVED, codex-guard R5).
+
+The original entry follows, its heading demoted to a bold line per the convention above, with its in-flight status marker removed on archiving per invariant 12 — archives categorically reject in-progress work.
+
+**BL-ARCHIVE-DUPLICATE-ENTRY-IDS — 35 ids appear twice in BACKLOG-archive.md, and no gate notices**
+
+**Severity:** LOW (the archive is a record, not a queue; nothing reads it for scheduling) · **Class:** ledger integrity · **Filed:** 2026-08-10 (`feat/crew-chrome-footer-avatar`, found while resolving an archive merge) · **Effort:** S
+
+**Probed, not theorized.** On `origin/main`, and on main BEFORE the quick-wins-2 mech branch merged (so this is not that arc's doing):
+
+```
+$ git show origin/main:BACKLOG-archive.md \
+    | grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' | sed -E 's/^#+ //' | sort | uniq -d | wc -l
+35
+$ git show ec06b825a^1:BACKLOG-archive.md | ... same pipeline ...
+35
+```
+
+**Why nothing caught it.** `tests/docs/_metaDeferralLedgerGraduation.test.ts` asserts no id is both ACTIVE and ARCHIVED — a cross-file check. Nothing asserts an id appears at most once WITHIN the archive. A union-style merge resolution on the archive (the natural resolution, since two branches usually only append) silently duplicates any entry both sides carry, and every existing gate stays green.
+
+**Two traps for whoever picks this up**, both hit while resolving the merge that found it:
+
+- The active ledger uses `### ` headings and the archive uses `## `. A duplicate check anchored to one level reports clean while every collision hides in the other. Match `^#{2,3}`.
+- Archive PROSE cross-references entry ids, so a substring test (the bare id as a substring) reports an id as archived when only a mention is present. Anchor to the heading.
+
+**Fix:** de-duplicate the 35, then add the within-file uniqueness assertion to the graduation meta-test so the class cannot come back.
+
+## BL-SERVER-ACTION-ORIGIN-GATE — the crew picker's destructive Server Actions are gated on same-origin — CLOSED 2026-08-15 (`fix/auth-picker-hardening`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Severity (as filed):** low (logout CSRF; no read, no escalation) · **Effort (as shipped):** S, against the M estimate — because the open decision dissolved rather than being answered.
+
+**What the filed residual actually was, preserved so the closure can be checked against it.** `clearIdentityAndSkip` ends the Supabase session on the calling browser and deletes one picker entry from the `__Host-fxav_picker` envelope. Next's built-in check rejects a mismatched `Origin` but permits a request carrying no `Origin` header at all, so a cross-site POST that simply omitted it was refused by nothing the app added. Forcing that call signed the victim out of this app on that device and removed one show id from their picker envelope: no response data reached the caller, no privilege was gained, and `scope: "local"` kept every other device untouched. The trigger the entry named — "pick this up on the next auth security pass, or sooner if a Server Action lands whose forced invocation would do more than log someone out" — is what this arc is.
+
+**The open decision was never made, and that is the result, not a shortcut.** The entry asked to "establish the trusted-proxy policy (which headers are authoritative in each deployment, and whether the platform overwrites them), then gate every destructive Server Action on it." Three prior review rounds had died on that vector because a gate composed from `x-forwarded-proto` / `x-forwarded-host` / `host` is only sound behind a proxy whose overwrite behavior this repo has never established. The shipped gate reads **neither** header. `isSameOriginServerAction()` (lib/auth/sameOriginServerAction.ts) depends only on `sec-fetch-site` — a browser-set forbidden request header that page JavaScript cannot forge — with an `Origin`-vs-`NEXT_PUBLIC_SITE_ORIGIN` fallback through the existing `resolveSiteOrigin`. No security posture depends on proxy trust, so the trusted-proxy question does not arise for this surface at all.
+
+**All three exported actions are gated, not just the form-wired one.** Every exported function in a module-level `"use server"` file is an independently addressable endpoint, so `clearIdentity`, `clearIdentityAndSkip` and `clearIdentityCore` each carry the gate as their first statement. Gating only the first would have left `clearIdentityCore` as an ungated deletion endpoint. A refusal emits the forensic `PICKER_ORIGIN_REJECTED` on a `log.warn` span and returns the catalogued `PICKER_INVALID_INPUT`; a returned uncatalogued literal would have been an `x1` orphan producer.
+
+**The tests seed the mutation they claim to prevent.** Each rejection case first writes a picker cookie holding the target selection. With an empty cookie `clearIdentityCore` deletes nothing and never calls `cookieSet`, so `expect(cookieSet).not.toHaveBeenCalled()` would have passed vacuously and a guard-after-mutation regression would have escaped. Seeded, that regression writes the cookie and reds. The per-endpoint `action` field on the emit assertion kills the remaining mutant — dropping a wrapper's own guard makes it fall through to the core's, which emits a different `action`.
+
+**Documented limit, fenced in both directions:** a request carrying neither `sec-fetch-site` nor `Origin` is allowed, preserving the framework default. Reachable only by non-browser clients, which carry no victim cookies and so cannot mount CSRF, or by pre-Fetch-Metadata browsers. Strictly no weaker than the prior behavior and strictly stronger on the filed bypass.
+
+**The class sweep is filed, not silently dropped:** the remaining destructive Server Actions are `BL-SERVER-ACTION-ORIGIN-GATE-SWEEP`, class-sweep disposition exception (c) — the helper reduces each peer to a one-line guard.
+
+**Spec:** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` (spec-APPROVED, codex-guard R6) · **Plan:** `docs/superpowers/plans/2026-08-15-auth-picker-hardening.md` (plan-APPROVED after R6 triage).
+
+## BL-IDENTITY-CLEAR-FAILURE-IS-SILENT — a failed "switch person" now says so, in the menu — CLOSED 2026-08-15 (`fix/auth-picker-hardening`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Severity (as filed):** MEDIUM · **Class:** correctness / UX signal · **Effort (as shipped):** M, as estimated.
+
+**The entry's diagnosis held and its open questions were answered by the owner.** It said the fix was not the discarded result but that the menu had no failure state to render into, and it named the three decisions that blocked it. All three were settled at spec time: the message appears **in the menu**, which **stays open**; it reads **"Couldn't switch. Please try again."** through a new §12.4 code `PICKER_SWITCH_FAILED`, so no raw code reaches the UI.
+
+**One premise in the entry was wrong and is corrected here rather than carried into the archive.** It said "the avatar menu closes and the page proceeds as though the identity were cleared." The menu does NOT close — `AvatarMenu` owns its `open` state locally with no close-on-submit, and no `revalidatePath` runs on the failure branch. That made the defect worse than filed, not better: nothing moved at all, so the crew member had no signal of any kind.
+
+**The state shape is local `useState` reset on open, deliberately not `useActionState`.** React 19 gives `useActionState` no reset API, and `open=false` only hides the popover while the component stays mounted, so a `useActionState` error would survive the close and reappear on the next open — a stale failure attached to a tap the person had already left behind. The close/pending/reopen lifecycle was measured on a harness before the design was ratified (`tests/components/auth/_probeSwitchCloseRace.test.tsx`, 4/4) and those assertions are folded onto the real component.
+
+**Pending marks the submit `aria-disabled`, never natively `disabled`.** Native `disabled` removes the element from the focus order, and this menu's roving tabindex calls `.focus()` on a fixed index, so a natively-disabled switch row would swallow ArrowDown, the ArrowUp wrap, End, and reopen-with-ArrowUp and strand keyboard focus outside the menu. All four commands are exercised against `document.activeElement` while a clear is pending. Re-entry is guarded in the handler instead.
+
+**Documented limit carried forward:** menu "Switch person" remains ineffective for a Google-authenticated viewer — the cookie entry is deleted but the Google session survives, so the next resolve re-mints the same identity via `needs_picker_bootstrap`. That is a pre-existing efficacy gap, distinct from the filed silent-**failure** defect, and it is neither fixed nor claimed away: `BL-SWITCH-PERSON-GOOGLE-LOOPBACK`, class-sweep exception (a), since making menu-switch sign a Google viewer out is a product decision.
+
+**Invariant-8 dual gate:** critique RAN-DEGRADED (its isolated assessments were reproduced inline; banner and reason recorded in the plan's Closeout), audit RAN, **0 P0, 0 P1**. Text contrast on the new alert measured 8.79:1 light and 9.64:1 dark, AAA in both modes.
+
+**Spec:** `docs/superpowers/specs/2026-08-15-auth-picker-hardening-design.md` §4 · **Plan:** `docs/superpowers/plans/2026-08-15-auth-picker-hardening.md` Task 4 + Closeout.
+
+## BL-SYNC-LOG-EMIT-UNGUARDED — a sync never fails because logging failed — CLOSED 2026-08-15 (`fix/sync-log-emit-guard`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · PR #808 · **Effort (as shipped):** S
+
+**Filed:** 2026-08-10 (`fix/sync-log-show-id-duration`, invariant-8 critique). **Class:** error handling. **Severity at filing:** MEDIUM (availability of manual sync under a transient DB fault).
+
+**The row asked for a product decision and got one.** It laid out guard-the-emit against leave-it-loud, named a middle option — "guard, but emit a `log.error` with a durable code so the gap is itself observable" — and said that option "is probably right, but it needs a §12.4 code and therefore its own scoped change." Eric ratified exactly that middle option on 2026-08-15. This arc is the scoped change the row asked for, and the row's own reasoning is what it implements.
+
+**Scope as shipped was WIDER than the row's probe.** The row's evidence named the shared helper chokepoint and its two in-lock callers. The alias-aware sweep run at spec time (committed at `docs/superpowers/plans/2026-08-15-sync-log-emit-guard/sink-sweep-2026-08-15.txt`) found three further unguarded surfaces the name-only view missed: the cron runner's three RUN-LEVEL emits that bypass the helper entirely, the push path's deferred emit inside `logUnlessArchived`, and both drive-webhook folder-fallback emits. Two of those sit in per-file loops, where an unguarded sink fault did not merely fail one file — it abandoned every remaining file in the tick. All four surfaces ship guarded, each with its own behavioral pin.
+
+**`SYNC_LOG_EMIT_FAILED` is now a cataloged §12.4 admin-log-only row**, not just a string four modules happened to agree on. The code itself is REUSED — the 2026-08-14 observability arc already escalated under it — and a second code for the same failure family was explicitly rejected as splitting one family across two identifiers for zero discrimination gain. All-null facing fields (the `STALE_WRITE_ABORTED` shape), no `WARNING_CARD_COPY_CODES` row (it is a `log.error` escalation, never a warn-severity `ParseWarning`), nothing renders it.
+
+**The escalation's diagnostic was being destroyed at 18 sites, and that is the finding worth keeping.** Spec review probed the escalation shape live and found the four SHIPPED `SYNC_LOG_EMIT_FAILED` guards passing `error: serializeError(...)`. `buildRecord` (`lib/log/logger.ts`) already serializes exactly once, so pre-serializing hands `serializeError` a plain object; its non-Error branch is `String(value)` and the persisted diagnostic collapses to the literal string `"[object Object]"`. Every one of those guards was writing `"[object Object]"` into `app_events` where the failure detail should be. The class swept to 20 sites, 18 in-class, all repaired here; the two `lib/log/persist.ts` sites hand their result to `console.error` directly, which never re-serializes, and are correctly untouched.
+
+**The structural defense is walk-derived, and its premise fixture caught a real bug before the tree did.** `tests/log/noDoubleSerializedLogError.test.ts` walks `lib/`, `app/`, and `components/` from disk, so a NEW site fails by default rather than needing anyone to remember a registry row. Declared closure set: re-wrap, alias (resolved through the IMPORT BINDING, so a renamed import cannot slip past a name match), and spread-carrier. On its first run the planted spread-carrier fixture failed while the tree scan reported 16 of 18 — `...(cond ? {} : {...})` requires parentheses to parse, so the spread's expression is a `ParenthesizedExpression` and the conditional check silently missed both picker resolvers. A guard without that fixture would have shipped reporting 16, and read exactly like success.
+
+**One review claim was REFUTED as a regression and re-filed as its own row — recorded so a future reviewer does not re-derive it.** Diff review R3 reported that four of the eighteen repaired sites "do not preserve their underlying diagnostics", because they forward plain objects (Supabase returned-errors, `result.error`, the picker `detail`) and `serializeError`'s non-`Error` branch is `String(value)`. The underlying observation is TRUE; the framing was not. Measured at those sites before and after the repair: a plain object produced `"[object Object]"` BOTH ways (identical), while an `Error` went from `"[object Object]"` to a full `{name, message, stack}`. The repair is therefore strictly non-regressive and strictly better for `Error` values, and what it did was expose an INDEPENDENT pre-existing defect in the helper itself. Filed as `BL-SERIALIZE-ERROR-NON-ERROR-BRANCH-STRINGIFIES` with the probe, under disposition reason (c): changing that helper reshapes `context.error` for every non-`Error` value logged anywhere in the app, touching the `app_events.context` payload, the `sanitizeContext` redaction pass, and the test that pins the current contract on purpose.
+
+**Two further review claims were correct and repaired in-branch, both on the structural guard, and the SECOND one changed the repair direction.** R1 probed three variants inside the guard's own declared families (`as`, `satisfies`, and a `&&` spread carrier) that compiled clean and still persisted `"[object Object]"`; repaired by predicate rather than by spelling. R2 then produced a second grammar corner on the same axis within one round (`cond ? serializeError(e) : e` and the `&&` / `||` / `??` initializer carriers) — the one-corner-per-round ratchet, where each widening is a bigger target for the next round. So the value axis was closed by NARROWING instead of growing: the guard no longer classifies the shape of the `error` value at all, and instead asks whether its subtree mentions a `serializeError` binding. That is a closed question over a finite tree in place of an open question over a grammar, it is smaller than the parser it replaced, and it covers every future syntax by construction. The structural traversal stays shape-based on purpose: it decides WHERE to look, not WHAT counts once looking.
+
+**Decided limits, recorded so they are not re-litigated:**
+
+1. **The per-emit dedicated connection STAYS.** The row's own fold-in paragraph — "each emit opens and closes a dedicated postgres connection while the per-show advisory lock is held ... Cheap to fix by reusing the transaction's connection for the sink, but that changes the sink's isolation semantics — the row would then roll back with a failed sync rather than recording the failure, which is a behavior decision, not a refactor" — is preserved verbatim as the record of the rejected alternative. Ratified as a decided limit (spec §1.1 item 5). NO follow-up row is filed: the cost is one short single-row INSERT on a warm connection per emit, and this arc makes no measurement claiming otherwise, so the "file a follow-up only if measurable" branch is not triggered.
+2. **A swallowed sink failure loses that attempt's `sync_log` row.** The attempt is signaled (`SYNC_LOG_EMIT_FAILED` in `app_events` plus the logger's synchronous console line) but not recorded in `sync_log`. Conservative demote plus a surfaced signal; never silently wrong. Re-emitting later would need a queue this S-arc does not build.
+3. **A lost escalation is possible if the process dies before the fire-and-forget persist lands.** The console line has already printed; only the `app_events` row can be lost. The awaited alternative was probed and rejected — it holds the advisory lock for the sink's full latency, and a hung persist request would hold it indefinitely (invariant 10).
+4. **Onboarding `tx.logSync` and the `recoveryTx.insertSyncLog` sites stay unguarded by construction.** They write through the transaction's OWN connection: no independent failure mode, and their rows are tx-bound by design. Guarding them would convert designed atomicity into the exact semantics change limit 1 fences.
+5. **No CI-time completeness recognizer for FUTURE sink sites ships here** (ship-and-fence). That design already exists six rounds deep as `BL-SYNC-LOG-ATTRIBUTION-METATEST`, with two open definitional questions; a second ad-hoc walker would fork the writer-set definition, which is the two-copies-drift shape. The regression this accepts is BOUNDED: a new unguarded site regresses to today's shipped behavior, a LOUD failure of the observed operation, never a silent one. That entry gains a scope line recording that the walker, when built, also asserts guard-presence.
+
+## BL-HELP-REFANCHOR-A11Y-PASS — the `/help/errors` copy-link got its whole-surface a11y pass — CLOSED 2026-08-15 (`fix/help-refanchor-a11y`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-15 · **Severity (as filed):** low · **Class:** A11Y / HELP SURFACE · **Effort (as shipped):** S, as estimated — one shared component plus one page edit
+**Filed:** 2026-08-09 from the invariant-8 dual gate on `feat/mutation-merged-cell`; the first two findings surfaced on `feat/mutation-ref-sub` and were recorded in the wave closeout §12 without a ledger row.
+
+All three filed findings shipped as one arc, each repaired once, exactly as the entry predicted a whole-surface pass would go. The entry's "~217" renders was 219 at implementation — ordinary catalog growth, and nothing depended on the literal.
+
+1. **Per-code accessible names.** `RefAnchor`'s `aria-label` composes from the entry's catalog code, so the 219 copy-links expose 219 distinct names instead of one shared "Copy link to this section". Composed from `id` rather than `children` because `id` IS the catalog code by the `VALID_ID` contract and is a string by type.
+2. **Perceivable copy confirmation.** An unconditionally mounted sr-only `role="status" aria-live="polite"` region follows the heading and announces `Link copied` — the `FinalizeAnnouncer` pattern the entry itself pointed at. The announcement is settlement-gated: only a RESOLVED clipboard write announces, and the clear window is armed at settlement rather than at click, so a slow clipboard cannot have its confirmation truncated and a failed one cannot produce a false success.
+3. **The tab-stop question, answered.** The entry left open whether the copy-links belong in the tab order. The owner ratified that they STAY — they are real controls — so the remedy is a skip path, not `tabindex="-1"`. `/help/errors` now renders a skip link ("Skip to the report button") as the first focusable element the page contributes, targeting a `tabIndex={-1}` wrapper around the report Callout. Verified in a real browser: activating it moves focus to `#report`, and the next Tab lands on the report button.
+
+**Two documented-limit families carried forward** (spec §4, not defects): copy FAILURE is silent — a rejected or unavailable clipboard announces nothing, leaving the default fragment navigation as the fallback, because announcing failure needs failure copy with its own catalog questions; and NO VISIBLE confirmation ships — the confirmation is screen-reader-only by ratified scope, so sighted-user confirmation remains the browser's own fragment navigation. Re-open trigger for the second: operator or user feedback that the copy affordance feels dead.
+
+**Spec:** `docs/superpowers/specs/2026-08-15-help-refanchor-a11y.md` (spec-APPROVED, codex-guard R6) · **Plan:** `docs/superpowers/plans/2026-08-15-help-refanchor-a11y/plan.md` (plan-APPROVED, codex-guard R5) · **Closeout:** `docs/superpowers/plans/2026-08-15-help-refanchor-a11y/closeout.md` (invariant-8 gate: critique RAN-DEGRADED, audit RAN, 0 P0, 0 P1).
+
+## BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE — the secondary action button now carries its own boundary — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-14 · PR #787 · **Effort (as shipped):** S at the constant, M across the class
+
+**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate, finding 2). **Class:** design-system contrast. **Class-sweep exception at filing:** (c).
+
+**The decision the row asked for was made by the user on 2026-08-14**, each option rendered in a mockup: a darker outline from the existing text ramp, over a tinted fill and over documenting the label as the affordance. `SECONDARY_ACTION_CLASS` now wears `border-text-faint`. Measured against the runtime tokens, the boundary went from 1.59:1 / 1.60:1 to **3.35:1 light / 3.76:1 dark on `bg-surface`**, 3.02 / 4.11 on the attention plate, 3.21 / 4.00 on the page ground. Zero new tokens: DESIGN §1.2a already sanctioned the text ramp for a stroke that must stand on its own, and this arc extended that rule from hairlines to control outlines with the button as its worked example, plus a §1.2 row per ground.
+
+**The row's own framing was carried forward, not quietly dropped.** It said this was NOT a strict AA failure and NOT a regression; DESIGN §1.2a now says the same in the document, so nobody re-frames the upgrade as a compliance repair later.
+
+**The swap was a dead class for its first hour, and that is the finding worth keeping.** `app/globals.css:18` excludes `lib/` from Tailwind's source detection, and `lib/ui/actionClass.ts` is the one runtime class string that lives there. Every other class in the constant is also worn by markup under `app/`/`components/`, so the exclusion had never bitten — until the outline moved to a class no scanned file wore. Tailwind emitted no rule, `border-color` fell back to `currentColor`, and the button drew a near-black outline while every token-contrast assertion stayed green. A live browser probe caught it before the gate. The repair is `@source inline("border-text-faint")`; the DURABLE defence is `tests/styles/secondary-action-contrast.test.ts`, which compiles `app/globals.css` with the real `tailwindcss` CLI and asserts every token of the constant emits a rule — derived from the constant, so tomorrow's added class is checked today. Proven by mutation: with the inline entry stripped the suite reds naming the class.
+
+**Scope, as shipped.** The constant plus 25 sites that carry the same recipe inline over a `bg-bg` fill, plus six further controls, none of them a wider ruling: two sit directly beside one of those, two are connected through a row they share rather than by adjacency, and one inherits another's file-local constant — in every case leaving it would have shipped a split treatment inside one view. Twenty-three in-scope controls whose fill is a SURFACE rather than the page ground are deliberately NOT swept: extending §1.2a's predicate from "the fill is the page ground" to "the fill equals its container" is a DESIGN decision, and the wider predicate captures switch tracks whose OFF-state boundary §1.2 pins separately against `--color-accent-edge`. Filed as `BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with a derived cover.
+
+## BL-SUBTLE-ON-INTERACTIVE-CLASS — `text-text-subtle` on action targets is a policy with three ratified carve-outs — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-14 · PR #787 · **Effort (as shipped):** M
+
+**Filed:** 2026-08-10 (`feat/m2-ui-cluster`, invariant-8 gate). **Class:** design-system policy. **Class-sweep exception at filing:** (a) — the four-site list was a class, and the class needed a decision.
+
+**The row was right that it was a class and right that its own count was low.** It recorded 32 sites / 19 files under a restricted tag set and said outright that the scan, not the excerpt, is the authority. The shipped scanner — AST, `app/**` + `components/**`, with identifier, one-hop import, and same-file helper resolution — reports **55 sites across 44 files** out of 354 in-scope interactive elements, and reproduced the spec's ratified census exactly on its first run, matching every row of the spec's §4.3 table by file, tag and line.
+
+**The user chose carve-outs (2026-08-14) over strict-swap-all and over freezing the census**, then ratified a THIRD family the same day once the widened census surfaced a shape the mockup had not shown. DESIGN §1.1's rule became "never the RESTING color of an action target, except the three carve-out families in §1.1a", and §1.1a defines them: `<summary>` disclosure headers (7 sites), dismissable filter chips (1), state-pair dim members (6). The other 41 sites rest at `text-text`, and many retarget hover to `text-text-strong` so hover still visibly strengthens. What the suite pins is one-sided and worth stating precisely: the registry's 14 rows, and the NEGATIVE guarantee that no other in-scope element rests at a bare `text-text-subtle`. It does not pin each swapped site's exact token (a move to `text-text-faint` would pass — see `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR`), the swap tally, or hover; hover retargets were verified once at implementation time (plan Step 6b). (An earlier draft counted the retargets by hand and said 14; the count drifted as the swap set changed, which is why the invariant is stated instead.)
+
+**Family D is a predicate, not a list, and the guard makes it executable.** Each `state-dim` row names the non-colour cue that keeps the pair distinguishable AND the file that cue lives in, and the suite reads that file and asserts the token is still there — so a refactor that removes the cue fails the row instead of leaving a stale claim. §1.1a also states what Family D EXCLUDES: a pair whose active member inverts the fill (the telemetry level filter) is not a Family D pair, because the inversion already separates the members at full strength.
+
+**Guard:** `tests/styles/_metaSubtleOnInteractive.test.ts` + `tests/styles/subtleInteractiveExemptions.ts`, fail-by-default over a filesystem walk, failing by name with site AND token. Steady state is exactly the 14 exempt rows. **Documented limit:** the policed token must sit on the control's OWN className, so a control that paints its label through a nested span is invisible to the scan — recorded in the scan module rather than papered over.
+
+**One row of the ratified census was wrong about its own site, and the correction is the count.** `ActiveFilterChips.tsx:101` was listed EXEMPT-C and is the "Clear filters" action — a plain underlined button with no filter caption and no dismiss glyph — so it never met Family C's definition. It was swapped rather than re-carved-out, taking the tallies from 15/40 to **14/41**; spec §4.3 carries the correction and the family SET is untouched. Found by the whole-diff cross-model review, which read the markup rather than the table.
+
+**Two peers filed rather than swept:** `BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR` (four controls resting one rung quieter, which is a policy question the ratified census did not cover) and `BL-REVIEW-MODAL-QUIET-PILL-OUTRANKS-URGENT` (the swap left a "no action needed" pill louder than the "needs you" one; moving it into a carve-out edits a ratified table, which is the user's call).
+
+## BL-TAP-TARGET-STRUCTURAL-GUARD — the repo-wide tap-height guard ships, unblocked by static resolution — CLOSED 2026-08-14 (`fix/ui-interactive-token-policy`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-14 · PR #787 · **Effort (as shipped):** M-L, as filed
+
+**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §5 + §9.1). **Class:** structural defense. **Class-sweep exception at filing:** (c).
+
+**The row said the policy decision had to come first, and it did.** The user chose resolve-constants (2026-08-14) over require-literals and over accepting a standing UNCLASSIFIED census. The recogniser now statically resolves named constants, both branches of a conditional, template statics and spans, `cn()`/`clsx()`/`.join()` arguments, scope-aware identifiers (innermost wins), one-hop imported consts, and same-file helper calls — and a registered floor-carrying component clears by its base class while remaining subject to call-site defeaters.
+
+**What it claims is the HEIGHT floor, by declaration.** Width is content-driven at most legitimately-sized controls, so a static width demand would push the corpus into the census and the guard would pin nothing; width stays with the real-browser rect oracles. Height is also the dimension every measured defect in the filing corpus was.
+
+**Numbers, derived by running the shipped scanner rather than promised in advance:** 354 in-scope elements, **301 clear statically**, 53 census rows — 15 `full-bleed`, 13 `unresolvable-dynamic`, 9 `padding-arithmetic`, 7 `inline-prose-link`, 5 `under-floor-filed`, 4 `parent-label-target`. Those are the numbers AS SHIPPED: the whole-diff review tightened the recogniser (two sites had been clearing on a horizontal-only pseudo bleed) and corrected three `parent-label-target` rows whose label carries no floor. The tallies live in `tests/styles/tapTargetCensus.ts` and are asserted against its rows, per category and in total, so this paragraph is a snapshot and that file is the authority. The row's blocker — 94 non-literal classNames — is resolved rather than exempted: what remains is 13 genuinely unreadable classNames, each named with why.
+
+**It found real defects on its first run.** `AutoPublishToggle` and `NotifyToggle` were 28px switches with no hit-area expansion, repaired in-branch to the sibling `PublishedToggle` recipe (28 + 2×8 = 44). The two `app/admin/dev/page.tsx` buttons are ~28px AND their classes are not compiled at all (the file is Tailwind-excluded and build-gated out of production), so a class-level repair would emit no CSS while making the guard report a floor the browser never applies — filed as `BL-ADMIN-DEV-PANEL-TAP-FLOOR` and censused honestly instead.
+
+**The `under-floor-filed` pin got stronger than the plan asked for.** The plan pinned the category's `backlogRef` to `BL-TAP-TARGET-INLINE-TEXT-CONTROLS`; that entry graduated on 2026-08-11 and its residue no longer exists, so the assertion became shape-plus-existence against the live ledger — a filed row cannot name an entry nobody wrote.
+
+**Shared core.** The in-scope predicate, the className resolver and the corpus walk live in ONE module that both this guard and the subtle-policy guard import, so the two cannot drift apart on scope or resolution. Its path-set model keeps branch ancestry: `outer ? (inner ? floor : floor) : ""` has a floorless outer path and never clears.
+
 ## BL-CHANGES-FEED-MODAL-BATCH-FLAKE — admin-changes-feed-layout's review modal intermittently never mounts inside a batch run — CLOSED 2026-08-15 (fix/changes-feed-batch-flake, SHIPPED)
 
 **Severity:** MEDIUM (blocks wiring the spec into CI; no known product impact) · **Class:** e2e flake · **Effort:** M · **Filed:** 2026-08-09
@@ -2649,9 +3103,9 @@ screen-disposition 2026-08-04: DEMOTE — probed file-backed store, worst case i
 a validation-only surface, un-defer trigger preserved in the guard file and here.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-### BL-RATE-LIMIT-SNAPSHOT-DURABILITY — DB-backed snapshot store for rate-limit fixture seed/restore
+**BL-RATE-LIMIT-SNAPSHOT-DURABILITY — DB-backed snapshot store for rate-limit fixture seed/restore**
 
 **Filed:** 2026-05-28 from M12 Phase 0.E close-out §6 finding 3 (R9 durability residual).
 
@@ -2697,9 +3151,9 @@ vitest-bound, both directions run live, and the row asks for a relocation with n
 it. Counts corrected on the way out: five importers, not four; five hardcoded paths, not three.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-## BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/
+**BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/**
 
 **Status:** OPEN · **Severity:** low · **Class:** module placement · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.3) · **Effort:** M
 
@@ -2746,9 +3200,9 @@ screen-disposition 2026-08-04: DEMOTE — fail-open by construction (the viewer 
 zero corpus instances of the date-partitioned shape, and #610 already ratified not changing it.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
+**BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold**
 
 **Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH
 
@@ -2808,9 +3262,9 @@ case is a conservative under-measurement, and the limit now lives in this record
 trigger intact.
 
 The original entry follows verbatim, with its in-flight status marker removed on archiving per
-invariant 12 — archives categorically reject in-progress work.
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-## BL-FITWITHINCLIP-CLIP-SCROLL-STALE — a SCROLLING clip ancestor is never re-measured on scroll
+**BL-FITWITHINCLIP-CLIP-SCROLL-STALE — a SCROLLING clip ancestor is never re-measured on scroll**
 
 **Effort:** S
 
@@ -2888,9 +3342,9 @@ its place is a behavioral test per instance, on all four.
 Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.3 and §9.
 
 The original entry follows, its in-flight marker stripped — an archive cannot hold work in
-flight (invariant 12). Nothing else is edited.
+flight (invariant 12). Nothing else is edited (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — the wizard Phase D apply discards its capability notice
+**BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — the wizard Phase D apply discards its capability notice**
 
 **Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #7, review R1 finding 1) · **Class:** audit emission gap (onboarding Phase D) · **Effort:** S-M (a post-commit sink on the finalize-cas route)
 
@@ -2931,9 +3385,9 @@ scope under class-sweep exception (c) and filed as `BL-CAPABILITY-LOSS-SURVIVING
 Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.1 and §2.2.
 
 The original entry follows, its in-flight marker stripped — an archive cannot hold work in
-flight (invariant 12). Nothing else is edited.
+flight (invariant 12). Nothing else is edited (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-## BL-IDENTITYLINK-LANDED-VS-REQUESTED — the notice and feed consume requested rename pairs, not landed ones
+**BL-IDENTITYLINK-LANDED-VS-REQUESTED — the notice and feed consume requested rename pairs, not landed ones**
 
 **Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #8, review R1 finding 2) · **Class:** sync audit fidelity (cron + staged, shared) · **Effort:** M (the reconciler must report what it landed)
 
@@ -2973,9 +3427,9 @@ information no longer exists anywhere.
 Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.4 and §8.
 
 The original entry follows, its in-flight marker stripped — an archive cannot hold work in
-flight (invariant 12). Nothing else is edited.
+flight (invariant 12). Nothing else is edited (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-## BL-UNDO-SELECTIONS-RESET-AT-DROP — any crew undo resets `selections_reset_at` to null
+**BL-UNDO-SELECTIONS-RESET-AT-DROP — any crew undo resets `selections_reset_at` to null**
 
 **Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #9, review R1 finding 3) · **Class:** undo lifecycle fidelity · **Effort:** S (one column through `before_image` + the Direction A re-insert)
 
@@ -3026,7 +3480,7 @@ xAdvance of 1292 units, so a width assertion can never see the feature work.
 
 ## BL-ADMIN-NOJS-LOADING-CONFLICT — RESOLVED (2026-08-03, `fix/nojs-loading-shell-notice`)
 
-### BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming
+**BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming**
 
 Filed 2026-06-10 (discovered during mobile needs-attention T5 e2e run; pre-existing since M12.11 `f2f7f7b4`). The `admin-banner.spec.ts` "no-JS native summary" e2e fails on main: with `javaScriptEnabled:false` the admin dashboard never leaves the `app/admin/loading.tsx` skeleton because React streams suspense content into a hidden div swapped by an inline `$RC()` script that needs JS. No CI workflow runs Playwright, so it went unnoticed. Structurally: the no-JS banner contract and instant loading skeletons are incompatible as shipped. Options when picked up: drop the no-JS contract test, gate loading.tsx behind JS detection (not really possible server-side), or accept skeleton-only no-JS rendering and retarget the test. Technical home: `tests/e2e/admin-banner.spec.ts:261` + `app/admin/loading.tsx`.
 
@@ -3113,9 +3567,9 @@ Shipped as a one-shot flash-then-fade on the panel card of each registry section
 
 **The entry's premise below was WRONG, and it was load-bearing.** It claims the spec ratified a silent-by-design posture. It did not: `docs/superpowers/specs/2026-07-19-admin-modal-realtime-refresh.md:75` says only that the bridge component renders `null`, and line 173 says its transition inventory is N/A because the bridge adds no visual states. Both are statements about the BRIDGE, not about the surface it refreshes. Nobody had weighed a cue and rejected it, so this was a new design decision rather than a reversal of one. The un-defer signal was never reached either: the user was shown the options and chose the cue directly.
 
-The original entry, unedited, follows.
+The original entry, unedited, follows (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-## BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters
+**BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters**
 
 **Filed:** 2026-07-24 (retroactive — deferred in PR #505's body 2026-07-20, never filed) · **Class:** UI refinement · **Effort:** S
 
@@ -3127,7 +3581,7 @@ Impeccable P3 from `admin-modal-realtime-refresh`: an optional "updated just now
 
 ## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
 
-### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors
+**BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors**
 
 **Filed:** 2026-06-28 (cross-model review of PR #179) · **Class:** data fidelity · **Effort:** S · **Resolved:** 2026-08-03
 
@@ -3159,7 +3613,7 @@ Documented in full at `docs/superpowers/specs/step3-onboarding/2026-08-03-finali
 
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
-## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access
+**BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access**
 
 **Filed:** 2026-08-02 (docs/citation-rot-financials-vocab, spec review R2 finding 3) · **Class:** docs/copy (§12.4 catalog) · **Severity:** low · **Effort:** S
 
@@ -3167,13 +3621,13 @@ Master spec §12.4 `ROLE_FLAGS_NOTICE` helpfulContext (`docs/superpowers/specs/2
 
 ## BL-ADMIN-PARSEPANEL-ORPHANED — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
-## BL-ADMIN-PARSEPANEL-ORPHANED — ParsePanel/StagedReviewCard live-scope mount orphaned
+**BL-ADMIN-PARSEPANEL-ORPHANED — ParsePanel/StagedReviewCard live-scope mount orphaned**
 
 Since the show-page→modal pivot (#476) nothing imports `components/admin/ParsePanel.tsx` (its per-show mount was deleted; whole-parse review was deliberately dropped from published shows in 65d5be75a in favor of MI-11 holds in the Changes feed). `StagedReviewCard` remains live in the onboarding wizard; the live-scope `ParsePanel` wrapper is dead code. Surfaced during published-show-alerts (2026-07-19, spec §14). **Fix (when prioritized):** delete ParsePanel or re-home it explicitly; sweep `tests/e2e/_metaEmphasisRenderContract` style registries on removal.
 
 ## BL-HELP-STRIP-COPYLINK-STALE — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
-### BL-HELP-STRIP-COPYLINK-STALE — help prose still describes the retired strip copy-link
+**BL-HELP-STRIP-COPYLINK-STALE — help prose still describes the retired strip copy-link**
 
 **Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** DOCS
 
@@ -3183,7 +3637,7 @@ Pre-existing debt from `docs/superpowers/specs/2026-07-20-share-hub-design.md:10
 
 ## BL-UNPUBLISH-TO-HELD — RESOLVED (2026-08-03, `docs/graduate-bl-unpublish-to-held` — already shipped 2026-07-01; row filed on a false verification)
 
-## BL-UNPUBLISH-TO-HELD — no inverse action returning a published show to Held
+**BL-UNPUBLISH-TO-HELD — no inverse action returning a published show to Held**
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:291` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** admin lifecycle gap. **Effort:** M (new RPC + state-machine review).
 
@@ -3195,7 +3649,7 @@ The existing M12.13 token-unpublish ARCHIVES the show; there is no published→H
 
 ## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — RESOLVED — WON'T BUILD (2026-08-03, `docs/close-v1-override-wont-build`)
 
-## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — no admin force-classify for a genuine legacy-v1 sheet
+**BL-VERSION-AMBIGUOUS-V1-OVERRIDE — no admin force-classify for a genuine legacy-v1 sheet**
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md:171` defers it by name in §10, with no row anywhere). **Class:** operator escape hatch. **Effort:** M.
 
@@ -3427,7 +3881,7 @@ This id was never opened as a row — `DEFERRED-archive.md`'s COLLAPSE-REGION-1 
 
 **Resolution:** both guard layers now refuse static `env:` blocks carrying off-allowlist pairs. One shared registry in the scanner module — `ENV_KEY_ALLOWLIST`, VALUE-PINNED and PAIR-KEYED GOVERNANCE-BOUND rows (`key → { values: [{ text: exact scalar text, governs: [covered spec paths THAT PAIR gates] }], reason }`) seeded from the 35 live keys (38 pairs). Governance hangs off the VALUE, never the key: a key-level list cannot see two live values of one row swap between the claiming site and a parked one, which leaves a value-gated spec self-skipping green — and one shared predicate `offAllowlistEnvKeys` (`Object.hasOwn` membership + pinned-value-text membership; expressions pin as text). Scanner: scope-correct rejection — workflow-root env governs the file, job env its job, a run-step's env its own claims — with reason `env block sets unmodelled key(s): <sorted keys>`; a `uses:`/composite step handed dirty env poisons the job fail-closed through the generalized `envPoisoned` mechanism (reason and census why-string both name the static source now). Census: `runBlocksOf` gained an allowlist parameter and per-scope poison seeding; composite dirt poisons onward, workflow run-step dirt stays block-local. Mutation families pinned per layer, not uniformly in both: S1–S3 and S7 (scope/traversal, fail-open flip, precision twins, value-pin) in BOTH self-suites; S4–S6 and S8 (reason strings, multi-key completeness, allowlist hygiene, governance) in the SCANNER self-suite only, because reasons, the registry and the governance derivation are scanner-side concepts the census does not model (S7 = value-pin deletion, from the R2 live mutant `MODAL_PREFETCH_E2E=0` — a green run with no tests under a key-name-only registry; S8 = governance-binding deletion, from the R3 relocation / R4 prose-laundering / R5 duplicate-substitution live mutants — governance derives from the scan's own covered-claim crediting via `envPairGovernance` + `governanceViolations`); pair-level stale-row + live-completeness (both directions: declared→live and live→declared) + governance-equality + reason hygiene keeps the registry from rotting in either direction. Spec: docs/superpowers/specs/ci/2026-08-02-ci-static-env-injection-design.md (§7 = review record). Original entry below.
 
-## BL-CI-STATIC-ENV-INJECTION — a workflow/job/step `env:` block can select a fake executable and the coverage scanner still counts the spec
+**BL-CI-STATIC-ENV-INJECTION — a workflow/job/step `env:` block can select a fake executable and the coverage scanner still counts the spec**
 
 **Filed:** 2026-08-01 (R1 adversarial review of the cross-step-env-guard spec, `docs/superpowers/specs/ci/2026-08-01-ci-cross-step-env-guard-design.md` §5 L3). **Class:** CI guard soundness. **Effort:** S–M.
 
@@ -3441,7 +3895,7 @@ Static env injection is a FAIL-OPEN residual of `tests/ci/_workflowCoverageScan.
 
 ## BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — RESOLVED (2026-08-02, `docs/citation-rot-financials-vocab`)
 
-### BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow
+**BL-DANGLING-CITATIONS-RETIRED-WORKFLOW — `spec:lint` hard-fails on docs citing the deleted e2e workflow**
 
 **Status:** OPEN — fallout from c7c5625c2, found while shipping PR #610 · **Severity:** very low · **Class:** DOC HYGIENE
 
@@ -3471,7 +3925,7 @@ retiring spec itself, where the old name is legitimate history.
 
 ## BL-MASTERSPEC-FINANCIALS-VOCAB — RESOLVED (2026-08-02, `docs/citation-rot-financials-vocab`)
 
-## BL-MASTERSPEC-FINANCIALS-VOCAB — reconcile stale LEAD-only financials-gate prose in the master spec
+**BL-MASTERSPEC-FINANCIALS-VOCAB — reconcile stale LEAD-only financials-gate prose in the master spec**
 
 **Filed:** 2026-07-17 (role-flags-notice-lead-only-doug, owner scope decision) · **Class:** docs (canonical-spec consistency) · **Effort:** S (doc-only grep-sweep)
 
@@ -3483,7 +3937,7 @@ Pre-existing `2026-07-15-extend-role-scope-vocab` debt: that spec added the `FIN
 
 **Resolution:** the syntactic 19-spelling matcher in `tests/cross-cutting/no-absolute-self-redirect-audit.ts` is replaced by TWO-PRONG type-checker resolution over walked roots extended to `app/** + lib/**` plus the permitted root middleware/proxy surfaces (ts/tsx/js): prong 1 flags every call whose resolved signature's declaration is `redirect` on a container named `NextResponse`/`Response`; prong 2 flags every OTHER reference to that method OR to the class object carrying it — property/element access, binding elements, destructuring-assignment members (via the vendored compiler's `getTypeOfAssignmentPattern`), and naked `NextResponse`/`Response` value flows — type-decided, never allow-listable. All four residual classes this entry filed (helper return, class field, re-export, dynamic dispatch) are caught, plus the families the spec/plan reviews and the whole-diff rounds (each recorded in the spec's disposition blocks) surfaced on the way: twelve typed value-flow shapes, ten literal-typed computed-key extraction shapes, union-typed keys, eight destructuring-assignment forms, ten whole-receiver structural-laundering shapes, namespace carriers, import-call carriers, re-export carriers, CommonJS require and import-equals carriers, and global-object carriers (symbol-based provenance over direct references, local aliases, and single-file helper returns; deeper environment indirection stays under the deliberate-evasion concession) — the spec §6 closure tables are the canonical enumeration (grown across the whole-diff rounds), pinned by fixtures + the E1 escape pin in `tests/cross-cutting/no-absolute-self-redirect.test.ts`. Former limits receiver-as-any, widened computed keys, and `Reflect.get` are CAUGHT at the naked class-object reference their erasure must spell; the sole remaining type-erasure limit, pinned AS BEHAVIOR (E1), is string-mediated dynamic access (eval shape). Plain-JS modules are fenced out of the walked roots by a sentinel (tsconfig `include` is TS-only + `checkJs` off, so `tsc --noEmit` gives JS no backstop). Spec: docs/superpowers/specs/2026-08-01-redirect-guard-type-aware-design.md (spec APPROVE r4, plan APPROVE r3, then whole-diff-driven closures recorded in the spec's disposition blocks; probe harness committed: self-contained probes beside the spec, the importing mutant corpus under tests/cross-cutting/redirect-guard-probes/). Original entry below.
 
-## BL-SOUND-REDIRECT-GUARD — the self-redirect guard is a known-spellings tripwire, not a sound analysis
+**BL-SOUND-REDIRECT-GUARD — the self-redirect guard is a known-spellings tripwire, not a sound analysis**
 
 **Status:** OPEN · **Severity:** low (the tree is clean; this is about future-proofing) · **Surfaced:** `fix/picker-flow-app-bugs` review rounds 1-5 (2026-07-25)
 
@@ -3497,7 +3951,7 @@ Pre-existing `2026-07-15-extend-role-scope-vocab` debt: that spec added the `FIN
 
 **Resolution:** both guard layers now model job-scoped cross-step env state. Census: `RunBlock` gained `poisoned`; `runBlocksOf` walks each job's steps in order with one recursive walker — comment-stripped `GITHUB_ENV`/`GITHUB_PATH` mention poisons every later same-job block; local composite actions splice at the use site (poison flows both directions, nesting recurses with a PATH-scoped cycle guard); unknown, non-composite (javascript/docker), and cyclic `./` refs poison fail-closed; poisoned classifying blocks route registry-or-loud (`environment poisoned by an earlier same-job GITHUB_ENV/GITHUB_PATH write`). Scanner: per-job `envPoisoned` threaded across ALL step chunks with a new rejection reason (`earlier same-job step writes GITHUB_ENV/GITHUB_PATH`) placed after the unmodelled-override gate and after the shape gates that decide whether the file or job can run at all, plus a recursive `localActionPoisons` resolver (quote-stripped refs, composite-only, cycle fail-closed) fed by a `localActions` manifest map. Mutation-family closure F1–F8 pinned by fixtures in both self-suites; R1 adversarial review contributed F7 (non-composite opaque actions) and F8 (nested composite recursion) via live escaping mutants, corrected the GITHUB_PATH write semantics in every example, and split static `env:` injection out as `BL-CI-STATIC-ENV-INJECTION` (a fail-open residual at the time; CLOSED since by `test/ci-static-env-injection` and graduated to this archive — do not re-file it against the active queue). Spec: docs/superpowers/specs/ci/2026-08-01-ci-cross-step-env-guard-design.md (§7 = review record). Original entry below.
 
-## BL-CI-GITHUB-ENV-CROSS-STEP-STATE — an earlier step's GITHUB_ENV/GITHUB_PATH write can neuter a later step's playwright invocation, and neither guard layer sees it
+**BL-CI-GITHUB-ENV-CROSS-STEP-STATE — an earlier step's GITHUB_ENV/GITHUB_PATH write can neuter a later step's playwright invocation, and neither guard layer sees it**
 
 **Filed:** 2026-07-31 (R12 adversarial review of `feat/ci-dark-descoped-guards`, class-sweep spillover). **Class:** CI guard soundness. **Effort:** M.
 
@@ -3509,7 +3963,7 @@ R12 closed the WITHIN-run-block shell-state class in both guard layers (the invo
 
 **Resolution:** the remaining sound direction from the entry — a probe that sabotages the query-count mechanism and asserts the guard notices — shipped as two execute-the-suite probes in `tests/cross-cutting/pgCronCiVacuity.test.ts`: an injected inert live case must red the mutant suite BY NAME (per-case attribution wired), and with the observe argument stripped it must red via the aggregate afterAll message (backstop present). Mutation-family closure measured live: MF-1 whole-mechanism deletion (the `1c1ae148e` state), MF-2 observe-arg drop, and MF-4 aggregate-branch deletion all escaped every prior guard and are now each caught; MF-3 increment-drop was already caught by the existing reachable-DB probe. The meaningfulness proxy stays fenced OFF (a `psql("SELECT 1")` body still passes — reviewer territory by four-round ratification). Spec: `docs/superpowers/specs/ci/2026-08-01-pg-cron-mechanism-sabotage-probe-design.md`. Original entry below.
 
-### BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case
+**BL-PG-CRON-PER-CASE-QUERY-ATTRIBUTION — the vacuity guard counts queries in aggregate, not per case**
 
 **Status:** OPEN · **Severity:** LOW (guard completeness; no live defect) · **Class:** CI coverage integrity · **Filed:** 2026-07-26 (PR3 of the CI-dark cluster, adversarial R4)
 
@@ -3531,7 +3985,7 @@ R12 closed the WITHIN-run-block shell-state class in both guard layers (the invo
 
 **Resolution:** the tripwire now parses each ledger with remark + remark-gfm and evaluates the terminal-word + veto semantics on the mdast — `tests/docs/_ledgerMdast.ts` (provenance-mapped id extraction, id-heading-to-id-heading partition, disposition-table flatten, seven lanes behind one `entryTerminal` evaluator). The full r15–r40 plant corpus rides the walker verdict-preserving; the owner-split r22–r41 containment hardening (`tests/components/admin/sheetIconLinkContainment.test.ts`) was restored from snapshot `a1cfce98d` with a two-row PR-#640 reconcile and its sheet-icon spec §7.10 paragraph in lockstep; the three r41 open findings were re-derived by probe (both ledger classes REPRODUCED and fixed — reordered field rows now caught, hyphenated-id false positives closed by line-global token maximality; the census-expression-shapes probe found no escaping variant). Spec: docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md (eleven adversarial rounds, r11 APPROVE). Original entry below.
 
-## BL-LEDGER-GUARD-MDAST-REWRITE — port the graduation tripwire from regexes onto the remark/mdast AST
+**BL-LEDGER-GUARD-MDAST-REWRITE — port the graduation tripwire from regexes onto the remark/mdast AST**
 
 **Filed:** 2026-07-31 (branch `feat/sheet-icon-link-affordance-class`, whole-diff rounds 22-30). **Class:** test infrastructure. **Effort:** M.
 
@@ -4914,7 +5368,7 @@ Cheap partial if it ever bites in practice: strip a trailing occurrence from the
 
 **Status:** CLOSED-REFUTED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** The mandated empirical probe (5 Playwright cases, spec §2 of `docs/superpowers/specs/2026-07-31-archive-lifecycle-race-cluster-design.md`) refuted the inferred mechanism: with the archive action's POST response HELD 3s after the server fully processed it (RPC committed, broadcast published), the same-tab UI recorded ZERO state changes during the hold — Next's app-router action queue serializes router.refresh() behind the in-flight action, so the "realtime invalidation swaps Archive→Unarchive while useFormStatus is pending" scenario cannot occur same-tab. 8/8 unforced runs settled first. The measured residue was a 6ms post-settle painted frame (enabled Unarchive inside the still-open popover, one commit before the §4 close; unclickable even by Playwright actionability), eliminated by switching the ShareHub §4 lifecycle-close effect to useLayoutEffect (close commits pre-paint). Cross-tab (armed, not pending) the §4 close behaves as designed, same 6ms frame, same fix; covered by the restored compound e2e case. Original entry below for provenance.
 
-## BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE — realtime invalidation can swap Archive→Unarchive while the archive form is still pending
+**BL-ARCHIVE-PENDING-REALTIME-SWAP-RACE — realtime invalidation can swap Archive→Unarchive while the archive form is still pending**
 
 **Status:** OPEN · **Severity:** MEDIUM (destructive-control race; needs probe before design) · **Class:** cross-surface lifecycle race — surfaced by the archive-row-menu-idiom spec R15 adversarial round (2026-07-24); inferred from code paths, NOT yet empirically probed.
 
@@ -4924,7 +5378,7 @@ Scenario: the archive RPC's show invalidation publishes before the server action
 
 **Status:** CLOSED 2026-07-31, `fix/archive-lifecycle-race-cluster` · **How it closed.** Probe Case C confirmed the duplicate (stale tab's no-op archive → two SHOW_ARCHIVED rows for one transition). Fixed FAMILY-WIDE per the class-sweep rule: archive_show / publish_show (+\_publish_show_core) / unpublish_show now return a performed/no-op boolean discriminator (migration `20260801000000_lifecycle_rpc_performed_discriminator.sql`, single-transaction DROP+recreate; unarchive_show already boolean — contract introduced by 20260602000002, preserved through the 20260718000001 refactor); `LifecycleResult` carries required `performed`; all three admin actions gate `logAdminOutcome` on it (revalidates still run on ok so a stale surface heals). Layered coverage: `tests/db/lifecycle_rpc_performed.test.ts` (RPC discriminator + no-op side-effect probes) and no-op zero-emission cases in `tests/log/adminOutcomeBehavior.test.ts`. Original entry below for provenance.
 
-## BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — no-op repeat archive emits a duplicate SHOW_ARCHIVED event
+**BL-ARCHIVE-REPEAT-TELEMETRY-DEDUP — no-op repeat archive emits a duplicate SHOW_ARCHIVED event**
 
 **Status:** OPEN · **Severity:** LOW (forensic telemetry cosmetics) · **Class:** idempotent-no-op observability — surfaced by the archive-row-menu-idiom spec R15 adversarial round (2026-07-24).
 
@@ -5163,7 +5617,7 @@ From the impeccable audit of `feat/crew-warning-attachment` (2026-07-23), pre-ex
 
 Original entry (provenance):
 
-## BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a §12 closeout
+**BL-INVARIANT8-CLOSEOUT-ENFORCEMENT — mechanically enforce that every invariant-8 plan ships a §12 closeout**
 
 Descoped out of the 2026-07-24 dev-row copy close-out after three consecutive whole-diff
 review rounds on the same vector. The change shipped
@@ -5294,7 +5748,7 @@ Current surface files: `components/admin/wizard/Step3Review.tsx`, `Step3ReviewMo
 
 The hub's own `fixed inset-0 z-20` backdrop painted over its NON-POSITIONED trigger siblings and swallowed their taps; a trigger click only appeared to work because the backdrop's handler closed the popover, which is why focus was never restored. Closed with a THREE-term elevation gate on the triggers (`open && !busy && !attentionMenuOpen`), the menu term threaded PublishedReviewModal → StatusStrip → ShareHub. The third term is load-bearing: the attention menu's panel is z-20 in the same band, and an unconditional elevation is the regression share-hub-fidelity-fixes §3 already had to fix once. Real-browser proof in `tests/e2e/admin-lifecycle-layout.spec.ts` (T-BACKDROP-TRIGGERS (a) hit test, (b) a real click that pre-fix could not even dispatch — Playwright reported the backdrop intercepting pointer events).
 
-### BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS — the hub backdrop swallows taps on its own triggers
+**BL-SHAREHUB-BACKDROP-COVERS-TRIGGERS — the hub backdrop swallows taps on its own triggers**
 
 **Status:** OPEN · **Severity:** LOW (near-invisible in use) · **Class:** stacking-context misconception.
 
@@ -5310,7 +5764,7 @@ With the hub open, the `fixed inset-0 z-20` backdrop wins the hit test over both
 
 Filed by the popover-overlay registry as `unverified-gap`, then MEASURED: at 390×560 the panel overhung the clipping modal panel by 55px with a 54px stranded tail, so the suspicion was right. The scroller now takes the shared `useFitWithinClip`, capping `max-h-96` against the clip edge, and gains `role="group"` + `aria-label="Show issues"` + `tabIndex={0}` so a monitoring-only list (all read-only rows, zero focusable descendants) is still keyboard-reachable. Registry row flipped to `fit-within-clip`.
 
-### BL-ATTENTION-MENU-PANEL-CLIP — attention menu is an anchored, capped scroller inside the clipping panel
+**BL-ATTENTION-MENU-PANEL-CLIP — attention menu is an anchored, capped scroller inside the clipping panel**
 
 **Status:** OPEN · **Severity:** UNVERIFIED (needs measurement before triage) · **Class:** same as `BL-SHAREHUB-ARM-VIEWPORT-REVEAL`, which graduated to `BACKLOG-archive.md` when it shipped.
 
@@ -5326,7 +5780,7 @@ NOT fixed on suspicion: whether it strands content depends on measured geometry,
 
 Same class on the anchored refusal banner: measured overhang 43.7px past a 220px clip, with `overflow-y: visible` so the tail was simply cut. Now capped by `useFitWithinClip`, made a real scroll container (`overflow-y-auto`), and given `aria-label="Publish error details"` + `tabIndex={0}`. The finalize hint shares the popover testid but is an in-flow chip and deliberately did NOT acquire the treatment — pinned as a mode boundary.
 
-### BL-PUBLISHED-TOGGLE-OVERLAY-CLIP — published-toggle error overlay can be cut by the panel clip
+**BL-PUBLISHED-TOGGLE-OVERLAY-CLIP — published-toggle error overlay can be cut by the panel clip**
 
 **Status:** OPEN · **Severity:** LOW · **Class:** as above, weaker variant.
 
@@ -5338,7 +5792,7 @@ Same class on the anchored refusal banner: measured overhang 43.7px past a 220px
 
 The armed Archive confirm now names the show, in owner-ratified copy: `Crew links for “{name}” stop working now and won’t come back until you re-publish and issue a new link.`, with the armed group labelled `Confirm archiving “{name}”`. A blank-safe guard (absent / empty / whitespace) renders today's strings byte-identically, so every non-hub call site and any partial data during editing is unchanged, and the prop is consumed ONLY in the `asRow` armed branch. A no-truncation pin keeps a pathological title fully visible — eliding the show's name on a destructive confirm is the failure mode that matters.
 
-### BL-SHAREHUB-CONFIRM-NAMES-SHOW — armed Archive confirm does not name the show it will archive
+**BL-SHAREHUB-CONFIRM-NAMES-SHOW — armed Archive confirm does not name the show it will archive**
 
 **Status:** OPEN · **Severity:** LOW · **Class:** destructive-confirm context.
 
@@ -5354,7 +5808,7 @@ Fix shape: include the show title in the armed confirm copy in `components/admin
 
 Closed as a MEASURED ARTIFACT, not a product leak. Root cause: the open-focus effect's `panelRef.current?.focus()` makes jsdom run `Selection._associateRange`, which arms a `setTimeout(0)` of its own; under fake timers that macrotask is never drained, so it shows up in `getTimerCount()`. A real browser has no such timer. No component change was warranted; the delta-based assertion style stays (a global zero-count assertion is unusable in jsdom by construction) and the root cause is now recorded at the delta baseline so the next reader does not re-bisect it.
 
-### BL-SHAREHUB-OPEN-TIMER-LEAK — opening the hub arms a timer that survives unmount
+**BL-SHAREHUB-OPEN-TIMER-LEAK — opening the hub arms a timer that survives unmount**
 
 **Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** RESOURCE HYGIENE
 
@@ -5368,7 +5822,7 @@ Consequence today is limited to test hygiene: it makes a global `vi.getTimerCoun
 
 The duplicated leading-edge rAF throttle extracted to `lib/popover/rafCoalescer.ts` and adopted by both consumers, with the pending flag cleared BEFORE running so events landing mid-frame can schedule the next one. Adoption is held by an AST meta-test that resolves callees through the TypeScript type checker rather than matching identifier text, so a same-named local const, a shadowing function parameter, and a decoy-module import all fail it (each demonstrated as a reverted mutant). Both consumers' cleanups now cancel through the shared instance.
 
-### BL-POPOVER-SHARED-RAF-COALESCER — one coalescer helper for both popover consumers
+**BL-POPOVER-SHARED-RAF-COALESCER — one coalescer helper for both popover consumers**
 
 **Filed:** 2026-07-25 (impeccable audit P2) · **Class:** code duplication / drift risk · **Effort:** S
 
@@ -5526,9 +5980,9 @@ This is **pre-existing and project-wide**: `--color-accent-on-bg` is the link/em
 Moved out of the open queue 2026-08-02. Its own heading said `✅ FULLY CLOSED`, but the
 graduation guard reads a terminal word only in leading position, so `FULLY CLOSED` /
 `FULLY RESOLVED` / `ALREADY SHIPPED` all classify as OPEN while reading as closed to a
-human. Filed as BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND. Entry preserved verbatim below.
+human. Filed as BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND. Entry preserved verbatim below (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
 
-#### BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK — Drive-under-lock class — ✅ FULLY CLOSED (both instances fixed)
+**BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK — Drive-under-lock class — ✅ FULLY CLOSED (both instances fixed)**
 
 **✅ RESOLVED (2026-06-22).** Both instances of the Drive-under-lock class are fixed and the advisory-lock guard now enforces the whole `lib/sync` / `lib/drive` / `lib/asset` subtree with **no allowlist** (the `knownDriveUnderLockPaths` exemption was removed). History retained below.
 
@@ -5642,7 +6096,7 @@ The third suggestion, a scoped `retry: 1`, was NOT taken: retries mask nondeterm
 
 Pinned by `tests/cross-cutting/db-test-timeout-floor.test.ts` — the floor against both the authored and the RESOLVED runtime config (so a CLI override cannot pass on the strength of the file alone), plus a filesystem-walked ban on `vi.waitFor` in DB-touching files, which fails by default for a newly added one. `vi.waitFor` in `tests/components/**` and `tests/admin/**` is deliberately untouched: those poll an in-process React state flush with no I/O in it.
 
-### BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate
+**BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate**
 
 **Filed:** 2026-06-26 (surfaced during PR #121 — the `unit-suite` matrix-shard landing; see memory `project_ci_speedup_pr_d_matrix_shard`). **NOT introduced by sharding:** a re-run of the same commit passed (confirming a flake, not a fault), and sharding _reduces_ per-leg DB load. These tests would flake the same way on the pre-split monolithic gate under the same runner noise.
 
@@ -5665,7 +6119,7 @@ A few DB-concurrency tests intermittently **time out** (Vitest "Test/Hook timed 
 
 The case now enumerates exhaustively behind a non-colliding anchor (assignment is first-wins, so the old `| VENUE NAME |` anchor shadowed every `venue.name` typo), and its oracle is ONE strict deep-equality comparison of the whole returned object against an expectation derived from each case's own inputs — reached after four review rounds each found a mutant escaping a weaker property-listing assertion (anchor corruption; trim cases with no routing assertion; a third field corrupted with a non-sentinel marker; a stray field set to `null` / `""` / a non-string). Guards: a derived coverage floor over assignable canonicals, a per-alias volume floor of `alias.length * 10` (measured ratios 53.8-56.6), and non-vacuity. The case carries its own 30000ms timeout because the exhaustive loop measures ~3.6s against vitest's 5000ms default — shipping it without that would have manufactured the very flake this entry reported. Spec: `docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md`. Original entry below.
 
-## BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE — a venue field-alias generator case fails on some seeds
+**BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE — a venue field-alias generator case fails on some seeds**
 
 **Status:** OPEN · **Severity:** low · **Surfaced:** full-suite run during `fix/picker-flow-app-bugs` close-out (2026-07-25)
 
@@ -5694,7 +6148,7 @@ This branch retired the entry, corrected both docstrings, and added one narrow g
 
 **A BL-citation freshness guard was considered and refused on measurement:** of 113 distinct `BL-` ids cited from `lib/`, `tests/`, `scripts/`, `app/`, **70 already resolve archive-only**, essentially all legitimate historical provenance. Such a guard ships as a 70-row allowlist — the same drift-prone hand-maintained artifact this entry itself declined to build. Spec: `docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md` §2.7. Original entry below.
 
-## BL-KNOWN-SECTIONS-WALKER — real auto-drift enforcement for the known-section-header registry
+**BL-KNOWN-SECTIONS-WALKER — real auto-drift enforcement for the known-section-header registry**
 
 **Status:** OPEN · **Severity:** low (defense-in-depth; today's guard is a hand-maintained pin) · **Class:** TEST-ENFORCEMENT GAP
 
@@ -5728,7 +6182,7 @@ Both live instances were already archived when this was filed
 live ledgers after the fix, the only terminal-classified open entry is the pre-existing
 ratified exception `BL-CI-STALE-BRANCH-PROTECTION-COMMENT`.
 
-#### BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND — two spellings hide a terminal status from the graduation guard
+**BL-LEDGER-GUARD-TERMINAL-CLAIM-BLIND — two spellings hide a terminal status from the graduation guard**
 
 **Status:** OPEN · **Severity:** medium · **Surfaced:** 2026-08-02, the plans-ledger merge (`chore/backlog-ledger-integrity`)
 
@@ -6015,7 +6469,7 @@ The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked r
 
 ## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — RESOLVED (2026-08-03, `feat/needs-attention-holds-rollup`)
 
-## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — pending MI-11 holds do not surface on the needs-attention page
+**BL-NEEDS-ATTENTION-HOLDS-ROLLUP — pending MI-11 holds do not surface on the needs-attention page**
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md:285` lists it under §11 Deferred as a "BACKLOG candidate", and no row was created). **Class:** UX completeness. **Effort:** M (blocked on a read path).
 
@@ -7732,6 +8186,28 @@ trigger the invariant-8 impeccable dual gate.
 **Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
 
 ---
+
+## BL-SPECLINT-PROSE-COUNT-PARITY — numeric-sweep extension: prose cardinalities against executable declarations — ✅ RESOLVED (2026-08-15, `feat/speclint-prose-count-parity`)
+
+**Resolved by:** `feat/speclint-prose-count-parity`. All three measured shapes ship as ADVISORY codes in `lib/specLint/numerics.ts` beside `NUMERIC_NOUN_MISMATCH`, surfaced through `pnpm spec:lint` like every other check: `SCRIPT_CONSTANT_PARITY` (a) reads a script's module-local `const EXPECTED_* = <integer>` TEXTUALLY and compares it against a same-line cardinality whose noun singularizes to the noun derived from the constant's identifier; `SIBLING_LIST_CARDINALITY` (b) compares an "N nouns:" claim against the sibling items of the list immediately beneath it, through the calibrated gate ladder; `TEMPLATE_QUANTITY_DRIFT` (c) compares digit quantities across near-identical repeated lines within one document, all-pairs at set-Jaccard ≥ 0.85 with numerals participating in tokenization. All three honor one three-part exclusion rule — fenced block, a dated qualifier phrase binding its NEAREST preceding number within 40 characters, and any line carrying an ISO date — so dated historical records are never compared, which was this entry's own boundary.
+
+Cross-file reads go through the existing I/O boundary: `runLint` resolves the `scripts/` paths a document names (by path or basename) via the injected `FileResolver` and passes `{path → text}` into `checkNumerics`, so `lib/specLint/numerics.ts` still performs no I/O and `tests/specLint/_metaPureCore.test.ts` still holds.
+
+**Measurement (`docs/superpowers/specs/probes/2026-08-11-speclint-corpus-scan.ts`, which drives the real CLI entry point once per corpus document and captures each report rather than trusting exit codes):** 1095 of 1096 corpus documents linted in ~19s — one tracked symlink the CLI refuses by design, named in the record. 0 `SCRIPT_CONSTANT_PARITY`, 177 `SIBLING_LIST_CARDINALITY`, 84 `TEMPLATE_QUANTITY_DRIFT`, every one advisory, no hard finding from any new code. Shape (b) started at 179 — the calibration's 190 tier-6 mismatches less the 11 that the contract's qualifier and ISO-dated-line exclusions remove, the divergence the spec predicted — and lost six more when whole-diff review R20's class sweep re-derived the sibling counter's list-extent reading; those six were false, and none entered; merging `main` before the PR brought 43 more corpus documents and three more rows, for the 177 above. Shape (a) finding zero live mismatches is the expected result and not a dud: the two live qualifying occurrences both agree with `EXPECTED_SITE_TOTAL = 37`, and the arm is the tripwire that notices when they stop agreeing.
+
+**Deliberately NOT covered — the mechanical arm's documented limit.** The wedge-remeasure anchor (quantity drift between a counting rule and its list-item disposition template) is NOT expressible boundedly: three candidate designs were probe-refuted, and the pair's line-level Jaccard is 0.0748. That instance stays covered by the RULE half of this entry's filing — the numeric sweep promoted into `docs/agents/spec-self-review.md` — and `tests/specLint/numerics.test.ts` pins it as an explicit NO-FLAG fixture so no later round re-proposes a refuted design. Cross-document template drift remains out of scope per the originating filing.
+
+**Enrolled in the source-mutation registry** (`tests/mutation/source/registry.ts`, surface id `specLintNumerics`), so the arms' own coverage is machine-checked rather than argued: `pnpm mutation:guards` reports 520 mutants, 470 killed, score 1.0000 against a 0.9 floor with an EMPTY unaccepted-survivor set, and each of the 50 blessed survivors carries a written reachability or control-flow argument. There is no `accepted-gap` row on this surface.
+
+**What the arms are held to, stated because the review rounds turned on it.** They read two grammars they do not parse, so their bound is the LIVE CORPUS rather than CommonMark and JavaScript: a false advisory is a defect when it fires on a tracked document for a reason the classification record does not already carry, and a constructed input no tracked doc contains is a documented limit. The diff stage ran 21 rounds before that was stated; the filing below is where it is written down.
+
+Spec: `docs/superpowers/specs/2026-08-10-speclint-prose-count-parity.md` (cross-model APPROVED, round 8). Plan: `docs/superpowers/plans/2026-08-10-speclint-prose-count-parity.md` (round 6). Round-economy filing: `docs/review-rounds/feat/speclint-prose-count-parity/a7393880ae6d.md`.
+
+**Original entry (filed 2026-08-09, preserved verbatim as history):**
+
+> **Filed:** 2026-08-09 (round-economy followups-2, promotion P3; spec `docs/superpowers/specs/ci/2026-08-09-round-economy-followups-2.md` §3.2). **Severity:** LOW (docs drift; nothing renders differently). **Class:** review-round reduction (tooling). **Effort:** S. **Reachability:** PROBED via merged filings — classname delta arc: five findings across four rounds plus one CI cycle, all one class (`docs/review-rounds/refactor/classname-array-join-cn/b2aca7b02547.md`); wedge-remeasure: quantity drift across quoted disposition templates (spec §) and a stale cardinality over a grown sibling list (diff §) (`docs/review-rounds/chore/next-1630-wedge-remeasure/9bec2e11ab11.md`).
+>
+> Extend `lib/specLint/numerics.ts` beyond `NUMERIC_NOUN_MISMATCH` with the three measured shapes: (a) when a doc names a script that declares a count constant (the `EXPECTED_SITE_TOTAL` pattern in `scripts/verify-cn-operand-parity.mjs` — a module-local `const`, so the arm reads the declaration textually rather than importing it), compare the doc's PRESENT-TENSE prose cardinalities against the constant's live value — prose carrying the dated "at authoring time" qualifier, and dated historical records (probe transcripts, execution records: the filing's own boundary is that historical measurements are never corrected), are EXCLUDED from the comparison, not flagged; (b) count the sibling list items directly beneath an "N shapes/items" claim and compare; (c) compare quantities repeated across quoted disposition templates within one doc. Advisory-first is acceptable; the rule half binds immediately via the promoted spec-self-review numeric-sweep extension. Design and opt-in mechanics belong to the implementing arc.
 
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 

@@ -32,17 +32,22 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
+import { premise, premiseHolds } from "../_shared/premise";
 import { stripCommentsForFile } from "../_shared/stripComments";
 
 import {
   EXEMPTION_MARKER,
+  analyzeNaming,
   scanShellIndirection,
   argvSuppressesStartupFiles,
   collectPsqlUsage,
+  rootSkipNamesFromGitignore,
   scanBinaryIndirection,
   scanSource,
   scanWorkflowIndirection,
@@ -50,6 +55,9 @@ import {
 } from "./psqlStartupFiles/scan";
 
 const REPO_ROOT = join(__dirname, "..", "..");
+
+/** The extensions the walk actually scans (scan.ts `SCANNED_EXTENSIONS`). */
+const SCANNABLE_EXTENSION = /\.(?:ts|tsx|mts|cts|mjs|cjs|js|jsx|sh|bash|yml|yaml)$/;
 
 /** Real files used as live probes. Both are load-bearing: the first is a
  * separate-`"-X"` site, the second is the combined-cluster spelling that a naive
@@ -1658,6 +1666,326 @@ describe("an unreadable directory is reported, never skipped", () => {
       chmodSync(blocked, 0o755);
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// ── ROOT SKIP SET: derived from the committed .gitignore ────────────────
+//
+// `IGNORED_AT_ROOT` was a hand-list, so every new build-output directory this
+// repo's tooling writes (`.next-dev`, `.next-prod`, `.next-prod-flip`,
+// `.next-screenshots-help`, …) was walked, and the recursive AST `visit`
+// overflowed on a multi-MB generated bundle: `RangeError: Maximum call stack
+// size exceeded`, 19 cases red, NO FILE NAMED (BL-PSQL-SCAN-NEXT-VARIANT-BUILD-
+// DIRS / BL-PSQL-GUARD-WALKS-NEXT-BUILD-VARIANTS, the same defect filed twice).
+// The skip set is now DERIVED from the committed root `.gitignore`, so a fifth
+// build target needs no edit here, and anything the walk still reaches either
+// gets analyzed or fails LOUD with its own path.
+
+describe("rootSkipNamesFromGitignore — the accept-set is keyed on structure", () => {
+  // Expectations are the literal strings in this table, never the
+  // implementation's own output re-fed to itself.
+  test.each([
+    [".next-dev/", ".next-dev"],
+    ["/screenshots/", "screenshots"],
+    ["out", "out"],
+    [".vercel", ".vercel"],
+  ])("the plain-name row %j contributes %j", (line, name) => {
+    expect([...rootSkipNamesFromGitignore(line)]).toEqual([name]);
+  });
+
+  test.each([
+    ["*.log", "a glob metacharacter"],
+    [".env.*.local", "an interior glob"],
+    ["!keep/", "a negation"],
+    ["a/b/", "a nested path"],
+    [".codex-companion*/", "a trailing wildcard"],
+    ["# comment", "a comment"],
+    ["#nospace", "a comment with no space after the hash"],
+    ["", "an empty line"],
+    ["  out  ", "significant surrounding whitespace"],
+  ])("%j is rejected — %s contributes nothing", (line) => {
+    expect([...rootSkipNamesFromGitignore(line)]).toEqual([]);
+  });
+
+  test("a multi-line file contributes exactly its plain-name rows", () => {
+    const text = [
+      "# Build output",
+      "dist/",
+      "*.log",
+      "",
+      "/screenshots/",
+      "!keep/",
+      "playwright/.cache/",
+      "out",
+    ].join("\n");
+    expect(rootSkipNamesFromGitignore(text)).toEqual(new Set(["dist", "screenshots", "out"]));
+  });
+
+  test("CRLF line endings do not smuggle a carriage return into the name", () => {
+    expect(rootSkipNamesFromGitignore("dist/\r\nout\r\n")).toEqual(new Set(["dist", "out"]));
+  });
+});
+
+describe("the walk skips gitignore-declared roots and names what it cannot parse", () => {
+  /** A left-nested binary expression far past the recursive visitor's frame
+   * budget — the shape a generated webpack chunk has, minus the megabytes. */
+  const DEEP_BUNDLE = `const x = ${"1+".repeat(60000)}1;\n`;
+  const PSQL_SITE = 'execFileSync("psql", ["-qAt", dsn]);\n';
+
+  function buildTree(gitignoreText: string | null): string {
+    const root = mkdtempSync(join(tmpdir(), "psql-gitignore-"));
+    if (gitignoreText !== null) writeFileSync(join(root, ".gitignore"), gitignoreText, "utf8");
+    mkdirSync(join(root, "genout"), { recursive: true });
+    writeFileSync(join(root, "genout", "bundle.js"), DEEP_BUNDLE, "utf8");
+    writeFileSync(join(root, "run.ts"), PSQL_SITE, "utf8");
+    return root;
+  }
+
+  test("a gitignored generated directory is skipped; the sibling call site is still found", () => {
+    const root = buildTree("genout/\n");
+    try {
+      const usage = collectPsqlUsage(root);
+      expect(usage.sites).toHaveLength(1);
+      expect(usage.sites[0]!.file).toBe("run.ts");
+      expect(usage.filesScanned).toBe(1); // the bundle was never handed to the scan
+      expect(usage.unreadable).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("PREMISE — without the ignore row the same bundle is walked and fails BY NAME", () => {
+    const root = buildTree(null);
+    try {
+      // Premise: the fixture can fail. A tree that cannot red proves nothing
+      // about the tree that does not.
+      let thrown: unknown = null;
+      try {
+        collectPsqlUsage(root);
+      } catch (error) {
+        thrown = error;
+      }
+      premiseHolds("the deep bundle overflows the recursive visitor when walked", thrown !== null);
+      expect(String((thrown as Error).message)).toContain("genout/bundle.js");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an ABSENT .gitignore yields an empty derived set, not a fallback to literals", () => {
+    const root = mkdtempSync(join(tmpdir(), "psql-nogitignore-"));
+    try {
+      mkdirSync(join(root, "out"), { recursive: true });
+      writeFileSync(join(root, "out", "probe.sh"), 'psql "$DSN" -qAt -c "select 1"\n', "utf8");
+      // `out` is a literal of the PRE-ARC hand-list. With no `.gitignore` at
+      // this root the derived set is empty, so the site is found.
+      expect(collectPsqlUsage(root).sites).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the ratified root-relative `docs` skip survives the derivation", () => {
+    const root = mkdtempSync(join(tmpdir(), "psql-docs-skip-"));
+    try {
+      mkdirSync(join(root, "docs"), { recursive: true });
+      writeFileSync(join(root, "docs", "quoted.sh"), 'psql "$DSN" -qAt -c "select 1"\n', "utf8");
+      expect(collectPsqlUsage(root).sites).toHaveLength(0);
+      expect(
+        rootSkipNamesFromGitignore(readFileSync(join(REPO_ROOT, ".gitignore"), "utf8")).has("docs"),
+      ).toBe(false); // `docs` is composed in as a literal, not derived
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("analyzeNaming — a scan error names the file it was reading", () => {
+  const boom = () => {
+    throw new RangeError("Maximum call stack size exceeded");
+  };
+
+  test("the rethrown error carries the repo-relative path AND the original reason", () => {
+    expect(() => analyzeNaming("app/deep/bundle.js", boom)).toThrow(/app\/deep\/bundle\.js/);
+    expect(() => analyzeNaming("app/deep/bundle.js", boom)).toThrow(
+      /Maximum call stack size exceeded/,
+    );
+  });
+
+  test("a non-Error throw is named too", () => {
+    expect(() =>
+      analyzeNaming("lib/x.ts", () => {
+        throw "a bare string";
+      }),
+    ).toThrow(/lib\/x\.ts/);
+  });
+
+  test("a successful analyzer's value passes through untouched", () => {
+    const value = [{ marker: "identity" }];
+    expect(analyzeNaming("x.ts", () => value)).toBe(value);
+  });
+
+  test("EVERY per-file analyzer call in collectPsqlUsage goes through the wrapper", () => {
+    // Read from the AST, not from a text pattern. Two successive regex versions
+    // of this row were escapable by an ORDINARY refactor, and both failed the
+    // same way — the escaping call left BOTH the matched set and the wrapped
+    // set, so the counts stayed equal and the row stayed green while the call
+    // went unwrapped. `scan*(` missed a future analyzer named `inspectFoo`;
+    // `(source, rel)` missed `scanSource(source, rel.trim())`, and equally
+    // missed derived or aliased arguments, extra arguments, multiline calls and
+    // member calls.
+    //
+    // The real invariant is semantic, so it is asserted semantically: every
+    // READ of the file's text inside `collectPsqlUsage` must sit inside an
+    // `analyzeNaming` callback. That is stronger than counting calls (an early
+    // cut counted `sites.push(...analyzeNaming(...))` as an escape, because the
+    // read it wraps is nested in the push's arguments) and it cannot be dodged
+    // by changing how a call is spelled. Escapes are reported as statements, so
+    // a failure names the line rather than a count.
+    const text = readFileSync(join(REPO_ROOT, GUARD_MODULE), "utf8");
+    const sourceFile = ts.createSourceFile(
+      GUARD_MODULE,
+      text,
+      ts.ScriptTarget.ES2022,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    let collect: ts.FunctionDeclaration | undefined;
+    const findCollect = (node: ts.Node): void => {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === "collectPsqlUsage") collect = node;
+      else ts.forEachChild(node, findCollect);
+    };
+    findCollect(sourceFile);
+    premiseHolds("collectPsqlUsage is a function declaration in the guard module", !!collect);
+
+    /** The local holding the file's text — what a per-file analyzer consumes. */
+    const FILE_TEXT_BINDING = "source";
+
+    /** A READ of that binding. Its declaration and the `readFileSync`
+     * assignment that fills it are writes, and are not analysis. */
+    const isRead = (id: ts.Identifier): boolean => {
+      const parent = id.parent;
+      if (ts.isVariableDeclaration(parent) && parent.name === id) return false;
+      if (
+        ts.isBinaryExpression(parent) &&
+        parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        parent.left === id
+      )
+        return false;
+      return true;
+    };
+
+    const enclosingStatement = (node: ts.Node): ts.Node => {
+      let current: ts.Node = node;
+      while (current.parent && !ts.isStatement(current)) current = current.parent;
+      return current;
+    };
+
+    const escaping: string[] = [];
+    let reads = 0;
+    const visit = (node: ts.Node, insideWrapper: boolean): void => {
+      let wrapped = insideWrapper;
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "analyzeNaming"
+      ) {
+        wrapped = true;
+      }
+      if (ts.isIdentifier(node) && node.text === FILE_TEXT_BINDING && isRead(node)) {
+        reads++;
+        if (!insideWrapper) {
+          escaping.push(enclosingStatement(node).getText(sourceFile).replace(/\s+/g, " "));
+        }
+      }
+      ts.forEachChild(node, (child) => visit(child, wrapped));
+    };
+    visit(collect!, false);
+
+    premise("collectPsqlUsage reads the file's text at all", reads, 0);
+    expect(escaping, "these reads of the file's text are not wrapped in analyzeNaming").toEqual([]);
+  });
+});
+
+describe("the derived skip set for THIS repo's committed .gitignore", () => {
+  const derived = () =>
+    rootSkipNamesFromGitignore(readFileSync(join(REPO_ROOT, ".gitignore"), "utf8"));
+
+  /** Every non-`docs` member of the pre-arc hand-list. The derivation must
+   * subsume all of them or the change is a regression, not a widening. */
+  const PRE_ARC_LITERALS = [
+    ".next",
+    ".turbo",
+    ".vercel",
+    "coverage",
+    "dist",
+    "build",
+    "out",
+    "playwright-report",
+    "test-results",
+  ];
+  /** The build-output variants whose absence from the hand-list IS the defect. */
+  const NEXT_VARIANTS = [
+    ".next",
+    ".next-dev",
+    ".next-prod",
+    ".next-prod-flip",
+    ".next-build-artifact-gate-test",
+    ".next-screenshots-help",
+    ".next-prefetch-probe",
+  ];
+  /**
+   * DERIVED from git, never enumerated.
+   *
+   * The hand-written version of this list read
+   * `["app", "components", "lib", "scripts", "tests", "supabase"]` and omitted
+   * `.github` — 20 tracked, scan-eligible workflow files. An ordinary
+   * `.gitignore` row `.github/` would therefore have silently dropped all 20
+   * from the walk with this pin still green and the `filesScanned` floor still
+   * satisfied (3295 → 3275). That is the same defect the arc set out to fix,
+   * reintroduced in the guard FOR the fix: a sweep verified by enumeration
+   * re-opens the moment someone adds a site. A new tracked root carrying
+   * scannable files is now covered by construction.
+   */
+  const TRACKED_SOURCE_ROOTS = (() => {
+    const tracked = execFileSync("git", ["ls-files", "-z"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const roots = new Set<string>();
+    for (const path of tracked.split("\0")) {
+      const slash = path.indexOf("/");
+      if (slash <= 0) continue; // a root-level FILE has no directory to skip
+      if (!SCANNABLE_EXTENSION.test(path)) continue;
+      roots.add(path.slice(0, slash));
+    }
+    return [...roots].sort();
+  })();
+
+  test.each(PRE_ARC_LITERALS)("subsumes the pre-arc literal %s", (name) => {
+    expect(derived().has(name)).toBe(true);
+  });
+
+  test.each(NEXT_VARIANTS)("contains the build-output variant %s", (name) => {
+    expect(derived().has(name)).toBe(true);
+  });
+
+  // The §4.2 documented limit made executable: a TRACKED root directory named
+  // by a plain-name row would be newly skipped. This is the stays-quiet pin.
+  test("the derived roots really were derived, and cover the known source tree", () => {
+    // Premise for every row below: a derivation that silently produced nothing
+    // would make each `never contains` case vacuously true.
+    premise("git yielded tracked roots holding scannable files", TRACKED_SOURCE_ROOTS.length, 5);
+    expect(TRACKED_SOURCE_ROOTS).toEqual(
+      expect.arrayContaining(["app", "lib", "tests", ".github"]),
+    );
+  });
+
+  test.each(TRACKED_SOURCE_ROOTS)("never contains the tracked source root %s", (name) => {
+    premiseHolds(`${name} is a real directory at the repo root`, existsSync(join(REPO_ROOT, name)));
+    expect(derived().has(name)).toBe(false);
   });
 });
 

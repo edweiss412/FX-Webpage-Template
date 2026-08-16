@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { type StdioOptions, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -30,6 +30,34 @@ export type RunResult = {
 };
 
 const CONFIG = "tests/mutation/source/mutantOverlay.config.ts";
+
+/**
+ * Wall-clock ceiling for ONE suite run against ONE mutant.
+ *
+ * A mutation operator can produce a mutant that never TERMINATES rather than one
+ * that fails: `statement-removal` of a loop's advance statement is the plain
+ * case, and `tests/styles/interactiveScanCore.ts` supplied a real one — dropping
+ * `cursor = cursor.parent;` inside `while (cursor)`. With no ceiling the child
+ * runs forever, the harness scores NOTHING, and the run has to be killed by
+ * hand: measured 1h48m on a single mutant with 0 of 207 scored, and four wedged
+ * `mutantOverlay.config.ts` children from OTHER arcs alive on the same machine
+ * at that moment (2h28m, 2h55m, 3h53m, 5h43m).
+ *
+ * 180s against a ~2s healthy suite run locally is generous enough that a timeout
+ * means a hang rather than a slow machine.
+ */
+export const MUTANT_TIMEOUT_MS = 180_000;
+
+/**
+ * The exit code a timed-out run reports.
+ *
+ * 124 is `timeout(1)`'s convention; all that matters mechanically is non-zero,
+ * which `classify` reads as KILLED. That is the right verdict and the standard
+ * one (Stryker and PIT both count a timeout as detected): a mutant that stops
+ * the guard terminating cannot ship silently, because the suite never goes green
+ * again. It is detection by a different mechanism, not a missed mutant.
+ */
+export const MUTANT_TIMEOUT_EXIT = 124;
 
 /**
  * A child that produced NO numeric exit status — a signal death, an OOM kill, or
@@ -72,24 +100,108 @@ export function runSuite(
   suite: string,
   context: string,
 ): number {
+  const env = {
+    ...process.env,
+    MUTATION_ROOT: root,
+    MUTATION_TARGET: target,
+    MUTATION_MUTANT: mutantFile,
+    MUTATION_SUITE: suite,
+  };
+  const { result, ownGroup } = spawnChild(root, env);
+
+  // A timeout kill and this machine's idle-process reaper arrive in the SAME
+  // shape — no exit status, a signal — so the code is the only thing that tells
+  // them apart, and they must not share a verdict. The reaper steals a run that
+  // would have finished, and folding it into KILLED would score a kill the suite
+  // never earned; a timeout is the mutant's own doing (see MUTANT_TIMEOUT_EXIT).
+  if (result.error && (result.error as { code?: string }).code === "ETIMEDOUT") {
+    killProcessGroup(result.pid, ownGroup);
+    return MUTANT_TIMEOUT_EXIT;
+  }
+  if (typeof result.status === "number") return result.status;
+  // Every remaining shape is a child that produced no exit status. The group
+  // kill runs here too: a signalled or failed-to-spawn child can still have left
+  // descendants, and this run is about to abort rather than reap them later.
+  killProcessGroup(result.pid, ownGroup);
+  throw new MutantRunInfraError(
+    `${context} [${suite}]`,
+    result.signal ?? null,
+    (result.error as { code?: string } | undefined)?.code,
+  );
+}
+
+/**
+ * The argv that makes the child a process-GROUP LEADER before it becomes the
+ * command.
+ *
+ * `setpgrp` puts the process in a new group whose id is its own pid; `exec`
+ * then replaces it with the real command, keeping that group. Node cannot do
+ * this itself — `spawnSync` accepts no `detached` and there is no `setpgid`
+ * binding — and it is the only way the reap below can work AT ALL: `spawnSync`
+ * returns only after killing the process it spawned, so by then every
+ * descendant has been reparented to init and no parent-based walk can find
+ * them (whole-diff R3 F1). A process group outlives its leader; a parent link
+ * does not.
+ */
+export const GROUP_LEADER_ARGV = ["-e", "setpgrp; exec @ARGV", "--"] as const;
+
+const CHILD_ARGS = ["exec", "vitest", "run", "--config", CONFIG] as const;
+
+/**
+ * Spawn the suite child, in its own process group where the platform allows it.
+ *
+ * `perl` ships with macOS and every CI image this runs on. If it is missing the
+ * child is spawned directly and `ownGroup` is false: the run still works and the
+ * timeout still scores, but a hung grandchild survives — degraded, and reported
+ * as such rather than silently assumed.
+ */
+function spawnChild(
+  root: string,
+  env: NodeJS.ProcessEnv,
+): { result: ReturnType<typeof spawnSync>; ownGroup: boolean } {
+  const options = {
+    cwd: root,
+    // DISCARDED, not captured. Nothing here ever reads the child's output —
+    // `runSuite` consumes only `status`, `signal` and `error.code` — and piping
+    // it buffers against Node's 1 MB `maxBuffer` default, which is a cap on how
+    // LOUDLY a mutant may fail rather than on anything meaningful. Probing the
+    // psql startup-file scanner reached it: one mutant reds enough of that
+    // surface's 789-case suite that the failure dump alone overruns 1 MB, the
+    // child dies with no exit status, and the run aborts through the infra-error
+    // path below (`signal=SIGTERM, code=ENOBUFS`) having scored NO mutant —
+    // making any high-output surface unenrollable. Discarding removes the cap
+    // outright instead of trading it for a bigger number to outgrow later, and
+    // costs nothing observable because the output was already invisible.
+    stdio: ["ignore", "ignore", "ignore"] as StdioOptions,
+    timeout: MUTANT_TIMEOUT_MS,
+    // SIGTERM is what vitest's own watchdogs and this machine's idle-process
+    // reaper use, and a vitest child can trap it; SIGKILL cannot be trapped,
+    // so the ceiling is a ceiling.
+    killSignal: "SIGKILL" as const,
+    env,
+  };
+  const grouped = spawnSync("perl", [...GROUP_LEADER_ARGV, "pnpm", ...CHILD_ARGS], options);
+  if ((grouped.error as { code?: string } | undefined)?.code !== "ENOENT") {
+    return { result: grouped, ownGroup: true };
+  }
+  return { result: spawnSync("pnpm", [...CHILD_ARGS], options), ownGroup: false };
+}
+
+/**
+ * SIGKILL the child's whole process group, tolerating one that is already gone.
+ *
+ * The group id IS the leader's pid, and the group stays valid while any member
+ * lives — which is why this reaches a grandchild that has already outlived its
+ * parent. Without `ownGroup` the negative-pid form would signal THIS process's
+ * group, so it is not attempted: the child is already dead and there is nothing
+ * safe left to do.
+ */
+function killProcessGroup(pid: number | undefined, ownGroup: boolean): void {
+  if (pid === undefined || !ownGroup) return;
   try {
-    execFileSync("pnpm", ["exec", "vitest", "run", "--config", CONFIG], {
-      cwd: root,
-      stdio: "pipe",
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        MUTATION_ROOT: root,
-        MUTATION_TARGET: target,
-        MUTATION_MUTANT: mutantFile,
-        MUTATION_SUITE: suite,
-      },
-    });
-    return 0;
-  } catch (e) {
-    const err = e as { status?: number | null; signal?: NodeJS.Signals | null; code?: string };
-    if (typeof err.status === "number") return err.status;
-    throw new MutantRunInfraError(`${context} [${suite}]`, err.signal ?? null, err.code);
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // already gone
   }
 }
 

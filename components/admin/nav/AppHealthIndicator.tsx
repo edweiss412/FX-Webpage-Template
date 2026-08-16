@@ -36,7 +36,7 @@ import { cn } from "@/lib/ui/cn";
 
 // Shared with NotifBell (NotifBell.tsx) — dimensional parity is the §8 contract.
 const TAP_TARGET = cn(
-  "relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-text-subtle hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  "relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-text hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
 );
 
 // Literal class strings (never template-constructed) so Tailwind v4's content

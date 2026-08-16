@@ -47,10 +47,11 @@ export function deriveArchivedOffers(
 // a quieter ghost so a glancing operator reads the primary action first (impeccable
 // critique P2 — hierarchy WITHIN the neutral palette, never spending the ≤10% orange).
 export const ARCHIVED_TAB_BTN = cn(
-  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
 );
-// Resting color is text-text (NOT text-subtle — DESIGN.md:27 bars subtle on action
-// targets); the border-transparent + no-fill is what makes it read as secondary.
+// Resting color is text-text (NOT text-subtle — DESIGN §1.1a keeps subtle off
+// action targets outside its three carve-outs, which this button does not claim);
+// the border-transparent + no-fill is what makes it read as secondary.
 export const ARCHIVED_TAB_GHOST_BTN = cn(
   "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent px-4 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
 );

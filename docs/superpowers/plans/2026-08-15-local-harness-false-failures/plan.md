@@ -70,6 +70,8 @@ RED is a staged-wrongness observation on the same command: step 1 relocates the 
 
 <!-- task: red=`pnpm heavy pnpm mutation:guards` ac=AC-6 -->
 
+> **RE-DISPOSITIONED 2026-08-15 (user-ratified). The registry row does NOT ship.** The steps below were executed and the probe they describe was RUN; what it measured refuted the section's premise. (a) The surface was unmeasurable until a harness defect was fixed: both child spawns buffered never-read child output against Node's 1 MB `maxBuffer`, so one loud mutant killed the run with `MutantRunInfraError (signal=SIGTERM, code=ENOBUFS)` and scored nothing. That fix SHIPS (commit `9edf520d1`), class-swept across `runner.ts` + `childRun.ts`. (b) Measured then at 48/48 mutants: **score 0.3542, 17 killed, 31 unaccepted survivors**, a genuine mix of equivalents and real gaps. Enrolling at a 0.35 floor with 31 blessed rows is the symbolic enrolment AGENTS.md convergence bullet 4 forbids, so proper enrolment is filed as `BL-PSQL-SCAN-MUTATION-ENROLMENT` with these numbers as probe evidence. The registry-parity RED was observed as written before the revert. See spec §2.3's re-disposition note.
+
 RED is executable on the same command: step 1 adds the `GUARD_SURFACES` row ALONE — `tests/mutation/guardSurfaces.gate.test.ts` then reds deterministically at its registry-parity assertion (`Object.keys(EXPECTED_LEDGER_KINDS)` must equal every surface id — verified live at the gate's parity `expect`), observed and recorded. Steps 2-3 complete the enrolment; the SAME command goes green.
 
 1. Registry row `psqlStartupFileScan`: `sourcePath: "tests/cross-cutting/psqlStartupFiles/scan.ts"`, `suitePaths: ["tests/cross-cutting/psqlStartupFileSuppression.test.ts"]`, `operators: ["relational-boundary", "regex-quantifier-bound"]` (48 pre-edit sites ≈ 32 min worst case at the measured 39.84 s/run — inside the spec's ~45-minute ceiling; the four excluded operators recorded on the row with the spec §2.3 probe numbers as the reason). Control mutant, exact and verified-unique (1 occurrence, `grep -c 'token.slice(1).includes("X")'` = 1): `from: 'return token.slice(1).includes("X");'` → `to: 'return true;'` — every flagless cluster then certifies suppression, which the suite's negative certification cases kill deterministically in any environment. Run the gate now: observed RED (parity assertion names the missing `EXPECTED_LEDGER_KINDS` entry).
@@ -103,7 +105,7 @@ Archive-RED per entry, three commits or one (implementer's call, but each move o
 - **AC-3** derived-set pins: ⊇ nine literals ∪ seven `.next*`, ∩ tracked source roots = ∅.
 - **AC-4** probes pass with no tree path ever created (in-memory overlay; temp-dir mutant text).
 - **AC-5** `test:fast` green, probe assertions byte-identical, no child `FAIL` echo on the outer streams.
-- **AC-6** scan.ts enrolled (scoped subset), score + survivor set stated in the round-1 diff brief.
+- **AC-6** WITHDRAWN 2026-08-15 (user-ratified) and replaced: the enrolment probe is run, the harness `maxBuffer` defect blocking it is fixed and ships, the measured 0.3542 / 31-survivor result is recorded, and proper enrolment is filed as `BL-PSQL-SCAN-MUTATION-ENROLMENT`. No registry row ships.
 - **AC-7** three entries graduated, markers per spec §3, `tests/docs/` green.
 
 ## Adversarial review (cross-model)

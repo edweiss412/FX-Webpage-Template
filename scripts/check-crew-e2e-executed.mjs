@@ -70,6 +70,13 @@ export const REQUIRED = {
   // wiring guard derives this same number from live per-project resolution minus
   // its PROJECT_GATED registry — it is not trusted as a literal here.
   "theme-toggle.spec.ts": 9,
+  // 4 — the persist-failure geometry matrix: two consumers (help header, admin
+  // nav cluster) x two claims (viewport containment of the anchored bubble, and
+  // the wrapper box still equal to the button box). desktop-chromium ALONE,
+  // which is the spec's only project: the containment cases size the viewport
+  // in-test, so a second project would re-run an identical assertion rather than
+  // add cover. The wiring guard re-derives this from live per-project resolution.
+  "theme-persistence-note.spec.ts": 4,
   // ── wired 2026-08-10 by M-wave 2 W-E2E (BL-RIGHTNOW-SECTION57-FIXTURE-INERT +
   // BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER) ────────────────────────
   // 3 = the §5.7 anchor pair (Day-1 anchor, midnight rollover) + the restricted-
