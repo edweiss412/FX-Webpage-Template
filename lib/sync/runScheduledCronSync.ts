@@ -2326,8 +2326,10 @@ export async function logSync(
       code: "SYNC_LOG_EMIT_FAILED",
       driveFileId,
       // RAW value, never serializeError(...): buildRecord (lib/log/logger.ts) serializes exactly
-      // once. Pre-serializing feeds a plain object back through serializeError's non-Error branch
-      // (String(value)) and the persisted diagnostic collapses to "[object Object]".
+      // once. Since fix/serialize-error-structure the non-Error branch is STRUCTURAL, so
+      // pre-serializing no longer destroys the diagnostic (it used to collapse to
+      // "[object Object]") — but it stays banned as shape drift plus redundant work, and
+      // tests/log/noDoubleSerializedLogError.test.ts enforces the ban statically.
       error: sinkError,
     });
     // Invariant 10: this runs INSIDE the caller's held advisory lock at the processOneFile_unlocked

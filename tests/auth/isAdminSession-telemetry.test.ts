@@ -16,8 +16,10 @@ import type { LogRecord } from "@/lib/log/types";
 
 // Real Supabase AuthError/PostgrestError are Error subclasses at runtime, so a
 // returned `{ error }` is an Error instance — serializeError extracts
-// {name,message,stack}. Model that faithfully (a plain object would serialize
-// to "[object Object]" and mask the message, which is NOT the production shape).
+// {name,message,stack}. Model that faithfully: since
+// fix/serialize-error-structure a plain object serializes structurally rather
+// than masking the message as "[object Object]", so the Error instance here is
+// kept for PRODUCTION FIDELITY, not to dodge a collapse.
 function makeReturnedError(name: string, message: string): Error {
   const e = new Error(message);
   e.name = name;
