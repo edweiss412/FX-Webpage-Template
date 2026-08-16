@@ -301,9 +301,11 @@ rather than by adjacency — `RecentAutoAppliedStrip`, whose near-ground control
 sits in its confirmation row, and the `AcceptChangeButton`/`UndoChangeButton`
 pair that `ChangeFeedEntry.tsx:135` renders. One is inheritance:
 `Step2Verify`'s portaled footer advance takes the same file-local
-`SECONDARY_BUTTON` constant as the re-scan button. That is a consistency repair
-within a view, not a ruling on the general predicate — which is still the ledger
-entry's to make.
+`SECONDARY_BUTTON` constant as the re-scan button. That was a consistency repair
+within a view, not a ruling on the general predicate — which on 2026-08-14 was
+still the ledger entry's to make. **The user made it two days later**, and the
+fill-equals-container predicate above is that ruling; this paragraph is retained
+as the record of what moved before it, and why.
 
 The pair's render path was cited as `RecentAutoAppliedStrip` until the whole-diff
 review read it (R2 F2): that strip passes `quiet` to `UndoChangeButton`, whose
