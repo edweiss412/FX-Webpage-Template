@@ -58,6 +58,24 @@ const isTestTitle = (text: string): boolean => /^(?:test|describe)(?:\.\w+)*\(\s
 const callsHelper = (text: string): boolean =>
   /\b(?:openShowReviewModal|openShowReviewModalAt|awaitReviewModalOrRecover)\(/.test(text);
 
+/**
+ * Playwright's activation verbs. A (d) candidate carrying one of these is doing
+ * something to the element, not merely referring to it, so the reference-only
+ * exclusion below refuses it outright and lets it fall through to undispositioned.
+ */
+const ACTIVATION_VERB =
+  /\.(?:click|dblclick|press|fill|check|uncheck|selectOption|tap|focus|hover|setChecked|pressSequentially|dispatchEvent)\(/;
+
+/**
+ * The origin (d) split activation: a row-locator BINDING in interactions.spec.ts
+ * whose activation lands on a later line. It is a MEMBER, so the reference-only
+ * exclusion below must not also claim it. Hoisted to one definition so the two
+ * rules cannot drift into overlapping — the census asserts they are disjoint.
+ */
+const isSplitActivationBinding = (candidate: Candidate): boolean =>
+  candidate.file === "tests/e2e/published-review-modal.interactions.spec.ts" &&
+  /^const trigger = page\.locator\(/.test(candidate.text);
+
 const inFile = (candidate: Candidate, file: string): boolean =>
   candidate.file === `tests/e2e/${file}`;
 
@@ -368,9 +386,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     // count/geometry reads that are never activated at all
     // (admin-layout-dimensions' row count, bell-panel-layout's caret rect,
     // closeFreshness' toContainText row — its click is a separate site).
-    match: (c) =>
-      inFile(c, "published-review-modal.interactions.spec.ts") &&
-      /^const trigger = page\.locator\(/.test(c.text),
+    match: isSplitActivationBinding,
   },
   {
     id: "d/prefetch-request-counting",
@@ -410,17 +426,36 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     disposition: {
       kind: "exclusion",
       reason:
-        "a locator binding, count, geometry read, or focus assertion on the testid; it causes no load, so there is no wait for the helper to own",
+        "a PROVEN reference-only use of the testid — an assertion, a count, a geometry read, a bare locator binding, a continuation line, or a data argument. Each form is enumerated below rather than assumed, so an activation shape this list does not recognize falls through to NO rule and FAILS as undispositioned",
     },
     expectedCount: 23,
-    match: (c) =>
-      !/\.click\(/.test(c.text) &&
-      !isProse(c) &&
-      !inFile(c, "published-review-modal.prefetch.spec.ts") &&
-      !(
-        inFile(c, "published-review-modal.interactions.spec.ts") &&
-        /^const trigger = page\.locator\(/.test(c.text)
-      ),
+    // ALLOWLIST, not a catch-all. Diff review round 9 showed the catch-all
+    // (`not a .click()`) silently excluded any OTHER activation: changing an
+    // existing assertion to `page.getByTestId(...).press("Enter")` — an ordinary
+    // corpus interaction — kept the suite green while the rule claimed the line
+    // "causes no load". The reviewer's own prescription was to NARROW so
+    // unfamiliar activation shapes become undisposed, which is also the
+    // repair direction AGENTS.md mandates here. So the six reference-only forms
+    // the corpus actually contains are enumerated, and anything else is a
+    // question for a human rather than an assumption by this rule.
+    match: (c) => {
+      if (isProse(c)) return false;
+      if (inFile(c, "published-review-modal.prefetch.spec.ts")) return false;
+      if (ACTIVATION_VERB.test(c.text)) return false;
+      // A split activation is a MEMBER of origin (d), not a reference; its
+      // binding line is claimed by `d/member-split-activation` above.
+      if (isSplitActivationBinding(c)) return false;
+      const t = c.text;
+      const assertion = /\bexpect\(/.test(t) || /\.toBe(?:Visible|Attached)?\(/.test(t);
+      const countRead = /\.count\(\)/.test(t);
+      const geometryRead = /\brectOf\(/.test(t);
+      const binding = /^const \w+ = page\.(?:locator|getByTestId)\(/.test(t);
+      const continuation = /^\.(?:locator|getByTestId)\(/.test(t);
+      // A pure data/argument line: it names the testid but calls nothing on the
+      // page at all (an evaluate() argument, a tuple element, a filter needle).
+      const dataOnly = !/\bpage\./.test(t);
+      return assertion || countRead || geometryRead || binding || continuation || dataOnly;
+    },
   },
 
   // ---------------------------------------------------------------- origin (e)
