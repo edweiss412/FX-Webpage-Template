@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { premiseHolds } from "../../_shared/premise";
+import { stripCommentsForFile } from "../../_shared/stripComments";
 import { BROWSER_SURFACES } from "./registry";
 
 /**
@@ -44,17 +45,21 @@ const source = readFileSync(join(ROOT, GATE), "utf8");
 const RUNNER = "tests/mutation/browser/runner.ts";
 const runnerSource = readFileSync(join(ROOT, RUNNER), "utf8");
 
-const stripProse = (text: string): string =>
-  text
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/[^\n]*/g, "$1")
-    .replace(/(it|describe)\((["'`])[\s\S]*?\2/g, "$1(<title>");
+/**
+ * Prose off, code left.
+ *
+ * Comments come off through the repo's SINGLE SOURCE (`tests/_shared/stripComments`,
+ * enforced by `_metaStripCommentsSingleSource`) rather than a local regex. That
+ * is also the better stripper: it is TypeScript-aware, so it cannot mangle a
+ * `//` that lives inside a string literal the way the hand-rolled version here
+ * could. Test titles come off separately — they are not comments, and round 3's
+ * finding was a scan its own test TITLE could satisfy.
+ */
+const stripProse = (text: string, filePath: string): string =>
+  stripCommentsForFile(text, filePath).replace(/(it|describe)\((["'`])[\s\S]*?\2/g, "$1(<title>");
 
-const code = source
-  .replace(/\/\*[\s\S]*?\*\//g, " ")
-  .replace(/(^|[^:])\/\/[^\n]*/g, "$1")
-  .replace(/(it|describe)\((["'`])[\s\S]*?\2/g, "$1(<title>");
-const runnerCode = stripProse(runnerSource);
+const code = stripProse(source, GATE);
+const runnerCode = stripProse(runnerSource, RUNNER);
 
 describe("the browser gate still registers the work it claims to run", () => {
   it("reads a non-trivial gate file (anti-vacuity for every scan below)", () => {
