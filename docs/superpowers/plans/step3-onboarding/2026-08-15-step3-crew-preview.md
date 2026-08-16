@@ -64,6 +64,28 @@ export function buildStagedShowForViewer(
 
 Behavior is spec §2.2 verbatim: the 23-field derivability table (Direct / Direct-reshaped / Viewer-filtered / Derived-in-memory / Defaulted / Viewer-derived buckets), surrogate ids `staged-crew-<index>` and `staged-room-<index>`, the runtime-grain normalizer contract (guard-conditions paragraph), agenda `fileId`/`extracted` strip, financial capture-then-null, LEAD-or-FINANCIALS financials gate.
 
+**Normalizer table (the spec's "full normalizer table", per nested family — each row is a test case AND an implementation clause; malformed = fails its `typeof`/`Array.isArray`/union check):**
+
+| Family | Malformed shape | Disposition |
+| --- | --- | --- |
+| crew entry | non-object, or `name` not a string | drop entry |
+| crew `role_flags` | non-array → `[]`; non-string element → element dropped | coerce |
+| crew restrictions | decode failure | `{ kind: "none" }` |
+| crew `email`/`phone`/`role`/`flight_info` | non-string | `null` (`role`: `""`) |
+| room entry | non-object, or `name` not a string | drop entry |
+| room `set_time`/`show_time`/`strike_time` | non-string | `null` |
+| hotel entry | non-object | drop entry |
+| hotel string fields (`hotel_name`, `names`, `confirmation_no`, `check_in`, `check_out`, `notes`, `hotel_address`) | non-string | `null` (entry kept) |
+| contact entry | non-object | drop entry |
+| pull-sheet case | non-object | drop entry |
+| transportation | non-object | `null` (whole field) |
+| `runOfShow` value | non-array `ScheduleDay` | drop that day key |
+| `ScheduleDay` entry | non-object | drop entry |
+| `show.dates` | union-shape failure | adapter returns `{ kind: "decode_error" }` |
+| `show.agenda_links` | non-array → `[]`; non-object entry → dropped | coerce (then the fileId/extracted strip) |
+
+Plus a reusable **grain-walker assertion** `assertShowForViewerGrain(data)` (test-local helper in the suite): walks the output and asserts every field's runtime type matches the projection grain (strings/nullable strings/arrays/records per the table above) — run on the output of EVERY malformed-input case, so a family the table forgot still fails loudly.
+
 - [ ] **Step 1: Write the failing test file** — cases (derive expectations from the fixture object built in-test, never hardcoded literals; the fixture is a hand-built `ParseResult` with 3 crew members [one LEAD with explicit `6/24` M/D date restriction, one `ONLY***`-style stage-restricted, one unrestricted non-LEAD], 2 hotel reservations naming different members, 2 rooms with the SAME name, agenda_links with one fileId entry + one url-only entry, po/proposal/invoice/invoice_notes populated, runOfShow spanning restricted + unrestricted days):
   1. surrogate ids deterministic (`staged-crew-0..2`, `staged-room-0..1`) and `resolveViewerContext`-compatible (call it: no throw for each roster id);
   2. hotel filter: viewer 0 sees only reservations naming them (assert against the fixture's names, mirroring `lib/data/getShowForViewer.ts:784-787`);
@@ -75,8 +97,10 @@ Behavior is spec §2.2 verbatim: the 23-field derivability table (Direct / Direc
   8. defaults: `tileErrors` `{}`, `diagrams` null, `openingReelHasVideo` false, `lastCheckedAt === opts.checkedAt`, `lastSyncedAt === opts.stagedModifiedTime`, `viewerVersionToken === "staged-preview"`;
   9. selection: `requestedViewerId: "staged-crew-1"` → `selectedId` = it; unknown/null → `"staged-crew-0"`;
   10. `empty_roster` on `crewMembers: []`;
-  11. normalizers: crew entry `null` and crew entry `{..., name: 7}` dropped; `role_flags: null` → `[]`; `role_flags: [null, "LEAD"]` → `["LEAD"]`; room `{..., name: null}` dropped; `show.dates` union-shape failure → `{ kind: "decode_error" }`;
-  12. `transportationOwnerIds` equals `resolveTransportOwners(transportation, roster)` over the surrogate roster.
+  11. normalizers: ONE case per row of the normalizer table above (crew entry `null` / `{..., name: 7}` dropped; `role_flags: null` → `[]`; `role_flags: [null, "LEAD"]` → `["LEAD"]`; room `{..., name: null}` dropped; room `set_time: 42` → `null`; malformed hotel/contact/pull-sheet/transportation/runOfShow/agenda_links shapes per their rows; `show.dates` failure → `decode_error`), each case's output passed through `assertShowForViewerGrain`;
+  12. `transportationOwnerIds` equals `resolveTransportOwners(transportation, roster)` over the surrogate roster;
+  13. runOfShow EQUALITY (not subset): for each viewer, `Object.keys(data.runOfShow).sort()` deep-equals the in-test derived allowed set (`aggregateDays(show.dates)` ∩ the viewer's normalized restriction days), which is non-empty for the fixture's restricted viewer (premise assertion: derived set length > 0, so an empty-output implementation fails);
+  14. string-presence mutants (writing-plans rule), run once and recorded in the commit message: (a) financials values emptied → AC-1's financial-string assertions fail; (b) a hotel name with an appended suffix in the fixture → the equality assertions fail; (c) financial strings present in `show.po` (not nulled) but absent from `financials` → the nulling assertion fails; (d) `requestedViewerId` varied across all three roster ids → selected-viewer-dependent outputs differ.
 - [ ] **Step 2: Run to verify red** — `pnpm vitest run tests/data/stagedShowForViewer.test.ts` — Expected: FAIL, the adapter module does not exist yet (unresolved import).
 <!-- task: red=`pnpm vitest run tests/data/stagedShowForViewer.test.ts` red-state=authored red-target=`lib/data/stagedShowForViewer.ts` why=`adapter module absent; every case fails on unresolved import` ac=AC-1,AC-3 -->
 - [ ] **Step 3: Implement the adapter** per the Produces signature and spec §2.2. Structure: `normalizeCrew(parse, show)` → roster + projected crew; `selectViewer(roster, requestedViewerId)`; per-bucket assembly helpers; single exported function. Reuse the four existing helpers; the hotel filter replicates the projection's alias-set predicate with a `// mirrors lib/data/getShowForViewer.ts:784-787` comment if `hotelVisibleToViewer` is unexported.
@@ -116,7 +140,12 @@ Behavior is spec §2.2 verbatim: the 23-field derivability table (Direct / Direc
   2. no `ShowRealtimeBridge` in the tree under posture (mock it to a marker, assert absent; present in the non-posture render);
   3. no element matching the card-report trigger accessible name anywhere under posture; footer report affordance absent;
   4. AC-8: with `staticPreview` absent, rendered tree of a populated fixture is unchanged vs a pre-change snapshot of section keys + bridge + triggers (assert presence, not bytes);
-  5. AC-3 budget gate through the REAL shell: adapter output for a LEAD-or-FINANCIALS-flagged viewer → `budget` in the captured `sectionNodes` keys; a viewer with neither flag → absent (the `crewShellSections.test.tsx` entitlement pattern, expected set derived from the fixture's flags).
+  5. AC-3 budget gate through the REAL shell: adapter output for a LEAD-or-FINANCIALS-flagged viewer → `budget` in the captured `sectionNodes` keys; a viewer with neither flag → absent (the `crewShellSections.test.tsx` entitlement pattern, expected set derived from the fixture's flags); ALSO for the `role_flags: [null, "LEAD"]` normalized viewer (element-drop arm proved through the shell);
+  6. AC-1 REAL-shell integration: `CrewShell` rendered from ADAPTER OUTPUT over the full Task-1 `ParseResult` fixture (not `makeShowForViewer`) — every entitled section key present; per-section content spot-derived from the fixture (a contact's name renders in the crew/contacts body, a pull-sheet case name in gear, the viewer's hotel name in travel); the four financial strings appear NOWHERE in a non-entitled viewer's full rendered text and the budget body renders them for an entitled viewer;
+  7. AC-3 Right Now uses the FILTERED hotel: the Today/RightNow rendering for viewer A names viewer A's fixture hotel and not viewer B's (expected names derived from the fixture);
+  8. AC-2 `after()` suppression: module-mock `next/server`'s `after` with a spy — zero registrations under `staticPreview: true`, at least one without (defect-injection pair);
+  9. AC-2 dormant-reference scan: the full rendered HTML under posture contains NO substring `/api/asset/agenda/`, `/api/asset/diagram/`, `/api/asset/reel/`, `/api/report`, or `/api/realtime/` (catches hrefs and non-requesting references Task 8's network capture cannot see);
+  10. stage-restricted viewer's RENDERED schedule: the schedule body's day set deep-equals the in-test derived worked-day set from `effectiveViewerDateRestriction` over the fixture (equality, not subset; premise: derived set non-empty).
 - [ ] **Step 2: Run to verify red** — `pnpm vitest run tests/components/crew/crewShellStaticPreview.test.tsx` — Expected: FAIL (`staticPreview` prop not accepted / suppressions absent).
 <!-- task: red=`pnpm vitest run tests/components/crew/crewShellStaticPreview.test.tsx` red-state=authored red-target=`app/show/[slug]/[shareToken]/_CrewShell.tsx:162` why=`CrewShell has no staticPreview prop; alert write, after() calls, bridge, footer report, and card triggers all emit unconditionally` ac=AC-2,AC-8 -->
 - [ ] **Step 3: Implement** the five suppressions, each a one-line `if (!staticPreview)` guard (or conditional prop), with a comment citing spec §2.6's item number. The `after()` guards must skip REGISTRATION (never register-then-noop).
@@ -137,7 +166,7 @@ Behavior is spec §2.2 verbatim: the 23-field derivability table (Direct / Direc
 
 Visual contract (spec §2.5): the `PreviewBanner` recipe verbatim (`components/admin/PreviewBanner.tsx:60-71` — `role="status"`, `aria-live="polite"`, sticky top, `z-sticky-banner`, `bg-warning-bg text-warning-text`, `shadow-tile`, `border-b border-border-strong`); testid `staged-preview-banner`. Copy: title "Previewing from the sheet (not published yet)"; identity "Viewing as <Name> (<Role>)"; exit link "Back to setup" → `/admin`. Picker: one link per roster entry to `/admin/wizard/preview/<stagedId>?as=<id>` (NO `s` param, spec §2.3), current entry a non-link `<span aria-current="true">`; ≥13 entries → first 11 inline + `<details>` disclosure holding the rest (cap rule, spec §2.3); every link and the exit `min-h-tap-min` inline-flex.
 
-- [ ] **Step 1: Write the failing test** — jsdom: renders title/identity/exit copy exactly (and asserts the banner's text content contains no em-dash character); picker links for a 3-entry roster carry correct hrefs and NO `s=`; selected entry is a non-link with `aria-current`; 14-entry roster → 11 inline links + disclosure containing the remaining 3 (derive counts from the roster fixture length, not literals); `role="status"` present.
+- [ ] **Step 1: Write the failing test** — jsdom: renders title/identity/exit copy exactly (and asserts the banner's text content contains no em-dash character); picker links for a 3-entry roster carry correct hrefs and NO `s=`; selected entry is a non-link with `aria-current`; cap boundary swept at 12 (all inline, NO disclosure), 13 (11 inline + disclosure of 2), and 14 (11 inline + disclosure of 3) — counts derived from roster length and the cap constant, catching an off-by-one `>= 14` disclosure condition; `role="status"` present. String-presence mutants recorded per the writing-plans rule: title emptied; title with appended suffix; title present only in an aria-label (not text content); roster name varied per entry.
 - [ ] **Step 2: Run to verify red** — `pnpm vitest run tests/components/admin/stagedPreviewBanner.test.tsx` — Expected: FAIL, component absent.
 <!-- task: red=`pnpm vitest run tests/components/admin/stagedPreviewBanner.test.tsx` red-state=authored red-target=`components/admin/StagedPreviewBanner.tsx` why=`component module absent` ac=AC-6 -->
 - [ ] **Step 3: Implement**; tokens only, no new tokens, no fixed dimensions (Dimensional Invariants: N/A stands).
@@ -147,31 +176,35 @@ Visual contract (spec §2.5): the `PreviewBanner` recipe verbatim (`components/a
 ### Task 5: Route + segment error boundary + invariant-9 registry row
 
 **Files:**
-<!-- spec-lint: ignore — both files created by this task; not yet tracked -->
-- Create: `app/admin/wizard/preview/[stagedId]/page.tsx`, `app/admin/wizard/preview/[stagedId]/error.tsx`
-- Modify: `tests/admin/_metaInfraContract.test.ts` (one `infraRegistry` row for `lookupStagedRow`)
+<!-- spec-lint: ignore — all three files created by this task; not yet tracked -->
+- Create: `app/admin/wizard/preview/[stagedId]/page.tsx`, `app/admin/wizard/preview/[stagedId]/error.tsx`, and `lib/admin/lookupStagedRow.ts` (the lookup helper lives in its OWN module so the route imports it and the test module-mocks it — a same-module export cannot be mocked out from under the page's lexical reference)
+- Modify: `tests/admin/_metaInfraContract.test.ts` (one `infraRegistry` row for `lookupStagedRow` PLUS a bespoke behavioral `describe` block — the registry rows are grep/static coverage only; the throwing-client behavioral proofs are the file's separate `describe` blocks, so this task adds one: a client whose `.from()` throws synchronously AND one whose builder rejects mid-await both yield `{ kind: "infra_error" }`)
 <!-- spec-lint: ignore — file created by this task; not yet tracked -->
 - Test: `tests/admin/stagedPreviewRoute.test.tsx` (new)
 
 **Interfaces:**
 - Consumes: Tasks 1, 3, 4.
-- Produces: `export async function lookupStagedRow(stagedId: string): Promise<{ kind: "found"; row: { stagedId: string; driveFileId: string | null; parseResult: unknown; sourceAnchors: Record<string, SourceAnchor>; stagedModifiedTime: string | null } } | { kind: "not_found" } | { kind: "infra_error" }>` — the registry row's subject.
+<!-- spec-lint: ignore — helper module created by this task; not yet tracked -->
+- Produces: in `lib/admin/lookupStagedRow.ts`: `export async function lookupStagedRow(stagedId: string): Promise<{ kind: "found"; row: { stagedId: string; driveFileId: string | null; parseResult: unknown; sourceAnchors: Record<string, SourceAnchor>; stagedModifiedTime: string | null } } | { kind: "not_found" } | { kind: "infra_error" }>` — the registry row's and behavioral block's subject.
 
 Route flow is spec §2.1 steps 1–6 verbatim: `requireAdmin()` first line; UUID regex pre-check → `notFound()`; `lookupStagedRow` (session-bound client, select `staged_id, drive_file_id, parse_result, source_anchors, staged_modified_time` from `pending_syncs`, `maybeSingle()`, try/catch → `infra_error`); `asParseResult` in try/catch → decode surface; adapter call with `checkedAt: (await nowDate()).toISOString()` (`lib/time/now`); render banner + `<CrewShell data={...} viewer={{ kind: "admin_preview", crewMemberId: selectedId }} showId="staged-preview" rawSection={s} staticPreview />`. `export const dynamic = "force-dynamic"`. Failure surfaces + testids per spec §2.7 (`staged-preview-infra-error`, `staged-preview-decode-error`, `staged-preview-empty-roster`); copy per §2.7 with the `not-subject` comment precedent. `error.tsx`: client component, same plain copy, testid `staged-preview-render-error`, "Back to setup" link.
 
-- [ ] **Step 1: Write the failing test** — direct page-function invocation with `lookupStagedRow` module-mocked (the `crewShellUnmatchedViewer.test.tsx` await-the-component pattern) + `requireAdmin` mocked resolved:
+- [ ] **Step 1: Write the failing test** — direct page-function invocation with the `lib/admin/lookupStagedRow` MODULE mocked, `requireAdmin` mocked resolved, and `@/app/show/[slug]/[shareToken]/_CrewShell` module-mocked to a props-capturing marker (`<div data-testid="crew-shell" />`; the route test proves WIRING and guards — an async server `CrewShell` nested in the page's JSX cannot be resolved by a jsdom render, and its internals are Task 3's subject). Cases:
   1. non-UUID param → `notFound()` thrown (assert via `next/navigation` mock);
   2. `not_found` → `notFound()`; `infra_error` → testid `staged-preview-infra-error`;
   3. container-garbage `parse_result` (`crewMembers: "garbage"`) → `staged-preview-decode-error`;
-  4. nested arms (a)(b)(c) of AC-4 (crew `role_flags: null`, `null` crew element, room `name: null`) → preview renders (`crew-shell` testid present), never an error surface;
+  4. nested arms (a)(b)(c) of AC-4 (crew `role_flags: null`, `null` crew element, room `name: null`) → preview renders (`crew-shell` marker present), never an error surface;
   5. empty roster → `staged-preview-empty-roster`;
-  6. happy path threads `?as=` → identity line names roster entry 1; unknown `?as=` → entry 0;
+  6. happy path threads `?as=` → identity line names roster entry 1 AND the captured `CrewShell` props carry `viewer: { kind: "admin_preview", crewMemberId: <entry-1 id> }`, `showId: "staged-preview"`, `staticPreview: true`, `rawSection` from `?s=`; unknown `?as=` → entry 0;
   7. `error.tsx` component renders its copy + testid (direct render — the ROUTING proof is Task 8's e2e arm);
-  8. no raw code string (grep rendered output for `/[A-Z]{3,}_[A-Z_]+/` → no match) on every failure surface.
+  8. no raw code string (grep rendered output for `/[A-Z]{3,}_[A-Z_]+/` → no match) on every failure surface;
+  9. the route module exports `metadata` with `title === "Crew preview · Admin · FXAV"` and `dynamic === "force-dynamic"` (spec §2.1);
+  10. string-presence mutants for the failure copy, run once and recorded: copy emptied; copy with appended suffix; copy present only in a `title` attribute; each failure kind varied in turn (infra vs decode vs empty-roster testids stay distinct).
 - [ ] **Step 2: Run to verify red** — `pnpm vitest run tests/admin/stagedPreviewRoute.test.tsx` — Expected: FAIL, route module absent.
 <!-- task: red=`pnpm vitest run tests/admin/stagedPreviewRoute.test.tsx` red-state=authored red-target=`app/admin/wizard/preview/[stagedId]/page.tsx` why=`route module and lookupStagedRow helper absent` ac=AC-4 -->
-- [ ] **Step 3: Implement page + error.tsx.**
-- [ ] **Step 4: Add the registry row** in `tests/admin/_metaInfraContract.test.ts` for `lookupStagedRow` (grep-visibility + infra_error-on-throwing-client, the file's existing row shape); run `pnpm vitest run tests/admin/_metaInfraContract.test.ts` — Expected: PASS with the new row (red first if the harness fails on an unregistered helper; if the meta only checks registered rows, the row's own two assertions are the red: add the row BEFORE Step 3's helper lands to observe it red, then green after — order Steps 4-before-3 in execution if so; the executor picks the observable-red ordering and records it).
+<!-- spec-lint: ignore — helper module created by this task; not yet tracked -->
+- [ ] **Step 3: Implement `lib/admin/lookupStagedRow.ts`, page, and error.tsx** (page exports `metadata` per case 9).
+- [ ] **Step 4: Add the registry row AND the behavioral block** in `tests/admin/_metaInfraContract.test.ts`: the `infraRegistry` row (`helper`/`path`/`contract` shape, near line 170) plus a bespoke `describe("lookupStagedRow infra contract")` with the two throwing-client arms (sync `.from()` throw; builder mid-await rejection) both yielding `{ kind: "infra_error" }` — the file's existing bespoke-block pattern. Observable red: add row + block BEFORE Step 3's helper exists (grep-visibility fails) — the executor runs it red, then green after Step 3, and records both.
 - [ ] **Step 5: Run to verify green** — both test files.
 - [ ] **Step 6: Typecheck + commit** — `git commit -m "feat(admin): staged crew preview route with segment error boundary"`.
 
@@ -183,9 +216,9 @@ Route flow is spec §2.1 steps 1–6 verbatim: `requireAdmin()` first line; UUID
 - Test: `tests/components/admin/wizard/step3PreviewLink.test.tsx` (new; build the modal via the shared harness fixture `tests/components/admin/wizard/_step3ReviewFixture.ts`, the pattern the sibling suites in that directory use)
 
 **Interfaces:**
-- Consumes: the modal's existing `stagedId` (already in its props/resolution surface — `Step3ReviewModal.tsx:80`).
+- Consumes: the ORDINARY row's optional staged identity `data.row.stagedId` (verified: `Step3ReviewModal.tsx:80` is `Step3ReviewResolution.stagedId`, the re-apply branch only — NOT the ordinary-row source; the ordinary source is the row object, where `stagedId` is optional). Guard condition per prop: `stagedId` absent → the link is NOT rendered (never a broken href).
 
-- [ ] **Step 1: Write the failing test** — modal rendered via the `_step3ReviewFixture.ts` harness: footer contains an anchor named "Open crew preview" with `href` = `/admin/wizard/preview/<stagedId>` (derive from the harness's stagedId fixture), `target="_blank"`, `rel="noopener noreferrer"`, class list includes `min-h-tap-min`; present regardless of warning state (render one warned fixture).
+- [ ] **Step 1: Write the failing test** — modal rendered via the `_step3ReviewFixture.ts` harness EXTENDED with an explicit `stagedId` on the row fixture (the shared fixture supplies none today — extending it is part of this step): footer contains an anchor named "Open crew preview" with `href` = `/admin/wizard/preview/<stagedId>` (derived from the fixture value), `target="_blank"`, `rel="noopener noreferrer"`, class list includes `min-h-tap-min`; present regardless of warning state (render one warned fixture); a row WITHOUT `stagedId` renders no such anchor. String-presence mutants recorded: label emptied; label with suffix; label present only as `aria-label` on a non-anchor; `stagedId` varied → href follows.
 - [ ] **Step 2: Run to verify red** — `pnpm vitest run <modal suite file>` — Expected: the new cases FAIL (link absent).
 <!-- task: red=`pnpm vitest run tests/components/admin/wizard` red-state=authored red-target=`components/admin/wizard/Step3ReviewModal.tsx:520` why=`the footer slot renders no preview link` ac=AC-5 -->
 - [ ] **Step 3: Implement** — `text-accent-on-bg` link recipe, leading footer slot (spec §2.8).
@@ -210,7 +243,7 @@ Spec Transition Inventory (paraphrase of the spec's own section, which is normat
 **Files:**
 <!-- spec-lint: ignore — file created by this task; not yet tracked -->
 - Create: `tests/e2e/staged-preview.spec.ts`
-- Modify: `tests/ci/_metaE2eWorkflowCoverage.test.ts` (one `UNSEEN` allowlist row)
+- Modify: `tests/ci/_metaE2eWorkflowCoverage.test.ts` (one `UNSEEN` allowlist row) AND `playwright.config.ts` (add `staged-preview` to the desktop-chromium project's basename alternation at `playwright.config.ts:96-97` — the projects use explicit basename allowlists, so an unlisted spec runs in ZERO projects and the local command would report "No tests found")
 
 Disposition (spec §7): registered `UNSEEN` — app-dependent (dev server + seeded DB); wiring into a workflow belongs to the batch process owned by `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` (BACKLOG.md — "read the current population off the allowlist"), not to this arc. The allowlist row is what keeps it visible rather than dark.
 
@@ -223,7 +256,7 @@ Disposition (spec §7): registered `UNSEEN` — app-dependent (dev server + seed
 - [ ] **Step 2: Verify red** — the spec fails against the pre-Task-5 tree; since Tasks 1–6 land first, observable red = run with the route's error.tsx temporarily renamed (mutant) OR run the allowlist meta first: `pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` — Expected: FAIL naming the unregistered spec file (fail-by-default walk). That is the live red.
 <!-- task: red=`pnpm vitest run tests/ci/_metaE2eWorkflowCoverage.test.ts` red-state=authored red-target=`tests/ci/_metaE2eWorkflowCoverage.test.ts:118` why=`disk-walked coverage meta fails by default on the new unlisted e2e spec until its UNSEEN row is added` ac=AC-6 -->
 - [ ] **Step 3: Add the `UNSEEN` row**; run the meta green.
-- [ ] **Step 4: Run the e2e locally** — `pnpm heavy pnpm exec playwright test tests/e2e/staged-preview.spec.ts` (heavy slot; dev-server boot + readiness via `staged-preview-banner` visibility). Expected: PASS; record the run output in the commit message.
+- [ ] **Step 4: Wire the Playwright project + run locally** — add the basename to the desktop-chromium alternation, then `pnpm heavy pnpm exec playwright test tests/e2e/staged-preview.spec.ts --project=desktop-chromium` (heavy slot; readiness via `staged-preview-banner` visibility). Expected: the spec is FOUND and PASSES; a "No tests found" result is a wiring failure, not a pass. Record the run output (spec count + pass line) in the commit message.
 - [ ] **Step 5: Commit** — `git commit -m "test(admin): staged-preview e2e with boundary arm and coverage row"`.
 
 <!-- tasks: end -->
