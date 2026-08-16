@@ -620,6 +620,11 @@ const FAMILIES = [
     dir: "tests/parser",
     stem: "mutationHarness.shard",
     glob: /^mutationHarness\.shard.*\.test\.ts$/,
+    // EVERY place the index legitimately appears in a body. A normalizer that
+    // misses one rejects the live family: parser shards 0 and 1 are identical
+    // except for the filename, `const SHARD`, AND `runShard(N)`, and omitting
+    // the third makes this guard fail on correct files.
+    indexSites: (i: number) => [`const SHARD = ${i};`, `runShard(${i})`],
   },
   {
     job: "source-shards",
@@ -627,6 +632,7 @@ const FAMILIES = [
     dir: "tests/mutation",
     stem: "guardSurfaces.shard",
     glob: /^guardSurfaces\.shard.*\.test\.ts$/,
+    indexSites: (i: number) => [`const SOURCE_SHARD = ${i};`],
   },
 ] as const;
 const GATES = [
@@ -717,8 +723,14 @@ describe("mutation-harness matrices are pinned to their constants", () => {
       // Byte equality after normalising the index everywhere it legitimately
       // appears. A divergent body -- a different filter, a skipped call -- is
       // what this catches, and nothing else in the suite would.
-      const normalise = (src: string, i: number) =>
-        src.split(`${f.stem}${i}.test.ts`).join("<FILE>").split(`= ${i};`).join("= <N>;");
+      const normalise = (src: string, i: number) => {
+        let out = src.split(`${f.stem}${i}.test.ts`).join("<FILE>");
+        for (const site of f.indexSites(i)) {
+          const canonical = site.split(String(i)).join("<N>");
+          out = out.split(site).join(canonical);
+        }
+        return out;
+      };
       const base = normalise(readFileSync(join(ROOT, shardFile(f, 0)), "utf8"), 0);
       for (let i = 1; i < f.count; i++) {
         expect(
@@ -756,7 +768,35 @@ describe("mutation-harness matrices are pinned to their constants", () => {
 
   it("a red shard does not cancel its siblings, and budget gates notify (AC-6c)", () => {
     for (const f of FAMILIES) expect(wf.jobs[f.job]?.strategy?.["fail-fast"]).toBe(false);
-    expect(wf.jobs["notify"]?.needs ?? []).toContain("budget");
+    expect(wf.jobs["notify"]?.needs ?? []).toEqual(
+      expect.arrayContaining([...FAMILIES.map((f) => f.job), ...GATES.map((g) => g.job), "budget"]),
+    );
+  });
+
+  it("notify references no job that no longer exists (AC-6)", () => {
+    // The rewrite DELETES the `mutation-harness` job, and the notify steps
+    // branch on `needs.mutation-harness.result` (.github/workflows/
+    // mutation-harness.yml:94 and :133). A dangling reference does not error --
+    // it evaluates to empty, so the failure branch never fires and the success
+    // branch may auto-close a standing issue on a red run. That is the tracking
+    // issue going silent, which is the one thing spec §3.5 exists to prevent.
+    const yaml = readFileSync(join(ROOT, ".github/workflows/mutation-harness.yml"), "utf8");
+    expect(yaml).not.toContain("needs.mutation-harness.");
+    for (const ref of yaml.match(/needs\.([A-Za-z0-9_-]+)\./g) ?? []) {
+      const job = ref.slice("needs.".length, -1);
+      expect(Object.keys(wf.jobs), `notify references a job that does not exist: ${job}`).toContain(
+        job,
+      );
+    }
+  });
+
+  it("the tracking issue can name which family failed (AC-6)", () => {
+    // A per-family result must reach the issue body, or a red matrix files an
+    // issue that says only "something failed" across fourteen legs.
+    const notifySteps = JSON.stringify(wf.jobs["notify"]?.steps ?? []);
+    for (const job of [...FAMILIES.map((f) => f.job), ...GATES.map((g) => g.job), "budget"]) {
+      expect(notifySteps, `the issue body never names ${job}`).toContain(job);
+    }
   });
 });
 ```
@@ -818,6 +858,17 @@ Apply each to the workflow or a shard file, run the meta-test, revert, and recor
 | d | `source-gates` points at a shard file | the gates-leg case |
 | e | a shard leg's run line gains a SECOND test target | the exact-target and union cases |
 | f | the shard-2 file's body changed to filter shard 1 | the template-equality and registration cases |
+| g | an index site removed from `indexSites` (drop `runShard(N)`) | the template-equality case, on the LIVE parser family |
+
+Mutant (g) is in the table because an earlier draft of this normalizer omitted `runShard(N)` and therefore rejected the live parser shards, which are correct. A guard that reds on correct input is not a stricter guard; it is a broken one, and the mutant is what tells the two apart.
+
+**Probed at plan time, against the live tree.** The corrected normalizer was run over all eight existing `tests/parser/mutationHarness.shard*.test.ts` files, normalising the filename, `const SHARD = N;` and `runShard(N)` per family:
+
+```
+parser family template-equal under the corrected normalizer: True
+```
+
+The earlier draft's normalizer, run the same way, reported `equal false` at `runShard(0)` vs `runShard(1)`. The source family has only two index sites and no `runShard`, which is why it did not surface the gap.
 
 Mutant (e) is the one a first-match extraction would miss, and (f) is the one a filename-only scan would miss; both are in the suite specifically because an earlier draft of this guard was fail-open on them.
 
@@ -840,6 +891,7 @@ AC-6c and AC-7 are behavioural claims about a script, so the script gets a test 
 
 **Interfaces:**
 - Produces: `export function checkBudget(records: {leg: string, seconds: number}[], expectedLegs: string[], budgetSeconds: number): {ok: boolean, failures: string[], warnings: string[]}` — an importable function, plus a thin CLI wrapper. Importable because a terminal CLI script cannot be tested or enrolled.
+- Consumes at RUNTIME, from the workflow's arguments rather than from constants of its own: `--budget-seconds`, `--parser-shards`, `--source-shards`, `--dir`. The script derives `expectedLegs` from the two counts. Step 5 pins those arguments to the TypeScript constants in the integrity meta-test, so the script cannot become a second copy of either number.
 
 <!-- task: red=`pnpm vitest run tests/ci/checkShardBudget.test.ts` red-state=authored red-target=`.github/scripts/check-shard-budget.mjs` why=`the script does not exist, so the suite's import fails to resolve` ac=AC-6c,AC-7 -->
 
@@ -909,14 +961,16 @@ Expected: FAIL — cannot resolve **.github/scripts/check-shard-budget.mjs**, ve
 
 - [ ] **Step 3: Write the script**
 
-`checkBudget` exported for the suite; a `main` guarded by an `import.meta.url` check reads the artifact directory, builds the records, calls it, prints a **::warning::** annotation per warning, and exits non-zero when `ok` is false. Completeness is checked **before** any maximum is taken: an absent or duplicated leg is a failure naming the leg, never a smaller maximum. A record that does not parse as a finite number is a failure, not a zero.
+`checkBudget` exported for the suite; a `main` guarded by an `import.meta.url` check parses `--dir`, `--budget-seconds`, `--parser-shards` and `--source-shards`, derives the expected leg names from the two counts (`parser-shards-<i>`, `source-shards-<i>`, plus `parser-gates` and `source-gates`), reads the artifact directory, builds the records, calls `checkBudget`, prints a **::warning::** annotation per warning, and exits non-zero when `ok` is false.
+
+Completeness is checked **before** any maximum is taken: an absent or duplicated leg is a failure naming the leg, never a smaller maximum. A record that does not parse as a finite number is a failure, not a zero. **The script declares no default for any of the four arguments** — a missing one is a usage error and a non-zero exit, because a default is how it would silently become a second copy of a constant that lives elsewhere.
 
 - [ ] **Step 4: Run it to verify it passes**
 
 Run: `pnpm vitest run tests/ci/checkShardBudget.test.ts`
 Expected: PASS, 8 tests.
 
-- [ ] **Step 5: Wire the budget job**
+- [ ] **Step 5: Wire the budget job, passing the constants rather than restating them**
 
 ```yaml
   budget:
@@ -928,10 +982,38 @@ Expected: PASS, 8 tests.
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { pattern: elapsed-*, path: elapsed }
-      - run: node .github/scripts/check-shard-budget.mjs elapsed
+      - run: >
+          node .github/scripts/check-shard-budget.mjs
+          --dir elapsed
+          --budget-seconds 3600
+          --parser-shards 8
+          --source-shards 4
 ```
 
+**Why arguments and not constants baked into the script.** The script is `.mjs` under `.github/scripts/` and the constants are TypeScript in the test tree; it cannot import them. Left to invent its own numbers it becomes a fourth copy of the shard count and a second copy of the budget, free to drift the moment either changes — and every one of Task 5's tests would still pass, because they supply their own fixtures. So the workflow passes them, and **the integrity meta-test pins the workflow's arguments to the TypeScript constants**, the same mechanism §3.4.1 uses for the matrices. Add to **tests/mutation/_metaSourceShardIntegrity.test.ts**:
+
+```ts
+  it("the budget job is invoked with the canonical constants (AC-7)", () => {
+    const run = runsOf("budget").find((r) => r.includes("check-shard-budget")) ?? "";
+    expect(run, "the budget job runs no budget script").not.toBe("");
+    expect(run).toContain(`--budget-seconds ${SHARD_BUDGET_SECONDS}`);
+    expect(run).toContain(`--parser-shards ${SHARD_COUNT}`);
+    expect(run).toContain(`--source-shards ${SOURCE_SHARD_COUNT}`);
+  });
+```
+
+with `SHARD_BUDGET_SECONDS` added to the import from **tests/mutation/source/shardPartition.ts**. The script derives its expected leg names from the two counts, so the leg set has one origin too.
+
 `notify` takes `needs: [parser-shards, parser-gates, source-shards, source-gates, budget]`. Without `budget` there, a budget-only failure files no tracking issue — the whole point of spec §3.5 — and worse, `notify`'s green branch could auto-close the standing issue (`.github/workflows/mutation-harness.yml:132-147`) on a run whose budget check failed.
+
+**Rewrite the notify CONDITIONS in the same step, not only its `needs`.** Both branches currently test a job this rewrite deletes:
+
+```
+.github/workflows/mutation-harness.yml:94   needs.mutation-harness.result == 'failure'
+.github/workflows/mutation-harness.yml:133  needs.mutation-harness.result == 'success'
+```
+
+A dangling `needs.<job>` does not error — it evaluates to empty. So the failure branch would never fire and the success branch could auto-close a standing issue on a red run: the tracking issue goes silent exactly when it is needed, and every structural assertion about `needs` still passes. Replace both with an expression over the five real jobs, e.g. failure when `contains(needs.*.result, 'failure')` and success when it does not, and extend the issue body to name each family's result plus the budget outcome so a triager knows which of fourteen legs to look at. The two integrity cases added above are what hold this: one rejects any `needs.<job>` naming a job the workflow does not define, the other requires every job name to appear in the notify steps.
 
 - [ ] **Step 6: Probe the CLI end-to-end against a constructed input**
 
@@ -1015,7 +1097,7 @@ Required **before** the whole-diff review dispatch: this arc ships a guard surfa
 **Files:**
 - Modify: `tests/mutation/source/registry.ts`, **tests/mutation/source/expectedLedgerKinds.ts**
 
-<!-- task: red=`pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts` why=`a registry row without its EXPECTED_LEDGER_KINDS entry fails the completeness assertion, which is the fail-by-default property that makes a new surface declare its own counts` ac=AC-5 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts` why=`a registry row without its EXPECTED_LEDGER_KINDS entry fails the completeness assertion, which is the fail-by-default property that makes a new surface declare its own counts` ac=AC-5 -->
 
 - [ ] **Step 1: Add the registry row**
 
@@ -1038,8 +1120,10 @@ Required **before** the whole-diff review dispatch: this arc ships a guard surfa
 
 - [ ] **Step 2: Run the gates file to observe the RED**
 
-Run: `pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts`
+Run: `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts`
 Expected: FAIL — `EXPECTED_LEDGER_KINDS` has no `sourceShardPartition` key while `GUARD_SURFACES` now does. The fail-by-default property working.
+
+> **The env var and `--project mutation` are both load-bearing.** Task 2 Step 5 puts the gates file in `NIGHTLY_ONLY_EXCLUDES`, so a bare `pnpm vitest run <path>` reports `No test files found` and exits non-zero for a reason that has nothing to do with this task — a red that would never turn green no matter what the task did. Every command in this plan that names a nightly file carries the opt-in.
 
 - [ ] **Step 3: Declare the surface's expected ledger kinds**
 
@@ -1077,14 +1161,28 @@ git commit -m "test(mutation): enrol the shard partition as a source-mutation su
 
 - [ ] **Step 1: Capture the merge-base failure signature set (AC-9)**
 
-Before triaging any red on this branch, record the merge-base's failure signatures — from spec §2.7, or a fresh `gh workflow run mutation-harness.yml --ref <merge-base>`. Paste them into the closeout doc:
+Before triaging any red on this branch, record the merge-base's failure signatures **row by row**. An aggregate will not do: "11 drifted rows" and a line range are satisfied by two entirely different eleven-row sets, so a count cannot establish set equality. Either transcribe the full set from run `31933821808` (whose log carries every row), or run `gh workflow run mutation-harness.yml --ref <merge-base>` and transcribe that.
+
+The merge-base set as of `e3fc2e8d3`, from run `31933821808`, in full:
 
 ```
-interactionTimingScan / unaccepted-survivor / logical-connector:330:39:&&>||
-parser shard4 / DRIFTED / blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L35..L45 (11 rows)
+interactionTimingScan | unaccepted-survivor | logical-connector:330:39:&&>||
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L35:Xgap0|wrong|401f04fc41a0246f
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L36:Xgap1|wrong|610fa6e15ac305a8
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L37:Xgap2|wrong|6105380d595eb4de
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L38:Xgap3|wrong|efadbb9936687297
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L39:Xgap4|wrong|c8a9337291b07365
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L40:Xgap5|wrong|10097e68698678ca
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L41:Xgap6|wrong|4cf6fd6c0e5587a5
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L42:Xgap7|wrong|72bae9df9aab27f4
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L43:Xgap8|wrong|ce41539565fccaf5
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L44:Xgap9|wrong|a95dc5defc287693
+parser-shard4 | DRIFTED | blank-row:inject:2026-04-asset-mgmt-cfo-coo-waldorf:B4:L45:Xgap10|wrong|378444153e9f3fe3
 ```
 
-The criterion is set **equality**, not subset. A signature on the branch and not the merge-base is a regression of this diff. A signature on the merge-base and not the branch is **a disappearance to explain, not a win** — most likely something stopped executing. Shard index is never part of a signature.
+Twelve signatures. Paste this table into the closeout and compare the branch's set against it **element by element**.
+
+The criterion is set **equality**, not subset. A signature on the branch and not here is a regression of this diff. A signature here and not on the branch is **a disappearance to explain, not a win** — most likely something stopped executing. The shard index is not part of a signature, so a failure legitimately moving between shards is not a difference; `parser-shard4` above records where it was observed, not part of the key.
 
 - [ ] **Step 2: Assert execution completeness (AC-9b)**
 
