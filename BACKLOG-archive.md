@@ -1,3 +1,35 @@
+## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader — CLOSED 2026-08-15 (`feat/admin-ui-surfaces`, RESOLVED — WON'T BUILD)
+
+**Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+
+The durable sink is built and written (`lib/log/persist.ts:16` → `app_events`), but **its only reader is developer-gated.** Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, `app/admin/dev/telemetry/page.tsx`, which calls `requireDeveloperIdentity()` at `:24`. The `lib/observe/query/*` modules are non-logging copies feeding the `pnpm observe` CLI, not a surface. **No admin-dashboard surface reads `app_events` at all** — the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row.
+
+Consequence: Doug must leave the dashboard to see operator telemetry and, as a non-developer, likely cannot reach the page at all. Everything the other two children emit lands somewhere he cannot look.
+
+**Why M and DESIGN-GATED, not S:** this is a new admin surface, not a query change. What belongs on a dashboard banner — which severities, what recency window, what dismissal behavior, whether it is a banner at all rather than a panel or a bell-badge source — is a product decision, and it is Opus/UI work under the invariant-8 dual gate. Do not implement it as "render the telemetry table on the dashboard."
+
+**Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
+---
+
+**Resolution 2026-08-15 — WON'T BUILD.** Ratified by the user after they challenged the entry's own premise ("sync health is already surfaced elsewhere in UI"). The challenge was correct, and the audit that settled it is spec §3.2 of `docs/superpowers/specs/step3-onboarding/2026-08-15-step3-crew-preview-and-opslog-disposition-design.md`.
+
+**The principle it now stands on (§3.1, ratified):** a dev-only surface's content graduates to an admin surface only when the AUDIENCE of that surface can act on it. `app_events` is the forensic run log; its Doug-actionable content must reach Doug through the alerting pipeline, and the log itself stays dev-only.
+
+**Audit summary (§3.2, verified on this branch).** Every Doug-actionable event class already reaches an admin surface:
+
+- **Bell alerts** — `admin_alerts` via `upsertAdminAlert`, a 37-code union (`lib/adminAlerts/upsertAdminAlert.ts:3-40`) covering the sync/content faults Doug acts on (`DRIVE_FETCH_FAILED`, `SHEET_UNAVAILABLE`, `PARSE_ERROR_LAST_GOOD`, `SYNC_STALLED`, `ONBOARDING_SHEET_UNREADABLE`, `OPENING_REEL_*`, `RESYNC_*`, the email-delivery codes).
+- **Stall escalation** — persistent cron failure fires `SYNC_STALLED` through `detectAndResolveStall`, invoked by `runNotify` (`lib/notify/runNotify.ts:22`), so "the nightly sync keeps failing" reaches the bell with no `app_events` reader in the path.
+- **Per-show status** — the dashboard `ShowsTable` sync column and the per-show `StatusStrip` carry per-show sync state; the nav `AppHealthIndicator` escalates positive → notice → degraded.
+
+The residue in `app_events` is dev-actionable or already paired with an admin-visible consequence at the point of impact: run-level `CRON_RUN_SUMMARY` warns/errors (transient by design; persistence escalates via `SYNC_STALLED`), `*_EMIT_FAILED` / `*_ALERT_WRITE_FAILED` (telemetry-about-telemetry — they cannot alert through the channel whose failure they record), `*_LOOKUP_FAILED` / `*_INFRA_FAULT` / `*_READ_RETURNED_ERROR` (the Doug-visible consequence is the degraded surface, which invariant 9 already requires the surface itself to render), and wizard/stage action failures (surfaced inline in the acting admin's UI at the moment of action).
+
+**Two prior retirements point the same way.** The dashboard banner/panel affordances this entry asked to re-create were deliberately removed TWICE: the global `AlertBanner` in favour of `NotifBell`, and `AppHealthPanel` in favour of the nav `AppHealthIndicator`. Both removals are recorded in comment blocks at `app/admin/page.tsx:104-107` and `app/admin/page.tsx:118-123`.
+
+**Re-open trigger (conjunctive).** A Doug-actionable event class is found landing in `app_events` with NO `admin_alerts` pairing AND no point-of-impact surface. Then design the surface for THAT class, not a generic log reader.
+
+**Filed on the way, not fixed here:** `BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH` (class-sweep disposition exception (a) — it needs its own decision on desired behavior).
+
 ## BL-CHANGES-FEED-MODAL-BATCH-FLAKE — admin-changes-feed-layout's review modal intermittently never mounts inside a batch run — CLOSED 2026-08-15 (fix/changes-feed-batch-flake, SHIPPED)
 
 **Severity:** MEDIUM (blocks wiring the spec into CI; no known product impact) · **Class:** e2e flake · **Effort:** M · **Filed:** 2026-08-09
