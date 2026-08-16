@@ -650,8 +650,47 @@ function moduleFacts(path: string): ModuleFacts | null {
 /** Strip parentheses and `as` casts, which otherwise hide the real callee. */
 function unwrap(node: ts.Expression): ts.Expression {
   let n: ts.Expression = node;
-  while (ts.isParenthesizedExpression(n) || ts.isAsExpression(n)) n = n.expression;
+  while (
+    ts.isParenthesizedExpression(n) ||
+    ts.isAsExpression(n) ||
+    ts.isNonNullExpression(n) ||
+    ts.isSatisfiesExpression(n)
+  )
+    n = n.expression;
   return n;
+}
+
+/**
+ * `process.env`, reached through the BINDER rather than matched as text.
+ *
+ * The reach test used to be `node.getText().startsWith("process.env")`, which
+ * is wrong in both directions and silent in both: a parameter or local named
+ * `process` read as the global, and the global read through parentheses, a
+ * cast, a non-null assertion, an optional chain or a string-literal computed
+ * key read as nothing at all (whole-diff R3 #1). Every one returned
+ * `detail: ""`, so neither direction announced itself.
+ *
+ * A NON-literal key is not resolvable and is not decided here —
+ * `unclassifiableWithin` declines it.
+ */
+function readsProcessEnv(n: ts.Node, facts: ModuleFacts): boolean {
+  let base: ts.Expression;
+  if (ts.isPropertyAccessExpression(n) && n.name.text === "env") base = n.expression;
+  else if (
+    ts.isElementAccessExpression(n) &&
+    ts.isStringLiteralLike(n.argumentExpression) &&
+    n.argumentExpression.text === "env"
+  )
+    base = n.expression;
+  else return false;
+  const id = unwrap(base);
+  return (
+    ts.isIdentifier(id) &&
+    id.text === "process" &&
+    // Unbound is the global: anything a scope declares is a different thing
+    // that merely shares the name.
+    resolveBinding(facts, "process", id).kind === "unbound"
+  );
 }
 
 /** Does this specifier name a declared module provenance? */
@@ -678,10 +717,7 @@ function extentIsProvenance(node: ts.Node, facts: ModuleFacts): boolean {
   const walk = (n: ts.Node): void => {
     if (hit) return;
     // process.env.X, and `const { env } = process` binding used as env.X
-    if (ts.isPropertyAccessExpression(n)) {
-      const text = n.getText(facts.sf);
-      if (text.startsWith("process.env")) hit = true;
-    }
+    if (readsProcessEnv(n, facts)) hit = true;
     // A dynamic import OF a provenance module is provenance wherever it sits.
     // The binding clause only registers `const x = await import(...)`, so an
     // ASSIGNMENT (`m = await import("node:child_process")`) reached the write
@@ -703,7 +739,16 @@ function extentIsProvenance(node: ts.Node, facts: ModuleFacts): boolean {
     // object of a member access is handled by the `process.env` prefix test
     // above, and treating every bare mention as provenance would swallow the
     // computed-access case that must report as UNCLASSIFIABLE instead.
-    if (ts.isIdentifier(n) && n.text === "process" && ts.isVariableDeclaration(n.parent)) {
+    if (
+      ts.isIdentifier(n) &&
+      n.text === "process" &&
+      ts.isVariableDeclaration(n.parent) &&
+      // The INITIALIZER, never the declared name: `const process = { env: {} }`
+      // put the identifier in a declaration-name position, and reading that as
+      // a reference made a suite's own local shadow classify as the global.
+      n.parent.initializer === n &&
+      resolveBinding(facts, "process", n).kind === "unbound"
+    ) {
       hit = true;
     }
     // An identifier is the import only when NOTHING between it and module scope
@@ -870,7 +915,11 @@ function unclassifiableWithin(node: ts.Node, facts: ModuleFacts): string[] {
       if (
         ts.isIdentifier(obj) &&
         obj.text === "process" &&
-        !ts.isStringLiteral(n.argumentExpression)
+        // The GLOBAL only: a local named `process` indexed by a variable is an
+        // ordinary object read, and declining it would be a demote invented
+        // out of a shared name.
+        resolveBinding(facts, "process", obj).kind === "unbound" &&
+        !ts.isStringLiteralLike(n.argumentExpression)
       ) {
         out.push("computed member access on process");
       }

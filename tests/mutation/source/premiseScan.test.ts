@@ -155,6 +155,59 @@ describe("the foils — each differs from a case above in exactly one thing", ()
   });
 });
 
+describe("`process` is a BINDING, not the six characters before `.env` (whole-diff R3 #1)", () => {
+  // The reach test read `node.getText().startsWith("process.env")`, so it
+  // answered on source text in BOTH directions and said nothing either way:
+  // every case here returned `detail: ""`, which is the silence the consequence
+  // bound forbids. Resolution is structural now, through the same binder every
+  // other reference uses.
+
+  it("a PARAMETER named process is not the global", () => {
+    expect(
+      verdict(`function read(process: { env: Record<string, string> }) { return process.env.ROOT; }
+        it("x", () => { read({ env: {} }); });`),
+    ).toBe("environment-free");
+  });
+
+  it("a LOCAL named process is not the global", () => {
+    expect(
+      verdict(`it("x", () => { const process = { env: { ROOT: "." } }; const r = process.env.ROOT; });`),
+    ).toBe("environment-free");
+  });
+
+  it("the global still reads through parentheses", () => {
+    expect(verdict(`it("x", () => { const r = (process).env.ROOT; });`)).toBe(
+      "environment-touching",
+    );
+  });
+
+  it("the global still reads through a non-null assertion", () => {
+    expect(verdict(`it("x", () => { const r = process!.env.ROOT; });`)).toBe(
+      "environment-touching",
+    );
+  });
+
+  it("the global still reads through an `as` cast", () => {
+    expect(
+      verdict(`it("x", () => { const r = (process as { env: Record<string, string> }).env.ROOT; });`),
+    ).toBe("environment-touching");
+  });
+
+  it("the global still reads through an optional chain", () => {
+    expect(verdict(`it("x", () => { const r = process?.env?.ROOT; });`)).toBe(
+      "environment-touching",
+    );
+  });
+
+  it("a STRING-LITERAL computed access is the same read, spelled differently", () => {
+    // Distinct from the unclassifiable case below: a literal key IS resolvable,
+    // so declining here would be a demote the recognizer does not need.
+    expect(verdict(`it("x", () => { const r = process["env"].ROOT; });`)).toBe(
+      "environment-touching",
+    );
+  });
+});
+
 describe("unclassifiable — recognized but unresolvable, and it reds", () => {
   it("a dynamic import whose specifier is not a literal", () => {
     expect(
