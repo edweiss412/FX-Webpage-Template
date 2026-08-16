@@ -1529,3 +1529,80 @@ sourceFiles=2 (filesystem never read: paths are virtual)
 
 - A program built from a host over in-memory pairs still follows a `@/`-aliased cross-file import under `noResolve`, and lands on the declaration name node (offset 13).
 - Every path in this probe is virtual (`/virtual/root/...`) and nothing exists on disk, so the resolution demonstrably used the supplied text and never the filesystem. That is what guarantees `refPos` indexes the same bytes the sites were computed from, and what makes the unreadable-file case behave as it does today: a file the scan could not read is simply absent from the pairs.
+## P15 — the cost of `noResolve`, measured rather than conceded
+
+Round 1 refuted §2.2s original safety argument (a covered binding is a root, so nothing legitimate is lost) with the shape below. Re-probed here because §4 item 1 now carries it as an ACCEPTED cost, and an accepted cost has to be the real one.
+
+### Script — `probe/p15-outside-barrel.ts`
+
+```ts
+/** P15 — round-1 mechanism finding 2, re-probed. A COVERED constant reached
+ *  through an intermediate re-export module that is NOT in the universe:
+ *  does noResolve lose it (report) where a full program resolves it? */
+import ts from "typescript";
+import { join } from "node:path";
+
+const ROOT = "/virtual/root";
+// The universe roots: components/** + the EXPLICIT_INCLUDES file. NOT lib/barrel.ts.
+const universe = [join(ROOT, "components/Use.tsx"), join(ROOT, "lib/ui/copyFeedback.ts")];
+const sources = new Map<string, string>([
+  [join(ROOT, "lib/ui/copyFeedback.ts"), "export const COPY_FEEDBACK_RESET_MS = 1600;\n"],
+  [join(ROOT, "lib/barrel.ts"), 'export { COPY_FEEDBACK_RESET_MS } from "@/lib/ui/copyFeedback";\n'],
+  [
+    join(ROOT, "components/Use.tsx"),
+    'import { COPY_FEEDBACK_RESET_MS } from "@/lib/barrel";\nexport function A(fn: () => void) { setTimeout(fn, COPY_FEEDBACK_RESET_MS); }\n',
+  ],
+]);
+const host: ts.CompilerHost = {
+  fileExists: (f) => sources.has(f),
+  readFile: (f) => sources.get(f),
+  getSourceFile: (f, v) => {
+    const t = sources.get(f);
+    return t === undefined ? undefined : ts.createSourceFile(f, t, v, true, f.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  },
+  getDefaultLibFileName: () => "lib.d.ts",
+  writeFile: () => undefined,
+  getCurrentDirectory: () => ROOT,
+  getCanonicalFileName: (f) => f,
+  useCaseSensitiveFileNames: () => true,
+  getNewLine: () => "\n",
+};
+for (const noResolve of [true, false]) {
+  const program = ts.createProgram(universe, {
+    noEmit: true, noResolve, noLib: true, types: [], allowJs: false,
+    target: ts.ScriptTarget.Latest, jsx: ts.JsxEmit.Preserve,
+    module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+    baseUrl: ROOT, paths: { "@/*": ["./*"] },
+  }, host);
+  const checker = program.getTypeChecker();
+  const sf = program.getSourceFile(join(ROOT, "components/Use.tsx"))!;
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "setTimeout") {
+      const d = node.arguments[1];
+      if (d && ts.isIdentifier(d)) {
+        let sym = checker.getSymbolAtLocation(d);
+        if (sym && sym.flags & ts.SymbolFlags.Alias) { try { sym = checker.getAliasedSymbol(sym); } catch {} }
+        const decls = sym?.declarations ?? [];
+        console.log(
+          `noResolve=${String(noResolve).padEnd(5)} files=${program.getSourceFiles().length} decls=${decls.length} → ${decls.map((x) => x.getSourceFile().fileName.replace(ROOT + "/", "")).join(", ") || "none"} ⇒ ${decls.some((x) => x.getSourceFile().fileName.endsWith("copyFeedback.ts")) ? "RESOLVED (suppressed)" : "UNCLASSIFIED (reported)"}`,
+        );
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+}
+```
+
+### Transcript
+
+```
+noResolve=true  files=2 decls=0 → none ⇒ UNCLASSIFIED (reported)
+noResolve=false files=3 decls=1 → lib/ui/copyFeedback.ts ⇒ RESOLVED (suppressed)
+```
+
+### What it settles
+
+- The declaration being a program root is NOT sufficient: the PATH to it must be in the program too. With the intermediate barrel outside the universe, `noResolve` yields zero declarations and the site reports; the same program with `noResolve` off pulls the barrel in and resolves.
+- Today the name filter SUPPRESSES that site, so this is a new residual on an ordinary import-path refactor, not an unchanged answer — which is why §4 item 1 states it rather than the earlier draft claiming identity with current behaviour.
+- The direction is conservative (a surfaced name someone dispositions), the shape is absent from the tree (all 17 live cross-file resolutions import the declaring module directly, P2), and the fix if it ever lands is an `EXPLICIT_INCLUDES` row for the barrel — not switching module resolution back on, which P4 prices at roughly 30x.
