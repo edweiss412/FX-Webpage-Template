@@ -309,7 +309,7 @@ export function GalleryLightbox({
    * when the demote happens rather than whenever something unrelated re-renders.
    * `demotedRef` keeps its own identity-stability contract and is not read here.
    */
-  const [demotedNoticeId, setDemotedNoticeId] = useState<string | null>(null);
+  const [demotedNotice, setDemotedNotice] = useState<{ id: string; nonce: number } | null>(null);
   const demoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * The `openNonce` a close BEGAN at, or `null` if this session has not closed.
@@ -322,25 +322,14 @@ export function GalleryLightbox({
    * window where a live-session demote is dropped as an exit-window one.
    */
   const [closedAtNonce, setClosedAtNonce] = useState<number | null>(null);
-  const [lastNonce, setLastNonce] = useState(openNonce);
 
   const clearDemoteNotice = useCallback(() => {
     if (demoteTimerRef.current !== null) {
       clearTimeout(demoteTimerRef.current);
       demoteTimerRef.current = null;
     }
-    setDemotedNoticeId(null);
+    setDemotedNotice(null);
   }, []);
-
-  // Adjust-state-when-props-change, DURING RENDER rather than in an effect: DOM
-  // error events dispatch after the re-entry render commits, so an effect-timed
-  // reset would leave a window where a live-session demote is dropped. State
-  // only — the timer is cleared at every event-handler path that ends the chip's
-  // life, so there is never a live one to cancel here.
-  if (lastNonce !== openNonce) {
-    setLastNonce(openNonce);
-    setDemotedNoticeId(null);
-  }
 
   /**
    * The one close path. Chip state and its timer clear BEFORE the parent's
@@ -752,7 +741,9 @@ export function GalleryLightbox({
                   // while the slide it describes swipes out from under it.
                   className="relative flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
                 >
-                  {demotedNoticeId === item.id && !failedKeys.has(item.id) ? (
+                  {demotedNotice?.id === item.id &&
+                  demotedNotice.nonce === openNonce &&
+                  !failedKeys.has(item.id) ? (
                     /*
                       The sighted twin of the `role="log"` announcement, and
                       `aria-hidden` for exactly that reason: the region already
@@ -1015,14 +1006,14 @@ export function GalleryLightbox({
                                   if (demoteTimerRef.current !== null) {
                                     clearTimeout(demoteTimerRef.current);
                                   }
-                                  setDemotedNoticeId(item.id);
+                                  setDemotedNotice({ id: item.id, nonce: openNonce });
                                   // Last demote wins: two chips would double-signal
                                   // one event class, so the id is replaced and the
                                   // window restarts.
                                   demoteTimerRef.current = setTimeout(() => {
                                     demoteTimerRef.current = null;
-                                    setDemotedNoticeId((current) =>
-                                      current === item.id ? null : current,
+                                    setDemotedNotice((current) =>
+                                      current?.id === item.id ? null : current,
                                     );
                                   }, DEMOTE_CHIP_VISIBLE_MS);
                                 }
@@ -1085,7 +1076,7 @@ export function GalleryLightbox({
                               // unavailable" is a contradiction: the chip's
                               // premise is that a less-detailed view IS showing,
                               // and it just died with the clamped tier.
-                              if (demotedNoticeId === item.id) clearDemoteNotice();
+                              if (demotedNotice?.id === item.id) clearDemoteNotice();
                             }}
                             className="size-full select-none object-contain"
                           />

@@ -39,6 +39,7 @@
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { flushSync } from "react-dom";
 import type { ReactNode } from "react";
 
 /** The mocked AnimatePresence's controls, shared with the tests. */
@@ -1211,15 +1212,19 @@ describe("Gallery — the demote chip never survives a dialog session", () => {
     });
     premiseHolds("the exit window is open", presence.exiting);
     act(() => {
-      fireEvent.click(thumbButton(0));
-    });
-    premiseHolds("the re-entry canceled the exit", !presence.exiting);
-    premiseHolds("no chip survived into the new session", document.querySelector(CHIP) === null);
-
-    act(() => {
+      // `flushSync` is the point: it COMMITS the re-entry render without
+      // flushing passive effects, which is the exact window R4 F1 describes.
+      // Firing the error in a plain act() either commits nothing yet (measured:
+      // the exit is still in progress) or flushes effects first, and neither
+      // ordering can tell a render-time reset from an effect-timed one.
+      flushSync(() => {
+        fireEvent.click(thumbButton(0));
+      });
+      premiseHolds("the re-entry render committed", !presence.exiting);
       fireEvent.error(activeImage);
     });
 
+    premiseHolds("the re-entry canceled the exit", !presence.exiting);
     expect(
       document.querySelector(CHIP),
       "a live-session demote gets its sighted signal",

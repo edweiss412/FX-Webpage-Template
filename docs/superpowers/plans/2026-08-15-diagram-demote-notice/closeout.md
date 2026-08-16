@@ -50,6 +50,33 @@ instant unmount (spec §2.3), declared rather than defaulted. Every §2.3 row ha
 (the AC-6 full class contract), swipe-return (remaining lifetime), close (all three initiators),
 clamped-tier failure, last-wins restart, Reset coexistence.
 
+## Cross-model diff review — what it changed in the SHIPPED code
+
+R2 raised two HIGH findings against the session tests, and both were right in a way that reached the
+implementation, not just the tests:
+
+- **The exit-window case never exercised an exit-window demote.** It reused the demote helper, so the
+  second error on that slide was the CLAMPED tier failing and landed in the placeholder branch — the
+  gate under test was never asked anything, and deleting it would have left the case green. Rewritten
+  to reach the exit window UNDEMOTED with zoom intent pinned, so the error there is a genuine first
+  failure of the original, plus an assertion that its announcement really is buffered and delivered
+  (proof that the demote branch ran at all).
+- **The positive re-entry case did not pin render-time behavior.** Firing the error in a later
+  `act()` flushes passive effects first, so an effect-timed reset passes too. Firing it in the SAME
+  `act()` turned out to be unsatisfiable for any implementation — measured: the re-entry has not
+  committed at that point (`presence.exiting` is still true), so suppression there is correct. The
+  discriminating window needs a COMMITTED re-entry with passive effects still pending, which is what
+  `flushSync` around the re-open produces; the case now asserts the commit as its premise and then
+  fires.
+
+Fixing the second case surfaced a real defect in the implementation and changed it. The chip state
+was a bare id cleared by a render-phase adjustment against a `lastNonce` state value; in the same
+batch as a re-entry, that adjustment could wipe a demote set moments earlier — the live-session
+demote R4 F1 exists to protect. The notice is now STAMPED with the session it belongs to
+(`{ id, nonce }`) and rendered only while `nonce === openNonce`, so a stale notice is ignored by
+construction and no reset step exists to race. Fewer moving parts, and the render-time property is
+now structural rather than procedural.
+
 ## §12 — impeccable dual gate (invariant 8)
 
 Both halves ran on the implementation diff after the `origin/main` merge, with the canonical v3
