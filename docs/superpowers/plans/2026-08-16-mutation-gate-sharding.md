@@ -1100,9 +1100,21 @@ So the recognizer is deleted rather than widened. A step's `env:` is a YAML **ma
     // dependency, not a runner binary, so a budget job without the shared setup
     // action dies before the checker executes -- with the command and env
     // assertions above still green.
-    const uses = (wf.jobs["budget"]?.steps ?? []).map((x) => x.uses ?? "");
-    expect(uses, "the budget job never checks out").toContain("actions/checkout@v4");
-    expect(uses, "the budget job never installs project deps").toContain("./.github/actions/setup");
+    // ORDER, not just membership. `./.github/actions/setup` is a LOCAL action:
+    // it cannot run before checkout puts it on disk (.github/actions/setup/
+    // action.yml:8-10 says so), and an adjacent-step swap is an ordinary
+    // mistake that leaves a membership check green while the job dies.
+    const budgetSteps = wf.jobs["budget"]?.steps ?? [];
+    const at = (needle: string) =>
+      budgetSteps.findIndex((x) => (x.uses ?? "") === needle || x.id === needle);
+    const checkout = at("actions/checkout@v4");
+    const setup = at("./.github/actions/setup");
+    const check = at("budget-check");
+    expect(checkout, "the budget job never checks out").toBeGreaterThanOrEqual(0);
+    expect(setup, "the budget job never installs project deps").toBeGreaterThanOrEqual(0);
+    expect(check, "the budget job has no budget-check step").toBeGreaterThanOrEqual(0);
+    expect(checkout, "checkout must precede the local setup action").toBeLessThan(setup);
+    expect(setup, "setup must precede the step that runs pnpm tsx").toBeLessThan(check);
   });
 ```
 
