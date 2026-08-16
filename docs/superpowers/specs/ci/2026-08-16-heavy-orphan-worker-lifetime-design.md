@@ -434,7 +434,17 @@ classification compares two POST-classification reads and binds neither to the p
 actually classified, so a process that exited or recycled between the snapshot and the first
 identity read escaped K2 entirely. `ps -eo pid=,ppid=,etime=,lstart=,command=` makes `lstart` a
 fixed FIVE tokens at a known offset — probed over 400 live rows on this machine with zero parse
-failures — so the collector gets it for free and the pre-signal read is the only extra subprocess. Round 3 found the previous draft using `etime` and `ppid`,
+failures — so the collector gets it for free and the pre-signal read is the only extra subprocess.
+
+**`ps` is invoked with `LC_ALL=C`, and that is load-bearing rather than tidy.** `lstart` is
+`strftime`'s `%c`, which is LOCALE-DEPENDENT, so the five-token shape is a property of the C locale
+and not of `ps`. Probed on this machine: `LC_ALL=zh_CN.UTF-8` yields FOUR tokens
+(`日  8/16 13:09:23 2026`) and `LC_ALL=C` yields five (`Sun Aug 16 13:09:23 2026`). Without the
+pin, an operator's locale shifts a token between `startedAt` and `command`. The failure would be
+SAFE rather than silent — the shape check rejects the value, R5 declines the row, and clause (a)
+then fails too because `argv[0]` is no longer a node path — but "safe" here means the reaper goes
+blind on every row, which is a worse outcome than the leak it exists to fix. Both invocations pin
+the locale; the shape check stays as the guard that the pin is working. Round 3 found the previous draft using `etime` and `ppid`,
 and both are wrong:
 
 - **`etime` is monotonically increasing by definition**, so requiring it unchanged can never hold.
@@ -495,7 +505,7 @@ export type ReapConfig = {
   selfAncestry: readonly number[];
 };
 
-export type Skip = "not-a-worker" | "has-live-parent" | "too-young" | "self" | "undecidable"; // R2, R3
+export type Skip = "not-a-worker" | "has-live-parent" | "too-young" | "self" | "undecidable"; // R2, R3, R5
 
 export type Decision =
   | { pid: number; reap: true; shape: string; ageSeconds: number }

@@ -107,7 +107,7 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- The directory runs **123 cases** (28 classify + 23 collect + 61 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 123 are green. Both states observed, both edits reverted.
+- The directory runs **124 cases** (28 classify + 24 collect + 61 cli + 11 trigger). Before Tasks 3-4's edits to package.json exactly FOUR are red — Task 4's three wiring cases plus Task 3's `heavy:reap` case — and after them all 124 are green. Both states observed, both edits reverted.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 8 passed (11)`, and GREEN (`11 passed`) once package.json:56 is edited.
 - Thirteen cases execute scripts/heavy-reap.ts as a child process, and every one that passes `--kill` builds its fake table from pids of processes THE TEST SPAWNED as genuine orphans, so the reaper can only ever signal something this suite created.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
@@ -380,6 +380,7 @@ export type ReapConfig = {
   selfAncestry: readonly number[];
 };
 
+/** `undecidable` covers R2, R3 and R5. */
 export type Skip = "not-a-worker" | "has-live-parent" | "too-young" | "self" | "undecidable";
 
 export type Decision =
@@ -474,7 +475,7 @@ mkdir -p tests/heavyReap/fixtures
 # A worker line only exists while a vitest run is live, so start one and sample during it.
 pnpm vitest run tests/heavyReap/classify.test.ts >/dev/null 2>&1 &
 sleep 4
-ps -eo pid=,ppid=,etime=,lstart=,command= > /tmp/ps-full.txt
+LC_ALL=C ps -eo pid=,ppid=,etime=,lstart=,command= > /tmp/ps-full.txt
 { grep -E 'vitest/dist/workers/' /tmp/ps-full.txt | head -3; head -40 /tmp/ps-full.txt; } \
   > tests/heavyReap/fixtures/ps-sample.txt
 wait
@@ -592,6 +593,25 @@ describe("parsePsOutput", () => {
     const row = parsePsOutput(`  700  1  01:00 ${LS} /usr/bin/node /x/a b.js\n`)[0];
     expect(row).toMatchObject({ kind: "parsed", startedAt: LS, command: "/usr/bin/node /x/a b.js" });
   });
+
+  it("pins LC_ALL=C, because lstart is %c and its token count is locale-dependent", () => {
+    // The ambient locale must not reach ps: under zh_CN it renders in FOUR tokens on this machine,
+    // which would shift a token between startedAt and command.
+    process.env.LC_ALL = "zh_CN.UTF-8";
+    process.env.LANG = "zh_CN.UTF-8";
+    try {
+      const r = collect();
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      const self = r.rows.find((row) => row.kind === "parsed" && row.pid === process.pid);
+      premiseHolds("this process appears in the live read", self !== undefined);
+      expect(self).toMatchObject({ kind: "parsed" });
+      if (self?.kind === "parsed") expect(self.startedAt).not.toBeNull();
+    } finally {
+      delete process.env.LC_ALL;
+      delete process.env.LANG;
+    }
+  }, 20_000);
 
   it("R5: with no parsable lstart the command still starts at the right token", () => {
     const row = parsePsOutput("  700  1  01:00 /usr/bin/node /x/a.js\n")[0];
@@ -728,7 +748,14 @@ export function parseEtime(raw: string): number | null {
   return Number(d ?? 0) * 86_400 + Number(h ?? 0) * 3600 + Number(mm ?? 0) * 60 + Number(ss ?? 0);
 }
 
-/** `ps -o lstart=`'s shape: `Sun Aug 16 09:35:23 2026`, always five whitespace-separated tokens. */
+/**
+ * `ps -o lstart=`'s shape under the C locale: `Sun Aug 16 09:35:23 2026`, five tokens.
+ *
+ * `lstart` is strftime's `%c`, which is LOCALE-DEPENDENT, so the five-token shape belongs to the
+ * locale and not to `ps` - `LC_ALL=zh_CN.UTF-8` yields four tokens on this machine. Every `ps`
+ * here is invoked with `LC_ALL=C` for that reason; this check is the guard that the pin worked,
+ * and a row that fails it declines under R5 rather than being parsed at a shifted offset.
+ */
 const LSTART = /^[A-Z][a-z]{2} [A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}$/;
 
 export function parsePsOutput(text: string): ProcRow[] {
@@ -767,6 +794,7 @@ export function collect(psBin: string = psBinFromEnv()): CollectResult {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
       timeout: PS_TIMEOUT_MS,
+      env: { ...process.env, LC_ALL: "C", LANG: "C" },
     });
   } catch (e) {
     const err = e as { code?: string; status?: number; message?: string; signal?: string | null };
@@ -1622,6 +1650,9 @@ export function readIdentity(pid: number, psBin: string = psBinFromEnv()): Ident
     out = execFileSync(psBin, ["-o", "lstart=,command=", "-p", String(pid)], {
       encoding: "utf8",
       timeout: PS_TIMEOUT_MS,
+      // Same locale pin as the bulk read: `lstart` is `%c`, so its token count is locale-dependent
+      // and the comparison would otherwise be against a differently-formatted string.
+      env: { ...process.env, LC_ALL: "C", LANG: "C" },
     }).trim();
   } catch (e) {
     const err = e as { status?: number; code?: string; message?: string };
