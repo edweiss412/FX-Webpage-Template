@@ -43,6 +43,19 @@ Deterministic detector: `detect.mjs` over both component files returned `[]`, ex
 
 P0: none. P1: two — one FIXED in-branch (A1, the live-region hoist the repo's own class guard demanded) and one carried as an explicit `DEFERRED.md` entry with its un-defer trigger (`THEMENOTE-BUBBLE-DISMISS-1`). A spec-documented limit is not a substitute for the entry the invariant asks for (cross-model diff review R1 findings 2 and 3); the invariant-8 fixed-or-deferred gate is satisfied by the entries, not by the spec text.
 
+### Re-run on the live-region repair delta
+
+The hoist in `6e9603a12` changed a UI file after the pair had run, so the pair re-ran scoped to that
+delta (plan N4.4's rule, raised as cross-model diff review R3 finding 3). `detect.mjs` on the file:
+`[]`.
+
+| # | Tier | Finding | Disposition |
+| --- | --- | --- | --- |
+| D-C | — | Critique: no findings on the delta. It traced the coupling and confirmed the announced text and the visible text change in the same render, so the two can never disagree, and the visible paragraph carries no role so nothing announces twice. | APPROVE, nothing to do. |
+| D-A1 | P2 | Audit: with the popover open and the flag set, the visible paragraph and the `sr-only` announcer both hold the identical string, so a browse-mode cursor reads the same sentence twice — static duplicate exposure that did not exist before the split. | **FIXED in-branch.** The visible paragraph is now `aria-hidden="true"`: it is the sighted copy, and the announcer is the accessible one. |
+| D-A2 | P3 | Audit: `suppressHydrationWarning` on the announcer is inert — `persistFailed` is `false` on SSR and on the first client render, and only flips on a post-hydration click, so there is no mismatch to suppress. | **FIXED in-branch.** Removed. A suppression that suppresses nothing teaches the next reader that this node is expected to diverge. |
+| D-A3 | P3 | Audit: the string now appears at two JSX sites gated by one flag. | **Accepted.** Both sites render the same imported const (`THEME_PERSIST_FAILED_NOTE`), which is the single source the spec asks for; there is no second literal to drift. |
+
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded
 
 ## Documented limits carried forward

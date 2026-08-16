@@ -347,6 +347,11 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
           */}
           {persistFailed ? (
             <p
+              // The VISIBLE copy only. The root announcer below already carries
+              // this exact string in the accessibility tree, so leaving both
+              // exposed makes a browse-mode cursor read the same sentence twice
+              // (impeccable audit P2 on the hoist delta).
+              aria-hidden="true"
               data-testid="theme-persist-note"
               className="px-3 pb-1 text-xs/relaxed text-text-subtle"
             >
@@ -468,12 +473,7 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
         announced, so a failure that happened while the menu was open would be
         silent for anyone listening.
       */}
-      <span
-        role="status"
-        data-testid="theme-persist-announcer"
-        className="sr-only"
-        suppressHydrationWarning
-      >
+      <span role="status" data-testid="theme-persist-announcer" className="sr-only">
         {persistFailed ? THEME_PERSIST_FAILED_NOTE : ""}
       </span>
     </div>
