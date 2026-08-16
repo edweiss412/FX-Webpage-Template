@@ -221,7 +221,24 @@ export async function dispatchDriveWebhookFiles(
       code,
       payload: errorPayload(error),
     };
-    await logSync(entry);
+    // Guard the SINK write (spec 2026-08-15 §2.2): this emit sits inside a catch whose own throw
+    // escapes, so an unguarded sink fault failed the webhook dispatch outright.
+    try {
+      await logSync(entry);
+    } catch (sinkError) {
+      // Local const (NOT chained) so prettier keeps `log.error(` on ONE line —
+      // stripLogEmissionCalls cannot match a `log` / `.error` split across lines.
+      const escalation = log.error("drive webhook sync_log emit failed", {
+        source: "drive.webhook",
+        code: "SYNC_LOG_EMIT_FAILED",
+        driveFileId: null,
+        // RAW value: buildRecord serializes exactly once (§2.2).
+        error: sinkError,
+      });
+      void escalation.catch(() => {
+        /* best-effort: a recording failure must never displace the failure it was recording */
+      });
+    }
     return { dispatched: [{ driveFileId: null, result: { outcome: "error", code } }] };
   }
   const dispatched = [];
@@ -231,12 +248,29 @@ export async function dispatchDriveWebhookFiles(
       dispatched.push({ driveFileId: file.driveFileId, result });
     } catch (error) {
       const code = classifySyncFailure(error);
-      await logSync({
-        driveFileId: file.driveFileId,
-        outcome: "error",
-        code,
-        payload: errorPayload(error),
-      });
+      // Guard the SINK write (spec 2026-08-15 §2.2): unguarded, a sink fault escaped this catch
+      // and ABANDONED every remaining file in the folder.
+      try {
+        await logSync({
+          driveFileId: file.driveFileId,
+          outcome: "error",
+          code,
+          payload: errorPayload(error),
+        });
+      } catch (sinkError) {
+        // Local const (NOT chained) so prettier keeps `log.error(` on ONE line —
+        // stripLogEmissionCalls cannot match a `log` / `.error` split across lines.
+        const escalation = log.error("drive webhook sync_log emit failed", {
+          source: "drive.webhook",
+          code: "SYNC_LOG_EMIT_FAILED",
+          driveFileId: file.driveFileId,
+          // RAW value: buildRecord serializes exactly once (§2.2).
+          error: sinkError,
+        });
+        void escalation.catch(() => {
+          /* best-effort: a recording failure must never displace the failure it was recording */
+        });
+      }
       dispatched.push({
         driveFileId: file.driveFileId,
         result: { outcome: "error" as const, code },

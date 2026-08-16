@@ -28,7 +28,7 @@ import type { SyncMode } from "@/lib/sync/perFileProcessor";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { buildParseErrorContext } from "@/lib/sync/parseErrorContext";
 import { revalidateShowFromResult } from "@/lib/data/showCacheTag";
-import { log, serializeError } from "@/lib/log";
+import { log } from "@/lib/log";
 
 export const FINALIZE_OWNED_SHOW = "FINALIZE_OWNED_SHOW" as const;
 
@@ -341,7 +341,7 @@ export async function runManualSyncForShow_unlocked(
           source: "sync.manualResync",
           code: "SYNC_LOG_EMIT_FAILED",
           driveFileId,
-          error: serializeError(sinkError),
+          error: sinkError,
         });
         // Invariant 10 (prod diff review R1 P0): this catch runs INSIDE the caller's held
         // advisory lock — the retry route calls this entry point from within its own
@@ -569,7 +569,7 @@ export async function runManualSyncForShow(
           source: "sync.manualResync",
           code: "SYNC_LOG_EMIT_FAILED",
           driveFileId,
-          error: serializeError(sinkError),
+          error: sinkError,
         });
         await escalation.catch(() => {
           /* best-effort: a recording failure must never displace the failure it was recording */
