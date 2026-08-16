@@ -107,10 +107,11 @@ $ grep -n 'scoreFloor: number\|control: { from' tests/mutation/source/registry.t
 **Every `ts` block below was materialized into the worktree and RUN before this plan was dispatched**, then deleted; the tree carries only this document. Results, so a reviewer checks them rather than re-deriving them:
 
 - `pnpm typecheck` passes on every file under the repo's strict config.
-- Tasks 1-3's suites run GREEN against Tasks 1-3's implementations: **87 cases, 3 files** (27 + 20 + 40), including six that execute scripts/heavy-reap.ts itself as a child process.
+- Tasks 1-3's suites run GREEN against Tasks 1-3's implementations: **95 cases, 3 files** (27 + 20 + 48), including nine that execute scripts/heavy-reap.ts itself as a child process and five that drive `readIdentity` against a real `ps` at its K1/K6 boundary.
 - Task 4's suite runs RED exactly as its Step 2 claims: `3 failed | 6 passed (9)`, and GREEN (`9 passed`) once package.json:56 is edited. Both were observed and the edit reverted afterwards.
+- The whole directory runs **104 cases: 101 green and Task 4's 3 expected reds**.
 - Task 2's fixture-capture command was executed and produced **3** worker lines, so the capture recipe is verified rather than assumed.
-- The CLI was additionally driven by hand through every exit path: default, `--all`, a rejected `FX_REAP_MIN_AGE_S`, an absent `ps`, a non-zero `ps`, and `--kill --quiet`.
+- The CLI was additionally driven by hand through every exit path: default, `--all`, `--kill`, a rejected `FX_REAP_MIN_AGE_S`, an absent `ps`, a non-zero `ps`, an empty table, and `--kill --quiet` under an identity drift that forces K2.
 
 This pass earned its cost repeatedly. It found the SPEC defect this plan is written against — executing Task 1's clause-(c) case is how the unreachable slot clause was discovered (spec §4.2) — and it found plan defects that plan review round 1 then confirmed and extended: a Step 2 claiming the wrong red count, a mutation control the suite adapted to, missing subprocess timeouts, and a CLI whose `main()` no case executed.
 
@@ -464,23 +465,39 @@ be run with `--kill` in a test without any possibility of signalling something r
 ```js
 #!/usr/bin/env node
 // A stand-in for ps(1), selected via FX_REAP_PS_BIN. Serves both invocations the reaper makes:
-// the whole-table read and the per-target identity read. Modes come from FAKE_PS_MODE.
+// the whole-table read and the per-target identity read. Modes come from FAKE_PS_MODE, and the
+// pids it reports (4242-4244) are owned by no real process, so --kill is safe in a test.
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+
 const args = process.argv.slice(2);
 const mode = process.env.FAKE_PS_MODE ?? "table";
-if (mode === "fail") process.exit(2);
-if (mode === "hang") { setTimeout(() => {}, 60_000); }
-else if (args.includes("-eo")) {
-  // pid ppid etime command. 4242 is an orphaned worker far past any ceiling; 4243 has a live
-  // parent; 4244 is not worker-shaped. None of these pids exists, so no real process is at risk.
-  process.stdout.write(
-    "4242 1 1-05:29:53 /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js\n" +
-    "4243 4244 1-05:29:53 /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js\n" +
-    "4244 1 1-05:29:53 /usr/bin/pnpm exec vitest run\n",
-  );
-} else if (args.includes("-o")) {
+const identityRead = args.includes("-o");
+
+if (mode === "fail" && !identityRead) process.exit(2);
+if (mode === "identity-fail" && identityRead) process.exit(2);
+if (mode === "hang" && !identityRead) setTimeout(() => {}, 60_000);
+else if (mode === "identity-hang" && identityRead) setTimeout(() => {}, 60_000);
+else if (!identityRead) {
+  // pid ppid etime command
+  if (mode === "empty") process.stdout.write("");
+  else
+    process.stdout.write(
+      "4242 1 1-05:29:53 /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js\n" +
+        "4243 4244 1-05:29:53 /usr/bin/node /x/node_modules/vitest/dist/workers/forks.js\n" +
+        "4244 1 1-05:29:53 /usr/bin/pnpm exec vitest run\n",
+    );
+} else {
   const pid = args[args.indexOf("-p") + 1];
   if (process.env.FAKE_PS_IDENTITY_GONE === pid) process.exit(1);
-  process.stdout.write(`Sun Aug 16 09:35:23 2026 /usr/bin/node /x/worker-${pid}\n`);
+  // Under DRIFT the second read of a pid reports a different start time, which is exactly K2.
+  let nonce = "Sun Aug 16 09:35:23 2026";
+  if (process.env.FAKE_PS_IDENTITY_DRIFT === "1") {
+    const counter = `${process.env.TMPDIR ?? "/tmp"}/fake-ps-drift-${pid}`;
+    const seen = existsSync(counter) ? Number(readFileSync(counter, "utf8")) : 0;
+    writeFileSync(counter, String(seen + 1));
+    if (seen > 0) nonce = "Mon Aug 17 11:11:11 2026";
+  }
+  process.stdout.write(`${nonce} /usr/bin/node /x/worker-${pid}\n`);
 }
 ```
 
@@ -706,7 +723,8 @@ export function collect(psBin: string = psBinFromEnv()): CollectResult {
 - [ ] **Step 7: Commit.**
 
 ```bash
-git add lib/heavyReap/collect.ts tests/heavyReap/collect.test.ts tests/heavyReap/fixtures/ps-sample.txt
+git add lib/heavyReap/collect.ts tests/heavyReap/collect.test.ts \
+  tests/heavyReap/fixtures/ps-sample.txt tests/heavyReap/fixtures/fake-ps.mjs
 git commit -m "feat(infra): collect and parse the process table"
 ```
 
@@ -732,10 +750,14 @@ Decision logic is exported as pure functions so it is testable without killing a
 
 ```ts
 import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MIN_AGE_SECONDS, type Decision } from "../../lib/heavyReap/classify";
 import {
   type IdentityRead,
+  readIdentity,
   type KillOutcome,
   executeKills,
   exitStatus,
@@ -944,18 +966,68 @@ describe("exitStatus: §6.2", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The CLI ITSELF, executed. Every case above tests a helper; these run
-// `scripts/heavy-reap.ts` as a child so main()'s wiring cannot be wrong while
-// the helpers are right (plan round 1 finding 3). `ps` is replaced via
-// FX_REAP_PS_BIN with a fixture that reports pids no real process owns.
+// readIdentity at its REAL boundary. Everything above injects IdentityRead
+// states into executeKills; without these, deleting readIdentity's timeout or
+// collapsing its errors back into "gone" would leave every case green
+// (plan round 2 finding 4).
 // ---------------------------------------------------------------------------
 const FAKE_PS = new URL("./fixtures/fake-ps.mjs", import.meta.url).pathname;
-const CLI = new URL("../../scripts/heavy-reap.ts", import.meta.url).pathname;
 
-function runCli(
-  args: string[],
-  env: Record<string, string> = {},
-): { out: string; code: number } {
+describe("readIdentity: the K1 / K6 boundary, executed", () => {
+  it("reads a live-looking identity into the triple", () => {
+    const r = readIdentity(4242, FAKE_PS);
+    expect(r.state).toBe("read");
+    if (r.state === "read") {
+      expect(r.identity.startedAt).toBe("Sun Aug 16 09:35:23 2026");
+      expect(r.identity.command).toContain("worker-4242");
+    }
+  });
+
+  it("K1: ps exiting 1 with no output means GONE", () => {
+    process.env.FAKE_PS_IDENTITY_GONE = "4242";
+    try {
+      expect(readIdentity(4242, FAKE_PS).state).toBe("gone");
+    } finally {
+      delete process.env.FAKE_PS_IDENTITY_GONE;
+    }
+  });
+
+  it("K6: any other ps failure is UNREADABLE, never gone", () => {
+    process.env.FAKE_PS_MODE = "identity-fail";
+    try {
+      expect(readIdentity(4242, FAKE_PS).state).toBe("unreadable");
+    } finally {
+      delete process.env.FAKE_PS_MODE;
+    }
+  });
+
+  it("K6: a missing ps binary is UNREADABLE, never gone", () => {
+    expect(readIdentity(4242, "/definitely/not/a/real/ps").state).toBe("unreadable");
+  });
+
+  it("AC-8: a hanging identity read is bounded and reported unreadable", () => {
+    process.env.FAKE_PS_MODE = "identity-hang";
+    const started = Date.now();
+    try {
+      expect(readIdentity(4242, FAKE_PS).state).toBe("unreadable");
+    } finally {
+      delete process.env.FAKE_PS_MODE;
+    }
+    expect(Date.now() - started).toBeLessThan(20_000);
+  }, 40_000);
+});
+
+// ---------------------------------------------------------------------------
+// The CLI ITSELF, executed. Every case above tests a unit; these run
+// `scripts/heavy-reap.ts` as a child so main()'s wiring cannot be wrong while
+// the units are right (plan round 1 finding 3). `ps` is replaced via
+// FX_REAP_PS_BIN with a fixture reporting pids no real process owns.
+// ---------------------------------------------------------------------------
+const CLI = new URL("../../scripts/heavy-reap.ts", import.meta.url).pathname;
+/** Any line reporting a kill outcome. Its ABSENCE is what proves the default kills nothing. */
+const KILL_LINE = /heavy-reap: (killed|already-gone|failed|partial|identity-changed|identity-unreadable) pid=/;
+
+function runCli(args: string[], env: Record<string, string> = {}): { out: string; code: number } {
   try {
     const out = execFileSync("pnpm", ["exec", "tsx", CLI, ...args], {
       encoding: "utf8",
@@ -970,21 +1042,35 @@ function runCli(
 }
 
 describe("the CLI, executed end to end", () => {
-  it("AC-6: the default reports candidates, kills nothing, and exits 0", () => {
+  it("AC-6: the default reports candidates and kills NOTHING", () => {
     const { out, code } = runCli([]);
     expect(out).toContain("REAPABLE pid=4242");
     expect(out).toContain("1 candidate(s)");
-    expect(out).not.toContain("killed pid=");
+    // The load-bearing assertion: no kill outcome of ANY kind was produced. Deleting the
+    // `if (!flags.kill) return` guard makes this fail, which a `not.toContain("killed")`
+    // would not, because a fake target reports `already-gone`.
+    expect(out).not.toMatch(KILL_LINE);
     expect(code).toBe(0);
   }, 180_000);
 
-  it("AC-6: --all widens the REPORT only", () => {
-    const plain = runCli([]);
-    const all = runCli(["--all"]);
-    expect(plain.out).not.toContain("not-a-worker");
-    expect(all.out).toContain("not-a-worker");
-    expect(all.out).toContain("1 candidate(s)");
-    expect(all.code).toBe(0);
+  it("§6.2: the default reports the ORPHAN-SHAPED decline and hides the non-orphan", () => {
+    const { out } = runCli([]);
+    expect(out).toContain("skip 4244"); // ppid == 1, declined not-a-worker
+    expect(out).not.toContain("skip 4243"); // ppid == 4244, so not orphan-shaped
+  }, 180_000);
+
+  it("AC-6: --all widens the REPORT and still kills nothing", () => {
+    const { out, code } = runCli(["--all"]);
+    expect(out).toContain("skip 4243");
+    expect(out).toContain("skip 4244");
+    expect(out).toContain("1 candidate(s)");
+    expect(out).not.toMatch(KILL_LINE);
+    expect(code).toBe(0);
+  }, 180_000);
+
+  it("§6.2: --kill reports a KillOutcome line per target", () => {
+    const { out } = runCli(["--kill"]);
+    expect(out).toMatch(KILL_LINE);
   }, 180_000);
 
   it("C4: a rejected ceiling stops the run BEFORE the table is read, exit non-zero", () => {
@@ -1001,14 +1087,28 @@ describe("the CLI, executed end to end", () => {
     expect(code).toBe(1);
   }, 180_000);
 
-  it("C2: the row count is always reported, so a silently-empty read is visible", () => {
-    expect(runCli([]).out).toContain("3 rows read");
+  it("C2: an EMPTY table reports zero rows rather than saying nothing", () => {
+    const { out, code } = runCli([], { FAKE_PS_MODE: "empty" });
+    expect(out).toContain("0 rows read");
+    expect(out).toContain("0 candidate(s)");
+    expect(code).toBe(0);
   }, 180_000);
 
-  it("--quiet suppresses declines but never a non-success kill outcome", () => {
-    const { out } = runCli(["--kill", "--quiet"]);
+  it("--quiet suppresses declines but NEVER a non-success outcome (K2)", () => {
+    // A fresh TMPDIR per run, because the fixture's drift counter lives there and a stale one
+    // would make the FIRST read already-drifted, so both reads would agree and K2 never fires.
+    const { out, code } = runCli(["--kill", "--quiet"], {
+      FAKE_PS_IDENTITY_DRIFT: "1",
+      TMPDIR: mkdtempSync(join(tmpdir(), "fake-ps-drift-")),
+    });
     expect(out).not.toContain("skip ");
-    expect(out).toContain("already-gone pid=4242");
+    expect(out).toContain("identity-changed pid=4242");
+    expect(code).toBe(1);
+  }, 180_000);
+
+  it("--quiet DOES suppress the plain successes (K1)", () => {
+    const { out } = runCli(["--kill", "--quiet"]);
+    expect(out).not.toContain("already-gone");
   }, 180_000);
 });
 ```
@@ -1230,12 +1330,21 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv): number {
   say(`heavy-reap: ${world.rows.length} rows read`);
 
   const candidates = result.decisions.filter((d) => d.reap === true);
-  if (!flags.quiet) {
-    for (const d of result.decisions) {
-      if (d.reap === true) say(`heavy-reap: REAPABLE pid=${d.pid} shape=${d.shape} age=${d.ageSeconds}s`);
-      else if (flags.all) say(`heavy-reap: skip ${"pid" in d ? d.pid : d.raw} (${d.because})`);
-      else if ("pid" in d && d.because !== "not-a-worker") say(`heavy-reap: skip ${d.pid} (${d.because})`);
+  // §6.2: the DEFAULT reports every candidate and every declined process that is ORPHAN-SHAPED
+  // (`ppid == 1`); `--all` adds the rest. Orphan-ness is a property of the row, not of the
+  // decision, so it is looked up here rather than inferred from `because`.
+  const ppidOf = new Map(parsed.map((r) => [r.pid, r.ppid]));
+  for (const d of result.decisions) {
+    if (d.reap === true) {
+      say(`heavy-reap: REAPABLE pid=${d.pid} shape=${d.shape} age=${d.ageSeconds}s`);
+      continue;
     }
+    if (flags.quiet) continue; // --quiet suppresses DECLINES only
+    if (!("pid" in d)) {
+      if (flags.all) say(`heavy-reap: skip unparsable (${d.detail})`);
+      continue;
+    }
+    if (flags.all || ppidOf.get(d.pid) === 1) say(`heavy-reap: skip ${d.pid} (${d.because})`);
   }
   say(`heavy-reap: ${candidates.length} candidate(s)`);
 
@@ -1253,9 +1362,12 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv): number {
     kill: (pid) => process.kill(pid, "SIGKILL"),
     stillAlive,
   });
-  // Never suppressed by --quiet: anything that is not a plain success is what an operator acts on.
+  // §6.2: `--kill` reports one KillOutcome line per target. `--quiet` keeps only what an operator
+  // must act on - K2, K3, K4, K6 - and drops the plain successes, `killed` and `already-gone`.
+  const plainSuccess = (r: KillOutcome["result"]): boolean => r === "killed" || r === "already-gone";
   for (const o of outcomes) {
-    if (o.result !== "killed") say(`heavy-reap: ${o.result} pid=${o.pid}${o.detail ? ` (${o.detail})` : ""}`);
+    if (flags.quiet && plainSuccess(o.result)) continue;
+    say(`heavy-reap: ${o.result} pid=${o.pid}${o.detail ? ` (${o.detail})` : ""}`);
   }
   return exitStatus({ collectFailed: false, ceilingRejected: false, outcomes });
 }
