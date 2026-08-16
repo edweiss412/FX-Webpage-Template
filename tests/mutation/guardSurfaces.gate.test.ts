@@ -146,6 +146,11 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // verdicts, and the census suite kills its single mutant, so a row appearing
   // here later is a coverage regression to repair rather than a number to bump.
   tapTargetScan: {},
+  // The control-outline regression pin, enrolled 2026-08-16 before its first
+  // review dispatch. Declared EMPTY: the module is 21 census rows plus one
+  // resolver, and the pin's own suite reds on every site — a row appearing here
+  // later is a coverage regression to repair, not a number to bump.
+  controlOutlineScan: {},
   // The shared core is this arc's mutation-relevant surface: the in-scope
   // predicate, the resolver and both token grammars live here, and three suites
   // decide its verdicts. Its eleven blessed survivors are all ONE shape — a
