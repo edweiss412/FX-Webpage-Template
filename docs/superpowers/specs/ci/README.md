@@ -36,4 +36,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-15-mutation-browser-mode.md`](./2026-08-15-mutation-browser-mode.md) | 2026-08-15 |
 | [`2026-08-15-round-economy-enforcement-pair.md`](./2026-08-15-round-economy-enforcement-pair.md) | 2026-08-15 |
 | [`2026-08-16-psql-scan-mutation-enrolment-design.md`](./2026-08-16-psql-scan-mutation-enrolment-design.md) | 2026-08-16 |
+| [`2026-08-16-timing-scan-binding-resolution-design.md`](./2026-08-16-timing-scan-binding-resolution-design.md) | 2026-08-16 |
 | [`probes`](./probes) | 2026-08-04 |
