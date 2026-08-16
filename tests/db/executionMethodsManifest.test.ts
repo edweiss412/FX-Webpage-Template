@@ -1,6 +1,17 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { deriveExecutionMethods } from "@/scripts/execution-methods/lib";
+
+import { premiseHolds } from "../_shared/premise";
+import {
+  POSTGRES_EXECUTION_CORE,
+  POSTGRES_PARAMETER_MEMBERS,
+  POSTGRES_TYPES_VERSION,
+} from "./__generated__/postgresExecutionMethods";
+
+const DRIVER_PACKAGE_JSON = "node_modules/postgres/package.json";
 
 describe("deriveExecutionMethods (spec 2026-08-16 §2.1/§2.5)", () => {
   it("collects methods returning PendingQuery, deduplicating overloads", () => {
@@ -64,5 +75,34 @@ describe("deriveExecutionMethods (spec 2026-08-16 §2.1/§2.5)", () => {
   it("does not collect a method signature inside a type literal (the toJSON shape, spec §4)", () => {
     const src = `type JSONValue = string | { toJSON(): PendingQuery<Row[]> };`;
     expect(deriveExecutionMethods(src).core).toEqual([]);
+  });
+});
+
+describe("generated execution-methods module (spec §2.4)", () => {
+  it("version sentinel: the committed module matches the installed driver", () => {
+    const raw = readFileSync(DRIVER_PACKAGE_JSON, "utf8");
+    const installed = (JSON.parse(raw) as { version: string }).version;
+    // The suite's one environment-touching test (premise-contract classification,
+    // Task 6): its premise is that the installed driver actually yielded a version.
+    premiseHolds("installed driver package.json yields a version", installed.length > 0);
+    expect(
+      POSTGRES_TYPES_VERSION,
+      "stale generated module -- run: pnpm gen:execution-methods",
+    ).toBe(installed);
+  });
+
+  it("disjointness: no parameter member is in either half of the composition", () => {
+    for (const name of POSTGRES_PARAMETER_MEMBERS) {
+      expect(POSTGRES_EXECUTION_CORE).not.toContain(name);
+    }
+  });
+
+  it("premise guard: the derivation floor members are present (spec §2.4 arm 4)", () => {
+    premiseHolds(
+      "the derivation produced a non-collapsed core",
+      POSTGRES_EXECUTION_CORE.length > 0,
+    );
+    expect(POSTGRES_EXECUTION_CORE).toContain("unsafe");
+    expect(POSTGRES_EXECUTION_CORE).toContain("file");
   });
 });
