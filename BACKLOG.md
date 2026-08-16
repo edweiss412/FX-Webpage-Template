@@ -289,33 +289,6 @@ A native checkbox or radio is normally targeted through its `<label>`, and the t
 
 **First scheduled step:** decide the FINANCIALS shape — either a `<label>` wrapping only the checkbox and its short caption with the caution outside it, or padding on the existing sibling label — then apply the same answer to both files, and settle the staged-review list separately.
 
-## BL-HEAVY-ORPHAN-WORKER-LIFETIME — the heavy semaphore bounds admission, and nothing bounds a worker's lifetime
-
-**Status:** IN PROGRESS · **Branch:** chore/heavy-orphan-reaper · **Severity:** MEDIUM (a machine-wide stall that takes every concurrent arc down with it; the 2026-08-10 precedent cost ~2h across nine) · **Class:** local capacity / process hygiene · **Effort:** M · **Filed:** 2026-08-16 (`chore/heavy-orphan-lifetime`, from a live incident measured during the BL-mediums batch) · **Reachability: PROBED** — the numbers below are one real occurrence, not a projection.
-
-`pnpm heavy` admits at most `slots` heavy phases and releases a slot when the wrapper process dies (`scripts/with-heavy-slot.py` `execvp`s, so the command IS the wrapper — a crash releases the slot with zero cleanup code). That is admission control, and it is correct. What no layer owns is a worker's LIFETIME once its parent is gone.
-
-**The incident, 2026-08-16 08:03 CDT.** `uptime` read `196.58 / 151.95 / 120.73` and rising on an 18 GB machine. The cause was **eleven orphaned `mutantOverlay` vitest workers spinning at 80-83% CPU each** — roughly nine cores of dead work, and about 80% of all CPU on the box (`sum %cpu` 1138.5):
-
-```
-cpu= 83.1 rss=4MB age=01-03:40:23 pid=28448   # 1 day 3.7 h
-cpu= 83.0 rss=4MB age=   23:00:11 pid=70037
-cpu= 82.9 rss=4MB age=01-02:15:30 pid=77870
-cpu= 79.6 rss=4MB age=01-05:29:53 pid=31460   # 1 day 5.5 h
-```
-
-Ages ran 20 h to 1 d 5.5 h; most had `ppid=1`, so their launching sessions were long gone. **Their rss was 2-4 MB** — they were not doing work, they were spinning on a dead IPC channel, which is why nobody noticed: a hung worker announces itself as load, never as a failing test.
-
-Memory at the same instant: 14.86 GB rss of 18 GB, `Pages free: 4015`, compressor holding 1.82M pages stored / 369K occupied. That is the documented precondition for the 2026-08-10 jetsam incident this semaphore was built after (12 `vm-compressor-space-shortage` events, hard reset, ~2 h lost across every live arc). Killing every such process ≥12 h old took `sum %cpu` to 812 and rss to 12.6 GB immediately, with no live arc affected.
-
-**Why the semaphore cannot see this, which is the entry's point.** A slot is held by a live wrapper and released at its death. These workers had NO live wrapper — the slot was released correctly, hours earlier, and the orphan kept running outside the accounting. So the semaphore reports a healthy 2-of-2 while nine cores are consumed by processes it does not know exist. Raising `slots` or lowering it changes nothing here.
-
-**Why the existing reaper does not cover it.** `~/.claude/hooks/reap-idle-codex.sh` reaps idle CODEX process trees only, and it is per-machine config outside this repo (`docs/agents/codex-silent-death-2026-07-24.md` §8). Nothing reaps a vitest/playwright worker orphaned by a killed harness — and the harness gets killed often, since a session dying mid-`mutation:guards` is exactly the shape that produced all eleven.
-
-**Candidate shapes, for the implementing arc to weigh rather than a decision made here:** (a) a max-lifetime reaper for orphaned `mutantOverlay`/vitest workers, matching what a human just ran by hand (`ppid==1` or dead ancestor, age past a ceiling well above the longest legitimate run); (b) the runner passing a hard `--test-timeout`/deadline into each child so a spinning worker self-terminates; (c) process-group kill on wrapper death so a dying harness takes its children with it — the most complete, and the one that needs care because the wrapper deliberately `execvp`s. Whichever wins must not be able to kill a legitimately long heavy phase; the age filter used by hand was ≥12 h, chosen because every live arc's processes were under ten minutes old.
-
-**First scheduled step:** measure the longest legitimate `mutation:guards` wall clock on this machine (the nightly is already at 138-180 min per `BL-MUTATION-HARNESS-WALLCLOCK-CEILING` below, so the ceiling is not small), then pick the shape. The two entries share a surface and should be read together — that one is about a job that runs too long, this one about processes that never stop.
-
 ## BL-HEAVY-REAP-REPORT-OBSERVABILITY — the reaper's reporting surface is specified but not exhaustively observed
 
 **Status:** OPEN · **Severity:** LOW (a coverage limit, never a safety one: by the design's consequence bound a reporting defect cannot cause a kill, so the worst case is an operator running `--all` to see something the default should have shown) · **Class:** test coverage · **Effort:** S · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, as the deliberate fence that ended a 16-round plan review) · **Reachability: INFERRED, NOT PROBED** — no round of that review found a reporting BEHAVIOR that was wrong; every finding was a case that could not observe one. The probe that would settle whether any residue matters is a mutation run over the reporter, named below.

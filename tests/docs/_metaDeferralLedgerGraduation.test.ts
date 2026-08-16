@@ -97,6 +97,13 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // chore/heavy-orphan-reaper (2026-08-16): the heavy semaphore bounds admission and
+  // nothing bounded a worker's LIFETIME once its harness died. Graduates as a REPAIR that
+  // shipped shape (a) of the entry's own three candidates, narrowed to an invoked reaper.
+  // The entry's reporting residue does NOT ride along: it is fenced as documented limit L-9
+  // and filed as BL-HEAVY-REAP-REPORT-OBSERVABILITY, and the orphans' PRODUCER stays open as
+  // BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH under class-sweep exception (c).
+  { id: "BL-HEAVY-ORPHAN-WORKER-LIFETIME", provenance: "chore/heavy-orphan-reaper" },
   // fix/help-refanchor-a11y (2026-08-15): the /help/errors copy-link a11y row, all three
   // filed findings shipped in one arc. The entry left the tab-stop question open on
   // purpose; the owner ratified that the copy-links STAY tabbable, so it graduates with a
