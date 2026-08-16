@@ -93,7 +93,17 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
   const EXEMPT_PREEXISTING = new Map<string, number>([
     ["admin-nav-layout-dimensions.spec.ts", 2],
     ["admin-parse-panel.spec.ts", 2],
-    ["admin-route-boundaries.spec.ts", 2],
+    // admin-route-boundaries: REPAIRED 2026-08-15 (staged crew preview arc) — its
+    // staged seed/cleanup pair moved into the shared helpers/stagedSync.ts, which
+    // now carries the single frozen count for BOTH callers, so its row is removed
+    // per the shrink-only contract.
+    // stagedSync.ts: the ONE staged-row seed/cleanup for e2e (pending_syncs
+    // insert + delete) via the SERVICE-ROLE admin client — elevated test
+    // setup/cleanup that bypasses the PostgREST DML lockdown by design (the
+    // lockdown REVOKEs from authenticated, not service_role). One helper rather
+    // than one copy per spec, so this count shrinks to zero the day a locked seed
+    // replaces it instead of drifting per file.
+    ["stagedSync.ts", 2],
     // claimStamp.ts / seedShowWithCrew.ts / picker-flow.spec.ts write locked tables
     // (crew_members, shows) via the SERVICE-ROLE admin client (helpers/supabaseAdmin.ts)
     // — elevated test setup/cleanup that bypasses the PostgREST DML lockdown by design

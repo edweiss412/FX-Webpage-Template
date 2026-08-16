@@ -22,6 +22,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { AvatarMenu } from "@/components/auth/AvatarMenu";
+import type { ClearIdentityResult } from "@/lib/auth/picker/clearIdentity";
 
 afterEach(cleanup);
 
@@ -39,7 +40,7 @@ const baseProps = {
  * string, and the assertion below reads that difference — so a refactor that
  * turned the person row into a link would fail rather than pass quietly.
  */
-const clearAction = (): void => {};
+const clearAction = async (): Promise<ClearIdentityResult> => ({ ok: true as const });
 
 function renderOpen(props: Partial<typeof baseProps> = {}) {
   const utils = render(<AvatarMenu {...baseProps} {...props} clearAction={clearAction} />);

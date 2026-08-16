@@ -346,6 +346,22 @@ describe("stacked-band state pill contrast (spec 2026-07-24 §3 R0)", () => {
   }
 });
 
+// Theme persist-failure note (spec 2026-08-15-theme-persistence-note §2.2,
+// impeccable audit P2): the bubble renders `text-text-subtle` ON
+// `bg-surface-raised`, a ground DESIGN.md §1.2's subtle rows did not cover
+// (bg / surface / warning-bg / surface-sunken). The note reports a failure, so
+// it is the last copy that should be hard to read; pin it in both themes so a
+// retune of either token fails here rather than in a hallway at 6am.
+describe("theme persist-failure note contrast (theme-persistence-note §2.2)", () => {
+  for (const mode of MODES) {
+    it(`${mode.name}: text-subtle clears >=4.5:1 AA on surface-raised (persist-failure bubble)`, () => {
+      const subtle = tokenIn(mode.src, "--color-text-subtle-runtime");
+      const raised = tokenIn(mode.src, "--color-surface-raised-runtime");
+      expect(contrast(subtle, raised)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    });
+  }
+});
+
 // SheetIconLink press/hover washes (sheet-icon-link spec §3, impeccable audit
 // P3): the glyph renders `text-text-strong` ON its wash — `bg-surface-sunken`
 // at the surface-backed modal titles, `bg-surface` at the bg-backed section

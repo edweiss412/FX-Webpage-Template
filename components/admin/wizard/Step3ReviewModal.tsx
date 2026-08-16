@@ -64,6 +64,7 @@ import {
   tierForItem,
   type ReviewerAction,
 } from "@/lib/admin/step3ReviewItemTiers";
+import { NewTabHint } from "@/components/shared/NewTabHint";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
@@ -554,6 +555,25 @@ export function Step3ReviewModal({
               ? "Couldn't update the publish selection. Try again."
               : ""}
           </span>
+          {/* Crew-page preview entry (spec 2026-08-15-step3-crew-preview §2.8),
+              LEADING footer position. Opens the staged preview in a new tab, so
+              the operator keeps this modal's scroll/tab state. Rendered for every
+              staged row REGARDLESS of warning state: previewing a warned parse is
+              exactly the point. Guard condition: `stagedId` is optional on the
+              ordinary row (Step3Review.tsx:124), and an absent value renders NO
+              link rather than a broken href.
+              §11: instant — deliberate (a static link; no state, no animation) */}
+          {data.row.stagedId ? (
+            <a
+              data-testid={`wizard-step3-card-${dfid}-review-crew-preview`}
+              href={`/admin/wizard/preview/${data.row.stagedId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-tap-min items-center rounded-sm px-2 text-sm font-semibold text-accent-on-bg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            >
+              Open crew preview <NewTabHint />
+            </a>
+          ) : null}
           {/* Re-apply resolution footer (spec §4.4): the ONLY resolution path
               for a blocked re-apply row. Approve & apply (primary) + Re-scan +
               Ignore. All three freeze during an active publish run (R8).

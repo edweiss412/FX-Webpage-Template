@@ -222,7 +222,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
   },
   {
-    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:162",
+    site: "app/show/[slug]/[shareToken]/_CrewShell.tsx:176",
     contextKeys: ["failedKeys", "message", "sheet_name", "tileId"],
     code: "TILE_PROJECTION_FETCH_FAILED",
     scope: "per-show",

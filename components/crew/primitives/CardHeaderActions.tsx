@@ -32,7 +32,7 @@ export function CardHeaderActions({
   driveFileId: string | null;
   anchor?: SourceAnchor | null | undefined;
   showId: string;
-  cardReport?: CardReportContext;
+  cardReport?: CardReportContext | null;
   /**
    * CARDREPORT-1: direction the leaves' ≥44px tap overlays grow. Default `"up"`
    * is correct for every `SectionCard`-hosted cluster (zero downward overhang

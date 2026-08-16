@@ -45,3 +45,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-17-s3c-review-a11y.md`](./2026-07-17-s3c-review-a11y.md) | 2026-07-17 |
 | [`2026-07-17-wizard-blocker-modal-design.md`](./2026-07-17-wizard-blocker-modal-design.md) | 2026-07-17 |
 | [`2026-08-03-finalize-cas-source-anchors.md`](./2026-08-03-finalize-cas-source-anchors.md) | 2026-08-03 |
+| [`2026-08-15-step3-crew-preview-and-opslog-disposition-design.md`](./2026-08-15-step3-crew-preview-and-opslog-disposition-design.md) | 2026-08-15 |
