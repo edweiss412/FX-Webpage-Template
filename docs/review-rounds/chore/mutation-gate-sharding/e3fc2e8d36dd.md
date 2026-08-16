@@ -1,10 +1,12 @@
 # chore/mutation-gate-sharding — review round economy
 
-Base: `e3fc2e8d3` (merge-base with `origin/main`). Spec converged at 3; plan reached the 4-round threshold, so this filing is owed for the plan stage.
+Base: `e3fc2e8d3` (merge-base with `origin/main`). Spec converged at 3. The plan ran **10** rounds and APPROVED at round 10 with 0 findings; this filing was opened when it crossed the 4-round threshold and is updated here with the full picture.
 
-## plan — 4 rounds
+## plan — 10 rounds
 
-**Examined:** every finding across plan R1 (8), R2 (5), R3 (8), R4 (3) — 24 total, all accepted, none argued away, none reversed on a later round. Each round's repairs are one commit (`2df52f990`, `beb227522`, `50ea5518c`, and this one).
+**Examined:** every finding across plan R1 (8), R2 (5), R3 (8), R4 (3), R5 (3), R6 (3), R7 (3), R8 (1), R9 (1), R10 (0) — **35 total, all accepted, none argued away, none reversed on a later round.** One commit per round.
+
+**Finding rate: 8, 5, 8, 3, 3, 3, 3, 1, 1, 0.** It decayed, which is the thing the 2026-08-04 measurement found absent in the 474-round corpus — there BLOCKING findings per round were flat (0.32 early, 0.38 at round 11+). So this arc's length was not a non-terminating recognizer chase, but it was still roughly twice what it should have been, and §"What actually drove the round count" says why.
 
 **Mechanizable:** the dominant class is **a guard assertion that passes by construction**, and it accounts for 12 of the 24. It arrived in five distinguishable shapes, and every one of them was already named somewhere in this repo's own rules before I wrote it:
 
@@ -26,7 +28,24 @@ Mechanical arm that would have caught most of this at authoring time: none exist
 - R3 #4 — the plan demanded `PASS` from two full-gate checkpoints while `mutation:guards` is red at the merge base on work the arc explicitly does not own. A task that cannot complete without fixing out-of-scope work is a plan defect, and the honest form is to expect the known signature and nothing else.
 - R4 #3 — the elapsed stamp sat inside the vitest step, so it measured test time while §4 targets job wall clock. Complete, finite, plausible, and wrong by the whole setup phase; no completeness or parse guard can see it.
 
-**Infra:** none. All four rounds returned a verdict on the first attempt with no `no_verdict`, no reap, and no wrapper retry.
+**Infra:** none. All ten rounds returned a verdict on the first attempt — no `no_verdict`, no reap, no wrapper retry, no fallback. That is the cleanest infra record of any arc in this corpus and is worth noting precisely because the round count was high: none of it was infrastructure.
+
+**The tail, R5-R10, is one story and it is the expensive one.** Eleven findings across six rounds, and nine of them were the SAME defect class in successive disguises: **a guard that pins a declaration rather than the behaviour the declaration implies.**
+
+| round | the guard said | what it missed |
+|---|---|---|
+| R4 | `toContain("3600")` | `36000` |
+| R5 | `(?![0-9])` | `3600.5`, and a duplicate flag |
+| R6 | exact-token count | `--flag=value`; `issues.create` matching `issues.createComment`; `SHARD_START=` matching an empty assignment |
+| R7 | `env:` mapping equality | a shell assignment prefix shadowing it; a `printf` overwrite |
+| R8 | command + env pinned | the job could not RUN the command (no setup action) |
+| R9 | setup present | setup before checkout |
+
+R4-R6 I repaired by widening the recogniser each time, which is precisely the ratchet `AGENTS.md` documents, and each widening was a bigger target. R6's repair finally deleted the recognisers — constants into a YAML `env:` mapping, step selection by declared `id` — and the finding rate dropped to 1 immediately after. **The narrowing repair was available at R4 and I took it at R6; those two rounds are the measurable cost of widening instead of narrowing.**
+
+R8 and R9 are a different and subtler shape worth separating: not a loose pattern, but a guard asserting the right thing about the wrong layer. Membership is not order; a declared command is not an executable one. No amount of pattern-tightening reaches those — only asking "what would have to be true for this step to actually work?"
+
+**Mechanizable, tail:** nothing new. The rule that would have prevented nine of eleven already exists in `docs/agents/writing-plans.md` as the anti-tautology rule, and the practice that operationalises it is the one this filing already names — write the failing input WITH the assertion. Every one of these eleven was found by the reviewer constructing exactly that input, in seconds, after I had not.
 
 ### What actually drove the round count
 
