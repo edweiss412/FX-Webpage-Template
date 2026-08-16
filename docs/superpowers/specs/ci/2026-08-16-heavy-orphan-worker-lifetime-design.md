@@ -360,8 +360,9 @@ the `Decidable?` column marks "no" — C1, C3, C5, C8 — and stated nowhere els
 §5's types are what make the reporting half expressible; round 1 found the earlier signature could
 not carry most of this table, which is why the two sections are written against each other.
 
-**Every row below carries an ID, and §6.2 and §8 CITE those IDs rather than paraphrasing the
-behavior.** That is a structural repair, not a formatting choice: three consecutive review rounds
+**Every row below carries an ID, and every other mention of a condition anywhere in this document
+— §6.2, §8, and the doc comments inside §5's code blocks — CITES the ID rather than paraphrasing
+the behavior.** That is a structural repair, not a formatting choice: three consecutive review rounds
 found a summary sentence contradicting the table it summarized (round 1 F1/F4, round 2 F2/F5,
 round 3 F1/F2). The class is "a normative claim restated in prose drifts from its source", and the
 defense that closes it is to have exactly one statement of each behavior and make every other
@@ -448,15 +449,15 @@ export type ParsedRow = {
   command: string;
 };
 
-/** A `ps` line that could not yield even a pid. Retained so it can be counted and reported. */
+/** A `ps` line that could not yield even a pid (R1). */
 export type UnparsableRow = { kind: "unparsable"; raw: string; problem: string };
 
 export type ProcRow = ParsedRow | UnparsableRow;
 
-/** What clause (c) knows, INCLUDING what it failed to learn. */
+/** What clause (c) knows, including what it failed to learn (C3, C5, C6). */
 export type SlotSurvey = {
   holderPids: number[];
-  problems: SlotProblem[]; // dir missing/unreadable, torn metadata, stale holder
+  problems: SlotProblem[]; // the conditions C3, C5, C6 describe
 };
 export type SlotProblem = {
   slot: string; // "slot-0", or the dir path for a dir-level problem
@@ -467,7 +468,7 @@ export type SlotProblem = {
 export type ReapConfig = {
   nowSeconds: number; // the clock reading, passed in: §4.1 calls classify pure, so it reads no clock
   minAgeSeconds: number;
-  minAgeSource: "default" | "env"; // so a rejected env value is reportable
+  minAgeSource: "default" | "env"; // C7 vs C8
   minAgeRejected?: string; // the raw value that was rejected, when one was
   selfPid: number;
   selfAncestry: readonly number[];
@@ -479,7 +480,7 @@ export type Skip =
   | "slot-descendant"
   | "too-young"
   | "self"
-  | "undecidable"; // a field or ancestry needed by a clause could not be resolved
+  | "undecidable"; // R2, R3, R5
 
 export type Decision =
   | { pid: number; reap: true; shape: string; ageSeconds: number }
@@ -487,9 +488,9 @@ export type Decision =
   | { reap: false; because: "unparsable"; raw: string; detail: string };
 
 export type Classification = {
-  decisions: Decision[]; // one per input row, parsable or not
+  decisions: Decision[]; // one per input row, parsable or not (R1)
   slotProblems: SlotProblem[]; // passed through so the reporter has one source
-  configNotes: string[]; // e.g. the rejected FX_REAP_MIN_AGE_S value
+  configNotes: string[]; // e.g. C8's rejected value
 };
 
 export function classify(rows: readonly ProcRow[], slots: SlotSurvey, config: ReapConfig): Classification;
@@ -501,33 +502,19 @@ export type CollectResult =
   | { ok: true; rows: ProcRow[]; slots: SlotSurvey }
   | { ok: false; problem: "ps-unavailable" | "ps-failed"; detail: string };
 
-/**
- * Whether a SlotSurvey can decide clause (c) at all.
- *
- * False for the §4.4 rows the `Decidable?` column marks "no" (C3 and C5); those rows say what
- * the caller must then do. It is deliberately NOT modelled as "zero holders", because C3 and C4
- * are different conditions with different rows: one is the absence of an answer, the other is an
- * answer. Collapsing them was the round-2 defect.
- */
+/** Whether a SlotSurvey can decide clause (c) at all: false for C3 and C5, true for C4. */
 export function surveyIsDecidable(slots: SlotSurvey): boolean;
 ```
 
 ```ts
-// scripts/heavy-reap.ts: the adapter's own result, so exit status is derived, not ad hoc
+// scripts/heavy-reap.ts
 export type KillOutcome = {
   pid: number;
   result: "killed" | "already-gone" | "failed" | "partial" | "identity-changed";
   detail?: string;
 };
 
-/**
- * A target's identity for K2, read per target rather than for the whole table.
- *
- * `startedAt` is `ps -o lstart=`: STABLE for the life of a process, and different for a recycled
- * pid. It is deliberately not `etime`, which increases by definition and can never compare equal
- * across a second boundary, and the tuple deliberately excludes `ppid`, which changes under the
- * reparenting this run's own kills cause.
- */
+/** A target's identity for K2. `startedAt` is `ps -o lstart=`; see K2 for why not `etime`/`ppid`. */
 export type TargetIdentity = { pid: number; startedAt: string; command: string };
 export function readIdentity(pid: number): TargetIdentity | null; // null = the pid is gone (K1)
 ```
