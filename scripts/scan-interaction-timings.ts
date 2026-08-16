@@ -81,6 +81,27 @@ import ts from "typescript";
 
 export type TimingKind = "timer-literal" | "named-constant" | "motion-duration" | "unclassified";
 
+/**
+ * A key `TIMING_NAME` accepted and `isBoundaryTimingKey` turned away — the
+ * population where the two halves of one property DISAGREE.
+ *
+ * The drop is intended (`items`, `rooms`, `searchParams` end in `ms` and are
+ * not timings), but a drop nobody can see is how `timeoutMilliseconds` sat in
+ * the gap between a numeric path that inventories it and a non-literal path
+ * that dropped it. Recording the population lets a test pin it, so a real
+ * timing landing there is a failing assertion rather than a silence.
+ *
+ * Only the paths with an OUTER `TIMING_NAME` gate report here. The shorthand
+ * form has no outer gate — its only gate IS the boundary predicate — so
+ * recording its rejects would mean recording every shorthand property in the
+ * universe, which is not a disagreement, just a scan.
+ */
+export type BoundaryReject = {
+  readonly file: string;
+  readonly line: number;
+  readonly propertyKey: string;
+};
+
 export type TimingSite = {
   /** Repo-relative path, POSIX separators. */
   readonly file: string;
@@ -247,31 +268,57 @@ const TIMING_NAME = /(?:ms|delay|duration|timeout|seconds)$/i;
 const TIMING_WORDS = ["ms", "delay", "duration", "timeout", "seconds"] as const;
 
 /**
+ * Time UNITS, spelled out. A named, closed, sub-second family.
+ *
+ * `timeoutMilliseconds` carries its timing word INSIDE the final word, so the
+ * segment rule below sees the segment `milliseconds` and nothing shorter. The
+ * numeric path already inventories that key (`TIMING_NAME` matches the bare
+ * `seconds` suffix), so without the family the two halves of one property
+ * disagree and the non-literal half drops it in silence — the totality break
+ * this predicate exists to close (whole-diff R1 #4).
+ *
+ * `min` and `sec` are deliberately absent: they are `minimum` and `section` at
+ * least as often as they are time, and this predicate's whole job is to not
+ * flood. SINGULAR unit spellings are absent for a different reason — they are
+ * unreachable: this predicate is only ever consulted for a key `TIMING_NAME`
+ * has already accepted, and `oneMillisecond` does not end in `seconds`. Both
+ * halves of that property agree on dropping it, so totality holds; listing it
+ * here would be an accept-set entry no input can reach.
+ */
+const TIME_UNITS = ["milliseconds", "microseconds", "nanoseconds"] as const;
+
+/** A key's camel / snake / digit segments, lowercased. `retry_ttlMs` → retry, ttl, ms. */
+function keySegments(key: string): string[] {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[\s_]+/)
+    .filter((s) => s.length > 0)
+    .map((s) => s.toLowerCase());
+}
+
+/**
  * The key predicate for the NON-LITERAL property paths — deliberately NARROWER
  * than `TIMING_NAME`, which stays untouched on every numeric path.
  *
- * A key qualifies when it IS a timing word, or carries one at a camel or snake
- * BOUNDARY (`ttlMs`, `deadline_ms`, `fooTimeout`). The bare suffix `TIMING_NAME`
- * uses cannot be reused here: measured on the live universe it matches 48
- * non-literal candidates, because ordinary plurals end in `ms` (`items`,
- * `rooms`, `searchParams`, `diagrams`, `problems`), which would bury the 8 real
- * ones. The asymmetry is intentional and load-bearing: on NUMERIC values a
- * sloppy match is fail-open and visible as a bogus inventory row; on
- * non-literals it is fail-flood, and a flooded report is not read.
+ * A key qualifies when its FINAL SEGMENT is a timing word or a time unit:
+ * `ttlMs`, `deadline_ms`, `fooTimeout`, `timeoutMilliseconds`. Reading segments
+ * rather than doing suffix arithmetic is what makes the rule one derivation
+ * instead of a growing list of boundary cases — the arithmetic form both missed
+ * the unit family and had to special-case the leading underscore.
+ *
+ * The bare suffix `TIMING_NAME` uses cannot be reused here: measured on the
+ * live universe it matches 48 non-literal candidates, because ordinary plurals
+ * end in `ms` (`items`, `rooms`, `searchParams`, `diagrams`, `problems`), which
+ * would bury the 8 real ones. The asymmetry is intentional and load-bearing: on
+ * NUMERIC values a sloppy match is fail-open and visible as a bogus inventory
+ * row; on non-literals it is fail-flood, and a flooded report is not read.
  */
 function isBoundaryTimingKey(key: string): boolean {
-  const lower = key.toLowerCase();
-  for (const word of TIMING_WORDS) {
-    if (lower === word) return true;
-    if (!lower.endsWith(word)) continue;
-    const before = key.slice(0, key.length - word.length);
-    if (before.endsWith("_")) return true;
-    const suffixStart = key[key.length - word.length];
-    // A camel boundary means the timing word STARTS the final segment, which is
-    // exactly what distinguishes `ttlMs` from `items`.
-    if (suffixStart !== undefined && /[A-Z]/.test(suffixStart)) return true;
-  }
-  return false;
+  const segments = keySegments(key);
+  const last = segments[segments.length - 1];
+  if (last === undefined) return false;
+  return TIMING_WORDS.some((word) => last === word) || TIME_UNITS.some((unit) => last === unit);
 }
 
 /** The delay contract's own rendering, reused verbatim so an unclassified
@@ -350,11 +397,21 @@ function isTimerCall(expr: ts.CallExpression): boolean {
  * Scan one source file. `filePath` is the repo-relative path that lands in the
  * returned sites, so callers do not have to re-derive it.
  */
-export function scanTimingSites(source: string, filePath: string): TimingSite[] {
+export function scanTimingSites(
+  source: string,
+  filePath: string,
+  rejected?: BoundaryReject[],
+): TimingSite[] {
   const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const sites: TimingSite[] = [];
   const lineOf = (node: ts.Node): number =>
     sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+  /** A key the OUTER gate accepted and the boundary predicate turned away. The
+   *  drop is the intended behaviour; recording it is what keeps the set of
+   *  dropped keys a pinned population rather than a silent one. */
+  const reject = (key: string, node: ts.Node): void => {
+    rejected?.push({ file: filePath, line: lineOf(node), propertyKey: key });
+  };
 
   const pushNamed = (name: ts.BindingName, initializer: ts.Expression | undefined): void => {
     if (!initializer || !ts.isIdentifier(name)) return;
@@ -423,7 +480,9 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
           value,
           propertyKey: node.name.text,
         });
-      } else if (isBoundaryTimingKey(node.name.text)) {
+      } else if (!isBoundaryTimingKey(node.name.text)) {
+        reject(node.name.text, node);
+      } else {
         // Totality: a prop whose value is not a literal is NAMED, not dropped.
         // Both spellings the universe can hold — an expression container and a
         // string that does not parse as a number.
@@ -483,6 +542,8 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
           value: null,
           propertyKey,
         });
+      } else {
+        reject(propertyKey, node);
       }
     }
 
@@ -549,6 +610,8 @@ export type ScanResult = {
   readonly sites: readonly TimingSite[];
   /** Delay arguments that resolved to no covered binding, minus dispositioned rows. */
   readonly unclassified: readonly TimingSite[];
+  /** Keys the outer gate accepted and the boundary predicate dropped (see `BoundaryReject`). */
+  readonly boundaryRejected: readonly BoundaryReject[];
   readonly filesScanned: number;
 };
 
@@ -560,6 +623,7 @@ export type ScanResult = {
 export function scanRepo(repoRoot: string): ScanResult {
   const files = universeFiles(repoRoot);
   const raw: TimingSite[] = [];
+  const boundaryRejected: BoundaryReject[] = [];
   for (const file of files) {
     let source: string;
     try {
@@ -567,7 +631,7 @@ export function scanRepo(repoRoot: string): ScanResult {
     } catch {
       continue;
     }
-    raw.push(...scanTimingSites(source, file));
+    raw.push(...scanTimingSites(source, file, boundaryRejected));
   }
   const coveredNames = new Set(
     raw.filter((s) => s.kind === "named-constant").map((s) => s.name as string),
@@ -582,7 +646,7 @@ export function scanRepo(repoRoot: string): ScanResult {
   const unclassified = sites.filter(
     (s) => s.kind === "unclassified" && !dispositioned.has(`${s.file}::${s.name}`),
   );
-  return { sites, unclassified, filesScanned: files.length };
+  return { sites, unclassified, boundaryRejected, filesScanned: files.length };
 }
 
 /** The inventory rows §5.5 must carry: one per distinct (file, name-or-value) timing. */

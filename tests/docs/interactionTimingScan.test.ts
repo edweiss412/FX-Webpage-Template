@@ -444,6 +444,16 @@ describe("form 3 totality — non-literal timing property values", () => {
     expect(unclassified(`const el = <Thing ttlMs={} />;`)).toEqual([]);
   });
 
+  test("a VALUELESS JSX attribute yields no site", () => {
+    // `<Thing ttlMs />` is the boolean-prop spelling: there is no value, so
+    // there is no timing. Whole-diff R1 #5 — this is also the input that
+    // distinguishes the initializer narrowing: with `||` in place of `&&`,
+    // `ts.isJsxExpression(undefined)` is evaluated and THROWS, so the site the
+    // registry called equivalent is a crash on an ordinary prop spelling.
+    expect(unclassified(`const el = <Thing ttlMs />;`)).toEqual([]);
+    expect(scan(`const el = <Thing ttlMs />;`)).toEqual([]);
+  });
+
   test("JsxAttribute with a string value that does not parse as a number", () => {
     expect(unclassified(`const el = <Thing ttlMs="soon" />;`)).toEqual(["ttlMs=soon"]);
   });
@@ -471,6 +481,51 @@ describe("form 3 totality — non-literal timing property values", () => {
       expect(unclassified(`const o = { ${key}: someExpr };`)).toEqual([]);
     },
   );
+
+  // Whole-diff R1 #4: the boundary rule was suffix arithmetic, so a timing word
+  // buried inside the FINAL WORD read as no boundary at all. `TIMING_NAME`
+  // accepts `timeoutMilliseconds` and the numeric path inventories it, while
+  // the non-literal path dropped it in silence — the two halves of one property
+  // disagreeing is exactly the totality break this entry exists to close.
+  test.each([
+    ["a unit-suffixed timeout", "timeoutMilliseconds"],
+    ["the bare unit word", "milliseconds"],
+    ["a snake unit", "retry_milliseconds"],
+    ["the micro unit", "retryMicroseconds"],
+    ["the nano unit", "frameNanoseconds"],
+  ])("the boundary predicate ACCEPTS %s", (_label, key) => {
+    expect(unclassified(`const o = { ${key}: someExpr };`)).toEqual([`${key}=someExpr`]);
+  });
+
+  // The units are a NAMED, closed family — sub-second only. `min` and `sec` are
+  // left out because they are `minimum` and `section` at least as often as they
+  // are time, and a flooded report is not read.
+  test.each([["colMin"], ["widthMinimum"], ["pageSections"], ["totalItems"]])(
+    "the unit family does not widen to %s",
+    (key) => {
+      expect(unclassified(`const o = { ${key}: someExpr };`)).toEqual([]);
+    },
+  );
+
+  test("a SINGULAR unit spelling is dropped by BOTH halves, so totality holds", () => {
+    // The accept-set carries no singular unit, and that is not an omission: the
+    // boundary predicate is only consulted for a key `TIMING_NAME` already
+    // accepted, and `oneMillisecond` does not end in `seconds`. Listing it
+    // would be an accept-set entry no input can reach. What totality requires
+    // is that the two halves AGREE, which this pins in both directions.
+    expect(scan(`const o = { oneMillisecond: 250 };`)).toEqual([]);
+    expect(unclassified(`const o = { oneMillisecond: someExpr };`)).toEqual([]);
+  });
+
+  test("every key the numeric path inventories reaches the non-literal path too", () => {
+    // The class, stated as a property rather than a list: for each accepted key
+    // form, the SAME key must be visible whether its value is a literal or not.
+    // A predicate that widens on one side only re-opens the silent drop.
+    const keys = ["duration", "ttlMs", "deadline_ms", "fooTimeout", "timeoutMilliseconds"];
+    const numeric = keys.filter((k) => scan(`const o = { ${k}: 250 };`).length > 0);
+    const nonLiteral = keys.filter((k) => unclassified(`const o = { ${k}: someExpr };`).length > 0);
+    expect(nonLiteral).toEqual(numeric);
+  });
 
   test("a numeric-literal property is UNCHANGED — still motion-duration", () => {
     expect(kinds(`const o = { duration: 0.22 };`)).toEqual(["motion-duration:0.22"]);

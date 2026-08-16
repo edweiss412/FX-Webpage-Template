@@ -22,6 +22,7 @@ import {
   inventoryRows,
   scanRepo,
   scanTimingSites,
+  type BoundaryReject,
   UNCLASSIFIED_DISPOSITIONS,
 } from "@/scripts/scan-interaction-timings";
 import { premise, premiseHolds } from "../_shared/premise";
@@ -192,5 +193,54 @@ describe("the non-literal timing-property census", () => {
       (row) => `${row.file} ${row.name}`,
     );
     expect(stale, "disposition rows matching no live site").toEqual([]);
+  });
+});
+
+// ── The disagreement census (whole-diff R1 #4) ──────────────────────────────
+//
+// The numeric path and the non-literal path gate on DIFFERENT predicates, which
+// is deliberate and measured. The cost is a population where they disagree: a
+// key `TIMING_NAME` accepts and `isBoundaryTimingKey` drops. Every drop is
+// correct today, but `timeoutMilliseconds` proves the gap is reachable by an
+// ordinary name — it was inventoried when its value was a literal and dropped
+// in silence when it was not.
+//
+// Pinning the population is what makes the drop visible. It is DERIVED from the
+// live universe rather than enumerated by hand, so a new key lands in the diff
+// of a failing assertion and has to be dispositioned — either it is a timing
+// (widen the accept-set) or it is not (extend this list with its reason).
+describe("keys the boundary predicate drops that the numeric path would keep", () => {
+  test("the live population is exactly the known non-timing plurals", () => {
+    const result = scanRepo(REPO_ROOT);
+    premise("the scan reached a universe with rejects in it at all", result.boundaryRejected.length, 0);
+    const keys = [...new Set(result.boundaryRejected.map((r) => r.propertyKey))].sort();
+    // Every one of these ends in `ms` as an ordinary English plural — items,
+    // rooms, params, problems, diagrams. None is a duration.
+    expect(keys).toEqual([
+      "alert_on_sync_problems",
+      "attentionItems",
+      "diagrams",
+      "items",
+      "p_triggered_items",
+      "rooms",
+      "searchParams",
+      "triggeredItems",
+      "triggeredReviewItems",
+      "triggered_review_items",
+    ]);
+  });
+
+  test("a planted unit-named property is NOT in the dropped population", () => {
+    // The premise for the pin above: the census can only be evidence if the key
+    // family this entry repaired would actually show up as a site rather than a
+    // reject. Planted, because the live universe holds no such key yet.
+    const rejects: BoundaryReject[] = [];
+    const sites = scanTimingSites(
+      "const o = { timeoutMilliseconds: someExpr, items: other };",
+      "components/__planted-units__.tsx",
+      rejects,
+    );
+    expect(sites.map((s) => s.propertyKey)).toEqual(["timeoutMilliseconds"]);
+    expect(rejects.map((r) => r.propertyKey)).toEqual(["items"]);
   });
 });

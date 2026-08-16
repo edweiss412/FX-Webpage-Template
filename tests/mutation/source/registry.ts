@@ -1246,18 +1246,11 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // cosmetic — it is what left `logical-connector:&&>||` reported as an
     // unaccepted survivor on main's nightly (run 31933821808).
     accepted: [
-      {
-        siteId: "logical-connector:415:39:&&>||",
-        kind: "equivalent",
-        reason:
-          "The JSX initializer narrowing. `&&` and `||` yield the SAME `expr` for every shape the " +
-          "node can take: with no initializer both give undefined (`ts.isJsxExpression(undefined)` " +
-          "is false, not a throw); with a JsxExpression both give `init.expression`; and with a " +
-          "StringLiteral the `||` arm still reads `.expression`, which a StringLiteral does not " +
-          "have, so it is undefined either way. The `&&` states the intent; it does not change the " +
-          "value. Its SIBLING at the string fallback is NOT equivalent and is killed by the " +
-          "empty-expression-container case.",
-      },
+      // The JSX initializer narrowing is NOT equivalent, and the argument that
+      // said it was rested on a false claim about the TypeScript API: probed,
+      // `ts.isJsxExpression(undefined)` THROWS rather than returning false, so
+      // with `||` the valueless prop `<Thing ttlMs />` crashes the scan. Killed
+      // by the valueless-attribute case rather than argued away (R1 #5).
       // ---- equivalent: comparator sign-not-magnitude (spec §2.4) ----------
       //
       // Array.sort consumes the SIGN of a comparator's result and never its
