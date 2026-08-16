@@ -352,11 +352,10 @@ a preamble that restated one is what rounds 1 through 4 kept finding drifted.
 | Row-level (R1-R5) | that row only | AC-3 |
 | Kill-time (K1-K5) | that target only | AC-5, AC-5b; exit status per §6.2 |
 
-The one design idea behind the C-rows, since it is a rule and not a behavior: **a clause you
-cannot evaluate has not been evaluated.** Concluding a process is unexempt from a failure to check
-is the precise error that made the codex reaper kill live work, so an undecidable exemption input
-stops the run rather than shrinking the exemption set. Which C-rows are undecidable is the table's
-`Decidable?` column.
+The one design idea behind the C-rows, stated as the rule it is: **a clause you cannot evaluate
+has not been evaluated.** Concluding a process is unexempt from a failure to check is the precise
+error that made the codex reaper kill live work. What the rule COSTS in each case is in the rows
+the `Decidable?` column marks "no" — C1, C3, C5, C8 — and stated nowhere else.
 
 §5's types are what make the reporting half expressible; round 1 found the earlier signature could
 not carry most of this table, which is why the two sections are written against each other.
@@ -692,8 +691,8 @@ to say something §4.4 does not, it says only that.
 - **AC-3b** — Every collection-level condition C1-C8 behaves as its row states, and the
   undecidable/decidable partition it is tested against is the table's `Decidable?` column — C1, C3,
   C5, C8 undecidable; C2, C4, C6, C7 decidable. The distinction the criterion exists to pin: a run
-  that CANNOT evaluate an exemption clause is not the same as one that CAN and finds nobody exempt,
-  and only the first is blocked.
+  that CANNOT evaluate an exemption clause is not the same as one that CAN and finds nobody exempt.
+  C3 and C4 are that pair, and their rows differ.
 - **AC-4** — The reaper never targets its own process or any ancestor of it.
 - **AC-5** — Killing removes the RECORDED target set — the reaped root plus every descendant
   present in the collection snapshot — in the order §4.4 specifies, and K4's verification re-scan
@@ -701,9 +700,9 @@ to say something §4.4 does not, it says only that.
 - **AC-5b** — K2 holds: no pid is signalled whose identity triple (pid, start time, command) has
   changed since classification. `etime` and `ppid` are NOT part of that triple, and a target whose
   `etime` advanced or whose `ppid` changed because this run killed its parent is still signalled.
-- **AC-6** — `pnpm heavy:reap` with no flags kills nothing and reports every reap candidate and
-  every declined orphan-shaped process; `--all` widens only the report, never what is killed;
-  `--kill` is required to kill; `--quiet` suppresses only decline rows. Exit status per §6.2.
+- **AC-6** — Each invocation in §6.2's table behaves as its row states, and the two properties
+  that table exists to guarantee hold: `--all` widens only the report and never what is killed, and
+  nothing is killed without `--kill`. Exit status per §6.2's enumeration.
 - **AC-7** — C1 holds, on every one of its three spellings (binary missing, non-zero exit, sandbox
   denial). Called out separately from AC-3b because it is the condition under which a reaper would
   otherwise report a clean machine.
