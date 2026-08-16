@@ -628,6 +628,22 @@ function extentIsProvenance(node: ts.Node, facts: ModuleFacts): boolean {
       const text = n.getText(facts.sf);
       if (text.startsWith("process.env")) hit = true;
     }
+    // A dynamic import OF a provenance module is provenance wherever it sits.
+    // The binding clause only registers `const x = await import(...)`, so an
+    // ASSIGNMENT (`m = await import("node:child_process")`) reached the write
+    // pass instead and its extent was the bare import expression, which named
+    // nothing. LIMIT: for an IN-REPO specifier in that same position the
+    // imported NAME is unknown, and treating the whole module as reachable is
+    // namespace semantics — BL-PREMISESCAN-IMPORT-EDGE-FIDELITY owns that.
+    if (
+      ts.isCallExpression(n) &&
+      n.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      n.arguments[0] !== undefined &&
+      ts.isStringLiteral(n.arguments[0]) &&
+      isProvenanceModule((n.arguments[0] as ts.StringLiteral).text)
+    ) {
+      hit = true;
+    }
     // `const { env } = process` registers `process` as env's extent, so what
     // reaches here is the initializer. Narrow to exactly that: `process` as the
     // object of a member access is handled by the `process.env` prefix test

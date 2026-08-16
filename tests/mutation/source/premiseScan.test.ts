@@ -494,6 +494,20 @@ describe("R2 — dynamic imports and non-runtime positions", () => {
     ).toEqual(["environment-touching"]);
   });
 
+  it("a dynamic import ASSIGNED to an outer binding is still provenance", () => {
+    // Self-review probe: the dynamic-import clause registers a binding only
+    // when the call sits under a VariableDeclaration, so `m = await import(...)`
+    // reached the write pass instead — and the write's extent is the bare
+    // `await import(...)`, which named no provenance by itself. Silent false
+    // negative, the direction the consequence bound forbids.
+    expect(
+      verdicts(`it("x", async () => {
+        let m;
+        { m = await import("node:child_process"); }
+        return m.spawnSync("git", []); });`),
+    ).toEqual(["environment-touching"]);
+  });
+
   it("a pure dynamic import shadows a static provenance import of the same name", () => {
     expect(
       verdictsWithModule(
