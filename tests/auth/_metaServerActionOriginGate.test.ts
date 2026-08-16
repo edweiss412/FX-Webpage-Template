@@ -88,27 +88,6 @@ const READ_ONLY_EXEMPT = [
   { file: "app/admin/dev/actions.ts", fn: "listFixtures" },
 ] as const;
 
-/**
- * IMPLEMENTATION RATCHET — deleted by the task that empties it.
- *
- * Invariant 1 forbids landing 50 gate lines before the test that exercises
- * them, and this walk cannot land green while those 50 are ungated. So it lands
- * with the not-yet-gated modules listed here and skipped, and each gate task
- * removes its own modules in the SAME commit that adds their gate lines — red
- * at the task's start, green at its end, on one command.
- *
- * Two properties keep it honest rather than a place to hide: a module left
- * listed after it has been gated FAILS (the anti-stall assertion below), and a
- * final task asserts the list is empty, deletes it and the branch that reads
- * it, and asserts this file's own source no longer names the identifier.
- *
- * `lib/auth/picker/clearIdentity.ts` is listed even though its three actions
- * are ALREADY gated: accept-set B rejects their module-local `rejectCrossOrigin`
- * until the picker task migrates them to the designated export.
- */
-const PENDING_GATE: readonly string[] = [
-];
-
 // ── AST predicates ─────────────────────────────────────────────────────────
 
 const keyOf = (r: { file: string; fn: string }): string => `${r.file}::${r.fn}`;
@@ -423,7 +402,6 @@ const LIVE_UNITS = collectSurfaceUnits(["app", "lib", "components"]).filter(
   (u) => u.kind !== "route",
 );
 const EXEMPT_KEYS = new Set(READ_ONLY_EXEMPT.map(keyOf));
-const PENDING = new Set(PENDING_GATE);
 
 /** The sibling guard's `read-only` claim, projected per-function. */
 const SIBLING_READ_ONLY_ROWS: readonly ExemptionRow[] = ADMIN_SURFACE_EXEMPTIONS.flatMap((r) =>
@@ -432,8 +410,7 @@ const SIBLING_READ_ONLY_ROWS: readonly ExemptionRow[] = ADMIN_SURFACE_EXEMPTIONS
 
 describe("the live tree: every Server Action surface unit is gated or verifiably exempt", () => {
   test("every discovered non-route unit satisfies an accept-set or the closed exemption", () => {
-    const offenders = LIVE_UNITS.filter((u) => !PENDING.has(u.file))
-      .filter((u) => !EXEMPT_KEYS.has(keyOf(u)))
+    const offenders = LIVE_UNITS.filter((u) => !EXEMPT_KEYS.has(keyOf(u)))
       .filter((u) => !conformsToAnAcceptSet(u))
       .map(
         (u) =>
@@ -441,27 +418,6 @@ describe("the live tree: every Server Action surface unit is gated or verifiably
           `(see the accept-sets in ${__filename.split("/").slice(-1)[0]})`,
       );
     expect(offenders, offenders.join("\n")).toEqual([]);
-  });
-
-  test("PENDING_GATE cannot stall: every listed path still holds a non-conforming unit", () => {
-    // A module that got gated but was left listed reds here, so the ratchet
-    // shrinks monotonically instead of becoming a place to hide. Phrased over
-    // walk-CONFORMANCE rather than over "ungated" so it covers
-    // clearIdentity.ts, whose units are gated but non-conforming.
-    const stale = PENDING_GATE.filter((path) => {
-      const units = LIVE_UNITS.filter((u) => u.file === path && !EXEMPT_KEYS.has(keyOf(u)));
-      return units.length > 0 && units.every((u) => conformsToAnAcceptSet(u));
-    });
-    expect(
-      stale,
-      `these PENDING_GATE paths are fully gated and must be removed:\n${stale.join("\n")}`,
-    ).toEqual([]);
-  });
-
-  test("PENDING_GATE names only paths the walk actually discovers", () => {
-    const discoveredFiles = new Set(LIVE_UNITS.map((u) => u.file));
-    const orphans = PENDING_GATE.filter((p) => !discoveredFiles.has(p));
-    expect(orphans).toEqual([]);
   });
 
   test("every sibling read-only row is per-function, so none can vanish from the equality", () => {
@@ -484,18 +440,25 @@ describe("the live tree: every Server Action surface unit is gated or verifiably
     expect(problems, problems.join("\n")).toEqual([]);
   });
 
-  test("reconciliation: gated + exempted + pending === discovered", () => {
-    const pendingUnits = LIVE_UNITS.filter(
-      (u) => PENDING.has(u.file) && !EXEMPT_KEYS.has(keyOf(u)),
-    );
+  test("reconciliation: gated + exempted === discovered, over FULL discovery", () => {
+    // Every unit the engine finds is
+    // either gate-first under an accept-set or one of the three verified
+    // exemptions; there is no third bucket and nothing goes unaccounted.
     const exemptUnits = LIVE_UNITS.filter((u) => EXEMPT_KEYS.has(keyOf(u)));
     const gatedUnits = LIVE_UNITS.filter(
-      (u) => !PENDING.has(u.file) && !EXEMPT_KEYS.has(keyOf(u)) && conformsToAnAcceptSet(u),
+      (u) => !EXEMPT_KEYS.has(keyOf(u)) && conformsToAnAcceptSet(u),
     );
-    expect(gatedUnits.length + exemptUnits.length + pendingUnits.length).toBe(LIVE_UNITS.length);
-    // No unit is counted twice, and none is silently dropped.
-    const keys = [...gatedUnits, ...exemptUnits, ...pendingUnits].map(keyOf);
+    expect(gatedUnits.length + exemptUnits.length).toBe(LIVE_UNITS.length);
+    const keys = [...gatedUnits, ...exemptUnits].map(keyOf);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  test("the implementation ratchet is GONE from this file's own source", () => {
+    // The shipped guard has no allowlist in it. Spelled as a join so this
+    // assertion cannot fail on itself, and read from disk rather than from a
+    // constant, so re-introducing the array anywhere in the file reds here.
+    const identifier = ["PENDING", "GATE"].join("_");
+    expect(readFileSync(__filename, "utf8")).not.toContain(identifier);
   });
 });
 
@@ -878,21 +841,6 @@ describe("the walk's own wiring", () => {
   test("READ_ONLY_EXEMPT holds no duplicate rows", () => {
     const keys = READ_ONLY_EXEMPT.map(keyOf);
     expect(new Set(keys).size).toBe(keys.length);
-  });
-
-  test("PENDING_GATE holds no duplicate paths", () => {
-    expect(new Set(PENDING_GATE).size).toBe(PENDING_GATE.length);
-  });
-
-  test("no PENDING_GATE path is also an exempt unit's only reason to be listed", () => {
-    // A module listed purely because its units are exempt would never come off
-    // the ratchet, and the anti-stall assertion would not catch it (it skips
-    // exempt units). Assert directly that every listed path holds at least one
-    // NON-exempt unit.
-    const bare = PENDING_GATE.filter(
-      (p) => !LIVE_UNITS.some((u) => u.file === p && !EXEMPT_KEYS.has(keyOf(u))),
-    );
-    expect(bare).toEqual([]);
   });
 
   test("the two walks agree: this file reads the invariant-10 engine, not its own census", () => {

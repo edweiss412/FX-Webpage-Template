@@ -1103,8 +1103,8 @@ under class-sweep exception (c). May share one lint surface with
 **Status:** OPEN. · **Filed:** 2026-08-16, from
 `docs/review-rounds/fix/server-action-origin-sweep/119895a7c756.md` (plan §, Mechanizable arm 2) ·
 **Severity:** medium · **Class:** plan-lint arm (sibling of the resolved
-`BL-SPECLINT-RED-EXECUTABILITY-ARM`, which shipped the DECLARATION and stopped there) · **Effort:**
-M
+`BL-SPECLINT-RED-EXECUTABILITY-ARM`, which shipped the DECLARATION and stopped there) ·
+**Effort:** M
 
 The `red-contract` arm parses every task marker and validates the `red-target` citation's grammar;
 what it never does is EXECUTE the claim. An arm that ran `vitest list` on each `red=` command and
