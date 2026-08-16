@@ -181,3 +181,51 @@ export function classify(pane: ObservedPane): Classification {
     wouldBandTo,
   };
 }
+
+// ---------------------------------------------------------------------------
+// §4.3 — the `gh` three-way
+// ---------------------------------------------------------------------------
+
+/**
+ * A `gh` outcome, as a DISCRIMINATED UNION rather than a nullable.
+ *
+ * This shape is the point. `gh pr checks` exits 1 when there is no PR — and
+ * also when the token expired, the network dropped, or the caller is
+ * rate-limited. Typed as `Checks | null`, both collapse to `null`, a `gh`
+ * outage reads as "every pane has no PR", that matches position row 8 (Low),
+ * and the pane yields COMPACT — silently bypassing the hard WAIT on exactly the
+ * panes most dangerous to compact. With three variants a fault cannot be
+ * WRITTEN as a no-pr, and `strict` makes an unhandled variant a compile error.
+ *
+ * This is invariant 9's shape ("infra faults surface as discriminable typed
+ * results, never as a benign signal") on a call site its auth-scoped registries
+ * do not reach.
+ */
+export type GhOutcome =
+  | { kind: "checks"; prOpen: boolean; allGreen: boolean; anyFailed: boolean; anyPending: boolean }
+  | { kind: "no-pr" }
+  | { kind: "fault"; detail: string };
+
+export type GhInvocation = { exitCode: number; stdout: string; stderr: string };
+
+/**
+ * The no-PR signature is THREE conjuncts, not two.
+ *
+ * Spec §3.9 probed all three: no PR exits non-zero with EMPTY STDOUT and that
+ * stderr phrase, while a real check run prints its table to stdout. The stdout
+ * conjunct does most of the work — a bare substring test on the phrase is
+ * unsafe alone, because a check name or PR title can contain it, and matching
+ * anywhere would turn a real check failure into "no PR". That is the same
+ * use-versus-mention error that cost the purity guard four review rounds.
+ */
+const NO_PR = /^\s*no pull requests found for branch\b/;
+
+export function classifyGh(run: GhInvocation): GhOutcome {
+  if (run.exitCode === 0) {
+    // A zero exit means gh answered; parsing the table belongs to the surface.
+    return { kind: "checks", prOpen: true, allGreen: false, anyFailed: false, anyPending: false };
+  }
+  const noPr = run.stdout.trim() === "" && NO_PR.test(run.stderr);
+  if (noPr) return { kind: "no-pr" };
+  return { kind: "fault", detail: run.stderr.trim() || `gh exited ${run.exitCode}` };
+}
