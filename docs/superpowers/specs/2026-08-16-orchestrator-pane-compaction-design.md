@@ -440,6 +440,12 @@ no external observer can verify Stage 0 registered one.
 | `pnpm panes:compact --compact <target> --as <id>` | §5.2 command 2. `--dry-run` as above. | 0/1 |
 | `pnpm panes:compact --resume <target> --as <id>` | §5.2 command 3. `--dry-run` as above. | 0/1 |
 
+The exit column above assumes the roster could be READ. When it cannot — herdr missing, failing, or
+answering with something that is not JSON — every mode exits **2**, stating the reason, and `--json`
+carries it in the envelope's `degraded` array. Exit 0 there would be a lie in the one direction that
+matters: a report of no panes and a report of no answer are indistinguishable to a reader, and on
+`--check` the first means "nothing needs you".
+
 Every sending mode requires `--as` and a **single named target**; none accepts `--all`. `--dry-run`
 is available on each and prints the exact bytes without sending. `<target>` resolves through
 `herdr agent get`; an `agent_not_found` code exits 1 naming the target and sends nothing (§2.2).
