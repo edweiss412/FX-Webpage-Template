@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { enumerateSites } from "@/tests/mutation/source/operators";
 import { GUARD_SURFACES } from "@/tests/mutation/source/registry";
-import { premise, premiseHolds } from "@/tests/_shared/premise";
+import { premise } from "@/tests/_shared/premise";
 import { readFileSync } from "node:fs";
 
 /**
@@ -47,9 +47,15 @@ describe("the classifier core is enrolled", () => {
     const sites = enumerateSites(surface.sourcePath, src, surface.operators as never);
     premise("the surface generates mutants at all", sites.length, 0);
 
+    // The premise the LOOP needs, stated before it: an empty declared set makes
+    // every iteration vacuous and this case passes while asserting nothing. The
+    // previous premise here — that each declared operator is in the declared set
+    // — was drawn from the very array it iterates, so it could not be false and
+    // guarded nothing.
+    premise("the surface declares operators for the loop to check", surface.operators.length, 0);
+
     const seen = new Set(sites.map((s) => s.operator));
     for (const declared of surface.operators) {
-      premiseHolds(`operator ${declared} is declared`, surface.operators.includes(declared));
       expect(
         seen.has(declared),
         `declared operator ${declared} generates NO site on this surface`,
