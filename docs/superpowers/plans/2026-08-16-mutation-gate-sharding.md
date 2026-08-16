@@ -155,7 +155,7 @@ describe("source-mutation shard partition", () => {
     const threeSuites = weightOf(
       fakeSurface({
         suitePaths: ["a", "b", "c"],
-        accepted: [{ siteId: "x", kind: "equivalent", why: "fixture", ref: "BL-X" }] as never,
+        accepted: [{ siteId: "x", kind: "equivalent", reason: "fixture" }],
       }),
     );
     // (m + 1*2 + 3) - (m + 0 + 1) = 4  -- independent of m, so no hardcoded count.
