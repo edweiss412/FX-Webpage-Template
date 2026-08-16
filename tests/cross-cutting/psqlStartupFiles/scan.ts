@@ -354,8 +354,13 @@ export function rootSkipNamesFromGitignore(text: string): Set<string> {
   const names = new Set<string>();
   for (const raw of text.split("\n")) {
     const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-    if (line === "" || line.startsWith("#")) continue;
-    const plainName = /^\/?([^*?[\]!/\\\s]+)\/?$/.exec(line);
+    // Comment and blank lines need no special case: `#` is excluded from the
+    // name class and the class requires at least one character, so `# comment`,
+    // `#nospace` and `` all fall out of the accept-set structurally. Keeping a
+    // separate comment test would be a second, drifting definition of the same
+    // rule (and a local comment-handling idiom, which
+    // `_metaStripCommentsSingleSource` rightly flags).
+    const plainName = /^\/?([^*?[\]!/\\\s#]+)\/?$/.exec(line);
     if (plainName) names.add(plainName[1]!);
   }
   return names;

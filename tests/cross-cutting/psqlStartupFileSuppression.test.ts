@@ -1695,6 +1695,7 @@ describe("rootSkipNamesFromGitignore — the accept-set is keyed on structure", 
     ["a/b/", "a nested path"],
     [".codex-companion*/", "a trailing wildcard"],
     ["# comment", "a comment"],
+    ["#nospace", "a comment with no space after the hash"],
     ["", "an empty line"],
     ["  out  ", "significant surrounding whitespace"],
   ])("%j is rejected — %s contributes nothing", (line) => {
