@@ -754,6 +754,19 @@ That makes the boundary helper actively wrong at these two sites rather than mer
 
 **What a repair needs:** a way to distinguish "skeleton, loader still pending" from "skeleton, loader already failed" — e.g. racing the boundary for the REMAINDER of the timeout after the skeleton is observed, rather than returning on first match. That is a contract change to the helper plus an assertion change in both specs, and it wants its own spec. **Re-open trigger:** either spec actually flaking on this signature in CI.
 
+## BL-PLANLINT-RECONCILIATION-AND-MARKER-CITATIONS — two already-mandated plan checks that only a human currently runs
+
+**Status:** OPEN · **Severity:** LOW (each miss costs one review round, never a wrong artifact) · **Class:** authoring tooling · **Effort:** S · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's plan-stage round-economy filing) · **Reachability:** PROBED — both misses were measured on that arc's own plan review, each with the finding that caught it.
+
+Two rules in `docs/agents/writing-plans.md` are stated but unchecked, and the same arc broke both:
+
+- **Reconciliation arithmetic is authored but not RUN.** `docs/agents/writing-plans.md:27` requires per-task sweeps to be authored AND run with their output pasted. The modal-wait plan's Task 3 row read 15 edits where its own two stated divergences give 16 − 3 + 1 = 14, so the column summed to 50 against a stated 49 (plan review R1 finding 2). A lint that parses a plan's reconciliation table, sums its columns, and compares against the stated total closes this without judgement.
+- **The citation pass does not cover MARKER fields.** The pre-draft verification rule already says "every named file", and a task marker's `red=` command names files — they were simply not treated as part of the pass. That arc's Task 8 marker cited `tests/mutation/source/registry.test.ts`, which does not exist and never did; the suite is `tests/mutation/_metaGuardSurfaceRegistry.test.ts` (plan review R1 finding 4). `spec:lint`'s citation checker already resolves `file:line` citations in prose; extending it over `<!-- task: … red=\`…\` -->` comment bodies is the same resolver over a different span.
+
+Both land on one surface (`lib/specLint/**` over `docs/superpowers/plans/**`), which is why they are one entry rather than two. **First scheduled step:** run the proposed column-sum check over the committed plan corpus and count how many existing plans it would fire on — a rule that reds a third of the corpus on day one is a corpus-correction task before it is a lint.
+
+---
+
 ## BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE — should the show-review snapshot read absorb one bounded retry before throwing to the boundary?
 
 **Status:** OPEN · **Severity:** LOW (rare, recoverable via the boundary's own Retry) · **Class:** product posture decision · **Effort:** S · **Filed:** 2026-08-15
