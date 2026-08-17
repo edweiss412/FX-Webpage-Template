@@ -468,6 +468,118 @@ describe("two binding forms that were scoped wrongly (whole-diff R3 #4)", () => 
   });
 });
 
+describe("the repairs' own edges, each pinned by a surviving mutant the gate named", () => {
+  // Every case here exists because the source-mutation gate reported a survivor
+  // at that exact site after the R3 repairs — a branch the repair introduced
+  // that no fixture discriminated. The siteId is named so the pin and the
+  // mutant stay traceable to each other.
+  const spawner = `import { spawnSync } from "node:child_process";
+    const spawning = () => spawnSync("git", []);`;
+
+  it("the LAST assignment operator in the range still records a write", () => {
+    // relational-boundary on `kind <= ts.SyntaxKind.LastAssignment`: `<` drops
+    // exactly the last kind in the range, which is `^=` (79) on TypeScript 5.9.
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        let n = 0;
+        n ^= Number(spawnSync("git", []).status);
+        function read() { return n; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("an UNRESOLVABLE producer's premise must still name that producer", () => {
+    // equality-flip on `id.text === name` in referencesName, the fallback path
+    // taken only when the producer resolves to no binding at all. Flipped, ANY
+    // other identifier satisfies the premise.
+    const p = join(scratch, `r3-ref-${n++}.ts`);
+    writeFileSync(
+      p,
+      `import { premise } from "@/tests/_shared/premise";
+       premise("something unrelated", 1, 0);
+       test.each(undeclaredRows)("x", (r) => { void r; });`,
+      "utf8",
+    );
+    expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(false);
+  });
+
+  it("a premise in an `if` CONDITION runs, and is credited", () => {
+    // Kills three at once: the `n === undefined` guard in `within`, and the
+    // `>=` start-boundary — the premise call shares its start with the
+    // condition it opens.
+    const p = join(scratch, `r3-dom-cond-${n++}.ts`);
+    writeFileSync(
+      p,
+      `import { premise } from "@/tests/_shared/premise";
+       const rows = [[process.env.ROOT]];
+       if (premise("rows", rows.length, 0) === undefined) { void 0; }
+       test.each(rows)("x", (r) => { void r; });`,
+      "utf8",
+    );
+    expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(true);
+  });
+
+  it("a premise at the END of an `if` condition is credited too", () => {
+    // The `<=` end-boundary half of the same pair: here the premise call shares
+    // its END with the condition.
+    const p = join(scratch, `r3-dom-cond-${n++}.ts`);
+    writeFileSync(
+      p,
+      `import { premise } from "@/tests/_shared/premise";
+       const rows = [[process.env.ROOT]];
+       if (undefined === premise("rows", rows.length, 0)) { void 0; }
+       test.each(rows)("x", (r) => { void r; });`,
+      "utf8",
+    );
+    expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(true);
+  });
+
+  it("a NON-logical binary operator does not make its right operand conditional", () => {
+    // equality-flip on the `||` and `??` arms of the short-circuit test. Flipped,
+    // every ordinary binary expression is treated as short-circuiting and a
+    // premise in its right operand stops being credited.
+    const p = join(scratch, `r3-dom-bin-${n++}.ts`);
+    writeFileSync(
+      p,
+      `import { premise } from "@/tests/_shared/premise";
+       const rows = [[process.env.ROOT]];
+       const ok = undefined === premise("rows", rows.length, 0);
+       void ok;
+       test.each(rows)("x", (r) => { void r; });`,
+      "utf8",
+    );
+    expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(true);
+  });
+
+  it("an IIFE invoked WITHOUT parentheses around the function still runs at load", () => {
+    // equality-flip on `caller.expression === p`, the un-parenthesized arm. The
+    // parenthesized `(() => {})()` fixtures all take the other arm, so nothing
+    // discriminated this one.
+    const p = join(scratch, `r3-dom-iife-${n++}.ts`);
+    writeFileSync(
+      p,
+      `import { premise } from "@/tests/_shared/premise";
+       const rows = [[process.env.ROOT]];
+       void function () { premise("rows", rows.length, 0); }();
+       test.each(rows)("x", (r) => { void r; });`,
+      "utf8",
+    );
+    expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(true);
+  });
+
+  it("a destructuring-assignment element default is reached through its `=`", () => {
+    // equality-flip on `t.operatorToken.kind === ts.SyntaxKind.EqualsToken` in
+    // assignmentTargets — the `[a = dflt]` arm.
+    expect(
+      verdict(`${spawner}
+        let cache;
+        [cache = spawning] = [] as Array<() => unknown>;
+        function read() { return cache; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+});
+
 describe("unclassifiable — recognized but unresolvable, and it reds", () => {
   it("a dynamic import whose specifier is not a literal", () => {
     expect(

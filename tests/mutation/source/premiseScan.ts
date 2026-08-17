@@ -369,11 +369,13 @@ function assignmentTargets(target: ts.Expression): Array<[ts.Identifier, ts.Expr
     }
     return out;
   }
-  // `[a = dflt] = xs` — the element's own default runs when the source has no
-  // value for it, exactly as a pattern default does in a declaration.
-  if (ts.isBinaryExpression(t) && t.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-    for (const [id, defaults] of assignmentTargets(t.left)) out.push([id, [...defaults, t.right]]);
-  }
+  // `[a = dflt] = xs` needs NO arm here. The element's own default is itself an
+  // assignment expression, and the write pass walks every node, so it records
+  // that write directly on its own visit. An arm for it was written first and
+  // the mutation gate then reported it as a survivor no operator could
+  // distinguish — probed by running both fixture shapes through a mutated copy,
+  // which returned identical verdicts. Deleted rather than ledgered, the same
+  // disposition the QualifiedName rule and the `?? 0` flag fallbacks got.
   return out;
 }
 
@@ -390,17 +392,18 @@ function isDynamicImportInitializer(init: ts.Expression | undefined): boolean {
  * Tested as "not Let and not Const", `using` and `await using` fell through to
  * the `var` arm, hoisted to the whole function, and shadowed reads that sit
  * AFTER their block — losing real provenance, silently (whole-diff R3 #4).
- * `using` carries the Const flag on its own list in some TypeScript versions and
- * a dedicated one in others, so both are named rather than inferred.
+ * Both flags are named rather than inferred from the absence of the other two.
+ * (Written `?? 0` at first, defensively. The pinned TypeScript defines both —
+ * `Using` 4, `AwaitUsing` 6 on 5.9.3 — so the fallback was unreachable, and the
+ * mutation gate reported both as survivors no operator can distinguish from
+ * their absence. Deleted rather than carried as an equivalence argument, the
+ * same disposition the QualifiedName rule got above.)
  */
 function isVarDeclaration(decl: ts.VariableDeclaration): boolean {
   const list = decl.parent;
   if (list === undefined || !ts.isVariableDeclarationList(list)) return false;
   const blockScoped =
-    ts.NodeFlags.Let |
-    ts.NodeFlags.Const |
-    (ts.NodeFlags.Using ?? 0) |
-    (ts.NodeFlags.AwaitUsing ?? 0);
+    ts.NodeFlags.Let | ts.NodeFlags.Const | ts.NodeFlags.Using | ts.NodeFlags.AwaitUsing;
   return (list.flags & blockScoped) === 0;
 }
 
