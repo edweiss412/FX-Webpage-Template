@@ -1999,4 +1999,119 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  /**
+   * The invariant-10 discovery engine, enrolled 2026-08-17 (spec §3.7).
+   *
+   * Two rows rather than one because the arc split the engine in two modules:
+   * `enumerate.ts` decides WHAT is a unit, totality.ts decides what the
+   * residue is. Both suites decide both rows — `enumerate.test.ts` pins the
+   * accept side and totality.test.ts the refusal side, and the two are one
+   * contract (a unit that stops being produced becomes a refusal, which the
+   * OTHER suite is what notices). Listing one suite per row would let exactly
+   * that swap survive.
+   *
+   * Operator subset: the defect class here is "reports units/gaps while the
+   * truth moved" — a dropped statement (a skipped export form), a flipped
+   * predicate (kind checks, directive comparison), a flipped connector (the
+   * per-kind filters). `relational-boundary` and `integer-literal` have almost
+   * no sites (no numeric thresholds beyond the D2 count comparison), and
+   * `regex-quantifier-bound` touches only `SHOUTY`, which is scanBody's
+   * inherited surface rather than discovery's.
+   */
+  {
+    id: "mutationSurfaceEnumerate",
+    sourcePath: "tests/log/mutationSurface/enumerate.ts",
+    suitePaths: [
+      "tests/log/mutationSurface/enumerate.test.ts",
+      "tests/log/mutationSurface/totality.test.ts",
+    ],
+    operators: ["equality-flip", "logical-connector", "statement-removal"],
+    // 0.95, set FROM the measured 162/167 = 0.9701 (2026-08-17). Headroom is
+    // eight survivors, so the floor cannot detect one or two rows migrating
+    // between kinds -- that is EXPECTED_LEDGER_KINDS' job, not this number's.
+    scoreFloor: 0.95,
+    // Blinds the awaited-logAdminOutcome recogniser, so every admin action
+    // classifies as emitting nothing. Verified unique on the current source
+    // (`grep -c -F 'c.text === "logAdminOutcome"'` = 1); the scanBody durability
+    // cases at the head of enumerate.test.ts kill it deterministically.
+    control: {
+      from: 'c.text === "logAdminOutcome"',
+      to: 'c.text === "logAdminOutcomeNEVERMATCHES"',
+    },
+    accepted: [
+      {
+        siteId: "equality-flip:188:50:===>!==",
+        kind: "equivalent",
+        reason:
+          "`moduleDefaultExports` reads `hasExport && hasDefault`, so flipping the ExportKeyword " +
+          "comparison can only matter where `some(=== Export)` and `some(!== Export)` disagree AND " +
+          "a default modifier is present. Disagreement needs either no export modifier (then " +
+          "`default` stands alone, which does not parse) or a modifier list of exactly `[export]` " +
+          "(then there is no default modifier). Both conjuncts cannot hold, so no input distinguishes " +
+          "them. The sibling flip on the DefaultKeyword line IS distinguishable and is killed by the " +
+          "`export async function` negative.",
+      },
+      {
+        siteId: "logical-connector:260:39:||>&&",
+        kind: "equivalent",
+        reason:
+          "The type-alias/interface `continue` is a short-circuit, not a filter. A declaration that " +
+          "reaches the rest of the loop instead of being skipped is matched by neither the " +
+          "FunctionDeclaration arm nor the VariableStatement arm nor the ExportDeclaration branch, " +
+          "so it contributes no binding either way. Removing the skip changes cost, not output.",
+      },
+      {
+        siteId: "logical-connector:380:20:&&>||",
+        kind: "equivalent",
+        reason:
+          "`r && isCheckableFunction(r) ? r : undefined` is guarded a SECOND time downstream: every " +
+          "consumer of a resolved node re-tests it (`collectModuleActions` refuses a non-checkable " +
+          "node; `resolvePatternMember` re-tests its `reduced` against the literal predicates). A " +
+          "non-function leaking past this ternary is filtered before it can become a unit, so the " +
+          "observable unit set and the refusal set are identical. Verified against " +
+          "`const bag = { doIt: 5 }` — refused under both.",
+      },
+      {
+        siteId: "logical-connector:403:16:&&>||",
+        kind: "equivalent",
+        reason:
+          "The array-branch twin of `logical-connector:380:20`, with the same downstream double " +
+          "guard and the same argument.",
+      },
+      {
+        siteId: "logical-connector:401:49:||>&&",
+        kind: "equivalent",
+        reason:
+          "The SECOND disjunct of `!item || isOmitted(item) || isSpread(item)`. Under the flip the " +
+          "guard reads `!item || (isOmitted(item) && isSpread(item))`, and a node cannot be both an " +
+          "omitted expression and a spread element, so the arm is dead — which returns the same " +
+          "`undefined` the downstream `isCheckableFunction` test would produce for either node kind " +
+          "anyway. The `!item` disjunct is untouched and still short-circuits the past-the-end case. " +
+          "The FIRST disjunct IS distinguishable and is killed by the past-the-end fixture.",
+      },
+    ],
+  },
+  {
+    id: "mutationSurfaceTotality",
+    sourcePath: "tests/log/mutationSurface/totality.ts",
+    suitePaths: [
+      "tests/log/mutationSurface/enumerate.test.ts",
+      "tests/log/mutationSurface/totality.test.ts",
+    ],
+    operators: ["equality-flip", "logical-connector", "statement-removal"],
+    // 0.95, set FROM the measured 20/20 = 1.0 (2026-08-17). Headroom is ONE
+    // survivor: this module is new, small, and fully covered, so the first
+    // survivor is a coverage question and the second is a gate failure.
+    scoreFloor: 0.95,
+    // Empties the module-action side of the per-kind reconciliation, so every
+    // "use server" export reads as unresolved. Verified unique on the current
+    // source (`grep -c -F 'u.kind === "module-action"'` = 1); the QUIET negative
+    // halves in totality.test.ts kill it deterministically — which is the point
+    // of having them, since the refusal cases alone would pass under it.
+    control: {
+      from: 'u.kind === "module-action"',
+      to: 'u.kind === "module-actionNEVERMATCHES"',
+    },
+    accepted: [],
+  },
 ];

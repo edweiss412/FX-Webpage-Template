@@ -18,6 +18,22 @@ const gapsFor = (rel: string, src: string): string[] => {
   return discoveryGaps([root], collectSurfaceUnits([root]));
 };
 
+/** A fixture tree of several files, for the cases one file cannot express. */
+function makeTree(files: Record<string, string>): string {
+  const root = mkdtempSync(join(tmpdir(), "totality-tree-"));
+  for (const [rel, contents] of Object.entries(files)) {
+    const full = join(root, rel);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, contents, "utf8");
+  }
+  return root;
+}
+
+const gapsForTree = (files: Record<string, string>): string[] => {
+  const root = makeTree(files);
+  return discoveryGaps([root], collectSurfaceUnits([root]));
+};
+
 describe("discoveryGaps — the fail-closed residue (spec §3.4)", () => {
   test("anonymous JSX action → D2 refusal naming the file and the rewrite (spec §3.6 row 3)", () => {
     const gaps = gapsFor(
@@ -121,5 +137,54 @@ describe("discoveryGaps — the fail-closed residue (spec §3.4)", () => {
 
   test("route files are exempt from the reconciliation (routes are D-neither)", () => {
     expect(gapsFor("app/api/x/route.ts", "export async function POST(){}\n")).toEqual([]);
+  });
+
+  // ── the counting contract, pinned where a plausible edit would move it ────
+
+  test("a REPEATED directive in one prologue counts ONE body, not two", () => {
+    // The prologue scan stops at the first match. Without that stop, a
+    // copy-pasted duplicate directive inflates the count past the units and the
+    // file refuses ITSELF — a false advisory on correct code, which is the one
+    // outcome the consequence bound forbids.
+    expect(
+      gapsFor(
+        "lib/x/dupdir.ts",
+        '"use server";\nexport async function mutate() { "use server"; "use server"; await db.from("t").delete(); }\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("module units credit the D2 ledger ONLY when their own body carries the directive", () => {
+    // Two module actions with NO body directive, plus one anonymous action. The
+    // anonymous body must still refuse: crediting every module unit to the D2
+    // side (or counting non-inline units as inline) would cover it and the
+    // refusal would silently vanish.
+    const gaps = gapsFor(
+      "lib/x/mix.ts",
+      '"use server";\nexport async function outer() { await db.from("t").delete(); }\n' +
+        'export async function host() { register(async () => { "use server"; await db.from("t").delete(); }); }\n',
+    );
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatch(
+      /lib\/x\/mix\.ts: holds 1 function-scoped "use server" bodies but discovery accounted for 0/,
+    );
+  });
+
+  test("vendored and build-output trees are NOT walked (node_modules, .next, .git)", () => {
+    // `walkSourceFiles` itself skips none of these, so the filter here is the
+    // only thing standing between the reconciliation and every dependency in
+    // node_modules — which would refuse by the thousand on code nobody here wrote.
+    expect(
+      gapsForTree({
+        "lib/x/ok3.ts":
+          '"use server";\nexport async function mutate() { await db.from("t").delete(); }\n',
+        "node_modules/pkg/dark.tsx":
+          'export function D() {\n  return <form action={async () => { "use server"; await db.from("t").delete(); }} />;\n}\n',
+        ".next/server/dark.tsx":
+          'export function D() {\n  return <form action={async () => { "use server"; await db.from("t").delete(); }} />;\n}\n',
+        ".git/hooks/dark.tsx":
+          'export function D() {\n  return <form action={async () => { "use server"; await db.from("t").delete(); }} />;\n}\n',
+      }),
+    ).toEqual([]);
   });
 });
