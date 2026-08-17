@@ -121,8 +121,19 @@ describe("the parser harness workflow does not inherit this gate", () => {
       expect(run, "a bare --project mutation run sweeps in the browser gate").not.toMatch(
         /--project mutation\s*$/,
       );
-      expect(run).toMatch(/tests\/mutation\/guardSurfaces\.gate\.test\.ts/);
-      expect(run).toMatch(/mutationHarness/);
+      // Post-sharding a leg names its own explicit subject, which is a parser
+      // harness file OR a source-mutation shard/gates file. NOTE the YAML is
+      // parsed but its `${{ matrix.shard }}` expressions are NOT evaluated, so a
+      // shard leg's run string contains that literal text; match the stable
+      // prefix rather than an interpolated index.
+      //
+      // The invariant that matters is the one above: never a bare
+      // `--project mutation`, which would sweep in the browser gate. Per-leg
+      // realized-target correctness is pinned by
+      // tests/mutation/_metaSourceShardIntegrity.test.ts, not here.
+      expect(run, "a mutation leg must name an explicit nightly subject").toMatch(
+        /tests\/parser\/mutationHarness|tests\/mutation\/guardSurfaces\.(shard|gates)/,
+      );
       expect(run, "the browser gate belongs to its own workflow").not.toMatch(
         /tests\/mutation\/browser/,
       );

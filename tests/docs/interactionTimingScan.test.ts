@@ -111,9 +111,13 @@ describe("form 3 — motion durations", () => {
     expect(kinds("const m = { duration: 2 };")).toEqual(["motion-duration:2"]);
   });
 
-  test("a non-numeric duration is not a timing", () => {
-    expect(kinds('const m = { duration: "fast" };')).toEqual([]);
-    expect(kinds("const m = { duration: token };")).toEqual([]);
+  // CONTRACT FLIPPED by BL-TIMING-SCAN-PROPERTY-TOTALITY. This case used to
+  // assert that a non-numeric `duration` produced NOTHING, which is the false
+  // negative the arc closes: the value is still not inventoriable, but it is
+  // now NAMED so a disposition has to account for it.
+  test("a non-numeric duration is REPORTED, not dropped", () => {
+    expect(kinds('const m = { duration: "fast" };')).toEqual(['unclassified:"fast"']);
+    expect(kinds("const m = { duration: token };")).toEqual(["unclassified:token"]);
   });
 
   test("any timing-named property key, not only `duration`", () => {
@@ -130,7 +134,8 @@ describe("form 3 — motion durations", () => {
     // component — at least as ordinary as the options-object form.
     expect(kinds("const el = <Log ttlMs={17000} />;")).toEqual(["motion-duration:17000"]);
     expect(kinds("const el = <Log notATiming={5} />;")).toEqual([]);
-    expect(kinds("const el = <Log ttlMs={token} />;")).toEqual([]);
+    // Same contract flip: a non-numeric prop value is named, not dropped.
+    expect(kinds("const el = <Log ttlMs={token} />;")).toEqual(["unclassified:token"]);
   });
 
   test("a COMPUTED key is a documented limit, not a site", () => {
@@ -393,5 +398,153 @@ describe("scanRepo over a synthetic tree", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// ── Property totality: a timing-named property whose value is not a literal ──
+//
+// The scanner reported such a property as NOTHING. That is a false negative on
+// the guard's own contract — "classified or named, never silently absent" — and
+// it is the direction that does not announce itself: six live interaction
+// timings sat uninventoried while the suite was green
+// (BL-TIMING-SCAN-PROPERTY-TOTALITY).
+//
+// The key predicate on these NEW paths is boundary-aware, deliberately unlike
+// the bare-suffix `TIMING_NAME` the numeric paths keep. Measured: the bare
+// suffix yields 48 live candidates because ordinary names end in `ms`
+// (`items`, `rooms`, `searchParams`), which would bury the 8 real ones.
+
+describe("form 3 totality — non-literal timing property values", () => {
+  const unclassified = (src: string) =>
+    scan(src)
+      .filter((s) => s.kind === "unclassified")
+      .map((s) => `${s.propertyKey}=${s.name}`);
+
+  test.each([
+    ["a ternary value", `const o = { duration: cond ? 0 : 0.22 };`, "duration=cond ? 0 : 0.22"],
+    ["a call value", `const o = { duration: emblaDuration(reduced) };`, "duration=emblaDuration(reduced)"],
+    ["an identifier value", `const o = { duration: motionDuration };`, "duration=motionDuration"],
+  ])("PropertyAssignment with %s", (_label, src, expected) => {
+    expect(unclassified(src)).toEqual([expected]);
+  });
+
+  test("ShorthandPropertyAssignment — the value IS the identifier", () => {
+    expect(unclassified(`const o = { duration };`)).toEqual(["duration=duration"]);
+  });
+
+  test("JsxAttribute with a non-numeric expression container", () => {
+    expect(unclassified(`const el = <Thing ttlMs={ttl} />;`)).toEqual(["ttlMs=ttl"]);
+  });
+
+  test("an EMPTY JSX expression container yields no site", () => {
+    // Repays a surviving logical-connector mutant on the string-value fallback:
+    // with `||` in place of `&&`, `<Thing ttlMs={} />` falls through to the
+    // fallback, which then hands back the JsxExpression itself and reports the
+    // container text as if it were a value.
+    expect(unclassified(`const el = <Thing ttlMs={} />;`)).toEqual([]);
+  });
+
+  test("a VALUELESS JSX attribute yields no site", () => {
+    // `<Thing ttlMs />` is the boolean-prop spelling: there is no value, so
+    // there is no timing. Whole-diff R1 #5 — this is also the input that
+    // distinguishes the initializer narrowing: with `||` in place of `&&`,
+    // `ts.isJsxExpression(undefined)` is evaluated and THROWS, so the site the
+    // registry called equivalent is a crash on an ordinary prop spelling.
+    expect(unclassified(`const el = <Thing ttlMs />;`)).toEqual([]);
+    expect(scan(`const el = <Thing ttlMs />;`)).toEqual([]);
+  });
+
+  test("JsxAttribute with a string value that does not parse as a number", () => {
+    expect(unclassified(`const el = <Thing ttlMs="soon" />;`)).toEqual(["ttlMs=soon"]);
+  });
+
+  // EVERY accept-set form, not only the spellings the census happens to contain.
+  test.each([
+    ["bare duration", "duration"],
+    ["whole-word timeout", "timeout"],
+    ["camel ttlMs", "ttlMs"],
+    ["snake deadline_ms", "deadline_ms"],
+    ["camel suffix fooTimeout", "fooTimeout"],
+    ["camel suffix retrySeconds", "retrySeconds"],
+    // Repays a surviving integer-literal mutant on the `before` slice: a
+    // leading-underscore key is the one shape where slicing from index 1
+    // instead of 0 loses the boundary character and flips the verdict.
+    ["a bare snake prefix _ms", "_ms"],
+  ])("the boundary predicate ACCEPTS %s", (_label, key) => {
+    expect(unclassified(`const o = { ${key}: someExpr };`)).toEqual([`${key}=someExpr`]);
+  });
+
+  // The boundary is the whole point: these end in `ms` and are not timings.
+  test.each([["items"], ["rooms"], ["searchParams"], ["diagrams"], ["problems"]])(
+    "the boundary predicate REJECTS %s",
+    (key) => {
+      expect(unclassified(`const o = { ${key}: someExpr };`)).toEqual([]);
+    },
+  );
+
+  // Whole-diff R1 #4: the boundary rule was suffix arithmetic, so a timing word
+  // buried inside the FINAL WORD read as no boundary at all. `TIMING_NAME`
+  // accepts `timeoutMilliseconds` and the numeric path inventories it, while
+  // the non-literal path dropped it in silence — the two halves of one property
+  // disagreeing is exactly the totality break this entry exists to close.
+  test.each([
+    ["a unit-suffixed timeout", "timeoutMilliseconds"],
+    ["the bare unit word", "milliseconds"],
+    ["a snake unit", "retry_milliseconds"],
+    ["the micro unit", "retryMicroseconds"],
+    ["the nano unit", "frameNanoseconds"],
+  ])("the boundary predicate ACCEPTS %s", (_label, key) => {
+    expect(unclassified(`const o = { ${key}: someExpr };`)).toEqual([`${key}=someExpr`]);
+  });
+
+  // The units are a NAMED, closed family — sub-second only. `min` and `sec` are
+  // left out because they are `minimum` and `section` at least as often as they
+  // are time, and a flooded report is not read.
+  test.each([["colMin"], ["widthMinimum"], ["pageSections"], ["totalItems"]])(
+    "the unit family does not widen to %s",
+    (key) => {
+      expect(unclassified(`const o = { ${key}: someExpr };`)).toEqual([]);
+    },
+  );
+
+  test("a SINGULAR unit spelling is dropped by BOTH halves, so totality holds", () => {
+    // The accept-set carries no singular unit, and that is not an omission: the
+    // boundary predicate is only consulted for a key `TIMING_NAME` already
+    // accepted, and `oneMillisecond` does not end in `seconds`. Listing it
+    // would be an accept-set entry no input can reach. What totality requires
+    // is that the two halves AGREE, which this pins in both directions.
+    expect(scan(`const o = { oneMillisecond: 250 };`)).toEqual([]);
+    expect(unclassified(`const o = { oneMillisecond: someExpr };`)).toEqual([]);
+  });
+
+  test("every key the numeric path inventories reaches the non-literal path too", () => {
+    // The class, stated as a property rather than a list: for each accepted key
+    // form, the SAME key must be visible whether its value is a literal or not.
+    // A predicate that widens on one side only re-opens the silent drop.
+    const keys = ["duration", "ttlMs", "deadline_ms", "fooTimeout", "timeoutMilliseconds"];
+    const numeric = keys.filter((k) => scan(`const o = { ${k}: 250 };`).length > 0);
+    const nonLiteral = keys.filter((k) => unclassified(`const o = { ${k}: someExpr };`).length > 0);
+    expect(nonLiteral).toEqual(numeric);
+  });
+
+  test("a numeric-literal property is UNCHANGED — still motion-duration", () => {
+    expect(kinds(`const o = { duration: 0.22 };`)).toEqual(["motion-duration:0.22"]);
+    expect(scan(`const o = { duration: 0.22 };`).map((s) => s.kind)).not.toContain("unclassified");
+  });
+
+  test("the reported name is whitespace-collapsed and truncated like a delay", () => {
+    const long = "someVeryLongCallExpression(" + "argument, ".repeat(12) + "last)";
+    const [site] = scan(`const o = {\n  duration:\n    ${long}\n};`).filter(
+      (s) => s.kind === "unclassified",
+    );
+    expect(site?.name?.length).toBeLessThanOrEqual(60);
+    expect(site?.name).not.toMatch(/\n/);
+  });
+
+  test("an unclassified site carries no numeric value, so no §5.5 row can represent it", () => {
+    const [site] = scan(`const o = { duration: cond ? 0 : 0.22 };`).filter(
+      (s) => s.kind === "unclassified",
+    );
+    expect(site?.value).toBeNull();
   });
 });

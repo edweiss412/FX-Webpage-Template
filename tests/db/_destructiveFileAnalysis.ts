@@ -56,6 +56,7 @@ import ts from "typescript";
 import { dirname, resolve } from "node:path";
 
 import { DESTRUCTIVE_STATEMENT_PATTERNS } from "./_destructiveStatements";
+import { POSTGRES_EXECUTION_CORE } from "./__generated__/postgresExecutionMethods";
 
 export type DestructiveFileVerdict = { ok: true } | { ok: false; reason: string };
 
@@ -534,13 +535,36 @@ export function analyseDestructiveFile(
 // until diff review R6 probed `await remote.file("./destructive.sql")` on an unchecked
 // client to ok:true on a DISCOVERED file -- postgres.js reads that path and submits its
 // contents as a query, so it executes caller-supplied SQL as directly as `unsafe` does.
+// That omission is why the query-submitting half is no longer hand-typed: it is DERIVED
+// from the installed driver's own type declarations into the committed generated module
+// imported above, so an upgrade that adds such a method lands as a visible diff rather
+// than a silent guard gap (spec 2026-08-16-execution-methods-driver-derived-design.md).
 //
 // `json` and `array` return a Parameter rather than a query and stay OUT deliberately:
 // they collide with Response and Object members that real destructive files call on
 // non-clients, which is why this set is closed by return type rather than by name.
-const EXECUTION_METHODS = new Set(
-  "unsafe file begin end reserve savepoint listen notify subscribe cursor".split(" "),
-);
+
+/** Client-capability members the derivation deliberately does not produce (spec
+ *  2026-08-16-execution-methods-driver-derived-design.md §2.3): each hands out or
+ *  manages client capability rather than returning a pending query. Cited to the
+ *  postgres 3.4.9 driver types: begin (line 717) and savepoint (line 724) hand a
+ *  TransactionSql to a callback; end (line 709) and reserve (line 720) are session
+ *  lifecycle; subscribe (line 713) opens a replication subscription; cursor
+ *  (line 617) is the result-iteration member, kept for shipped behavior. */
+const CLIENT_CAPABILITY_METHODS = [
+  "begin",
+  "end",
+  "reserve",
+  "savepoint",
+  "subscribe",
+  "cursor",
+] as const;
+
+/** Exported for the composition pin in executionMethodsManifest.test.ts only. */
+export const EXECUTION_METHODS = new Set<string>([
+  ...POSTGRES_EXECUTION_CORE,
+  ...CLIENT_CAPABILITY_METHODS,
+]);
 
 function checkConnection(
   sf: ts.SourceFile,
