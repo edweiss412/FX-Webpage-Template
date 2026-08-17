@@ -35,6 +35,7 @@ import {
   classify,
   classifyGh,
   mintNonce,
+  newestVerdictTie,
   planSends,
   positionFor,
   refuse,
@@ -153,6 +154,13 @@ export function rejectedFieldOf(opts: {
   status: string;
   tenths: number | null;
   marker: Record<string, unknown> | null;
+  /**
+   * Two or more corpus verdict rows tie for newest, so "the newest verdict" has
+   * no answer. Spec §3.5 and the §9 table both require UNDETERMINED; without it
+   * the winner was whichever row was read first, and position feeds the band, so
+   * the arbitrary pick chose between holding a pane and compacting it.
+   */
+  corpusTie?: boolean;
 }): string | null {
   if (!STATUSES.has(opts.status)) return `agent_status=${opts.status}`;
   if (opts.tenths === null) return "ctx gauge";
@@ -160,6 +168,7 @@ export function rejectedFieldOf(opts: {
   // BEFORE the key walk, because the sentinel's own key would otherwise be
   // reported as though the file had named it.
   if (opts.marker === MALFORMED_MARKER) return "marker (unparseable JSON)";
+  if (opts.corpusTie === true) return "corpus.endedAt (tie for newest verdict)";
   if (opts.marker !== null) {
     for (const key of Object.keys(opts.marker)) {
       if (!MARKER_FIELDS.has(key)) return `marker.${key}`;
@@ -245,7 +254,16 @@ function observe(
 ): PaneReport {
   const marker = s.marker(pane.cwd);
   const tenths = parseGauge(s.screen(pane.paneId));
-  const rejectedField = rejectedFieldOf({ status: pane.status, tenths, marker });
+  // Read ONCE and reused below: `cache.corpus` memoizes per branch, but taking
+  // the value here keeps the tie check and the position inference provably over
+  // the same rows.
+  const corpusRows = pane.agentName === null ? [] : cache.corpus(pane.agentName);
+  const rejectedField = rejectedFieldOf({
+    status: pane.status,
+    tenths,
+    marker,
+    corpusTie: newestVerdictTie(corpusRows),
+  });
 
   const ghRun = cache.gh(pane.cwd);
   const ghOutcome = classifyGh(ghRun);
@@ -255,7 +273,7 @@ function observe(
     clean: git.clean,
     lastCommitAt: git.lastCommitAt,
     pr: prFrom(ghRun),
-    corpus: pane.agentName === null ? [] : cache.corpus(pane.agentName),
+    corpus: corpusRows,
   });
 
   const ownership = resolveOwnership(pane.paneId, pane.agentName, cache.purview, asSessionId ?? "");

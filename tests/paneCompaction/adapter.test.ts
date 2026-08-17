@@ -463,6 +463,25 @@ describe("every refusal NAMES its reason", () => {
 });
 
 describe("the three commands", () => {
+  it("a corpus tie for newest verdict is UNDETERMINED, and is not driven", () => {
+    // Diff round 1, finding 6 (P1). Spec §3.5 and the §9 table both say a tie
+    // yields UNDETERMINED; nothing implemented it, so the winner was whichever
+    // row was read first. Position feeds the band, so that arbitrary pick chose
+    // between row 4 (triage pending, High) and row 6 (verdict recorded, Low) --
+    // between holding a pane and compacting it.
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface } = fakeSurface({
+      corpus: () => [
+        { status: "verdict", verdict: "APPROVE", endedAt: "2026-01-01T00:00:00Z" },
+        { status: "verdict", verdict: "NEEDS-ATTENTION", endedAt: "2026-01-01T00:00:00Z" },
+      ],
+      send: (target, text) => sent.push({ target, text }),
+    });
+    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
   it("AC-4: exit-zero gh with an unparseable table is UNDETERMINED, and is not driven", () => {
     // Diff round 1, finding 2 (P0), end to end. The reviewer's probe was exactly
     // this: `exitCode:0, stdout:"{"` exited 0 and SENT both checkpoint bytes.

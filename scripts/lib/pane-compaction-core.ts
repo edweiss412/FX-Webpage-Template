@@ -285,6 +285,41 @@ export type Position = { row: number; cost: PositionCost };
  * flips row 4 (triage pending, High) to row 6 (verdict recorded, Low) and
  * promotes the pane toward COMPACT.
  */
+/**
+ * Whether two or more verdict rows tie for newest.
+ *
+ * Spec §3.5 and the §9 table both say a tie yields `UNDETERMINED`, and nothing
+ * implemented it: `newestVerdictRow` silently kept whichever row it saw first,
+ * so the answer depended on file-read order. Diff round 1, finding 6, probed
+ * that directly -- same-time `APPROVE` and `NEEDS-ATTENTION` rows returned
+ * `APPROVE`, and reversing the two rows changed the inferred position.
+ *
+ * Position feeds the band, so an arbitrary winner here is not cosmetic: it picks
+ * between row 4 (triage pending, High) and row 6 (verdict recorded, Low), which
+ * is the difference between holding a pane and compacting it.
+ *
+ * Separate from `newestVerdictRow` rather than folded into its return type: the
+ * selection is still well defined and worth reading on its own, and callers that
+ * only want the newest row should not have to destructure a tie they do not care
+ * about.
+ */
+export function newestVerdictTie(rows: CorpusRow[]): boolean {
+  let bestAt = Number.NEGATIVE_INFINITY;
+  let count = 0;
+  for (const row of rows) {
+    if (row.status !== "verdict") continue;
+    const at = row.endedAt === null ? Number.NaN : Date.parse(row.endedAt);
+    if (Number.isNaN(at)) continue;
+    if (at > bestAt) {
+      bestAt = at;
+      count = 1;
+    } else if (at === bestAt) {
+      count += 1;
+    }
+  }
+  return count > 1;
+}
+
 export function newestVerdictRow(rows: CorpusRow[]): CorpusRow | null {
   let best: CorpusRow | null = null;
   let bestAt = Number.NEGATIVE_INFINITY;

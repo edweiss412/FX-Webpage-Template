@@ -11,6 +11,7 @@ import {
   classifyGh,
   mintNonce,
   newestVerdictRow,
+  newestVerdictTie,
   positionFor,
   renderRow,
 } from "@/scripts/lib/pane-compaction-core";
@@ -124,10 +125,50 @@ describe("newestVerdictRow keeps the true maximum", () => {
   // Kills relational-boundary 274:12 (`>` -> `>=`). On equal timestamps `>`
   // keeps the FIRST and `>=` keeps the last; identity (toBe) is what
   // discriminates, since the two rows compare equal by value.
-  it("keeps the first of two rows sharing one timestamp", () => {
+  //
+  // WHAT THIS DOES AND DOES NOT CLAIM. An earlier version of this case asserted
+  // first-wins and described it as the tie behaviour. That was wrong: spec §3.5
+  // and the §9 table both say a tie yields UNDETERMINED, so a test asserting a
+  // WINNER cemented a spec violation while looking like coverage. Diff round 1
+  // finding 6 caught it.
+  //
+  // The tie is now rejected upstream by `newestVerdictTie`, which is what the
+  // spec rule lives in. `newestVerdictRow` remains a "which row" helper, and
+  // first-wins is a DETERMINISM detail of it -- pinned here so the mutant dies,
+  // and explicitly not offered as the answer to "what happens on a tie".
+  it("is deterministic on equal timestamps, keeping the first it saw", () => {
     const first = row("2026-01-01T00:00:00Z", "APPROVE");
     const second = row("2026-01-01T00:00:00Z", "APPROVE");
     expect(newestVerdictRow([first, second])).toBe(first);
+    // The spec rule, asserted next to the detail so the two cannot drift apart.
+    expect(newestVerdictTie([first, second])).toBe(true);
+  });
+
+  it("reports a tie only when the tie is for NEWEST, not for any timestamp", () => {
+    // Two older rows sharing a timestamp under a single strictly-newest row is
+    // NOT a tie: the newest verdict has an unambiguous answer. Without this the
+    // detector could be "any duplicate timestamp" and still pass the case above,
+    // which would refuse panes whose corpus is merely busy.
+    const newest = row("2026-01-03T00:00:00Z");
+    const olderA = row("2026-01-01T00:00:00Z");
+    const olderB = row("2026-01-01T00:00:00Z");
+    expect(newestVerdictTie([newest, olderA, olderB])).toBe(false);
+    expect(newestVerdictRow([newest, olderA, olderB])).toBe(newest);
+  });
+
+  it("ignores non-verdict and unparsable rows when deciding a tie", () => {
+    // A `no_verdict` row carrying a valid `endedAt` is committed in the live
+    // corpus (spec §3.5), so it must not manufacture a tie against the real
+    // verdict and demote the pane to UNDETERMINED.
+    const real = row("2026-01-02T00:00:00Z");
+    const wrapperFailure: CorpusRow = {
+      status: "no_verdict",
+      verdict: null,
+      endedAt: "2026-01-02T00:00:00Z",
+    };
+    const unparsable: CorpusRow = { status: "verdict", verdict: "APPROVE", endedAt: "not-a-date" };
+    expect(newestVerdictTie([real, wrapperFailure, unparsable])).toBe(false);
+    expect(newestVerdictRow([real, wrapperFailure, unparsable])).toBe(real);
   });
 });
 
