@@ -1426,11 +1426,31 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
 
   const out: TestClassification[] = [];
 
+  /**
+   * Name the module a reason was FOUND in (spec §2.6 item 2), once.
+   *
+   * The two shipped rules produce a bare construct name, and the §2.4b rules
+   * produce one that already carries its module. Both must end up spelled the
+   * SAME way, or the test's own construct is reported twice — once by the
+   * own-extent call and once by the traversal — and the de-duplication that
+   * `a reason is reported once` pins cannot see they are the same reason.
+   */
+  const withModule = (reason: string, path: string): string =>
+    reason.includes(" in ") ? reason : `${reason} in ${path}`;
+
   const reaches = (start: ts.Node, home: ModuleFacts, homePath: string): Reach => {
     const seen = new Set<string>();
     const unresolved: string[] = [];
     const visit = (node: ts.Node, f: ModuleFacts, path: string): boolean => {
+      // Provenance stays the FIRST question: a construct reached only through a
+      // helper loses to a provable environment reach, which is what AC-12's
+      // helper branch pins. Moving this would invert that.
       if (extentIsProvenance(node, f)) return true;
+      // The two recognized-unresolvable rules run at EVERY node the traversal
+      // visits, in the facts of the module that node belongs to — a construct
+      // in a helper, a hook body or a producer was never seen before, because
+      // they were evaluated on the test's own call expression alone.
+      for (const reason of unclassifiableWithin(node, f)) unresolved.push(withModule(reason, path));
       for (const reference of referencedIdentifiers(node)) {
         const name = reference.text;
         // Dedup by the BINDING, not the name: two same-named bindings in
@@ -1572,23 +1592,31 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
         const own = reaches(node, facts, abs);
         let verdict = own.verdict;
         const reachReasons = [...own.reasons];
-        if (verdict !== "environment-touching") {
-          for (const h of hooks) {
-            // Hook REASONS are still discarded here; Task 5 is where the hook
-            // call site merges them, and its cases red on exactly that.
-            if (reaches(h, facts, abs).verdict === "environment-touching") {
-              verdict = "environment-touching";
-              break;
-            }
-          }
+        for (const h of hooks) {
+          // Every caller merges reasons (spec §2.6 item 3). The verdict
+          // comparison is unchanged; what was missing is the channel — a
+          // construct inside a hook body or a producer reached no verdict at
+          // all before this loop kept the whole `Reach`.
+          const hookReach = reaches(h, facts, abs);
+          reachReasons.push(...hookReach.reasons);
+          if (verdict !== "environment-touching" && hookReach.verdict === "environment-touching")
+            verdict = "environment-touching";
         }
         // Unclassifiable is scoped to THIS test's extent and outranks
         // environment-touching: "I found something I cannot resolve" is a
         // different instruction to the reader than "this reaches the
         // environment", and collapsing them is what made §3.3.3 and §4
         // disagree at spec R7.
-        const ownUnresolved = unclassifiableWithin(node, facts);
-        if (ownUnresolved.length > 0 || fileReports.length > 0) verdict = "unclassifiable";
+        const ownUnresolved = unclassifiableWithin(node, facts).map((r) => withModule(r, abs));
+        const reasons = [...new Set([...ownUnresolved, ...reachReasons, ...fileReports])];
+        // PRECEDENCE (spec §2.7), and the two directions are not symmetric: a
+        // construct in the test's OWN body outranks a provable environment
+        // reach, while one reached only THROUGH a helper, a hook or a module's
+        // load-time work loses to it. Reporting both as unclassifiable would
+        // demote every test that provably touches the environment and happens
+        // to pass a construct on the way.
+        if (ownUnresolved.length > 0) verdict = "unclassifiable";
+        else if (verdict === "environment-free" && reasons.length > 0) verdict = "unclassifiable";
 
         const text = node.getText(facts.sf);
         const hasPremise = /\bpremise(Holds)?\s*\(/.test(text) || premiseIsAssociated(node, facts);
@@ -1600,7 +1628,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           testName,
           line,
           verdict,
-          detail: [...ownUnresolved, ...reachReasons, ...fileReports].join("; "),
+          detail: reasons.join("; "),
           hasPremise,
           exemption,
         });
@@ -1609,7 +1637,25 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     }
     ts.forEachChild(node, (c) => walk(c, hooks));
   };
-  walk(facts.sf, []);
+  // Vitest applies a TOP-LEVEL hook to every test in the file, and the walk
+  // only ever gathers hooks when it meets a `describe` — so a top-level
+  // `beforeEach` was attached to nothing. Direct statements of the SourceFile
+  // only: a nested hook belongs to its own describe subtree, and seeding it
+  // here would leak it to every sibling.
+  const topLevelHooks: ts.Node[] = [];
+  for (const st of facts.sf.statements) {
+    if (!ts.isExpressionStatement(st)) continue;
+    const call = st.expression;
+    if (!ts.isCallExpression(call)) continue;
+    const callee = call.expression;
+    if (
+      ts.isIdentifier(callee) &&
+      /^(beforeEach|beforeAll|afterEach|afterAll)$/.test(callee.text) &&
+      call.arguments[0]
+    )
+      topLevelHooks.push(call.arguments[0]);
+  }
+  walk(facts.sf, topLevelHooks);
   return out;
 }
 

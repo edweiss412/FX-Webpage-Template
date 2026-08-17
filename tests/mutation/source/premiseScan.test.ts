@@ -2757,3 +2757,313 @@ describe("namespace bindings: member-precise, and nothing else", () => {
     ).toBe("environment-touching");
   });
 });
+
+describe("unclassifiable propagation: a construct anywhere reachable reaches the verdict", () => {
+  // Every reporting case in this block uses `expectReported`, with the module
+  // being the one HOLDING the construct, for the cross-module case that is the
+  // loader module, not the test file. AC-12's precedence branches are the stated
+  // exception: their subject is the lattice, so they assert the verdict alone.
+  it("a module-scope helper holding a non-literal dynamic import reports", () => {
+    expectReported(
+      classification(`const specifier = "./x" + String(1);
+        async function loader(): Promise<unknown> { return await import(specifier); }
+        it("x", async () => { await loader(); });`),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
+  it("a describe-scope helper holding a non-literal dynamic import reports", () => {
+    expectReported(
+      classification(`const specifier = "./x" + String(1);
+        describe("d", () => {
+          async function loader(): Promise<unknown> { return await import(specifier); }
+          it("x", async () => { await loader(); });
+        });`),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
+  it("a module-scope helper holding a computed process access reports", () => {
+    expectReported(
+      classification(`const k = "PATH";
+        function readEnv(): unknown { return (process as never)[k]; }
+        it("x", () => { readEnv(); });`),
+      { construct: REPORTS.computedProcess, module: OWN_FILE },
+    );
+  });
+
+  it("a describe-scope helper holding a computed process access reports", () => {
+    expectReported(
+      classification(`const k = "PATH";
+        describe("d", () => {
+          function readEnv(): unknown { return (process as never)[k]; }
+          it("x", () => { readEnv(); });
+        });`),
+      { construct: REPORTS.computedProcess, module: OWN_FILE },
+    );
+  });
+
+  it("a beforeEach body holding a construct reports (C1)", () => {
+    // The hook path: classifyTests tested the hook reaches() result for one
+    // value only, so every reason reached this way was discarded.
+    expectReported(
+      classification(`const specifier = "./x" + String(1);
+        describe("d", () => {
+          beforeEach(async () => { await import(specifier); });
+          it("x", () => { expect(1).toBe(1); });
+        });`),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
+  it("a beforeAll body holding a construct reports (C2)", () => {
+    // computed PROCESS access, not a dynamic import: unclassifiableWithin emits
+    // the process reason and a dynamicImport expectation could never match.
+    expectReported(
+      classification(`const k = "PATH";
+        describe("d", () => {
+          beforeAll(() => { void (process as never)[k]; });
+          it("x", () => { expect(1).toBe(1); });
+        });`),
+      { construct: REPORTS.computedProcess, module: OWN_FILE },
+    );
+  });
+
+  it("a describe.each producer holding a construct reports (C3)", () => {
+    expectReported(
+      classification(`const specifier = "./x" + String(1);
+        const rows = [1];
+        async function make(): Promise<unknown> { return await import(specifier); }
+        describe.each(rows.map(() => make()))("d", () => {
+          it("x", () => { expect(1).toBe(1); });
+        });`),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
+  it("a TOP-LEVEL hook reaching PROVENANCE classifies touching (AC-12)", () => {
+    // The arc's only PROVENANCE silent free. classifyTests seeds its walk with
+    // an empty hook list and only adds hooks at a `describe`, so a file whose
+    // beforeEach sits at top level has none attached to any test. Probe §3.5
+    // measures this environment-free today; 6 of the 33 enrolled suites are
+    // shaped this way.
+    expect(
+      classificationWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         beforeEach(() => { spawnHelper(); });
+         it("x", () => { expect(1).toBe(1); });`,
+      )?.verdict,
+    ).toBe("environment-touching");
+  });
+
+  it.each(["beforeEach", "beforeAll", "afterEach", "afterAll"])(
+    "a TOP-LEVEL %s holding a construct reports (AC-11)",
+    (hook) => {
+      // AC-11 requires this separately for all four registrars, not just
+      // beforeAll: probe §3.11 row D measures a top-level afterAll free today
+      // exactly as beforeEach is, so a single-registrar block would read as
+      // complete while leaving half the defect live.
+      expectReported(
+        classification(`const specifier = "./x" + String(1);
+          ${hook}(async () => { await import(specifier); });
+          it("x", () => { expect(1).toBe(1); });`),
+        { construct: REPORTS.dynamicImport, module: OWN_FILE },
+      );
+    },
+  );
+
+  it("a TOP-LEVEL hook with a PURE body stays free", () => {
+    // The foil: attaching top-level hooks must not mark every test in every
+    // file that has one: and 6 enrolled suites have one.
+    expect(
+      verdict(`function pure(): number { return 1; }
+        beforeEach(() => { pure(); });
+        it("x", () => { expect(1).toBe(1); });`),
+    ).toBe("environment-free");
+  });
+
+  it.each(["beforeEach", "beforeAll", "afterEach", "afterAll"])(
+    "a TOP-LEVEL %s reaching provenance classifies touching (AC-12)",
+    (hook) => {
+      // Probe §3.11 row D measures a top-level afterAll environment-free today,
+      // exactly as beforeEach is. Pinning only the two before* forms would leave
+      // half the defect live while the block read as complete. The shipped
+      // registrar regex already covers all four (tests/mutation/source/premiseScan.ts:1119).
+      expect(
+        classificationWithModules(
+          {
+            helper: `import { spawnSync } from "node:child_process";
+              export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+          },
+          `import { spawnHelper } from "__MODULE_helper__";
+           ${hook}(() => { spawnHelper(); });
+           it("x", () => { expect(1).toBe(1); });`,
+        )?.verdict,
+      ).toBe("environment-touching");
+    },
+  );
+
+  it("the top-level seed does NOT leak a nested hook to a sibling (AC-12b)", () => {
+    // The criterion AC-11's pure-hook foil cannot catch. hookBodies walks with
+    // ts.forEachChild (tests/mutation/source/premiseScan.ts:1113), so a seed written as one recursive
+    // call over the SourceFile attaches EVERY hook in the file to EVERY test in
+    // it, turning this pure sibling environment-touching. A FALSE POSITIVE,
+    // the direction spec §0 forbids trading into.
+    //
+    // Read by NAME, not by first-classification: verdictWithModules returns the
+    // FIRST test (inA), which is environment-touching before the repair, after
+    // it, AND under the wrong recursive implementation, so a fixture written
+    // that way cannot fail for the reason it claims. inB is the discriminating
+    // assertion and it is only reachable through the full list.
+    //
+    // NOTE the shared outer describe is deliberately ABSENT: with one, the
+    // pre-existing recursive collection in the describe branch already leaks
+    // (probe §3.11 row A, spec §4 limit 14) and inB would be touching before
+    // and after, proving nothing about the seed.
+    const all = classificationsWithModules(
+      {
+        helper: `import { spawnSync } from "node:child_process";
+          export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+      },
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("A", () => {
+         beforeEach(() => { spawnHelper(); });
+         it("inA", () => { expect(1).toBe(1); });
+       });
+       describe("B", () => {
+         it("inB", () => { expect(1).toBe(1); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+  });
+
+  it("AC-12b: a PURE top-level hook beside a spawning nested one", () => {
+    // The second shape AC-12b requires. The top-level hook attaches to BOTH
+    // tests, so if the seed were to carry the nested hook's provenance with it,
+    // inB would flip. Pinning the pure top-level hook separately is what shows
+    // the seed adds the hook without adding the nested one's reach.
+    const all = classificationsWithModules(
+      {
+        helper: `import { spawnSync } from "node:child_process";
+          export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+      },
+      `import { spawnHelper } from "__MODULE_helper__";
+       beforeEach(() => { void 0; });
+       describe("A", () => {
+         beforeEach(() => { spawnHelper(); });
+         it("inA", () => { expect(1).toBe(1); });
+       });
+       describe("B", () => { it("inB", () => { expect(1).toBe(1); }); });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+  });
+
+  it("AC-12b: the SHARED-OUTER leak is pinned at its CURRENT value", () => {
+    // Spec §4 limit 14 and AC-12b: under a shared outer describe, hookBodies'
+    // recursion ALREADY leaks branch A's hook to sibling B, and this arc does
+    // not fix it (repairing it moves live verdicts and breaks AC-1). Asserting
+    // the leaked value pins "this arc did not WIDEN it", without this case a
+    // seed change could deepen the leak with nothing going red.
+    const all = classificationsWithModules(
+      {
+        helper: `import { spawnSync } from "node:child_process";
+          export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+      },
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe("A", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("inA", () => { expect(1).toBe(1); });
+         });
+         describe("B", () => { it("inB", () => { expect(1).toBe(1); }); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    // The documented pre-existing FALSE POSITIVE, asserted as-is (probe §3.11 row A).
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-touching");
+  });
+
+  it("a hook reaching PROVENANCE still classifies touching (C6 foil)", () => {
+    // The foil for the three hook cases: the hook path already carried
+    // provenance correctly, so what the repair adds is the reason channel and
+    // nothing else. If this regresses, the merge broke the hook loop.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         describe("d", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("x", () => { expect(1).toBe(1); });
+         });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a CROSS-MODULE helper holding a construct reports, naming that module", () => {
+    const modules = {
+      loader: `const specifier = "./x" + String(1);
+        export async function load(): Promise<unknown> { return await import(specifier); }`,
+    };
+    const src = `import { load } from "__MODULE_loader__";
+      it("x", async () => { await load(); });`;
+    expectReported(classificationWithModules(modules, src), {
+      construct: REPORTS.dynamicImport,
+      module: /mod\d+_loader/,
+      notModule: /case\d+-user/,
+    });
+    expect(classificationWithModules(modules, src)?.detail ?? "").toMatch(/loader/);
+  });
+
+  it("a helper WITHOUT the construct stays free", () => {
+    // The foil: propagation must not report every reachable helper.
+    //
+    // It must contain NO import at all. A round-1 draft used
+    // `return await import("./x")`, which after Task 3 is BOTH an embedded
+    // dynamic import and an unresolved in-repo specifier, so §2.4b reports it
+    // and the foil asserts a value no later task may restore.
+    expect(
+      verdict(`function loader(): number { return 1; }
+        it("x", () => { loader(); });`),
+    ).toBe("environment-free");
+  });
+
+  it("a construct in the test's OWN body outranks a provable environment reach", () => {
+    // AC-12, branch one: shipped precedence, unchanged (spec §2.7).
+    expectReported(
+      classification(`import { spawnSync } from "node:child_process";
+        const specifier = "./x" + String(1);
+        it("x", async () => { spawnSync("git", []); await import(specifier); });`),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
+  it("a construct reached only through a HELPER loses to a provable environment reach", () => {
+    // AC-12, branch two: the asymmetry §2.7 states and §4 limit 7 files.
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        const specifier = "./x" + String(1);
+        async function loader(): Promise<unknown> { return await import(specifier); }
+        it("x", async () => { spawnSync("git", []); await loader(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a reason is reported once, not twice", () => {
+    // The test's own extent is also visited by the traversal, so both paths see
+    // a construct in the test body; `detail` must not repeat it.
+    const c = classificationWithModules(
+      {},
+      `const specifier = "./x" + String(1);
+       it("x", async () => { await import(specifier); });`,
+    );
+    expect((c?.detail ?? "").match(/non-literal specifier/g) ?? []).toHaveLength(1);
+  });
+});
