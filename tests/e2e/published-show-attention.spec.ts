@@ -21,6 +21,7 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { openShowReviewModal } from "./helpers/openShowReviewModal";
 
 const BASE = "published-show-review";
 const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
@@ -68,8 +69,7 @@ async function seedAlert(code: string, context: Record<string, unknown>): Promis
 
 async function openModal(page: Page) {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto(`/admin?show=${show.slug}`);
-  await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+  await openShowReviewModal(page, show.slug, { timeoutMs: 30_000 });
 }
 
 test.describe.configure({ mode: "serial" });

@@ -41,6 +41,11 @@ import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
+import {
+  awaitReviewModalOrRecover,
+  openShowReviewModal,
+  openShowReviewModalAt,
+} from "./helpers/openShowReviewModal";
 
 const TOL = 0.5;
 
@@ -100,9 +105,10 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     // geometry/interaction state is final as soon as the modal streams in.
     await page.emulateMedia({ reducedMotion: opts.reducedMotion ?? "reduce" });
     await page.setViewportSize(viewport);
-    await page.goto(opts.url ?? `/admin?show=${show.slug}`);
     // Suspense-streamed server loader — allow a dev-server compile on first hit.
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await openShowReviewModalAt(page, opts.url ?? `/admin?show=${show.slug}`, {
+      timeoutMs: 30_000,
+    });
     // The skeleton twin is gone once the swap commits — from here every
     // shell-testid locator (grab/close/backdrop) resolves uniquely.
     await expect(page.locator(MODAL_ANY)).toHaveCount(1);
@@ -259,7 +265,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
         timeout: 10_000,
       })
       .toBe(show.slug);
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await awaitReviewModalOrRecover(page, { timeoutMs: 30_000, label: "keyboard-enter:row" });
     await expect(page.locator(MODAL_ANY)).toHaveCount(1);
 
     // Close via Esc (URL-driven unmount) — focus must return to the trigger,
@@ -353,7 +359,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     await waitForRowHydration(page, show.slug);
 
     await trigger.click();
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await awaitReviewModalOrRecover(page, { timeoutMs: 30_000, label: "click:row-trigger" });
     // Client copy handed off — exactly one frame once the loaded modal is up.
     await expect(page.locator(MODAL_ANY)).toHaveCount(1);
 
@@ -386,8 +392,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     await page.goto("/admin");
     await expect(page.locator(MODAL_ANY)).toHaveCount(0);
 
-    await page.goto(`/admin?show=${show.slug}`);
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await openShowReviewModal(page, show.slug, { timeoutMs: 30_000 });
 
     await page.goBack();
     await expect(page.locator(MODAL_ANY)).toHaveCount(0, { timeout: 10_000 });
@@ -525,6 +530,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     );
 
     release();
+    await awaitReviewModalOrRecover(page, { timeoutMs: 15_000, label: "gated-open:sheet" });
     const loadedPanel = page.locator(`${MODAL} ${PANEL}`);
     await loadedPanel.waitFor({ state: "visible", timeout: 15_000 });
     for (const [sel, label] of [
@@ -546,6 +552,7 @@ test.describe("published review modal — interactions (spec §3/§5/§6.5)", ()
     expect(popupAnim, "skeleton ≥sm entrance is the pop-in keyframe").toBe("step3-details-pop-in");
 
     release();
+    await awaitReviewModalOrRecover(page, { timeoutMs: 15_000, label: "gated-open:popup" });
     const loadedPanel = page.locator(`${MODAL} ${PANEL}`);
     await loadedPanel.waitFor({ state: "visible", timeout: 15_000 });
     const anim = await loadedPanel.evaluate((el) => getComputedStyle(el).animationName);
