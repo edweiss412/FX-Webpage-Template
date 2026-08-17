@@ -3957,3 +3957,60 @@ describe("whole-diff R1 #3b — statements RUN, declarations BIND", () => {
     ).toBe("environment-free");
   });
 });
+
+describe("whole-diff R1 #5b — the unreferenced rule is about the BINDING, not its position", () => {
+  // The first repair of R1 #5 collected modelled dynamic declarations only at
+  // MODULE-LOAD position, because that is where `modelledDynamic` is seeded.
+  // The same binding inside a helper the test calls, or inside an IIFE, is the
+  // same unfollowed edge with the same silently-free consequence.
+  const HELPER = `import "./side-effects-here";
+    import { spawnSync } from "node:child_process";
+    export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`;
+  const OWN = { construct: REPORTS.dynamicImport, module: OWN_FILE };
+
+  it("CONTROL: the same shape at MODULE-LOAD position reports", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const ns = await import("__MODULE_helper__");
+         it("x", () => {});`,
+      ),
+      OWN,
+    );
+  });
+
+  it("inside a helper the test calls", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `async function load(): Promise<void> { const ns = await import("__MODULE_helper__"); }
+         it("x", async () => { await load(); });`,
+      ),
+      OWN,
+    );
+  });
+
+  it("inside an IIFE at module load", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `void (async () => { const ns = await import("__MODULE_helper__"); })();
+         it("x", () => {});`,
+      ),
+      OWN,
+    );
+  });
+
+  it("the foil: the same helper binding IS referenced, so the edge is followed", () => {
+    expect(
+      verdictWithModules(
+        { helper: HELPER },
+        `async function load(): Promise<string> {
+           const ns = await import("__MODULE_helper__");
+           return ns.spawnHelper();
+         }
+         it("x", async () => { await load(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+});

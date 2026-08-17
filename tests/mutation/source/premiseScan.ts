@@ -972,11 +972,11 @@ function moduleFacts(path: string): ModuleFacts | null {
   const moduleReports: string[] = [];
   /** Dynamic imports in a MODELLED position, decided after the walk: the shape
    * is modelled only while the binding stays module-local. */
-  const modelledDynamic: Array<{
-    spec: string;
-    decl: ts.VariableDeclaration;
-    names: string[];
-  }> = [];
+  type DynamicBinding = { spec: string; decl: ts.VariableDeclaration; names: string[] };
+  /** Modelled dynamic declarations at MODULE-LOAD position — the exported-binding question. */
+  const modelledDynamic: DynamicBinding[] = [];
+  /** Every modelled dynamic declaration, at any position — the unfollowed-edge question. */
+  const boundDynamic: DynamicBinding[] = [];
   /** Writes, resolved in a SECOND pass: a write's target binding cannot be
    * known until every declaration in the file has been registered. */
   const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
@@ -1191,6 +1191,18 @@ function moduleFacts(path: string): ModuleFacts | null {
             : (scopeOf(decl) ?? sf);
           bindPattern(decl.name, arg.text, home);
         }
+        // Whether an edge is FOLLOWED is a question about the binding, not
+        // about where it was written. `modelledDynamic` is seeded at
+        // module-load position only — that is what the EXPORTED-binding report
+        // needs — so collecting the unreferenced question there left the same
+        // unfollowed edge live inside a helper and inside an IIFE.
+        const modelled = isInRepoSpecifier(arg.text) ? modelledDynamicDeclaration(node) : null;
+        if (modelled !== null)
+          boundDynamic.push({
+            spec: arg.text,
+            decl: modelled,
+            names: bindingIdentifiers(modelled.name).map((i) => i.text),
+          });
       }
     }
 
@@ -1373,14 +1385,20 @@ function moduleFacts(path: string): ModuleFacts | null {
     return found;
   };
 
-  for (const { spec, decl, names } of modelledDynamic) {
-    if (names.some((nm) => exportedLocals.has(nm)))
+  const exportedDynamic = new Set<ts.VariableDeclaration>();
+  for (const { spec, decl, names } of modelledDynamic)
+    if (names.some((nm) => exportedLocals.has(nm))) {
+      exportedDynamic.add(decl);
       moduleReports.push(`unbindable dynamic import of ${spec} in ${path}`);
-    else if (!referencedAtRuntime(decl, names))
+    }
+  // Asked over EVERY modelled declaration, at any position: whether an edge is
+  // followed is a question about the binding, not about where it was written.
+  // An exported one is already reported above and is not asked twice.
+  for (const { spec, decl, names } of boundDynamic)
+    if (!exportedDynamic.has(decl) && !referencedAtRuntime(decl, names))
       moduleReports.push(
         `unfollowed dynamic import of ${spec}, bound but never referenced, in ${path}`,
       );
-  }
 
   return {
     sf,
