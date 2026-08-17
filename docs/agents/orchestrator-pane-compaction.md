@@ -198,6 +198,13 @@ of unresolved-looking faults on every run and train you to ignore the column.
 `UNDETERMINED` means safety could not be established. It is never an all-clear, and `--check`
 returns 2 for it, outranking the 1 that means "something is ready to compact".
 
+**If a whole roster comes back `UNDETERMINED`, check herdr before suspecting the classifier.** Rule
+5 compares a marker's `sessionId` against the pane's own live `agent_session.value`, and it counts a
+present marker session against an absent live one as a mismatch. Measured 2026-08-16: 0 of 11 agents
+reported an `agent_session` at all while 36 worktree markers carried a `sessionId`, so every one of
+those panes classifies `UNDETERMINED` and nothing is drivable. That is the safe direction and the
+rule is named in the report, but the cause is a herdr field, not your panes. Spec §7 limit 11.
+
 ## Purview is detected, not enforced
 
 Ownership lives in a per-orchestrator registry outside any worktree — outside, because the
