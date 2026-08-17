@@ -159,6 +159,16 @@ npx vitest run tests/docs/_metaLedgerInProgress.test.ts \
 
 Expected: all PASS. This is the fan-out a round-3 draft ran only three of; the sizing gate rejects an unsized row, referential integrity is what Task 6's full suite needs, and the graduation gate checks active/archive consistency at Task 7.
 
+- [ ] **Step 5b: Typecheck this plan's own test blocks before writing any of them.**
+
+Three consecutive review rounds found defects in the fenced `ts` blocks below that a compiler reports instantly: a duplicate helper definition, 43 calls to a helper a previous edit had renamed away, 13 `expect(x, {…})` calls with no matcher, and classification objects compared to verdict strings. Each was introduced by a scripted edit to this document and caught by a reviewer rather than by its author.
+
+```bash
+npx tsx .claude/probe/planTypecheck.ts docs/superpowers/plans/2026-08-16-premisescan-import-edge-fidelity.md
+```
+
+Expected: `reported=0`, exit 0. The script splices every test-shaped `ts` block into one virtual file ahead of the module surface those blocks assume and reports the diagnostic classes that matter here (`TS2393` duplicate implementation, `TS2304` undefined name, `TS2554` wrong arity, `TS2339`/`TS2551` bad property, `TS2367` impossible comparison, `TS2345` bad argument). **Re-run it after ANY edit to a test block in this plan** — that is the gate the three rounds above were paying for, and copying a block into `premiseScan.test.ts` before it typechecks here just moves the failure.
+
 - [ ] **Step 5: Note the corpus base-sha split.** The merge moves `git merge-base origin/main HEAD`, so rows already written under `docs/review-rounds/fix/premisescan-import-edges/` for the pre-merge base sit beside a second file keyed on the post-merge one. That is intended — round counts are per merge-base — but Task 7 must read BOTH.
 
 ```bash
@@ -293,7 +303,7 @@ function classificationWithModules(
   return classificationsWithModules(modules, testSrc)[0];
 }
 
-function classificationWithModules(modules: Record<string, string>, testSrc: string): string {
+function verdictWithModules(modules: Record<string, string>, testSrc: string): string {
   return classificationWithModules(modules, testSrc)?.verdict ?? "<no test found>";
 }
 
@@ -393,7 +403,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
     }`;
 
   it("a renamed default import resolves", () => {
-    expectReported(
+    expect(
       classificationWithModules(
         { helper: SPAWNER_DEFAULT },
         `import runIt from "__MODULE_helper__";
@@ -608,7 +618,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
   it("a renamed default CLASS resolves (AC-4b)", () => {
     // An E4 branch AC-4's default-FUNCTION fixture never reaches. Probe §3.9
     // measures this environment-free today.
-    expectReported(
+    expect(
       classificationWithModules(
         {
           helper: `import { spawnSync } from "node:child_process";
@@ -687,7 +697,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
   it("an explicit `.jsx` target stays ANALYZED (AC-9b)", () => {
     // Probed environment-touching TODAY. An allowlist omitting .jsx would make
     // this repair introduce the very silent free the arc exists to close.
-    expectReported(
+    expect(
       classificationWithModules(
         {
           "helper.jsx": `import { spawnSync } from "node:child_process";
@@ -773,7 +783,7 @@ Spec §2.2 rows E5 and E6, the `forward` branch Task 1 stubbed, and §2.5.
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
-**Interfaces:** Consumes `resolveExport`, `ExportResolution`, `Reach` and `visited` from Task 1. Produces no new helper.
+**Interfaces:** Consumes `resolveExport`, `ExportResolution` and `Reach` from Task 1. **There is no `visited`** — a round-1 draft named one, and §2.5's structures are `active` (pushed and popped, the cycle test) and `done` (memoization). Produces no new helper.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -1060,7 +1070,7 @@ describe("forwarded exports: a re-export is followed to its source", () => {
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"
 ```
 
-Expected: a non-zero FAILING count. **The red reason differs per case and the plan states which, because a wrong rationale is how a red gets accepted for the wrong cause.** After Task 1, a module's `exports` map records only LOCAL forms — no `ExportDeclaration` carrying a `moduleSpecifier` is recorded at all — so E5 and E6 cases resolve `noSuchExport` and classify **`environment-free`**. Only `import-then-export { x }` reaches Task 1's `forwarded export (not yet followed)` stub and reports `unclassifiable`. The cycle case therefore fails on its VERDICT (it is `environment-free`, not `unclassifiable`), and its `detail` assertion is the second gate that stops the stub reason from being mistaken for cycle detection. Already green, as foils: `does NOT forward default`, the benign miss, the pure re-export, the mixed barrel, and the PURE diamond.
+Expected: a non-zero FAILING count. **The red reason differs per case and the plan states which, because a wrong rationale is how a red gets accepted for the wrong cause.** After Task 1, a module's `exports` map records only LOCAL forms — no `ExportDeclaration` carrying a `moduleSpecifier` is recorded at all — so E5 and E6 cases resolve `noSuchExport` and classify **`environment-free`**. `import-then-export { x }`, its aliased form and its default form also classify **`environment-free`**, not `unclassifiable`: Task 1 records E2's exported name but has no forward branch at all — that branch is this task's Step 0b — so the local name resolves through neither `extents` nor a forward and answers `noSuchExport`, which is pure. A round-3 draft said these reached a `forwarded export (not yet followed)` stub in Task 1; Task 1 creates no such stub, so the rationale named a mechanism that does not exist even though the command still failed. The cycle case therefore fails on its VERDICT (it is `environment-free`, not `unclassifiable`), and its `detail` assertion is the second gate that stops the stub reason from being mistaken for cycle detection. Already green, as foils: `does NOT forward default`, the benign miss, the pure re-export, the mixed barrel, and the PURE diamond.
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`:
 
@@ -1170,7 +1180,7 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
   it("a BARE unresolved specifier stays FREE, L-2 is unchanged", () => {
     // The foil that stops the rule swallowing node_modules. Without it, §2.4b
     // would report every third-party import in the corpus.
-    expectReported(
+    expect(
       verdictWithModules({}, `import { thing } from "some-npm-package";\n it("x", () => { thing(); });`),
     ).toBe("environment-free");
   });
@@ -1272,7 +1282,7 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
     // decides about type-only exports and could not discriminate the rule it is
     // the foil for. This imports the name in a VALUE position, so it genuinely
     // reaches resolveExport and pins that a type-only export resolves pure.
-    expectReported(
+    expect(
       verdictWithModules(
         { helper: `export type Thing = { a: number };\n${SPAWNER}` },
         `import { Thing } from "__MODULE_helper__";
@@ -1288,7 +1298,7 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
         { helper: SPAWNER },
         `import { spawnHelper } from "__MODULE_helper__";
          it("x", () => { spawnHelper(); });`,
-      )?.verdict,
+      ),
     ).toBe("environment-touching");
   });
 });
@@ -1428,7 +1438,7 @@ describe("namespace bindings: member-precise, and nothing else", () => {
   it("a namespace member that is PURE stays free even when a sibling spawns", () => {
     // AC-3, and the regression case for spec §1.1 item 2: a module-closure rule
     // fails here. AC-2's foil; neither may be removed without the other.
-    expectReported(
+    expect(
       classificationWithModules({ helper: MIXED }, `import * as ns from "__MODULE_helper__";
         it("x", () => { ns.pureOne(); });`)?.verdict,
     ).toBe("environment-free");
@@ -1452,7 +1462,8 @@ describe("namespace bindings: member-precise, and nothing else", () => {
     expectReported(
       classificationWithModules({ helper: MIXED }, `import * as ns from "__MODULE_helper__";
         it("x", () => { Object.entries(ns); });`),
-      { construct: REPORTS.nsNonMember, module: /mod\d+_helper/ },
+      // Found in the TEST file; the helper is named too, as the origin.
+      { construct: REPORTS.nsNonMember, module: OWN_FILE },
     );
   });
 
@@ -1460,7 +1471,7 @@ describe("namespace bindings: member-precise, and nothing else", () => {
     expectReported(
       classificationWithModules({ helper: MIXED }, `import * as ns from "__MODULE_helper__";
         it("x", () => { const { pureOne } = ns; pureOne(); });`),
-      { construct: REPORTS.nsNonMember, module: /mod\d+_helper/ },
+      { construct: REPORTS.nsNonMember, module: OWN_FILE },
     );
   });
 
@@ -1470,14 +1481,14 @@ describe("namespace bindings: member-precise, and nothing else", () => {
         const k = "spawner";
         it("x", () => { ns[k as keyof typeof ns]; });`),
       // A NON-literal element access is a namespace used with no statically
-      // known member (spec §2.3), not a dynamic import.
-      { construct: REPORTS.nsNonMember, module: /mod\d+_helper/ },
+      // known member (spec §2.3), not a dynamic import. Found in the TEST file.
+      { construct: REPORTS.nsNonMember, module: OWN_FILE },
     );
   });
 
   it("a namespace import of a PROVENANCE module stays touching whatever the member", () => {
     // AC-13. isProvenanceModule is checked before member resolution.
-    expectReported(
+    expect(
       verdict(`import * as cp from "node:child_process";
         it("x", () => { cp.execSync("git status"); });`),
     ).toBe("environment-touching");
@@ -1508,7 +1519,7 @@ Expected: a non-zero FAILING count. Red: both member cases, the dynamic namespac
   1. Mark the static namespace import: `imports.set(b.name.text, { spec, imported: b.name.text, namespace: true })`.
   2. Mark the dynamic one: in `bindPattern`'s identifier branch, record `{ spec, imported: name.text, namespace: true }`. The destructured branch is unchanged.
   2b. Resolve `export { ns }` over a namespace binding to `{ kind: "unresolvable", reason: `local re-export of a namespace binding (${local})` }` in `resolveExport`'s E2 branch — it exports the namespace OBJECT, not a target export, and forwarding it answers `noSuchExport` and goes silently pure (spec §2.2 E2, probe §3.9, population 0). This lands here rather than in Task 1 because it reads the `namespace` flag set above.
-  3. In `reaches`, for a binding with `namespace === true`: FIRST, if `isProvenanceModule(binding.spec)` return touching — before any member inspection, preserving the shipped ordering. Otherwise inspect the reference's parent: a `PropertyAccessExpression` whose `expression` is this reference resolves the export named `p.name.text`; an `ElementAccessExpression` whose `argumentExpression` is a string literal resolves that export; **anything else pushes** `` `namespace ${name} used in a position with no statically known member, from ${spec}` `` **into `reasons`**.
+  3. In `reaches`, for a binding with `namespace === true`: FIRST, if `isProvenanceModule(binding.spec)` return touching — before any member inspection, preserving the shipped ordering. Otherwise inspect the reference's parent: a `PropertyAccessExpression` whose `expression` is this reference resolves the export named `p.name.text`; an `ElementAccessExpression` whose `argumentExpression` is a string literal resolves that export; **anything else pushes** `` `namespace ${name} (imported from ${spec}) used in a position with no statically known member, in ${foundIn}` `` **into `reasons`**, where `foundIn` is the module the USE was written in — the test file for a use in the test file. Spec §2.6 item 2 keys attribution on where the construct was found, and naming only `${spec}` attributes the construct to the module being visited, which is the wrong file to send a reader to. Both appear because the reader needs the namespace's origin as well.
   4. `extentIsProvenance` needs no edit — the binding keeps `kind: "import"`. **`bindingKey` DOES need one:** for a namespace reference the dedup identity is `(binding, resolved member)`, not `(binding)`. A namespace resolves one binding to many exports, so the shipped member-blind key lets the first-resolved member mark the binding seen and skips every other — a silent `environment-free` whose direction depends on source order (spec §2.3). Every other binding kind keeps the shipped key exactly.
 
 - [ ] **Step 4: Run the tests to verify they pass.**
@@ -1840,7 +1851,7 @@ Expected: a non-zero FAILING count. Red: the four helper-position cases, the thr
 
 - [ ] **Step 3: Implement.** Two changes:
 
-  1. Inside `reaches`'s `visit`, evaluate `unclassifiableWithin(node, f)` on each visited node and push each reason into `reasons`, naming the module the node belongs to (Task 1 Step 5's rule). Task 1 already merges `reasons` at both call sites and de-duplicates before writing `detail`.
+  1. Inside `reaches`'s `visit`, evaluate `unclassifiableWithin(node, f)` on each visited node and push each reason into `reasons`, naming the module the node belongs to (Task 1 Step 5's rule). **And merge the hook loop's reasons here, because nothing else does.** Task 1 changed the hook call site to read `.verdict` only so the file compiles; hook reasons are still discarded at that point, which is exactly what the nested `beforeEach`, nested `beforeAll` and `describe.each` producer cases red on. In `classifyTests`, capture the full `Reach` from each hook and producer call, keep the existing `verdict === "environment-touching"` comparison, and merge `reasons` into the same de-duplicated `detail` the test-extent call site feeds. Without this line those three cases stay `environment-free` and this task's command cannot green.
   2. **Collect the file's TOP-LEVEL hooks and seed the walk with them.** `classifyTests` starts `walk(facts.sf, [])` and only ever adds hooks when it meets a `describe`, so a top-level `beforeEach` is attached to nothing. Gather the hook calls that are direct statements of the `SourceFile` and pass them as the walk's initial `hooks` array. Vitest applies a top-level hook to every test in the file, so this is the correct reading rather than an over-reach — and it is the only change in this arc that repairs a PROVENANCE silent free rather than a reason one.
 
   Leave `classifyTests`'s own-extent `ownUnresolved` call and its precedence exactly as they are — the propagated path is additive and the own-extent path keeps outranking `environment-touching`. Do NOT move the provenance short-circuit in `visit`: that ordering is what makes AC-12's helper branch true.
@@ -2003,7 +2014,7 @@ npx vitest run tests/docs/_metaLedgerInProgress.test.ts
 
 Expected: FAIL — an archive may not hold an entry whose status is IN PROGRESS.
 
-- [ ] **Step 3: Strip the `**Status:** IN PROGRESS · **Branch:** fix/premisescan-import-edges` field**, replacing it with the graduation record: date, PR number, what shipped, and which of spec §4's limits remain open as documented limits rather than defects.
+- [ ] **Step 3: Write the graduation record. Do NOT strip the marker yet** — it comes off in the final commit (see the ordering note at Step 5). Replace only the entry's body with the graduation record: date, PR number, what shipped, and which of spec §4's limits remain open as documented limits rather than defects. The `**Status:** IN PROGRESS · **Branch:** …` field stays until the final commit.
 
 - [ ] **Step 4: Run the ledger and docs gates.**
 
@@ -2023,7 +2034,13 @@ Expected: all PASS. **Read every file in that directory, not one** — Task 0's 
 
 **Sequencing, and the constraint it has to satisfy in both directions.** Two binding rules meet here: the whole-diff review must examine the diff that actually merges (writing-plans), and the IN PROGRESS marker must come off in the PR's last commit so it never reaches `main` (invariant 12). A round-3 draft deferred ALL of Step 5 until after review, which puts the archive move, the new rows and the corpus update outside the reviewed diff — the first rule broken to satisfy the second.
 
-The resolution: **everything with substance lands BEFORE the whole-diff review** — Steps 2-4 (archive move, graduation record, gate runs) and the corpus read, so the reviewer sees the complete merging diff. The final commit after review is **the marker removal alone, and nothing else**: a one-line deletion of a `**Status:** IN PROGRESS · **Branch:** …` field whose entire purpose is to not exist on `main`. That is the only content permitted in it. If the whole-diff review produces repair commits, they land before this one too, and the corpus is re-read after them because the diff-stage rows do not exist when Steps 2-4 first run and a stage may cross `ROUND_THRESHOLD` on the strength of them.
+The resolution, and it has to account for the review's own footprint:
+
+1. **Steps 2-4 land BEFORE the whole-diff review** — archive move, graduation record, gate runs. The reviewer therefore sees every substantive line that will merge.
+2. **Step 3 does NOT remove the marker.** A round-4 draft had it removing the marker there and then claimed the post-review commit was marker-only; both cannot be true. Step 3 writes the graduation record and leaves the marker in place.
+3. Any repair commits from the review land next.
+4. **The final commit is the marker deletion plus the review-corpus rows for that review.** The corpus rows cannot be in the reviewed tree by construction — the wrapper writes them at dispatch time, so the row describing a review always postdates the tree that review examined. That is true of every arc in this repo, not a property of this plan, and AGENTS.md's corpus contract already says the rows are committed with the arc. They are mechanically generated dispatch records, not substantive change; the marker deletion beside them is a one-line field removal whose entire purpose is to not exist on `main`. Nothing else may enter this commit.
+5. Re-read `docs/review-rounds/` before that commit: the diff-stage rows do not exist when Steps 2-4 first run, and a stage may cross `ROUND_THRESHOLD` on the strength of them, which would owe a filing that must itself be in the final commit.
 
 ```bash
 git add BACKLOG.md BACKLOG-archive.md docs/review-rounds/
