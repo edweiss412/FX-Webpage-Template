@@ -222,7 +222,7 @@ Expected: `mismatched=0 anchorFails=0`, exit 0. **It also checks every `red-targ
 
 ```text
 declined export forms: recognized, unresolvable, and REPORTED | touching=1 free=1 reported=4 other=0
-declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=1 reported=13 other=0
+declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=2 reported=14 other=0
 export resolution: the lookup asks for an EXPORT, not a local name | touching=17 free=4 reported=2 other=0
 forwarded exports: a re-export is followed to its source | touching=13 free=5 reported=1 other=0
 namespace bindings: member-precise, and nothing else | touching=8 free=3 reported=4 other=0
@@ -248,10 +248,10 @@ Expected: `mismatched=0 claimFails=0 proseCounts=0`, exit 0. The script splices 
 <!-- plan-redset: measured by .claude/probe/planRun.ts against the merged scanner; DO NOT hand-edit -->
 
 ```text
-executions=103 red=68 green=35
+executions=105 red=69 green=36
 CLAIM titleContains="export resolution" red=10 green=13
 CLAIM titleContains="forwarded exports" red=14 green=5
-CLAIM titleContains="declined export forms" red=17 green=3
+CLAIM titleContains="declined export forms" red=18 green=4
 CLAIM titleContains="namespace bindings" red=9 green=6
 CLAIM titleContains="unclassifiable propagation" red=18 green=8
 CLAIM titleContains="TOP-LEVEL" red=9 green=1
@@ -259,6 +259,7 @@ RED  declined export forms: recognized, unresolvable, and REPORTED `export * as 
 RED  declined export forms: recognized, unresolvable, and REPORTED `export =` reports
 RED  declined export forms: recognized, unresolvable, and REPORTED `export namespace` reports
 RED  declined export forms: recognized, unresolvable, and REPORTED an unfollowable re-export reports, naming the module
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) a MODULE-LOAD dynamic reference REPORTS, though nothing references it
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) a side-effect import inside a REACHED module REPORTS, naming that module
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) a side-effect import on a FORWARDING barrel REPORTS, naming the barrel
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: const ns = await import(); export { ns } (spec §2.2)
@@ -340,7 +341,7 @@ git merge-base origin/main HEAD | cut -c1-12
 
 Spec §2.1, §2.2 rows E1-E4, §2.4, and §2.6 items 1 and 3. The structural task.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:587` why=`:587 is the default-import registration on the MERGED tree (imports.set(clause.name.text, { spec, imported: clause.name.text })). The defect survived the merge - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-4b,AC-5,AC-5d,AC-9,AC-9b,AC-9c,AC-9d -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:587` why=`tests/mutation/source/premiseScan.ts:587 is the default-import registration on the MERGED tree (imports.set(clause.name.text, { spec, imported: clause.name.text })). The defect survived the merge - the default-import branch records the LOCAL name, so the cross-module lookup asks the target for an export named "runIt" when its default export is named "default". Probe row H1 default_renamed measures environment-free today and the new "a renamed default import resolves" case reds on exactly that, greening once the branch records "default" and resolveExport handles E3/E4` ac=AC-4,AC-4b,AC-5,AC-5d,AC-9,AC-9b,AC-9c,AC-9d -->
 
 **Files:**
 
@@ -1371,6 +1372,34 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     );
   });
 
+  it("a MODULE-LOAD dynamic reference REPORTS, though nothing references it", () => {
+    // The seed is not only about clause-less STATIC imports. A reportable
+    // runtime reference in a TOP-LEVEL STATEMENT runs at module load and is
+    // inside no extent, so the walk - which starts at the `it`, its hooks and
+    // its producers - never visits it. Probed: environment-free today, silently.
+    // One ordinary edit from the near-domain case at
+    // tests/auth/requireAdmin.getClaims.test.ts:211, hoisted out of its test.
+    expectReported(
+      classification(`const specifier = "./x" + String(1);
+        void (await import(specifier));
+        it("x", () => { expect(1).toBe(1); });`),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
+  it("the same shape inside an UNCALLED helper does NOT seed", () => {
+    // The foil that stops the seed from becoming "any occurrence anywhere in
+    // the file". A construct inside a function body is reachable only by a
+    // CALL, and nothing calls this one, so the test stays pure. Without this
+    // pair, an implementation that seeds every `import()` in the file passes
+    // the case above while breaking AC-1 on the enrolled domain.
+    expect(
+      verdict(`const specifier = "./x" + String(1);
+        async function unused(): Promise<void> { void (await import(specifier)); }
+        it("x", () => { expect(1).toBe(1); });`),
+    ).toBe("environment-free");
+  });
+
   it("a side-effect import on a FORWARDING barrel REPORTS, naming the barrel", () => {
     // One ordinary edit further: the module carrying the import now FORWARDS
     // rather than declaring, so it is loaded INSIDE resolveExport and the
@@ -1441,7 +1470,7 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
 
 Spec §2.2's declined list and §4 limits 1, 2 and 4. **Scope note:** the canonical "unparseable in-repo module" form is NOT in this task. It is dead code — `moduleFacts` returns null only when `!existsSync`, `resolveSpecifier` already `existsSync`-checked, and `ts.createSourceFile` never throws on garbage (spec §3.8) — so a fixture for it can never go green. Spec §4 limit 8 files it and Task 7 Step 1 opens the row; this task does not attempt it.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export forms"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1001` why=`:1001 is the cross-module lookup on the MERGED tree (moduleScopeExtent(tf, imported.imported)). An unfollowable re-export, an export * as ns from, an export = and an export namespace all resolve to nothing after Task 2 and answer noSuchExport, which is pure, so the traversal stops and each test reads environment-free; probe rows H1 unfollowable reexport and B9 export namespace measure exactly that. Each case reds until moduleFacts records those forms explicitly and resolveExport returns unresolvable with its own reason` ac=AC-8,AC-5c -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export forms"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1001` why=`tests/mutation/source/premiseScan.ts:1001 is the cross-module lookup on the MERGED tree (moduleScopeExtent(tf, imported.imported)). An unfollowable re-export, an export * as ns from, an export = and an export namespace all resolve to nothing after Task 2 and answer noSuchExport, which is pure, so the traversal stops and each test reads environment-free; probe rows H1 unfollowable reexport and B9 export namespace measure exactly that. Each case reds until moduleFacts records those forms explicitly and resolveExport returns unresolvable with its own reason` ac=AC-8,AC-5c -->
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
@@ -1549,9 +1578,9 @@ Expected: a non-zero FAILING count. **This task authors a pair of describe block
 
 - [ ] **Step 3: Implement.** In `moduleFacts`, record the declined forms explicitly so they resolve to `unresolvable` with their own reasons rather than falling through to `noSuchExport`: an `ExportDeclaration` whose clause is a `NamespaceExport` (`export * as ns from`); an `ExportAssignment` with `isExportEquals === true` (`export =`); and a `ModuleDeclaration` carrying an `export` modifier (`export namespace` / `export module`). E1's predicate is already the four registered declaration kinds — Task 1 Step 4.2 writes it that way — so nothing is narrowed here; that is why `export namespace` reaches this task's rule at all rather than resolving to an empty extent.
 
-  **Implement spec §2.4b's rule in this same step**, since Step 1 authored its block: in `reaches`/`moduleFacts`, a literal `import()` whose enclosing node is NOT a direct local variable-declaration initializer — assignment position, embedded in a larger expression, or a bare statement — reports `{ kind: "unresolvable", reason: \`unbindable dynamic import of ${spec}\` }`; an in-repo static `import "./x"` with NO import clause reports likewise — **and this one needs a SEED, not a traversal rule**: the walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited. Collect clause-less in-repo import declarations in `moduleFacts` as a file-level `sideEffectImports: string[]`, and merge them at **BOTH** the places a module enters a classification, because they are two different routes and a draft through round 10 named only the first:
+  **Implement spec §2.4b's rule in this same step**, since Step 1 authored its block: in `reaches`/`moduleFacts`, a literal `import()` whose enclosing node is NOT a direct local variable-declaration initializer — assignment position, embedded in a larger expression, or a bare statement — reports `{ kind: "unresolvable", reason: \`unbindable dynamic import of ${spec}\` }`; an in-repo static `import "./x"` with NO import clause reports likewise — **and the SEED is not only about the static form**: the walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited. Collect clause-less in-repo import declarations in `moduleFacts` as a file-level `sideEffectImports: string[]`, and merge them at **BOTH** the places a module enters a classification, because they are two different routes and a draft through round 10 named only the first:
 
-  - **The test file's own**, merged by `classifyTests` into EVERY test in that file, exactly as a top-level hook applies to every test. The walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited — hence a seed rather than a traversal rule.
+  - **The test file's own**, merged by `classifyTests` into EVERY test in that file, exactly as a top-level hook applies to every test. The walk starts at the `it` call, its hooks and its producers, so nothing in a TOP-LEVEL STATEMENT is ever visited — hence a seed rather than a traversal rule. **The seed covers every §2.4b-reportable reference at module-load position, not just the clause-less `import`**: a bare `await import(specifier)` statement, an assignment-position `import()`, and an embedded one all run at load and sit inside no extent (probed: each measures `environment-free` today, silently). Collect them beside `sideEffectImports` and merge them by the same route. **Position, not occurrence, is the test** — a construct inside a FUNCTION BODY is reachable only by a call, so seeding on mere occurrence would mark a file for an uncalled helper and break AC-1 on the enrolled domain. The foil pair in Step 1 pins both directions.
   - **Every module the traversal LOADS, at the ONE place loading happens.** `factsFor` is the single loader (`tests/mutation/source/premiseScan.ts:960`), and it is reached from TWO callers: `reaches`, for a direct edge, and `resolveExport`, for each hop of a forward chain. Merge at both, and route the second through the `reasons` field Task 1 declares on `ExportResolution` — `reaches` merges `res.reasons` alongside the extent it already consumes. **Merging only in `reaches` is the defect round 13 named**: a barrel that FORWARDS is loaded inside `resolveExport`, so its module-level facts never reach the caller, and a side-effect import sitting on that barrel disappears while the terminal extent stays pure. That is a silent free, one ordinary edit from the fixture below. A side-effect import inside a helper is outside the exported function's extent, so following the edge to that function never passes over it; without this the helper's entry sits in its own `ModuleFacts` and reaches no verdict, and a test importing a pure function from a module that loads a spawning one classifies **silently `environment-free`** — one ordinary edit from the fixture, probed on the merged scanner, and a direct breach of §1's bound. The reason names the module the import was FOUND in (spec §2.6 item 2), not the test file.
 
   Both routes are verdict-neutral on the enrolled domain for the same measured reason: the live population of in-repo static side-effect imports is ZERO (spec §3.13), against 9 in the near domain. A round-2 draft said only "report it in `reaches`/`moduleFacts`", which named no route by which the reason could ever reach a classification; an EXPORTED dynamic binding reports (spec §2.2); and an in-repo specifier that does not resolve reports — **owned HERE, not in Task 1**, whose deferral table assigns it to this task along with the rest of §2.4b. Live-domain population of every row is ZERO (spec §3.13), so `_metaPremiseContract` must stay green with no declared count moving — if one moves, the rule over-reached and the task stops.
@@ -1581,7 +1610,7 @@ git commit -m "fix(mutation): report the export forms the resolver declines to f
 
 Spec §2.3. The task that must not become a module-closure rule.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "namespace bindings"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:589` why=`:589 is the namespace-import registration on the MERGED tree (imports.set(b.name.text, { spec, imported: b.name.text })). The binding is recorded under the LOCAL alias, so resolveExport is asked for an export named after the alias and answers noSuchExport, and the member identifier is not even a reference (isReferenceIdentifier returns false for a property-access name); probe rows H1 namespace member, H1 namespace destructured and DYN-NS all measure environment-free, and every touching case here reds until a namespace-marked import binding resolves ns.member to the export named member` ac=AC-2,AC-2b,AC-2c,AC-3,AC-6,AC-7,AC-13 -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "namespace bindings"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:589` why=`tests/mutation/source/premiseScan.ts:589 is the namespace-import registration on the MERGED tree (imports.set(b.name.text, { spec, imported: b.name.text })). The binding is recorded under the LOCAL alias, so resolveExport is asked for an export named after the alias and answers noSuchExport, and the member identifier is not even a reference (isReferenceIdentifier returns false for a property-access name); probe rows H1 namespace member, H1 namespace destructured and DYN-NS all measure environment-free, and every touching case here reds until a namespace-marked import binding resolves ns.member to the export named member` ac=AC-2,AC-2b,AC-2c,AC-3,AC-6,AC-7,AC-13 -->
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
@@ -1785,7 +1814,7 @@ git commit -m "fix(mutation): resolve namespace imports member-precisely, report
 
 Spec §2.6 items 2-3 and §2.7 — Half 2. Task 1 built the channel; this task fills it.
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "unclassifiable propagation"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1057` why=`:1057 is the single ownUnresolved call on the MERGED tree. unclassifiableWithin is evaluated on exactly one node, the test's own call expression, so a construct in a reachable helper, a hook body or a describe.each producer is never seen; probe rows H2 module_dynamic, describe_dynamic, module_computed, describe_computed, cross-module dynamic and C1-C3 all measure environment-free, and every case here reds until the two rules run at each node the traversal visits` ac=AC-11,AC-12,AC-12b -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts -t "unclassifiable propagation"` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1057` why=`tests/mutation/source/premiseScan.ts:1057 is the single ownUnresolved call on the MERGED tree. unclassifiableWithin is evaluated on exactly one node, the test's own call expression, so a construct in a reachable helper, a hook body or a describe.each producer is never seen; probe rows H2 module_dynamic, describe_dynamic, module_computed, describe_computed, cross-module dynamic and C1-C3 all measure environment-free, and every case here reds until the two rules run at each node the traversal visits` ac=AC-11,AC-12,AC-12b -->
 
 **Files:** Modify `tests/mutation/source/premiseScan.ts`; test `tests/mutation/source/premiseScan.test.ts`.
 
@@ -2117,7 +2146,7 @@ git commit -m "fix(mutation): propagate unresolvable constructs from helpers, ho
 
 ### Task 6: Performance ratio, the retired acceptance, and the mechanical AC-1 gate
 
-<!-- task: red=`pnpm heavy pnpm mutation:guards` red-state=authored red-target=`tests/mutation/source/registry.ts:187` why=`:187 opens the premiseScan row's accepted array - the four line-keyed rows the gate actually reads, landed with #827. The generic accepted: AcceptedSurvivor[] TYPE FIELD near the top of the same file is NOT the anchor: a type declaration can hold no stale row. Its accepted siteIds are LINE-keyed and Tasks 1-5 move every line below their first hunk, so after the repair the ledger holds stale rows. The gate is the ONLY thing that reads them - stale-ledger-row and unaccepted-survivor live in tests/mutation/source/gate.ts and are reached by pnpm mutation:guards, NOT by the registry meta-test, whose validateSurface checks siteId SHAPE only and passes before and after. The same command greens once the surviving rows are re-derived and the falsified one is retired` ac=AC-1,AC-14,AC-15 -->
+<!-- task: red=`pnpm heavy pnpm mutation:guards` red-state=authored red-target=`tests/mutation/source/registry.ts:187` why=`tests/mutation/source/registry.ts:187 opens the premiseScan row's accepted array - the four line-keyed rows the gate actually reads, landed with #827. The generic accepted: AcceptedSurvivor[] TYPE FIELD near the top of the same file is NOT the anchor: a type declaration can hold no stale row. Its accepted siteIds are LINE-keyed and Tasks 1-5 move every line below their first hunk, so after the repair the ledger holds stale rows. The gate is the ONLY thing that reads them - stale-ledger-row and unaccepted-survivor live in tests/mutation/source/gate.ts and are reached by pnpm mutation:guards, NOT by the registry meta-test, whose validateSurface checks siteId SHAPE only and passes before and after. The same command greens once the surviving rows are re-derived and the falsified one is retired` ac=AC-1,AC-14,AC-15 -->
 
 **Files:**
 
@@ -2245,7 +2274,7 @@ git commit -m "test(infra): re-derive the premiseScan ledger and retire the acce
 
 ### Task 7: Graduation — the new limit's row, the ledger, the round corpus
 
-<!-- task: red=`npx vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerInProgress.test.ts:52` why=`:52 is the isArchive predicate the rule rests on (:51 is its doc comment) - an archive holds finished work, so moving BL-PREMISESCAN-IMPORT-EDGE-FIDELITY into BACKLOG-archive.md with its IN PROGRESS marker still attached (Step 2) reds this suite; stripping the marker in the same edit session (Step 3) greens the same command, which is what proves the marker came off before the merge` ac=AC-1 -->
+<!-- task: red=`npx vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerInProgress.test.ts:52` why=`tests/docs/_metaLedgerInProgress.test.ts:52 is the isArchive predicate the rule rests on (:51 is its doc comment) - an archive holds finished work, so moving BL-PREMISESCAN-IMPORT-EDGE-FIDELITY into BACKLOG-archive.md with its IN PROGRESS marker still attached (Step 2) reds this suite; stripping the marker in the same edit session (Step 3) greens the same command, which is what proves the marker came off before the merge` ac=AC-1 -->
 
 **Files:** `BACKLOG.md`, `BACKLOG-archive.md`, `docs/review-rounds/fix/premisescan-import-edges/`.
 
@@ -2334,6 +2363,24 @@ Probed on the merged PR #827: `required count: 12`, then `all required contexts 
 gh pr merge "$PR" --merge --auto
 ```
 
+**`--auto` returns the moment the merge is QUEUED, not when it happens**, so the pipeline must wait and assert rather than proceed. Neither `gh pr view` nor `git rev-list --count` fails on its own: the first exits 0 printing `"state":"OPEN"`, and the second exits 0 printing `27 111`. Both were run against a constructed failing input to confirm it. The wait is therefore explicit:
+
+```bash
+set -o pipefail
+STATE=""
+for _ in $(seq 1 60); do
+  STATE=$(gh pr view "$PR" --json state --jq .state)
+  [ "$STATE" = "MERGED" ] && break
+  if [ "$STATE" = "CLOSED" ]; then echo "PR $PR was CLOSED without merging"; exit 1; fi
+  sleep 60
+done
+if [ "$STATE" != "MERGED" ]; then echo "PR $PR is still $STATE after 60 minutes"; exit 1; fi
+SHA=$(gh pr view "$PR" --json mergeCommit --jq '.mergeCommit.oid // empty')
+if [ -z "$SHA" ]; then echo "MERGED with no merge commit"; exit 1; fi
+echo "merged as $SHA"
+```
+
+
 **`--auto`, not a poll-then-merge loop.** A CI cycle here runs about 50 minutes and `main` lands other arcs faster than that, so a run that waits for green and then merges keeps losing the race to a newer `main`. `--auto` hands the merge to GitHub, which performs it the moment the required contexts pass.
 
 **`source-shards (0)` (`rowScanOpener`) and `source-shards (3)` (`shardBudget`) are RED on `main`** — inherited, not required, and not this arc's to fix. They are absent from the required set above, so the intersection ignores them. Do not debug them and do not re-push to clear them.
@@ -2343,12 +2390,19 @@ gh pr merge "$PR" --merge --auto
 - [ ] **Step 7: Confirm the merge landed and sync the main checkout — the run is complete only at `0  0`.**
 
 ```bash
-gh pr view "$PR" --json state,mergedAt,mergeCommit --jq '{state, mergedAt, sha: .mergeCommit.oid}'
-git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only
-git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main
+set -o pipefail
+MAIN=/Users/ericweiss/FX-Webpage-Template
+git -C "$MAIN" pull --ff-only
+# `0  0` alone only says local matches origin. Assert THIS merge is in main.
+if ! git -C "$MAIN" merge-base --is-ancestor "$SHA" main; then
+  echo "main does not contain $SHA"; exit 1
+fi
+COUNT=$(git -C "$MAIN" rev-list --left-right --count main...origin/main)
+if [ "$COUNT" != "$(printf '0\t0')" ]; then echo "main and origin diverge: $COUNT"; exit 1; fi
+echo "shipped $SHA; main == origin/main"
 ```
 
-Expected: `{"state":"MERGED", …}` with a merge sha, the fast-forward succeeding, and the last command printing `0	0`. Anything else means the pipeline is not finished, whatever the PR page shows. The main checkout is read-only apart from this fast-forward (AGENTS.md invariant 11).
+Expected: the fast-forward succeeds, the ancestry check passes, and the block's last command prints `shipped <sha>; main == origin/main` with exit 0. **Each of the three failure modes exits 1 by itself**, which is the difference between this block and the prose it replaces: `git rev-list --left-right --count` exits 0 on `27  111`, so the comparison — not the command — is the assertion. The main checkout is read-only apart from this fast-forward (AGENTS.md invariant 11).
 
 <!-- tasks: end -->
 
