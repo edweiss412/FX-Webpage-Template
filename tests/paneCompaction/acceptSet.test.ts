@@ -22,6 +22,33 @@ import { premiseHolds } from "@/tests/_shared/premise";
 
 const NO_PR_STDERR = 'no pull requests found for branch "feat/orchestrator-pane-compaction"';
 
+describe("exit zero is not the same as a usable check table", () => {
+  // Diff round 1, finding 2 (P0). `classifyGh` returned `checks` for ANY
+  // exit-zero and left parsing to the surface, whose parse failure returned null
+  // and reached no fault path. So a truncated payload became a benign
+  // observation, `ghFault` stayed false, and a `--checkpoint` probe with
+  // `stdout:"{"` exited 0 having SENT both bytes. AC-4 requires UNDETERMINED for
+  // input outside the accept-set.
+  it("faults on exit-zero stdout that does not parse", () => {
+    const out = classifyGh({ exitCode: 0, stdout: "{", stderr: "" });
+    expect(out.kind).toBe("fault");
+  });
+
+  it("faults on exit-zero stdout that parses but is not a check table", () => {
+    // `gh` answering with an object where the caller expects rows is still an
+    // answer it cannot read. Guessing four flags from it would be invention.
+    const out = classifyGh({ exitCode: 0, stdout: '{"checks":[]}', stderr: "" });
+    expect(out.kind).toBe("fault");
+  });
+
+  it("still accepts a real, empty check table", () => {
+    // The other side, so the fix cannot be "call everything a fault": a PR with
+    // no checks yet is an ordinary answer, not a broken one.
+    const out = classifyGh({ exitCode: 0, stdout: "[]", stderr: "" });
+    expect(out.kind).toBe("checks");
+  });
+});
+
 describe("classifyGh discriminates no-PR from failure", () => {
   it("admits no-pr ONLY on the recognized signature", () => {
     const out = classifyGh({ exitCode: 1, stdout: "", stderr: NO_PR_STDERR });

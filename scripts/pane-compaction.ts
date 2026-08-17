@@ -156,6 +156,10 @@ export function rejectedFieldOf(opts: {
 }): string | null {
   if (!STATUSES.has(opts.status)) return `agent_status=${opts.status}`;
   if (opts.tenths === null) return "ctx gauge";
+  // Identity, not shape: a real marker cannot imitate the sentinel. Checked
+  // BEFORE the key walk, because the sentinel's own key would otherwise be
+  // reported as though the file had named it.
+  if (opts.marker === MALFORMED_MARKER) return "marker (unparseable JSON)";
   if (opts.marker !== null) {
     for (const key of Object.keys(opts.marker)) {
       if (!MARKER_FIELDS.has(key)) return `marker.${key}`;
@@ -605,6 +609,36 @@ function readJson(path: string): unknown {
   }
 }
 
+/**
+ * The marker a pane's worktree holds, with MALFORMED kept distinct from ABSENT.
+ *
+ * Diff round 1, finding 2 (P0). `readJson` returns null for both, and the two
+ * mean opposite things here: an absent marker is a SUPPORTED observation (AC-20
+ * -- it cannot mismatch, so rule 5 no-ops), while a corrupt one is input outside
+ * the §4.3 accept-set and owes UNDETERMINED under AC-4. Collapsing them let a
+ * half-written marker read as "no marker" and drive on.
+ *
+ * A marker being written while we read it is ordinary operation, not forgery:
+ * `--checkpoint` ASKS the target to rewrite this exact file, so this adapter
+ * creates the interleaving itself.
+ *
+ * The sentinel is compared by IDENTITY, so no real marker content can imitate it.
+ */
+export const MALFORMED_MARKER: Record<string, unknown> = Object.freeze({
+  "unparseable JSON": true,
+}) as Record<string, unknown>;
+
+function readMarker(path: string): Record<string, unknown> | null {
+  if (!existsSync(path)) return null;
+  try {
+    const body: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return MALFORMED_MARKER;
+    return body as Record<string, unknown>;
+  } catch {
+    return MALFORMED_MARKER;
+  }
+}
+
 export function realSurface(): Surface {
   return {
     branches: () => {
@@ -677,10 +711,7 @@ export function realSurface(): Surface {
       }
       return files;
     },
-    marker: (cwd) =>
-      cwd === ""
-        ? null
-        : (readJson(join(cwd, ".claude", "ship-state.json")) as Record<string, unknown> | null),
+    marker: (cwd) => (cwd === "" ? null : readMarker(join(cwd, ".claude", "ship-state.json"))),
     // A roster entry can carry no cwd at all — a plain shell pane. Spawning with
     // an empty cwd would either throw or, worse, silently run in the
     // ORCHESTRATOR's directory and report that worktree's git and PR state as

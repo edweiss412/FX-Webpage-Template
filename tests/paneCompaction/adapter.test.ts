@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 
 import { CHECKPOINT_TEXT, RESUME_TEXT, classifyGh } from "@/scripts/lib/pane-compaction-core";
 import {
+  MALFORMED_MARKER,
   type Surface,
   main,
   parseAgentGet,
@@ -462,6 +463,46 @@ describe("every refusal NAMES its reason", () => {
 });
 
 describe("the three commands", () => {
+  it("AC-4: exit-zero gh with an unparseable table is UNDETERMINED, and is not driven", () => {
+    // Diff round 1, finding 2 (P0), end to end. The reviewer's probe was exactly
+    // this: `exitCode:0, stdout:"{"` exited 0 and SENT both checkpoint bytes.
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface } = fakeSurface({
+      gh: () => ({ exitCode: 0, stdout: "{", stderr: "" }),
+      send: (target, text) => sent.push({ target, text }),
+    });
+    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it("AC-4: a marker that is present but corrupt is UNDETERMINED, and is not driven", () => {
+    // The absent-versus-malformed collapse, the half that is not about gh.
+    // `readJson` returned null for both, and absent is a SUPPORTED state
+    // (AC-20), so a half-written marker read as "no marker" and drove on.
+    // `--checkpoint` asks the target to rewrite this very file, so the adapter
+    // creates the interleaving itself.
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface } = fakeSurface({
+      marker: () => MALFORMED_MARKER,
+      send: (target, text) => sent.push({ target, text }),
+    });
+    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it("an ABSENT marker still drives, so the fix did not swallow the supported case", () => {
+    // The discrimination is the point: if malformed and absent both refused, the
+    // bug would read as fixed while the tool stopped working on every pane whose
+    // worktree has no marker yet.
+    const { run: r } = fakeSurface();
+    const out = drive(["--checkpoint", "wM:p1", "--as", "sess-1"], { marker: () => null });
+    expect(out.code).toBe(0);
+    expect(out.sent.length).toBeGreaterThan(0);
+    void r;
+  });
+
   it("AC-16: a labelled pane that resolves to no worktree branch is NOT-AN-ARC", () => {
     // Diff round 1, finding 1 (P0). The adapter took the label's mere EXISTENCE
     // as proof of an arc, so the orchestrator panes -- labelled precisely

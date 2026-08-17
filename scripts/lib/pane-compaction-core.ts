@@ -222,7 +222,28 @@ const NO_PR = /^\s*no pull requests found for branch\b/;
 
 export function classifyGh(run: GhInvocation): GhOutcome {
   if (run.exitCode === 0) {
-    // A zero exit means gh answered; parsing the table belongs to the surface.
+    // A zero exit means gh RAN. It does not mean gh produced a check table.
+    //
+    // This previously returned `checks` on any exit-zero and left parsing "to
+    // the surface" -- and the surface's parse failure returned null, which no
+    // path turned into a fault. So `stdout:"{"` became a benign observation,
+    // `ghFault` stayed false, and a `--checkpoint` probe exited 0 having SENT
+    // both bytes (diff round 1, finding 2). AC-4 requires UNDETERMINED for input
+    // outside the accept-set, and a truncated or non-JSON payload is exactly
+    // that: an interrupted pipe is ordinary operation, not a forged input.
+    //
+    // Validated HERE rather than at the caller because `kind: "checks"` is the
+    // claim "these four flags mean something"; making that claim before the
+    // payload parses is what let absent and malformed collapse into each other.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(run.stdout);
+    } catch {
+      return { kind: "fault", detail: "gh exited 0 with unparseable stdout" };
+    }
+    if (!Array.isArray(parsed)) {
+      return { kind: "fault", detail: "gh exited 0 with a non-array check table" };
+    }
     return { kind: "checks", prOpen: true, allGreen: false, anyFailed: false, anyPending: false };
   }
   const noPr = run.stdout.trim() === "" && NO_PR.test(run.stderr);
