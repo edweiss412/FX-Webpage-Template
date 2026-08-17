@@ -216,7 +216,7 @@ Round 8 found three RED forecasts whose counts the authored blocks do not contai
 npx tsx .claude/probe/planCensus.ts docs/superpowers/plans/2026-08-16-premisescan-import-edge-fidelity.md
 ```
 
-Expected: `mismatched=0 anchorFails=0`, exit 0. **It also checks every `red-target=` anchor**, because rounds 12 and 13 each found a stale one and a third hand sweep is the wrong repair for a second round on one axis: the anchored file and line must exist, and if the marker's `why=` cites a `path:line` of its own, that citation must BE the anchor. A `why=` arguing about the cross-module lookup while its marker points at an unrelated line in `isFunctionLike` is exactly what round 13 found, and it now fails by name. The script counts EXECUTIONS, not `it(` sites — an `it.each` row is an execution, which is precisely the distinction all three round-8 miscounts got wrong — and classifies each by what it expects: `reported` covers both `expectReported(...)` and a bare `.toBe("unclassifiable")`; `other` is a case asserting something else (there is exactly one, `a reason is reported once, not twice`, which asserts a `toHaveLength`).
+Expected: `mismatched=0 anchorFails=0 shellFails=0`, exit 0. **It also checks every bash block for a fail-open guard.** Rounds 15, 16 and 17 were one axis three times — a command block that PRINTS a failure and returns 0, so the next block runs anyway — and three rounds on one axis is the trigger for a check rather than a fourth reading. Per OCCURRENCE, not per block: a failure `echo` must be followed by `exit 1` on its own line or within the two that follow, because a block whose OTHER guard exits is not evidence that this one does. Across 46 bash blocks, `shellFails=0`; removing one `exit 1` reports `plan:<line> SHELL-FAIL-OPEN` by name. **It also checks every `red-target=` anchor**, because rounds 12 and 13 each found a stale one and a third hand sweep is the wrong repair for a second round on one axis: the anchored file and line must exist, and if the marker's `why=` cites a `path:line` of its own, that citation must BE the anchor. A `why=` arguing about the cross-module lookup while its marker points at an unrelated line in `isFunctionLike` is exactly what round 13 found, and it now fails by name. The script counts EXECUTIONS, not `it(` sites — an `it.each` row is an execution, which is precisely the distinction all three round-8 miscounts got wrong — and classifies each by what it expects: `reported` covers both `expectReported(...)` and a bare `.toBe("unclassifiable")`; `other` is a case asserting something else (there is exactly one, `a reason is reported once, not twice`, which asserts a `toHaveLength`).
 
 <!-- plan-census: computed by .claude/probe/planCensus.ts; DO NOT hand-edit -->
 
@@ -2340,13 +2340,23 @@ Expected: the first command lists the commit that ADDED the marker and this comm
 **Every block below re-derives `PR` and `SHA` from the repository.** A fenced block is a fresh shell under the normal agent execution model, so a variable captured in one block is empty in the next — round 16 measured exactly that: `PR=<>`, then `fatal: Not a valid object name`, then a Step 7 that fails on an empty `$SHA` before it can reach the `0  0` it promises. The derivation is one line and it is repeated deliberately.
 
 ```bash
+set -o pipefail
 BRANCH=fix/premisescan-import-edges
-git push -u origin "$BRANCH"
-gh pr create --fill --base main
-gh pr list --head "$BRANCH" --state all --json number,state --jq '.[0]'
+git push -u origin "$BRANCH" || { echo "push failed"; exit 1; }
+# `pr create` fails when a PR already exists, which is fine; what is NOT fine is
+# proceeding to a STALE one, so the identity check below is the real gate.
+gh pr create --fill --base main || echo "pr create declined (an open PR may already exist) — verifying"
+PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+if [ -z "$PR" ]; then echo "no OPEN PR for $BRANCH"; exit 1; fi
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(gh pr view "$PR" --json headRefOid --jq '.headRefOid // empty')
+if [ "$LOCAL" != "$REMOTE" ]; then
+  echo "PR $PR is at $REMOTE but HEAD is $LOCAL — it does not contain the graduation commit"; exit 1
+fi
+echo "PR $PR is at HEAD $LOCAL"
 ```
 
-Expected: a JSON object with the new PR's `number`. `gh pr list --head <branch>` is the derivation used everywhere below — probed against a merged PR of this repository, where it returns `{"number":827,"state":"MERGED"}`, and against a branch with no PR, where it prints nothing and exits 0 (hence the `// empty` guards).
+Expected: `PR <n> is at HEAD <sha>`, exit 0. **Each of the three failure modes exits 1 on its own**, which is what round 17 found missing: a fence returns only its LAST command's status, so a failed push followed by a successful lookup of a STALE open PR exits 0 and merges a PR that never contained this work. The identity check is `headRefOid` against local `HEAD` — probed on PR #827, which reports `{"name":"fix/scanner-scope-totality","oid":"c5518dfab…"}`, a sha that is NOT this worktree's HEAD; run against that branch the block prints `PR 827 is at c5518dfab… but HEAD is 116bf881b…` and **exits 1**, which is the probe of the guard rather than an argument for it. The CI gate was probed the same way: one missing context prints `NOT GREEN yet: quality` and exits 1; a complete set exits 0. `gh pr list --head <branch>` is the derivation used everywhere below — probed against a merged PR of this repository, where it returns `{"number":827,"state":"MERGED"}`, and against a branch with no PR, where it prints nothing and exits 0 (hence the `// empty` guards).
 
 **The required set comes FROM branch protection, never from a list typed into a plan** — a list here goes stale the day a workflow is added, and the count is the thing being asserted:
 
@@ -2360,7 +2370,8 @@ REQ=$(gh api "repos/$REPO/branches/main/protection/required_status_checks" --jq 
 test "$(printf '%s\n' "$REQ" | wc -l | tr -d ' ')" -eq 12 || { echo "required-context COUNT moved; re-read protection before merging"; exit 1; }
 GREEN=$(gh pr view "$PR" --json statusCheckRollup --jq '.statusCheckRollup[] | select(.conclusion=="SUCCESS") | .name' | sort -u)
 MISSING=$(comm -23 <(printf '%s\n' "$REQ") <(printf '%s\n' "$GREEN"))
-if [ -n "$MISSING" ]; then echo "NOT GREEN yet:"; printf '%s\n' "$MISSING"; else echo "all 12 required contexts SUCCESS"; fi
+if [ -n "$MISSING" ]; then echo "NOT GREEN yet:"; printf '%s\n' "$MISSING"; exit 1; fi
+echo "all 12 required contexts SUCCESS"
 ```
 
 Probed on the merged PR #827: `required count: 12`, then `all required contexts SUCCESS`. The twelve are `quality`, `unit-suite`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`, `x6-pg-cron-pivot`, `validation-schema-parity`, `affordance-matrix-parity`, `postgrest-dml-lockdown`, `traceability-audit` — quoted as a measurement date, since the command reads them live.
