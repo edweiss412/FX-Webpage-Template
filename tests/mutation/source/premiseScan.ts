@@ -1597,9 +1597,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
             // A namespace used where no member is statically known resolves to
             // nothing member-precise. Named for the module the USE was written
             // in, and for the namespace's origin, because a reader needs both.
-            unresolved.push(
-              `namespace ${name} (imported from ${imported.spec}) used in a position with no statically known member, in ${path}`,
-            );
+            unresolved.push(nonMemberNamespaceReason(name, imported.spec, path));
             for (const ext of binding.extent) {
               if (visit(ext, f, path)) return true;
             }
@@ -1727,7 +1725,18 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
         // different instruction to the reader than "this reaches the
         // environment", and collapsing them is what made §3.3.3 and §4
         // disagree at spec R7.
-        const ownUnresolved = unclassifiableWithin(node, facts).map((r) => withModule(r, abs));
+        const ownUnresolved = [
+          ...unclassifiableWithin(node, facts).map((r) => withModule(r, abs)),
+          // The traversal runs the memberless-namespace rule itself at every
+          // node it visits — but it asks the provenance question FIRST and
+          // returns at the very first node, so exactly when the test's own
+          // extent is provenance the rule never ran and §2.7's own-body
+          // precedence was decided without it (whole-diff R1 #7). Asked here
+          // only in that case: everywhere else the traversal has already
+          // answered it, and asking twice would promote a namespace whose own
+          // extent the traversal can follow to provenance.
+          ...(extentIsProvenance(node, facts) ? nonMemberNamespacesWithin(node, facts, abs) : []),
+        ];
         const reasons = [...new Set([...ownUnresolved, ...reachReasons, ...fileReports])];
         // PRECEDENCE (spec §2.7), and the two directions are not symmetric: a
         // construct in the test's OWN body outranks a provable environment
@@ -1776,6 +1785,36 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
       topLevelHooks.push(call.arguments[0]);
   }
   walk(facts.sf, topLevelHooks);
+  return out;
+}
+
+/** The one wording for a namespace used where no member is statically known. */
+function nonMemberNamespaceReason(name: string, spec: string, path: string): string {
+  return `namespace ${name} (imported from ${spec}) used in a position with no statically known member, in ${path}`;
+}
+
+/**
+ * Memberless-namespace reasons produced by this node's OWN extent.
+ *
+ * The traversal emits the same reason as it resolves bindings, but it asks the
+ * provenance question FIRST and returns at the very first node, so a test body
+ * that both reaches provenance and uses a memberless namespace never got here
+ * (whole-diff R1 #7). Own-body precedence (spec §2.7) was decided from
+ * `unclassifiableWithin`'s two rules alone and could not see this one.
+ *
+ * Both callers share the wording above so the two sites cannot drift, and both
+ * keep the shipped ordering: a namespace OF a provenance module is touching
+ * whatever the member, so it is not demoted here either.
+ */
+function nonMemberNamespacesWithin(node: ts.Node, facts: ModuleFacts, path: string): string[] {
+  const out: string[] = [];
+  for (const reference of referencedIdentifiers(node)) {
+    const binding = resolveBinding(facts, reference.text, reference);
+    if (binding.kind !== "import" || binding.namespace !== true) continue;
+    if (isProvenanceModule(binding.spec)) continue;
+    if (namespaceMember(reference) !== null) continue;
+    out.push(nonMemberNamespaceReason(reference.text, binding.spec, path));
+  }
   return out;
 }
 

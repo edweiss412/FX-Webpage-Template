@@ -3653,3 +3653,108 @@ describe("whole-diff R1 #5 — a modelled dynamic edge nothing REFERENCES is nev
     ).toBe("environment-free");
   });
 });
+
+describe("whole-diff R1 #7 — own-body precedence covers EVERY own-extent reason", () => {
+  // §2.7 says a construct in the test's OWN body outranks a provable
+  // environment reach. That precedence was decided from `unclassifiableWithin`
+  // alone — two rules — while the memberless-namespace rule lives inside the
+  // traversal, behind the provenance short-circuit that returns at the very
+  // first node. So an own-body namespace use lost to provenance and its reason
+  // disappeared entirely, in both the static and the dynamic spelling.
+  const HELPER = `export function pure(): number { return 1; }
+    export function other(): number { return 2; }`;
+  const NS_REPORTED = { construct: REPORTS.nsNonMember, module: OWN_FILE };
+
+  it("CONTROL: an own-body memberless namespace, with no provenance to lose to", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `import * as ns from "__MODULE_helper__";
+         it("x", () => { String(ns); });`,
+      ),
+      NS_REPORTED,
+    );
+  });
+
+  it("a STATIC own-body memberless namespace outranks a provable reach", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `import { spawnSync } from "node:child_process";
+         import * as ns from "__MODULE_helper__";
+         it("x", () => { spawnSync("git", []); String(ns); });`,
+      ),
+      NS_REPORTED,
+    );
+  });
+
+  it("a DYNAMIC own-body memberless namespace outranks a provable reach", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `import { spawnSync } from "node:child_process";
+         it("x", async () => {
+           const ns = await import("__MODULE_helper__");
+           spawnSync("git", []);
+           String(ns);
+         });`,
+      ),
+      NS_REPORTED,
+    );
+  });
+
+  it("the foil: the same construct reached through a HELPER still loses", () => {
+    // §2.7's asymmetry and AC-12 branch two, unchanged. Without this the repair
+    // could be satisfied by promoting every reason over provenance.
+    expect(
+      verdictWithModules(
+        { helper: HELPER },
+        `import { spawnSync } from "node:child_process";
+         import * as ns from "__MODULE_helper__";
+         function loader(): string { return String(ns); }
+         it("x", () => { spawnSync("git", []); loader(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("the foil: a namespace OF a provenance module is touching, not demoted", () => {
+    // The shipped ordering the file states: provenance is decided before any
+    // member inspection, so `node:child_process` is touching whatever the
+    // member. A repair that asked about members first would demote it.
+    expect(
+      verdictWithModules(
+        {},
+        `import * as cp from "node:child_process";
+         it("x", () => { String(cp); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("the foil: a memberless namespace the traversal CAN follow is not promoted", () => {
+    // The narrowing that makes the repair correct. This rule is asked here ONLY
+    // when the test's own extent is provenance, because that is the one case
+    // the short-circuit loses. Asked unconditionally it also fires on a
+    // memberless namespace whose own extent the traversal follows to
+    // provenance — which is `environment-touching`, and two shipped R3 cases
+    // measure it.
+    expect(
+      verdictWithModules(
+        {},
+        `import { spawnSync } from "node:child_process";
+         let m = await import("node:path");
+         m = spawnSync("git", []) as never;
+         it("x", () => m);`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("the foil: an own-body namespace used WITH a member stays precise", () => {
+    expect(
+      verdictWithModules(
+        { helper: HELPER },
+        `import * as ns from "__MODULE_helper__";
+         it("x", () => { ns.pure(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+});
