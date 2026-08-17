@@ -41,11 +41,18 @@ what the mechanism actually delivers.
 
 **Position selects the moment.** Compacting a pane at `t = 2` destroys live context and buys
 nothing. Compacting one at `t = 9` mid-triage loses the triage. The ordered position list, its
-demote-only rule, and the hard `WAIT` for CI-green-with-PR-unmerged are in the spec. The rule to
-remember is that **inference error may only ever withhold a compaction, never place one badly** —
-unconditionally, at every pressure. Two mechanisms deliver that: where two position rows match, the
-more expensive cost wins; and `FORCE` declines to fire at a High-cost position even at critical
-pressure.
+demote-only rule, and the hard `WAIT` for CI-green-with-PR-unmerged are in the spec. Two mechanisms
+push errors toward withholding: where two position rows match, the more expensive cost wins; and
+`FORCE` declines to fire at a High-cost position even at critical pressure.
+
+What they do **not** buy is a guarantee that inference error can only ever withhold. An earlier
+version of this page said exactly that, unconditionally, two paragraphs after saying position can be
+wrong in both directions — a flat contradiction, and the wrong half won by being the memorable one.
+The demote-only rule breaks ties **between predicates that both match**; it does not constrain a
+predicate that matches wrongly on its own. Spec §7 limit 1 keeps promotion as a stated residual: a
+compaction at a position the orchestrator believed cheaper than it was. That residual is bounded —
+no pane is driven while any rule 1-8 observation says stop — and it is the same class of outcome as
+the auto-compaction this replaces, which is why it is acceptable rather than absent.
 
 The price is explicit rather than hidden: a critically-full pane sitting at a High-cost position is
 left to auto-compact. That is worse than compacting it well and better than compacting it badly,

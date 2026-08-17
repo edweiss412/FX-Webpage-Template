@@ -21,6 +21,7 @@
  * this file is the process entry point.
  */
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -838,7 +839,14 @@ export function realSurface(): Surface {
       return rows;
     },
     now: () => Date.now(),
-    random: () => Math.random().toString(36).slice(2, 12),
+    // 128 bits, as spec §5.2 says twice -- not `Math.random`, which carries at
+    // most ~53 bits of entropy and was being truncated to ten base-36 characters
+    // on top of that (diff round 1, finding 8). The nonce is what proves a
+    // target executed THIS checkpoint rather than a previous one, so its
+    // strength is the whole basis of that proof; shipping a weaker generator
+    // than the spec claims makes the guarantee unverifiable rather than merely
+    // smaller.
+    random: () => randomBytes(16).toString("hex"),
     out: (line) => process.stdout.write(`${line}\n`),
     nonceRead: (sessionId, paneId) => {
       const body = readJson(join(NONCE_DIR, `${sessionId}.json`)) as Record<string, string> | null;
