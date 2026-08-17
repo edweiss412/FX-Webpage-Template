@@ -376,7 +376,7 @@ The rule is right in general — a bare filename in a marker has no anchor conte
 
 ## BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH — the mutation harness bounds a child only while its parent lives
 
-**Status:** OPEN · **Severity:** MEDIUM (it is the PRODUCER of the orphans `BL-HEAVY-ORPHAN-WORKER-LIFETIME` cleans up after; that entry bounds the consequence, this one prevents it) · **Class:** local capacity / process hygiene · **Effort:** M · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, class-sweep of the heavy-orphan spec) · **Reachability: PROBED** — probe P2 below was run on this machine, and the eleven orphans of the 2026-08-16 incident were all children of this harness.
+**Status:** IN PROGRESS · **Branch:** fix/mutation-child-lifetime · **Severity:** MEDIUM (it is the PRODUCER of the orphans `BL-HEAVY-ORPHAN-WORKER-LIFETIME` cleans up after; that entry bounds the consequence, this one prevents it) · **Class:** local capacity / process hygiene · **Effort:** M · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, class-sweep of the heavy-orphan spec) · **Reachability: PROBED** — probe P2 below was run on this machine, and the eleven orphans of the 2026-08-16 incident were all children of this harness.
 
 Every lifetime bound in the mutation harness is enforced BY THE PARENT: the per-mutant ceiling by `spawnSync` (`tests/mutation/source/runner.ts:176`), the group reap by `killProcessGroup` (`tests/mutation/source/runner.ts:199`), and `childRun` has no bound at all (`tests/mutation/source/childRun.ts:18`). So a live parent bounds its child well and a dead parent bounds nothing — which is exactly the shape of the 2026-08-16 incident. Four components, filed as ONE entry because they share a surface, a cause and a repair:
 
