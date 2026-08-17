@@ -179,7 +179,7 @@ describe("candidate contract v2 — the statement unit (BL-MODAL-WAIT-LINE-GRANU
       classifyCandidates(readCandidates, DISPOSITION_RULES).undisposed,
       "the ordinary read-only poll is a declared exclusion, not a question for a human",
     ).toEqual([]);
-    expect(claimsOf(readCandidates[0] as Candidate)).toEqual(["d/evaluate-poll"]);
+    expect(claimsOf(readCandidates[0] as Candidate)).toEqual(["d/in-page-evaluate-read"]);
 
     const activating = twoTreeRoot(
       "poll-click",
@@ -244,7 +244,10 @@ describe("candidate contract v2 — the statement unit (BL-MODAL-WAIT-LINE-GRANU
         [memberRule],
       ),
       "commenting the activation out must RED the member count, not pass quietly",
-    ).toEqual(["fixture/member-row-activation: matches nothing — its class is gone"]);
+    ).toEqual([
+      "fixture/member-row-activation: matches nothing — its class is gone",
+      "fixture/member-row-activation: 0 candidates, rule declares 1",
+    ]);
   });
 
   test("a container statement and the call inside it are discriminated, never ambiguous", () => {
@@ -272,6 +275,69 @@ describe("candidate contract v2 — the statement unit (BL-MODAL-WAIT-LINE-GRANU
     expect(claimsOf(container)).toEqual(["a/test-title"]);
     expect(claimsOf(call)).toEqual(["a/member-helper-call"]);
     expect(classifyCandidates(routeCandidates, DISPOSITION_RULES).ambiguous).toEqual([]);
+  });
+});
+
+describe("candidate contract v2 — attribution boundaries", () => {
+  test("a match at column 0 that STARTS its statement attributes to that statement", () => {
+    // Both boundaries of the producer's own arithmetic, in one fixture drawn one
+    // reformat away from the corpus (which already holds the
+    // `Promise.all([openShowReviewModal(…)])` shape). Column 0 is the low edge
+    // of the match-column test, and a statement whose FIRST character is the
+    // match is the low edge of the node-containment test: read one character too
+    // conservatively and the site is attributed to the enclosing test() call
+    // instead, silently widening every candidate in the file.
+    const root = twoTreeRoot(
+      "col-zero",
+      ['test("x", async ({ page }) => {', 'openShowReviewModal(page, "a");', "});"].join("\n"),
+    );
+    const helperCandidates = enumerateCandidates(root).filter((c) => c.origin === "f-helper-call");
+    expect(helperCandidates).toHaveLength(1);
+    expect(helperCandidates[0]?.line, "its OWN statement, not the enclosing test()").toBe(2);
+    expect(helperCandidates[0]?.matchLine).toBe(2);
+    expect(helperCandidates[0]?.text).toBe('openShowReviewModal(page, "a");');
+  });
+
+  test("an IMPORT of the helper is not an adopted site", () => {
+    // Origin (f) is "this site has ADOPTED", and an import declares the helper
+    // while opening nothing. The property is the call paren the origin pattern
+    // requires, asserted here rather than defended by a second guard that could
+    // never fire.
+    const root = twoTreeRoot(
+      "import-only",
+      [
+        'import { openShowReviewModal } from "./helpers/openShowReviewModal";',
+        "",
+        'test("x", async ({ page }) => {',
+        '  await openShowReviewModal(page, "a");',
+        "});",
+      ].join("\n"),
+    );
+    expect(
+      enumerateCandidates(root)
+        .filter((c) => c.origin === "f-helper-call")
+        .map((c) => c.matchLine),
+    ).toEqual([4]);
+  });
+
+  test("scope resolution ignores an ordinary call that merely takes a string first", () => {
+    // The scope key is `test`/`describe` and their chains, NOT "any call with a
+    // string argument". A local wrapper taking a label plus a callback is
+    // ordinary corpus shape, and treating its label as the scope would silently
+    // re-key every wait nested inside one.
+    const root = twoTreeRoot(
+      "scope-callee",
+      [
+        'test("the real enclosing title", async ({ page }) => {',
+        '  await withLabel("shows-table-row-a", async () => {',
+        '    await page.getByTestId("shows-table-row-b").click();',
+        "  });",
+        "});",
+      ].join("\n"),
+    );
+    rowPrefixIsLive(root);
+    const inner = dCandidates(root).find((c) => c.matchLine === 3);
+    expect(inner?.scopeTitle).toBe("the real enclosing title");
   });
 });
 
@@ -354,6 +420,25 @@ describe("candidate contract v2 — the N-wait registry (BL-MODAL-WAIT-SITE-ASSO
     ]);
     expect(result.unexpected).toEqual([
       'tests/e2e/two-waits.spec.ts :: row click opens the row :: "keyboard-enter:row"',
+    ]);
+  });
+
+  test("a QUOTED label key is reported unextractable, not silently resolved", () => {
+    // Documented limit, asserted rather than assumed: the extractor resolves an
+    // identifier key only. A `{ "label": … }` spelling is one ordinary edit from
+    // the corpus, and the census REFUSES to certify what it cannot identify —
+    // reporting it loudly beats resolving a key shape nobody declared.
+    const observed = observedFor(
+      twoWaitSpec(
+        [
+          ENTER_OPEN,
+          '    await awaitReviewModalOrRecover(page, { "label": "keyboard-enter:row" });',
+        ],
+        [CLICK_OPEN, CLICK_WAIT],
+      ),
+    );
+    expect(reconcileNWaitSites(observed, DECLARED).unextractable).toEqual([
+      "tests/e2e/two-waits.spec.ts:4",
     ]);
   });
 
